@@ -1,8 +1,31 @@
 - Feature Name: Type Inference — GHC Parity Roadmap
 - Start Date: 2026-03-26
+- Status: Mostly complete (5 of 7 phases done)
+- Last Updated: 2026-04-08
 - Proposal PR:
 - Flux Issue:
-- Depends on: Proposal 0123 (Full Static Typing)
+- Depends on: Proposal 0123 (Full Static Typing) ✅
+
+## Implementation status
+
+| Phase | Feature | Status | Implemented via |
+|-------|---------|--------|-----------------|
+| **1** | Constraint generation | **Done** | `emit_class_constraint`, `WantedClassConstraint`, `Constraint::Class` in `ast/type_infer/` (Proposal 0145 Step 3) |
+| **2** | Constraint solver | **Done** | `class_solver.rs`, E444 for unsatisfied constraints (Proposal 0145 Step 4) |
+| **3** | Evidence elaboration (dictionaries) | **Done** | `dict_elaborate.rs` Core-to-Core pass, `__dict_*` CoreDefs, body rewriting, call-site resolution (Proposal 0145 Step 5b) |
+| **4** | Defaulting | **Open** | Num defaulting to Int not implemented. Low priority. |
+| **5** | Generalization with constraints | **Done** | `Scheme.constraints: Vec<SchemeConstraint>`, `collect_scheme_constraints`, `generalize_with_constraints` (Proposal 0145 Step 5b) |
+| **6** | Bidirectional type checking | **Open** | Optional/deferred. Pure inference sufficient for current use cases. |
+| **7** | Kind system | **Done** | `src/types/kind.rs`, `Kind::Type`/`Kind::Arrow`, HKT unification, `Functor<List>` works end-to-end (Proposal 0145 HKTs) |
+
+**What was listed as missing in the original proposal and is now done:**
+- Type classes: `class`/`instance` with full dispatch (0145)
+- Constraint solver: concrete constraints checked, variable constraints promoted to schemes
+- Dictionary elaboration: Core-to-Core pass with MakeTuple dictionaries and TupleField extraction
+- Kind system: `Type` and `->` kinds with HKT application
+- `Any` fallback: eliminated by `--strict-types` (0123)
+- Superclass expansion: parsing + enforcement (E445)
+- Constrained schemes: `Scheme.constraints` field with generalization
 
 ## Summary
 
@@ -486,10 +509,10 @@ pub struct TypeConstructorInfo {
 
 | | Flux | GHC |
 |-|------|-----|
-| **Type** | `Scheme { forall: Vec<TypeVarId>, infer_type: InferType }` | `forall a. C a => rho` (embedded in `Type`) |
-| **Constraints** | Not part of scheme | Embedded as `FunTy (=>) constraint rho` |
-| **Instantiation** | Replace forall vars with fresh vars | Fresh type vars + fresh evidence vars |
-| **Generalization** | `free_in_type - free_in_env` | Constraint-driven: `simplifyInfer` |
+| **Type** | `Scheme { forall, constraints, infer_type }` | `forall a. C a => rho` (embedded in `Type`) |
+| **Constraints** | `Vec<SchemeConstraint>` with `class_name` + `type_vars: Vec<TypeVarId>` | Embedded as `FunTy (=>) constraint rho` |
+| **Instantiation** | Replace forall vars with fresh vars + remap constraint type_vars | Fresh type vars + fresh evidence vars |
+| **Generalization** | `free_in_type - free_in_env` + `collect_scheme_constraints` promotes variable constraints | Constraint-driven: `simplifyInfer` |
 
 ---
 

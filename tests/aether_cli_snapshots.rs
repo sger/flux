@@ -261,6 +261,24 @@ fn snapshot_borrow_calls_dump_core() {
 }
 
 #[test]
+fn snapshot_class_borrow_calls_dump_core() {
+    assert_cli_snapshot(
+        "aether/class_borrow_calls.flx",
+        &["--dump-core"],
+        "dump_core",
+    );
+}
+
+#[test]
+fn snapshot_class_borrow_calls_dump_aether() {
+    assert_cli_snapshot(
+        "aether/class_borrow_calls.flx",
+        &["--dump-aether"],
+        "dump_aether",
+    );
+}
+
+#[test]
 fn snapshot_reuse_specialization_dump_core_debug() {
     assert_cli_snapshot(
         "aether/reuse_specialization.flx",

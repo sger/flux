@@ -38,6 +38,18 @@ const FLUX_OBJ_FLOAT: i64 = 0xF8;
 // ADT constructor tag IDs (must match lir/lower.rs and core_to_llvm/codegen/adt.rs)
 const SOME_TAG: i32 = 1;
 const LEFT_TAG: i32 = 2;
+
+fn sanitize_llvm_symbol_fragment(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
 const RIGHT_TAG: i32 = 3;
 const CONS_TAG: i32 = 4;
 
@@ -394,8 +406,9 @@ pub fn emit_llvm_ir(program: &LirProgram) -> String {
 /// The wrapper has signature `(i64, ptr, i32) → i64` and unpacks args from
 /// the args array, then calls the direct function with individual params.
 fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
-    let direct_name = format!("flux_{}", func.qualified_name);
-    let wrapper_name = format!("flux_{}.closure_entry", func.qualified_name);
+    let sanitized = sanitize_llvm_symbol_fragment(&func.qualified_name);
+    let direct_name = format!("flux_{sanitized}");
+    let wrapper_name = format!("flux_{sanitized}.closure_entry");
 
     let closure_param = LlvmLocal("closure_raw".into());
     let args_param = LlvmLocal("args_ptr".into());
@@ -551,12 +564,13 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn func_name(&self) -> GlobalId {
+        let sanitized = sanitize_llvm_symbol_fragment(&self.func.qualified_name);
         if self.is_main {
             GlobalId("flux_main".to_string())
         } else if self.worker_mode {
-            GlobalId(format!("flux_{}$w", self.func.qualified_name))
+            GlobalId(format!("flux_{sanitized}$w"))
         } else {
-            GlobalId(format!("flux_{}", self.func.qualified_name))
+            GlobalId(format!("flux_{sanitized}"))
         }
     }
 
@@ -1463,8 +1477,8 @@ impl<'a> FnEmitter<'a> {
             LirInstr::MakeCtor {
                 dst,
                 ctor_tag,
-                ctor_name: _,
                 fields,
+                ..
             } => {
                 self.emit_make_ctor(*dst, *ctor_tag, fields);
             }
@@ -1667,17 +1681,18 @@ impl<'a> FnEmitter<'a> {
             .func_by_id(func_id)
             .expect("MakeClosure references unknown LirFuncId");
         let arity = target.params.len();
+        let sanitized_target = sanitize_llvm_symbol_fragment(&target.qualified_name);
 
         // For direct-convention functions (no captures), the closure must
         // reference the closure-convention WRAPPER, not the direct function.
         // The wrapper unpacks args and calls the direct function.
         let fn_ptr_name = if target.capture_vars.is_empty() && target.qualified_name != "main" {
             self.closure_wrappers_needed.insert(func_id);
-            format!("flux_{}.closure_entry", target.qualified_name)
+            format!("flux_{sanitized_target}.closure_entry")
         } else if target.qualified_name == "main" {
             "flux_main".to_string()
         } else {
-            format!("flux_{}", target.qualified_name)
+            format!("flux_{sanitized_target}")
         };
 
         // flux_make_closure(ptr fn_ptr, i32 arity, ptr captures, i32 cap_count,
@@ -1730,7 +1745,7 @@ impl<'a> FnEmitter<'a> {
                 vec![
                     (
                         LlvmType::Ptr,
-                        LlvmOperand::Global(GlobalId(format!("flux_{}", target.qualified_name))),
+                        LlvmOperand::Global(GlobalId(format!("flux_{sanitized_target}"))),
                     ),
                     (LlvmType::i32(), self.i32_const(arity as i32)),
                     (LlvmType::Ptr, LlvmOperand::Local(arr)),
@@ -2143,10 +2158,12 @@ impl<'a> FnEmitter<'a> {
                         // In worker mode, if the callee is also worker-eligible,
                         // call the worker variant directly to bypass tag/untag.
                         let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
                         let target_name = if use_worker {
-                            format!("flux_{}$w", target.qualified_name)
+                            format!("flux_{sanitized_target}$w")
                         } else {
-                            format!("flux_{}", target.qualified_name)
+                            format!("flux_{sanitized_target}")
                         };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
@@ -2201,10 +2218,12 @@ impl<'a> FnEmitter<'a> {
                             .func_by_id(*func_id)
                             .expect("Direct tail call references unknown LirFuncId");
                         let use_worker = self.worker_mode && self.worker_eligible.contains(func_id);
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
                         let target_name = if use_worker {
-                            format!("flux_{}$w", target.qualified_name)
+                            format!("flux_{sanitized_target}$w")
                         } else {
-                            format!("flux_{}", target.qualified_name)
+                            format!("flux_{sanitized_target}")
                         };
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
@@ -2560,83 +2579,136 @@ impl<'a> FnEmitter<'a> {
             },
         });
 
-        // Boxed dispatch: if there's a Tuple arm, check obj_tag first.
-        // Tuples have FluxHeader obj_tag = 0xF3 (FLUX_OBJ_TUPLE), while ADTs
-        // have 0xF2. We read the obj_tag to distinguish them before reading ctor_tag.
+        // Boxed dispatch must check the heap object's obj_tag before trying to
+        // decode ADT constructor tags. Otherwise non-ADT boxed values like
+        // arrays can be misread as FluxAdt payloads and spuriously match `Cons`.
+        let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let obj_tag_tmp = LlvmLocal(format!("match.ot.{}", self.next_tmp));
+        self.next_tmp += 1;
+
+        let boxed_instrs = vec![
+            // Convert i64 to ptr (pointer IS the tagged value).
+            LlvmInstr::Cast {
+                dst: ptr_tmp.clone(),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: self.var(scrutinee),
+                to_ty: LlvmType::Ptr,
+            },
+            // GEP to ptr - 3 (obj_tag field in FluxHeader).
+            LlvmInstr::GetElementPtr {
+                dst: obj_tag_ptr.clone(),
+                inbounds: false,
+                element_ty: LlvmType::i8(),
+                base: LlvmOperand::Local(ptr_tmp),
+                indices: vec![(
+                    LlvmType::i32(),
+                    LlvmOperand::Const(LlvmConst::Int {
+                        bits: 32,
+                        value: -3_i32 as i128,
+                    }),
+                )],
+            },
+            // Load obj_tag byte.
+            LlvmInstr::Load {
+                dst: obj_tag_tmp.clone(),
+                ty: LlvmType::i8(),
+                ptr: LlvmOperand::Local(obj_tag_ptr),
+                align: Some(1),
+            },
+        ];
+
         if let Some(t_arm) = tuple_arm {
             let tuple_target = emit_extract_block(self, t_arm, true);
-
-            // Build instructions for the boxed block inline.
-            // With pointer tagging, the value IS the pointer — just inttoptr.
-            let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
-            self.next_tmp += 1;
-            let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
-            self.next_tmp += 1;
-            let obj_tag_tmp = LlvmLocal(format!("match.ot.{}", self.next_tmp));
-            self.next_tmp += 1;
             let is_tuple = LlvmLocal(format!("match.istup.{}", self.next_tmp));
             self.next_tmp += 1;
 
-            let boxed_instrs = vec![
-                // Convert i64 to ptr (pointer IS the tagged value).
-                LlvmInstr::Cast {
-                    dst: ptr_tmp.clone(),
-                    op: LlvmValueKind::IntToPtr,
-                    from_ty: LlvmType::i64(),
-                    operand: self.var(scrutinee),
-                    to_ty: LlvmType::Ptr,
-                },
-                // GEP to ptr - 3 (obj_tag field in FluxHeader).
-                LlvmInstr::GetElementPtr {
-                    dst: obj_tag_ptr.clone(),
-                    inbounds: false,
-                    element_ty: LlvmType::i8(),
-                    base: LlvmOperand::Local(ptr_tmp),
-                    indices: vec![(
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: -3_i32 as i128,
+            let mut boxed_instrs = boxed_instrs;
+            boxed_instrs.push(LlvmInstr::Icmp {
+                dst: is_tuple.clone(),
+                op: LlvmCmpOp::Eq,
+                ty: LlvmType::i8(),
+                lhs: LlvmOperand::Local(obj_tag_tmp.clone()),
+                rhs: LlvmOperand::Const(LlvmConst::Int {
+                    bits: 8,
+                    value: 0xF3,
+                }),
+            });
+
+            if adt_arms.is_empty() {
+                self.extra_blocks.push(LlvmBlock {
+                    label: boxed_label.clone(),
+                    instrs: boxed_instrs,
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_tuple),
+                        then_label: tuple_target,
+                        else_label: self.label(default),
+                    },
+                });
+            } else {
+                let adt_check_label = LabelId(format!("match.adtcheck.{}", self.next_tmp));
+                self.next_tmp += 1;
+                let is_adt = LlvmLocal(format!("match.isadt.{}", self.next_tmp));
+                self.next_tmp += 1;
+
+                self.extra_blocks.push(LlvmBlock {
+                    label: boxed_label.clone(),
+                    instrs: boxed_instrs,
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_tuple),
+                        then_label: tuple_target,
+                        else_label: adt_check_label.clone(),
+                    },
+                });
+
+                self.extra_blocks.push(LlvmBlock {
+                    label: adt_check_label,
+                    instrs: vec![LlvmInstr::Icmp {
+                        dst: is_adt.clone(),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i8(),
+                        lhs: LlvmOperand::Local(obj_tag_tmp),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 8,
+                            value: 0xF2,
                         }),
-                    )],
-                },
-                // Load obj_tag byte.
-                LlvmInstr::Load {
-                    dst: obj_tag_tmp.clone(),
-                    ty: LlvmType::i8(),
-                    ptr: LlvmOperand::Local(obj_tag_ptr),
-                    align: Some(1),
-                },
-                // Compare with FLUX_OBJ_TUPLE (0xF3).
-                LlvmInstr::Icmp {
-                    dst: is_tuple.clone(),
-                    op: LlvmCmpOp::Eq,
-                    ty: LlvmType::i8(),
-                    lhs: LlvmOperand::Local(obj_tag_tmp),
-                    rhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 8,
-                        value: 0xF3,
-                    }),
-                },
-            ];
+                    }],
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_adt),
+                        then_label: adt_dispatch_label,
+                        else_label: self.label(default),
+                    },
+                });
+            }
+        } else {
+            let is_adt = LlvmLocal(format!("match.isadt.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let mut boxed_instrs = boxed_instrs;
+            boxed_instrs.push(LlvmInstr::Icmp {
+                dst: is_adt.clone(),
+                op: LlvmCmpOp::Eq,
+                ty: LlvmType::i8(),
+                lhs: LlvmOperand::Local(obj_tag_tmp),
+                rhs: LlvmOperand::Const(LlvmConst::Int {
+                    bits: 8,
+                    value: 0xF2,
+                }),
+            });
 
             self.extra_blocks.push(LlvmBlock {
                 label: boxed_label.clone(),
                 instrs: boxed_instrs,
                 term: LlvmTerminator::CondBr {
                     cond_ty: LlvmType::i1(),
-                    cond: LlvmOperand::Local(is_tuple),
-                    then_label: tuple_target,
-                    else_label: adt_dispatch_label,
-                },
-            });
-        } else {
-            // No tuple arm — boxed dispatch is the ADT dispatch directly.
-            self.extra_blocks.push(LlvmBlock {
-                label: boxed_label.clone(),
-                instrs: Vec::new(),
-                term: LlvmTerminator::Br {
-                    target: adt_dispatch_label,
+                    cond: LlvmOperand::Local(is_adt),
+                    then_label: adt_dispatch_label,
+                    else_label: self.label(default),
                 },
             });
         }
@@ -2842,8 +2914,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
         CorePrimOp::Index => return "flux_rt_index".to_string(),
         // Collection helpers (promoted for native)
-        CorePrimOp::Reverse => return "flux_reverse".to_string(),
-        CorePrimOp::Contains => return "flux_contains".to_string(),
+        CorePrimOp::ArrayReverse => return "flux_array_reverse".to_string(),
+        CorePrimOp::ArrayContains => return "flux_array_contains".to_string(),
         CorePrimOp::Sort => return "flux_sort_default".to_string(),
         CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
         CorePrimOp::HoMap => return "flux_ho_map".to_string(),
@@ -2904,14 +2976,22 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
-        "flux_reverse" | "flux_sort_default" | "flux_flatten" => {
+        "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
-        "flux_safe_div" | "flux_safe_mod" | "flux_contains" | "flux_ho_sort_by" | "flux_ho_map"
-        | "flux_ho_filter" | "flux_ho_any" | "flux_ho_all" | "flux_ho_each" | "flux_ho_find"
-        | "flux_ho_count" | "flux_ho_flat_map" | "flux_zip" => {
-            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
-        }
+        "flux_safe_div"
+        | "flux_safe_mod"
+        | "flux_array_contains"
+        | "flux_ho_sort_by"
+        | "flux_ho_map"
+        | "flux_ho_filter"
+        | "flux_ho_any"
+        | "flux_ho_all"
+        | "flux_ho_each"
+        | "flux_ho_find"
+        | "flux_ho_count"
+        | "flux_ho_flat_map"
+        | "flux_zip" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // Effect handlers (Koka-style yield model)
         "flux_evv_get" => (LlvmType::i64(), vec![]),
         "flux_evv_set" => (LlvmType::Void, vec![LlvmType::i64()]),
@@ -2938,6 +3018,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_perform_direct" => (
             LlvmType::i64(),
             vec![
+                LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),

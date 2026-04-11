@@ -67,6 +67,7 @@ fn compile_with_graph(
     let mut errors = Vec::new();
     for node in result.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
         if let Err(mut diags) = compiler.compile(&node.program) {
             errors.append(&mut diags);
             continue;

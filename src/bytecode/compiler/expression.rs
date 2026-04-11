@@ -842,6 +842,80 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
+
+                // Phase 4 Step 5: compile-time class method dispatch.
+                // If the callee is a class method with a known argument type,
+                // compile a call to the mangled instance function directly.
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
+                {
+                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                        *name,
+                        arguments,
+                        function.span(),
+                    );
+                    resolved_args.extend(arguments.clone());
+                    let mangled_expr = Expression::Identifier {
+                        name: mangled,
+                        span: function.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    let call = Expression::Call {
+                        function: Box::new(mangled_expr),
+                        arguments: resolved_args,
+                        span: expression.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    self.compile_non_tail_expression(&call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
+                // Proposal 0151, Phase 1a (commit #6): module-qualified class
+                // method dispatch. `Module.method(...)` where `Module` resolves
+                // to a module and `method` is a class method should lower to
+                // the same mangled `__tc_*` call as the bare-name form. The
+                // class environment is global (not yet keyed on `ClassId`), so
+                // we only need the method name to find the mangled function.
+                if let Expression::MemberAccess { object, member, .. } = function.as_ref()
+                    && self.resolve_module_name_from_expr(object).is_some()
+                    && let Some(mangled) = self.try_resolve_class_method_call(*member, arguments)
+                {
+                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                        *member,
+                        arguments,
+                        function.span(),
+                    );
+                    resolved_args.extend(arguments.clone());
+                    let mangled_expr = Expression::Identifier {
+                        name: mangled,
+                        span: function.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    let call = Expression::Call {
+                        function: Box::new(mangled_expr),
+                        arguments: resolved_args,
+                        span: expression.span(),
+                        id: crate::syntax::expression::ExprId::UNSET,
+                    };
+                    self.compile_non_tail_expression(&call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
+                if let Expression::Identifier { name, span, .. } = function.as_ref()
+                    && let Some(dict_call) = self.try_build_dict_class_method_call(
+                        *name,
+                        *span,
+                        arguments,
+                        expression.span(),
+                    )
+                {
+                    self.compile_non_tail_expression(&dict_call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -3351,7 +3425,12 @@ impl Compiler {
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
+            effect_name: self.interner.resolve(effect).to_string().into_boxed_str(),
             ops: operations,
+            op_names: scope_ops
+                .iter()
+                .map(|op| self.interner.resolve(*op).to_string().into_boxed_str())
+                .collect(),
             is_discard,
         }));
 
@@ -3487,6 +3566,8 @@ impl Compiler {
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::Class { .. } => {}
+            Statement::Instance { .. } => {}
         }
     }
 
@@ -4166,7 +4247,7 @@ impl Compiler {
             let missing_list = adt_def
                 .constructors
                 .iter()
-                .map(|(name, _)| self.interner.resolve(*name))
+                .map(|(name, ..)| self.interner.resolve(*name))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Self::boxed(
@@ -4188,8 +4269,8 @@ impl Compiler {
         let missing: Vec<&str> = adt_def
             .constructors
             .iter()
-            .filter(|(name, _)| !covered.contains(name))
-            .map(|(name, _)| self.interner.resolve(*name))
+            .filter(|(name, ..)| !covered.contains(name))
+            .map(|(name, ..)| self.interner.resolve(*name))
             .collect();
 
         if !missing.is_empty() {
@@ -4224,7 +4305,7 @@ impl Compiler {
         adt_def: &crate::bytecode::compiler::adt_definition::AdtDefinition,
         span: Span,
     ) -> CompileResult<()> {
-        for (outer_ctor_name, outer_arity) in &adt_def.constructors {
+        for (outer_ctor_name, outer_arity, _) in &adt_def.constructors {
             let mut ctor_fields: Vec<&[Pattern]> = Vec::new();
             for arm in arms {
                 if arm.guard.is_some() {
@@ -4327,8 +4408,8 @@ impl Compiler {
             let missing: Vec<&str> = nested_adt_def
                 .constructors
                 .iter()
-                .filter(|(name, _)| !covered.contains(name))
-                .map(|(name, _)| self.interner.resolve(*name))
+                .filter(|(name, ..)| !covered.contains(name))
+                .map(|(name, ..)| self.interner.resolve(*name))
                 .collect();
 
             if !missing.is_empty() {
@@ -4349,7 +4430,7 @@ impl Compiler {
             }
 
             // Recurse into constructor fields.
-            for (ctor_name, arity) in &nested_adt_def.constructors {
+            for (ctor_name, arity, _) in &nested_adt_def.constructors {
                 let ctor_rows: Vec<&[Pattern]> = ctor_patterns
                     .iter()
                     .filter_map(|(name, fields)| {
@@ -4655,6 +4736,161 @@ impl Compiler {
                 v1 == v2
             }
             _ => false,
+        }
+    }
+
+    /// Try to resolve a class method call at compile time.
+    ///
+    /// If `name` is a class method and the first argument's HM-inferred type
+    /// is concrete, returns the mangled instance function symbol.
+    fn try_resolve_class_method_call(
+        &self,
+        name: crate::syntax::Identifier,
+        arguments: &[Expression],
+    ) -> Option<crate::syntax::Identifier> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let (class_name, _) = self.class_env.method_to_class(name)?;
+
+        // Try compile-time resolution: if the first argument's type is concrete,
+        // resolve directly to the mangled instance function.
+        if let Some(first_arg) = arguments.first()
+            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+            && let Some((instance, _)) = self.class_env.resolve_instance_with_subst(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                &self.interner,
+            )
+        {
+            // Build mangled name from all instance type args (multi-param support).
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_str = self.interner.resolve(class_name);
+            let method_str = self.interner.resolve(name);
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            if let Some(sym) = self.interner.lookup(&mangled) {
+                return Some(sym);
+            }
+        }
+
+        // No compile-time resolution possible — return None.
+        // Dictionary elaboration handles polymorphic calls via dict params.
+        None
+    }
+
+    fn try_build_dict_class_method_call(
+        &mut self,
+        name: crate::syntax::Identifier,
+        function_span: Span,
+        arguments: &[Expression],
+        call_span: Span,
+    ) -> Option<Expression> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let (class_name, _) = self.class_env.method_to_class(name)?;
+        let method_index = self.class_env.method_index(class_name, name)?;
+        let class_str = self.interner.resolve(class_name);
+        let dict_name = format!("__dict_{class_str}");
+        let dict_sym = self.interner.lookup(&dict_name)?;
+        self.symbol_table.resolve(dict_sym)?;
+
+        Some(Expression::Call {
+            function: Box::new(Expression::TupleFieldAccess {
+                object: Box::new(Expression::Identifier {
+                    name: dict_sym,
+                    span: function_span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                }),
+                index: method_index,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: arguments.to_vec(),
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    fn resolve_direct_class_call_dict_args_ast(
+        &self,
+        method_name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        span: Span,
+    ) -> Vec<Expression> {
+        let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
+            return Vec::new();
+        };
+        let Some(first_arg) = arguments.first() else {
+            return Vec::new();
+        };
+        let Some(first_arg_ty) = self.hm_expr_types.get(&first_arg.expr_id()) else {
+            return Vec::new();
+        };
+
+        self.class_env
+            .resolve_instance_context_dictionaries(
+                class_name,
+                std::slice::from_ref(first_arg_ty),
+                &self.interner,
+            )
+            .map(|dicts| {
+                dicts
+                    .iter()
+                    .map(|dict_ref| self.lower_dictionary_ref_ast(dict_ref, span))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn lower_dictionary_ref_ast(
+        &self,
+        dict_ref: &crate::types::class_env::ResolvedDictionaryRef,
+        span: Span,
+    ) -> Expression {
+        if dict_ref.context_args.is_empty() {
+            if let Some(methods) = self
+                .class_env
+                .dictionary_method_symbols(dict_ref.dict_name, &self.interner)
+            {
+                return Expression::TupleLiteral {
+                    elements: methods
+                        .into_iter()
+                        .map(|name| Expression::Identifier {
+                            name,
+                            span,
+                            id: crate::syntax::expression::ExprId::UNSET,
+                        })
+                        .collect(),
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                };
+            }
+            return Expression::Identifier {
+                name: dict_ref.dict_name,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            };
+        }
+
+        Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: dict_ref.dict_name,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: dict_ref
+                .context_args
+                .iter()
+                .map(|arg| self.lower_dictionary_ref_ast(arg, span))
+                .collect(),
+            span,
+            id: crate::syntax::expression::ExprId::UNSET,
         }
     }
 }

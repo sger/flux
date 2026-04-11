@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/primop/higher_order_fastcall.flx:6:18
+  examples/primop/higher_order_fastcall.flx:8:18
   |
-6 |     let mapped = map(xs, fn(x) { x * 2 });
+8 |     let mapped = map(xs, fn(x) { x * 2 });
   |                  ^^^
 
 Hint:
@@ -25,9 +25,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/primop/higher_order_fastcall.flx:7:20
+  examples/primop/higher_order_fastcall.flx:9:20
   |
-7 |     let filtered = filter(mapped, fn(x) { x > 5 });
+9 |     let filtered = filter(mapped, fn(x) { x > 5 });
   |                    ^^^^^^
 
 Hint:
@@ -41,10 +41,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/primop/higher_order_fastcall.flx:8:17
-  |
-8 |     let total = fold(filtered, 0, fn(acc, x) { acc + x });
-  |                 ^^^^
+  examples/primop/higher_order_fastcall.flx:10:17
+   |
+10 |     let total = fold(filtered, 0, fn(acc, x) { acc + x });
+   |                 ^^^^
 
 Hint:
   Define it first: let fold = ...;
@@ -54,9 +54,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `flat_map`.
 
-  examples/primop/higher_order_fastcall.flx:14:20
+  examples/primop/higher_order_fastcall.flx:16:20
    |
-14 |     let expanded = flat_map(xs, fn(x) { list(x, x + 10) });
+16 |     let expanded = flat_map(xs, fn(x) { list(x, x + 10) });
    |                    ^^^^^^^^
 
 Hint:
@@ -67,9 +67,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `any`.
 
-  examples/primop/higher_order_fastcall.flx:17:11
+  examples/primop/higher_order_fastcall.flx:19:11
    |
-17 |     print(any(xs, fn(x) { x == 4 }));
+19 |     print(any(xs, fn(x) { x == 4 }));
    |           ^^^
 
 Hint:
@@ -80,9 +80,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `all`.
 
-  examples/primop/higher_order_fastcall.flx:18:11
+  examples/primop/higher_order_fastcall.flx:20:11
    |
-18 |     print(all(xs, fn(x) { x > 0 }));
+20 |     print(all(xs, fn(x) { x > 0 }));
    |           ^^^
 
 Hint:
@@ -93,9 +93,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `find`.
 
-  examples/primop/higher_order_fastcall.flx:19:11
+  examples/primop/higher_order_fastcall.flx:21:11
    |
-19 |     print(find(xs, fn(x) { x == 3 }));
+21 |     print(find(xs, fn(x) { x == 3 }));
    |           ^^^^
 
 Hint:
@@ -106,9 +106,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `count`.
 
-  examples/primop/higher_order_fastcall.flx:20:11
+  examples/primop/higher_order_fastcall.flx:22:11
    |
-20 |     print(count(xs, fn(x) { x % 2 == 0 }));
+22 |     print(count(xs, fn(x) { x % 2 == 0 }));
    |           ^^^^^
 
 Hint:

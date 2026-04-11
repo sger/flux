@@ -48,12 +48,12 @@ fn test_array_and_collection_primops() {
     assert_eq(arr2[0], Some(10))
     assert_eq(arr2[2], Some(30))
 
-    let sliced = slice(arr2, 0, 2)
+    let sliced = array_slice(arr2, 0, 2)
     assert_eq(len(sliced), 2)
     assert_eq(sliced[0], Some(10))
     assert_eq(sliced[1], Some(99))
 
-    let joined = concat(arr2, [|40, 50|])
+    let joined = array_concat(arr2, [|40, 50|])
     assert_eq(len(joined), 5)
     assert_eq(joined[3], Some(40))
     assert_eq(joined[4], Some(50))
@@ -75,17 +75,17 @@ fn test_map_primops() {
     assert_true(is_map(m2))
     assert_true(is_hash(m2))
 
-    let ks = keys(m2)
-    let vs = values(m2)
+    let ks = map_keys(m2)
+    let vs = map_values(m2)
     assert_eq(len(ks), 2)
     assert_eq(len(vs), 2)
     assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "name") }))
     assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "year") }))
 
-    let m3 = delete(m2, "year")
+    let m3 = map_delete(m2, "year")
     assert_false(map_has(m3, "year"))
 
-    let m4 = merge(m3, map_set({}, "lang", "en"))
+    let m4 = map_merge(m3, map_set({}, "lang", "en"))
     assert_true(map_has(m4, "name"))
     assert_true(map_has(m4, "lang"))
 }

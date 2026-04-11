@@ -73,6 +73,7 @@ fn build_compiler_transcript(
             }
 
             compiler.set_file_path(node.path.to_string_lossy().to_string());
+            compiler.set_current_module_kind(node.kind);
             let compile_result = compiler.compile(&node.program);
             let mut warnings = compiler.take_warnings();
             for diag in &mut warnings {

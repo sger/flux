@@ -115,6 +115,7 @@ fn infer_program_from_source(
             known_flow_names: HashSet::new(),
             flow_module_symbol: base_symbol,
             preloaded_effect_op_signatures: effect_op_sigs,
+            class_env: None,
         },
     );
     (result, program)
@@ -1456,7 +1457,7 @@ fn scheme_mono_no_forall() {
 fn scheme_instantiate_mono() {
     let s = Scheme::mono(int());
     let mut counter = 0u32;
-    let (ty, mapping) = s.instantiate(&mut counter);
+    let (ty, mapping, _) = s.instantiate(&mut counter);
     assert_eq!(ty, int());
     assert!(mapping.is_empty());
     assert_eq!(counter, 0); // no fresh vars allocated
@@ -1467,10 +1468,11 @@ fn scheme_instantiate_poly() {
     // ∀0. 0 → 0  (identity function scheme)
     let s = Scheme {
         forall: vec![0],
+        constraints: vec![],
         infer_type: fun(vec![var(0)], var(0)),
     };
     let mut counter = 10u32;
-    let (ty, mapping) = s.instantiate(&mut counter);
+    let (ty, mapping, _) = s.instantiate(&mut counter);
     // Fresh var 10 should replace var 0
     assert_eq!(counter, 11);
     assert_eq!(*mapping.get(&0).unwrap(), 10u32);
@@ -1482,10 +1484,11 @@ fn scheme_instantiate_two_vars() {
     // ∀0 1. (0, 1) → 0  (const scheme)
     let s = Scheme {
         forall: vec![0, 1],
+        constraints: vec![],
         infer_type: fun(vec![var(0), var(1)], var(0)),
     };
     let mut counter = 5u32;
-    let (ty, mapping) = s.instantiate(&mut counter);
+    let (ty, mapping, _) = s.instantiate(&mut counter);
     assert_eq!(counter, 7); // allocated vars 5 and 6
     let v0 = *mapping.get(&0).unwrap();
     let v1 = *mapping.get(&1).unwrap();
@@ -1782,6 +1785,7 @@ fn main() -> Unit {
             known_flow_names,
             flow_module_symbol: base,
             preloaded_effect_op_signatures: HashMap::new(),
+            class_env: None,
         },
     );
     assert!(

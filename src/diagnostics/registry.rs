@@ -100,6 +100,26 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     TYPE_UNIFICATION_ERROR,
     OCCURS_CHECK_FAILURE,
     UNDEFINED_TYPE_VAR,
+    // Strict-types errors (E430+)
+    STRICT_TYPES_ANY_INFERRED,
+    // Type class errors (E440–E449)
+    DUPLICATE_CLASS,
+    INSTANCE_UNKNOWN_CLASS,
+    INSTANCE_MISSING_METHOD,
+    DUPLICATE_INSTANCE,
+    NO_INSTANCE,
+    INSTANCE_EXTRA_METHOD,
+    INSTANCE_TYPE_ARG_ARITY,
+    INSTANCE_METHOD_ARITY,
+    MISSING_SUPERCLASS_INSTANCE,
+    ORPHAN_INSTANCE,
+    PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
+    PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
+    INSTANCE_METHOD_EFFECT_FLOOR,
+    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD,
+    AMBIGUOUS_CLASS_CONSTRAINT,
+    EXPOSING_LOCAL_COLLISION,
+    IMPORT_NAME_COLLISION_FILE_VS_MODULE,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -155,7 +175,11 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E076" => Some(DiagnosticCategory::ParserDelimiter),
         "E423" => Some(DiagnosticCategory::TypeInference),
         "E426" => Some(DiagnosticCategory::Internal),
-        "E056" | "E300" | "E301" => Some(DiagnosticCategory::TypeInference),
+        "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
+        | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E455" | "E456" => {
+            Some(DiagnosticCategory::TypeInference)
+        }
+        "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
         | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),

@@ -2,7 +2,14 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{aether::borrow_infer::BorrowSignature, syntax::symbol::Symbol, types::scheme::Scheme};
+use crate::{
+    aether::borrow_infer::BorrowSignature,
+    syntax::{
+        Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
+        type_expr::TypeExpr,
+    },
+    types::scheme::Scheme,
+};
 
 pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
 
@@ -11,6 +18,82 @@ pub struct DependencyFingerprint {
     pub module_name: String,
     pub source_path: String,
     pub interface_fingerprint: String,
+}
+
+/// Proposal 0151, Phase 2: a `public class` entry recorded in a module
+/// interface so downstream modules can resolve constraints against it.
+///
+/// `class_module` is the dotted path of the module that declared the
+/// class (i.e. the `ModulePath` half of the canonical `ClassId`). The
+/// pair `(class_module, name)` is globally unique. `superclasses` lists
+/// the short names of declared superclass constraints; full ClassId
+/// resolution for superclasses lands in a later phase.
+///
+/// `pinned_row_placeholder` is reserved for Phase 4 (effects on instance
+/// methods) and is currently always `None`. The field exists in the
+/// schema now so that pre-Phase-4 interfaces can be reloaded post-Phase-4
+/// without a cache format bump for this single field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicClassMethodEntry {
+    pub name: Identifier,
+    pub type_params: Vec<Identifier>,
+    pub param_types: Vec<TypeExpr>,
+    pub return_type: TypeExpr,
+    #[serde(default)]
+    pub effects: Vec<EffectExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicInstanceMethodEntry {
+    pub name: Identifier,
+    #[serde(default)]
+    pub effects: Vec<EffectExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicClassEntry {
+    pub class_module: String,
+    pub name: String,
+    pub type_param_arity: usize,
+    #[serde(default)]
+    pub type_params: Vec<Identifier>,
+    #[serde(default)]
+    pub superclasses: Vec<ClassConstraint>,
+    #[serde(default)]
+    pub methods: Vec<PublicClassMethodEntry>,
+    #[serde(default)]
+    pub default_methods: Vec<Identifier>,
+    #[serde(default)]
+    pub method_names: Vec<String>,
+    #[serde(default)]
+    pub pinned_row_placeholder: Option<String>,
+}
+
+/// Proposal 0151, Phase 2: a `public instance` entry recorded in a
+/// module interface. Like `PublicClassEntry`, this is a denormalized
+/// snapshot of the relevant fields from the `ClassEnv` `InstanceDef`.
+///
+/// `class_module` and `class_name` together identify the implemented
+/// class. `instance_module` is the module where the instance block
+/// itself lives — possibly different from `class_module` if the
+/// instance is allowed by the orphan rule via the head type.
+/// `head_type_repr` is a textual rendering of the head type (sufficient
+/// for cache invalidation; full structural matching uses the in-memory
+/// `ClassEnv`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicInstanceEntry {
+    pub class_module: String,
+    pub class_name: String,
+    pub instance_module: String,
+    pub head_type_repr: String,
+    #[serde(default)]
+    pub type_args: Vec<TypeExpr>,
+    #[serde(default)]
+    pub context: Vec<ClassConstraint>,
+    #[serde(default)]
+    pub methods: Vec<PublicInstanceMethodEntry>,
+    #[serde(default)]
+    pub pinned_row_placeholder: Option<String>,
 }
 
 /// Serializable compiled interface for a Flux module.
@@ -41,6 +124,20 @@ pub struct ModuleInterface {
     /// when loading the interface in a different compilation session.
     #[serde(default)]
     pub symbol_table: HashMap<u32, String>,
+    /// Proposal 0151, Phase 2: `public class` entries owned by this module.
+    ///
+    /// Each entry corresponds to a `public class` declaration whose
+    /// owning module matches this interface's `module_name`. Sorted by
+    /// `(class_module, name)` for deterministic fingerprinting.
+    #[serde(default)]
+    pub public_classes: Vec<PublicClassEntry>,
+    /// Proposal 0151, Phase 2: `public instance` entries owned by this module.
+    ///
+    /// Each entry corresponds to a `public instance` declaration whose
+    /// `instance_module` matches this interface's `module_name`. Sorted
+    /// by `(class_module, class_name, head_type_repr)`.
+    #[serde(default)]
+    pub public_instances: Vec<PublicInstanceEntry>,
 }
 
 /// Sub-reason for a dependency fingerprint cache miss.
@@ -108,6 +205,8 @@ impl ModuleInterface {
             borrow_signatures: HashMap::new(),
             dependency_fingerprints: Vec::new(),
             symbol_table: HashMap::new(),
+            public_classes: Vec::new(),
+            public_instances: Vec::new(),
         }
     }
 }
@@ -214,6 +313,7 @@ mod tests {
             "map".to_string(),
             Scheme {
                 forall: vec![0, 1],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![
                         InferType::App(TypeConstructor::List, vec![InferType::Var(0)]),

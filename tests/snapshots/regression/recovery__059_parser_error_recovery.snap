@@ -60,7 +60,7 @@ This match arm needs `->`, not `=>`.
   tests/fixtures/recovery/059_parser_error_recovery.flx:3:13
   |
 3 | match y { 0 => 0, _ -> 1 }
-  |             ^
+  |             ^^
 
 Note:
   while parsing `match` expression

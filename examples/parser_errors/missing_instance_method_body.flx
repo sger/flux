@@ -1,0 +1,17 @@
+// Missing `{` for method body in instance declaration.
+//
+// Expected: E034 Missing Method Body
+//   "Expected `{` for method body."
+//   Help: "Instance methods require a body: `fn name(x, y) { ... }`."
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) x
+}
+
+fn main() {
+    42
+}

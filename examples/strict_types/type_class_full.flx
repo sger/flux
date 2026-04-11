@@ -1,0 +1,46 @@
+// Full type class test — class with default method, multiple instances.
+// Verifies the parser handles the complete syntax through the pipeline.
+
+class Show<a> {
+    fn show(x: a) -> String
+}
+
+class Eq<a> {
+    fn eq(x: a, y: a) -> Bool
+    fn neq(x: a, y: a) -> Bool { !eq(x, y) }
+}
+
+instance Eq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+instance Eq<Bool> {
+    fn eq(x, y) {
+        match (x, y) {
+            (true, true) -> true,
+            (false, false) -> true,
+            _ -> false
+        }
+    }
+}
+
+instance Show<Int> {
+    fn show(x) { to_string(x) }
+}
+
+class Num<a> {
+    fn add(x: a, y: a) -> a
+    fn sub(x: a, y: a) -> a
+    fn mul(x: a, y: a) -> a
+}
+
+instance Num<Int> {
+    fn add(x, y) { x + y }
+    fn sub(x, y) { x - y }
+    fn mul(x, y) { x * y }
+}
+
+fn main() with IO {
+    print(1 + 2)
+    print(10 * 5)
+}

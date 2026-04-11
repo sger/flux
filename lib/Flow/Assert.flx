@@ -2,50 +2,56 @@
 
 module Flow.Assert {
 
-    public fn assert_eq(a, b) with IO {
+    fn assert_failed(name: String) with IO {
+        println("ASSERTION FAILED: " + name)
+    }
+
+    // Uses cmp_eq (deep structural comparison) rather than == (Eq class)
+    // so it works for all types including List, Array, tuples, and ADTs.
+    public fn assert_eq<a>(a: a, b: a) with IO {
         if cmp_eq(a, b) { () }
         else {
-            println("ASSERTION FAILED: assert_eq")
+            assert_failed("assert_eq")
             println(a)
             println(b)
             panic("assert_eq failed")
         }
     }
 
-    public fn assert_neq(a, b) with IO {
+    public fn assert_neq<a>(a: a, b: a) with IO {
         if cmp_ne(a, b) { () }
         else {
-            println("ASSERTION FAILED: assert_neq")
+            assert_failed("assert_neq")
             panic("assert_neq failed")
         }
     }
 
-    public fn assert_true(x) with IO {
+    public fn assert_true(x: Bool) with IO {
         if x { () }
         else { panic("assert_true failed") }
     }
 
-    public fn assert_false(x) with IO {
+    public fn assert_false(x: Bool) with IO {
         if !x { () }
         else { panic("assert_false failed") }
     }
 
-    public fn assert_gt(a, b) with IO {
+    public fn assert_gt<a: Ord>(a: a, b: a) with IO {
         if a > b { () }
         else { panic("assert_gt failed") }
     }
 
-    public fn assert_lt(a, b) with IO {
+    public fn assert_lt<a: Ord>(a: a, b: a) with IO {
         if a < b { () }
         else { panic("assert_lt failed") }
     }
 
-    public fn assert_gte(a, b) with IO {
+    public fn assert_gte<a: Ord>(a: a, b: a) with IO {
         if a >= b { () }
         else { panic("assert_gte failed") }
     }
 
-    public fn assert_lte(a, b) with IO {
+    public fn assert_lte<a: Ord>(a: a, b: a) with IO {
         if a <= b { () }
         else { panic("assert_lte failed") }
     }
@@ -57,16 +63,17 @@ module Flow.Assert {
         }
     }
 
-    public fn assert_len(collection, expected) with IO {
+    // assert_len uses runtime type dispatch (is_list) — leave untyped for now
+    public fn assert_len(collection, expected: Int) with IO {
         let actual = if is_list(collection) { list_length(collection, 0) } else { len(collection) }
-        if cmp_eq(actual, expected) { () }
+        if actual == expected { () }
         else {
-            println("ASSERTION FAILED: assert_len")
+            assert_failed("assert_len")
             panic("assert_len failed")
         }
     }
 
-    public fn assert_msg(condition, message) with IO {
+    public fn assert_msg(condition: Bool, message: String) with IO {
         if condition { () }
         else { panic(message) }
     }

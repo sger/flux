@@ -1,5 +1,6 @@
 ---
 source: tests/snapshots/bytecode/mod.rs
+assertion_line: 112
 expression: output
 ---
 Constants:

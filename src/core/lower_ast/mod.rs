@@ -19,7 +19,9 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
-    syntax::{block::Block, expression::ExprId, program::Program, statement::Statement},
+    syntax::{
+        Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
+    },
     types::infer_type::InferType,
 };
 
@@ -30,6 +32,10 @@ mod expression;
 mod pattern;
 
 use binder_resolution::{resolve_program_binders, validate_program_binders};
+
+/// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
+/// Used by the lowerer to assign `FluxRep` to handler arm binders.
+pub type EffectOpSigs = HashMap<(Identifier, Identifier), (Vec<InferType>, InferType)>;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -53,7 +59,52 @@ pub fn lower_program_ast_with_interner(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&crate::syntax::interner::Interner>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types, interner);
+    lower_program_ast_full(program, hm_expr_types, interner, None)
+}
+
+/// Lower with both interner and TypeEnv for typed binder creation.
+/// When the TypeEnv is available, function parameters get their FluxRep
+/// from HM-inferred types instead of defaulting to TaggedRep.
+pub fn lower_program_ast_full(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+) -> CoreProgram {
+    lower_program_ast_complete(program, hm_expr_types, interner, type_env, None)
+}
+
+/// Lower with interner, TypeEnv, and effect op signatures for fully typed binders.
+/// This is the most complete entry point — all optional context is available.
+pub fn lower_program_ast_complete(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+) -> CoreProgram {
+    lower_program_ast_with_class_env(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        effect_op_sigs,
+        None,
+    )
+}
+
+/// Lower with all context including ClassEnv for compile-time class method dispatch.
+/// When ClassEnv is available, calls to class methods are resolved to mangled
+/// instance functions at compile time, eliminating runtime `type_of()` dispatch.
+pub fn lower_program_ast_with_class_env(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
+) -> CoreProgram {
+    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -80,19 +131,31 @@ pub(super) struct AstLowerer<'a> {
     pub(super) fresh: u32,
     pub(super) next_binder_id: u32,
     /// Optional interner for resolving source-level type annotations.
-    interner: Option<&'a crate::syntax::interner::Interner>,
+    pub(super) interner: Option<&'a crate::syntax::interner::Interner>,
+    /// Optional TypeEnv for looking up function parameter types (Phase 7).
+    type_env: Option<&'a crate::types::type_env::TypeEnv>,
+    /// Optional effect op signatures for typed handler binders (Phase 7f).
+    pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
+    /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
+    pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
 }
 
 impl<'a> AstLowerer<'a> {
     fn new(
         hm_expr_types: &'a HashMap<ExprId, InferType>,
         interner: Option<&'a crate::syntax::interner::Interner>,
+        type_env: Option<&'a crate::types::type_env::TypeEnv>,
+        effect_op_sigs: Option<&'a EffectOpSigs>,
+        class_env: Option<&'a crate::types::class_env::ClassEnv>,
     ) -> Self {
         Self {
             hm_expr_types,
             fresh: 0,
             next_binder_id: 0,
             interner,
+            type_env,
+            effect_op_sigs,
+            class_env,
         }
     }
 
@@ -126,6 +189,60 @@ impl<'a> AstLowerer<'a> {
         self.bind_name(name)
     }
 
+    /// Create a binder with a rep derived from a known `InferType`.
+    pub(super) fn bind_name_with_type(
+        &mut self,
+        name: crate::syntax::Identifier,
+        ty: &InferType,
+    ) -> CoreBinder {
+        let id = super::CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        let rep = super::FluxRep::from_infer_type(ty);
+        CoreBinder::with_rep(id, name, rep)
+    }
+
+    /// Create typed binders for lambda parameters by extracting param types
+    /// from the lambda's HM-inferred function type.
+    pub(super) fn bind_lambda_params(
+        &mut self,
+        parameters: &[crate::syntax::Identifier],
+        lambda_expr_id: crate::syntax::expression::ExprId,
+    ) -> Vec<CoreBinder> {
+        if let Some(fn_ty) = self.hm_expr_types.get(&lambda_expr_id) {
+            let param_types = fn_ty.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
+    }
+
+    /// Look up a function's parameter types from the TypeEnv and create
+    /// typed binders. Falls back to untyped binders if TypeEnv is unavailable.
+    fn bind_fn_params(
+        &mut self,
+        fn_name: crate::syntax::Identifier,
+        parameters: &[crate::syntax::Identifier],
+    ) -> Vec<CoreBinder> {
+        // Try to get parameter types from the function's HM scheme.
+        if let Some(scheme) = self.type_env.and_then(|env| env.lookup(fn_name)) {
+            let param_types = scheme.infer_type.param_types();
+            if param_types.len() == parameters.len() && !param_types.is_empty() {
+                return parameters
+                    .iter()
+                    .zip(param_types)
+                    .map(|(&p, ty)| self.bind_name_with_type(p, ty))
+                    .collect();
+            }
+        }
+        // Fallback: untyped binders
+        parameters.iter().map(|&p| self.bind_name(p)).collect()
+    }
+
     /// Allocate a fresh synthetic `Identifier` for compiler-generated bindings.
     /// Used by future passes that need to introduce new named temporaries.
     #[allow(dead_code)]
@@ -143,6 +260,239 @@ impl<'a> AstLowerer<'a> {
     #[allow(dead_code)]
     pub(super) fn expr_type(&self, id: ExprId) -> Option<&InferType> {
         self.hm_expr_types.get(&id)
+    }
+
+    /// Try to resolve a class method call to a mangled instance function.
+    ///
+    /// If `name` is a known class method, and the first argument's type is
+    /// known (concrete, not a type variable), resolves to `__tc_{Class}_{Type}_{method}`.
+    /// Returns `None` if resolution fails (unknown type, no instance, no ClassEnv).
+    pub(super) fn try_resolve_class_call(
+        &self,
+        name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        let class_env = self.class_env?;
+        let interner = self.interner?;
+
+        // Check if this name is a class method.
+        let (class_name, _class_def) = class_env.method_to_class(name)?;
+
+        // Try compile-time resolution: if the first argument's type is concrete,
+        // find the matching instance and build the mangled name from all of
+        // the instance's type args (supporting multi-param classes).
+        if let Some(first_arg) = arguments.first()
+            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
+            && let Some((instance, _)) = class_env.resolve_instance_with_subst(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                interner,
+            )
+        {
+            // Build mangled name from all instance type args.
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_str = interner.resolve(class_name);
+            let method_str = interner.resolve(name);
+            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            if let Some(sym) = interner.lookup(&mangled) {
+                return Some(sym);
+            }
+        }
+
+        // No compile-time resolution possible — return None.
+        // Dictionary elaboration handles polymorphic calls via dict params.
+        None
+    }
+
+    pub(super) fn try_resolve_class_call_expr(
+        &self,
+        function: &crate::syntax::expression::Expression,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Identifier> {
+        match function {
+            crate::syntax::expression::Expression::Identifier { name, .. } => {
+                self.try_resolve_class_call(*name, arguments)
+            }
+            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
+                let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
+                else {
+                    return None;
+                };
+                self.try_resolve_class_call(*member, arguments)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn resolve_direct_class_call_dict_args(
+        &self,
+        method_name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (class_env, interner) = match (self.class_env, self.interner) {
+            (Some(class_env), Some(interner)) => (class_env, interner),
+            _ => return Vec::new(),
+        };
+        let Some((class_name, _)) = class_env.method_to_class(method_name) else {
+            return Vec::new();
+        };
+        let Some(first_arg) = arguments.first() else {
+            return Vec::new();
+        };
+        let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
+            return Vec::new();
+        };
+
+        class_env
+            .resolve_instance_context_dictionaries(
+                class_name,
+                std::slice::from_ref(first_arg_type),
+                interner,
+            )
+            .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
+            .unwrap_or_default()
+    }
+
+    /// Resolve concrete dictionary arguments for a call to a constrained function.
+    ///
+    /// Looks up the callee's `Scheme` in the type environment. If it has class
+    /// constraints, determines which concrete dictionaries to pass by examining
+    /// the HM-inferred types at the call site.
+    ///
+    /// Returns a (possibly empty) vector of `CoreExpr::Var(__dict_{Class}_{Type})`
+    /// for each constraint that could be resolved to a concrete dictionary.
+    pub(super) fn resolve_dict_args_for_call(
+        &self,
+        callee_name: Identifier,
+        _call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (type_env, class_env, interner) = match (self.type_env, self.class_env, self.interner) {
+            (Some(te), Some(ce), Some(int)) => (te, ce, int),
+            _ => return Vec::new(),
+        };
+
+        let scheme = match type_env.lookup(callee_name) {
+            Some(s) if !s.constraints.is_empty() => s,
+            _ => return Vec::new(),
+        };
+
+        // For each constraint on the callee, try to determine the concrete type
+        // by looking at the argument types at this call site.
+        let mut dict_args = Vec::new();
+        for constraint in &scheme.constraints {
+            if let Some(actual_type_args) =
+                self.resolve_constraint_type_args(constraint, scheme, arguments)
+                && let Some(dict_ref) = class_env.resolve_dictionary_ref(
+                    constraint.class_name,
+                    &actual_type_args,
+                    interner,
+                )
+            {
+                dict_args.push(Self::lower_dictionary_ref(&dict_ref));
+                continue;
+            }
+
+            // Could not resolve — don't partially apply dictionaries.
+            return Vec::new();
+        }
+
+        dict_args
+    }
+
+    /// Try to determine the concrete type for a constraint's type variable
+    /// by examining the argument types at a call site.
+    ///
+    /// For `fn contains<a: Eq>(xs: List<a>, elem: a)` called with `([1,2,3], 2)`,
+    /// the constraint `Eq<a>` has `type_var` matching `a`. We look at the arguments'
+    /// HM types and find `a = Int`.
+    fn resolve_constraint_type_args(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Option<Vec<InferType>> {
+        if let InferType::Fun(param_tys, _, _) = &scheme.infer_type {
+            let param_offset = param_tys.len().saturating_sub(arguments.len());
+            let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+            for type_var in &constraint.type_vars {
+                let mut found = None;
+                for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                    if let Some(arg) = arguments.get(i - param_offset)
+                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
+                        && let Some(actual) =
+                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var)
+                    {
+                        found = Some(actual);
+                        break;
+                    }
+                }
+                resolved.push(found?);
+            }
+            return Some(resolved);
+        }
+
+        None
+    }
+
+    fn match_constraint_type_var(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        match pattern {
+            InferType::Var(var) if *var == target => Some(actual.clone()),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
+                    })
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems.iter().zip(actual_elems.iter()).find_map(
+                    |(pattern_elem, actual_elem)| {
+                        Self::match_constraint_type_var(pattern_elem, actual_elem, target)
+                    },
+                )
+            }
+            _ => None,
+        }
+    }
+
+    fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
+        let span = crate::diagnostics::position::Span::default();
+        if dict_ref.context_args.is_empty() {
+            return CoreExpr::external_var(dict_ref.dict_name, span);
+        }
+
+        CoreExpr::App {
+            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
+            args: dict_ref
+                .context_args
+                .iter()
+                .map(Self::lower_dictionary_ref)
+                .collect(),
+            span,
+        }
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
@@ -194,7 +544,7 @@ impl<'a> AstLowerer<'a> {
                 ..
             } => {
                 let binder = self.bind_name(*name);
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params = self.bind_fn_params(*name, parameters);
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -299,7 +649,11 @@ impl<'a> AstLowerer<'a> {
                 self.lower_functions_in_module(&body.statements, out);
             }
 
-            Statement::Import { .. } | Statement::Data { .. } | Statement::EffectDecl { .. } => {}
+            Statement::Import { .. }
+            | Statement::Data { .. }
+            | Statement::EffectDecl { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => {}
         }
     }
 
@@ -314,7 +668,7 @@ impl<'a> AstLowerer<'a> {
                     ..
                 } => {
                     let binder = self.bind_name(*name);
-                    let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                    let params = self.bind_fn_params(*name, parameters);
                     let body_expr = self.lower_block(body);
                     let expr = CoreExpr::Lam {
                         params,
@@ -347,7 +701,7 @@ impl<'a> AstLowerer<'a> {
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,
-                type_params: type_params.clone(),
+                type_params: Statement::function_type_param_names(type_params),
                 parameters: parameters.clone(),
                 parameter_types: parameter_types.clone(),
                 return_type: return_type.clone(),
@@ -377,10 +731,14 @@ impl<'a> AstLowerer<'a> {
                 span: *span,
             }),
             Statement::Data {
+                // Proposal 0151: ADT visibility is enforced at the class
+                // visibility walker; Core IR is visibility-blind.
+                is_public: _,
                 name,
                 type_params,
                 variants,
                 span,
+                deriving: _,
             } => Some(CoreTopLevelItem::Data {
                 name: *name,
                 type_params: type_params.clone(),
@@ -390,6 +748,38 @@ impl<'a> AstLowerer<'a> {
             Statement::EffectDecl { name, ops, span } => Some(CoreTopLevelItem::EffectDecl {
                 name: *name,
                 ops: ops.clone(),
+                span: *span,
+            }),
+            Statement::Class {
+                // Proposal 0151: Core IR is currently visibility-blind. Phase
+                // 2 will revisit whether `CoreTopLevelItem::Class` needs to
+                // carry visibility for `.flxi` serialization; until then we
+                // drop the field at the AST→Core boundary.
+                is_public: _,
+                name,
+                type_params,
+                superclasses,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Class {
+                name: *name,
+                type_params: type_params.clone(),
+                superclasses: superclasses.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }),
+            Statement::Instance {
+                is_public: _,
+                class_name,
+                type_args,
+                context,
+                methods,
+                span,
+            } => Some(CoreTopLevelItem::Instance {
+                class_name: *class_name,
+                type_args: type_args.clone(),
+                context: context.clone(),
+                methods: methods.clone(),
                 span: *span,
             }),
             Statement::Let { .. }
@@ -719,7 +1109,9 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
-            | Statement::Module { .. } => tail,
+            | Statement::Module { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => tail,
         }
     }
 
@@ -901,6 +1293,7 @@ mod tests {
                 known_flow_names: std::collections::HashSet::new(),
                 flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
+                class_env: None,
             },
         );
         let types = hm.expr_types;

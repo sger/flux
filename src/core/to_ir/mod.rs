@@ -326,6 +326,32 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             ops: ops.clone(),
             span: *span,
         },
+        CoreTopLevelItem::Class {
+            name,
+            type_params,
+            superclasses,
+            methods,
+            span,
+        } => IrTopLevelItem::Class {
+            name: *name,
+            type_params: type_params.clone(),
+            superclasses: superclasses.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
+        CoreTopLevelItem::Instance {
+            class_name,
+            type_args,
+            context,
+            methods,
+            span,
+        } => IrTopLevelItem::Instance {
+            class_name: *class_name,
+            type_args: type_args.clone(),
+            context: context.clone(),
+            methods: methods.clone(),
+            span: *span,
+        },
     }
 }
 

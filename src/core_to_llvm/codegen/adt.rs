@@ -162,7 +162,9 @@ fn collect_items(
             }
             CoreTopLevelItem::Function { .. }
             | CoreTopLevelItem::Import { .. }
-            | CoreTopLevelItem::EffectDecl { .. } => {}
+            | CoreTopLevelItem::EffectDecl { .. }
+            | CoreTopLevelItem::Class { .. }
+            | CoreTopLevelItem::Instance { .. } => {}
         }
     }
     Ok(())

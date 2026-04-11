@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::{
     bytecode::compiler::{adt_definition::AdtDefinition, constructor_info::ConstructorInfo},
-    syntax::{data_variant::DataVariant, symbol::Symbol},
+    core::FluxRep,
+    syntax::{data_variant::DataVariant, interner::Interner, symbol::Symbol},
 };
 
 pub struct AdtRegistry {
@@ -18,18 +19,24 @@ impl AdtRegistry {
         }
     }
 
-    pub fn register_adt(&mut self, name: Symbol, variants: &[DataVariant]) {
+    pub fn register_adt(&mut self, name: Symbol, variants: &[DataVariant], interner: &Interner) {
         let mut constructor_list = Vec::new();
 
         for (idx, variant) in variants.iter().enumerate() {
             let arity = variant.fields.len();
-            constructor_list.push((variant.name, arity));
+            let field_reps: Vec<FluxRep> = variant
+                .fields
+                .iter()
+                .map(|f| FluxRep::from_type_expr(f, interner))
+                .collect();
+            constructor_list.push((variant.name, arity, field_reps.clone()));
             self.constructors.insert(
                 variant.name,
                 ConstructorInfo {
                     adt_name: name,
                     tag_idx: idx,
                     arity,
+                    field_reps,
                 },
             );
         }

@@ -149,6 +149,7 @@ impl TypeEnv {
         forall.sort_unstable();
         Scheme {
             forall,
+            constraints: Vec::new(),
             infer_type: ty.clone(),
         }
     }
@@ -191,8 +192,23 @@ impl TypeEnv {
                 let name_str = interner.resolve(*name);
                 // Check if this name is a generic type parameter
                 if let Some(&v) = type_params.get(name) {
-                    // Generic params should not have args: `T<X>` is nonsensical
-                    return Some(InferType::Var(v));
+                    if args.is_empty() {
+                        return Some(InferType::Var(v));
+                    }
+                    // HKT application: f<a> where f is a type param → HktApp(Var(f), [a])
+                    let arg_tys: Option<Vec<InferType>> = args
+                        .iter()
+                        .map(|a| {
+                            Self::convert_type_expr_rec(
+                                a,
+                                type_params,
+                                interner,
+                                row_var_env,
+                                row_var_counter,
+                            )
+                        })
+                        .collect();
+                    return Some(InferType::HktApp(Box::new(InferType::Var(v)), arg_tys?));
                 }
 
                 // Resolve the constructor
@@ -380,8 +396,8 @@ impl TypeEnv {
                     .map(|e| Self::to_runtime(e, type_subst))
                     .collect(),
             ),
-            // Functions and unresolved vars become Any in the runtime
-            InferType::Fun(..) | InferType::Var(_) => RuntimeType::Any,
+            // Functions, unresolved vars, and HKT applications become Any in the runtime
+            InferType::Fun(..) | InferType::Var(_) | InferType::HktApp(..) => RuntimeType::Any,
         }
     }
 }
@@ -463,6 +479,7 @@ mod tests {
             a,
             Scheme {
                 forall: vec![0],
+                constraints: vec![],
                 infer_type: InferType::Fun(
                     vec![infer_var(0)],
                     Box::new(infer_var(1)),

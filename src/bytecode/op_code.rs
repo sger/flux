@@ -88,14 +88,14 @@ pub enum OpCode {
     /// Operand: `[field_idx: u8]`. Replaces top-of-stack with `fields[field_idx]`.
     OpAdtField = 66,
     /// Install a handler for an effect.
-    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor` in constants.
+    /// Operand: `[const_idx: u16]` — index of a `Value::HandlerDescriptor` in constants.
     /// Pushes a `HandlerFrame` onto the handler stack and falls through to the handled expression.
     OpHandle = 67,
     /// Remove the innermost handler frame.
     /// No operands. Pops one `HandlerFrame` from the handler stack.
     OpEndHandle = 68,
     /// Perform an effect operation (suspends the current computation).
-    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// Operands: `[const_idx: u16, arity: u8]`.
     /// `constants[const_idx]` is a `Value::PerformDescriptor`.
     /// Pops `arity` arguments from the stack, searches handler_stack for a matching handler,
     /// captures a continuation, and calls the matching handler arm.
@@ -133,12 +133,12 @@ pub enum OpCode {
     /// Operands: `[local_idx: u8, const_idx: u16, jump_offset: u16]`.
     OpIsAdtJumpLocal = 80,
     /// Install a tail-resumptive handler for an effect.
-    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor`.
+    /// Operand: `[const_idx: u16]` — index of a `Value::HandlerDescriptor`.
     /// Identical to `OpHandle` but marks the handler frame as `is_direct = true`
     /// so that `OpPerformDirect` skips continuation capture.
     OpHandleDirect = 81,
     /// Perform an effect operation on a tail-resumptive handler (no continuation).
-    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// Operands: `[const_idx: u16, arity: u8]`.
     /// Like `OpPerform` but the matching handler arm is called directly — no
     /// continuation is captured and `resume(v)` simply returns `v`.
     OpPerformDirect = 82,
@@ -376,9 +376,9 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpIsAdtJumpLocal => vec![1, 2, 2], // local_idx: u8, const_idx: u16, jump_offset: u16
         // OpAdtFields2: no operands, covered by _ => vec![]
         // Effect handler opcodes
-        OpCode::OpHandle | OpCode::OpHandleDirect => vec![1], // const_idx: u8
+        OpCode::OpHandle | OpCode::OpHandleDirect => vec![2], // const_idx: u16
         OpCode::OpEndHandle => vec![],                        // no operands
-        OpCode::OpPerform | OpCode::OpPerformDirect => vec![1, 1], // const_idx: u8, arity: u8
+        OpCode::OpPerform | OpCode::OpPerformDirect => vec![2, 1], // const_idx: u16, arity: u8
         OpCode::OpPerformDirectIndexed => vec![1, 1, 1], // handler_depth: u8, arm_index: u8, arity: u8
         OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         // Aether reuse opcodes

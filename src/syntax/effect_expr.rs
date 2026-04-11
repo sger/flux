@@ -1,4 +1,5 @@
 use core::fmt;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use crate::{
@@ -6,7 +7,7 @@ use crate::{
     syntax::{Identifier, interner::Interner},
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EffectExpr {
     /// A concrete effect atom, such as `IO` or `Time`.
     Named { name: Identifier, span: Span },

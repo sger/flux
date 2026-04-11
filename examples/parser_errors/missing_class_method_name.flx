@@ -1,0 +1,13 @@
+// Missing method name after `fn` in class declaration.
+//
+// Expected: E034 Missing Method Name
+//   "Expected method name after `fn` in class declaration."
+//   Help: "Class methods use `fn name(x: a, y: a) -> ReturnType`."
+
+class Sizeable<a> {
+    fn (x: a) -> Int
+}
+
+fn main() {
+    42
+}

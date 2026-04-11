@@ -2,7 +2,7 @@
 
 module Flow.Numeric {
 
-    public fn max_list(arr) {
+    public fn max_list(arr: Array<Int>) -> Int {
         fn maxl_go(i, best) {
             if i >= len(arr) { best }
             else {
@@ -21,7 +21,7 @@ module Flow.Numeric {
         }
     }
 
-    public fn min_list(arr) {
+    public fn min_list(arr: Array<Int>) -> Int {
         fn minl_go(i, best) {
             if i >= len(arr) { best }
             else {

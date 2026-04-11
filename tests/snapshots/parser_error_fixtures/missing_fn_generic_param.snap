@@ -1,6 +1,5 @@
 ---
 source: tests/parser_error_fixtures_snapshots.rs
-assertion_line: 26
 ---
 Fixture: examples/parser_errors/missing_fn_generic_param.flx
 == compile ==
@@ -16,7 +15,7 @@ Expected generic type parameter name.
   |             ^
 
 Hint:
-  Generic parameters use `fn name<T, U>(...) { ... }`.
+  Generic parameters use `fn name<T, U>(...) { ... }` or `fn name<T: Eq + Show>(...) { ... }`.
 
 Note:
   while parsing function `identity`

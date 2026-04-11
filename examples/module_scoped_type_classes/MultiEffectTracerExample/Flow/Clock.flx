@@ -1,0 +1,5 @@
+module MultiEffectTracerExample.Flow.Clock {
+    effect Clock {
+        now: () -> Int
+    }
+}

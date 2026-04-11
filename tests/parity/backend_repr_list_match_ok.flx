@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: success
+// bug: real cons lists must still match list constructor patterns
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    match xs {
+        [h | t] -> do {
+            print(h)
+            print(len(t))
+        },
+        _ -> print("bad")
+    }
+}

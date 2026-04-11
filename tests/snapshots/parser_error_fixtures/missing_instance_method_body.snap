@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_instance_method_body.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Method Body
+
+Expected `{` for method body.
+
+  examples/parser_errors/missing_instance_method_body.flx:12:16
+   |
+12 |     fn size(x) x
+   |                ^
+
+Hint:
+  Instance methods require a body: `fn name(x, y) { ... }`.
+== stdout ==
+<not executed>
