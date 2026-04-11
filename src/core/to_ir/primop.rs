@@ -36,9 +36,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ArrayLen => "array_len",
         CorePrimOp::ArrayGet => "array_get",
         CorePrimOp::ArraySet => "array_set",
-        CorePrimOp::ArrayPush => "push",
-        CorePrimOp::ArrayConcat => "concat",
-        CorePrimOp::ArraySlice => "slice",
+        CorePrimOp::ArrayPush => "array_push",
+        CorePrimOp::ArrayConcat => "array_concat",
+        CorePrimOp::ArraySlice => "array_slice",
         CorePrimOp::HamtGet => "get",
         CorePrimOp::HamtSet => "put",
         CorePrimOp::HamtDelete => "delete",
@@ -76,8 +76,8 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
-        CorePrimOp::Reverse => "reverse",
-        CorePrimOp::Contains => "contains",
+        CorePrimOp::ArrayReverse => "array_reverse",
+        CorePrimOp::ArrayContains => "array_contains",
         CorePrimOp::Sort => "sort",
         CorePrimOp::SortBy => "sort_by",
         CorePrimOp::HoMap => "map",
@@ -288,8 +288,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
-            | CorePrimOp::Reverse
-            | CorePrimOp::Contains
+            | CorePrimOp::ArrayReverse
+            | CorePrimOp::ArrayContains
             | CorePrimOp::Sort
             | CorePrimOp::SortBy
             | CorePrimOp::HoMap

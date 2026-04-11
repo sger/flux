@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 module Day05Solver {
     data Section {
         RulesPart,
@@ -51,11 +53,11 @@ module Day05Solver {
                 } else {
                     match section {
                         RulesPart -> match parse_rule(cleaned) {
-                            Right(rule) -> parse_sections(rest, RulesPart, push(rules, rule), pages),
+                            Right(rule) -> parse_sections(rest, RulesPart, array_push(rules, rule), pages),
                             Left(err) -> Left(err),
                         },
                         UpdatesPart -> match parse_update(cleaned) {
-                            Right(update) -> parse_sections(rest, UpdatesPart, rules, push(pages, update)),
+                            Right(update) -> parse_sections(rest, UpdatesPart, rules, array_push(pages, update)),
                             Left(err) -> Left(err),
                         },
                     }
@@ -72,7 +74,7 @@ module Day05Solver {
     }
 
     fn contains_int(xs: Array<Int>, target: Int) -> Bool {
-        any(xs, \x -> x == target)
+        Array.any(xs, \x -> x == target)
     }
 
     fn arrays_equal_at(xs: Array<Int>, ys: Array<Int>, idx: Int) -> Bool {
@@ -94,7 +96,7 @@ module Day05Solver {
     }
 
     fn relevant_rules(rules: Array<(Int, Int)>, xs: Array<Int>) -> Array<(Int, Int)> {
-        filter(rules, \r -> contains_int(xs, r.0) && contains_int(xs, r.1))
+        Array.filter(rules, \r -> contains_int(xs, r.0) && contains_int(xs, r.1))
     }
 
     fn indegree(rules: Array<(Int, Int)>, remaining: Array<Int>, node: Int) -> Int {
@@ -123,7 +125,7 @@ module Day05Solver {
     }
 
     fn remove_value(xs: Array<Int>, target: Int) -> Array<Int> {
-        filter(xs, \x -> x != target)
+        Array.filter(xs, \x -> x != target)
     }
 
     fn topo_sort(remaining: Array<Int>, rules: Array<(Int, Int)>, acc: Array<Int>) -> Array<Int> {
@@ -131,7 +133,7 @@ module Day05Solver {
             acc
         } else {
             match pick_zero_indegree(remaining, rules, 0) {
-                Some(next) -> topo_sort(remove_value(remaining, next), rules, push(acc, next)),
+                Some(next) -> topo_sort(remove_value(remaining, next), rules, array_push(acc, next)),
                 _ -> remaining,
             }
         }
@@ -145,12 +147,12 @@ module Day05Solver {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
                 pages
-                    |> filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
-                    |> map(\orig -> match middle_val(orig) {
+                    |> Array.filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
+                    |> Array.map(\orig -> match middle_val(orig) {
                         Some(v) -> v,
                         _ -> 0,
                     })
-                    |> fold(0, \(acc, x) -> acc + x),
+                    |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }
@@ -163,13 +165,13 @@ module Day05Solver {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
                 pages
-                    |> map(\orig -> (orig, sort_by_rules(rules, orig)))
-                    |> filter(\pair -> !arrays_equal(pair.0, pair.1))
-                    |> map(\pair -> match middle_val(pair.1) {
+                    |> Array.map(\orig -> (orig, sort_by_rules(rules, orig)))
+                    |> Array.filter(\pair -> !arrays_equal(pair.0, pair.1))
+                    |> Array.map(\pair -> match middle_val(pair.1) {
                         Some(v) -> v,
                         _ -> 0,
                     })
-                    |> fold(0, \(acc, x) -> acc + x),
+                    |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }

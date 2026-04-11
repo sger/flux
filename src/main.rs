@@ -3767,7 +3767,7 @@ fn emit_diagnostics(
 
 /// Inject auto-imports for Flow library modules into the program AST.
 ///
-/// Currently injects: `import Flow.Option exposing (..)`
+/// Currently injects the standard Flow prelude modules.
 ///
 /// Uses a mini-parser to parse the synthetic import so symbols are
 /// correctly interned in the same interner used for the rest of compilation.
@@ -3822,11 +3822,7 @@ fn inject_flow_prelude(
         if !flow_dir.join(file_name).exists() {
             continue;
         }
-        if module_name == "Flow.List" {
-            imports.push(format!("import {module_name} except [concat, delete]"));
-        } else {
-            imports.push(format!("import {module_name} exposing (..)"));
-        }
+        imports.push(format!("import {module_name} exposing (..)"));
     }
 
     if imports.is_empty() {

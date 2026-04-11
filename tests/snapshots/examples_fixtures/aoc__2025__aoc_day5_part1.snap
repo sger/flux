@@ -7,6 +7,19 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
+I can't find a value named `push`.
+
+  examples/aoc/2025/aoc_day5_part1.flx:31:9
+   |
+31 |         push(push([||], a), b)
+   |         ^^^^
+
+Hint:
+  Define it first: let push = ...;
+
+
+error[E004]: Undefined Variable
+
 I can't find a value named `map`.
 
   examples/aoc/2025/aoc_day5_part1.flx:81:19
@@ -56,6 +69,6 @@ I can't find a value named `map`.
 Hint:
   Define it first: let map = ...;
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

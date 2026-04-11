@@ -1,3 +1,5 @@
+import Flow.Map as Map
+
 // Tests for base assertion functions: assert_eq, assert_neq, assert_true,
 // assert_false, assert_throws, assert_msg, try, str_contains,
 // assert_gt, assert_lt, assert_gte, assert_lte, and assert_len.
@@ -42,8 +44,8 @@ fn test_assert_eq_nested() {
 }
 
 fn test_assert_eq_maps() {
-    let a = put(put({}, "x", 1), "y", 2)
-    let b = put(put({}, "y", 2), "x", 1)
+    let a = Map.set(Map.set({}, "x", 1), "y", 2)
+    let b = Map.set(Map.set({}, "y", 2), "x", 1)
     assert_eq(a, b)
 }
 
@@ -52,8 +54,8 @@ fn test_assert_eq_nested_lists() {
 }
 
 fn test_assert_eq_array_of_maps() {
-    let left = [|put({}, "x", 1), put(put({}, "y", 2), "z", 3)|]
-    let right = [|put({}, "x", 1), put(put({}, "z", 3), "y", 2)|]
+    let left = [|Map.set({}, "x", 1), Map.set(Map.set({}, "y", 2), "z", 3)|]
+    let right = [|Map.set({}, "x", 1), Map.set(Map.set({}, "z", 3), "y", 2)|]
     assert_eq(left, right)
 }
 

@@ -1,3 +1,6 @@
+import Flow.Array as Array
+import Flow.Map as Map
+
 fn main() with IO, Time {
     print("== All PrimOps Showcase ==");
 
@@ -37,12 +40,12 @@ fn main() with IO, Time {
     print(array_get(arr, 1));
     let arr2 = array_set(arr, 1, 99);
     print(arr2);
-    print(first(arr2));
-    print(last(arr2));
-    print(rest(arr2));
-    print(contains(arr2, 99));
-    print(slice(arr2, 0, 2));
-    print(concat(arr, [|40, 50|]));
+    print(Array.first(arr2));
+    print(Array.last(arr2));
+    print(Array.drop(arr2, 1));
+    print(Array.contains(arr2, 99));
+    print(array_slice(arr2, 0, 2));
+    print(array_concat(arr, [|40, 50|]));
 
     let lst = list(1, 2, 3);
     print(first(lst));
@@ -52,15 +55,16 @@ fn main() with IO, Time {
 
     print("-- Maps --");
     let m0 = {};
-    let m1 = put(m0, "name", "flux");
-    let m2 = put(m1, "year", 2026);
+    let m1 = Map.set(m0, "name", "flux");
+    let m2 = Map.set(m1, "year", 2026);
     print(is_map(m2));
-    print(has_key(m2, "name"));
-    print(get(m2, "name"));
-    print(keys(m2));
-    print(values(m2));
-    print(delete(m2, "year"));
-    print(merge(m2, put({}, "lang", "en")));
+    print(Map.has(m2, "name"));
+    print(Map.get(m2, "name"));
+    print(Array.sort(Map.keys(m2)));
+    print(Array.contains(Map.values(m2), "flux"));
+    print(Array.contains(Map.values(m2), 2026));
+    print(Map.delete(m2, "year"));
+    print(Map.merge(m2, Map.set({}, "lang", "en")));
 
     // Canonical map_* names are also accepted:
     print(map_has(m2, "name"));

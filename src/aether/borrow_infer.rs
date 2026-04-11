@@ -1371,7 +1371,7 @@ mod tests {
     fn base_runtime_entries_use_explicit_metadata() {
         let mut interner = Interner::new();
         let len = interner.intern("len");
-        let push = interner.intern("push");
+        let array_push = interner.intern("array_push");
         let main = binder(1, interner.intern("main"));
         let xs = binder(2, interner.intern("xs"));
         let push_main = binder(3, interner.intern("push_main"));
@@ -1393,7 +1393,7 @@ mod tests {
                     push_main,
                     vec![ys, value],
                     CoreExpr::App {
-                        func: Box::new(ext_var(push)),
+                        func: Box::new(ext_var(array_push)),
                         args: vec![var_ref(ys), var_ref(value)],
                         span: span(),
                     },
@@ -1410,8 +1410,8 @@ mod tests {
         );
         assert_eq!(
             registry
-                .lookup_name(push)
-                .expect("push signature")
+                .lookup_name(array_push)
+                .expect("array_push signature")
                 .provenance,
             BorrowProvenance::BaseRuntime
         );
@@ -1420,8 +1420,8 @@ mod tests {
             "len should borrow its argument"
         );
         assert!(
-            !registry.is_borrowed(BorrowCallee::BaseRuntime(push), 0),
-            "push should own at least its array argument"
+            !registry.is_borrowed(BorrowCallee::BaseRuntime(array_push), 0),
+            "array_push should own at least its array argument"
         );
     }
 

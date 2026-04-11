@@ -8,18 +8,18 @@ fn main() with IO {
     let arr = [|1, 2, 3|]
     print(len(arr))
     print(arr[0])
-    print(push(arr, 4))
+    print(array_push(arr, 4))
     print(to_list(arr))
     print(to_array([1, 2, 3]))
 
     // HAMT map ops
     let m = { "a": 1, "b": 2 }
-    print(get(m, "a"))
-    print(get(m, "c"))
-    let m2 = put(m, "c", 3)
-    print(get(m2, "c"))
-    print(has_key(m, "a"))
-    print(has_key(m, "z"))
+    print(map_get(m, "a"))
+    print(map_get(m, "c"))
+    let m2 = map_set(m, "c", 3)
+    print(map_get(m2, "c"))
+    print(map_has(m, "a"))
+    print(map_has(m, "z"))
 
     // Type checks
     print(is_int(42))

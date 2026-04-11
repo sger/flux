@@ -552,8 +552,8 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows => false,
         // Collection operations — pure (no I/O, no side effects)
-        CorePrimOp::Reverse
-        | CorePrimOp::Contains
+        CorePrimOp::ArrayReverse
+        | CorePrimOp::ArrayContains
         | CorePrimOp::Sort
         | CorePrimOp::SortBy
         | CorePrimOp::HoMap
