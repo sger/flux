@@ -132,7 +132,7 @@ src/bytecode/compiler/
 ```bash
 cargo test --all --all-features
 cargo clippy --all-targets --all-features -- -D warnings
-bash scripts/check_parity.sh
+cargo run -- parity-check tests/parity
 ```
 
 ---

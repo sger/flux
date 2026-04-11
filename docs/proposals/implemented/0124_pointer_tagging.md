@@ -239,7 +239,7 @@ Update the Proposal 0119 worker/wrapper to use the new tag format:
 
 ### Phase 5 — Parity testing (~2 days)
 
-- `scripts/check_core_to_llvm_parity.sh` — all examples must match
+- `cargo run -- parity-check examples` — all examples must match
 - Add integer overflow test cases near the 63-bit boundary
 - Benchmark: measure speedup from simpler tag/untag
 

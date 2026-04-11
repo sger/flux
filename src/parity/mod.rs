@@ -26,8 +26,9 @@
 //! cargo run -- parity-check tests/parity --capture-repr
 //! cargo run -- parity-check tests/parity --capture-core --capture-aether --capture-repr
 //! cargo run -- parity-check examples/advanced --root lib --root examples
-//! scripts/check_parity.sh tests/parity examples/basics
-//! scripts/check_parity.sh --extended
+//! cargo run -- parity-check tests/parity --ways vm,llvm
+//! cargo run -- parity-check examples/basics --ways vm,llvm
+//! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 //! ```
 
 pub mod cli;

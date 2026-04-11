@@ -125,9 +125,9 @@ cargo run -- parity-check examples/aoc/2024/day06.flx --ways vm,llvm,vm_cached
 And for release/CI:
 
 ```bash
-scripts/check_parity.sh tests/parity
-scripts/check_parity.sh examples/basics
-scripts/check_parity.sh examples/primop
+cargo run -- parity-check tests/parity
+cargo run -- parity-check examples/basics
+cargo run -- parity-check examples/primop
 ```
 
 ### How parity failures should be debugged
