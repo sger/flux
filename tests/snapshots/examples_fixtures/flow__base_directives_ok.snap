@@ -5,9 +5,9 @@ Fixture: examples/flow/base_directives_ok.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E013]: Module Not Imported
+error[E012]: Unknown Module Member
 
-Module `Flow` is not imported.
+Module `Flow` has no member named `print`.
 
   examples/flow/base_directives_ok.flx:8:1
   |
@@ -15,12 +15,12 @@ Module `Flow` is not imported.
   | ^^^^^^^^^^
 
 Hint:
-  Add an import statement at the top of your file: `import Flow`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+  Check the module's public members or import the correct module.
 
 
-error[E013]: Module Not Imported
+error[E012]: Unknown Module Member
 
-Module `Flow` is not imported.
+Module `Flow` has no member named `print`.
 
   examples/flow/base_directives_ok.flx:9:1
   |
@@ -28,7 +28,7 @@ Module `Flow` is not imported.
   | ^^^^^^^^^^
 
 Hint:
-  Add an import statement at the top of your file: `import Flow`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+  Check the module's public members or import the correct module.
 
 Found 2 errors.
 == stdout ==

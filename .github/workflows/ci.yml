@@ -69,5 +69,11 @@ jobs:
       - name: Install LLVM 18
         run: sudo apt-get update && sudo apt-get install -y llvm-18 lld-18
 
-      - name: Parity check (tests/parity + examples/basics + examples/aether, extended)
-        run: scripts/check_parity.sh --extended tests/parity examples/basics examples/aether
+      - name: Parity check (tests/parity, extended)
+        run: cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+
+      - name: Parity check (examples/basics, extended)
+        run: cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+
+      - name: Parity check (examples/aether, extended)
+        run: cargo run -- parity-check examples/aether --ways vm,llvm,vm_cached,vm_strict,llvm_strict
