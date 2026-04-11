@@ -11,8 +11,8 @@ use crate::diagnostics::{
 use crate::syntax::{interner::Interner, statement::FipAnnotation};
 
 use super::fbip_analysis::{
-    FbipCallDetail, FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome,
-    analyze_program, analyze_program_aether,
+    FbipCallDetail, FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome, analyze_program,
+    analyze_program_aether,
 };
 
 #[derive(Debug, Clone)]
@@ -45,7 +45,10 @@ pub fn check_fbip_aether(program: &AetherProgram, interner: &Interner) -> FbipCh
 
 fn build_check_result<D>(
     defs: &[D],
-    summaries: std::collections::HashMap<crate::core::CoreBinderId, super::fbip_analysis::FbipSummary>,
+    summaries: std::collections::HashMap<
+        crate::core::CoreBinderId,
+        super::fbip_analysis::FbipSummary,
+    >,
     interner: &Interner,
 ) -> FbipCheckResult
 where
@@ -116,8 +119,8 @@ where
                 ErrorType::Compiler,
                 message.clone(),
                 Some(
-                        "Annotate only functions whose fresh allocations remain provably bounded."
-                            .to_string(),
+                    "Annotate only functions whose fresh allocations remain provably bounded."
+                        .to_string(),
                 ),
                 "",
                 def.span(),

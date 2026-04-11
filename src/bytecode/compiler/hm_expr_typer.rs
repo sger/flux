@@ -279,9 +279,8 @@ impl Compiler {
                 .copied()
                 .find(|module| self.sym(*module).rsplit('.').next() == Some(short))
                 .or_else(|| {
-                    self.current_module_prefix.filter(|module| {
-                        self.sym(*module).rsplit('.').next() == Some(short)
-                    })
+                    self.current_module_prefix
+                        .filter(|module| self.sym(*module).rsplit('.').next() == Some(short))
                 })
         };
         let Some(module_name) = module_name else {

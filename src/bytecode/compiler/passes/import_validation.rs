@@ -84,10 +84,10 @@ impl Compiler {
 
                 // Record the file-scope binding so the module-body
                 // pass can detect cross-scope conflicts.
-                if let Some(prev_module) = file_exposed.insert(exposed, *module_name) {
-                    if prev_module != *module_name {
-                        self.emit_e458(exposed, *span);
-                    }
+                if let Some(prev_module) = file_exposed.insert(exposed, *module_name)
+                    && prev_module != *module_name
+                {
+                    self.emit_e458(exposed, *span);
                 }
             }
         }

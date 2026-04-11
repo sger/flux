@@ -284,11 +284,7 @@ impl<'a> AstLowerer<'a> {
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
             && let Some((instance, _concrete_type_args)) = class_env
-                .resolve_method_call_instance_from_first_arg(
-                    class_name,
-                    first_arg_type,
-                    interner,
-                )
+                .resolve_method_call_instance_from_first_arg(class_name, first_arg_type, interner)
         {
             // Build mangled name from the instance head exactly as dispatch
             // generation does. This preserves higher-kinded heads such as
