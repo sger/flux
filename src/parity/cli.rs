@@ -21,9 +21,13 @@ use super::report::{
     print_summary,
 };
 use super::runner::{
-    DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_core, is_native_skip, run_way,
+    DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_cfg, capture_dump_core,
+    capture_dump_lir, capture_dump_repr, is_native_skip, run_way,
 };
-use super::{DebugArtifacts, ExitKind, MismatchDetail, ParityResult, Verdict, Way};
+use super::{
+    BackendId, DebugArtifacts, ExitKind, MismatchDetail, ParityResult, SurfaceKind, Verdict, Way,
+    backend_spec,
+};
 
 fn default_vm_binary() -> PathBuf {
     default_parity_binary("target/parity_vm/debug")
@@ -108,9 +112,14 @@ pub fn run_parity_check(args: &[String]) {
                 timeout: config.timeout,
                 capture_core: config.capture_core,
                 capture_aether: config.capture_aether,
+                capture_repr: config.capture_repr,
+                capture_cfg: config.capture_cfg,
+                capture_lir: config.capture_lir,
+                compare_surfaces_only: config.compare_surfaces_only,
+                explain: config.explain,
             },
         );
-        print_result(&parity_result, config.display_filter);
+        print_result(&parity_result, config.display_filter, config.explain);
         let is_non_pass = !matches!(parity_result.verdict, Verdict::Pass);
         if is_non_pass
             && !saved_first_failure
@@ -153,6 +162,11 @@ struct CheckOpts<'a> {
     timeout: Duration,
     capture_core: bool,
     capture_aether: bool,
+    capture_repr: bool,
+    capture_cfg: bool,
+    capture_lir: bool,
+    compare_surfaces_only: bool,
+    explain: bool,
 }
 
 /// Run all requested ways on a single file and compare.
@@ -184,11 +198,17 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut artifacts = capture_artifacts(file, opts, false);
-    let mut details = collect_mismatch_details(&run_results, &artifacts);
+    let mut details =
+        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
 
-    if !opts.capture_core && !details.is_empty() && run_results.len() >= 2 && artifacts.is_empty() {
+    if !opts.capture_core
+        && !details.is_empty()
+        && run_results.len() >= 2
+        && artifacts.is_empty()
+        && !opts.compare_surfaces_only
+    {
         artifacts = capture_artifacts(file, opts, true);
-        details = collect_mismatch_details(&run_results, &artifacts);
+        details = collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
     }
 
     // Cache parity: compare each cached way against its fresh counterpart
@@ -288,7 +308,10 @@ fn capture_artifacts(
 ) -> Vec<(Way, DebugArtifacts)> {
     let capture_core = opts.capture_core || force_core_on_mismatch;
     let capture_aether = opts.capture_aether;
-    if !capture_core && !capture_aether {
+    let capture_repr = opts.capture_repr;
+    let capture_cfg = opts.capture_cfg;
+    let capture_lir = opts.capture_lir;
+    if !capture_core && !capture_aether && !capture_repr && !capture_cfg && !capture_lir {
         return vec![];
     }
 
@@ -297,6 +320,9 @@ fn capture_artifacts(
         .map(|&way| {
             let mut arts = DebugArtifacts::default();
             if capture_core {
+                if opts.explain {
+                    eprintln!("[parity] capture {}: core", way);
+                }
                 let core = capture_dump_core(
                     opts.vm_binary,
                     opts.llvm_binary,
@@ -305,10 +331,12 @@ fn capture_artifacts(
                     opts.extra_args,
                     opts.timeout,
                 );
-                arts.dump_core = core.dump_core;
-                arts.normalized_dump_core = core.normalized_dump_core;
+                arts.core = core.core;
             }
             if capture_aether {
+                if opts.explain {
+                    eprintln!("[parity] capture {}: aether", way);
+                }
                 let aether = capture_dump_aether(
                     opts.vm_binary,
                     opts.llvm_binary,
@@ -317,8 +345,49 @@ fn capture_artifacts(
                     opts.extra_args,
                     opts.timeout,
                 );
-                arts.dump_aether = aether.dump_aether;
-                arts.normalized_dump_aether = aether.normalized_dump_aether;
+                arts.aether = aether.aether;
+            }
+            if capture_repr {
+                if opts.explain {
+                    eprintln!("[parity] capture {}: repr", way);
+                }
+                let repr = capture_dump_repr(
+                    opts.vm_binary,
+                    opts.llvm_binary,
+                    file,
+                    way,
+                    opts.extra_args,
+                    opts.timeout,
+                );
+                arts.repr = repr.repr;
+            }
+            if capture_cfg {
+                if opts.explain && way.backend_id() == BackendId::Vm {
+                    eprintln!("[parity] capture {}: vm:cfg", way);
+                }
+                let cfg = capture_dump_cfg(
+                    opts.vm_binary,
+                    opts.llvm_binary,
+                    file,
+                    way,
+                    opts.extra_args,
+                    opts.timeout,
+                );
+                arts.backend_ir.extend(cfg.backend_ir);
+            }
+            if capture_lir {
+                if opts.explain && way.backend_id() == BackendId::Llvm {
+                    eprintln!("[parity] capture {}: llvm:lir", way);
+                }
+                let lir = capture_dump_lir(
+                    opts.vm_binary,
+                    opts.llvm_binary,
+                    file,
+                    way,
+                    opts.extra_args,
+                    opts.timeout,
+                );
+                arts.backend_ir.extend(lir.backend_ir);
             }
             (way, arts)
         })
@@ -328,16 +397,14 @@ fn capture_artifacts(
 fn collect_mismatch_details(
     run_results: &[super::RunResult],
     artifacts: &[(Way, DebugArtifacts)],
+    compare_surfaces_only: bool,
 ) -> Vec<MismatchDetail> {
     let mut details = Vec::new();
 
     if artifacts.len() >= 2 {
         let (base_way, ref base_arts) = artifacts[0];
         for &(other_way, ref other_arts) in &artifacts[1..] {
-            let pair = (
-                &base_arts.normalized_dump_core,
-                &other_arts.normalized_dump_core,
-            );
+            let pair = (&base_arts.core.normalized, &other_arts.core.normalized);
             if let (Some(base_core), Some(other_core)) = pair
                 && base_core != other_core
             {
@@ -349,10 +416,7 @@ fn collect_mismatch_details(
                 });
             }
 
-            let aether_pair = (
-                &base_arts.normalized_dump_aether,
-                &other_arts.normalized_dump_aether,
-            );
+            let aether_pair = (&base_arts.aether.normalized, &other_arts.aether.normalized);
             if let (Some(base_aether), Some(other_aether)) = aether_pair
                 && base_aether != other_aether
             {
@@ -363,12 +427,54 @@ fn collect_mismatch_details(
                     right: other_aether.clone(),
                 });
             }
+
+            let repr_pair = (&base_arts.repr.normalized, &other_arts.repr.normalized);
+            if let (Some(base_repr), Some(other_repr)) = repr_pair
+                && base_repr != other_repr
+            {
+                details.push(MismatchDetail::RepresentationMismatch {
+                    left_way: base_way,
+                    left: base_repr.clone(),
+                    right_way: other_way,
+                    right: other_repr.clone(),
+                });
+            }
         }
     }
 
-    if run_results.len() >= 2 {
+    if !compare_surfaces_only && run_results.len() >= 2 {
         let base = &run_results[0];
+        let has_shared_mismatch = details.iter().any(|d| {
+            matches!(
+                d,
+                MismatchDetail::CoreMismatch { .. }
+                    | MismatchDetail::AetherMismatch { .. }
+                    | MismatchDetail::RepresentationMismatch { .. }
+            )
+        });
         for other in &run_results[1..] {
+            let runtime_diverged = base.exit_kind != other.exit_kind
+                || base.normalized_stdout != other.normalized_stdout
+                || ((base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
+                    && base.normalized_stderr != other.normalized_stderr);
+            if runtime_diverged && !has_shared_mismatch {
+                let backend = other.way.backend_id();
+                details.push(MismatchDetail::BackendIrMismatch {
+                    baseline_way: base.way,
+                    backend,
+                    surface: backend_spec(backend).ir_surface.to_string(),
+                    summary: format!(
+                        "shared layers match; inspect {}.ir({}) next",
+                        backend,
+                        backend_spec(backend).ir_surface
+                    ),
+                });
+                details.push(MismatchDetail::BackendRuntimeMismatch {
+                    baseline_way: base.way,
+                    backend,
+                    summary: format!("{backend} diverged from baseline {}", base.way),
+                });
+            }
             if base.exit_kind != other.exit_kind {
                 details.push(MismatchDetail::ExitKind {
                     left_way: base.way,
@@ -451,6 +557,18 @@ struct Config {
     capture_core: bool,
     /// When true, capture `--dump-aether=debug` per way and compare ownership.
     capture_aether: bool,
+    /// When true, capture `--dump-repr` per way and compare backend contracts.
+    capture_repr: bool,
+    /// When true, capture `--dump-cfg` for VM ways.
+    capture_cfg: bool,
+    /// When true, capture `--dump-lir` for LLVM ways.
+    capture_lir: bool,
+    /// When true, print the multi-layer debug ladder.
+    explain: bool,
+    /// When true, compare debug surfaces only.
+    compare_surfaces_only: bool,
+    /// Optional explicit surface filter.
+    surfaces: Option<Vec<SurfaceKind>>,
     /// Filter which results to display.
     display_filter: DisplayFilter,
     /// When true, rebuild parity binaries before running checks.
@@ -475,6 +593,12 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut extra_args = Vec::new();
     let mut capture_core = false;
     let mut capture_aether = false;
+    let mut capture_repr = false;
+    let mut capture_cfg = false;
+    let mut capture_lir = false;
+    let mut explain = false;
+    let mut compare_surfaces_only = false;
+    let mut surfaces: Option<Vec<SurfaceKind>> = None;
     let mut display_filter = DisplayFilter::All;
     let mut rebuild = false;
     let mut debug_first_failure = false;
@@ -522,6 +646,28 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             }
             "--capture-aether" => {
                 capture_aether = true;
+            }
+            "--capture-repr" => {
+                capture_repr = true;
+            }
+            "--capture-cfg" => {
+                capture_cfg = true;
+            }
+            "--capture-lir" => {
+                capture_lir = true;
+            }
+            "--explain" => {
+                explain = true;
+            }
+            "--compare-surfaces" => {
+                compare_surfaces_only = true;
+            }
+            "--surfaces" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("--surfaces requires a value".to_string());
+                }
+                surfaces = Some(parse_surface_list(&args[i])?);
             }
             "--rebuild" => {
                 rebuild = true;
@@ -575,6 +721,40 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
 
     let path = path.ok_or("missing file or directory argument")?;
 
+    if explain {
+        capture_core = true;
+        capture_aether = true;
+        capture_repr = true;
+        capture_cfg = true;
+        capture_lir = true;
+    }
+    if compare_surfaces_only && surfaces.is_none() {
+        surfaces = Some(vec![
+            SurfaceKind::Core,
+            SurfaceKind::Aether,
+            SurfaceKind::Repr,
+            SurfaceKind::BackendIr(BackendId::Vm),
+            SurfaceKind::BackendIr(BackendId::Llvm),
+        ]);
+    }
+    if let Some(requested) = &surfaces {
+        capture_core |= requested
+            .iter()
+            .any(|surface| matches!(surface, SurfaceKind::Core));
+        capture_aether |= requested
+            .iter()
+            .any(|surface| matches!(surface, SurfaceKind::Aether));
+        capture_repr |= requested
+            .iter()
+            .any(|surface| matches!(surface, SurfaceKind::Repr));
+        capture_cfg |= requested
+            .iter()
+            .any(|surface| matches!(surface, SurfaceKind::BackendIr(BackendId::Vm)));
+        capture_lir |= requested
+            .iter()
+            .any(|surface| matches!(surface, SurfaceKind::BackendIr(BackendId::Llvm)));
+    }
+
     Ok(Config {
         path,
         ways,
@@ -584,6 +764,12 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         extra_args,
         capture_core,
         capture_aether,
+        capture_repr,
+        capture_cfg,
+        capture_lir,
+        explain,
+        compare_surfaces_only,
+        surfaces,
         display_filter,
         rebuild,
         debug_first_failure,
@@ -603,6 +789,10 @@ Options:
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership
+  --capture-repr         Capture --dump-repr per way and compare backend contracts
+  --capture-cfg          Capture --dump-cfg for VM ways
+  --capture-lir          Capture --dump-lir for LLVM ways
+  --explain              Run parity, then explain the mismatch with shared/backend IR captures
   --rebuild              Force rebuild of parity VM/native binaries before running checks
   --debug-first-failure  Stop after the first non-pass result and print extra debug detail
   --save-debug-dir <p>   Save the first non-pass result's artifacts under <p>
@@ -785,7 +975,12 @@ fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
         }
         None => eprintln!("[parity] ways: fixture metadata/default"),
     }
-    if config.capture_core || config.capture_aether {
+    if config.capture_core
+        || config.capture_aether
+        || config.capture_repr
+        || config.capture_cfg
+        || config.capture_lir
+    {
         let mut captures = Vec::new();
         if config.capture_core {
             captures.push("core");
@@ -793,7 +988,30 @@ fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
         if config.capture_aether {
             captures.push("aether");
         }
+        if config.capture_repr {
+            captures.push("repr");
+        }
+        if config.capture_cfg {
+            captures.push("vm:cfg");
+        }
+        if config.capture_lir {
+            captures.push("llvm:lir");
+        }
         eprintln!("[parity] capture: {}", captures.join(","));
+    }
+    if config.explain {
+        eprintln!("[parity] explain: enabled");
+    }
+    if config.compare_surfaces_only {
+        eprintln!("[parity] compare-surfaces: enabled");
+    }
+    if let Some(surfaces) = &config.surfaces {
+        let text = surfaces
+            .iter()
+            .map(|surface| surface.label())
+            .collect::<Vec<_>>()
+            .join(",");
+        eprintln!("[parity] surfaces: {text}");
     }
     for status in statuses {
         eprintln!(
@@ -881,27 +1099,55 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
 
     for (way, arts) in &result.artifacts {
         let prefix = way.to_string();
-        if let Some(core) = &arts.dump_core {
+        if let Some(core) = &arts.core.raw {
             fs::write(fixture_dir.join(format!("{prefix}.core.txt")), core)
                 .map_err(|e| format!("write core dump for {prefix}: {e}"))?;
         }
-        if let Some(core) = &arts.normalized_dump_core {
+        if let Some(core) = &arts.core.normalized {
             fs::write(
                 fixture_dir.join(format!("{prefix}.core.normalized.txt")),
                 core,
             )
             .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
         }
-        if let Some(aether) = &arts.dump_aether {
+        if let Some(aether) = &arts.aether.raw {
             fs::write(fixture_dir.join(format!("{prefix}.aether.txt")), aether)
                 .map_err(|e| format!("write aether dump for {prefix}: {e}"))?;
         }
-        if let Some(aether) = &arts.normalized_dump_aether {
+        if let Some(aether) = &arts.aether.normalized {
             fs::write(
                 fixture_dir.join(format!("{prefix}.aether.normalized.txt")),
                 aether,
             )
             .map_err(|e| format!("write normalized aether dump for {prefix}: {e}"))?;
+        }
+        if let Some(repr) = &arts.repr.raw {
+            fs::write(fixture_dir.join(format!("{prefix}.repr.txt")), repr)
+                .map_err(|e| format!("write repr dump for {prefix}: {e}"))?;
+        }
+        if let Some(repr) = &arts.repr.normalized {
+            fs::write(
+                fixture_dir.join(format!("{prefix}.repr.normalized.txt")),
+                repr,
+            )
+            .map_err(|e| format!("write normalized repr dump for {prefix}: {e}"))?;
+        }
+        for (backend, artifact) in &arts.backend_ir {
+            let surface = backend_spec(*backend).ir_surface;
+            if let Some(raw) = &artifact.raw {
+                fs::write(
+                    fixture_dir.join(format!("{prefix}.{backend}.{surface}.txt")),
+                    raw,
+                )
+                .map_err(|e| format!("write backend ir for {prefix}: {e}"))?;
+            }
+            if let Some(normalized) = &artifact.normalized {
+                fs::write(
+                    fixture_dir.join(format!("{prefix}.{backend}.{surface}.normalized.txt")),
+                    normalized,
+                )
+                .map_err(|e| format!("write normalized backend ir for {prefix}: {e}"))?;
+            }
         }
     }
 
@@ -1020,14 +1266,47 @@ fn build_metadata_json(result: &ParityResult) -> String {
         out.push_str(&format!(
             "        \"core\": {},\n",
             artifact
-                .and_then(|arts| arts.normalized_dump_core.as_ref())
+                .and_then(|arts| arts.core.normalized.as_ref())
                 .is_some()
         ));
         out.push_str(&format!(
-            "        \"aether\": {}\n",
+            "        \"core_fingerprint\": {},\n",
             artifact
-                .and_then(|arts| arts.normalized_dump_aether.as_ref())
+                .and_then(|arts| arts.core.fingerprint.as_ref())
+                .map(|fp| format!("\"{}\"", json_escape(fp)))
+                .unwrap_or_else(|| "null".to_string())
+        ));
+        out.push_str(&format!(
+            "        \"aether\": {},\n",
+            artifact
+                .and_then(|arts| arts.aether.normalized.as_ref())
                 .is_some()
+        ));
+        out.push_str(&format!(
+            "        \"aether_fingerprint\": {},\n",
+            artifact
+                .and_then(|arts| arts.aether.fingerprint.as_ref())
+                .map(|fp| format!("\"{}\"", json_escape(fp)))
+                .unwrap_or_else(|| "null".to_string())
+        ));
+        out.push_str(&format!(
+            "        \"repr\": {},\n",
+            artifact
+                .and_then(|arts| arts.repr.normalized.as_ref())
+                .is_some()
+        ));
+        out.push_str(&format!(
+            "        \"repr_fingerprint\": {},\n",
+            artifact
+                .and_then(|arts| arts.repr.fingerprint.as_ref())
+                .map(|fp| format!("\"{}\"", json_escape(fp)))
+                .unwrap_or_else(|| "null".to_string())
+        ));
+        out.push_str(&format!(
+            "        \"backend_ir\": {}\n",
+            artifact
+                .map(|arts| arts.backend_ir.len())
+                .unwrap_or_default()
         ));
         out.push_str("      },\n");
         out.push_str("      \"cache_observations_detail\": [\n");
@@ -1093,6 +1372,17 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             right_way,
             ..
         } => format!("aether: {left_way} vs {right_way}"),
+        MismatchDetail::RepresentationMismatch {
+            left_way,
+            right_way,
+            ..
+        } => format!("repr: {left_way} vs {right_way}"),
+        MismatchDetail::BackendIrMismatch {
+            backend, surface, ..
+        } => format!("backend_ir: {backend}:{surface}"),
+        MismatchDetail::BackendRuntimeMismatch { backend, .. } => {
+            format!("backend_runtime: {backend}")
+        }
         MismatchDetail::CacheMismatch {
             fresh_way,
             cached_way,
@@ -1106,6 +1396,19 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             ..
         } => format!("strict {field}: {normal_way} vs {strict_way}"),
     }
+}
+
+fn parse_surface_list(raw: &str) -> Result<Vec<SurfaceKind>, String> {
+    raw.split(',')
+        .map(|item| match item.trim() {
+            "core" => Ok(SurfaceKind::Core),
+            "aether" => Ok(SurfaceKind::Aether),
+            "repr" => Ok(SurfaceKind::Repr),
+            "vm:cfg" => Ok(SurfaceKind::BackendIr(BackendId::Vm)),
+            "llvm:lir" => Ok(SurfaceKind::BackendIr(BackendId::Llvm)),
+            other => Err(format!("unknown surface: {other}")),
+        })
+        .collect()
 }
 
 fn json_escape(input: &str) -> String {

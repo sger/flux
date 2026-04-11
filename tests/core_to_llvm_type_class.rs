@@ -10,11 +10,11 @@ use flux::{
     ast::type_infer::constraint::SchemeConstraint,
     bytecode::compiler::Compiler,
     syntax::{effect_expr::EffectExpr, lexer::Lexer, parser::Parser, type_expr::TypeExpr},
-    types::{infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme},
     types::module_interface::{
         ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
         PublicInstanceMethodEntry,
     },
+    types::{infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme},
 };
 
 /// Parse source, run full compilation pipeline (which populates class_env),
@@ -275,8 +275,13 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
                     type_vars: vec![0],
                 }],
                 infer_type: InferType::Fun(
-                    vec![InferType::Var(0), InferType::Con(flux::types::type_constructor::TypeConstructor::String)],
-                    Box::new(InferType::Con(flux::types::type_constructor::TypeConstructor::Unit)),
+                    vec![
+                        InferType::Var(0),
+                        InferType::Con(flux::types::type_constructor::TypeConstructor::String),
+                    ],
+                    Box::new(InferType::Con(
+                        flux::types::type_constructor::TypeConstructor::Unit,
+                    )),
                     InferEffectRow::closed_empty(),
                 ),
             },

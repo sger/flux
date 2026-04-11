@@ -202,7 +202,9 @@ impl ModuleBytecodeCache {
         let path = self.cache_path(source_path, cache_key);
         let tmp_path = path.with_extension(format!(
             "{}.tmp",
-            path.extension().and_then(|ext| ext.to_str()).unwrap_or("fxm")
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("fxm")
         ));
         let mut file = File::create(&tmp_path)?;
 

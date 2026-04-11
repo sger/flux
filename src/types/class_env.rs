@@ -215,9 +215,27 @@ impl ClassEnv {
         interner: &Interner,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        Self::collect_classes(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
-        Self::collect_instances(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
-        Self::collect_deriving(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
+        Self::collect_classes(
+            statements,
+            ModulePath::EMPTY,
+            self,
+            &mut diagnostics,
+            interner,
+        );
+        Self::collect_instances(
+            statements,
+            ModulePath::EMPTY,
+            self,
+            &mut diagnostics,
+            interner,
+        );
+        Self::collect_deriving(
+            statements,
+            ModulePath::EMPTY,
+            self,
+            &mut diagnostics,
+            interner,
+        );
 
         // Proposal 0151, Phase 2: orphan rule enforcement.
         //
@@ -410,7 +428,9 @@ impl ClassEnv {
     ) {
         for stmt in statements {
             match stmt {
-                Statement::Data { is_public, name, .. } => {
+                Statement::Data {
+                    is_public, name, ..
+                } => {
                     // First-wins: if the same ADT name appears twice (which
                     // would be flagged elsewhere), keep the first sighting.
                     out.entry(*name).or_insert(DataInfo {
@@ -1101,11 +1121,7 @@ impl ClassEnv {
 
     /// Return the positional index of a method within a class identified by
     /// `ClassId`.
-    pub fn method_index_by_id(
-        &self,
-        id: ClassId,
-        method_name: Identifier,
-    ) -> Option<usize> {
+    pub fn method_index_by_id(&self, id: ClassId, method_name: Identifier) -> Option<usize> {
         let class_def = self.lookup_class_by_id(id)?;
         class_def.methods.iter().position(|m| m.name == method_name)
     }
@@ -1213,8 +1229,12 @@ impl ClassEnv {
             }
             let first_pattern = inst.type_args.first()?;
             let mut subst = HashMap::new();
-            if !Self::match_instance_type_expr(first_pattern, first_actual_type, &mut subst, interner)
-            {
+            if !Self::match_instance_type_expr(
+                first_pattern,
+                first_actual_type,
+                &mut subst,
+                interner,
+            ) {
                 return None;
             }
             let concrete_type_args = inst
@@ -1711,12 +1731,9 @@ impl ClassEnv {
                         } else {
                             Self::type_constructor_matches(*name, tc, interner)
                                 && args.len() == actual_args.len()
-                                && args
-                                    .iter()
-                                    .zip(actual_args.iter())
-                                    .all(|(p, a)| {
-                                        Self::match_instance_type_expr(p, a, subst, interner)
-                                    })
+                                && args.iter().zip(actual_args.iter()).all(|(p, a)| {
+                                    Self::match_instance_type_expr(p, a, subst, interner)
+                                })
                         }
                     }
                     _ => false,
@@ -1792,9 +1809,7 @@ mod tests {
     use crate::{
         diagnostics::position::Span,
         syntax::interner::Interner,
-        types::{
-            class_id::ModulePath, infer_type::InferType, type_constructor::TypeConstructor,
-        },
+        types::{class_id::ModulePath, infer_type::InferType, type_constructor::TypeConstructor},
     };
 
     fn s() -> Span {
@@ -1814,7 +1829,11 @@ class TopLvlClass<a> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -1848,7 +1867,11 @@ module Phase1b.Step1 {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -1892,7 +1915,11 @@ instance Step2Eq<Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -1930,7 +1957,11 @@ module Phase1b.Step2 {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -1974,7 +2005,11 @@ module Phase1b.Step2Derive {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2031,7 +2066,11 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2113,7 +2152,11 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2144,8 +2187,14 @@ module Mod.B {
         assert_eq!(insts_b[0].class_id, id_b);
 
         // Their owning modules also differ.
-        assert_eq!(insts_a[0].instance_module, ModulePath::from_identifier(mod_a));
-        assert_eq!(insts_b[0].instance_module, ModulePath::from_identifier(mod_b));
+        assert_eq!(
+            insts_a[0].instance_module,
+            ModulePath::from_identifier(mod_a)
+        );
+        assert_eq!(
+            insts_b[0].instance_module,
+            ModulePath::from_identifier(mod_b)
+        );
 
         // The bare-name shim still returns BOTH (it can't disambiguate).
         let bare = env.instances_for(foo_sym);
@@ -2181,7 +2230,11 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2230,7 +2283,11 @@ module Mod.Same {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2238,9 +2295,7 @@ module Mod.Same {
         // First declaration succeeds, second is rejected as a duplicate.
         assert_eq!(env.classes.len(), 1, "only one class should be inserted");
         assert!(
-            diags
-                .iter()
-                .any(|d| d.code.as_deref() == Some("E440")),
+            diags.iter().any(|d| d.code.as_deref() == Some("E440")),
             "expected DUPLICATE_CLASS (E440), got: {:?}",
             diags
         );
@@ -2264,7 +2319,11 @@ module Outer.Inner.Deep {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2300,7 +2359,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2334,7 +2397,11 @@ module Mod.Type {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2370,7 +2437,11 @@ module Mod.Third {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2400,7 +2471,11 @@ module Mod.Type {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2428,7 +2503,11 @@ instance TopLvlShow<Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2462,7 +2541,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2492,7 +2575,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2521,7 +2608,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2554,7 +2645,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         // We don't register built-in classes here — `from_statements`
@@ -2594,7 +2689,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2625,7 +2724,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2657,7 +2760,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2687,7 +2794,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2719,7 +2830,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2746,7 +2861,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2773,7 +2892,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2801,7 +2924,11 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2861,7 +2988,11 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2904,7 +3035,11 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -2964,7 +3099,11 @@ module Mod.Other {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -3012,7 +3151,11 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);

@@ -217,6 +217,75 @@ pub fn normalize_aether_dump(raw: &str) -> String {
     normalize_file_paths(&joined)
 }
 
+/// Normalize `--dump-repr` output for cross-way comparison.
+///
+/// The representation contract dump is intentionally backend-agnostic, so the
+/// normalizer only strips empty lines, trailing whitespace, and title lines.
+pub fn normalize_repr_dump(raw: &str) -> String {
+    raw.lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            trimmed != "Flux Backend Representation Contract" && !trimmed.chars().all(|c| c == '=')
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Normalize `--dump-cfg` output for parity/debug inspection.
+pub fn normalize_cfg_dump(raw: &str) -> String {
+    normalize_backend_ir_dump(raw)
+}
+
+/// Normalize `--dump-lir` output for parity/debug inspection.
+pub fn normalize_lir_dump(raw: &str) -> String {
+    normalize_backend_ir_dump(raw)
+}
+
+fn normalize_backend_ir_dump(raw: &str) -> String {
+    raw.lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("Finished ")
+                && !trimmed.starts_with("Running ")
+                && !trimmed.starts_with("Blocking waiting for file lock")
+                && !trimmed.starts_with("Compiling ")
+                && !trimmed.starts_with("[cfg")
+                && !trimmed.starts_with("[lir")
+        })
+        .map(normalize_cfg_like_ids)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn normalize_cfg_like_ids(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if matches!(ch, 'b' | 'v' | '%' | '@') {
+            out.push(ch);
+            let mut saw_digit = false;
+            while let Some(next) = chars.peek().copied() {
+                if next.is_ascii_digit() {
+                    saw_digit = true;
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if saw_digit {
+                out.push('N');
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Replace `line <num>:` with `line N:` in Aether drop/dup references.
 fn normalize_line_numbers(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
@@ -266,6 +335,36 @@ fn normalize_sym_ids(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_repr_dump_strips_title_and_blank_lines() {
+        let raw = "\
+Flux Backend Representation Contract
+===================================
+
+family.array = boxed:array
+rule.match_ctor = decode_ctor_only_after_family_proof
+";
+        assert_eq!(
+            normalize_repr_dump(raw),
+            "family.array = boxed:array\nrule.match_ctor = decode_ctor_only_after_family_proof"
+        );
+    }
+
+    #[test]
+    fn normalize_cfg_dump_strips_banner_and_ids() {
+        let raw = "\
+Finished `dev` profile
+[cfg→vm] Running via CFG → bytecode VM backend...
+fn main [7]
+b12(v3):
+  %4 = Call @12(v9)
+";
+        assert_eq!(
+            normalize_cfg_dump(raw),
+            "fn main [7]\nbN(vN):\n  %N = Call @N(vN)"
+        );
+    }
 
     #[test]
     fn strips_vm_banner() {

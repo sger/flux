@@ -23,7 +23,8 @@
 //! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,llvm_cached,vm_strict,llvm_strict
 //! cargo run -- parity-check tests/parity --capture-core
 //! cargo run -- parity-check tests/parity --capture-aether
-//! cargo run -- parity-check tests/parity --capture-core --capture-aether
+//! cargo run -- parity-check tests/parity --capture-repr
+//! cargo run -- parity-check tests/parity --capture-core --capture-aether --capture-repr
 //! cargo run -- parity-check examples/advanced --root lib --root examples
 //! scripts/check_parity.sh tests/parity examples/basics
 //! scripts/check_parity.sh --extended
@@ -36,6 +37,7 @@ pub mod report;
 pub mod runner;
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 // ── Exit classification ────────────────────────────────────────────────────
@@ -128,6 +130,108 @@ impl Way {
             other => other,
         }
     }
+
+    pub fn backend_id(self) -> BackendId {
+        match self {
+            Self::Vm | Self::VmCached | Self::VmStrict => BackendId::Vm,
+            Self::Llvm | Self::LlvmCached | Self::LlvmStrict => BackendId::Llvm,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BackendId {
+    Vm,
+    Llvm,
+}
+
+impl fmt::Display for BackendId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Vm => write!(f, "vm"),
+            Self::Llvm => write!(f, "llvm"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SurfaceKind {
+    Core,
+    Aether,
+    Repr,
+    BackendIr(BackendId),
+}
+
+impl SurfaceKind {
+    pub fn label(self) -> String {
+        match self {
+            Self::Core => "core".to_string(),
+            Self::Aether => "aether".to_string(),
+            Self::Repr => "repr".to_string(),
+            Self::BackendIr(backend) => {
+                let spec = backend_spec(backend);
+                format!("{backend}:{}", spec.ir_surface)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendSpec {
+    pub id: BackendId,
+    pub display_label: &'static str,
+    pub ir_surface: &'static str,
+    pub lowering_files: &'static [&'static str],
+    pub runtime_files: &'static [&'static str],
+}
+
+pub fn backend_spec(id: BackendId) -> BackendSpec {
+    match id {
+        BackendId::Vm => BackendSpec {
+            id,
+            display_label: "CFG -> bytecode -> VM",
+            ir_surface: "cfg",
+            lowering_files: &["src/cfg/", "src/bytecode/compiler/"],
+            runtime_files: &[
+                "src/bytecode/vm/core_dispatch.rs",
+                "src/bytecode/vm/dispatch.rs",
+            ],
+        },
+        BackendId::Llvm => BackendSpec {
+            id,
+            display_label: "LIR -> LLVM -> native",
+            ir_surface: "lir",
+            lowering_files: &["src/lir/lower.rs", "src/lir/emit_llvm.rs"],
+            runtime_files: &[
+                "runtime/c/flux_rt.c",
+                "runtime/c/array.c",
+                "runtime/c/hamt.c",
+            ],
+        },
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SurfaceArtifact {
+    pub raw: Option<String>,
+    pub normalized: Option<String>,
+    pub fingerprint: Option<String>,
+}
+
+impl SurfaceArtifact {
+    pub fn from_raw(raw: String, normalized: String) -> Self {
+        Self {
+            raw: Some(raw),
+            fingerprint: Some(stable_fingerprint(&normalized)),
+            normalized: Some(normalized),
+        }
+    }
+}
+
+pub fn stable_fingerprint(text: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 // ── Run result ─────────────────────────────────────────────────────────────
@@ -194,10 +298,10 @@ pub enum CacheFileState {
 /// Optional debug artifacts captured alongside a run.
 #[derive(Debug, Default)]
 pub struct DebugArtifacts {
-    pub dump_core: Option<String>,
-    pub normalized_dump_core: Option<String>,
-    pub dump_aether: Option<String>,
-    pub normalized_dump_aether: Option<String>,
+    pub core: SurfaceArtifact,
+    pub aether: SurfaceArtifact,
+    pub repr: SurfaceArtifact,
+    pub backend_ir: Vec<(BackendId, SurfaceArtifact)>,
 }
 
 // ── Parity verdict ─────────────────────────────────────────────────────────
@@ -249,6 +353,23 @@ pub enum MismatchDetail {
         left: String,
         right_way: Way,
         right: String,
+    },
+    RepresentationMismatch {
+        left_way: Way,
+        left: String,
+        right_way: Way,
+        right: String,
+    },
+    BackendIrMismatch {
+        baseline_way: Way,
+        backend: BackendId,
+        surface: String,
+        summary: String,
+    },
+    BackendRuntimeMismatch {
+        baseline_way: Way,
+        backend: BackendId,
+        summary: String,
     },
     CacheMismatch {
         fresh_way: Way,

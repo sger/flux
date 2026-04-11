@@ -2579,83 +2579,136 @@ impl<'a> FnEmitter<'a> {
             },
         });
 
-        // Boxed dispatch: if there's a Tuple arm, check obj_tag first.
-        // Tuples have FluxHeader obj_tag = 0xF3 (FLUX_OBJ_TUPLE), while ADTs
-        // have 0xF2. We read the obj_tag to distinguish them before reading ctor_tag.
+        // Boxed dispatch must check the heap object's obj_tag before trying to
+        // decode ADT constructor tags. Otherwise non-ADT boxed values like
+        // arrays can be misread as FluxAdt payloads and spuriously match `Cons`.
+        let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
+        self.next_tmp += 1;
+        let obj_tag_tmp = LlvmLocal(format!("match.ot.{}", self.next_tmp));
+        self.next_tmp += 1;
+
+        let boxed_instrs = vec![
+            // Convert i64 to ptr (pointer IS the tagged value).
+            LlvmInstr::Cast {
+                dst: ptr_tmp.clone(),
+                op: LlvmValueKind::IntToPtr,
+                from_ty: LlvmType::i64(),
+                operand: self.var(scrutinee),
+                to_ty: LlvmType::Ptr,
+            },
+            // GEP to ptr - 3 (obj_tag field in FluxHeader).
+            LlvmInstr::GetElementPtr {
+                dst: obj_tag_ptr.clone(),
+                inbounds: false,
+                element_ty: LlvmType::i8(),
+                base: LlvmOperand::Local(ptr_tmp),
+                indices: vec![(
+                    LlvmType::i32(),
+                    LlvmOperand::Const(LlvmConst::Int {
+                        bits: 32,
+                        value: -3_i32 as i128,
+                    }),
+                )],
+            },
+            // Load obj_tag byte.
+            LlvmInstr::Load {
+                dst: obj_tag_tmp.clone(),
+                ty: LlvmType::i8(),
+                ptr: LlvmOperand::Local(obj_tag_ptr),
+                align: Some(1),
+            },
+        ];
+
         if let Some(t_arm) = tuple_arm {
             let tuple_target = emit_extract_block(self, t_arm, true);
-
-            // Build instructions for the boxed block inline.
-            // With pointer tagging, the value IS the pointer — just inttoptr.
-            let ptr_tmp = LlvmLocal(format!("match.ptr.{}", self.next_tmp));
-            self.next_tmp += 1;
-            let obj_tag_ptr = LlvmLocal(format!("match.otptr.{}", self.next_tmp));
-            self.next_tmp += 1;
-            let obj_tag_tmp = LlvmLocal(format!("match.ot.{}", self.next_tmp));
-            self.next_tmp += 1;
             let is_tuple = LlvmLocal(format!("match.istup.{}", self.next_tmp));
             self.next_tmp += 1;
 
-            let boxed_instrs = vec![
-                // Convert i64 to ptr (pointer IS the tagged value).
-                LlvmInstr::Cast {
-                    dst: ptr_tmp.clone(),
-                    op: LlvmValueKind::IntToPtr,
-                    from_ty: LlvmType::i64(),
-                    operand: self.var(scrutinee),
-                    to_ty: LlvmType::Ptr,
-                },
-                // GEP to ptr - 3 (obj_tag field in FluxHeader).
-                LlvmInstr::GetElementPtr {
-                    dst: obj_tag_ptr.clone(),
-                    inbounds: false,
-                    element_ty: LlvmType::i8(),
-                    base: LlvmOperand::Local(ptr_tmp),
-                    indices: vec![(
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: -3_i32 as i128,
+            let mut boxed_instrs = boxed_instrs;
+            boxed_instrs.push(LlvmInstr::Icmp {
+                dst: is_tuple.clone(),
+                op: LlvmCmpOp::Eq,
+                ty: LlvmType::i8(),
+                lhs: LlvmOperand::Local(obj_tag_tmp.clone()),
+                rhs: LlvmOperand::Const(LlvmConst::Int {
+                    bits: 8,
+                    value: 0xF3,
+                }),
+            });
+
+            if adt_arms.is_empty() {
+                self.extra_blocks.push(LlvmBlock {
+                    label: boxed_label.clone(),
+                    instrs: boxed_instrs,
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_tuple),
+                        then_label: tuple_target,
+                        else_label: self.label(default),
+                    },
+                });
+            } else {
+                let adt_check_label = LabelId(format!("match.adtcheck.{}", self.next_tmp));
+                self.next_tmp += 1;
+                let is_adt = LlvmLocal(format!("match.isadt.{}", self.next_tmp));
+                self.next_tmp += 1;
+
+                self.extra_blocks.push(LlvmBlock {
+                    label: boxed_label.clone(),
+                    instrs: boxed_instrs,
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_tuple),
+                        then_label: tuple_target,
+                        else_label: adt_check_label.clone(),
+                    },
+                });
+
+                self.extra_blocks.push(LlvmBlock {
+                    label: adt_check_label,
+                    instrs: vec![LlvmInstr::Icmp {
+                        dst: is_adt.clone(),
+                        op: LlvmCmpOp::Eq,
+                        ty: LlvmType::i8(),
+                        lhs: LlvmOperand::Local(obj_tag_tmp),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 8,
+                            value: 0xF2,
                         }),
-                    )],
-                },
-                // Load obj_tag byte.
-                LlvmInstr::Load {
-                    dst: obj_tag_tmp.clone(),
-                    ty: LlvmType::i8(),
-                    ptr: LlvmOperand::Local(obj_tag_ptr),
-                    align: Some(1),
-                },
-                // Compare with FLUX_OBJ_TUPLE (0xF3).
-                LlvmInstr::Icmp {
-                    dst: is_tuple.clone(),
-                    op: LlvmCmpOp::Eq,
-                    ty: LlvmType::i8(),
-                    lhs: LlvmOperand::Local(obj_tag_tmp),
-                    rhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 8,
-                        value: 0xF3,
-                    }),
-                },
-            ];
+                    }],
+                    term: LlvmTerminator::CondBr {
+                        cond_ty: LlvmType::i1(),
+                        cond: LlvmOperand::Local(is_adt),
+                        then_label: adt_dispatch_label,
+                        else_label: self.label(default),
+                    },
+                });
+            }
+        } else {
+            let is_adt = LlvmLocal(format!("match.isadt.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let mut boxed_instrs = boxed_instrs;
+            boxed_instrs.push(LlvmInstr::Icmp {
+                dst: is_adt.clone(),
+                op: LlvmCmpOp::Eq,
+                ty: LlvmType::i8(),
+                lhs: LlvmOperand::Local(obj_tag_tmp),
+                rhs: LlvmOperand::Const(LlvmConst::Int {
+                    bits: 8,
+                    value: 0xF2,
+                }),
+            });
 
             self.extra_blocks.push(LlvmBlock {
                 label: boxed_label.clone(),
                 instrs: boxed_instrs,
                 term: LlvmTerminator::CondBr {
                     cond_ty: LlvmType::i1(),
-                    cond: LlvmOperand::Local(is_tuple),
-                    then_label: tuple_target,
-                    else_label: adt_dispatch_label,
-                },
-            });
-        } else {
-            // No tuple arm — boxed dispatch is the ADT dispatch directly.
-            self.extra_blocks.push(LlvmBlock {
-                label: boxed_label.clone(),
-                instrs: Vec::new(),
-                term: LlvmTerminator::Br {
-                    target: adt_dispatch_label,
+                    cond: LlvmOperand::Local(is_adt),
+                    then_label: adt_dispatch_label,
+                    else_label: self.label(default),
                 },
             });
         }

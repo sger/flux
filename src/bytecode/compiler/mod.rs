@@ -88,17 +88,11 @@ fn merge_effect_summary(current: EffectSummary, observed: EffectSummary) -> Effe
     }
 }
 
-fn remap_identifier(
-    id: Identifier,
-    remap: &HashMap<Symbol, Symbol>,
-) -> Identifier {
+fn remap_identifier(id: Identifier, remap: &HashMap<Symbol, Symbol>) -> Identifier {
     remap.get(&id).copied().unwrap_or(id)
 }
 
-fn remap_effect_expr(
-    effect: &EffectExpr,
-    remap: &HashMap<Symbol, Symbol>,
-) -> EffectExpr {
+fn remap_effect_expr(effect: &EffectExpr, remap: &HashMap<Symbol, Symbol>) -> EffectExpr {
     match effect {
         EffectExpr::Named { name, span } => EffectExpr::Named {
             name: remap_identifier(*name, remap),
@@ -141,7 +135,10 @@ fn remap_type_expr(ty: &TypeExpr, remap: &HashMap<Symbol, Symbol>) -> TypeExpr {
             effects,
             span,
         } => TypeExpr::Function {
-            params: params.iter().map(|param| remap_type_expr(param, remap)).collect(),
+            params: params
+                .iter()
+                .map(|param| remap_type_expr(param, remap))
+                .collect(),
             ret: Box::new(remap_type_expr(ret, remap)),
             effects: effects
                 .iter()
@@ -232,14 +229,10 @@ fn imported_instance_def_from_entry(
     entry: &crate::types::module_interface::PublicInstanceEntry,
     remap: &HashMap<Symbol, Symbol>,
     interner: &mut Interner,
-    imported_classes: &HashMap<
-        crate::types::class_id::ClassId,
-        crate::types::class_env::ClassDef,
-    >,
+    imported_classes: &HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
 ) -> Option<crate::types::class_env::InstanceDef> {
-    let class_module = crate::types::class_id::ModulePath::from_identifier(
-        interner.intern(&entry.class_module),
-    );
+    let class_module =
+        crate::types::class_id::ModulePath::from_identifier(interner.intern(&entry.class_module));
     let class_name = interner.intern(&entry.class_name);
     let class_id = crate::types::class_id::ClassId::new(class_module, class_name);
     imported_classes.get(&class_id)?;
@@ -305,14 +298,16 @@ fn remap_public_instance_entry(
         methods: entry
             .methods
             .iter()
-            .map(|method| crate::types::module_interface::PublicInstanceMethodEntry {
-                name: remap_identifier(method.name, remap),
-                effects: method
-                    .effects
-                    .iter()
-                    .map(|effect| remap_effect_expr(effect, remap))
-                    .collect(),
-            })
+            .map(
+                |method| crate::types::module_interface::PublicInstanceMethodEntry {
+                    name: remap_identifier(method.name, remap),
+                    effects: method
+                        .effects
+                        .iter()
+                        .map(|effect| remap_effect_expr(effect, remap))
+                        .collect(),
+                },
+            )
             .collect(),
         pinned_row_placeholder: entry.pinned_row_placeholder.clone(),
     }
@@ -478,7 +473,11 @@ fn preload_imported_instance_schemes(
             .param_types
             .iter()
             .map(|ty| {
-                specialize_type_expr_for_instance(ty, &class_def.type_params, &instance_def.type_args)
+                specialize_type_expr_for_instance(
+                    ty,
+                    &class_def.type_params,
+                    &instance_def.type_args,
+                )
             })
             .collect::<Vec<_>>();
         let specialized_return_type = specialize_type_expr_for_instance(
@@ -1552,11 +1551,9 @@ impl Compiler {
         }
 
         for class_entry in &interface.public_classes {
-            if let Some(class_def) = imported_class_def_from_entry(
-                class_entry,
-                &symbol_remap,
-                &mut self.interner,
-            ) {
+            if let Some(class_def) =
+                imported_class_def_from_entry(class_entry, &symbol_remap, &mut self.interner)
+            {
                 let class_id = class_def.class_id();
                 for method in &class_def.methods {
                     let qualified = self.interner.intern_join(module_name, method.name);
@@ -1564,11 +1561,8 @@ impl Compiler {
                         self.symbol_table.define(qualified, Span::default());
                     }
                     self.preloaded_imported_globals.insert(qualified);
-                    let scheme = build_public_class_method_scheme(
-                        &class_def,
-                        method,
-                        &self.interner,
-                    );
+                    let scheme =
+                        build_public_class_method_scheme(&class_def, method, &self.interner);
                     self.cached_member_schemes
                         .insert((module_name, method.name), scheme);
                     self.module_function_visibility
@@ -1632,7 +1626,11 @@ impl Compiler {
     ) -> HashMap<String, crate::lir::lower::ImportedNativeSymbol> {
         use crate::syntax::statement::{ImportExposing, Statement};
 
-        fn collect_local_function_names(statements: &[Statement], out: &mut HashSet<String>, interner: &Interner) {
+        fn collect_local_function_names(
+            statements: &[Statement],
+            out: &mut HashSet<String>,
+            interner: &Interner,
+        ) {
             for statement in statements {
                 match statement {
                     Statement::Function { name, .. } => {
@@ -1664,7 +1662,11 @@ impl Compiler {
         ];
         let skip_flow_auto_expose = [("Flow.List", "concat"), ("Flow.List", "delete")];
         let mut local_function_names = HashSet::new();
-        collect_local_function_names(&program.statements, &mut local_function_names, &self.interner);
+        collect_local_function_names(
+            &program.statements,
+            &mut local_function_names,
+            &self.interner,
+        );
 
         for ((module_name, member_name), scheme) in &self.cached_member_schemes {
             let module = self.sym(*module_name);
@@ -1704,12 +1706,12 @@ impl Compiler {
                 }
                 for method in &class_def.methods {
                     let member = self.sym(method.name);
-                    symbols.entry(format!("{binding_name}.{member}")).or_insert_with(|| {
-                        crate::lir::lower::ImportedNativeSymbol {
+                    symbols
+                        .entry(format!("{binding_name}.{member}"))
+                        .or_insert_with(|| crate::lir::lower::ImportedNativeSymbol {
                             symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                             arity: method.arity,
-                        }
-                    });
+                        });
                 }
             }
         }
@@ -2313,7 +2315,9 @@ impl Compiler {
         // but HM needs them in scope so resolved class-call effect propagation
         // can look up the instantiated `__tc_*` row in downstream modules.
         for (&name, scheme) in &self.imported_instance_method_schemes {
-            exposed_schemes.entry(name).or_insert_with(|| scheme.clone());
+            exposed_schemes
+                .entry(name)
+                .or_insert_with(|| scheme.clone());
         }
 
         let class_env = if self.class_env.classes.is_empty() {
@@ -3992,6 +3996,28 @@ impl Compiler {
         Ok(crate::lir::lower::display_program(&lir))
     }
 
+    /// Lower to Core IR, then to CFG IR, and return a human-readable dump.
+    #[allow(clippy::result_large_err)]
+    pub fn dump_cfg(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        let prepared = self.prepare_program_for_lowering(program);
+        self.apply_hm_final(&prepared.hm_final);
+        let class_env_ref = if self.class_env.classes.is_empty() {
+            None
+        } else {
+            Some(&self.class_env)
+        };
+        let (mut ir_program, _) = crate::cfg::lower_program_to_ir_typed(
+            prepared.effective_program.as_ref(),
+            &self.hm_expr_types,
+            Some(&self.interner),
+            optimize,
+            Some(&self.type_env),
+            class_env_ref,
+        )?;
+        crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
+        Ok(ir_program.to_string())
+    }
+
     /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
     /// Returns the `LlvmModule` struct so the caller can inject target triple
     /// and data layout before rendering.
@@ -4591,7 +4617,8 @@ impl Compiler {
             match op {
                 crate::bytecode::op_code::OpCode::OpGetGlobal
                 | crate::bytecode::op_code::OpCode::OpSetGlobal => {
-                    referenced.insert(crate::bytecode::op_code::read_u16(instructions, ip + 1) as usize);
+                    referenced
+                        .insert(crate::bytecode::op_code::read_u16(instructions, ip + 1) as usize);
                 }
                 _ => {}
             }
@@ -4642,15 +4669,15 @@ impl Compiler {
                     .map(|value| self.remap_cached_constant_symbols(value))
                     .collect(),
             )),
-            Value::Some(value) => Value::Some(std::rc::Rc::new(
-                self.remap_cached_constant_symbols(value),
-            )),
-            Value::Left(value) => Value::Left(std::rc::Rc::new(
-                self.remap_cached_constant_symbols(value),
-            )),
-            Value::Right(value) => Value::Right(std::rc::Rc::new(
-                self.remap_cached_constant_symbols(value),
-            )),
+            Value::Some(value) => {
+                Value::Some(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
+            Value::Left(value) => {
+                Value::Left(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
+            Value::Right(value) => {
+                Value::Right(std::rc::Rc::new(self.remap_cached_constant_symbols(value)))
+            }
             Value::Cons(cell) => crate::runtime::cons_cell::ConsCell::cons(
                 self.remap_cached_constant_symbols(&cell.head),
                 self.remap_cached_constant_symbols(&cell.tail),

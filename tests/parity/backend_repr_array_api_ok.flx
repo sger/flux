@@ -1,0 +1,12 @@
+// parity: vm, llvm
+// expect: success
+// bug: array APIs must operate on arrays without list fallback
+
+import Flow.Array as Array
+
+fn main() with IO {
+    let xs = [|10, 20, 30|]
+    print(Array.first(xs))
+    print(Array.length(xs))
+    print(Array.sum(xs))
+}

@@ -1346,6 +1346,22 @@ fn test_cons_first_rest() {
 }
 
 #[test]
+fn test_array_does_not_match_list_pattern() {
+    assert_eq!(
+        run(r#"match [|1, 2, 3|] { [h | t] -> "list", _ -> "array" };"#),
+        make_string("array")
+    );
+}
+
+#[test]
+fn test_tuple_does_not_match_option_pattern() {
+    assert_eq!(
+        run(r#"match (1, 2) { Some(x) -> "option", _ -> "tuple" };"#),
+        make_string("tuple")
+    );
+}
+
+#[test]
 fn test_list_constructor() {
     assert_eq!(run("first(list(10, 20, 30));"), Value::Integer(10));
     assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
