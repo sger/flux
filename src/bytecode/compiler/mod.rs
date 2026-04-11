@@ -3808,6 +3808,20 @@ impl Compiler {
             if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name) {
                 return Some(*name);
             }
+            let short = self.sym(*name);
+            if let Some(found) = self
+                .imported_modules
+                .iter()
+                .copied()
+                .find(|module| self.sym(*module).rsplit('.').next() == Some(short))
+            {
+                return Some(found);
+            }
+            if let Some(current) = self.current_module_prefix
+                && self.sym(current).rsplit('.').next() == Some(short)
+            {
+                return Some(current);
+            }
             return None;
         }
 

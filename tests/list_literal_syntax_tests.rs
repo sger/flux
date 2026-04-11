@@ -39,11 +39,23 @@ fn prefixed_array_literal_supports_indexing() {
 }
 
 #[test]
-#[ignore = "uses base functions (to_array, map) not in standalone compiler"]
-fn map_on_list_literal_returns_list() {
-    let value = run(r#"to_array(map([1, 2, 3], \x -> x * 2));"#);
-    assert_eq!(
-        value,
-        Value::Array(vec![Value::Integer(2), Value::Integer(4), Value::Integer(6)].into())
+fn local_map_on_list_literal_returns_mapped_head() {
+    let value = run(
+        r#"
+fn fmap(xs, f) {
+    match xs {
+        [h | t] -> [f(h) | fmap(t, f)],
+        [] -> [],
+        _ -> []
+    }
+}
+
+let ys = fmap([1, 2, 3], \x -> x * 2);
+match ys {
+    [h | _] -> h,
+    _ -> 0
+};
+"#,
     );
+    assert_eq!(value, Value::Integer(2));
 }

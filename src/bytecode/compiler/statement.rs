@@ -1932,10 +1932,6 @@ impl Compiler {
         alias: Option<Symbol>,
         except: &[Symbol],
     ) -> CompileResult<()> {
-        if self.is_flow_module_symbol(name) {
-            return Ok(());
-        }
-
         if !except.is_empty() {
             let binding_name = alias.unwrap_or(name);
             let excluded: std::collections::HashSet<Symbol> = except.iter().copied().collect();

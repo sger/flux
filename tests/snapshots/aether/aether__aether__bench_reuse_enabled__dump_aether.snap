@@ -454,23 +454,6 @@ lam(xs) ->
           false
     _ ->
       true
-── fn range ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)
-  FreshAllocs: 1
-  verifier: ok
-lam(start, stop) ->
-  let <sym:4000780> =
-    ICmpGe(start#376, stop#377)
-  case <sym:4000780>#780 of
-    true ->
-      drop start#376 in
-        Nil
-    _ ->
-      let <sym:4000782> =
-        let <sym:4000781> =
-          IAdd(start#376, 1)
-        aether_call[owned, borrowed] range#375(<sym:4000781>#781, stop#377)
-      Cons(start#376, <sym:4000782>#782)
 ── fn unzip ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  FBIP: fbip(2)
   FreshAllocs: 2
@@ -1038,8 +1021,8 @@ lam(xs, f) ->
       Nil
 
 ── Total ──
-  Dups: 14  Drops: 74  Reuses: 10  DropSpecs: 0  FBIP: fbip(20)
-  FreshAllocs: 20
+  Dups: 14  Drops: 73  Reuses: 10  DropSpecs: 0  FBIP: fbip(19)
+  FreshAllocs: 19
 
 [1 of 7] Compiling  Assert
 [2 of 7] Compiling  IO
