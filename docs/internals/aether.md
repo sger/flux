@@ -350,7 +350,7 @@ optimize: off
 strict: on
 modules: 1
 ────────────────────────
-Aether Memory Model Report
+Aether Ownership Report
 ==========================
 
 ── fn main ──
