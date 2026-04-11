@@ -122,7 +122,7 @@ Aether becomes its own lowering representation, owned by `src/aether/`, with nam
 - `AetherDef`
 - `AetherProgram`
 
-It can structurally resemble today’s Aether-enriched Core when useful, but it is no longer `CoreExpr`.
+It can structurally resemble the former Aether-enriched Core when useful, but it is no longer `CoreExpr`.
 
 This is **not** a second semantic IR:
 

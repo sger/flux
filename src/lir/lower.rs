@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use std::collections::HashSet;
 
-use crate::aether::AetherExpr;
+use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
     CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
     CoreProgram, CoreTag, CoreTopLevelItem,
@@ -1558,16 +1558,461 @@ impl<'a> FnLower<'a> {
 
     fn lower_expr_aether(&mut self, expr: &AetherExpr) -> LirVar {
         match expr {
+            AetherExpr::Lit(lit, _) => self.lower_lit(lit),
+            AetherExpr::Var { var, .. } => {
+                let core = CoreExpr::Var {
+                    var: *var,
+                    span: expr.span(),
+                };
+                self.lower_expr(&core)
+            }
+            AetherExpr::Lam { params, body, .. } => {
+                let free = crate::aether::free_vars::collect_free_vars_aether(expr);
+                let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+                    .iter()
+                    .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                    .collect();
+
+                {
+                    let mut temp_program = std::mem::take(&mut *self.program);
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let lambda_qname =
+                        format!("{}_lambda_{}", self.func.qualified_name, synthetic_id.0);
+                    let func_name = format!("closure_{}", temp_program.functions.len());
+                    let mut inner = FnLower::new(
+                        func_name,
+                        synthetic_id,
+                        lambda_qname,
+                        FnLowerCtx {
+                            program: &mut temp_program,
+                            interner: self.interner,
+                            globals_map: self.globals_map,
+                            extern_symbols: self.extern_symbols,
+                            name_binder_map: self.name_binder_map,
+                            binder_func_id_map: self.binder_func_id_map,
+                            qualified_names: self.qualified_names,
+                            top_level_value_map: self.top_level_value_map,
+                            int_return_binders: self.int_return_binders,
+                        },
+                    );
+                    for &(binder_id, _) in &outer_captures {
+                        let inner_var = inner.fresh_var();
+                        inner.func.capture_vars.push(inner_var);
+                        inner.bind(binder_id, inner_var);
+                    }
+                    for param in params {
+                        let pv = inner.fresh_var();
+                        inner.bind(param.id, pv);
+                        inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
+                    }
+                    let result = inner.lower_expr_aether(body);
+                    inner.set_terminator(LirTerminator::Return(result));
+                    let inner_func = inner.func;
+                    *self.program = temp_program;
+                    self.program.push_function(inner_func);
+                    let outer_capture_vars: Vec<LirVar> =
+                        outer_captures.iter().map(|&(_, v)| v).collect();
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_id: synthetic_id,
+                        captures: outer_capture_vars,
+                    });
+                    dst
+                }
+            }
+            AetherExpr::App { func, args, .. } => self.lower_call_expr_aether(func, args, None),
             AetherExpr::AetherCall {
                 func,
                 args,
                 arg_modes,
                 ..
+            } => self.lower_call_expr_aether(func, args, Some(arg_modes)),
+            AetherExpr::Let { var, rhs, body, .. } => {
+                let rhs_var = self.lower_expr_aether(rhs);
+                self.bind(var.id, rhs_var);
+                self.lower_expr_aether(body)
+            }
+            AetherExpr::LetRecGroup { bindings, body, .. } => {
+                let group_binder_ids: HashSet<CoreBinderId> =
+                    bindings.iter().map(|(b, _)| b.id).collect();
+
+                struct GroupEntry {
+                    binder_id: CoreBinderId,
+                    synthetic_id: LirFuncId,
+                    func_idx: usize,
+                    outer_captures: Vec<(CoreBinderId, LirVar)>,
+                }
+                let mut entries: Vec<GroupEntry> = Vec::new();
+                let mut all_outer_capture_ids: Vec<CoreBinderId> = Vec::new();
+                {
+                    let mut seen = HashSet::new();
+                    for (_, rhs) in bindings {
+                        let free = crate::aether::free_vars::collect_free_vars_aether(rhs);
+                        for id in free {
+                            if !group_binder_ids.contains(&id) && seen.insert(id) {
+                                all_outer_capture_ids.push(id);
+                            }
+                        }
+                    }
+                }
+                let shared_outer_captures: Vec<(CoreBinderId, LirVar)> = all_outer_capture_ids
+                    .iter()
+                    .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                    .collect();
+
+                let mut temp_program = std::mem::take(&mut *self.program);
+                for (var, _) in bindings {
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let func_idx = temp_program.functions.len();
+                    temp_program.functions.push(LirFunction {
+                        name: format!("letrec_group_{}_placeholder", func_idx),
+                        id: synthetic_id,
+                        qualified_name: format!(
+                            "{}_letrec_group_{}",
+                            self.func.qualified_name, synthetic_id.0
+                        ),
+                        params: Vec::new(),
+                        blocks: Vec::new(),
+                        next_var: 0,
+                        capture_vars: Vec::new(),
+                        param_reps: Vec::new(),
+                        result_rep: crate::core::FluxRep::TaggedRep,
+                    });
+                    temp_program.func_index.insert(synthetic_id, func_idx);
+                    entries.push(GroupEntry {
+                        binder_id: var.id,
+                        synthetic_id,
+                        func_idx,
+                        outer_captures: shared_outer_captures.clone(),
+                    });
+                }
+                for (i, (var, rhs)) in bindings.iter().enumerate() {
+                    if let AetherExpr::Lam { params, body: lam_body, .. } = rhs.as_ref() {
+                        let entry = &entries[i];
+                        let letrec_qname = format!(
+                            "{}_letrec_group_{}",
+                            self.func.qualified_name, entry.synthetic_id.0
+                        );
+                        let func_name = format!("letrec_group_{}", entry.func_idx);
+                        let mut inner = FnLower::new(
+                            func_name,
+                            entry.synthetic_id,
+                            letrec_qname,
+                            FnLowerCtx {
+                                program: &mut temp_program,
+                                interner: self.interner,
+                                globals_map: self.globals_map,
+                                extern_symbols: self.extern_symbols,
+                                name_binder_map: self.name_binder_map,
+                                binder_func_id_map: self.binder_func_id_map,
+                                qualified_names: self.qualified_names,
+                                top_level_value_map: self.top_level_value_map,
+                                int_return_binders: self.int_return_binders,
+                            },
+                        );
+                        for &(binder_id, _) in &entry.outer_captures {
+                            let inner_var = inner.fresh_var();
+                            inner.func.capture_vars.push(inner_var);
+                            inner.bind(binder_id, inner_var);
+                        }
+                        let self_var = inner.fresh_var();
+                        inner.emit(LirInstr::MakeClosure {
+                            dst: self_var,
+                            func_id: entry.synthetic_id,
+                            captures: (0..entry.outer_captures.len())
+                                .map(|ci| inner.func.capture_vars[ci])
+                                .collect(),
+                        });
+                        inner.bind(var.id, self_var);
+                        if entry.outer_captures.is_empty() {
+                            inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        }
+                        for (j, entry_j) in entries.iter().enumerate() {
+                            if j != i {
+                                let sibling_var = inner.fresh_var();
+                                inner.emit(LirInstr::MakeClosure {
+                                    dst: sibling_var,
+                                    func_id: entry_j.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                });
+                                inner.bind(entry_j.binder_id, sibling_var);
+                            }
+                        }
+                        for param in params {
+                            let pv = inner.fresh_var();
+                            inner.bind(param.id, pv);
+                            inner.func.params.push(pv);
+                            inner.func.param_reps.push(param.rep);
+                        }
+                        let result = inner.lower_expr_aether(lam_body);
+                        inner.set_terminator(LirTerminator::Return(result));
+                        temp_program.functions[entry.func_idx] = inner.func;
+                    }
+                }
+                *self.program = temp_program;
+                let outer_capture_vars: Vec<LirVar> =
+                    shared_outer_captures.iter().map(|&(_, v)| v).collect();
+                for entry in &entries {
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_id: entry.synthetic_id,
+                        captures: outer_capture_vars.clone(),
+                    });
+                    self.bind(entry.binder_id, dst);
+                }
+                self.lower_expr_aether(body)
+            }
+            AetherExpr::LetRec { var, rhs, body, .. } => {
+                if let AetherExpr::Lam {
+                    params,
+                    body: lam_body,
+                    ..
+                } = rhs.as_ref()
+                {
+                    let free = crate::aether::free_vars::collect_free_vars_aether(rhs);
+                    let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+                        .iter()
+                        .filter(|id| **id != var.id)
+                        .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+                        .collect();
+                    let mut temp_program = std::mem::take(&mut *self.program);
+                    let synthetic_id = temp_program.alloc_synthetic_func_id();
+                    let letrec_qname =
+                        format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
+                    let func_idx = temp_program.functions.len();
+                    temp_program.functions.push(LirFunction {
+                        name: format!("letrec_{}_placeholder", func_idx),
+                        id: synthetic_id,
+                        qualified_name: letrec_qname.clone(),
+                        params: Vec::new(),
+                        blocks: Vec::new(),
+                        next_var: 0,
+                        capture_vars: Vec::new(),
+                        param_reps: Vec::new(),
+                        result_rep: crate::core::FluxRep::TaggedRep,
+                    });
+                    temp_program.func_index.insert(synthetic_id, func_idx);
+                    let func_name = format!("letrec_{}", func_idx);
+                    let mut inner = FnLower::new(
+                        func_name,
+                        synthetic_id,
+                        letrec_qname,
+                        FnLowerCtx {
+                            program: &mut temp_program,
+                            interner: self.interner,
+                            globals_map: self.globals_map,
+                            extern_symbols: self.extern_symbols,
+                            name_binder_map: self.name_binder_map,
+                            binder_func_id_map: self.binder_func_id_map,
+                            qualified_names: self.qualified_names,
+                            top_level_value_map: self.top_level_value_map,
+                            int_return_binders: self.int_return_binders,
+                        },
+                    );
+                    for &(binder_id, _) in &outer_captures {
+                        let inner_var = inner.fresh_var();
+                        inner.func.capture_vars.push(inner_var);
+                        inner.bind(binder_id, inner_var);
+                    }
+                    let self_var = inner.fresh_var();
+                    inner.emit(LirInstr::MakeClosure {
+                        dst: self_var,
+                        func_id: synthetic_id,
+                        captures: (0..outer_captures.len())
+                            .map(|i| inner.func.capture_vars[i])
+                            .collect(),
+                    });
+                    inner.bind(var.id, self_var);
+                    if outer_captures.is_empty() {
+                        inner.direct_func_vars.insert(self_var, synthetic_id);
+                    }
+                    for param in params {
+                        let pv = inner.fresh_var();
+                        inner.bind(param.id, pv);
+                        inner.func.params.push(pv);
+                        inner.func.param_reps.push(param.rep);
+                    }
+                    let result = inner.lower_expr_aether(lam_body);
+                    inner.set_terminator(LirTerminator::Return(result));
+                    let inner_func = inner.func;
+                    *self.program = temp_program;
+                    self.program.functions[func_idx] = inner_func;
+                    let outer_capture_vars: Vec<LirVar> =
+                        outer_captures.iter().map(|&(_, v)| v).collect();
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeClosure {
+                        dst,
+                        func_id: synthetic_id,
+                        captures: outer_capture_vars,
+                    });
+                    self.bind(var.id, dst);
+                    self.lower_expr_aether(body)
+                } else {
+                    let placeholder = self.fresh_var();
+                    self.emit(LirInstr::Const {
+                        dst: placeholder,
+                        value: LirConst::None,
+                    });
+                    self.bind(var.id, placeholder);
+                    let rhs_var = self.lower_expr_aether(rhs);
+                    self.bind(var.id, rhs_var);
+                    self.lower_expr_aether(body)
+                }
+            }
+            AetherExpr::PrimOp { op, args, .. } => {
+                self.lower_primop_aether(*op, args)
+            }
+            AetherExpr::Case {
+                scrutinee, alts, ..
+            } => self.lower_case_aether(scrutinee, alts),
+            AetherExpr::Con { tag, fields, .. } => self.lower_con_from_aether(tag, fields),
+            AetherExpr::Return { value, .. } => {
+                let val = self.lower_expr_aether(value);
+                self.set_terminator(LirTerminator::Return(val));
+                let dead_idx = self.new_block();
+                self.switch_to_block(dead_idx);
+                val
+            }
+            AetherExpr::Handle {
+                body,
+                effect,
+                handlers,
+                ..
+            } => self.lower_handle_aether(body, *effect, handlers),
+            AetherExpr::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => self.lower_perform_aether(*effect, *operation, args),
+            AetherExpr::MemberAccess {
+                object,
+                member,
+                ..
             } => {
-                let func_core = func.clone().erase_to_core();
-                let args_core: Vec<CoreExpr> =
-                    args.iter().cloned().map(AetherExpr::erase_to_core).collect();
-                self.lower_call_expr(&func_core, &args_core, Some(arg_modes))
+                if let Some(globals) = self.globals_map {
+                    let member_str = self.resolve_name(*member);
+                    let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
+                        let obj_name = self.resolve_name(var.name);
+                        Some(format!("{obj_name}.{member_str}"))
+                    } else {
+                        None
+                    };
+                    if let Some(ref qname) = qualified
+                        && let Some(&global_idx) = globals.get(qname.as_str())
+                    {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        self.global_var_names.insert(dst, member_str.clone());
+                        return dst;
+                    }
+                    if let Some(&global_idx) = globals.get(&member_str) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::GetGlobal { dst, global_idx });
+                        self.global_var_names.insert(dst, member_str.clone());
+                        return dst;
+                    }
+                }
+
+                if let Some(binders) = self.name_binder_map.get(member) {
+                    let member_str = self.resolve_name(*member);
+                    let preferred_suffix = if let AetherExpr::Var { var, .. } = object.as_ref() {
+                        let obj_name = self.resolve_name(var.name);
+                        Some(format!("{obj_name}_{member_str}"))
+                    } else {
+                        None
+                    };
+
+                    let mut ordered_binders = binders.clone();
+                    if let Some(ref suffix) = preferred_suffix
+                        && let Some(pos) = ordered_binders.iter().position(|bid| {
+                            self.qualified_names
+                                .get(bid)
+                                .is_some_and(|q| q.ends_with(suffix))
+                        })
+                    {
+                        let preferred = ordered_binders.remove(pos);
+                        ordered_binders.insert(0, preferred);
+                    }
+
+                    for bid in ordered_binders {
+                        if let Some(&lir_var) = self.env.get(&bid) {
+                            return lir_var;
+                        }
+                        if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
+                            let var = self.fresh_var();
+                            self.emit(LirInstr::MakeClosure {
+                                dst: var,
+                                func_id,
+                                captures: Vec::new(),
+                            });
+                            self.bind(bid, var);
+                            self.direct_func_vars.insert(var, func_id);
+                            return var;
+                        }
+                    }
+                }
+
+                if let AetherExpr::Var { var, .. } = object.as_ref() {
+                    let object_name = self.resolve_name(var.name);
+                    let member_name = self.resolve_name(*member);
+                    let qualified = format!("{object_name}.{member_name}");
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                        let dst = self.fresh_var();
+                        self.emit(LirInstr::MakeExternClosure {
+                            dst,
+                            symbol: extern_fn.symbol,
+                            arity: extern_fn.arity,
+                        });
+                        return dst;
+                    }
+                }
+
+                let member_name = self.resolve_name(*member);
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
+                }
+
+                let obj = self.lower_expr_aether(object);
+                let key = self.fresh_var();
+                self.emit(LirInstr::Const {
+                    dst: key,
+                    value: LirConst::String(member_name),
+                });
+                let option_result = self.fresh_var();
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(option_result),
+                    op: CorePrimOp::HamtGet,
+                    args: vec![obj, key],
+                });
+                let dst = self.fresh_var();
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(dst),
+                    op: CorePrimOp::Unwrap,
+                    args: vec![option_result],
+                });
+                dst
+            }
+            AetherExpr::TupleField { object, index, .. } => {
+                let obj = self.lower_expr_aether(object);
+                let dst = self.fresh_var();
+                self.emit(LirInstr::TupleGet {
+                    dst,
+                    tuple: obj,
+                    index: *index,
+                });
+                dst
             }
             AetherExpr::Dup { var, body, .. } => {
                 if let Some(binder) = var.binder {
@@ -1752,7 +2197,6 @@ impl<'a> FnLower<'a> {
                 self.switch_to_block(join_idx);
                 result
             }
-            _ => self.lower_expr(&expr.clone().erase_to_core()),
         }
     }
 
@@ -1858,6 +2302,64 @@ impl<'a> FnLower<'a> {
         let body_result = self.lower_expr(body);
 
         // 5. Prompt check: restore evv and check for yields.
+        let result = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(result),
+            op: CorePrimOp::YieldPrompt,
+            args: vec![marker, saved_evv, body_result],
+        });
+
+        result
+    }
+
+    fn lower_handle_aether(
+        &mut self,
+        body: &AetherExpr,
+        effect: Identifier,
+        handlers: &[AetherHandler],
+    ) -> LirVar {
+        use crate::core::CorePrimOp;
+
+        let saved_evv = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(saved_evv),
+            op: CorePrimOp::EvvGet,
+            args: vec![],
+        });
+
+        let handler_closure = if handlers.len() == 1 {
+            self.lower_handler_clause_aether(&handlers[0])
+        } else {
+            self.lower_handler_clause_aether(&handlers[0])
+        };
+
+        let marker = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(marker),
+            op: CorePrimOp::FreshMarker,
+            args: vec![],
+        });
+
+        let htag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: htag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
+        });
+
+        let new_evv = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(new_evv),
+            op: CorePrimOp::EvvInsert,
+            args: vec![saved_evv, htag, marker, handler_closure],
+        });
+
+        self.emit(LirInstr::PrimCall {
+            dst: None,
+            op: CorePrimOp::EvvSet,
+            args: vec![new_evv],
+        });
+
+        let body_result = self.lower_expr_aether(body);
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
@@ -2068,6 +2570,188 @@ impl<'a> FnLower<'a> {
         result
     }
 
+    fn lower_call_expr_aether(
+        &mut self,
+        func: &AetherExpr,
+        args: &[AetherExpr],
+        arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
+    ) -> LirVar {
+        let resolved_name = match func {
+            AetherExpr::Var { var, .. } if var.binder.is_none() => Some(self.resolve_name(var.name)),
+            AetherExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
+            _ => None,
+        };
+        if let Some(ref name) = resolved_name
+            && let Some(op) = resolve_library_primop(name, args.len())
+                .or_else(|| CorePrimOp::from_name(name, args.len()))
+        {
+            let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+            self.dup_owned_call_args(&arg_vars, arg_modes);
+            let dst = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(dst),
+                op,
+                args: arg_vars,
+            });
+            return dst;
+        }
+
+        if let Some(ref name) = resolved_name
+            && let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str())
+        {
+            let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+            self.dup_owned_call_args(&arg_vars, arg_modes);
+            let dst = self.fresh_var();
+            self.emit(LirInstr::MakeCtor {
+                dst,
+                ctor_tag,
+                ctor_name: Some(name.clone()),
+                fields: arg_vars,
+                field_reps: Vec::new(),
+            });
+            return dst;
+        }
+
+        let (direct_func_id, callee_binder) = match func {
+            AetherExpr::Var { var, .. } if var.binder.is_some() => {
+                let bid = var.binder.unwrap();
+                let preferred = self.prefer_same_module_binder(bid, var.name);
+                (
+                    self.binder_func_id_map.get(&preferred).copied(),
+                    Some(preferred),
+                )
+            }
+            _ => (None, None),
+        };
+        let direct_external_symbol = if direct_func_id.is_none() {
+            match func {
+                AetherExpr::Var { var, .. } if var.binder.is_none() => {
+                    self.resolve_external_symbol(&self.resolve_name(var.name))
+                }
+                AetherExpr::MemberAccess { object, member, .. } => {
+                    let member_name = self.resolve_name(*member);
+                    let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
+                        Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                    } else {
+                        None
+                    };
+                    qualified
+                        .as_ref()
+                        .and_then(|name| self.resolve_external_symbol(name))
+                        .or_else(|| self.resolve_external_symbol(&member_name))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+        self.dup_owned_call_args(&arg_vars, arg_modes);
+
+        if let Some(func_id) = direct_func_id {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            if let Some(bid) = callee_binder
+                && self.int_return_binders.contains(&bid)
+            {
+                self.int_vars.insert(result);
+            }
+            return result;
+        }
+
+        if let Some(extern_fn) = direct_external_symbol {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectExtern {
+                    symbol: extern_fn.symbol,
+                },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+
+        let func_var = self.lower_expr_aether(func);
+        if let Some(name) = self.global_var_names.get(&func_var).cloned()
+            && let Some(op) = resolve_library_primop(&name, arg_vars.len())
+                .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
+        {
+            let dst = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(dst),
+                op,
+                args: arg_vars,
+            });
+            return dst;
+        }
+
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+
+        let cont_idx = self.new_block();
+        let cont_id = BlockId(cont_idx as u32);
+        let result = self.fresh_var();
+        self.func.blocks[cont_idx].params.push(result);
+        self.set_terminator(LirTerminator::Call {
+            dst: result,
+            func: func_var,
+            args: arg_vars,
+            cont: cont_id,
+            kind: CallKind::Indirect,
+            yield_cont: None,
+        });
+        self.switch_to_block(cont_idx);
+        result
+    }
+
     fn dup_owned_call_args(
         &mut self,
         arg_vars: &[LirVar],
@@ -2168,6 +2852,77 @@ impl<'a> FnLower<'a> {
         dst
     }
 
+    fn lower_handler_clause_aether(&mut self, handler: &AetherHandler) -> LirVar {
+        let free = {
+            let mut free = HashSet::new();
+            let mut bound = HashSet::new();
+            bound.insert(handler.resume.id);
+            for p in &handler.params {
+                bound.insert(p.id);
+            }
+            crate::aether::free_vars::free_vars_rec_aether(&handler.body, &mut bound, &mut free);
+            free
+        };
+
+        let outer_captures: Vec<(CoreBinderId, LirVar)> = free
+            .iter()
+            .filter_map(|id| self.env.get(id).copied().map(|v| (*id, v)))
+            .collect();
+
+        let mut temp_program = std::mem::take(self.program);
+
+        let synthetic_id = temp_program.alloc_synthetic_func_id();
+        let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        let mut inner = FnLower::new(
+            func_name,
+            synthetic_id,
+            format!("handler_{}", synthetic_id.0),
+            FnLowerCtx {
+                program: &mut temp_program,
+                interner: self.interner,
+                globals_map: self.globals_map,
+                extern_symbols: self.extern_symbols,
+                name_binder_map: self.name_binder_map,
+                binder_func_id_map: self.binder_func_id_map,
+                qualified_names: self.qualified_names,
+                top_level_value_map: self.top_level_value_map,
+                int_return_binders: self.int_return_binders,
+            },
+        );
+
+        for &(binder_id, _) in &outer_captures {
+            let inner_var = inner.fresh_var();
+            inner.func.capture_vars.push(inner_var);
+            inner.bind(binder_id, inner_var);
+        }
+
+        let resume_var = inner.fresh_var();
+        inner.bind(handler.resume.id, resume_var);
+        inner.func.params.push(resume_var);
+
+        for p in &handler.params {
+            let pv = inner.fresh_var();
+            inner.bind(p.id, pv);
+            inner.func.params.push(pv);
+        }
+
+        let result = inner.lower_expr_aether(&handler.body);
+        inner.set_terminator(LirTerminator::Return(result));
+
+        let inner_func = inner.func;
+        *self.program = temp_program;
+        self.program.push_function(inner_func);
+
+        let outer_capture_vars: Vec<LirVar> = outer_captures.iter().map(|&(_, v)| v).collect();
+        let dst = self.fresh_var();
+        self.emit(LirInstr::MakeClosure {
+            dst,
+            func_id: synthetic_id,
+            captures: outer_capture_vars,
+        });
+        dst
+    }
+
     /// Lower `perform Effect.operation(args)`.
     ///
     /// Phase 1 (tail-resumptive fast path): directly calls the handler via
@@ -2230,6 +2985,55 @@ impl<'a> FnLower<'a> {
         result
     }
 
+    fn lower_perform_aether(
+        &mut self,
+        effect: Identifier,
+        operation: Identifier,
+        args: &[AetherExpr],
+    ) -> LirVar {
+        use crate::core::CorePrimOp;
+
+        let arg = if args.is_empty() {
+            let none = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: none,
+                value: LirConst::None,
+            });
+            none
+        } else {
+            self.lower_expr_aether(&args[0])
+        };
+
+        let resume = self.make_identity_closure();
+
+        let htag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: htag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
+        });
+
+        let optag = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: optag,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(operation.as_u32() as i64)),
+        });
+
+        let arity = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: arity,
+            value: LirConst::Int(args.len() as i64),
+        });
+
+        let result = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(result),
+            op: CorePrimOp::PerformDirect,
+            args: vec![htag, optag, arg, resume, arity],
+        });
+
+        result
+    }
+
     /// Create an identity closure: a function that returns its argument.
     /// Used as the `resume` parameter for tail-resumptive effect handlers.
     fn make_identity_closure(&mut self) -> LirVar {
@@ -2277,7 +3081,15 @@ impl<'a> FnLower<'a> {
 
     fn lower_primop(&mut self, op: CorePrimOp, args: &[CoreExpr]) -> LirVar {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+        self.lower_primop_from_vars(op, arg_vars)
+    }
 
+    fn lower_primop_aether(&mut self, op: CorePrimOp, args: &[AetherExpr]) -> LirVar {
+        let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
+        self.lower_primop_from_vars(op, arg_vars)
+    }
+
+    fn lower_primop_from_vars(&mut self, op: CorePrimOp, arg_vars: Vec<LirVar>) -> LirVar {
         match op {
             // Typed integer arithmetic → inline LIR instructions.
             // Untag operands, compute, retag result.
@@ -2603,6 +3415,45 @@ impl<'a> FnLower<'a> {
         result_var
     }
 
+    fn lower_case_aether(&mut self, scrutinee: &AetherExpr, alts: &[AetherAlt]) -> LirVar {
+        let scrut = self.lower_expr_aether(scrutinee);
+
+        if alts.len() == 1 {
+            return self.lower_single_alt_aether(scrut, &alts[0]);
+        }
+
+        let join_idx = self.new_block();
+        let join_id = self.func.blocks[join_idx].id;
+        let result_var = self.fresh_var();
+        self.func.blocks[join_idx].params.push(result_var);
+
+        let has_lit = alts.iter().any(|a| matches!(a.pat, CorePat::Lit(_)));
+        let has_con = alts.iter().any(|a| {
+            matches!(
+                a.pat,
+                CorePat::Con { .. } | CorePat::EmptyList | CorePat::Tuple(_)
+            )
+        });
+
+        if has_lit {
+            self.lower_case_lit_aether(scrut, alts, join_id);
+        } else if has_con {
+            self.lower_case_con_aether(scrut, alts, join_id);
+        } else {
+            let val = self.lower_single_alt_aether(scrut, &alts[0]);
+            self.emit(LirInstr::Copy {
+                dst: result_var,
+                src: val,
+            });
+            self.set_terminator(LirTerminator::Jump(join_id));
+            self.switch_to_block(join_idx);
+            return result_var;
+        }
+
+        self.switch_to_block(join_idx);
+        result_var
+    }
+
     /// Lower a single case alternative (bind pattern vars, evaluate body).
     fn lower_single_alt(&mut self, scrut: LirVar, alt: &CoreAlt) -> LirVar {
         self.bind_pattern(scrut, &alt.pat);
@@ -2612,6 +3463,75 @@ impl<'a> FnLower<'a> {
             let _guard_val = self.lower_expr(guard);
         }
         self.lower_expr(&alt.rhs)
+    }
+
+    fn lower_single_alt_aether(&mut self, scrut: LirVar, alt: &AetherAlt) -> LirVar {
+        self.bind_pattern(scrut, &alt.pat);
+        if let Some(guard) = &alt.guard {
+            let _guard_val = self.lower_expr_aether(guard);
+        }
+        self.lower_expr_aether(&alt.rhs)
+    }
+
+    fn lower_case_lit_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
+        for alt in alts {
+            match &alt.pat {
+                CorePat::Lit(lit) => {
+                    let (raw_cmp, negate) = if matches!(lit, CoreLit::Bool(true)) {
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
+                        (raw, false)
+                    } else if matches!(lit, CoreLit::Bool(false)) {
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
+                        (raw, true)
+                    } else {
+                        let lit_var = self.lower_lit(lit);
+                        let cmp = self.fresh_var();
+                        self.emit(LirInstr::PrimCall {
+                            dst: Some(cmp),
+                            op: CorePrimOp::CmpEq,
+                            args: vec![scrut, lit_var],
+                        });
+                        let raw = self.fresh_var();
+                        self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
+                        (raw, false)
+                    };
+
+                    let then_idx = self.new_block();
+                    let else_idx = self.new_block();
+                    let then_id = BlockId(then_idx as u32);
+                    let else_id = BlockId(else_idx as u32);
+
+                    self.set_terminator(LirTerminator::Branch {
+                        cond: raw_cmp,
+                        then_block: if negate { else_id } else { then_id },
+                        else_block: if negate { then_id } else { else_id },
+                    });
+
+                    self.switch_to_block(then_idx);
+                    self.bind_pattern(scrut, &alt.pat);
+                    let val = self.lower_expr_aether(&alt.rhs);
+                    self.emit_copy_to_join_param(val, join_block);
+                    self.set_terminator(LirTerminator::Jump(join_block));
+
+                    self.switch_to_block(else_idx);
+                }
+                CorePat::Wildcard | CorePat::Var(_) => {
+                    self.bind_pattern(scrut, &alt.pat);
+                    let val = self.lower_expr_aether(&alt.rhs);
+                    self.emit_copy_to_join_param(val, join_block);
+                    self.set_terminator(LirTerminator::Jump(join_block));
+                    return;
+                }
+                _ => {
+                    let val = self.lower_single_alt_aether(scrut, alt);
+                    self.emit_copy_to_join_param(val, join_block);
+                    self.set_terminator(LirTerminator::Jump(join_block));
+                }
+            }
+        }
+        self.set_terminator(LirTerminator::Unreachable);
     }
 
     /// Lower a Case on literal patterns — chain of if-else comparisons.
@@ -2803,6 +3723,109 @@ impl<'a> FnLower<'a> {
         }
     }
 
+    fn lower_case_con_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
+        let core_like_alts = alts
+            .iter()
+            .map(|alt| CoreAlt {
+                pat: alt.pat.clone(),
+                guard: None,
+                rhs: CoreExpr::Lit(CoreLit::Int(0), alt.span),
+                span: alt.span,
+            })
+            .collect::<Vec<_>>();
+        if constructor_case_needs_refutable_field_checks(&core_like_alts) {
+            self.lower_case_con_chain_aether(scrut, alts, join_block);
+            return;
+        }
+
+        let mut alt_block_indices: Vec<usize> = Vec::new();
+        for _alt in alts {
+            alt_block_indices.push(self.new_block());
+        }
+
+        let mut arms: Vec<CtorArm> = Vec::new();
+        let mut default_idx: Option<usize> = None;
+
+        for (i, alt) in alts.iter().enumerate() {
+            let block_id = BlockId(alt_block_indices[i] as u32);
+            let (ctor_tag, field_pats) = match &alt.pat {
+                CorePat::EmptyList => (CtorTag::EmptyList, vec![]),
+                CorePat::Con { tag: core_tag, fields, .. } => {
+                    let ct = match core_tag {
+                        CoreTag::None => CtorTag::None,
+                        CoreTag::Nil => CtorTag::EmptyList,
+                        CoreTag::Some => CtorTag::Some,
+                        CoreTag::Left => CtorTag::Left,
+                        CoreTag::Right => CtorTag::Right,
+                        CoreTag::Cons => CtorTag::Cons,
+                        CoreTag::Named(name) => CtorTag::Named(self.resolve_name(*name)),
+                    };
+                    (ct, fields.clone())
+                }
+                CorePat::Tuple(fields) => (CtorTag::Tuple, fields.clone()),
+                CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
+                    default_idx = Some(alt_block_indices[i]);
+                    continue;
+                }
+            };
+
+            let field_binders: Vec<LirVar> = field_pats.iter().map(|_| self.fresh_var()).collect();
+
+            arms.push(CtorArm {
+                tag: ctor_tag,
+                field_binders: field_binders.clone(),
+                target: block_id,
+            });
+        }
+
+        let default_block_idx = default_idx.unwrap_or_else(|| {
+            let idx = self.new_block();
+            let save = self.current_block;
+            self.switch_to_block(idx);
+            self.set_terminator(LirTerminator::Unreachable);
+            self.switch_to_block(save);
+            idx
+        });
+        let default_id = BlockId(default_block_idx as u32);
+
+        self.set_terminator(LirTerminator::MatchCtor {
+            scrutinee: scrut,
+            arms: arms.clone(),
+            default: default_id,
+        });
+
+        let mut arm_idx = 0;
+        for (i, alt) in alts.iter().enumerate() {
+            self.switch_to_block(alt_block_indices[i]);
+
+            match &alt.pat {
+                CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
+                    if let CorePat::Var(binder) = &alt.pat {
+                        self.bind(binder.id, scrut);
+                    }
+                }
+                CorePat::EmptyList => {
+                    arm_idx += 1;
+                }
+                CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+                    if arm_idx < arms.len() {
+                        let arm = &arms[arm_idx];
+                        for (j, field_pat) in fields.iter().enumerate() {
+                            if j < arm.field_binders.len() {
+                                self.bind_pattern(arm.field_binders[j], field_pat);
+                            }
+                        }
+                    }
+                    arm_idx += 1;
+                }
+            }
+
+            let val = self.lower_expr_aether(&alt.rhs);
+            self.emit_copy_to_join_param(val, join_block);
+            self.set_terminator(LirTerminator::Jump(join_block));
+        }
+    }
+
     fn lower_case_con_chain(&mut self, scrut: LirVar, alts: &[CoreAlt], join_block: BlockId) {
         for alt in alts {
             let success_idx = self.new_block();
@@ -2815,6 +3838,27 @@ impl<'a> FnLower<'a> {
             self.switch_to_block(success_idx);
             self.bind_pattern(scrut, &alt.pat);
             let val = self.lower_expr(&alt.rhs);
+            self.emit_copy_to_join_param(val, join_block);
+            self.set_terminator(LirTerminator::Jump(join_block));
+
+            self.switch_to_block(fail_id.0 as usize);
+        }
+
+        self.set_terminator(LirTerminator::Unreachable);
+    }
+
+    fn lower_case_con_chain_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
+        for alt in alts {
+            let success_idx = self.new_block();
+            let success_id = BlockId(success_idx as u32);
+            let fail_idx = self.new_block();
+            let fail_id = BlockId(fail_idx as u32);
+
+            self.emit_pattern_check(scrut, &alt.pat, success_id, fail_id);
+
+            self.switch_to_block(success_idx);
+            self.bind_pattern(scrut, &alt.pat);
+            let val = self.lower_expr_aether(&alt.rhs);
             self.emit_copy_to_join_param(val, join_block);
             self.set_terminator(LirTerminator::Jump(join_block));
 
@@ -3004,6 +4048,11 @@ impl<'a> FnLower<'a> {
     /// Lower a `Con` expression (ADT, cons, some, none, etc.).
     fn lower_con(&mut self, tag: &CoreTag, fields: &[CoreExpr]) -> LirVar {
         let field_vars: Vec<LirVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
+        self.lower_con_from_vars(tag, field_vars)
+    }
+
+    fn lower_con_from_aether(&mut self, tag: &CoreTag, fields: &[AetherExpr]) -> LirVar {
+        let field_vars: Vec<LirVar> = fields.iter().map(|f| self.lower_expr_aether(f)).collect();
         self.lower_con_from_vars(tag, field_vars)
     }
 

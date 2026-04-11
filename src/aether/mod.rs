@@ -20,8 +20,10 @@ pub mod analysis;
 pub mod borrow_infer;
 pub mod callee;
 pub mod check_fbip;
+pub mod display;
 pub mod drop_spec;
 pub mod fbip_analysis;
+pub mod free_vars;
 pub mod fusion;
 pub mod insert;
 pub mod reuse;
@@ -496,138 +498,6 @@ impl AetherExpr {
         }
     }
 
-    pub fn erase_to_core(self) -> CoreExpr {
-        match self {
-            Self::Var { var, span } => CoreExpr::Var { var, span },
-            Self::Lit(lit, span) => CoreExpr::Lit(lit, span),
-            Self::Lam { params, body, span } => CoreExpr::Lam {
-                params,
-                body: Box::new(body.erase_to_core()),
-                span,
-            },
-            Self::App { func, args, span } => CoreExpr::App {
-                func: Box::new(func.erase_to_core()),
-                args: args.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::AetherCall {
-                func, args, span, ..
-            } => CoreExpr::App {
-                func: Box::new(func.erase_to_core()),
-                args: args.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::Let {
-                var,
-                rhs,
-                body,
-                span,
-            } => CoreExpr::Let {
-                var,
-                rhs: Box::new(rhs.erase_to_core()),
-                body: Box::new(body.erase_to_core()),
-                span,
-            },
-            Self::LetRec {
-                var,
-                rhs,
-                body,
-                span,
-            } => CoreExpr::LetRec {
-                var,
-                rhs: Box::new(rhs.erase_to_core()),
-                body: Box::new(body.erase_to_core()),
-                span,
-            },
-            Self::LetRecGroup {
-                bindings,
-                body,
-                span,
-            } => CoreExpr::LetRecGroup {
-                bindings: bindings
-                    .into_iter()
-                    .map(|(binder, rhs)| (binder, Box::new(rhs.erase_to_core())))
-                    .collect(),
-                body: Box::new(body.erase_to_core()),
-                span,
-            },
-            Self::Case {
-                scrutinee,
-                alts,
-                span,
-            } => CoreExpr::Case {
-                scrutinee: Box::new(scrutinee.erase_to_core()),
-                alts: alts.into_iter().map(AetherAlt::erase_to_core).collect(),
-                span,
-            },
-            Self::Con { tag, fields, span } => CoreExpr::Con {
-                tag,
-                fields: fields.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::Reuse {
-                tag, fields, span, ..
-            } => CoreExpr::Con {
-                tag,
-                fields: fields.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::PrimOp { op, args, span } => CoreExpr::PrimOp {
-                op,
-                args: args.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::MemberAccess {
-                object,
-                member,
-                span,
-            } => CoreExpr::MemberAccess {
-                object: Box::new(object.erase_to_core()),
-                member,
-                span,
-            },
-            Self::TupleField {
-                object,
-                index,
-                span,
-            } => CoreExpr::TupleField {
-                object: Box::new(object.erase_to_core()),
-                index,
-                span,
-            },
-            Self::Return { value, span } => CoreExpr::Return {
-                value: Box::new(value.erase_to_core()),
-                span,
-            },
-            Self::Perform {
-                effect,
-                operation,
-                args,
-                span,
-            } => CoreExpr::Perform {
-                effect,
-                operation,
-                args: args.into_iter().map(Self::erase_to_core).collect(),
-                span,
-            },
-            Self::Handle {
-                body,
-                effect,
-                handlers,
-                span,
-            } => CoreExpr::Handle {
-                body: Box::new(body.erase_to_core()),
-                effect,
-                handlers: handlers.into_iter().map(AetherHandler::erase_to_core).collect(),
-                span,
-            },
-            Self::Dup { body, .. } | Self::Drop { body, .. } => body.erase_to_core(),
-            Self::DropSpecialized {
-                unique_body, ..
-            } => unique_body.erase_to_core(),
-        }
-    }
-
     pub fn span(&self) -> Span {
         match self {
             Self::Var { span, .. }
@@ -673,14 +543,6 @@ impl AetherAlt {
         }
     }
 
-    fn erase_to_core(self) -> CoreAlt {
-        CoreAlt {
-            pat: self.pat,
-            guard: self.guard.map(AetherExpr::erase_to_core),
-            rhs: self.rhs.erase_to_core(),
-            span: self.span,
-        }
-    }
 }
 
 impl AetherHandler {
@@ -704,15 +566,6 @@ impl AetherHandler {
         }
     }
 
-    fn erase_to_core(self) -> CoreHandler {
-        CoreHandler {
-            operation: self.operation,
-            params: self.params,
-            resume: self.resume,
-            body: self.body.erase_to_core(),
-            span: self.span,
-        }
-    }
 }
 
 pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {

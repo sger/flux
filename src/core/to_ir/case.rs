@@ -1,4 +1,5 @@
 use crate::{
+    aether::AetherAlt,
     cfg::{
         IrBinaryOp, IrBlockParam, IrConst, IrExpr, IrInstr, IrListTest, IrMetadata, IrTagTest,
         IrTerminator, IrType, IrVar,
@@ -10,6 +11,89 @@ use crate::{
 use super::primop::lower_lit;
 
 impl<'a> super::fn_ctx::FnCtx<'a> {
+    pub(super) fn lower_case_aether(
+        &mut self,
+        scrutinee: &crate::aether::AetherExpr,
+        alts: &[AetherAlt],
+        span: Span,
+    ) -> IrVar {
+        let scrut_var = self.lower_expr_aether(scrutinee);
+        let saved_env = self.env.clone();
+        let saved_binder_names = self.binder_names.clone();
+
+        let join_idx = self.new_block();
+        let result_var = self.ctx.alloc_var();
+        self.blocks[join_idx].params.push(IrBlockParam {
+            var: result_var,
+            ty: IrType::Any,
+        });
+        let join_block_id = self.blocks[join_idx].id;
+
+        for (i, alt) in alts.iter().enumerate() {
+            let is_last = i == alts.len() - 1;
+            self.env = saved_env.clone();
+            self.binder_names = saved_binder_names.clone();
+
+            let mut next_block_idx = None;
+
+            if !is_irrefutable(&alt.pat) {
+                let test_var = self.emit_pattern_test(scrut_var, &alt.pat);
+                let arm_block_idx = self.new_block();
+                let arm_block_id = self.blocks[arm_block_idx].id;
+
+                let fail_block_idx = self.new_block();
+                let fail_block_id = self.blocks[fail_block_idx].id;
+
+                self.set_terminator(IrTerminator::Branch {
+                    cond: test_var,
+                    then_block: arm_block_id,
+                    else_block: fail_block_id,
+                    metadata: IrMetadata::from_span(span),
+                });
+                self.current_block = arm_block_idx;
+                next_block_idx = Some(fail_block_idx);
+                let _ = is_last;
+                let _ = fail_block_id;
+            }
+
+            self.bind_pattern(scrut_var, &alt.pat);
+
+            if let Some(guard) = &alt.guard {
+                let guard_var = self.lower_expr_aether(guard);
+                let body_idx = self.new_block();
+                let body_block_id = self.blocks[body_idx].id;
+                let fail_idx = next_block_idx.unwrap_or_else(|| self.new_block());
+                let fail_block_id = self.blocks[fail_idx].id;
+                next_block_idx = Some(fail_idx);
+                self.set_terminator(IrTerminator::Branch {
+                    cond: guard_var,
+                    then_block: body_block_id,
+                    else_block: fail_block_id,
+                    metadata: IrMetadata::from_span(span),
+                });
+                self.current_block = body_idx;
+            }
+
+            let arm_result = self.lower_expr_aether(&alt.rhs);
+            if self.current_block_is_open() {
+                self.set_terminator(IrTerminator::Jump(
+                    join_block_id,
+                    vec![arm_result],
+                    IrMetadata::from_span(span),
+                ));
+            }
+
+            if let Some(idx) = next_block_idx {
+                self.current_block = idx;
+            }
+        }
+
+        self.current_block = join_idx;
+        self.env = saved_env;
+        self.binder_names = saved_binder_names;
+        result_var
+    }
+
     /// Lower a `Case` expression into branching IR blocks.
     pub(super) fn lower_case(
         &mut self,

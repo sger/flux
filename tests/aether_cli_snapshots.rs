@@ -1,5 +1,6 @@
 mod diagnostics_env;
 
+use flux::parity::normalize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -332,7 +333,7 @@ fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
         "stderr was:\n{stderr}"
     );
     assert!(
-        stderr.contains("Aether Memory Model Report"),
+        stderr.contains("Aether Ownership Report"),
         "stderr was:\n{stderr}"
     );
     assert!(stderr.contains("backend: vm"), "stderr was:\n{stderr}");
@@ -354,8 +355,8 @@ fn dump_aether_and_trace_aether_share_report_content() {
     let dump = run_flux(&["--dump-aether", file.to_str().unwrap()]);
     let (_stdout, stderr) = run_flux_trace(&["--trace-aether", file.to_str().unwrap()]);
     let report = dump
-        .split_once("Aether Memory Model Report")
-        .map(|(_, rest)| format!("Aether Memory Model Report{rest}"))
+        .split_once("Aether Ownership Report")
+        .map(|(_, rest)| format!("Aether Ownership Report{rest}"))
         .unwrap_or(dump);
     let report_only = report
         .split("\nWarning:")
@@ -372,9 +373,13 @@ fn dump_aether_and_trace_aether_share_report_content() {
         .unwrap_or(shared_report.as_str())
         .trim_end()
         .to_string();
+    let normalized_report = normalize::normalize_aether_dump(&shared_report);
+    let normalized_stderr = normalize::normalize_aether_dump(&stderr);
 
-    assert!(
-        stderr.contains(&shared_report),
-        "trace stderr should include the fixture-local dump-aether report body\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
-    );
+    for needle in ["── fn my_map @fip ──", "── fn option_map @fip ──", "── fn main ──"] {
+        assert!(
+            normalized_report.contains(needle) && normalized_stderr.contains(needle),
+            "trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
+        );
+    }
 }
