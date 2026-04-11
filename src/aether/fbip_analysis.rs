@@ -4,8 +4,8 @@ use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
 use super::{AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
-use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
 use super::{AetherDef, AetherExpr, AetherProgram};
+use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {
@@ -508,9 +508,10 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
         AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => FbipFact::default(),
         AetherExpr::Lam { body, .. } => analyze_expr_aether(body, ctx),
         AetherExpr::Return { value, .. } => analyze_expr_aether(value, ctx),
-        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
-            seq(analyze_expr_aether(rhs, ctx), analyze_expr_aether(body, ctx))
-        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => seq(
+            analyze_expr_aether(rhs, ctx),
+            analyze_expr_aether(body, ctx),
+        ),
         AetherExpr::LetRecGroup { bindings, body, .. } => {
             let mut fact = FbipFact::default();
             for (_, rhs) in bindings {
@@ -546,7 +547,9 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             }
             fact
         }
-        AetherExpr::Case { scrutinee, alts, .. } => {
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
             let scrutinee_fact = analyze_expr_aether(scrutinee, ctx);
             let branch_facts = alts.iter().map(|alt| {
                 let guard_fact = alt
@@ -583,7 +586,8 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             let mut fact = analyze_expr_aether(body, ctx);
             if fact.has_constructors {
                 fact.provable = false;
-                fact.capabilities.insert(FbipCapability::NeedsConstructorToken);
+                fact.capabilities
+                    .insert(FbipCapability::NeedsConstructorToken);
                 fact.reasons.insert(FbipFailureReason::TokenUnavailable);
             }
             fact
@@ -1079,18 +1083,21 @@ mod tests {
         let h = binder(&mut interner, 3, "h");
         let t = binder(&mut interner, 4, "t");
         let program = aprogram(vec![adef(
-                &mut interner,
-                1,
-                "f",
-                AetherExpr::Reuse {
-                    token: CoreVarRef::resolved(xs),
-                    tag: CoreTag::Cons,
-                    fields: vec![AetherExpr::bound_var(h, Span::default()), AetherExpr::bound_var(t, Span::default())],
-                    field_mask: None,
-                    span: Span::default(),
-                },
-                Some(FipAnnotation::Fip),
-            )]);
+            &mut interner,
+            1,
+            "f",
+            AetherExpr::Reuse {
+                token: CoreVarRef::resolved(xs),
+                tag: CoreTag::Cons,
+                fields: vec![
+                    AetherExpr::bound_var(h, Span::default()),
+                    AetherExpr::bound_var(t, Span::default()),
+                ],
+                field_mask: None,
+                span: Span::default(),
+            },
+            Some(FipAnnotation::Fip),
+        )]);
         let summaries = analyze_program_aether(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fip);
@@ -1500,27 +1507,27 @@ mod tests {
         let x = binder(&mut interner, 2, "x");
         let token = binder(&mut interner, 3, "token");
         let program = aprogram(vec![adef(
-                &mut interner,
-                1,
-                "ds",
-                AetherExpr::DropSpecialized {
-                    scrutinee: CoreVarRef::resolved(token),
-                    unique_body: Box::new(AetherExpr::Reuse {
-                        token: CoreVarRef::resolved(token),
-                        tag: CoreTag::Some,
-                        fields: vec![AetherExpr::bound_var(x, Span::default())],
-                        field_mask: None,
-                        span: Span::default(),
-                    }),
-                    shared_body: Box::new(AetherExpr::Con {
-                        tag: CoreTag::Some,
-                        fields: vec![AetherExpr::bound_var(x, Span::default())],
-                        span: Span::default(),
-                    }),
+            &mut interner,
+            1,
+            "ds",
+            AetherExpr::DropSpecialized {
+                scrutinee: CoreVarRef::resolved(token),
+                unique_body: Box::new(AetherExpr::Reuse {
+                    token: CoreVarRef::resolved(token),
+                    tag: CoreTag::Some,
+                    fields: vec![AetherExpr::bound_var(x, Span::default())],
+                    field_mask: None,
                     span: Span::default(),
-                },
-                Some(FipAnnotation::Fbip),
-            )]);
+                }),
+                shared_body: Box::new(AetherExpr::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![AetherExpr::bound_var(x, Span::default())],
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            },
+            Some(FipAnnotation::Fbip),
+        )]);
         let summaries = analyze_program_aether(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
@@ -1588,20 +1595,20 @@ mod tests {
 
         let token = binder(&mut interner, 3, "token");
         let dropped_program = aprogram(vec![adef(
-                &mut interner,
-                4,
-                "dropped_rebuild",
-                AetherExpr::Drop {
-                    var: CoreVarRef::resolved(token),
-                    body: Box::new(AetherExpr::Con {
-                        tag: CoreTag::Some,
-                        fields: vec![AetherExpr::bound_var(x, Span::default())],
-                        span: Span::default(),
-                    }),
+            &mut interner,
+            4,
+            "dropped_rebuild",
+            AetherExpr::Drop {
+                var: CoreVarRef::resolved(token),
+                body: Box::new(AetherExpr::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![AetherExpr::bound_var(x, Span::default())],
                     span: Span::default(),
-                },
-                Some(FipAnnotation::Fbip),
-            )]);
+                }),
+                span: Span::default(),
+            },
+            Some(FipAnnotation::Fbip),
+        )]);
         let dropped_summaries = analyze_program_aether(&dropped_program, &interner);
         let dropped_summary = dropped_summaries.values().next().unwrap();
         assert!(

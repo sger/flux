@@ -15,10 +15,10 @@
 //!   → Dup(f); body                      // h cancelled, f kept
 //! ```
 
+use crate::aether::AetherExpr;
 use crate::aether::analysis::use_counts_aether;
 use crate::core::{CoreBinder, CoreVarRef};
 use crate::diagnostics::position::Span;
-use crate::aether::AetherExpr;
 
 type CoreExpr = AetherExpr;
 

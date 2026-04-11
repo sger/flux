@@ -1060,9 +1060,9 @@ mod tests {
         let rendered = render_module(&module);
 
         assert!(rendered.contains("define internal fastcc i64 @flux_make_closure("));
-        assert!(
-            rendered.contains("call ccc ptr @flux_gc_alloc_header(i32 %size, i32 %payload_count, i32 245)")
-        );
+        assert!(rendered.contains(
+            "call ccc ptr @flux_gc_alloc_header(i32 %size, i32 %payload_count, i32 245)"
+        ));
         assert!(rendered.contains("call fastcc void @flux_copy_i64s("));
         assert!(rendered.contains("define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)"));
         assert!(

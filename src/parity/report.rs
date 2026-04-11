@@ -533,11 +533,13 @@ fn print_explain_block(result: &ParityResult) {
 }
 
 fn layer_status(details: &[MismatchDetail], layer: &str) -> &'static str {
-    let mismatch = details.iter().any(|detail| match (layer, detail) {
-        ("core", MismatchDetail::CoreMismatch { .. }) => true,
-        ("aether", MismatchDetail::AetherMismatch { .. }) => true,
-        ("repr", MismatchDetail::RepresentationMismatch { .. }) => true,
-        _ => false,
+    let mismatch = details.iter().any(|detail| {
+        matches!(
+            (layer, detail),
+            ("core", MismatchDetail::CoreMismatch { .. })
+                | ("aether", MismatchDetail::AetherMismatch { .. })
+                | ("repr", MismatchDetail::RepresentationMismatch { .. })
+        )
     });
     if mismatch { "differs" } else { "match" }
 }
@@ -632,20 +634,20 @@ fn likely_rust_files(details: &[MismatchDetail], symbols: &[String]) -> Vec<Stri
 
 fn next_commands(result: &ParityResult, symbols: &[String]) -> Vec<String> {
     let mut commands = Vec::new();
-    if let Verdict::Mismatch { details } = &result.verdict {
-        if details.iter().any(|d| {
+    if let Verdict::Mismatch { details } = &result.verdict
+        && details.iter().any(|d| {
             matches!(
                 d,
                 MismatchDetail::BackendIrMismatch { .. }
                     | MismatchDetail::BackendRuntimeMismatch { .. }
             )
-        }) {
-            commands.push(format!("cargo run -- --dump-cfg {}", result.file.display()));
-            commands.push(format!(
-                "cargo run --features core_to_llvm -- --dump-lir {} --native",
-                result.file.display()
-            ));
-        }
+        })
+    {
+        commands.push(format!("cargo run -- --dump-cfg {}", result.file.display()));
+        commands.push(format!(
+            "cargo run --features core_to_llvm -- --dump-lir {} --native",
+            result.file.display()
+        ));
     }
     if !symbols.is_empty() {
         commands.push(format!(
@@ -683,40 +685,6 @@ fn print_inline_diff(left_label: String, left: &str, right_label: String, right:
     let total = left_lines.len().max(right_lines.len());
     if total > max_lines {
         println!("    ... ({} more lines)", total - max_lines);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::diagnose_mismatch;
-    use crate::parity::{MismatchDetail, Way};
-
-    #[test]
-    fn diagnose_representation_mismatch() {
-        let details = vec![MismatchDetail::RepresentationMismatch {
-            left_way: Way::Vm,
-            left: "rule.match_ctor = ok".to_string(),
-            right_way: Way::Llvm,
-            right: "rule.match_ctor = bad".to_string(),
-        }];
-
-        assert_eq!(
-            diagnose_mismatch(&details),
-            Some("likely backend representation contract drift")
-        );
-    }
-
-    #[test]
-    fn diagnose_backend_runtime_mismatch() {
-        let details = vec![MismatchDetail::BackendRuntimeMismatch {
-            baseline_way: Way::Vm,
-            backend: crate::parity::BackendId::Llvm,
-            summary: "llvm diverged from baseline vm".to_string(),
-        }];
-        assert_eq!(
-            diagnose_mismatch(&details),
-            Some("likely backend/runtime divergence after shared parity")
-        );
     }
 }
 
@@ -764,5 +732,39 @@ pub fn print_summary(results: &[ParityResult]) {
     if mismatch == 0 && pass > 0 {
         println!();
         println!("{}", green("All compiled examples match!"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnose_mismatch;
+    use crate::parity::{MismatchDetail, Way};
+
+    #[test]
+    fn diagnose_representation_mismatch() {
+        let details = vec![MismatchDetail::RepresentationMismatch {
+            left_way: Way::Vm,
+            left: "rule.match_ctor = ok".to_string(),
+            right_way: Way::Llvm,
+            right: "rule.match_ctor = bad".to_string(),
+        }];
+
+        assert_eq!(
+            diagnose_mismatch(&details),
+            Some("likely backend representation contract drift")
+        );
+    }
+
+    #[test]
+    fn diagnose_backend_runtime_mismatch() {
+        let details = vec![MismatchDetail::BackendRuntimeMismatch {
+            baseline_way: Way::Vm,
+            backend: crate::parity::BackendId::Llvm,
+            summary: "llvm diverged from baseline vm".to_string(),
+        }];
+        assert_eq!(
+            diagnose_mismatch(&details),
+            Some("likely backend/runtime divergence after shared parity")
+        );
     }
 }

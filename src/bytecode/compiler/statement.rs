@@ -1379,7 +1379,8 @@ impl Compiler {
 
             let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
             let requires_ir_only = ir_function.is_some_and(|function| {
-                function.params.len() != parameters.len() || self.block_contains_constrained_calls(body)
+                function.params.len() != parameters.len()
+                    || self.block_contains_constrained_calls(body)
             });
 
             // ── CFG primary path ─────────────────────────────────────────

@@ -1208,8 +1208,8 @@ fn build_reuse_expr(
     let Some(token_binder) = token.binder else {
         return Err(ReuseFailureReason::ProvenanceLost);
     };
-    let (tag, fields, span) =
-        into_constructor_shape_for_tag_aether(body, pat_tag).ok_or(ReuseFailureReason::ShapeMismatch)?;
+    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
+        .ok_or(ReuseFailureReason::ShapeMismatch)?;
     if pat_tag.is_some_and(|expected| expected != &tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }

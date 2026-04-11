@@ -132,8 +132,9 @@ fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
     let compiler = Compiler::new_with_interner("<test>", interner.clone());
     let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
-    let (aether, _warnings) = lower_core_to_aether_program(&core, Some(&interner), preloaded_registry)
-        .expect("aether lowering should succeed");
+    let (aether, _warnings) =
+        lower_core_to_aether_program(&core, Some(&interner), preloaded_registry)
+            .expect("aether lowering should succeed");
     aether
 }
 
@@ -1528,7 +1529,11 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
 #[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
-    assert_eq!(warnings.len(), 3, "expected current Stage 3 FBIP warning set");
+    assert_eq!(
+        warnings.len(),
+        3,
+        "expected current Stage 3 FBIP warning set"
+    );
     assert!(warnings.iter().any(|d| {
         d.message().is_some_and(|m| {
             m.contains("@fip on `rebuild_list`")

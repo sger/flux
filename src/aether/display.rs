@@ -83,7 +83,8 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             if !args.is_empty() {
                 out.push_str(", ");
                 out.push_str(
-                    &args.iter()
+                    &args
+                        .iter()
                         .map(|arg| single_line_expr(arg, interner))
                         .collect::<Vec<_>>()
                         .join(", "),
@@ -110,7 +111,8 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             out.push_str(&single_line_expr(func, interner));
             out.push('(');
             out.push_str(
-                &args.iter()
+                &args
+                    .iter()
                     .map(|arg| single_line_expr(arg, interner))
                     .collect::<Vec<_>>()
                     .join(", "),
@@ -180,7 +182,8 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             out.push_str(&format!("{op:?}"));
             out.push('(');
             out.push_str(
-                &args.iter()
+                &args
+                    .iter()
                     .map(|arg| single_line_expr(arg, interner))
                     .collect::<Vec<_>>()
                     .join(", "),
@@ -217,7 +220,8 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             out.push_str(&resolve_name(interner, *operation));
             out.push('(');
             out.push_str(
-                &args.iter()
+                &args
+                    .iter()
                     .map(|arg| single_line_expr(arg, interner))
                     .collect::<Vec<_>>()
                     .join(", "),
@@ -313,7 +317,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
     }
 }
 
-fn collect_dup_chain<'a>(expr: &'a AetherExpr) -> (Vec<&'a CoreVarRef>, &'a AetherExpr) {
+fn collect_dup_chain(expr: &AetherExpr) -> (Vec<&CoreVarRef>, &AetherExpr) {
     let mut vars = Vec::new();
     let mut current = expr;
     while let AetherExpr::Dup { var, body, .. } = current {
@@ -323,7 +327,7 @@ fn collect_dup_chain<'a>(expr: &'a AetherExpr) -> (Vec<&'a CoreVarRef>, &'a Aeth
     (vars, current)
 }
 
-fn collect_drop_chain<'a>(expr: &'a AetherExpr) -> (Vec<&'a CoreVarRef>, &'a AetherExpr) {
+fn collect_drop_chain(expr: &AetherExpr) -> (Vec<&CoreVarRef>, &AetherExpr) {
     let mut vars = Vec::new();
     let mut current = expr;
     while let AetherExpr::Drop { var, body, .. } = current {
@@ -348,7 +352,7 @@ fn fmt_alt(alt: &AetherAlt, interner: &Interner, indent: usize, out: &mut String
 fn fmt_handler(handler: &AetherHandler, interner: &Interner, indent: usize, out: &mut String) {
     let pad = " ".repeat(indent);
     out.push_str(&pad);
-            out.push_str(&resolve_name(interner, handler.operation));
+    out.push_str(&resolve_name(interner, handler.operation));
     out.push('(');
     out.push_str(&resolve_name(interner, handler.resume.name));
     for param in &handler.params {

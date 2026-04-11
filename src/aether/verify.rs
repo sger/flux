@@ -522,9 +522,9 @@ fn find_con_in_body(expr: &AetherExpr, expected_tag: Option<&CoreTag>) -> Option
         _ if constructor_shape_for_tag_aether(expr, expected_tag).is_some() => {
             constructor_shape_for_tag_aether(expr, expected_tag).map(|(tag, _, _)| tag)
         }
-        AetherExpr::Let { body, .. } | AetherExpr::Drop { body, .. } | AetherExpr::Dup { body, .. } => {
-            find_con_in_body(body, expected_tag)
-        }
+        AetherExpr::Let { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::Dup { body, .. } => find_con_in_body(body, expected_tag),
         _ => None,
     }
 }
@@ -543,9 +543,9 @@ fn tags_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 fn has_reuse_for_tag(expr: &AetherExpr, tag: &CoreTag) -> bool {
     match expr {
         AetherExpr::Reuse { tag: t, .. } => tags_compatible(t, tag),
-        AetherExpr::Let { body, .. } | AetherExpr::Drop { body, .. } | AetherExpr::Dup { body, .. } => {
-            has_reuse_for_tag(body, tag)
-        }
+        AetherExpr::Let { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::Dup { body, .. } => has_reuse_for_tag(body, tag),
         _ => false,
     }
 }

@@ -459,7 +459,6 @@ impl<'a> FnCtx<'a> {
                 self.current_block = cont_block_idx;
                 dest
             }
-
         }
     }
 
@@ -671,7 +670,11 @@ impl<'a> FnCtx<'a> {
             }
             AetherExpr::PrimOp { op, args, span } => self.lower_primop(
                 op,
-                &args.iter().cloned().map(|arg| arg.into_core()).collect::<Vec<_>>(),
+                &args
+                    .iter()
+                    .cloned()
+                    .map(|arg| arg.into_core())
+                    .collect::<Vec<_>>(),
                 *span,
             ),
             AetherExpr::MemberAccess {
@@ -726,8 +729,7 @@ impl<'a> FnCtx<'a> {
                 args,
                 span,
             } => {
-                let arg_vars: Vec<IrVar> =
-                    args.iter().map(|a| self.lower_expr_aether(a)).collect();
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
@@ -762,7 +764,10 @@ impl<'a> FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.blocks[cont_block_idx]
                     .params
-                    .push(crate::cfg::IrBlockParam { var: dest, ty: IrType::Any });
+                    .push(crate::cfg::IrBlockParam {
+                        var: dest,
+                        ty: IrType::Any,
+                    });
                 let meta = IrMetadata::from_span(*span);
                 self.emit(IrInstr::HandleScope {
                     effect: *effect,

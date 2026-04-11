@@ -235,7 +235,7 @@ fn main() { same(Red, Blue) }
     env.collect_from_statements(&program.statements, &interner);
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        diags.iter().any(|d| d.code() == Some("E444")),
         "expected missing Eq<Color> to produce E444, got: {diags:?}"
     );
 }
@@ -260,7 +260,7 @@ instance Sizeable<Int> {
         diags.is_empty(),
         "valid class+instance should produce no errors: {diags:?}"
     );
-    assert_eq!(env.instances.len() > 0, true);
+    assert!(!env.instances.is_empty());
 }
 
 #[test]
@@ -276,7 +276,7 @@ class Foo<a> {
 "#,
     );
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E440")),
+        diags.iter().any(|d| d.code() == Some("E440")),
         "expected E440 Duplicate Type Class, got: {diags:?}"
     );
 }
@@ -291,7 +291,7 @@ instance NonExistent<Int> {
 "#,
     );
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E441")),
+        diags.iter().any(|d| d.code() == Some("E441")),
         "expected E441 Unknown Type Class, got: {diags:?}"
     );
 }
@@ -310,7 +310,7 @@ instance Describable<Int> {
 "#,
     );
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E442")),
+        diags.iter().any(|d| d.code() == Some("E442")),
         "expected E442 Missing Instance Method, got: {diags:?}"
     );
 }
@@ -329,10 +329,7 @@ instance MyEq<Int> {
 "#,
     );
     // my_neq has a default — so not implementing it is fine
-    let method_errors: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code().as_deref() == Some("E442"))
-        .collect();
+    let method_errors: Vec<_> = diags.iter().filter(|d| d.code() == Some("E442")).collect();
     assert!(
         method_errors.is_empty(),
         "default method should not trigger E442: {method_errors:?}"
@@ -354,10 +351,7 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    let e443: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code().as_deref() == Some("E443"))
-        .collect();
+    let e443: Vec<_> = diags.iter().filter(|d| d.code() == Some("E443")).collect();
     assert_eq!(
         e443.len(),
         1,
@@ -380,10 +374,7 @@ instance Sizeable<String> {
 }
 "#,
     );
-    let e443: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code().as_deref() == Some("E443"))
-        .collect();
+    let e443: Vec<_> = diags.iter().filter(|d| d.code() == Some("E443")).collect();
     assert!(
         e443.is_empty(),
         "different type instances should not conflict: {e443:?}"
@@ -464,10 +455,7 @@ fn main() { size(42) }
     env.collect_from_statements(&program.statements, &interner);
 
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
-    let e444: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code().as_deref() == Some("E444"))
-        .collect();
+    let e444: Vec<_> = diags.iter().filter(|d| d.code() == Some("E444")).collect();
     assert!(
         e444.is_empty(),
         "satisfied constraint should not produce E444: {e444:?}"
@@ -513,7 +501,7 @@ instance Sizeable<Int> {
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E444")),
+        diags.iter().any(|d| d.code() == Some("E444")),
         "expected E444 No Type Class Instance, got: {diags:?}"
     );
 }
@@ -1114,7 +1102,7 @@ class Eq<a> {
 "#,
     );
     assert!(
-        diags.iter().any(|d| d.code().as_deref() == Some("E440")),
+        diags.iter().any(|d| d.code() == Some("E440")),
         "user redeclaring builtin Eq should trigger E440"
     );
     let eq = interner.lookup("Eq").expect("Eq interned");
@@ -1142,9 +1130,7 @@ instance Eq<Int, String> {
     );
 
     assert!(
-        diags
-            .iter()
-            .any(|diag| diag.code().as_deref() == Some("E447")),
+        diags.iter().any(|diag| diag.code() == Some("E447")),
         "expected E447 for mismatched instance head arity, got: {diags:?}"
     );
 }

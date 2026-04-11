@@ -566,6 +566,7 @@ fn merge_imported_public_instances(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_pending_imported_public_instances(
     imported_public_classes: &HashMap<
         crate::types::class_id::ClassId,
@@ -1178,7 +1179,7 @@ impl Compiler {
             pre_desugar_program
         };
         #[cfg(test)]
-        let desugar_changed_program = desugar_changed_program;
+        let _ = desugar_changed_program;
         let hm_final = match &effective_program {
             _ if !desugar_changed_program => hm_pre_desugar,
             Cow::Owned(_) | Cow::Borrowed(_) => self.run_hm_infer(effective_program.as_ref()),
@@ -1194,6 +1195,7 @@ impl Compiler {
         self.hm_expr_types = hm_final.expr_types.clone();
     }
 
+    #[allow(clippy::result_large_err)]
     fn lower_core_from_program(
         &self,
         program_to_lower: &Program,
@@ -1235,6 +1237,7 @@ impl Compiler {
         Ok(core)
     }
 
+    #[allow(clippy::result_large_err)]
     fn lower_aether_from_program(
         &self,
         program_to_lower: &Program,
@@ -1252,6 +1255,7 @@ impl Compiler {
         Ok(aether)
     }
 
+    #[allow(clippy::result_large_err)]
     fn prepare_core_program(
         &mut self,
         program: &Program,
@@ -1275,6 +1279,7 @@ impl Compiler {
         )
     }
 
+    #[allow(clippy::result_large_err)]
     fn prepare_backend_core_program(
         &mut self,
         program: &Program,
@@ -1293,6 +1298,7 @@ impl Compiler {
         self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
     }
 
+    #[allow(clippy::result_large_err)]
     fn prepare_backend_core_program_with_preloaded(
         &mut self,
         program: &Program,
@@ -4161,10 +4167,10 @@ impl Compiler {
                 .to_string();
             // Add qualified name (e.g. "Flow.Array.sort")
             map.insert(name.clone(), idx);
-            if let Some((module, short)) = name.rsplit_once('.') {
-                if flow_prelude_modules.contains(&module) {
-                    map.insert(short.to_string(), idx);
-                }
+            if let Some((module, short)) = name.rsplit_once('.')
+                && flow_prelude_modules.contains(&module)
+            {
+                map.insert(short.to_string(), idx);
             }
             // Add alias-qualified names (e.g. "Array.sort" for "Flow.Array.sort"
             // when "import Flow.Array as Array" is in effect).

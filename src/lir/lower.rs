@@ -1639,7 +1639,6 @@ impl<'a> FnLower<'a> {
                 args,
                 ..
             } => self.lower_perform(*effect, *operation, args),
-
         }
     }
 
@@ -1776,7 +1775,12 @@ impl<'a> FnLower<'a> {
                     });
                 }
                 for (i, (var, rhs)) in bindings.iter().enumerate() {
-                    if let AetherExpr::Lam { params, body: lam_body, .. } = rhs.as_ref() {
+                    if let AetherExpr::Lam {
+                        params,
+                        body: lam_body,
+                        ..
+                    } = rhs.as_ref()
+                    {
                         let entry = &entries[i];
                         let letrec_qname = format!(
                             "{}_letrec_group_{}",
@@ -1951,9 +1955,7 @@ impl<'a> FnLower<'a> {
                     self.lower_expr_aether(body)
                 }
             }
-            AetherExpr::PrimOp { op, args, .. } => {
-                self.lower_primop_aether(*op, args)
-            }
+            AetherExpr::PrimOp { op, args, .. } => self.lower_primop_aether(*op, args),
             AetherExpr::Case {
                 scrutinee, alts, ..
             } => self.lower_case_aether(scrutinee, alts),
@@ -1977,11 +1979,7 @@ impl<'a> FnLower<'a> {
                 args,
                 ..
             } => self.lower_perform_aether(*effect, *operation, args),
-            AetherExpr::MemberAccess {
-                object,
-                member,
-                ..
-            } => {
+            AetherExpr::MemberAccess { object, member, .. } => {
                 if let Some(globals) = self.globals_map {
                     let member_str = self.resolve_name(*member);
                     let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
@@ -2414,11 +2412,7 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        let handler_closure = if handlers.len() == 1 {
-            self.lower_handler_clause_aether(&handlers[0])
-        } else {
-            self.lower_handler_clause_aether(&handlers[0])
-        };
+        let handler_closure = self.lower_handler_clause_aether(&handlers[0]);
 
         let marker = self.fresh_var();
         self.emit(LirInstr::PrimCall {
@@ -2636,7 +2630,9 @@ impl<'a> FnLower<'a> {
         arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
     ) -> LirVar {
         let resolved_name = match func {
-            AetherExpr::Var { var, .. } if var.binder.is_none() => Some(self.resolve_name(var.name)),
+            AetherExpr::Var { var, .. } if var.binder.is_none() => {
+                Some(self.resolve_name(var.name))
+            }
             AetherExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
             _ => None,
         };
@@ -3536,11 +3532,17 @@ impl<'a> FnLower<'a> {
                 CorePat::Lit(lit) => {
                     let (raw_cmp, negate) = if matches!(lit, CoreLit::Bool(true)) {
                         let raw = self.fresh_var();
-                        self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
+                        self.emit(LirInstr::UntagBool {
+                            dst: raw,
+                            val: scrut,
+                        });
                         (raw, false)
                     } else if matches!(lit, CoreLit::Bool(false)) {
                         let raw = self.fresh_var();
-                        self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
+                        self.emit(LirInstr::UntagBool {
+                            dst: raw,
+                            val: scrut,
+                        });
                         (raw, true)
                     } else {
                         let lit_var = self.lower_lit(lit);
@@ -3807,7 +3809,11 @@ impl<'a> FnLower<'a> {
             let block_id = BlockId(alt_block_indices[i] as u32);
             let (ctor_tag, field_pats) = match &alt.pat {
                 CorePat::EmptyList => (CtorTag::EmptyList, vec![]),
-                CorePat::Con { tag: core_tag, fields, .. } => {
+                CorePat::Con {
+                    tag: core_tag,
+                    fields,
+                    ..
+                } => {
                     let ct = match core_tag {
                         CoreTag::None => CtorTag::None,
                         CoreTag::Nil => CtorTag::EmptyList,
@@ -3902,7 +3908,12 @@ impl<'a> FnLower<'a> {
         self.set_terminator(LirTerminator::Unreachable);
     }
 
-    fn lower_case_con_chain_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
+    fn lower_case_con_chain_aether(
+        &mut self,
+        scrut: LirVar,
+        alts: &[AetherAlt],
+        join_block: BlockId,
+    ) {
         for alt in alts {
             let success_idx = self.new_block();
             let success_id = BlockId(success_idx as u32);
@@ -4254,7 +4265,6 @@ impl<'a> FnLower<'a> {
             }
         }
     }
-
 }
 
 /// Internal enum for typed integer binary operations.
@@ -4303,8 +4313,12 @@ fn lir_symbol_name_for_def(
 fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     let func_id = LirFuncId(def.binder.id.0);
     let debug_name = format!("def_{}", def.binder.id.0);
-    let qualified_name =
-        lir_symbol_name_for_def(def.binder.id, def.is_anonymous, ctx.qualified_names, &debug_name);
+    let qualified_name = lir_symbol_name_for_def(
+        def.binder.id,
+        def.is_anonymous,
+        ctx.qualified_names,
+        &debug_name,
+    );
     let mut ctx = FnLower::new(
         debug_name,
         func_id,
@@ -4360,8 +4374,12 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
 fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     let func_id = LirFuncId(def.binder.id.0);
     let debug_name = format!("def_{}", def.binder.id.0);
-    let qualified_name =
-        lir_symbol_name_for_def(def.binder.id, def.is_anonymous, ctx.qualified_names, &debug_name);
+    let qualified_name = lir_symbol_name_for_def(
+        def.binder.id,
+        def.is_anonymous,
+        ctx.qualified_names,
+        &debug_name,
+    );
     let mut ctx = FnLower::new(
         debug_name,
         func_id,
@@ -4404,6 +4422,7 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
     ctx.func
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_synthetic_main_core(
     program: &CoreProgram,
     lir: &mut LirProgram,
@@ -4466,6 +4485,7 @@ fn lower_synthetic_main_core(
     ctx.func
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_synthetic_main_aether(
     program: &crate::aether::AetherProgram,
     lir: &mut LirProgram,
