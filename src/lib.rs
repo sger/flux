@@ -3,6 +3,7 @@ pub mod ast;
 pub mod bytecode;
 pub mod cache_paths;
 pub mod cfg;
+pub mod cli;
 pub mod core;
 #[cfg(feature = "native")]
 pub mod core_to_llvm;
