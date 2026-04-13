@@ -8,6 +8,7 @@ pub mod core;
 #[cfg(feature = "native")]
 pub mod core_to_llvm;
 pub mod diagnostics;
+pub mod driver;
 pub mod lir;
 pub mod parity;
 pub mod runtime;
