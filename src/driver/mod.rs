@@ -1,2 +1,11 @@
 pub mod backend;
+pub mod backend_policy;
 pub mod flags;
+pub(crate) mod frontend;
+pub mod main;
+pub mod mode;
+pub mod pipeline;
+pub mod report;
+pub(crate) mod run_program_frontend;
+pub mod session;
+pub(crate) mod shared;
