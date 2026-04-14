@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::bytecode::bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key};
-use crate::cache_paths;
+use crate::shared::cache_paths;
 
 use super::normalize::{
     normalize, normalize_aether_dump, normalize_cfg_dump, normalize_core_dump, normalize_lir_dump,
