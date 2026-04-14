@@ -1,6 +1,6 @@
 [package]
 name = "flux"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
 license = "MIT"

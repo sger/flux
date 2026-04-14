@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::{fs, path::Path};
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 use super::backend_policy::should_run_tests_native;
 use super::{
     flags::DriverFlags,
@@ -119,13 +119,14 @@ fn print_no_tests_message(file_name: &str, filter: Option<&str>) {
 }
 
 /// Returns whether test execution should use the native backend.
+#[cfg_attr(not(feature = "llvm"), allow(dead_code))]
 fn should_use_native_test_backend(flags: &DriverFlags) -> bool {
-    #[cfg(feature = "native")]
+    #[cfg(feature = "llvm")]
     {
         should_run_tests_native(flags)
     }
 
-    #[cfg(not(feature = "native"))]
+    #[cfg(not(feature = "llvm"))]
     {
         let _ = flags;
         false
@@ -245,7 +246,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         .and_then(|n| n.to_str())
         .unwrap_or(path);
 
-    #[cfg(feature = "native")]
+    #[cfg(feature = "llvm")]
     let all_passed = if should_use_native_test_backend(request.flags) {
         run_tests_native(NativeTestRunConfig {
             file_name,
@@ -261,7 +262,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         run_tests_vm(file_name, &compiler, tests)
     };
 
-    #[cfg(not(feature = "native"))]
+    #[cfg(not(feature = "llvm"))]
     let all_passed = run_tests_vm(file_name, &compiler, tests);
 
     if !all_passed {
@@ -269,7 +270,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
     }
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 struct NativeTestRunConfig<'a> {
     file_name: &'a str,
     source_path: &'a str,
@@ -281,7 +282,7 @@ struct NativeTestRunConfig<'a> {
     use_native: bool,
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
     use flux::bytecode::vm::test_runner::{TestOutcome, TestResult};
     use std::process::Command;
@@ -375,9 +376,9 @@ mod tests {
         let mut flags = base_flags();
         flags.backend.selected = Backend::Native;
 
-        #[cfg(feature = "native")]
+        #[cfg(feature = "llvm")]
         assert!(should_use_native_test_backend(&flags));
-        #[cfg(not(feature = "native"))]
+        #[cfg(not(feature = "llvm"))]
         assert!(!should_use_native_test_backend(&flags));
     }
 
