@@ -183,26 +183,8 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
                 args.remove(i);
             }
             "--dump-lir" => flags.dumps.dump_lir = remove_bool_flag(args, i),
-            "--dump-lir-llvm" => {
-                #[cfg(feature = "llvm")]
-                {
-                    flags.dumps.dump_lir_llvm = remove_bool_flag(args, i);
-                }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    args.remove(i);
-                }
-            }
-            "--native" => {
-                #[cfg(feature = "llvm")]
-                {
-                    flags.backend.use_llvm = remove_bool_flag(args, i);
-                }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    args.remove(i);
-                }
-            }
+            "--dump-lir-llvm" => flags.dumps.dump_lir_llvm = remove_bool_flag(args, i),
+            "--native" => flags.backend.use_llvm = remove_bool_flag(args, i),
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
@@ -476,6 +458,22 @@ mod tests {
         assert!(parsed.backend.emit_binary);
         assert!(parsed.runtime.profiling);
         assert!(parsed.execution.no_cache);
+        assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
+    }
+
+    #[test]
+    fn extract_flags_preserves_native_backend_requests_for_later_validation() {
+        let mut args = vec![
+            "flux".into(),
+            "file.flx".into(),
+            "--native".into(),
+            "--dump-lir-llvm".into(),
+        ];
+
+        let parsed = extract_cli_flag_groups(&mut args);
+
+        assert!(parsed.backend.use_llvm);
+        assert!(parsed.dumps.dump_lir_llvm);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
     }
 

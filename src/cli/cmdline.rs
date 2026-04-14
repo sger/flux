@@ -351,11 +351,9 @@ mod tests {
         parse_flx_subcommand, parse_fmt_command, require_flx_arg, require_flxi_arg,
         run_mode_from_flags,
     };
-    use crate::driver::{
-        AetherDumpMode, CoreDumpMode, RunMode, backend::Backend, test_support::base_flags,
-    };
-    use std::path::Path;
-
+    #[cfg(feature = "llvm")]
+    use crate::driver::backend::Backend;
+    use crate::driver::{AetherDumpMode, CoreDumpMode, RunMode, test_support::base_flags};
     fn cli(parts: &[&str]) -> Vec<std::ffi::OsString> {
         parts.iter().map(|part| (*part).into()).collect()
     }
@@ -466,16 +464,16 @@ mod tests {
             "--prof",
             "-o",
             "out.ll",
-        ]))
-        .unwrap();
+        ]));
 
-        match command {
+        #[cfg(feature = "llvm")]
+        match command.unwrap() {
             CliCommand::Run { flags, .. } => {
                 assert_eq!(flags.backend.output_path.as_deref(), Some("out.ll"));
                 assert!(flags.dumps.dump_cfg);
                 assert_eq!(
                     flags.cache.cache_dir.as_deref(),
-                    Some(Path::new(".flux-cache"))
+                    Some(std::path::Path::new(".flux-cache"))
                 );
                 assert!(flags.cache.no_cache);
                 assert!(flags.language.strict_mode);
@@ -486,18 +484,16 @@ mod tests {
                 assert!(flags.runtime.trace);
                 assert!(flags.runtime.show_stats);
                 assert!(flags.runtime.profiling);
-                #[cfg(feature = "llvm")]
-                {
-                    assert_eq!(flags.backend.selected, Backend::Native);
-                    assert!(flags.backend.use_llvm);
-                }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    assert_eq!(flags.backend.selected, Backend::Vm);
-                    assert!(!flags.backend.use_llvm);
-                }
+                assert_eq!(flags.backend.selected, Backend::Native);
+                assert!(flags.backend.use_llvm);
             }
             other => panic!("expected run mode, got {other:?}"),
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("native backend features require"));
         }
     }
 
@@ -537,26 +533,26 @@ mod tests {
 
     #[test]
     fn parses_native_program_run_path() {
-        let command =
-            parse_args(cli(&["flux", "examples/basics/arithmetic.flx", "--native"])).unwrap();
+        let command = parse_args(cli(&["flux", "examples/basics/arithmetic.flx", "--native"]));
 
-        match command {
-            CliCommand::Run { flags, target } => {
-                assert_eq!(target.mode, RunMode::Program);
-                assert_eq!(target.path, "examples/basics/arithmetic.flx");
-                #[cfg(feature = "llvm")]
-                {
+        #[cfg(feature = "llvm")]
+        {
+            match command.unwrap() {
+                CliCommand::Run { flags, target } => {
+                    assert_eq!(target.mode, RunMode::Program);
+                    assert_eq!(target.path, "examples/basics/arithmetic.flx");
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
                     assert!(flags.backend.use_llvm);
                 }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    assert_eq!(flags.backend.selected, Backend::Vm);
-                    assert!(!flags.is_native_backend());
-                }
+                other => panic!("expected run mode, got {other:?}"),
             }
-            other => panic!("expected run mode, got {other:?}"),
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("native backend features require"));
         }
     }
 
@@ -579,25 +575,46 @@ mod tests {
             "examples/basics/arithmetic.flx",
             "--native",
             "--test",
-        ]))
-        .unwrap();
+        ]));
 
-        match command {
-            CliCommand::Run { flags, target } => {
-                assert_eq!(target.mode, RunMode::Tests);
-                assert_eq!(target.path, "examples/basics/arithmetic.flx");
-                #[cfg(feature = "llvm")]
-                {
+        #[cfg(feature = "llvm")]
+        {
+            match command.unwrap() {
+                CliCommand::Run { flags, target } => {
+                    assert_eq!(target.mode, RunMode::Tests);
+                    assert_eq!(target.path, "examples/basics/arithmetic.flx");
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
                 }
-                #[cfg(not(feature = "llvm"))]
-                {
-                    assert_eq!(flags.backend.selected, Backend::Vm);
-                    assert!(!flags.is_native_backend());
-                }
+                other => panic!("expected run mode, got {other:?}"),
             }
-            other => panic!("expected run mode, got {other:?}"),
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("native backend features require"));
+        }
+    }
+
+    #[test]
+    fn dump_lir_llvm_is_recognized_but_needs_backend_support() {
+        let command = parse_args(cli(&[
+            "flux",
+            "examples/basics/arithmetic.flx",
+            "--dump-lir-llvm",
+        ]));
+
+        #[cfg(feature = "llvm")]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("--dump-lir/--dump-lir-llvm requires the native backend"));
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("native backend features require"));
         }
     }
 
