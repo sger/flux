@@ -42,7 +42,7 @@ pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     let candidates = runtime_lib_candidates();
     for candidate in &candidates {
         if candidate.join("flux_rt.h").exists() {
-            #[cfg(feature = "native")]
+            #[cfg(feature = "llvm")]
             if let Err(e) = ensure_runtime_lib(candidate) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
