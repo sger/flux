@@ -9,22 +9,25 @@ use crate::{
     bytecode::{
         bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
         compiler::module_interface::{
-            build_interface, compute_semantic_config_hash, interface_path,
-            load_cached_interface, load_valid_interface, module_interface_changed,
-            save_interface,
+            build_interface, compute_semantic_config_hash, load_cached_interface,
+            load_valid_interface,
         },
         module_linker::{LinkedVmProgram, VmAssemblyContext},
     },
-    diagnostics::{Diagnostic, Severity, quality::module_skipped_note, render_display_path},
+    diagnostics::{Diagnostic, quality::module_skipped_note, render_display_path},
     syntax::module_graph::{ModuleKind, ModuleNode},
-    types::module_interface::{DependencyFingerprint, ModuleInterface},
+    types::module_interface::ModuleInterface,
 };
 use rayon::prelude::*;
 
 use crate::driver::{
-    module_compile::{ModuleBuildState, build_module_compiler, replay_module_diagnostics},
+    module_compile::{ModuleBuildState, build_module_compiler},
+    pipeline::parallel_shared::{
+        collect_dependency_fingerprints, dependency_changed_paths, emit_progress,
+        filter_non_error_diagnostics, interfaces_changed, partition_module_batches, progress_name,
+        replay_module_diagnostics_for, save_interface_if_enabled, sort_by_path,
+    },
     pipeline::vm::{ParallelVmBuild, VmCompileRequest},
-    support::shared::{module_display_name, progress_line},
 };
 
 #[derive(Debug)]
@@ -75,28 +78,28 @@ fn compile_parallel_module(
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
     let semantic_config_hash = compute_semantic_config_hash(
-        node.kind != ModuleKind::FlowStdlib && request.strict_mode,
-        request.enable_optimize,
+        node.kind != ModuleKind::FlowStdlib && request.compile.strict_mode,
+        request.compile.enable_optimize,
     );
     let strict_hash = if node.kind == ModuleKind::FlowStdlib {
         hash_bytes(b"strict=0")
     } else {
-        hash_bytes(if request.strict_mode {
+        hash_bytes(if request.compile.strict_mode {
             b"strict=1"
         } else {
             b"strict=0"
         })
     };
     let cache_key = hash_cache_key(&source_hash, &strict_hash);
-    let module_cache = ModuleBytecodeCache::new(request.cache_layout.vm_dir());
-    let old_interface = if !request.no_cache {
-        load_cached_interface(request.cache_layout.root(), &node.path).ok()
+    let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
+    let old_interface = if !request.cache.no_cache {
+        load_cached_interface(request.cache.cache_layout.root(), &node.path).ok()
     } else {
         None
     };
-    let (current_interface, interface_miss_reason) = if !request.no_cache {
+    let (current_interface, interface_miss_reason) = if !request.cache.no_cache {
         match load_valid_interface(
-            request.cache_layout.root(),
+            request.cache.cache_layout.root(),
             &node.path,
             &module_source,
             &semantic_config_hash,
@@ -113,12 +116,12 @@ fn compile_parallel_module(
             &node.path,
             &cache_key,
             env!("CARGO_PKG_VERSION"),
-            request.cache_layout.root(),
+            request.cache.cache_layout.root(),
         )
         .is_some();
 
     if can_use_cached_vm_module(
-        request.no_cache,
+        request.cache.no_cache,
         force_rebuild,
         current_interface.is_some(),
         is_entry,
@@ -149,7 +152,7 @@ fn compile_parallel_module(
             &node.path,
             &cache_key,
             env!("CARGO_PKG_VERSION"),
-            request.cache_layout.root(),
+            request.cache.cache_layout.root(),
         ),
     );
 
@@ -158,14 +161,14 @@ fn compile_parallel_module(
         nodes_by_path,
         loaded_interfaces,
         request.graph_interner,
-        request.strict_mode,
-        request.strict_types,
+        request.compile.strict_mode,
+        request.compile.strict_types,
         is_entry,
     );
     let compile_result = compiler.compile_with_opts(
         &node.program,
-        request.enable_optimize,
-        request.enable_analyze,
+        request.compile.enable_optimize,
+        request.compile.enable_analyze,
     );
     let warning_count = compiler.take_warnings().len();
 
@@ -186,25 +189,13 @@ fn compile_parallel_module(
         };
     }
 
-    let dependency_fingerprints = node
-        .imports
-        .iter()
-        .filter_map(|dep| {
-            loaded_interfaces
-                .get(&dep.target_path)
-                .map(|interface| DependencyFingerprint {
-                    module_name: interface.module_name.clone(),
-                    source_path: dep.target_path.to_string_lossy().to_string(),
-                    interface_fingerprint: interface.interface_fingerprint.clone(),
-                })
-        })
-        .collect::<Vec<_>>();
+    let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
 
     let interface =
         crate::driver::frontend::extract_module_name_and_sym(&node.program, &compiler.interner)
             .and_then(|(module_name, module_sym)| {
                 compiler
-                    .lower_aether_report_program(&node.program, request.enable_optimize)
+                    .lower_aether_report_program(&node.program, request.compile.enable_optimize)
                     .ok()
                     .map(|core| {
                         build_interface(
@@ -235,7 +226,7 @@ fn compile_parallel_module(
             })
         })
         .collect::<Vec<_>>();
-    if !request.no_cache {
+    if !request.cache.no_cache {
         let _ = module_cache.store(
             &node.path,
             &cache_key,
@@ -243,20 +234,18 @@ fn compile_parallel_module(
             &artifact,
             &module_deps,
         );
-        if let Some(interface) = interface.as_ref() {
-            let iface_path = interface_path(request.cache_layout.root(), &node.path);
-            let _ = save_interface(&iface_path, interface);
-        }
+        save_interface_if_enabled(
+            request.cache.no_cache,
+            request.cache.cache_layout.root(),
+            &node.path,
+            interface.as_ref(),
+        );
     }
 
     let new_interface_fingerprint = interface
         .as_ref()
         .map(|iface| iface.interface_fingerprint.clone());
-    let interface_changed = match (&old_interface, &interface) {
-        (Some(old), Some(new)) => module_interface_changed(old, new),
-        (None, None) => false,
-        _ => true,
-    };
+    let interface_changed = interfaces_changed(old_interface.as_ref(), interface.as_ref());
 
     ParallelModuleResult {
         path: node.path.clone(),
@@ -337,25 +326,21 @@ impl VmParallelBuildState {
             self.cached_count += 1;
         }
         self.completed_modules += 1;
-        let name = interface
-            .map(|iface| iface.module_name.to_string())
-            .unwrap_or_else(|| module_display_name(path));
-        if !skipped
-            && verbose
-            && let Some(reason) = miss_reason
-        {
-            eprintln!("  cache miss ({name}): {reason}");
-        }
+        let name = progress_name(interface.map(|iface| iface.module_name.as_str()), path);
         let action = if skipped { "Cached" } else { "Compiling" };
-        eprintln!(
-            "{}",
-            progress_line(self.completed_modules, self.total_modules, action, &name)
+        emit_progress(
+            self.completed_modules,
+            self.total_modules,
+            action,
+            &name,
+            verbose,
+            miss_reason.map(String::as_str),
         );
     }
 }
 
 fn compile_batch(
-    batch: Vec<&ModuleNode>,
+    batch: Vec<ModuleNode>,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
     loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
     dependency_changed_paths: &HashSet<PathBuf>,
@@ -379,7 +364,7 @@ fn compile_batch(
         })
         .collect();
 
-    parallel_results.sort_by(|left, right| left.path.cmp(&right.path));
+    sort_by_path(&mut parallel_results, |result| &result.path);
 
     let skipped_paths: HashSet<_> = parallel_results
         .iter()
@@ -400,7 +385,7 @@ fn compile_batch(
             ));
         }
     }
-    parallel_results.sort_by(|left, right| left.path.cmp(&right.path));
+    sort_by_path(&mut parallel_results, |result| &result.path);
     parallel_results
 }
 
@@ -414,21 +399,17 @@ fn replay_warnings_if_needed(
     if result.needs_serial_warning_replay
         && let Some(node) = nodes_by_path.get(&result.path)
     {
-        let replayed = replay_module_diagnostics(
+        let replayed = replay_module_diagnostics_for(
             node,
             nodes_by_path,
             &build_state.loaded_interfaces,
             request.graph_interner,
-            request.strict_mode,
-            request.strict_types,
-            request.enable_optimize,
-            request.enable_analyze,
+            request.compile.strict_mode,
+            request.compile.strict_types,
+            request.compile.enable_optimize,
+            request.compile.enable_analyze,
         );
-        all_diagnostics.extend(
-            replayed
-                .into_iter()
-                .filter(|diag| diag.severity() != Severity::Error),
-        );
+        all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
 }
 
@@ -440,15 +421,15 @@ fn replay_errors(
     all_diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(node) = nodes_by_path.get(&result.path) {
-        all_diagnostics.extend(replay_module_diagnostics(
+        all_diagnostics.extend(replay_module_diagnostics_for(
             node,
             nodes_by_path,
             &build_state.loaded_interfaces,
             request.graph_interner,
-            request.strict_mode,
-            request.strict_types,
-            request.enable_optimize,
-            request.enable_analyze,
+            request.compile.strict_mode,
+            request.compile.strict_types,
+            request.compile.enable_optimize,
+            request.compile.enable_analyze,
         ));
     }
 }
@@ -464,7 +445,7 @@ fn load_and_link_artifact(
             &result.path,
             &result.cache_key,
             env!("CARGO_PKG_VERSION"),
-            request.cache_layout.root(),
+            request.cache.cache_layout.root(),
         )
         .ok_or_else(|| {
             let reason = module_cache
@@ -472,7 +453,7 @@ fn load_and_link_artifact(
                     &result.path,
                     &result.cache_key,
                     env!("CARGO_PKG_VERSION"),
-                    request.cache_layout.root(),
+                    request.cache.cache_layout.root(),
                 )
                 .unwrap_or_else(|| "unknown".to_string());
             format!(
@@ -516,7 +497,7 @@ fn handle_result(
         &result.path,
         result.interface_hit.as_ref(),
         result.skipped,
-        request.verbose,
+        request.runtime.verbose,
         result.miss_reason.as_ref(),
     );
 
@@ -556,7 +537,7 @@ pub(crate) fn compile_vm_modules_parallel(
         .map(|node| (node.path.clone(), node.clone()))
         .collect();
 
-    let module_cache = ModuleBytecodeCache::new(request.cache_layout.vm_dir());
+    let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
     let mut build_state = VmParallelBuildState::new(&request);
 
     for level in request.graph.topo_levels() {
@@ -576,23 +557,14 @@ pub(crate) fn compile_vm_modules_parallel(
             continue;
         }
 
-        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = ready
-            .iter()
-            .partition(|node| node.kind == ModuleKind::FlowStdlib);
-        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
-            vec![user_nodes]
-        } else if user_nodes.is_empty() {
-            vec![flow_nodes]
-        } else {
-            vec![flow_nodes, user_nodes]
-        };
+        let batches = partition_module_batches(&ready, |node| node.kind);
 
         for batch in batches {
-            let dependency_changed_paths: HashSet<PathBuf> = batch
-                .iter()
-                .filter(|node| build_state.dependency_changed(node))
-                .map(|node| node.path.clone())
-                .collect();
+            let dependency_changed_paths = dependency_changed_paths(
+                &batch,
+                |node| &node.path,
+                |node| build_state.dependency_changed(node),
+            );
             let results = compile_batch(
                 batch,
                 &nodes_by_path,

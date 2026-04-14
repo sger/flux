@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use crate::{
     bytecode::{bytecode::Bytecode, symbol_table::SymbolTable},
-    cache_paths::CacheLayout,
     diagnostics::Diagnostic,
+    driver::shared::{DriverCacheConfig, DriverCompileConfig, DriverRuntimeConfig},
     syntax::{interner::Interner, module_graph::ModuleGraph},
 };
 
@@ -24,13 +24,9 @@ pub(crate) struct VmCompileRequest<'a> {
     pub(crate) graph: &'a ModuleGraph,
     pub(crate) entry_canonical: Option<&'a PathBuf>,
     pub(crate) graph_interner: &'a Interner,
-    pub(crate) cache_layout: &'a CacheLayout,
-    pub(crate) no_cache: bool,
-    pub(crate) strict_mode: bool,
-    pub(crate) strict_types: bool,
-    pub(crate) enable_optimize: bool,
-    pub(crate) enable_analyze: bool,
-    pub(crate) verbose: bool,
+    pub(crate) cache: DriverCacheConfig<'a>,
+    pub(crate) compile: DriverCompileConfig,
+    pub(crate) runtime: DriverRuntimeConfig,
 }
 
 /// Compiles a module graph into a linked VM program using the parallel VM pipeline.
