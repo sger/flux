@@ -319,13 +319,13 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
     match way {
         Way::Vm => format!("cargo run -- {file} --no-cache"),
         Way::Llvm => {
-            format!("cargo run --features core_to_llvm -- {file} --native --no-cache")
+            format!("cargo run --features llvm -- {file} --native --no-cache")
         }
         Way::VmCached => format!("cargo run -- {file}"),
-        Way::LlvmCached => format!("cargo run --features core_to_llvm -- {file} --native"),
+        Way::LlvmCached => format!("cargo run --features llvm -- {file} --native"),
         Way::VmStrict => format!("cargo run -- {file} --strict --no-cache"),
         Way::LlvmStrict => {
-            format!("cargo run --features core_to_llvm -- {file} --native --strict --no-cache")
+            format!("cargo run --features llvm -- {file} --native --strict --no-cache")
         }
     }
 }
@@ -645,7 +645,7 @@ fn next_commands(result: &ParityResult, symbols: &[String]) -> Vec<String> {
     {
         commands.push(format!("cargo run -- --dump-cfg {}", result.file.display()));
         commands.push(format!(
-            "cargo run --features core_to_llvm -- --dump-lir {} --native",
+            "cargo run --features llvm -- --dump-lir {} --native",
             result.file.display()
         ));
     }

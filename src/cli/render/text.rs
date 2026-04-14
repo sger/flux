@@ -50,7 +50,6 @@ Flags:
   --dump-aether=debug
                     Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)
   --native           Compile via Core IR -> LLVM text IR -> native binary (requires LLVM tools)
-  --core-to-llvm     Alias for --native
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary

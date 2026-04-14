@@ -1,17 +1,17 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 use std::collections::HashMap;
 
 use flux::{
     bytecode::compiler::Compiler,
     core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
-    core_to_llvm::render_module,
+    llvm::render_module,
     lir,
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
 };
 
-fn parse_and_lower_to_llvm_module(src: &str) -> (flux::core_to_llvm::LlvmModule, Interner) {
+fn parse_and_lower_to_llvm_module(src: &str) -> (flux::llvm::LlvmModule, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
     assert!(
@@ -55,7 +55,7 @@ fn main() {
     let (module, _interner) = parse_and_lower_to_llvm_module(src);
 
     insta::with_settings!({
-        snapshot_path => "snapshots/core_to_llvm",
+        snapshot_path => "snapshots/llvm",
         prepend_module_to_snapshot => false,
     }, {
         insta::assert_snapshot!("adt_list_tuple_module", render_module(&module));

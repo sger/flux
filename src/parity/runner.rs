@@ -26,7 +26,7 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 15;
 ///
 /// The caller must provide paths to pre-built binaries:
 /// - `vm_binary`: the flux binary built without native features
-/// - `llvm_binary`: the flux binary built with `--features core_to_llvm`
+/// - `llvm_binary`: the flux binary built with `--features llvm`
 ///
 /// For cached ways (`vm_cached`, `llvm_cached`): clears cache, runs once to
 /// warm it, then runs again with cache enabled and returns the cached run.
@@ -330,7 +330,7 @@ pub fn is_native_skip(result: &RunResult) -> Option<String> {
         return None;
     }
     for line in result.stderr.lines() {
-        if line.contains("core_to_llvm compilation failed")
+        if line.contains("llvm compilation failed")
             || line.contains("unsupported CoreToLlvm")
         {
             let reason = line

@@ -105,7 +105,7 @@ mod inner {
         /// `Value::EmptyList`.
         EmptyList = 0x4,
         // 0x5 was BaseFunction (removed). Tag value reserved.
-        /// Trampoline thunk for mutual tail-call optimization (core_to_llvm only).
+        /// Trampoline thunk for mutual tail-call optimization (llvm only).
         /// Payload holds a heap pointer (>> 3) to `{i8 fn_index, i8[3] _pad, i32 nargs, i64 args[]}`.
         Thunk = 0x6,
         /// Heap-allocated `Rc<Value>` for any Value variant not encoded inline.
@@ -355,7 +355,7 @@ mod inner {
                 NanTag::Uninit => Value::Uninit,
                 NanTag::EmptyList => Value::EmptyList,
                 NanTag::Thunk => {
-                    // Thunks are core_to_llvm-only trampoline values. They should
+                    // Thunks are llvm-only trampoline values. They should
                     // never appear in the VM. Treat as None if encountered.
                     Value::None
                 }

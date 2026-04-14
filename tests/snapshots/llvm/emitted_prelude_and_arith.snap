@@ -1,5 +1,5 @@
 ---
-source: tests/core_to_llvm_codegen_snapshots.rs
+source: tests/llvm_codegen_snapshots.rs
 expression: render_module(&module)
 ---
 source_filename = "helpers.flx"

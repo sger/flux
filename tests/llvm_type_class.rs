@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 //! Tests that type class instance methods are correctly lowered through the
 //! LLVM native backend. Regression tests for a bug where `generate_dispatch_functions`
@@ -39,7 +39,7 @@ fn compile_per_module_llvm_ir_with_classes(src: &str) -> String {
     let llvm = compiler
         .lower_to_lir_llvm_module_per_module(&program, false, false, true)
         .expect("per-module LLVM lowering should succeed");
-    flux::core_to_llvm::render_module(&llvm)
+    flux::llvm::render_module(&llvm)
 }
 
 fn compile_per_module_llvm_ir_with_preloaded_interfaces(
@@ -67,7 +67,7 @@ fn compile_per_module_llvm_ir_with_preloaded_interfaces(
     let llvm = compiler
         .lower_to_lir_llvm_module_per_module(&program, false, false, true)
         .expect("per-module LLVM lowering should succeed");
-    flux::core_to_llvm::render_module(&llvm)
+    flux::llvm::render_module(&llvm)
 }
 
 /// Single type class instance: the mangled function must appear in the LLVM IR.

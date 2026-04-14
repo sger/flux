@@ -27,7 +27,7 @@ Production backend path:
 
 Native backend path:
   -> lir/           (native-only low-level IR)
-  -> core_to_llvm/  (LLVM IR + native compilation pipeline)
+  -> llvm/  (LLVM IR + native compilation pipeline)
 ```
 
 The key boundaries are:
@@ -77,7 +77,7 @@ For the native backend, the CLI calls native-specific helpers on
 | Production backend IR | `src/cfg/` | CFG IR plus CFG passes and validation |
 | VM compiler/runtime | `src/bytecode/` | Bytecode compiler, cache, opcodes, VM |
 | Native backend IR | `src/lir/` | Low-level native IR and LLVM emission bridge |
-| LLVM backend | `src/core_to_llvm/` | LLVM IR model, rendering, codegen prelude, binary pipeline |
+| LLVM backend | `src/llvm/` | LLVM IR model, rendering, codegen prelude, binary pipeline |
 | Runtime | `src/runtime/` | Shared runtime values and helpers |
 | Shared IDs | `src/shared_ir/` | Shared identifier/plumbing types for backend layers |
 | Diagnostics | `src/diagnostics/` | Error/warning model and rendering |
@@ -287,7 +287,7 @@ Associated pieces:
 
 ## Native Backend Path: Core -> LIR -> LLVM -> Native
 
-This path is selected by `--native` / `--core-to-llvm`.
+This path is selected by `--native` / `--native`.
 
 Unlike the VM path, the native path does not go through `cfg::IrProgram`.
 
@@ -333,28 +333,28 @@ Program
   -> LLVM module emission
 ```
 
-Then `src/core_to_llvm/` provides:
+Then `src/llvm/` provides:
 - LLVM IR data model
 - textual rendering
 - runtime/helper prelude generation
 - object/binary compilation pipeline
 
 Important pieces:
-- `src/core_to_llvm/ir/`
-- `src/core_to_llvm/codegen/`
-- `src/core_to_llvm/pipeline.rs`
+- `src/llvm/ir/`
+- `src/llvm/codegen/`
+- `src/llvm/pipeline.rs`
 
 The LLVM backend in this repo is split in two layers:
 - `lir/emit_llvm.rs` translates LIR to the internal LLVM module model
-- `core_to_llvm/` owns the LLVM IR model, rendering, prelude/runtime helpers,
+- `llvm/` owns the LLVM IR model, rendering, prelude/runtime helpers,
   target data, and the external compile/link pipeline
 
 ### Native compilation pipeline
 
 `src/main.rs` uses:
 - `Compiler::lower_to_lir_llvm_module()`
-- `core_to_llvm::render_module()`
-- `core_to_llvm::pipeline::{compile_and_run, compile_to_binary}`
+- `llvm::render_module()`
+- `llvm::pipeline::{compile_and_run, compile_to_binary}`
 
 to emit LLVM IR text, build binaries, or run the produced native executable.
 
@@ -441,7 +441,7 @@ When orienting inside the compiler, the fastest route is:
 5. `src/core/passes/mod.rs`
 6. `src/aether/`
 7. `src/lir/lower.rs`
-8. `src/core_to_llvm/pipeline.rs`
+8. `src/llvm/pipeline.rs`
 
 ## Practical Mental Model
 

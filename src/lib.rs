@@ -4,8 +4,8 @@ pub mod bytecode;
 pub mod cfg;
 pub mod cli;
 pub mod core;
-#[cfg(feature = "native")]
-pub mod core_to_llvm;
+#[cfg(feature = "llvm")]
+pub mod llvm;
 pub mod diagnostics;
 pub mod driver;
 pub mod lir;

@@ -70,6 +70,8 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
         return Ok(CliCommand::Help);
     }
 
+    reject_unknown_flag_tokens(&args)?;
+
     let run_mode = run_mode_from_flags(parsed.execution.test_mode);
 
     if let Some(command) = parse_implicit_file_command(&args, flags.clone(), run_mode)? {
@@ -103,6 +105,23 @@ fn validate_driver_flags(flags: &DriverFlags, test_mode: bool) -> Result<(), Str
 /// Returns whether the argv buffer contains no subcommand or implicit input path.
 fn has_no_command_or_input(args: &[String]) -> bool {
     args.len() < 2
+}
+
+/// Rejects leftover CLI flags after the known flag-extraction passes complete.
+///
+/// `parity-check` intentionally forwards raw arguments for its own parser, so its tail is exempt.
+fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
+    if args.get(1).is_some_and(|arg| arg == "parity-check") {
+        return Ok(());
+    }
+
+    for arg in args.iter().skip(1) {
+        if arg.starts_with("--") && arg != "--help" {
+            return Err(format!("Error: unknown flag `{arg}`."));
+        }
+    }
+
+    Ok(())
 }
 
 /// Chooses the run mode from the parsed CLI execution flags.
@@ -391,11 +410,11 @@ mod tests {
             "--dump-lir",
         ]))
         .unwrap_err();
-        #[cfg(feature = "core_to_llvm")]
+        #[cfg(feature = "llvm")]
         {
             assert!(err.contains("dump-lir"));
         }
-        #[cfg(not(feature = "core_to_llvm"))]
+        #[cfg(not(feature = "llvm"))]
         {
             assert!(err.contains("native"));
         }
@@ -408,7 +427,7 @@ mod tests {
             "examples/basics/arithmetic.flx",
             "--emit-llvm",
         ]));
-        #[cfg(feature = "core_to_llvm")]
+        #[cfg(feature = "llvm")]
         {
             let command = command.unwrap();
             match command {
@@ -419,7 +438,7 @@ mod tests {
                 other => panic!("expected run mode, got {other:?}"),
             }
         }
-        #[cfg(not(feature = "core_to_llvm"))]
+        #[cfg(not(feature = "llvm"))]
         {
             let err = command.unwrap_err();
             assert!(err.contains("native"));
@@ -467,15 +486,15 @@ mod tests {
                 assert!(flags.runtime.trace);
                 assert!(flags.runtime.show_stats);
                 assert!(flags.runtime.profiling);
-                #[cfg(feature = "native")]
+                #[cfg(feature = "llvm")]
                 {
                     assert_eq!(flags.backend.selected, Backend::Native);
-                    assert!(flags.backend.use_core_to_llvm);
+                    assert!(flags.backend.use_llvm);
                 }
-                #[cfg(not(feature = "native"))]
+                #[cfg(not(feature = "llvm"))]
                 {
                     assert_eq!(flags.backend.selected, Backend::Vm);
-                    assert!(!flags.backend.use_core_to_llvm);
+                    assert!(!flags.backend.use_llvm);
                 }
             }
             other => panic!("expected run mode, got {other:?}"),
@@ -525,13 +544,13 @@ mod tests {
             CliCommand::Run { flags, target } => {
                 assert_eq!(target.mode, RunMode::Program);
                 assert_eq!(target.path, "examples/basics/arithmetic.flx");
-                #[cfg(feature = "native")]
+                #[cfg(feature = "llvm")]
                 {
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
-                    assert!(flags.backend.use_core_to_llvm);
+                    assert!(flags.backend.use_llvm);
                 }
-                #[cfg(not(feature = "native"))]
+                #[cfg(not(feature = "llvm"))]
                 {
                     assert_eq!(flags.backend.selected, Backend::Vm);
                     assert!(!flags.is_native_backend());
@@ -539,6 +558,18 @@ mod tests {
             }
             other => panic!("expected run mode, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_removed_core_to_llvm_flag() {
+        let err = parse_args(cli(&[
+            "flux",
+            "examples/basics/arithmetic.flx",
+            "--core-to-llvm",
+        ]))
+        .unwrap_err();
+
+        assert!(err.contains("--core-to-llvm"));
     }
 
     #[test]
@@ -555,12 +586,12 @@ mod tests {
             CliCommand::Run { flags, target } => {
                 assert_eq!(target.mode, RunMode::Tests);
                 assert_eq!(target.path, "examples/basics/arithmetic.flx");
-                #[cfg(feature = "native")]
+                #[cfg(feature = "llvm")]
                 {
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
                 }
-                #[cfg(not(feature = "native"))]
+                #[cfg(not(feature = "llvm"))]
                 {
                     assert_eq!(flags.backend.selected, Backend::Vm);
                     assert!(!flags.is_native_backend());
@@ -578,7 +609,7 @@ mod tests {
             "--emit-binary",
         ]));
 
-        #[cfg(feature = "native")]
+        #[cfg(feature = "llvm")]
         {
             let command = command.unwrap();
             match command {
@@ -592,7 +623,7 @@ mod tests {
             }
         }
 
-        #[cfg(not(feature = "native"))]
+        #[cfg(not(feature = "llvm"))]
         {
             let err = command.unwrap_err();
             assert!(err.contains("native"));

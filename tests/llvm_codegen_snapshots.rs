@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 use std::{
     fs,
@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use flux::core_to_llvm::{LlvmModule, emit_prelude_and_arith, render_module};
+use flux::llvm::{LlvmModule, emit_prelude_and_arith, render_module};
 
 #[test]
 fn emitted_prelude_and_arith_snapshot() {
@@ -20,7 +20,7 @@ fn emitted_prelude_and_arith_snapshot() {
     emit_prelude_and_arith(&mut module);
 
     insta::with_settings!({
-        snapshot_path => "snapshots/core_to_llvm",
+        snapshot_path => "snapshots/llvm",
         prepend_module_to_snapshot => false,
     }, {
         insta::assert_snapshot!("emitted_prelude_and_arith", render_module(&module));
@@ -37,7 +37,7 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
     emit_prelude_and_arith(&mut module);
     let ll = render_module(&module);
     let temp = std::env::temp_dir().join(format!(
-        "core_to_llvm_phase2_{}.ll",
+        "llvm_phase2_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after unix epoch")

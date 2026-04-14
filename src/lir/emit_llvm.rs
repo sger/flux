@@ -1,7 +1,7 @@
 //! LIR → LLVM IR emitter (Proposal 0132 Phase 7).
 //!
 //! Walks a `LirProgram` and produces LLVM IR text by building an `LlvmModule`
-//! (reusing the existing IR representation from `core_to_llvm/ir/`) and
+//! (reusing the existing IR representation from `llvm/ir/`) and
 //! rendering it via `render_module`.
 //!
 //! Since LIR is already a flat CFG with SSA variables, the translation is
@@ -11,8 +11,8 @@
 use std::collections::HashSet;
 
 use crate::core::CorePrimOp;
-use crate::core_to_llvm::codegen::builtins;
-use crate::core_to_llvm::ir::{
+use crate::llvm::codegen::builtins;
+use crate::llvm::ir::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind, render_module,
@@ -35,7 +35,7 @@ const FLUX_YIELD_SENTINEL: i64 = 10;
 #[allow(dead_code)]
 const FLUX_OBJ_FLOAT: i64 = 0xF8;
 
-// ADT constructor tag IDs (must match lir/lower.rs and core_to_llvm/codegen/adt.rs)
+// ADT constructor tag IDs (must match lir/lower.rs and llvm/codegen/adt.rs)
 const SOME_TAG: i32 = 1;
 const LEFT_TAG: i32 = 2;
 
@@ -79,11 +79,11 @@ pub fn emit_llvm_module_with_options(
     };
 
     // Emit prelude (pointer-tag helpers, dup/drop declarations, arithmetic).
-    crate::core_to_llvm::codegen::emit_prelude_and_arith(&mut module);
+    crate::llvm::codegen::emit_prelude_and_arith(&mut module);
     // Emit ADT/tuple/closure support types and helpers.
-    let empty_metadata = crate::core_to_llvm::codegen::AdtMetadata::default();
-    crate::core_to_llvm::codegen::emit_adt_support(&mut module, &empty_metadata);
-    crate::core_to_llvm::codegen::emit_closure_support(&mut module);
+    let empty_metadata = crate::llvm::codegen::AdtMetadata::default();
+    crate::llvm::codegen::emit_adt_support(&mut module, &empty_metadata);
+    crate::llvm::codegen::emit_closure_support(&mut module);
     let support_function_count = module.functions.len();
 
     // Track which C runtime functions need external declarations.
@@ -2772,7 +2772,7 @@ impl LirInstr {
 }
 
 /// Returns true if the function is a fastcc LLVM prelude helper (emitted by
-/// `core_to_llvm/codegen/prelude.rs` or `adt.rs`), as opposed to a true C
+/// `llvm/codegen/prelude.rs` or `adt.rs`), as opposed to a true C
 /// runtime function that uses the C calling convention.
 fn is_fastcc_prelude_helper(name: &str) -> bool {
     matches!(

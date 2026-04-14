@@ -26,27 +26,3 @@ error[E1000]: wrong number of arguments: want=2, got=1
 Stack trace:
   at main (examples/runtime_errors/indirect_call_wrong_arity.flx:7:19)
   at <main>
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  indirect_call_wrong_arity
-[cfg→vm] Running via CFG → bytecode VM backend...
-• 1 error • examples/runtime_errors/indirect_call_wrong_arity.flx
-error[E1000]: wrong number of arguments: want=2, got=1
-
-  examples/runtime_errors/indirect_call_wrong_arity.flx:7:19
-  |
-7 |     let ignored = f(1)
-  |                   ^^^^
-
-Stack trace:
-  at main (examples/runtime_errors/indirect_call_wrong_arity.flx:7:19)
-  at <main>

@@ -22,7 +22,7 @@ use crate::{
 /// Parsed backend-related CLI flags that affect backend selection or backend outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliBackendFlags {
-    pub(crate) use_core_to_llvm: bool,
+    pub(crate) use_llvm: bool,
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
 }
@@ -184,21 +184,21 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--dump-lir" => flags.dumps.dump_lir = remove_bool_flag(args, i),
             "--dump-lir-llvm" => {
-                #[cfg(feature = "core_to_llvm")]
+                #[cfg(feature = "llvm")]
                 {
                     flags.dumps.dump_lir_llvm = remove_bool_flag(args, i);
                 }
-                #[cfg(not(feature = "core_to_llvm"))]
+                #[cfg(not(feature = "llvm"))]
                 {
                     args.remove(i);
                 }
             }
-            "--core-to-llvm" | "--native" => {
-                #[cfg(feature = "native")]
+            "--native" => {
+                #[cfg(feature = "llvm")]
                 {
-                    flags.backend.use_core_to_llvm = remove_bool_flag(args, i);
+                    flags.backend.use_llvm = remove_bool_flag(args, i);
                 }
-                #[cfg(not(feature = "native"))]
+                #[cfg(not(feature = "llvm"))]
                 {
                     args.remove(i);
                 }
@@ -293,7 +293,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
-            use_core_to_llvm: parsed.backend.use_core_to_llvm,
+            use_llvm: parsed.backend.use_llvm,
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
             output_path: values.paths.output_path,
@@ -451,7 +451,7 @@ mod tests {
         ParsedCliRuntimeFlags, build_driver_flags, extract_cli_flag_groups,
         extract_cli_value_options,
     };
-    #[cfg(feature = "core_to_llvm")]
+    #[cfg(feature = "llvm")]
     use crate::driver::backend::Backend;
     use crate::driver::{AetherDumpMode, CoreDumpMode, DiagnosticOutputFormat};
     use std::path::Path;
@@ -628,7 +628,7 @@ mod tests {
         assert!(flags.dumps.dump_cfg);
         assert!(flags.backend.emit_llvm);
         assert!(flags.cache.no_cache);
-        #[cfg(feature = "core_to_llvm")]
+        #[cfg(feature = "llvm")]
         assert_eq!(flags.backend.selected, Backend::Native);
     }
 }

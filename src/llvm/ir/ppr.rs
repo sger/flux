@@ -599,7 +599,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::core_to_llvm::LlvmFunctionSig;
+    use crate::llvm::LlvmFunctionSig;
 
     #[test]
     fn renders_basic_types() {
@@ -691,7 +691,7 @@ mod tests {
 
         let module = build_demo_module();
         let ll = render_module(&module);
-        let file = temp_ll_path("core_to_llvm_verify");
+        let file = temp_ll_path("llvm_verify");
         fs::write(&file, ll).expect("write ll file");
 
         let output = Command::new("opt")
