@@ -5,14 +5,19 @@ use std::{
     path::PathBuf,
 };
 
-use crate as flux;
 use crate::{
     bytecode::{
         bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
+        compiler::module_interface::{
+            build_interface, compute_semantic_config_hash, interface_path,
+            load_cached_interface, load_valid_interface, module_interface_changed,
+            save_interface,
+        },
         module_linker::{LinkedVmProgram, VmAssemblyContext},
     },
     diagnostics::{Diagnostic, Severity, quality::module_skipped_note, render_display_path},
     syntax::module_graph::{ModuleKind, ModuleNode},
+    types::module_interface::{DependencyFingerprint, ModuleInterface},
 };
 use rayon::prelude::*;
 
@@ -32,7 +37,7 @@ struct ParallelModuleResult {
     new_interface_fingerprint: Option<String>,
     interface_changed: bool,
     skipped: bool,
-    interface_hit: Option<flux::types::module_interface::ModuleInterface>,
+    interface_hit: Option<ModuleInterface>,
     cache_key: [u8; 32],
     miss_reason: Option<String>,
 }
@@ -62,18 +67,17 @@ fn vm_miss_reason(
 fn compile_parallel_module(
     node: &ModuleNode,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
     request: &VmCompileRequest<'_>,
     force_rebuild: bool,
     is_entry: bool,
 ) -> ParallelModuleResult {
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
-    let semantic_config_hash =
-        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-            node.kind != ModuleKind::FlowStdlib && request.strict_mode,
-            request.enable_optimize,
-        );
+    let semantic_config_hash = compute_semantic_config_hash(
+        node.kind != ModuleKind::FlowStdlib && request.strict_mode,
+        request.enable_optimize,
+    );
     let strict_hash = if node.kind == ModuleKind::FlowStdlib {
         hash_bytes(b"strict=0")
     } else {
@@ -86,16 +90,12 @@ fn compile_parallel_module(
     let cache_key = hash_cache_key(&source_hash, &strict_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache_layout.vm_dir());
     let old_interface = if !request.no_cache {
-        flux::bytecode::compiler::module_interface::load_cached_interface(
-            request.cache_layout.root(),
-            &node.path,
-        )
-        .ok()
+        load_cached_interface(request.cache_layout.root(), &node.path).ok()
     } else {
         None
     };
     let (current_interface, interface_miss_reason) = if !request.no_cache {
-        match flux::bytecode::compiler::module_interface::load_valid_interface(
+        match load_valid_interface(
             request.cache_layout.root(),
             &node.path,
             &module_source,
@@ -190,13 +190,13 @@ fn compile_parallel_module(
         .imports
         .iter()
         .filter_map(|dep| {
-            loaded_interfaces.get(&dep.target_path).map(|interface| {
-                flux::types::module_interface::DependencyFingerprint {
+            loaded_interfaces
+                .get(&dep.target_path)
+                .map(|interface| DependencyFingerprint {
                     module_name: interface.module_name.clone(),
                     source_path: dep.target_path.to_string_lossy().to_string(),
                     interface_fingerprint: interface.interface_fingerprint.clone(),
-                }
-            })
+                })
         })
         .collect::<Vec<_>>();
 
@@ -207,7 +207,7 @@ fn compile_parallel_module(
                     .lower_aether_report_program(&node.program, request.enable_optimize)
                     .ok()
                     .map(|core| {
-                        flux::bytecode::compiler::module_interface::build_interface(
+                        build_interface(
                             &module_name,
                             module_sym,
                             &source_hash,
@@ -244,12 +244,8 @@ fn compile_parallel_module(
             &module_deps,
         );
         if let Some(interface) = interface.as_ref() {
-            let iface_path = flux::bytecode::compiler::module_interface::interface_path(
-                request.cache_layout.root(),
-                &node.path,
-            );
-            let _ =
-                flux::bytecode::compiler::module_interface::save_interface(&iface_path, interface);
+            let iface_path = interface_path(request.cache_layout.root(), &node.path);
+            let _ = save_interface(&iface_path, interface);
         }
     }
 
@@ -257,9 +253,7 @@ fn compile_parallel_module(
         .as_ref()
         .map(|iface| iface.interface_fingerprint.clone());
     let interface_changed = match (&old_interface, &interface) {
-        (Some(old), Some(new)) => {
-            flux::bytecode::compiler::module_interface::module_interface_changed(old, new)
-        }
+        (Some(old), Some(new)) => module_interface_changed(old, new),
         (None, None) => false,
         _ => true,
     };
@@ -281,7 +275,7 @@ fn compile_parallel_module(
 }
 
 struct VmParallelBuildState {
-    loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    loaded_interfaces: HashMap<PathBuf, ModuleInterface>,
     module_states: HashMap<PathBuf, ModuleBuildState>,
     failed: HashSet<PathBuf>,
     linker: VmAssemblyContext,
@@ -334,7 +328,7 @@ impl VmParallelBuildState {
     fn record_progress(
         &mut self,
         path: &PathBuf,
-        interface: Option<&flux::types::module_interface::ModuleInterface>,
+        interface: Option<&ModuleInterface>,
         skipped: bool,
         verbose: bool,
         miss_reason: Option<&String>,
@@ -363,7 +357,7 @@ impl VmParallelBuildState {
 fn compile_batch(
     batch: Vec<&ModuleNode>,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
     dependency_changed_paths: &HashSet<PathBuf>,
     request: &VmCompileRequest<'_>,
 ) -> Vec<ParallelModuleResult> {

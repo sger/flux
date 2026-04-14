@@ -2,15 +2,19 @@
 
 use std::path::PathBuf;
 
-use crate as flux;
-use crate::{cache_paths::CacheLayout, syntax::module_graph::ModuleGraph};
+use crate::{
+    bytecode::{bytecode::Bytecode, symbol_table::SymbolTable},
+    cache_paths::CacheLayout,
+    diagnostics::Diagnostic,
+    syntax::{interner::Interner, module_graph::ModuleGraph},
+};
 
 mod parallel;
 
 /// Summary of a parallel VM build ready for execution.
 pub(crate) struct ParallelVmBuild {
-    pub(crate) bytecode: flux::bytecode::bytecode::Bytecode,
-    pub(crate) symbol_table: flux::bytecode::symbol_table::SymbolTable,
+    pub(crate) bytecode: Bytecode,
+    pub(crate) symbol_table: SymbolTable,
     pub(crate) cached_count: usize,
     pub(crate) compiled_count: usize,
 }
@@ -19,7 +23,7 @@ pub(crate) struct ParallelVmBuild {
 pub(crate) struct VmCompileRequest<'a> {
     pub(crate) graph: &'a ModuleGraph,
     pub(crate) entry_canonical: Option<&'a PathBuf>,
-    pub(crate) graph_interner: &'a flux::syntax::interner::Interner,
+    pub(crate) graph_interner: &'a Interner,
     pub(crate) cache_layout: &'a CacheLayout,
     pub(crate) no_cache: bool,
     pub(crate) strict_mode: bool,
@@ -32,7 +36,7 @@ pub(crate) struct VmCompileRequest<'a> {
 /// Compiles a module graph into a linked VM program using the parallel VM pipeline.
 pub(crate) fn compile_vm_modules_parallel(
     request: VmCompileRequest<'_>,
-    all_diagnostics: &mut Vec<flux::diagnostics::Diagnostic>,
+    all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<ParallelVmBuild, String> {
     parallel::compile_vm_modules_parallel(request, all_diagnostics)
 }
