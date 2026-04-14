@@ -7,7 +7,7 @@
 //!
 //! ```bash
 //! CARGO_TARGET_DIR=target/parity_vm cargo build
-//! CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm
+//! CARGO_TARGET_DIR=target/parity_native cargo build --features llvm
 //! ```
 //!
 //! # Usage

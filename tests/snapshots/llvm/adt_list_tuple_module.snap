@@ -1,5 +1,5 @@
 ---
-source: tests/core_to_llvm_adt_snapshots.rs
+source: tests/llvm_adt_snapshots.rs
 expression: render_module(&module)
 ---
 source_filename = "flux_lir"

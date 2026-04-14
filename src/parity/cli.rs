@@ -69,7 +69,7 @@ pub fn run_parity_check(args: &[String]) {
     if !config.llvm_binary.exists() {
         eprintln!(
             "Error: LLVM binary not found at {}\n\
-             Build with: CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm",
+             Build with: CARGO_TARGET_DIR=target/parity_native cargo build --features llvm",
             config.llvm_binary.display()
         );
         std::process::exit(1);
@@ -899,7 +899,7 @@ fn run_cargo_build(target_dir: &Path, enable_llvm: bool) {
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
     if enable_llvm {
-        cmd.args(["--features", "core_to_llvm"]);
+        cmd.args(["--features", "llvm"]);
     }
     cmd.env("CARGO_TARGET_DIR", target_dir);
 

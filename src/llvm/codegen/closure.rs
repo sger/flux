@@ -1,4 +1,4 @@
-use crate::core_to_llvm::{
+use crate::llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
     LlvmFunctionSig, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
     LlvmTypeDef, LlvmValueKind,
@@ -1033,7 +1033,7 @@ pub(super) fn const_i64_operand(value: i64) -> LlvmOperand {
 
 #[cfg(test)]
 mod tests {
-    use crate::core_to_llvm::{LlvmModule, render_module};
+    use crate::llvm::{LlvmModule, render_module};
 
     use super::*;
 

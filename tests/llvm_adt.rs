@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 use std::{
     collections::HashMap,
@@ -50,7 +50,7 @@ fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> 
     let llvm = compiler
         .lower_to_lir_llvm_module_per_module(&program, false, export_user_ctor_name_helper, true)
         .expect("per-module lowering should succeed");
-    flux::core_to_llvm::render_module(&llvm)
+    flux::llvm::render_module(&llvm)
 }
 
 #[test]
@@ -253,7 +253,7 @@ fn main() {
 "#,
     );
     let path = std::env::temp_dir().join(format!(
-        "core_to_llvm_phase5_{}.ll",
+        "llvm_phase5_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after unix epoch")

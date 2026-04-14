@@ -1,6 +1,6 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
-use flux::core_to_llvm::{
+use flux::llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmTypeDef, LlvmValueKind, render_module,
@@ -157,7 +157,7 @@ fn hand_written_module_snapshot() {
     };
 
     insta::with_settings!({
-        snapshot_path => "snapshots/core_to_llvm",
+        snapshot_path => "snapshots/llvm",
         prepend_module_to_snapshot => false,
     }, {
         insta::assert_snapshot!("hand_written_module", render_module(&module));

@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 use std::{
     collections::HashMap,
@@ -133,7 +133,7 @@ fn factorial(n, acc) {
 "#,
     );
     let path = std::env::temp_dir().join(format!(
-        "core_to_llvm_codegen_{}.ll",
+        "llvm_codegen_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after unix epoch")

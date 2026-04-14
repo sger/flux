@@ -16,17 +16,3 @@ stderr:
 [7 of 8] Compiling  String
 [8 of 8] Compiling  division_by_zero_non_zero
 [cfg→vm] Running via CFG → bytecode VM backend...
-== jit ==
-status: 0
-stdout:
-"non_zero(0) returned None - division prevented at construction"
-stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  NonZero
-[5 of 8] Compiling  Numeric
-[6 of 8] Compiling  Option
-[7 of 8] Compiling  String
-[8 of 8] Compiling  division_by_zero_non_zero
-[cfg→vm] Running via CFG → bytecode VM backend...

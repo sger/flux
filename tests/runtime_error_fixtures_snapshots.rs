@@ -55,15 +55,15 @@ fn run_flux_file(
     workspace_root: &Path,
     flux_bin: &Path,
     file: &str,
-    jit: bool,
+    native: bool,
 ) -> (i32, String, String) {
     let mut args = vec![
         "--no-cache".to_string(),
         "--no-strict".to_string(),
         file.to_string(),
     ];
-    if jit {
-        args.push("--jit".to_string());
+    if native {
+        args.push("--native".to_string());
     }
 
     let output = Command::new(flux_bin)
@@ -71,7 +71,7 @@ fn run_flux_file(
         .args(&args)
         .env("NO_COLOR", "1")
         .output()
-        .unwrap_or_else(|e| panic!("failed to run flux for `{file}` (jit={jit}): {e}"));
+        .unwrap_or_else(|e| panic!("failed to run flux for `{file}` (native={native}): {e}"));
 
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -82,11 +82,9 @@ fn run_flux_file(
 fn build_runtime_transcript(workspace_root: &Path, flux_bin: &Path, fixture_rel: &str) -> String {
     let (vm_status, vm_stdout, vm_stderr) =
         run_flux_file(workspace_root, flux_bin, fixture_rel, false);
-    let (jit_status, jit_stdout, jit_stderr) =
-        run_flux_file(workspace_root, flux_bin, fixture_rel, true);
-
+    let _ = flux_bin;
     format!(
-        "Fixture: {fixture_rel}\n== vm ==\nstatus: {vm_status}\nstdout:\n{}\nstderr:\n{}\n== jit ==\nstatus: {jit_status}\nstdout:\n{}\nstderr:\n{}\n",
+        "Fixture: {fixture_rel}\n== vm ==\nstatus: {vm_status}\nstdout:\n{}\nstderr:\n{}\n",
         if vm_stdout.trim().is_empty() {
             String::from("<empty>")
         } else {
@@ -96,16 +94,6 @@ fn build_runtime_transcript(workspace_root: &Path, flux_bin: &Path, fixture_rel:
             String::from("<empty>")
         } else {
             normalize_cli_text(&vm_stderr, workspace_root)
-        },
-        if jit_stdout.trim().is_empty() {
-            String::from("<empty>")
-        } else {
-            normalize_cli_text(&jit_stdout, workspace_root)
-        },
-        if jit_stderr.trim().is_empty() {
-            String::from("<empty>")
-        } else {
-            normalize_cli_text(&jit_stderr, workspace_root)
         },
     )
 }

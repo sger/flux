@@ -169,7 +169,7 @@ impl CoreType {
 /// Runtime representation of a Flux value (Proposal 0119).
 ///
 /// Determined by HM type inference and carried through Core IR on binders.
-/// The `core_to_llvm` backend uses this to choose between boxed (NaN-boxed)
+/// The `llvm` backend uses this to choose between boxed (NaN-boxed)
 /// and unboxed (raw register) code generation.
 ///
 /// Analogous to GHC's `PrimRep`.

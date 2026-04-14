@@ -8,7 +8,7 @@ default-run = "flux"
 
 [features]
 native = []
-core_to_llvm = ["native"]  # backward-compatible alias
+llvm = ["native"]
 
 [dependencies]
 sha2 = "0.10"

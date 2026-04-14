@@ -31,32 +31,3 @@ Hint:
 Stack trace:
   at main (examples/runtime_errors/division_by_zero_modulo.flx:2:19)
   at <main>
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  division_by_zero_modulo
-[cfg→vm] Running via CFG → bytecode VM backend...
-• 1 error • examples/runtime_errors/division_by_zero_modulo.flx
-error[E1008]: Division By Zero
-
-Cannot divide by zero.
-
-  examples/runtime_errors/division_by_zero_modulo.flx:2:19
-  |
-2 |     let ignored = 10 % 0
-  |                   ^^^^^^
-
-Hint:
-  Check divisor is non-zero before division.
-
-Stack trace:
-  at main (examples/runtime_errors/division_by_zero_modulo.flx:2:19)
-  at <main>
