@@ -1,7 +1,6 @@
 pub mod aether;
 pub mod ast;
 pub mod bytecode;
-pub mod cache_paths;
 pub mod cfg;
 pub mod cli;
 pub mod core;
@@ -12,6 +11,7 @@ pub mod driver;
 pub mod lir;
 pub mod parity;
 pub mod runtime;
+pub mod shared;
 pub mod shared_ir;
 pub mod syntax;
 pub mod types;
