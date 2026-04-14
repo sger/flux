@@ -16,14 +16,14 @@ use crate::{
         },
         debug_info::FunctionDebugInfo,
     },
-    cache_paths,
     diagnostics::position::Span,
     runtime::value::Value,
+    shared::cache_paths,
     types::module_interface::DependencyMissReason,
 };
 
 const MAGIC: &[u8; 4] = b"FXMC";
-const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
+const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCacheLoadError {

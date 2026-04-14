@@ -6,11 +6,11 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cache_paths,
+    shared::cache_paths,
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
-pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
+pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {
