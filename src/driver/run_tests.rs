@@ -27,6 +27,11 @@ use flux::{
         parser::Parser,
     },
 };
+#[cfg(any(feature = "llvm", test))]
+use flux::{
+    diagnostics::position::Position,
+    syntax::{token::Token, token_type::TokenType},
+};
 
 pub(crate) struct TestRunRequest<'a> {
     pub(crate) flags: &'a DriverFlags,
@@ -144,6 +149,181 @@ fn filter_tests_by_name(
     tests
 }
 
+#[cfg(any(feature = "llvm", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeTestHarnessSource {
+    Generated(String),
+    OriginalSource,
+}
+
+#[cfg(any(feature = "llvm", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SourceRewriteRange {
+    start: usize,
+    end: usize,
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn build_native_test_harness_source(
+    source: &str,
+    test_name: &str,
+    hidden_main_name: &str,
+) -> Result<NativeTestHarnessSource, String> {
+    let analysis = analyze_top_level_main_usage(source)?;
+    match analysis {
+        TopLevelMainAnalysis::NoMain => Ok(NativeTestHarnessSource::Generated(
+            synthetic_test_harness_source(source, test_name),
+        )),
+        TopLevelMainAnalysis::SingleMain {
+            main_name_range,
+            has_additional_main_references,
+        } => {
+            if has_additional_main_references {
+                return Err(
+                    "native test harness rewriting does not support additional `main` references yet; remove explicit `main` references or run tests without `--native`.".to_string(),
+                );
+            }
+            let rewritten = rewrite_source_range(source, main_name_range, hidden_main_name);
+            Ok(NativeTestHarnessSource::Generated(
+                synthetic_test_harness_source(&rewritten, test_name),
+            ))
+        }
+        TopLevelMainAnalysis::MultipleMains => Ok(NativeTestHarnessSource::OriginalSource),
+    }
+}
+
+#[cfg(any(feature = "llvm", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TopLevelMainAnalysis {
+    NoMain,
+    SingleMain {
+        main_name_range: SourceRewriteRange,
+        has_additional_main_references: bool,
+    },
+    MultipleMains,
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn analyze_top_level_main_usage(source: &str) -> Result<TopLevelMainAnalysis, String> {
+    let mut lexer = Lexer::new(source);
+    let mut brace_depth = 0usize;
+    let mut expect_function_name = false;
+    let mut function_name_depth = 0usize;
+    let mut previous_token_type = None;
+    let mut top_level_main_ranges = Vec::new();
+    let mut has_additional_main_references = false;
+
+    loop {
+        let token = lexer.next_token();
+        let token_type = token.token_type;
+
+        if token_type == TokenType::Eof {
+            break;
+        }
+
+        let is_function_name = expect_function_name && token_type == TokenType::Ident;
+        if expect_function_name {
+            expect_function_name = false;
+            if is_function_name
+                && token.literal.as_str() == "main"
+                && function_name_depth == 0
+            {
+                top_level_main_ranges.push(token_rewrite_range(source, &token)?);
+            }
+        } else if token_type == TokenType::Fn {
+            expect_function_name = true;
+            function_name_depth = brace_depth;
+        } else if token_type == TokenType::Ident
+            && token.literal.as_str() == "main"
+            && previous_token_type != Some(TokenType::Dot)
+        {
+            has_additional_main_references = true;
+        }
+
+        match token_type {
+            TokenType::LBrace => brace_depth += 1,
+            TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+            _ => {}
+        }
+
+        previous_token_type = Some(token_type);
+    }
+
+    Ok(match top_level_main_ranges.len() {
+        0 => TopLevelMainAnalysis::NoMain,
+        1 => TopLevelMainAnalysis::SingleMain {
+            main_name_range: top_level_main_ranges[0],
+            has_additional_main_references,
+        },
+        _ => TopLevelMainAnalysis::MultipleMains,
+    })
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn synthetic_test_harness_source(source: &str, test_name: &str) -> String {
+    let source = source.trim_end_matches('\n');
+    format!("{source}\n\nfn main() {{ {test_name}(); }}\n")
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn rewrite_source_range(source: &str, range: SourceRewriteRange, replacement: &str) -> String {
+    let mut rewritten = String::with_capacity(source.len() + replacement.len());
+    rewritten.push_str(&source[..range.start]);
+    rewritten.push_str(replacement);
+    rewritten.push_str(&source[range.end..]);
+    rewritten
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn token_rewrite_range(source: &str, token: &Token) -> Result<SourceRewriteRange, String> {
+    Ok(SourceRewriteRange {
+        start: position_to_byte_offset(source, token.position)?,
+        end: position_to_byte_offset(source, token.end_position)?,
+    })
+}
+
+#[cfg(any(feature = "llvm", test))]
+fn position_to_byte_offset(source: &str, position: Position) -> Result<usize, String> {
+    if position.line == 0 {
+        return Err("invalid lexer position: line 0".to_string());
+    }
+
+    let line_start = source
+        .lines()
+        .enumerate()
+        .find_map(|(idx, line)| {
+            if idx + 1 == position.line {
+                Some(line)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| format!("invalid lexer line {}", position.line))?;
+
+    let line_offset = source
+        .split_inclusive('\n')
+        .take(position.line.saturating_sub(1))
+        .map(str::len)
+        .sum::<usize>();
+
+    let mut column_chars = 0usize;
+    for (byte_idx, _) in line_start.char_indices() {
+        if column_chars == position.column {
+            return Ok(line_offset + byte_idx);
+        }
+        column_chars += 1;
+    }
+
+    if column_chars == position.column {
+        return Ok(line_offset + line_start.len());
+    }
+
+    Err(format!(
+        "invalid lexer column {} on line {}",
+        position.column, position.line
+    ))
+}
+
 pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
     let ParsedTestFile {
         source,
@@ -253,9 +433,12 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             source_path: path,
             source: &source,
             roots: &roots,
+            roots_only: request.session.roots_only,
             tests: &tests,
             enable_optimize: request.session.enable_optimize,
+            enable_analyze: request.session.enable_analyze,
             strict_mode: request.session.strict_mode,
+            strict_types: request.session.strict_types,
             use_native: should_use_native_test_backend(request.flags),
         })
     } else {
@@ -276,10 +459,44 @@ struct NativeTestRunConfig<'a> {
     source_path: &'a str,
     source: &'a str,
     roots: &'a [PathBuf],
+    roots_only: bool,
     tests: &'a [(String, usize)],
     enable_optimize: bool,
+    enable_analyze: bool,
     strict_mode: bool,
+    strict_types: bool,
     use_native: bool,
+}
+
+#[cfg(feature = "llvm")]
+fn append_native_test_command_args(
+    cmd: &mut std::process::Command,
+    config: &NativeTestRunConfig<'_>,
+    source_path: &Path,
+) {
+    if config.use_native {
+        cmd.arg("--native");
+    }
+    cmd.arg("--no-cache");
+    if config.enable_optimize {
+        cmd.arg("--optimize");
+    }
+    if config.enable_analyze {
+        cmd.arg("--analyze");
+    }
+    if config.strict_mode {
+        cmd.arg("--strict");
+    }
+    if config.strict_types {
+        cmd.arg("--strict-types");
+    }
+    if config.roots_only {
+        cmd.arg("--roots-only");
+    }
+    for root in config.roots {
+        cmd.arg("--root").arg(root);
+    }
+    cmd.arg(source_path);
 }
 
 #[cfg(feature = "llvm")]
@@ -299,37 +516,46 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
         .unwrap_or(0);
 
     for (idx, (name, _)) in config.tests.iter().enumerate() {
+        let start = Instant::now();
+        let hidden_main_name = format!("__flux_test_user_main_{}_{}", unique, idx);
+        let harness_source = match build_native_test_harness_source(
+            config.source,
+            name,
+            &hidden_main_name,
+        ) {
+            Ok(harness_source) => harness_source,
+            Err(err) => {
+                results.push(TestResult {
+                    name: name.clone(),
+                    elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+                    outcome: TestOutcome::Fail(err),
+                });
+                continue;
+            }
+        };
         let harness_path = std::env::temp_dir().join(format!(
             "flux_native_test_{}_{}_{}.flx",
             std::process::id(),
             unique,
             idx
         ));
-        let harness_source = format!("{}\n\nfn main() {{ {name}(); }}\n", config.source);
-        if let Err(e) = std::fs::write(&harness_path, harness_source) {
-            eprintln!(
-                "Failed to write native test harness {}: {e}",
-                harness_path.display()
-            );
-            std::process::exit(1);
-        }
-
-        let start = Instant::now();
         let mut cmd = Command::new(&exe);
-        if config.use_native {
-            cmd.arg("--native");
+        let generated_harness = matches!(harness_source, NativeTestHarnessSource::Generated(_));
+        let child_source_path = if generated_harness {
+            harness_path.as_path()
+        } else {
+            Path::new(config.source_path)
+        };
+        if let NativeTestHarnessSource::Generated(ref source_text) = harness_source {
+            if let Err(e) = std::fs::write(&harness_path, source_text) {
+                eprintln!(
+                    "Failed to write native test harness {}: {e}",
+                    harness_path.display()
+                );
+                std::process::exit(1);
+            }
         }
-        cmd.arg("--no-cache");
-        if config.enable_optimize {
-            cmd.arg("--optimize");
-        }
-        if config.strict_mode {
-            cmd.arg("--strict");
-        }
-        for root in config.roots {
-            cmd.arg("--root").arg(root);
-        }
-        cmd.arg(&harness_path);
+        append_native_test_command_args(&mut cmd, &config, child_source_path);
         cmd.env("NO_COLOR", "1");
         let output = cmd.output();
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -348,7 +574,9 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
             )),
         };
 
-        let _ = std::fs::remove_file(&harness_path);
+        if generated_harness {
+            let _ = std::fs::remove_file(&harness_path);
+        }
         results.push(TestResult {
             name: name.clone(),
             elapsed_ms,
@@ -361,8 +589,15 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_tests_by_name, should_use_native_test_backend};
+    use super::{
+        NativeTestHarnessSource, build_native_test_harness_source, filter_tests_by_name,
+        should_use_native_test_backend,
+    };
     use crate::driver::{backend::Backend, test_support::base_flags};
+    #[cfg(feature = "llvm")]
+    use super::{NativeTestRunConfig, append_native_test_command_args};
+    #[cfg(feature = "llvm")]
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn default_test_backend_uses_vm() {
@@ -402,5 +637,125 @@ mod tests {
         let filtered = filter_tests_by_name(tests, Some("gamma"));
 
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn harness_builder_appends_synthetic_main_when_source_has_no_main() {
+        let harness =
+            build_native_test_harness_source("fn test_ok() { 0 }\n", "test_ok", "__hidden")
+                .unwrap();
+
+        assert_eq!(
+            harness,
+            NativeTestHarnessSource::Generated(
+                "fn test_ok() { 0 }\n\nfn main() { test_ok(); }\n".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn harness_builder_renames_single_top_level_main_before_appending_test_main() {
+        let harness = build_native_test_harness_source(
+            "fn main() { 0 }\nfn test_ok() { 0 }\n",
+            "test_ok",
+            "__flux_test_user_main_1",
+        )
+        .unwrap();
+
+        let NativeTestHarnessSource::Generated(harness) = harness else {
+            panic!("expected generated harness");
+        };
+
+        assert!(harness.contains("fn __flux_test_user_main_1() { 0 }"));
+        assert!(harness.contains("fn main() { test_ok(); }"));
+        assert!(!harness.contains("fn main() { 0 }"));
+    }
+
+    #[test]
+    fn harness_builder_preserves_qualified_test_names() {
+        let harness = build_native_test_harness_source(
+            "module Tests { fn test_inside() { 0 } }\n",
+            "Tests.test_inside",
+            "__hidden",
+        )
+        .unwrap();
+
+        assert_eq!(
+            harness,
+            NativeTestHarnessSource::Generated(
+                "module Tests { fn test_inside() { 0 } }\n\nfn main() { Tests.test_inside(); }\n"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn harness_builder_rejects_additional_main_references() {
+        let err = build_native_test_harness_source(
+            "fn main() { main() }\nfn test_ok() { 0 }\n",
+            "test_ok",
+            "__hidden",
+        )
+        .unwrap_err();
+
+        assert!(err.contains("does not support additional `main` references"));
+    }
+
+    #[test]
+    fn harness_builder_preserves_original_source_for_duplicate_top_level_main() {
+        let harness = build_native_test_harness_source(
+            "fn main() { 0 }\nfn main() { 1 }\nfn test_ok() { 0 }\n",
+            "test_ok",
+            "__hidden",
+        )
+        .unwrap();
+
+        assert_eq!(harness, NativeTestHarnessSource::OriginalSource);
+    }
+
+    #[cfg(feature = "llvm")]
+    #[test]
+    fn native_test_command_forwards_language_and_root_flags() {
+        let tests = vec![("test_ok".to_string(), 0)];
+        let roots = vec![PathBuf::from("tests"), PathBuf::from("lib")];
+        let config = NativeTestRunConfig {
+            file_name: "sample.flx",
+            source_path: "sample.flx",
+            source: "fn test_ok() { 0 }",
+            roots: &roots,
+            roots_only: true,
+            tests: &tests,
+            enable_optimize: true,
+            enable_analyze: true,
+            strict_mode: true,
+            strict_types: true,
+            use_native: true,
+        };
+        let mut cmd = std::process::Command::new("flux");
+
+        append_native_test_command_args(&mut cmd, &config, Path::new("rewritten.flx"));
+
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(
+            args,
+            vec![
+                "--native",
+                "--no-cache",
+                "--optimize",
+                "--analyze",
+                "--strict",
+                "--strict-types",
+                "--roots-only",
+                "--root",
+                "tests",
+                "--root",
+                "lib",
+                "rewritten.flx",
+            ]
+        );
     }
 }

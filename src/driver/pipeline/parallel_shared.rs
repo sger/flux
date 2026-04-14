@@ -193,7 +193,10 @@ mod tests {
         dependency_changed_paths, filter_non_error_diagnostics, partition_module_batches,
         progress_name, sort_by_path,
     };
-    use crate::{diagnostics::Diagnostic, syntax::module_graph::ModuleKind};
+    use crate::{
+        diagnostics::{Diagnostic, Severity},
+        syntax::module_graph::ModuleKind,
+    };
     use std::path::PathBuf;
 
     #[derive(Clone)]

@@ -31,6 +31,7 @@ fn run_flux_strict(args: &[&str]) -> Output {
         .unwrap_or_else(|e| panic!("failed to run flux with args {:?}: {e}", args))
 }
 
+#[cfg(feature = "llvm")]
 fn cli_supports_flag(flag: &str) -> bool {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .arg("--help")
@@ -45,6 +46,22 @@ fn combined_output(output: &Output) -> String {
     text.push_str(&String::from_utf8_lossy(&output.stdout));
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     text
+}
+
+#[cfg(feature = "llvm")]
+fn write_temp_flux_file(prefix: &str, source: &str) -> PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "flux_{prefix}_{}_{}.flx",
+        std::process::id(),
+        unique
+    ));
+    std::fs::write(&path, source)
+        .unwrap_or_else(|err| panic!("failed to write temp fixture {}: {err}", path.display()));
+    path
 }
 
 #[allow(dead_code)]
@@ -342,6 +359,64 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
     assert!(
         text.contains("9 tests: 9 passed, 0 failed"),
         "unexpected native summary, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_mode_native_handles_files_that_already_define_main() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = write_temp_flux_file("native_test_main", "fn main() { 0 }\nfn test_ok() { 0 }\n");
+    let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+    let _ = std::fs::remove_file(&file);
+
+    assert!(
+        output.status.success(),
+        "expected native success for file with user main, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("PASS  test_ok"),
+        "expected native test pass, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("Duplicate Main Function"),
+        "unexpected duplicate main error, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_mode_native_rejects_additional_main_references_in_harness_rewrite() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = write_temp_flux_file(
+        "native_test_main_ref",
+        "fn main() { main() }\nfn test_ok() { 0 }\n",
+    );
+    let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+    let _ = std::fs::remove_file(&file);
+
+    assert!(
+        !output.status.success(),
+        "expected native failure for unsupported main references, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("does not support additional `main` references"),
+        "expected targeted harness error, output:\n{}",
         text
     );
 }
@@ -832,6 +907,7 @@ fn dump_core_debug_excludes_aether_stats() {
     );
 }
 
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_aether_queue_workload_matches_vm_totals() {
     if !cli_supports_flag("--native") {
@@ -877,6 +953,7 @@ fn test_aether_bench_reuse_enabled_prints_head_value() {
     );
 }
 
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_aether_bench_reuse_enabled_prints_head_value() {
     if !cli_supports_flag("--native") {
@@ -917,6 +994,7 @@ fn test_aether_bench_reuse_blocked_prints_head_value() {
     );
 }
 
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_aether_bench_reuse_blocked_prints_head_value() {
     if !cli_supports_flag("--native") {
