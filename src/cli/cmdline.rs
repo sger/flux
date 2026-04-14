@@ -517,6 +517,89 @@ mod tests {
     }
 
     #[test]
+    fn parses_native_program_run_path() {
+        let command =
+            parse_args(cli(&["flux", "examples/basics/arithmetic.flx", "--native"])).unwrap();
+
+        match command {
+            CliCommand::Run { flags, target } => {
+                assert_eq!(target.mode, RunMode::Program);
+                assert_eq!(target.path, "examples/basics/arithmetic.flx");
+                #[cfg(feature = "native")]
+                {
+                    assert_eq!(flags.backend.selected, Backend::Native);
+                    assert!(flags.is_native_backend());
+                    assert!(flags.backend.use_core_to_llvm);
+                }
+                #[cfg(not(feature = "native"))]
+                {
+                    assert_eq!(flags.backend.selected, Backend::Vm);
+                    assert!(!flags.is_native_backend());
+                }
+            }
+            other => panic!("expected run mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_native_test_run_path() {
+        let command = parse_args(cli(&[
+            "flux",
+            "examples/basics/arithmetic.flx",
+            "--native",
+            "--test",
+        ]))
+        .unwrap();
+
+        match command {
+            CliCommand::Run { flags, target } => {
+                assert_eq!(target.mode, RunMode::Tests);
+                assert_eq!(target.path, "examples/basics/arithmetic.flx");
+                #[cfg(feature = "native")]
+                {
+                    assert_eq!(flags.backend.selected, Backend::Native);
+                    assert!(flags.is_native_backend());
+                }
+                #[cfg(not(feature = "native"))]
+                {
+                    assert_eq!(flags.backend.selected, Backend::Vm);
+                    assert!(!flags.is_native_backend());
+                }
+            }
+            other => panic!("expected run mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_emit_binary_as_native_path() {
+        let command = parse_args(cli(&[
+            "flux",
+            "examples/basics/arithmetic.flx",
+            "--emit-binary",
+        ]));
+
+        #[cfg(feature = "native")]
+        {
+            let command = command.unwrap();
+            match command {
+                CliCommand::Run { flags, target } => {
+                    assert_eq!(target.mode, RunMode::Program);
+                    assert_eq!(flags.backend.selected, Backend::Native);
+                    assert!(flags.is_native_backend());
+                    assert!(flags.backend.emit_binary);
+                }
+                other => panic!("expected run mode, got {other:?}"),
+            }
+        }
+
+        #[cfg(not(feature = "native"))]
+        {
+            let err = command.unwrap_err();
+            assert!(err.contains("native"));
+        }
+    }
+
+    #[test]
     fn parse_fmt_command_supports_check_mode() {
         let (path, check) = parse_fmt_command(&[
             "flux".into(),
