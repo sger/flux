@@ -5,6 +5,7 @@ use crate::driver::backend_policy::trace_backend_label;
 
 /// Backend label used in Aether trace output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "llvm"), allow(dead_code))]
 pub(crate) enum TraceBackend {
     Vm,
     Native,

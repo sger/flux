@@ -91,6 +91,7 @@ fn should_try_parallel_vm_fast_path(flags: &DriverFlags, is_multimodule: bool) -
 }
 
 /// Returns whether the compiled run should dispatch to the native backend.
+#[cfg_attr(not(feature = "llvm"), allow(dead_code))]
 fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
     #[cfg(feature = "llvm")]
     {
