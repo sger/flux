@@ -20,6 +20,8 @@ use crate::driver::{
     session::DriverSession,
     support::shared::emit_diagnostics,
 };
+#[cfg(feature = "core_to_llvm")]
+use flux::core_to_llvm::pipeline::toolchain_info;
 use flux::{
     bytecode::{bytecode_cache::hash_bytes, compiler::Compiler},
     cache_paths::CacheLayout,
@@ -107,7 +109,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
 
     #[cfg(feature = "core_to_llvm")]
     if crate::driver::backend_policy::should_prewarm_toolchain(request.flags) {
-        let _ = flux::core_to_llvm::pipeline::toolchain_info();
+        let _ = toolchain_info();
     }
 
     let compile_start = Instant::now();

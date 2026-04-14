@@ -4,8 +4,16 @@
 
 use std::path::{Path, PathBuf};
 
-use crate as flux;
-use crate::{cache_paths::CacheLayout, diagnostics::Diagnostic, syntax::module_graph::ModuleGraph};
+use crate::{
+    cache_paths::CacheLayout,
+    diagnostics::Diagnostic,
+    syntax::{interner::Interner, module_graph::ModuleGraph},
+};
+#[cfg(feature = "core_to_llvm")]
+use crate::{
+    core_to_llvm::{pipeline::{compile_ir_to_object, ensure_runtime_lib}, render_module, target},
+    lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
+};
 
 #[cfg(feature = "core_to_llvm")]
 mod parallel;
@@ -32,7 +40,7 @@ pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     for candidate in &candidates {
         if candidate.join("flux_rt.h").exists() {
             #[cfg(feature = "native")]
-            if let Err(e) = flux::core_to_llvm::pipeline::ensure_runtime_lib(candidate) {
+            if let Err(e) = ensure_runtime_lib(candidate) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
             let lib_exists = if cfg!(windows) {
@@ -93,16 +101,12 @@ pub(crate) fn compile_native_support_object(
         return Ok(object_path);
     }
 
-    let lir = flux::lir::LirProgram::new();
-    let mut llvm_module = flux::lir::emit_llvm::emit_llvm_module_with_options(&lir, true, false);
-    llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
-    llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
-    let ll_text = flux::core_to_llvm::render_module(&llvm_module);
-    flux::core_to_llvm::pipeline::compile_ir_to_object(
-        &ll_text,
-        &object_path,
-        if enable_optimize { 2 } else { 0 },
-    )
+    let lir = LirProgram::new();
+    let mut llvm_module = emit_llvm_module_with_options(&lir, true, false);
+    llvm_module.target_triple = Some(target::host_triple());
+    llvm_module.data_layout = target::host_data_layout();
+    let ll_text = render_module(&llvm_module);
+    compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 })
     .map_err(|err| format!("native support object compilation failed: {err}"))?;
     Ok(object_path)
 }
@@ -118,7 +122,7 @@ pub(crate) fn compile_native_modules_parallel(
     enable_optimize: bool,
     enable_analyze: bool,
     verbose: bool,
-    base_interner: &flux::syntax::interner::Interner,
+    base_interner: &Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
     parallel::compile_native_modules_parallel(

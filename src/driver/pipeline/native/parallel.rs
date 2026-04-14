@@ -5,12 +5,25 @@ use std::{
     path::PathBuf,
 };
 
-use crate as flux;
 use crate::{
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
+    bytecode::compiler::module_interface::{
+        build_interface, compute_semantic_config_hash, interface_path, load_cached_interface,
+        module_interface_changed, save_interface,
+    },
     cache_paths::{self, CacheLayout},
+    core_to_llvm::{
+        module_cache::NativeModuleCache,
+        pipeline::compile_ir_to_object,
+        render_module,
+        target,
+    },
     diagnostics::{Diagnostic, DiagnosticPhase, Severity},
-    syntax::module_graph::{ModuleGraph, ModuleKind, ModuleNode},
+    syntax::{
+        interner::Interner,
+        module_graph::{ModuleGraph, ModuleKind, ModuleNode},
+    },
+    types::module_interface::{DependencyFingerprint, ModuleInterface},
 };
 use rayon::prelude::*;
 
@@ -31,7 +44,7 @@ struct NativeParallelModuleResult {
     object_path: PathBuf,
     compile_failed: bool,
     error_message: Option<String>,
-    interface: Option<flux::types::module_interface::ModuleInterface>,
+    interface: Option<ModuleInterface>,
     skipped: bool,
     interface_changed: bool,
     miss_reason: Option<String>,
@@ -60,7 +73,7 @@ fn compile_parallel_native_module(
     node: &ModuleNode,
     is_entry_module: bool,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
     cache_layout: &CacheLayout,
     no_cache: bool,
     force_rebuild: bool,
@@ -68,22 +81,18 @@ fn compile_parallel_native_module(
     strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
-    base_interner: &flux::syntax::interner::Interner,
+    base_interner: &Interner,
     export_user_ctor_name_helper: bool,
 ) -> NativeParallelModuleResult {
     let is_flow_library = node.kind == ModuleKind::FlowStdlib;
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
     let semantic_config_hash =
-        flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-            !is_flow_library && strict_mode,
-            enable_optimize,
-        );
+        compute_semantic_config_hash(!is_flow_library && strict_mode, enable_optimize);
     let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
 
     let native_miss_reason = if !no_cache && !force_rebuild {
-        let native_cache =
-            flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
+        let native_cache = NativeModuleCache::new(cache_layout.native_dir());
         match native_cache.validate(
             &node.path,
             &cache_key,
@@ -91,11 +100,7 @@ fn compile_parallel_native_module(
             export_user_ctor_name_helper,
         ) {
             Ok(object_path) => {
-                let interface = flux::bytecode::compiler::module_interface::load_cached_interface(
-                    cache_layout.root(),
-                    &node.path,
-                )
-                .ok();
+                let interface = load_cached_interface(cache_layout.root(), &node.path).ok();
                 if native_cache_hit_is_usable(interface.is_some(), node.kind) {
                     return NativeParallelModuleResult {
                         path: node.path.clone(),
@@ -174,16 +179,16 @@ fn compile_parallel_native_module(
     };
 
     let mut llvm_module = llvm_module;
-    llvm_module.target_triple = Some(flux::core_to_llvm::target::host_triple());
-    llvm_module.data_layout = flux::core_to_llvm::target::host_data_layout();
-    let ll_text = flux::core_to_llvm::render_module(&llvm_module);
+    llvm_module.target_triple = Some(target::host_triple());
+    llvm_module.data_layout = target::host_data_layout();
+    let ll_text = render_module(&llvm_module);
 
     let dependency_fingerprints: Vec<_> = node
         .imports
         .iter()
         .filter_map(|dep| {
             loaded_interfaces.get(&dep.target_path).map(|interface| {
-                flux::types::module_interface::DependencyFingerprint {
+                DependencyFingerprint {
                     module_name: interface.module_name.clone(),
                     source_path: dep.target_path.to_string_lossy().to_string(),
                     interface_fingerprint: interface.interface_fingerprint.clone(),
@@ -192,8 +197,7 @@ fn compile_parallel_native_module(
         })
         .collect();
 
-    let native_cache =
-        flux::core_to_llvm::module_cache::NativeModuleCache::new(cache_layout.native_dir());
+    let native_cache = NativeModuleCache::new(cache_layout.native_dir());
     let object_path = if no_cache {
         let dir = native_temp_dir();
         let _ = std::fs::create_dir_all(&dir);
@@ -221,11 +225,7 @@ fn compile_parallel_native_module(
         }
     };
 
-    if let Err(err) = flux::core_to_llvm::pipeline::compile_ir_to_object(
-        &ll_text,
-        &object_path,
-        if enable_optimize { 2 } else { 0 },
-    ) {
+    if let Err(err) = compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 }) {
         return NativeParallelModuleResult {
             path: node.path.clone(),
             object_path: PathBuf::new(),
@@ -247,7 +247,7 @@ fn compile_parallel_native_module(
                 .lower_aether_report_program(&node.program, enable_optimize)
                 .ok()
                 .map(|core| {
-                    flux::bytecode::compiler::module_interface::build_interface(
+                    build_interface(
                         &module_name,
                         module_sym,
                         &source_hash,
@@ -264,9 +264,7 @@ fn compile_parallel_native_module(
     );
 
     let interface_changed = match (&loaded_interfaces.get(&node.path), &interface) {
-        (Some(old), Some(new)) => {
-            flux::bytecode::compiler::module_interface::module_interface_changed(old, new)
-        }
+        (Some(old), Some(new)) => module_interface_changed(old, new),
         _ => true,
     };
 
@@ -283,7 +281,7 @@ fn compile_parallel_native_module(
 }
 
 struct NativeParallelBuildState {
-    loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
+    loaded_interfaces: HashMap<PathBuf, ModuleInterface>,
     object_paths: Vec<PathBuf>,
     interface_changed_modules: HashSet<PathBuf>,
     any_module_recompiled: bool,
@@ -300,12 +298,7 @@ impl NativeParallelBuildState {
         let mut loaded_interfaces = HashMap::new();
         if !no_cache {
             for node in graph.topo_order() {
-                if let Ok(interface) =
-                    flux::bytecode::compiler::module_interface::load_cached_interface(
-                        cache_layout.root(),
-                        &node.path,
-                    )
-                {
+                if let Ok(interface) = load_cached_interface(cache_layout.root(), &node.path) {
                     loaded_interfaces.insert(node.path.clone(), interface);
                 }
             }
@@ -349,8 +342,8 @@ impl NativeParallelBuildState {
 fn replay_native_diagnostics(
     node: &ModuleNode,
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, flux::types::module_interface::ModuleInterface>,
-    base_interner: &flux::syntax::interner::Interner,
+    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
+    base_interner: &Interner,
     strict_mode: bool,
     strict_types: bool,
     enable_optimize: bool,
@@ -376,7 +369,7 @@ fn handle_native_result(
     cache_layout: &CacheLayout,
     no_cache: bool,
     verbose: bool,
-    base_interner: &flux::syntax::interner::Interner,
+    base_interner: &Interner,
     strict_mode: bool,
     strict_types: bool,
     enable_optimize: bool,
@@ -432,14 +425,8 @@ fn handle_native_result(
     }
     if let Some(interface) = result.interface {
         if !result.skipped && !no_cache {
-            let interface_path = flux::bytecode::compiler::module_interface::interface_path(
-                cache_layout.root(),
-                &result.path,
-            );
-            let _ = flux::bytecode::compiler::module_interface::save_interface(
-                &interface_path,
-                &interface,
-            );
+            let interface_path = interface_path(cache_layout.root(), &result.path);
+            let _ = save_interface(&interface_path, &interface);
         }
         build_state
             .loaded_interfaces
@@ -460,7 +447,7 @@ pub(crate) fn compile_native_modules_parallel(
     enable_optimize: bool,
     enable_analyze: bool,
     verbose: bool,
-    base_interner: &flux::syntax::interner::Interner,
+    base_interner: &Interner,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
     let entry_path = graph
