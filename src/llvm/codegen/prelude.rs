@@ -1,4 +1,4 @@
-use crate::core_to_llvm::{
+use crate::llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind,
@@ -215,7 +215,7 @@ fn emit_dup(module: &mut LlvmModule) {
     if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
         return;
     }
-    module.declarations.push(crate::core_to_llvm::LlvmDecl {
+    module.declarations.push(crate::llvm::LlvmDecl {
         linkage: Linkage::External,
         name: flux_prelude_symbol(name),
         sig: LlvmFunctionSig {
@@ -235,7 +235,7 @@ fn emit_drop(module: &mut LlvmModule) {
     if has_function(module, name) || module.declarations.iter().any(|d| d.name.0 == name) {
         return;
     }
-    module.declarations.push(crate::core_to_llvm::LlvmDecl {
+    module.declarations.push(crate::llvm::LlvmDecl {
         linkage: Linkage::External,
         name: flux_prelude_symbol(name),
         sig: LlvmFunctionSig {
@@ -458,7 +458,7 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
     if !has_function(module, free_name)
         && !module.declarations.iter().any(|d| d.name.0 == free_name)
     {
-        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: flux_prelude_symbol(free_name),
             sig: LlvmFunctionSig {
@@ -474,7 +474,7 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
     if !has_function(module, alloc_name)
         && !module.declarations.iter().any(|d| d.name.0 == alloc_name)
     {
-        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: flux_prelude_symbol(alloc_name),
             sig: LlvmFunctionSig {
@@ -495,7 +495,7 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
             .iter()
             .any(|d| d.name.0 == alloc_hdr_name)
     {
-        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: flux_prelude_symbol(alloc_hdr_name),
             sig: LlvmFunctionSig {
@@ -543,7 +543,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     // ── Declare @flux_bump_alloc_slow (C runtime fallback) ───────
     let slow_name = "flux_bump_alloc_slow";
     if !module.declarations.iter().any(|d| d.name.0 == slow_name) {
-        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: GlobalId(slow_name.into()),
             sig: LlvmFunctionSig {
@@ -559,7 +559,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     // ── Declare @llvm.memset.p0.i64 intrinsic ────────────────────
     let memset_name = "llvm.memset.p0.i64";
     if !module.declarations.iter().any(|d| d.name.0 == memset_name) {
-        module.declarations.push(crate::core_to_llvm::LlvmDecl {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: GlobalId(memset_name.into()),
             sig: LlvmFunctionSig {
@@ -1106,7 +1106,7 @@ fn const_i1_operand(value: bool) -> LlvmOperand {
 
 #[cfg(test)]
 mod tests {
-    use crate::core_to_llvm::{LlvmModule, render_module};
+    use crate::llvm::{LlvmModule, render_module};
 
     use super::*;
 

@@ -12,7 +12,7 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 pub mod emit_llvm;
 pub mod lower;
 

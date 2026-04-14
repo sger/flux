@@ -4021,13 +4021,13 @@ impl Compiler {
     /// Lower program through LIR to an LLVM IR module (Proposal 0132 Phase 7).
     /// Returns the `LlvmModule` struct so the caller can inject target triple
     /// and data layout before rendering.
-    #[cfg(feature = "core_to_llvm")]
+    #[cfg(feature = "llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module(
         &mut self,
         program: &Program,
         optimize: bool,
-    ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+    ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
         let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
@@ -4044,7 +4044,7 @@ impl Compiler {
     /// Lower a single module through LIR to an LLVM IR module while resolving
     /// imported public functions as external symbols rather than merged-program
     /// local binders.
-    #[cfg(feature = "core_to_llvm")]
+    #[cfg(feature = "llvm")]
     #[allow(clippy::result_large_err)]
     pub fn lower_to_lir_llvm_module_per_module(
         &mut self,
@@ -4052,7 +4052,7 @@ impl Compiler {
         optimize: bool,
         export_user_ctor_name_helper: bool,
         emit_entry_main: bool,
-    ) -> Result<crate::core_to_llvm::LlvmModule, Diagnostic> {
+    ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
         let _ = self.phase_collection(program);
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
@@ -4102,7 +4102,7 @@ impl Compiler {
     }
 
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
-    #[cfg(feature = "core_to_llvm")]
+    #[cfg(feature = "llvm")]
     #[allow(clippy::result_large_err)]
     pub fn dump_lir_llvm(
         &mut self,
@@ -4110,7 +4110,7 @@ impl Compiler {
         optimize: bool,
     ) -> Result<String, Diagnostic> {
         let module = self.lower_to_lir_llvm_module(program, optimize)?;
-        Ok(crate::core_to_llvm::render_module(&module))
+        Ok(crate::llvm::render_module(&module))
     }
 
     fn build_globals_map(&self) -> HashMap<String, usize> {

@@ -25,26 +25,3 @@ I can't find a value named `len`.
 
 Hint:
   Define it first: let len = ...;
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-• 1 error • examples/runtime_errors/base_fold_callback_arity.flx
-error[E004]: Undefined Variable
-
-I can't find a value named `len`.
-
-  examples/runtime_errors/base_fold_callback_arity.flx:2:33
-  |
-2 |     let ignored = fold(#[1], 0, len)
-  |                                 ^^^
-
-Hint:
-  Define it first: let len = ...;

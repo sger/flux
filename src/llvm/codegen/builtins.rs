@@ -1,11 +1,11 @@
-//! Built-in function support for core_to_llvm.
+//! Built-in function support for llvm.
 //!
 //! Maps Flux built-in function names to C runtime function declarations.
 //! Only functions with a direct C runtime equivalent are supported;
 //! others require closure wrapping (future work).
 
-use crate::core_to_llvm::Linkage;
-use crate::core_to_llvm::{CallConv, GlobalId, LlvmDecl, LlvmFunctionSig, LlvmModule, LlvmType};
+use crate::llvm::Linkage;
+use crate::llvm::{CallConv, GlobalId, LlvmDecl, LlvmFunctionSig, LlvmModule, LlvmType};
 
 /// Describes a built-in function's C runtime mapping.
 pub struct BuiltinMapping {

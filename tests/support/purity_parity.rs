@@ -351,7 +351,7 @@ pub fn run_case(
     workspace_root: &Path,
     flux_bin: &Path,
     case: &ParityFixtureCase,
-    jit: bool,
+    native: bool,
 ) -> Result<CommandOutcome, String> {
     let mut args: Vec<String> = vec!["--no-cache".to_string()];
     if !case.strict {
@@ -362,8 +362,8 @@ pub fn run_case(
         args.push((*root).to_string());
     }
     args.push(case.path.to_string());
-    if jit {
-        args.push("--jit".to_string());
+    if native {
+        args.push("--native".to_string());
     }
 
     let output = Command::new(flux_bin)
@@ -405,40 +405,40 @@ pub fn run_case(
 pub fn parity_transcript(
     case: &ParityFixtureCase,
     vm: &CommandOutcome,
-    jit: &CommandOutcome,
+    native: &CommandOutcome,
 ) -> String {
     let vm_tuples = format_tuples(&vm.tuples);
-    let jit_tuples = format_tuples(&jit.tuples);
+    let native_tuples = format_tuples(&native.tuples);
 
-    let mismatch = if vm.tuples == jit.tuples {
+    let mismatch = if vm.tuples == native.tuples {
         String::from("<none>")
     } else {
         format_mismatch_debug(
             &vm.tuples,
-            &jit.tuples,
+            &native.tuples,
             &vm.normalized_output,
-            &jit.normalized_output,
+            &native.normalized_output,
         )
     };
 
     // Normalize exit codes: any non-zero → 1.
-    // JIT panics produce exit_code 101 non-deterministically vs graceful
+    // Native panics may produce exit_code 101 non-deterministically vs graceful
     // error exit_code 1, which causes snapshot flapping.
     let norm = |code: i32| if code == 0 { 0 } else { 1 };
 
     format!(
-        "Fixture: {}\nCategory: {}\nStrict: {}\nExpect compile error: {}\n\n== vm command ==\n{}\nexit_code: {}\n\n== jit command ==\n{}\nexit_code: {}\n\n== vm tuples ==\n{}\n\n== jit tuples ==\n{}\n\n== parity ==\n{}\n\n== mismatch_debug ==\n{}\n",
+        "Fixture: {}\nCategory: {}\nStrict: {}\nExpect compile error: {}\n\n== vm command ==\n{}\nexit_code: {}\n\n== native command ==\n{}\nexit_code: {}\n\n== vm tuples ==\n{}\n\n== native tuples ==\n{}\n\n== parity ==\n{}\n\n== mismatch_debug ==\n{}\n",
         case.path,
         case.category,
         case.strict,
         case.expect_compile_error,
         vm.command,
         norm(vm.exit_code),
-        jit.command,
-        norm(jit.exit_code),
+        native.command,
+        norm(native.exit_code),
         vm_tuples,
-        jit_tuples,
-        if vm.tuples == jit.tuples {
+        native_tuples,
+        if vm.tuples == native.tuples {
             "match"
         } else {
             "mismatch"
@@ -460,35 +460,35 @@ fn format_tuples(tuples: &[DiagnosticTuple]) -> String {
 
 fn format_mismatch_debug(
     vm: &[DiagnosticTuple],
-    jit: &[DiagnosticTuple],
+    native: &[DiagnosticTuple],
     vm_output: &str,
-    jit_output: &str,
+    native_output: &str,
 ) -> String {
     let vm_only = vm
         .iter()
-        .filter(|t| !jit.contains(t))
+        .filter(|t| !native.contains(t))
         .map(|t| format!("- {} | {} | {}", t.code, t.title, t.primary_label))
         .collect::<Vec<_>>();
-    let jit_only = jit
+    let native_only = native
         .iter()
         .filter(|t| !vm.contains(t))
         .map(|t| format!("- {} | {} | {}", t.code, t.title, t.primary_label))
         .collect::<Vec<_>>();
 
     format!(
-        "vm_only:\n{}\n\njit_only:\n{}\n\nvm_output:\n{}\n\njit_output:\n{}",
+        "vm_only:\n{}\n\nnative_only:\n{}\n\nvm_output:\n{}\n\nnative_output:\n{}",
         if vm_only.is_empty() {
             "<none>".to_string()
         } else {
             vm_only.join("\n")
         },
-        if jit_only.is_empty() {
+        if native_only.is_empty() {
             "<none>".to_string()
         } else {
-            jit_only.join("\n")
+            native_only.join("\n")
         },
         truncate(vm_output, 4000),
-        truncate(jit_output, 4000),
+        truncate(native_output, 4000),
     )
 }
 

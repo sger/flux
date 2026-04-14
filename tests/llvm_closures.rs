@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(feature = "llvm")]
 
 use std::{
     collections::HashMap,
@@ -168,7 +168,7 @@ fn main() {
 "#,
     );
     let path = std::env::temp_dir().join(format!(
-        "core_to_llvm_closures_{}.ll",
+        "llvm_closures_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after unix epoch")

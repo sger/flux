@@ -277,7 +277,7 @@ fn test_mode_flow_array_module_fixture_passes() {
     );
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
     if !cli_supports_flag("--native") {
@@ -346,7 +346,7 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
     );
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
     if !cli_supports_flag("--native") {
@@ -369,7 +369,7 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
     );
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_list_map_filter_example_preserves_list_zip_output() {
     if !cli_supports_flag("--native") {
@@ -415,7 +415,7 @@ fn test_vm_higher_order_builtins_example_sorts_arrays() {
     );
 }
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
     if !cli_supports_flag("--dump-lir-llvm") {
@@ -939,7 +939,7 @@ fn test_native_aether_bench_reuse_blocked_prints_head_value() {
     );
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_day06_multimodule_adt_program_links_and_runs() {
     if !cli_supports_flag("--native") {
@@ -967,7 +967,7 @@ fn test_native_day06_multimodule_adt_program_links_and_runs() {
     );
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "llvm")]
 #[test]
 fn test_native_using_modules_program_links_without_user_adts() {
     if !cli_supports_flag("--native") {

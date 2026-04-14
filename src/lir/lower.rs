@@ -33,7 +33,7 @@ const ADT_HEADER_SIZE: i32 = 8;
 #[allow(dead_code)]
 const TUPLE_PAYLOAD_OFFSET: i32 = 8;
 
-/// Constructor tag IDs (must match core_to_llvm/codegen/adt.rs and runtime).
+/// Constructor tag IDs (must match llvm/codegen/adt.rs and runtime).
 const SOME_TAG_ID: i64 = 1;
 const LEFT_TAG_ID: i64 = 2;
 const RIGHT_TAG_ID: i64 = 3;

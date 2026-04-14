@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     core::{CoreProgram, CoreTag, CoreTopLevelItem},
-    core_to_llvm::{
+    llvm::{
         CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmConst, LlvmFunction, LlvmFunctionSig,
         LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
         LlvmValueKind,

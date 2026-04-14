@@ -3,6 +3,11 @@ mod diagnostics_env;
 use flux::parity::normalize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+
+// Native backend CLI runs share cache and output paths for the same fixture, so serialize command
+// execution in this integration test module to keep snapshots deterministic.
+static CLI_LOCK: Mutex<()> = Mutex::new(());
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -13,6 +18,9 @@ fn example_path(rel: &str) -> PathBuf {
 }
 
 fn run_flux_output(args: &[&str]) -> std::process::Output {
+    let _lock = CLI_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(args)
@@ -47,6 +55,9 @@ fn run_flux_trace(args: &[&str]) -> (String, String) {
 }
 
 fn run_flux_trace_snapshot(args: &[&str]) -> String {
+    let _lock = CLI_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(args)
@@ -128,6 +139,22 @@ fn assert_trace_snapshot(rel: &str, args: &[&str], mode: &str) {
     let file = example_path(rel);
     let mut cmd = args.to_vec();
     cmd.push(file.to_str().unwrap());
+    let transcript = run_flux_trace_snapshot(&cmd);
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(snapshot_name(rel, mode), transcript);
+    });
+}
+
+#[cfg(feature = "llvm")]
+fn assert_trace_snapshot_file_first(rel: &str, args: &[&str], mode: &str) {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path(rel);
+    let mut cmd = vec![file.to_str().unwrap()];
+    cmd.extend_from_slice(args);
     let transcript = run_flux_trace_snapshot(&cmd);
     insta::with_settings!({
         snapshot_path => "snapshots/aether",
@@ -324,6 +351,16 @@ fn snapshot_verify_aether_trace_aether_vm() {
     );
 }
 
+#[cfg(feature = "llvm")]
+#[test]
+fn snapshot_verify_aether_trace_aether_native() {
+    assert_trace_snapshot_file_first(
+        "aether/verify_aether.flx",
+        &["--native", "--trace-aether"],
+        "trace_aether_llvm",
+    );
+}
+
 #[test]
 fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     let file = example_path("aether/verify_aether.flx");
@@ -339,6 +376,31 @@ fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     assert!(stderr.contains("backend: vm"), "stderr was:\n{stderr}");
     assert!(
         stderr.contains("pipeline: AST -> Core -> CFG -> bytecode -> VM"),
+        "stderr was:\n{stderr}"
+    );
+    assert!(!stdout.trim().is_empty(), "stdout was empty");
+    assert!(
+        stdout.contains("[2, 4, 6]"),
+        "stdout should contain the program output; stdout was:\n{stdout}"
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn native_trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
+    let file = example_path("aether/verify_aether.flx");
+    let (stdout, stderr) = run_flux_trace(&[file.to_str().unwrap(), "--native", "--trace-aether"]);
+    assert!(
+        stderr.contains("── Aether Trace ──"),
+        "stderr was:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Aether Ownership Report"),
+        "stderr was:\n{stderr}"
+    );
+    assert!(stderr.contains("backend: native"), "stderr was:\n{stderr}");
+    assert!(
+        stderr.contains("pipeline: AST -> Core -> LIR -> LLVM -> native"),
         "stderr was:\n{stderr}"
     );
     assert!(!stdout.trim().is_empty(), "stdout was empty");
@@ -384,6 +446,47 @@ fn dump_aether_and_trace_aether_share_report_content() {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),
             "trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
+        );
+    }
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn dump_aether_and_native_trace_aether_share_report_content() {
+    let file = example_path("aether/verify_aether.flx");
+
+    let dump = run_flux(&["--dump-aether", file.to_str().unwrap()]);
+    let (_stdout, stderr) = run_flux_trace(&[file.to_str().unwrap(), "--native", "--trace-aether"]);
+    let report = dump
+        .split_once("Aether Ownership Report")
+        .map(|(_, rest)| format!("Aether Ownership Report{rest}"))
+        .unwrap_or(dump);
+    let report_only = report
+        .split("\nWarning:")
+        .next()
+        .unwrap_or(report.as_str())
+        .trim_end();
+    let shared_report = report_only
+        .split_once("\n── fn my_map")
+        .map(|(_, rest)| format!("── fn my_map{rest}"))
+        .unwrap_or_else(|| report_only.to_string());
+    let shared_report = shared_report
+        .split("\n── Total ──")
+        .next()
+        .unwrap_or(shared_report.as_str())
+        .trim_end()
+        .to_string();
+    let normalized_report = normalize::normalize_aether_dump(&shared_report);
+    let normalized_stderr = normalize::normalize_aether_dump(&stderr);
+
+    for needle in [
+        "── fn my_map @fip ──",
+        "── fn option_map @fip ──",
+        "── fn main ──",
+    ] {
+        assert!(
+            normalized_report.contains(needle) && normalized_stderr.contains(needle),
+            "native trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
         );
     }
 }

@@ -1,4 +1,4 @@
-use crate::core_to_llvm::{
+use crate::llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind,
@@ -795,7 +795,7 @@ fn tagged_bool_bits(value: bool) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::core_to_llvm::{LlvmModule, render_module};
+    use crate::llvm::{LlvmModule, render_module};
 
     use super::*;
 
