@@ -3,10 +3,18 @@
 use std::{collections::HashSet, path::PathBuf, time::Instant};
 
 use crate as flux;
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 use crate::driver::backend::Backend;
-#[cfg(feature = "core_to_llvm")]
-use crate::driver::run_program::backend::native::{NativeRunRequest, run_native_backend};
+#[cfg(feature = "llvm")]
+use crate::driver::backend_policy::{
+    compile_backend_label, execute_backend_label, should_prewarm_toolchain,
+    should_render_native_runtime_error,
+};
+#[cfg(feature = "llvm")]
+use crate::driver::run_program::backend::native::{
+    NativeOutputConfig, NativeProgramInput, NativeReportConfig, NativeRunRequest,
+    run_native_backend,
+};
 use crate::driver::{
     flags::DriverFlags,
     mode::{AetherDumpMode, CoreDumpMode},
@@ -23,12 +31,12 @@ use crate::driver::{
         emit_diagnostics_or_exit,
     },
 };
-#[cfg(feature = "core_to_llvm")]
-use flux::core_to_llvm::pipeline::toolchain_info;
+#[cfg(feature = "llvm")]
+use flux::llvm::pipeline::toolchain_info;
 use flux::{
     bytecode::{bytecode_cache::hash_bytes, compiler::Compiler},
-    cache_paths::CacheLayout,
     diagnostics::Diagnostic,
+    shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},
 };
 
@@ -82,6 +90,20 @@ fn should_try_parallel_vm_fast_path(flags: &DriverFlags, is_multimodule: bool) -
     is_multimodule && flags.allow_vm_cache() && !flags.cache.no_cache
 }
 
+/// Returns whether the compiled run should dispatch to the native backend.
+fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
+    #[cfg(feature = "llvm")]
+    {
+        flags.backend.selected == Backend::Native
+    }
+
+    #[cfg(not(feature = "llvm"))]
+    {
+        let _ = flags;
+        false
+    }
+}
+
 /// Builds the initial run context after frontend parsing and compiler setup.
 fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, String> {
     let ProgramContext {
@@ -110,8 +132,8 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
 
-    #[cfg(feature = "core_to_llvm")]
-    if crate::driver::backend_policy::should_prewarm_toolchain(request.flags) {
+    #[cfg(feature = "llvm")]
+    if should_prewarm_toolchain(request.flags) {
         let _ = toolchain_info();
     }
 
@@ -230,34 +252,34 @@ fn handle_dump_requests(
 
 /// Dispatches the compiled program to the selected backend runtime.
 fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
-    #[cfg(feature = "core_to_llvm")]
-    if request.flags.backend.selected == Backend::Native {
+    #[cfg(feature = "llvm")]
+    if should_dispatch_native_backend(request.flags) {
         run_native_backend(NativeRunRequest {
-            graph: &ctx.graph,
-            compiler: &mut ctx.compiler,
+            program: NativeProgramInput {
+                graph: &ctx.graph,
+                compiler: &mut ctx.compiler,
+                path: request.path,
+                source: ctx.source.as_str(),
+                is_multimodule: ctx.is_multimodule,
+                module_count: ctx.module_count,
+                parse_ms: ctx.parse_ms,
+                compile_start: ctx.compile_start,
+                all_diagnostics: &mut ctx.all_diagnostics,
+            },
             cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
-            path: request.path,
-            source: ctx.source.as_str(),
             diagnostics: DriverDiagnosticConfig::from(request.session),
-            is_multimodule: ctx.is_multimodule,
-            module_count: ctx.module_count,
-            parse_ms: ctx.parse_ms,
-            compile_start: ctx.compile_start,
             compile: DriverCompileConfig::from(request.session),
             runtime: DriverRuntimeConfig::from(request.flags),
-            emit_llvm: request.flags.backend.emit_llvm,
-            emit_binary: request.flags.backend.emit_binary,
-            output_path: request.flags.backend.output_path.clone(),
-            render_runtime_error: crate::driver::backend_policy::should_render_native_runtime_error(
-                request.flags,
-            ),
-            compile_backend_label: crate::driver::backend_policy::compile_backend_label(
-                request.flags,
-            ),
-            execute_backend_label: crate::driver::backend_policy::execute_backend_label(
-                request.flags,
-            ),
-            all_diagnostics: &mut ctx.all_diagnostics,
+            output: NativeOutputConfig {
+                emit_llvm: request.flags.backend.emit_llvm,
+                emit_binary: request.flags.backend.emit_binary,
+                output_path: request.flags.backend.output_path.clone(),
+            },
+            report: NativeReportConfig {
+                render_runtime_error: should_render_native_runtime_error(request.flags),
+                compile_backend_label: compile_backend_label(request.flags),
+                execute_backend_label: execute_backend_label(request.flags),
+            },
         });
         return;
     }
@@ -307,10 +329,14 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_programs, should_build_merged_program, should_try_parallel_vm_fast_path};
+    use super::{
+        merge_programs, should_build_merged_program, should_dispatch_native_backend,
+        should_try_parallel_vm_fast_path,
+    };
     use crate::{
         diagnostics::position::Span,
         driver::{
+            backend::Backend,
             mode::{AetherDumpMode, CoreDumpMode},
             test_support::base_flags,
         },
@@ -368,6 +394,59 @@ mod tests {
         let mut no_cache_flags = base_flags();
         no_cache_flags.cache.no_cache = true;
         assert!(!should_try_parallel_vm_fast_path(&no_cache_flags, true));
+    }
+
+    #[test]
+    fn backend_dispatch_defaults_to_vm() {
+        let flags = base_flags();
+
+        #[cfg(feature = "llvm")]
+        assert!(!should_dispatch_native_backend(&flags));
+        #[cfg(not(feature = "llvm"))]
+        assert!(!should_dispatch_native_backend(&flags));
+    }
+
+    #[test]
+    fn backend_dispatch_uses_explicit_native_selection() {
+        let mut flags = base_flags();
+        flags.backend.selected = Backend::Native;
+
+        #[cfg(feature = "llvm")]
+        assert!(should_dispatch_native_backend(&flags));
+        #[cfg(not(feature = "llvm"))]
+        assert!(!should_dispatch_native_backend(&flags));
+    }
+
+    #[test]
+    fn backend_dispatch_follows_finalized_native_output_flags() {
+        let mut emit_llvm_flags = base_flags();
+        emit_llvm_flags.backend.emit_llvm = true;
+        let emit_llvm_flags = emit_llvm_flags.finalize_backend();
+
+        let mut emit_binary_flags = base_flags();
+        emit_binary_flags.backend.emit_binary = true;
+        let emit_binary_flags = emit_binary_flags.finalize_backend();
+
+        #[cfg(feature = "llvm")]
+        {
+            assert!(should_dispatch_native_backend(&emit_llvm_flags));
+            assert!(should_dispatch_native_backend(&emit_binary_flags));
+        }
+        #[cfg(not(feature = "llvm"))]
+        {
+            assert!(!should_dispatch_native_backend(&emit_llvm_flags));
+            assert!(!should_dispatch_native_backend(&emit_binary_flags));
+        }
+    }
+
+    #[test]
+    fn dump_flags_do_not_change_dispatch_without_backend_selection() {
+        let mut flags = base_flags();
+        flags.dumps.dump_cfg = true;
+        flags.dumps.dump_core = CoreDumpMode::Readable;
+        flags.dumps.dump_aether = AetherDumpMode::Summary;
+
+        assert!(!should_dispatch_native_backend(&flags));
     }
 
     #[test]

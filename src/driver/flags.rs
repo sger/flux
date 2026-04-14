@@ -10,7 +10,7 @@ use crate::driver::{
 #[derive(Debug, Clone)]
 pub struct DriverBackendFlags {
     pub selected: Backend,
-    pub use_core_to_llvm: bool,
+    pub use_llvm: bool,
     pub emit_llvm: bool,
     pub emit_binary: bool,
     pub output_path: Option<String>,
@@ -106,5 +106,57 @@ impl DriverFlags {
     /// Returns true when VM bytecode cache reuse is allowed for this invocation.
     pub fn allow_vm_cache(&self) -> bool {
         backend_policy::allow_vm_cache(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DriverFlags;
+    use crate::driver::{backend::Backend, test_support::base_flags};
+
+    fn finalized(mut flags: DriverFlags) -> DriverFlags {
+        flags = flags.finalize_backend();
+        flags
+    }
+
+    #[test]
+    fn finalize_backend_keeps_vm_when_native_switches_are_absent() {
+        let flags = finalized(base_flags());
+
+        assert_eq!(flags.backend.selected, Backend::Vm);
+        assert!(!flags.is_native_backend());
+    }
+
+    #[test]
+    fn finalize_backend_selects_native_for_llvm() {
+        let mut flags = base_flags();
+        flags.backend.use_llvm = true;
+
+        let flags = finalized(flags);
+
+        assert_eq!(flags.backend.selected, Backend::Native);
+        assert!(flags.is_native_backend());
+    }
+
+    #[test]
+    fn finalize_backend_selects_native_for_emit_llvm() {
+        let mut flags = base_flags();
+        flags.backend.emit_llvm = true;
+
+        let flags = finalized(flags);
+
+        assert_eq!(flags.backend.selected, Backend::Native);
+        assert!(flags.is_native_backend());
+    }
+
+    #[test]
+    fn finalize_backend_selects_native_for_emit_binary() {
+        let mut flags = base_flags();
+        flags.backend.emit_binary = true;
+
+        let flags = finalized(flags);
+
+        assert_eq!(flags.backend.selected, Backend::Native);
+        assert!(flags.is_native_backend());
     }
 }
