@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{bytecode::bytecode::Bytecode, cache_paths};
+use crate::{bytecode::bytecode::Bytecode, shared::cache_paths};
 
 pub(crate) mod cache_serialization;
 pub(crate) mod cache_validation;
@@ -20,7 +20,7 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
+const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
 
 pub struct BytecodeCache {
     dir: PathBuf,

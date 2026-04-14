@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 use crate::{
     aether::borrow_infer::BorrowSignature,
     bytecode::bytecode_cache::hash_bytes,
-    cache_paths,
     core::CoreProgram,
+    shared::cache_paths,
     syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
         class_env::ClassEnv,
