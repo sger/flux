@@ -1,24 +1,24 @@
 //! Native backend pipeline entrypoints and runtime-support helpers.
 
-#![cfg_attr(not(feature = "core_to_llvm"), allow(dead_code, unused_imports))]
+#![cfg_attr(not(feature = "llvm"), allow(dead_code, unused_imports))]
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "llvm")]
 use crate::{
-    cache_paths::CacheLayout,
-    diagnostics::Diagnostic,
-    syntax::{interner::Interner, module_graph::ModuleGraph},
-};
-#[cfg(feature = "core_to_llvm")]
-use crate::{
-    core_to_llvm::{
+    llvm::{
         pipeline::{compile_ir_to_object, ensure_runtime_lib},
         render_module, target,
     },
     lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
 };
+use crate::{
+    diagnostics::Diagnostic,
+    shared::cache_paths::CacheLayout,
+    syntax::{interner::Interner, module_graph::ModuleGraph},
+};
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 mod parallel;
 
 /// Returns runtime library candidate directories in lookup order.
@@ -59,7 +59,7 @@ pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
     None
 }
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 /// Creates a unique temporary directory path for uncached native artifacts.
 fn native_temp_dir() -> PathBuf {
     let stamp = std::time::SystemTime::now()
@@ -69,7 +69,7 @@ fn native_temp_dir() -> PathBuf {
     std::env::temp_dir().join(format!("flux_native_{}_{}", std::process::id(), stamp))
 }
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 /// Builds or reuses the shared native support object used by native linking.
 pub(crate) fn compile_native_support_object(
     cache_layout: &CacheLayout,
@@ -114,32 +114,27 @@ pub(crate) fn compile_native_support_object(
     Ok(object_path)
 }
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
+/// Grouped inputs for native parallel module compilation.
+pub(crate) struct NativeParallelCompileRequest<'a> {
+    pub(crate) graph: &'a ModuleGraph,
+    pub(crate) cache_layout: &'a CacheLayout,
+    pub(crate) no_cache: bool,
+    pub(crate) strict_mode: bool,
+    pub(crate) strict_types: bool,
+    pub(crate) enable_optimize: bool,
+    pub(crate) enable_analyze: bool,
+    pub(crate) verbose: bool,
+    pub(crate) base_interner: &'a Interner,
+}
+
+#[cfg(feature = "llvm")]
 /// Compiles a module graph into per-module native objects in dependency order.
 pub(crate) fn compile_native_modules_parallel(
-    graph: &ModuleGraph,
-    cache_layout: &CacheLayout,
-    no_cache: bool,
-    strict_mode: bool,
-    strict_types: bool,
-    enable_optimize: bool,
-    enable_analyze: bool,
-    verbose: bool,
-    base_interner: &Interner,
+    request: NativeParallelCompileRequest<'_>,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
-    parallel::compile_native_modules_parallel(
-        graph,
-        cache_layout,
-        no_cache,
-        strict_mode,
-        strict_types,
-        enable_optimize,
-        enable_analyze,
-        verbose,
-        base_interner,
-        all_diagnostics,
-    )
+    parallel::compile_native_modules_parallel(request, all_diagnostics)
 }
 
 #[cfg(test)]
@@ -157,7 +152,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "core_to_llvm")]
+    #[cfg(feature = "llvm")]
     #[test]
     fn native_temp_dir_uses_flux_native_prefix() {
         let dir = super::native_temp_dir();

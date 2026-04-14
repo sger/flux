@@ -10,11 +10,11 @@ use crate::{
     bytecode::compiler::module_interface::{
         build_interface, compute_semantic_config_hash, load_cached_interface,
     },
-    cache_paths::{self, CacheLayout},
-    core_to_llvm::{
+    llvm::{
         module_cache::NativeModuleCache, pipeline::compile_ir_to_object, render_module, target,
     },
     diagnostics::{Diagnostic, DiagnosticPhase},
+    shared::cache_paths::{self, CacheLayout},
     syntax::{
         interner::Interner,
         module_graph::{ModuleGraph, ModuleKind, ModuleNode},
@@ -23,17 +23,17 @@ use crate::{
 };
 use rayon::prelude::*;
 
-use super::native_temp_dir;
+use super::{NativeParallelCompileRequest, native_temp_dir};
 use crate::driver::{
     frontend::extract_module_name_and_sym,
     module_compile::{
         build_module_compiler, program_has_user_adt_declarations, tag_module_diagnostics,
     },
     pipeline::parallel_shared::{
-        collect_dependency_fingerprints, dependency_changed_paths, emit_progress,
-        filter_non_error_diagnostics, interfaces_changed, load_cached_interfaces_for_graph,
-        partition_module_batches, progress_name, replay_module_diagnostics_for,
-        save_interface_if_enabled, sort_by_path,
+        ParallelReplayRequest, collect_dependency_fingerprints, dependency_changed_paths,
+        emit_progress, filter_non_error_diagnostics, interfaces_changed,
+        load_cached_interfaces_for_graph, partition_module_batches, progress_name,
+        replay_module_diagnostics_for, save_interface_if_enabled, sort_by_path,
     },
 };
 
@@ -68,39 +68,46 @@ fn native_miss_reason(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn compile_parallel_native_module(
-    node: &ModuleNode,
+/// Grouped inputs used to compile a single native module inside a parallel batch.
+struct NativeModuleCompileRequest<'a> {
+    node: &'a ModuleNode,
     is_entry_module: bool,
-    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
-    cache_layout: &CacheLayout,
+    nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
+    loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
+    cache_layout: &'a CacheLayout,
     no_cache: bool,
     force_rebuild: bool,
     strict_mode: bool,
     strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
-    base_interner: &Interner,
+    base_interner: &'a Interner,
     export_user_ctor_name_helper: bool,
+}
+
+fn compile_parallel_native_module(
+    request: NativeModuleCompileRequest<'_>,
 ) -> NativeParallelModuleResult {
+    let node = request.node;
     let is_flow_library = node.kind == ModuleKind::FlowStdlib;
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
-    let semantic_config_hash =
-        compute_semantic_config_hash(!is_flow_library && strict_mode, enable_optimize);
+    let semantic_config_hash = compute_semantic_config_hash(
+        !is_flow_library && request.strict_mode,
+        request.enable_optimize,
+    );
     let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
 
-    let native_miss_reason = if !no_cache && !force_rebuild {
-        let native_cache = NativeModuleCache::new(cache_layout.native_dir());
+    let native_miss_reason = if !request.no_cache && !request.force_rebuild {
+        let native_cache = NativeModuleCache::new(request.cache_layout.native_dir());
         match native_cache.validate(
             &node.path,
             &cache_key,
-            cache_layout.root(),
-            export_user_ctor_name_helper,
+            request.cache_layout.root(),
+            request.export_user_ctor_name_helper,
         ) {
             Ok(object_path) => {
-                let interface = load_cached_interface(cache_layout.root(), &node.path).ok();
+                let interface = load_cached_interface(request.cache_layout.root(), &node.path).ok();
                 if native_cache_hit_is_usable(interface.is_some(), node.kind) {
                     return NativeParallelModuleResult {
                         path: node.path.clone(),
@@ -118,16 +125,16 @@ fn compile_parallel_native_module(
             Err(err) => Some(err.message()),
         }
     } else {
-        native_miss_reason(no_cache, force_rebuild, None)
+        native_miss_reason(request.no_cache, request.force_rebuild, None)
     };
 
     let mut compiler = build_module_compiler(
         node,
-        nodes_by_path,
-        loaded_interfaces,
-        base_interner,
-        strict_mode,
-        strict_types,
+        request.nodes_by_path,
+        request.loaded_interfaces,
+        request.base_interner,
+        request.strict_mode,
+        request.strict_types,
         false,
     );
     compiler.set_file_path(node.path.to_string_lossy().to_string());
@@ -136,7 +143,11 @@ fn compile_parallel_native_module(
         compiler.set_strict_types(false);
     }
 
-    let compile_result = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+    let compile_result = compiler.compile_with_opts(
+        &node.program,
+        request.enable_optimize,
+        request.enable_analyze,
+    );
     let _ = compiler.take_warnings();
     if let Err(mut diags) = compile_result {
         tag_module_diagnostics(&mut diags, DiagnosticPhase::TypeCheck, &node.path);
@@ -154,9 +165,9 @@ fn compile_parallel_native_module(
 
     let llvm_module = match compiler.lower_to_lir_llvm_module_per_module(
         &node.program,
-        enable_optimize,
-        export_user_ctor_name_helper,
-        is_entry_module,
+        request.enable_optimize,
+        request.export_user_ctor_name_helper,
+        request.is_entry_module,
     ) {
         Ok(module) => module,
         Err(mut diag) => {
@@ -183,10 +194,11 @@ fn compile_parallel_native_module(
     llvm_module.data_layout = target::host_data_layout();
     let ll_text = render_module(&llvm_module);
 
-    let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
+    let dependency_fingerprints =
+        collect_dependency_fingerprints(&node.imports, request.loaded_interfaces);
 
-    let native_cache = NativeModuleCache::new(cache_layout.native_dir());
-    let object_path = if no_cache {
+    let native_cache = NativeModuleCache::new(request.cache_layout.native_dir());
+    let object_path = if request.no_cache {
         let dir = native_temp_dir();
         let _ = std::fs::create_dir_all(&dir);
         dir.join(cache_paths::cache_key_filename(
@@ -199,11 +211,12 @@ fn compile_parallel_native_module(
             &node.path,
             &cache_key,
             dependency_fingerprints.clone(),
-            enable_optimize,
-            export_user_ctor_name_helper,
+            request.enable_optimize,
+            request.export_user_ctor_name_helper,
         ) {
             Ok(path) => path,
-            Err(_) => cache_layout
+            Err(_) => request
+                .cache_layout
                 .native_dir()
                 .join(cache_paths::cache_key_filename(
                     &node.path,
@@ -213,9 +226,11 @@ fn compile_parallel_native_module(
         }
     };
 
-    if let Err(err) =
-        compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 })
-    {
+    if let Err(err) = compile_ir_to_object(
+        &ll_text,
+        &object_path,
+        if request.enable_optimize { 2 } else { 0 },
+    ) {
         return NativeParallelModuleResult {
             path: node.path.clone(),
             object_path: PathBuf::new(),
@@ -234,7 +249,7 @@ fn compile_parallel_native_module(
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
             compiler
-                .lower_aether_report_program(&node.program, enable_optimize)
+                .lower_aether_report_program(&node.program, request.enable_optimize)
                 .ok()
                 .map(|core| {
                     build_interface(
@@ -253,8 +268,10 @@ fn compile_parallel_native_module(
         },
     );
 
-    let interface_changed =
-        interfaces_changed(loaded_interfaces.get(&node.path), interface.as_ref());
+    let interface_changed = interfaces_changed(
+        request.loaded_interfaces.get(&node.path),
+        interface.as_ref(),
+    );
 
     NativeParallelModuleResult {
         path: node.path.clone(),
@@ -328,33 +345,50 @@ impl NativeParallelBuildState {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn handle_native_result(
-    result: NativeParallelModuleResult,
-    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    build_state: &mut NativeParallelBuildState,
-    cache_layout: &CacheLayout,
+/// Grouped inputs used to serially apply one native parallel compilation result.
+struct NativeResultContext<'a> {
+    nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
+    build_state: &'a mut NativeParallelBuildState,
+    cache_layout: &'a CacheLayout,
     no_cache: bool,
     verbose: bool,
-    base_interner: &Interner,
+    base_interner: &'a Interner,
     strict_mode: bool,
     strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
-    all_diagnostics: &mut Vec<Diagnostic>,
+    all_diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+fn handle_native_result(
+    result: NativeParallelModuleResult,
+    context: NativeResultContext<'_>,
 ) -> Result<(), String> {
+    let NativeResultContext {
+        nodes_by_path,
+        build_state,
+        cache_layout,
+        no_cache,
+        verbose,
+        base_interner,
+        strict_mode,
+        strict_types,
+        enable_optimize,
+        enable_analyze,
+        all_diagnostics,
+    } = context;
     if result.compile_failed {
         if let Some(node) = nodes_by_path.get(&result.path) {
-            all_diagnostics.extend(replay_module_diagnostics_for(
+            all_diagnostics.extend(replay_module_diagnostics_for(ParallelReplayRequest {
                 node,
+                loaded_interfaces: &build_state.loaded_interfaces,
                 nodes_by_path,
-                &build_state.loaded_interfaces,
                 base_interner,
                 strict_mode,
                 strict_types,
                 enable_optimize,
                 enable_analyze,
-            ));
+            }));
         }
         return Err(result.error_message.unwrap_or_else(|| {
             format!(
@@ -367,16 +401,16 @@ fn handle_native_result(
     if !result.skipped
         && let Some(node) = nodes_by_path.get(&result.path)
     {
-        let replayed = replay_module_diagnostics_for(
+        let replayed = replay_module_diagnostics_for(ParallelReplayRequest {
             node,
+            loaded_interfaces: &build_state.loaded_interfaces,
             nodes_by_path,
-            &build_state.loaded_interfaces,
             base_interner,
             strict_mode,
             strict_types,
             enable_optimize,
             enable_analyze,
-        );
+        });
         all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
 
@@ -403,20 +437,22 @@ fn handle_native_result(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Compiles a module graph into native object files using parallel per-level batches.
 pub(crate) fn compile_native_modules_parallel(
-    graph: &ModuleGraph,
-    cache_layout: &CacheLayout,
-    no_cache: bool,
-    strict_mode: bool,
-    strict_types: bool,
-    enable_optimize: bool,
-    enable_analyze: bool,
-    verbose: bool,
-    base_interner: &Interner,
+    request: NativeParallelCompileRequest<'_>,
     all_diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<(Vec<PathBuf>, bool), String> {
+    let NativeParallelCompileRequest {
+        graph,
+        cache_layout,
+        no_cache,
+        strict_mode,
+        strict_types,
+        enable_optimize,
+        enable_analyze,
+        verbose,
+        base_interner,
+    } = request;
     let entry_path = graph
         .entry_node()
         .map(|node| node.path.clone())
@@ -452,41 +488,49 @@ pub(crate) fn compile_native_modules_parallel(
             let mut results: Vec<_> = batch
                 .par_iter()
                 .map(|node| {
-                    compile_parallel_native_module(
+                    compile_parallel_native_module(NativeModuleCompileRequest {
                         node,
-                        node.path == entry_path,
-                        &nodes_by_path,
-                        &build_state.loaded_interfaces,
+                        is_entry_module: node.path == entry_path,
+                        nodes_by_path: &nodes_by_path,
+                        loaded_interfaces: &build_state.loaded_interfaces,
                         cache_layout,
                         no_cache,
-                        force_rebuild_paths.contains(&node.path),
+                        force_rebuild: force_rebuild_paths.contains(&node.path),
                         strict_mode,
                         strict_types,
                         enable_optimize,
                         enable_analyze,
                         base_interner,
-                        user_ctor_helper_owner
+                        export_user_ctor_name_helper: user_ctor_helper_owner
                             .as_ref()
                             .is_some_and(|owner| owner == &node.path),
-                    )
+                    })
                 })
                 .collect();
             sort_by_path(&mut results, |result| &result.path);
 
             for result in results {
+                if !nodes_by_path.contains_key(&result.path) {
+                    return Err(format!(
+                        "missing native module graph node for {}",
+                        result.path.display()
+                    ));
+                }
                 handle_native_result(
                     result,
-                    &nodes_by_path,
-                    &mut build_state,
-                    cache_layout,
-                    no_cache,
-                    verbose,
-                    base_interner,
-                    strict_mode,
-                    strict_types,
-                    enable_optimize,
-                    enable_analyze,
-                    all_diagnostics,
+                    NativeResultContext {
+                        nodes_by_path: &nodes_by_path,
+                        build_state: &mut build_state,
+                        cache_layout,
+                        no_cache,
+                        verbose,
+                        base_interner,
+                        strict_mode,
+                        strict_types,
+                        enable_optimize,
+                        enable_analyze,
+                        all_diagnostics,
+                    },
                 )?;
             }
         }

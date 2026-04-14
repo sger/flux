@@ -1,4 +1,4 @@
-use crate::driver::flags::{self, DriverFlags};
+use crate::driver::flags::DriverFlags;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -8,7 +8,7 @@ pub enum Backend {
 
 impl Backend {
     pub fn select(flags: &DriverFlags) -> Self {
-        if flags.use_core_to_llvm || flags.emit_llvm || flags.emit_binary {
+        if flags.backend.use_llvm || flags.backend.emit_llvm || flags.backend.emit_binary {
             Backend::Native
         } else {
             Backend::Vm

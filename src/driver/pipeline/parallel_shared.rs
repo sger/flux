@@ -6,20 +6,24 @@ use std::{
 };
 
 use crate::{
-    bytecode::compiler::module_interface::{interface_path, module_interface_changed, save_interface},
+    bytecode::compiler::module_interface::{
+        interface_path, module_interface_changed, save_interface,
+    },
     diagnostics::{Diagnostic, Severity},
-    syntax::module_graph::{ImportEdge, ModuleKind},
+    syntax::{
+        interner::Interner,
+        module_graph::{ImportEdge, ModuleKind, ModuleNode},
+    },
     types::module_interface::{DependencyFingerprint, ModuleInterface},
 };
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 use crate::{
-    bytecode::compiler::module_interface::load_cached_interface,
-    syntax::module_graph::ModuleGraph,
+    bytecode::compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph,
 };
 
 use crate::driver::{
-    module_compile::replay_module_diagnostics,
+    module_compile::{ModuleReplayRequest, replay_module_diagnostics},
     support::shared::{module_display_name, progress_line},
 };
 
@@ -95,27 +99,30 @@ pub(crate) fn filter_non_error_diagnostics(diags: Vec<Diagnostic>) -> Vec<Diagno
 }
 
 /// Replays module diagnostics using the shared compiler replay path.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn replay_module_diagnostics_for(
-    node: &crate::syntax::module_graph::ModuleNode,
-    nodes_by_path: &HashMap<PathBuf, crate::syntax::module_graph::ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
-    base_interner: &crate::syntax::interner::Interner,
-    strict_mode: bool,
-    strict_types: bool,
-    enable_optimize: bool,
-    enable_analyze: bool,
-) -> Vec<Diagnostic> {
-    replay_module_diagnostics(
-        node,
-        nodes_by_path,
-        loaded_interfaces,
-        base_interner,
-        strict_mode,
-        strict_types,
-        enable_optimize,
-        enable_analyze,
-    )
+/// Grouped replay inputs shared by the VM and native parallel backends.
+pub(crate) struct ParallelReplayRequest<'a> {
+    pub(crate) node: &'a ModuleNode,
+    pub(crate) nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
+    pub(crate) loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
+    pub(crate) base_interner: &'a Interner,
+    pub(crate) strict_mode: bool,
+    pub(crate) strict_types: bool,
+    pub(crate) enable_optimize: bool,
+    pub(crate) enable_analyze: bool,
+}
+
+/// Replays module diagnostics using the shared compiler replay path.
+pub(crate) fn replay_module_diagnostics_for(request: ParallelReplayRequest<'_>) -> Vec<Diagnostic> {
+    replay_module_diagnostics(ModuleReplayRequest {
+        node: request.node,
+        nodes_by_path: request.nodes_by_path,
+        loaded_interfaces: request.loaded_interfaces,
+        base_interner: request.base_interner,
+        strict_mode: request.strict_mode,
+        strict_types: request.strict_types,
+        enable_optimize: request.enable_optimize,
+        enable_analyze: request.enable_analyze,
+    })
 }
 
 /// Builds dependency fingerprint metadata for the currently loaded interfaces.
@@ -165,7 +172,7 @@ pub(crate) fn interfaces_changed(
     }
 }
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 /// Loads cached interfaces for every module in a graph.
 pub(crate) fn load_cached_interfaces_for_graph(
     graph: &ModuleGraph,
@@ -292,7 +299,7 @@ mod tests {
         assert!(
             filtered
                 .iter()
-                .all(|diag| diag.severity() != crate::diagnostics::Severity::Error)
+                .all(|diag| diag.severity() != Severity::Error)
         );
     }
 }
