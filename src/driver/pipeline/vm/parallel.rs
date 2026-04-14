@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -21,11 +21,12 @@ use crate::{
 use rayon::prelude::*;
 
 use crate::driver::{
+    frontend::extract_module_name_and_sym,
     module_compile::{ModuleBuildState, build_module_compiler},
     pipeline::parallel_shared::{
-        collect_dependency_fingerprints, dependency_changed_paths, emit_progress,
-        filter_non_error_diagnostics, interfaces_changed, partition_module_batches, progress_name,
-        replay_module_diagnostics_for, save_interface_if_enabled, sort_by_path,
+        ParallelReplayRequest, collect_dependency_fingerprints, dependency_changed_paths,
+        emit_progress, filter_non_error_diagnostics, interfaces_changed, partition_module_batches,
+        progress_name, replay_module_diagnostics_for, save_interface_if_enabled, sort_by_path,
     },
     pipeline::vm::{ParallelVmBuild, VmCompileRequest},
 };
@@ -191,27 +192,27 @@ fn compile_parallel_module(
 
     let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
 
-    let interface =
-        crate::driver::frontend::extract_module_name_and_sym(&node.program, &compiler.interner)
-            .and_then(|(module_name, module_sym)| {
-                compiler
-                    .lower_aether_report_program(&node.program, request.compile.enable_optimize)
-                    .ok()
-                    .map(|core| {
-                        build_interface(
-                            &module_name,
-                            module_sym,
-                            &source_hash,
-                            &semantic_config_hash,
-                            core.as_core(),
-                            compiler.cached_member_schemes(),
-                            &compiler.module_function_visibility,
-                            Some(compiler.class_env()),
-                            dependency_fingerprints,
-                            &compiler.interner,
-                        )
-                    })
-            });
+    let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
+        |(module_name, module_sym)| {
+            compiler
+                .lower_aether_report_program(&node.program, request.compile.enable_optimize)
+                .ok()
+                .map(|core| {
+                    build_interface(
+                        &module_name,
+                        module_sym,
+                        &source_hash,
+                        &semantic_config_hash,
+                        core.as_core(),
+                        compiler.cached_member_schemes(),
+                        &compiler.module_function_visibility,
+                        Some(compiler.class_env()),
+                        dependency_fingerprints,
+                        &compiler.interner,
+                    )
+                })
+        },
+    );
 
     let artifact = compiler.build_relocatable_module_bytecode();
     let module_deps = node
@@ -316,7 +317,7 @@ impl VmParallelBuildState {
 
     fn record_progress(
         &mut self,
-        path: &PathBuf,
+        path: &Path,
         interface: Option<&ModuleInterface>,
         skipped: bool,
         verbose: bool,
@@ -399,16 +400,16 @@ fn replay_warnings_if_needed(
     if result.needs_serial_warning_replay
         && let Some(node) = nodes_by_path.get(&result.path)
     {
-        let replayed = replay_module_diagnostics_for(
+        let replayed = replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
-            &build_state.loaded_interfaces,
-            request.graph_interner,
-            request.compile.strict_mode,
-            request.compile.strict_types,
-            request.compile.enable_optimize,
-            request.compile.enable_analyze,
-        );
+            loaded_interfaces: &build_state.loaded_interfaces,
+            base_interner: request.graph_interner,
+            strict_mode: request.compile.strict_mode,
+            strict_types: request.compile.strict_types,
+            enable_optimize: request.compile.enable_optimize,
+            enable_analyze: request.compile.enable_analyze,
+        });
         all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
 }
@@ -421,16 +422,16 @@ fn replay_errors(
     all_diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(node) = nodes_by_path.get(&result.path) {
-        all_diagnostics.extend(replay_module_diagnostics_for(
+        all_diagnostics.extend(replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
-            &build_state.loaded_interfaces,
-            request.graph_interner,
-            request.compile.strict_mode,
-            request.compile.strict_types,
-            request.compile.enable_optimize,
-            request.compile.enable_analyze,
-        ));
+            loaded_interfaces: &build_state.loaded_interfaces,
+            base_interner: request.graph_interner,
+            strict_mode: request.compile.strict_mode,
+            strict_types: request.compile.strict_types,
+            enable_optimize: request.compile.enable_optimize,
+            enable_analyze: request.compile.enable_analyze,
+        }));
     }
 }
 
