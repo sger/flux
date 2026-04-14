@@ -1,3 +1,6 @@
+//! Static and formatted text fragments used by CLI parsing and help output.
+
+/// Returns the top-level help text shown by `flux --help`.
 pub fn help_text() -> &'static str {
     "\
 Flux CLI
@@ -60,14 +63,79 @@ Optimization & Analysis:
 "
 }
 
-pub fn expected_flx_file(path: &str) -> String {
+/// Returns the `fmt` usage text shown when formatter arguments are missing.
+pub fn fmt_usage() -> &'static str {
+    "Usage: flux fmt [--check] <file.flx>"
+}
+
+/// Returns the `fmt --check` usage text shown when the checked formatter path is missing.
+pub fn fmt_check_usage() -> &'static str {
+    "Usage: flux fmt --check <file.flx>"
+}
+
+/// Formats the error shown when a command expects a `.flx` source file.
+pub fn expected_flx(path: &str) -> String {
     format!(
         "Error: expected a `.flx` file, got `{path}`. Pass a Flux source file like `path/to/file.flx`."
     )
 }
 
-pub fn expected_flxi_file(path: &str) -> String {
+/// Formats the error shown when a command expects a `.flxi` interface file.
+pub fn expected_flxi(path: &str) -> String {
     format!(
         "Error: expected a `.flxi` file, got `{path}`. Pass a Flux interface file like `path/to/module.flxi`."
     )
+}
+
+/// Formats the error shown when the CLI receives an unknown command token.
+pub fn unknown_command(command: &str) -> String {
+    format!(
+        "Error: unknown command or invalid input `{command}`. Pass a `.flx` file or a valid subcommand."
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        expected_flx, expected_flxi, fmt_check_usage, fmt_usage, help_text, unknown_command,
+    };
+
+    #[test]
+    fn help_text_mentions_core_commands_and_flags() {
+        let text = help_text();
+
+        assert!(text.contains("flux run <file.flx>"));
+        assert!(text.contains("--dump-core"));
+        assert!(text.contains("--format <f>"));
+    }
+
+    #[test]
+    fn expected_flx_message_mentions_bad_path_and_example() {
+        let message = expected_flx("bad.txt");
+
+        assert!(message.contains("bad.txt"));
+        assert!(message.contains("file.flx"));
+    }
+
+    #[test]
+    fn expected_flxi_message_mentions_bad_path_and_example() {
+        let message = expected_flxi("bad.txt");
+
+        assert!(message.contains("bad.txt"));
+        assert!(message.contains("module.flxi"));
+    }
+
+    #[test]
+    fn fmt_usage_messages_match_cli_contract() {
+        assert!(fmt_usage().contains("flux fmt"));
+        assert!(fmt_check_usage().contains("--check"));
+    }
+
+    #[test]
+    fn unknown_command_message_mentions_bad_token() {
+        let message = unknown_command("wat");
+
+        assert!(message.contains("wat"));
+        assert!(message.contains("valid subcommand"));
+    }
 }
