@@ -8,22 +8,18 @@ use std::{
 use crate::{
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
     bytecode::compiler::module_interface::{
-        build_interface, compute_semantic_config_hash, interface_path, load_cached_interface,
-        module_interface_changed, save_interface,
+        build_interface, compute_semantic_config_hash, load_cached_interface,
     },
     cache_paths::{self, CacheLayout},
     core_to_llvm::{
-        module_cache::NativeModuleCache,
-        pipeline::compile_ir_to_object,
-        render_module,
-        target,
+        module_cache::NativeModuleCache, pipeline::compile_ir_to_object, render_module, target,
     },
-    diagnostics::{Diagnostic, DiagnosticPhase, Severity},
+    diagnostics::{Diagnostic, DiagnosticPhase},
     syntax::{
         interner::Interner,
         module_graph::{ModuleGraph, ModuleKind, ModuleNode},
     },
-    types::module_interface::{DependencyFingerprint, ModuleInterface},
+    types::module_interface::ModuleInterface,
 };
 use rayon::prelude::*;
 
@@ -31,10 +27,14 @@ use super::native_temp_dir;
 use crate::driver::{
     frontend::extract_module_name_and_sym,
     module_compile::{
-        build_module_compiler, program_has_user_adt_declarations, replay_module_diagnostics,
-        tag_module_diagnostics,
+        build_module_compiler, program_has_user_adt_declarations, tag_module_diagnostics,
     },
-    support::shared::{module_display_name, progress_line},
+    pipeline::parallel_shared::{
+        collect_dependency_fingerprints, dependency_changed_paths, emit_progress,
+        filter_non_error_diagnostics, interfaces_changed, load_cached_interfaces_for_graph,
+        partition_module_batches, progress_name, replay_module_diagnostics_for,
+        save_interface_if_enabled, sort_by_path,
+    },
 };
 
 #[derive(Debug)]
@@ -183,19 +183,7 @@ fn compile_parallel_native_module(
     llvm_module.data_layout = target::host_data_layout();
     let ll_text = render_module(&llvm_module);
 
-    let dependency_fingerprints: Vec<_> = node
-        .imports
-        .iter()
-        .filter_map(|dep| {
-            loaded_interfaces.get(&dep.target_path).map(|interface| {
-                DependencyFingerprint {
-                    module_name: interface.module_name.clone(),
-                    source_path: dep.target_path.to_string_lossy().to_string(),
-                    interface_fingerprint: interface.interface_fingerprint.clone(),
-                }
-            })
-        })
-        .collect();
+    let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
 
     let native_cache = NativeModuleCache::new(cache_layout.native_dir());
     let object_path = if no_cache {
@@ -225,7 +213,9 @@ fn compile_parallel_native_module(
         }
     };
 
-    if let Err(err) = compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 }) {
+    if let Err(err) =
+        compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 })
+    {
         return NativeParallelModuleResult {
             path: node.path.clone(),
             object_path: PathBuf::new(),
@@ -263,10 +253,8 @@ fn compile_parallel_native_module(
         },
     );
 
-    let interface_changed = match (&loaded_interfaces.get(&node.path), &interface) {
-        (Some(old), Some(new)) => module_interface_changed(old, new),
-        _ => true,
-    };
+    let interface_changed =
+        interfaces_changed(loaded_interfaces.get(&node.path), interface.as_ref());
 
     NativeParallelModuleResult {
         path: node.path.clone(),
@@ -295,14 +283,11 @@ impl NativeParallelBuildState {
         cache_layout: &CacheLayout,
         no_cache: bool,
     ) -> NativeParallelBuildState {
-        let mut loaded_interfaces = HashMap::new();
-        if !no_cache {
-            for node in graph.topo_order() {
-                if let Ok(interface) = load_cached_interface(cache_layout.root(), &node.path) {
-                    loaded_interfaces.insert(node.path.clone(), interface);
-                }
-            }
-        }
+        let loaded_interfaces = if no_cache {
+            HashMap::new()
+        } else {
+            load_cached_interfaces_for_graph(graph, cache_layout.root())
+        };
 
         NativeParallelBuildState {
             loaded_interfaces,
@@ -316,49 +301,31 @@ impl NativeParallelBuildState {
 
     fn record_progress(&mut self, result: &NativeParallelModuleResult, verbose: bool) {
         self.completed_modules += 1;
-        let name = result
-            .interface
-            .as_ref()
-            .map(|i| i.module_name.clone())
-            .unwrap_or_else(|| module_display_name(&result.path));
+        let name = progress_name(
+            result.interface.as_ref().map(|i| i.module_name.as_str()),
+            &result.path,
+        );
         if result.skipped {
-            eprintln!(
-                "{}",
-                progress_line(self.completed_modules, self.total_modules, "Cached", &name)
+            emit_progress(
+                self.completed_modules,
+                self.total_modules,
+                "Cached",
+                &name,
+                verbose,
+                None,
             );
         } else {
             self.any_module_recompiled = true;
-            if verbose && let Some(reason) = &result.miss_reason {
-                eprintln!("  cache miss ({name}): {reason}");
-            }
-            eprintln!(
-                "{}",
-                progress_line(self.completed_modules, self.total_modules, "Linking", &name)
+            emit_progress(
+                self.completed_modules,
+                self.total_modules,
+                "Linking",
+                &name,
+                verbose,
+                result.miss_reason.as_deref(),
             );
         }
     }
-}
-
-fn replay_native_diagnostics(
-    node: &ModuleNode,
-    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
-    loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
-    base_interner: &Interner,
-    strict_mode: bool,
-    strict_types: bool,
-    enable_optimize: bool,
-    enable_analyze: bool,
-) -> Vec<Diagnostic> {
-    replay_module_diagnostics(
-        node,
-        nodes_by_path,
-        loaded_interfaces,
-        base_interner,
-        strict_mode,
-        strict_types,
-        enable_optimize,
-        enable_analyze,
-    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -378,7 +345,7 @@ fn handle_native_result(
 ) -> Result<(), String> {
     if result.compile_failed {
         if let Some(node) = nodes_by_path.get(&result.path) {
-            all_diagnostics.extend(replay_native_diagnostics(
+            all_diagnostics.extend(replay_module_diagnostics_for(
                 node,
                 nodes_by_path,
                 &build_state.loaded_interfaces,
@@ -400,7 +367,7 @@ fn handle_native_result(
     if !result.skipped
         && let Some(node) = nodes_by_path.get(&result.path)
     {
-        let replayed = replay_native_diagnostics(
+        let replayed = replay_module_diagnostics_for(
             node,
             nodes_by_path,
             &build_state.loaded_interfaces,
@@ -410,11 +377,7 @@ fn handle_native_result(
             enable_optimize,
             enable_analyze,
         );
-        all_diagnostics.extend(
-            replayed
-                .into_iter()
-                .filter(|diag| diag.severity() != Severity::Error),
-        );
+        all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
 
     build_state.record_progress(&result, verbose);
@@ -424,9 +387,13 @@ fn handle_native_result(
             .insert(result.path.clone());
     }
     if let Some(interface) = result.interface {
-        if !result.skipped && !no_cache {
-            let interface_path = interface_path(cache_layout.root(), &result.path);
-            let _ = save_interface(&interface_path, &interface);
+        if !result.skipped {
+            save_interface_if_enabled(
+                no_cache,
+                cache_layout.root(),
+                &result.path,
+                Some(&interface),
+            );
         }
         build_state
             .loaded_interfaces
@@ -467,29 +434,20 @@ pub(crate) fn compile_native_modules_parallel(
     let mut build_state = NativeParallelBuildState::new(graph, cache_layout, no_cache);
 
     for level in graph.topo_levels() {
-        let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = level
-            .iter()
-            .partition(|node| node.kind == ModuleKind::FlowStdlib);
-        let batches: Vec<Vec<&ModuleNode>> = if flow_nodes.is_empty() {
-            vec![user_nodes]
-        } else if user_nodes.is_empty() {
-            vec![flow_nodes]
-        } else {
-            vec![flow_nodes, user_nodes]
-        };
+        let batches = partition_module_batches(&level, |node: &&ModuleNode| node.kind);
 
         for batch in batches {
-            let force_rebuild_paths: HashSet<PathBuf> = batch
-                .iter()
-                .filter(|node| {
+            let force_rebuild_paths = dependency_changed_paths(
+                &batch,
+                |node| &node.path,
+                |node| {
                     node.imports.iter().any(|dep| {
                         build_state
                             .interface_changed_modules
                             .contains(&dep.target_path)
                     })
-                })
-                .map(|node| node.path.clone())
-                .collect();
+                },
+            );
 
             let mut results: Vec<_> = batch
                 .par_iter()
@@ -513,7 +471,7 @@ pub(crate) fn compile_native_modules_parallel(
                     )
                 })
                 .collect();
-            results.sort_by(|left, right| left.path.cmp(&right.path));
+            sort_by_path(&mut results, |result| &result.path);
 
             for result in results {
                 handle_native_result(

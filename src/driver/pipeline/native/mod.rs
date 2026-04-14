@@ -11,7 +11,10 @@ use crate::{
 };
 #[cfg(feature = "core_to_llvm")]
 use crate::{
-    core_to_llvm::{pipeline::{compile_ir_to_object, ensure_runtime_lib}, render_module, target},
+    core_to_llvm::{
+        pipeline::{compile_ir_to_object, ensure_runtime_lib},
+        render_module, target,
+    },
     lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
 };
 
@@ -107,7 +110,7 @@ pub(crate) fn compile_native_support_object(
     llvm_module.data_layout = target::host_data_layout();
     let ll_text = render_module(&llvm_module);
     compile_ir_to_object(&ll_text, &object_path, if enable_optimize { 2 } else { 0 })
-    .map_err(|err| format!("native support object compilation failed: {err}"))?;
+        .map_err(|err| format!("native support object compilation failed: {err}"))?;
     Ok(object_path)
 }
 

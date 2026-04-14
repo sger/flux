@@ -1,6 +1,7 @@
 //! Top-level driver pipeline orchestration entrypoints.
 
 pub(crate) mod native;
+pub(crate) mod parallel_shared;
 pub mod program;
 pub(crate) mod vm;
 

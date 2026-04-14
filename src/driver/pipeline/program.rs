@@ -18,14 +18,17 @@ use crate::driver::{
         modules::{CompileModulesRequest, compile_modules},
     },
     session::DriverSession,
-    support::shared::emit_diagnostics,
+    shared::{
+        DriverCacheConfig, DriverCompileConfig, DriverDiagnosticConfig, DriverRuntimeConfig,
+        emit_diagnostics_or_exit,
+    },
 };
 #[cfg(feature = "core_to_llvm")]
 use flux::core_to_llvm::pipeline::toolchain_info;
 use flux::{
     bytecode::{bytecode_cache::hash_bytes, compiler::Compiler},
     cache_paths::CacheLayout,
-    diagnostics::{Diagnostic, DiagnosticsAggregator},
+    diagnostics::Diagnostic,
     syntax::{module_graph::ModuleGraph, program::Program},
 };
 
@@ -149,9 +152,11 @@ fn try_run_parallel_vm_fast_path(ctx: &mut RunContext, request: RunProgramReques
         graph: &ctx.graph,
         entry_canonical: entry_canonical.as_ref(),
         graph_interner: &ctx.compiler.interner,
-        cache_layout: &ctx.cache_layout,
+        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        compile: DriverCompileConfig::from(request.session),
+        diagnostics: DriverDiagnosticConfig::from(request.session),
+        runtime: DriverRuntimeConfig::from(request.flags),
         flags: request.flags,
-        session: request.session,
         all_diagnostics: &mut ctx.all_diagnostics,
         path: request.path,
         source: ctx.source.as_str(),
@@ -168,13 +173,9 @@ fn compile_modules_for_run(ctx: &mut RunContext, request: RunProgramRequest<'_>)
         entry_path: &ctx.entry_path,
         failed_modules: &ctx.failed_modules,
         compiler: &mut ctx.compiler,
-        cache_layout: &ctx.cache_layout,
-        no_cache: request.flags.cache.no_cache,
-        strict_mode: request.session.strict_mode,
-        strict_types: request.session.strict_types,
-        enable_optimize: request.session.enable_optimize,
-        enable_analyze: request.session.enable_analyze,
-        verbose: request.flags.runtime.verbose,
+        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        compile: DriverCompileConfig::from(request.session),
+        runtime: DriverRuntimeConfig::from(request.flags),
         allow_cached_module_bytecode: request.flags.allow_vm_cache(),
         backend: request.flags.backend.selected,
         strict_hash: ctx.strict_hash,
@@ -185,38 +186,12 @@ fn compile_modules_for_run(ctx: &mut RunContext, request: RunProgramRequest<'_>)
 
 /// Emits compile diagnostics and exits when any error diagnostics are present.
 fn emit_compile_diagnostics_or_exit(ctx: &RunContext, request: RunProgramRequest<'_>) {
-    if ctx.all_diagnostics.is_empty() {
-        return;
-    }
-
-    let report = DiagnosticsAggregator::new(&ctx.all_diagnostics)
-        .with_default_source(request.path, ctx.source.as_str())
-        .with_file_headers(ctx.is_multimodule)
-        .with_max_errors(Some(request.session.max_errors))
-        .with_stage_filtering(!request.session.all_errors)
-        .report();
-    if report.counts.errors > 0 {
-        emit_diagnostics(
-            &ctx.all_diagnostics,
-            Some(request.path),
-            Some(ctx.source.as_str()),
-            ctx.is_multimodule,
-            request.session.max_errors,
-            request.session.diagnostics_format,
-            request.session.all_errors,
-            true,
-        );
-        std::process::exit(1);
-    }
-    emit_diagnostics(
+    emit_diagnostics_or_exit(
         &ctx.all_diagnostics,
-        Some(request.path),
-        Some(ctx.source.as_str()),
+        request.path,
+        ctx.source.as_str(),
         ctx.is_multimodule,
-        request.session.max_errors,
-        request.session.diagnostics_format,
-        request.session.all_errors,
-        true,
+        DriverDiagnosticConfig::from(request.session),
     );
 }
 
@@ -260,23 +235,16 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
         run_native_backend(NativeRunRequest {
             graph: &ctx.graph,
             compiler: &mut ctx.compiler,
-            cache_layout: &ctx.cache_layout,
+            cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
             path: request.path,
             source: ctx.source.as_str(),
-            max_errors: request.session.max_errors,
-            diagnostics_format: request.session.diagnostics_format,
-            all_errors: request.session.all_errors,
+            diagnostics: DriverDiagnosticConfig::from(request.session),
             is_multimodule: ctx.is_multimodule,
             module_count: ctx.module_count,
             parse_ms: ctx.parse_ms,
             compile_start: ctx.compile_start,
-            strict_mode: request.session.strict_mode,
-            strict_types: request.session.strict_types,
-            enable_optimize: request.session.enable_optimize,
-            enable_analyze: request.session.enable_analyze,
-            verbose: request.flags.runtime.verbose,
-            show_stats: request.flags.runtime.show_stats,
-            no_cache: request.flags.cache.no_cache,
+            compile: DriverCompileConfig::from(request.session),
+            runtime: DriverRuntimeConfig::from(request.flags),
             emit_llvm: request.flags.backend.emit_llvm,
             emit_binary: request.flags.backend.emit_binary,
             output_path: request.flags.backend.output_path.clone(),
@@ -305,7 +273,9 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
         parse_ms: ctx.parse_ms,
         compile_ms,
         flags: request.flags,
-        session: request.session,
+        compile: DriverCompileConfig::from(request.session),
+        diagnostics: DriverDiagnosticConfig::from(request.session),
+        runtime: DriverRuntimeConfig::from(request.flags),
     });
 }
 
@@ -341,12 +311,8 @@ mod tests {
     use crate::{
         diagnostics::position::Span,
         driver::{
-            backend::Backend,
-            flags::{
-                DriverBackendFlags, DriverCacheFlags, DriverDiagnosticFlags, DriverDumpFlags,
-                DriverFlags, DriverInputFlags, DriverLanguageFlags, DriverRuntimeFlags,
-            },
-            mode::{AetherDumpMode, CoreDumpMode, DiagnosticOutputFormat},
+            mode::{AetherDumpMode, CoreDumpMode},
+            test_support::base_flags,
         },
         syntax::{
             program::Program,
@@ -354,55 +320,6 @@ mod tests {
             symbol::Symbol,
         },
     };
-
-    fn make_flags() -> DriverFlags {
-        DriverFlags {
-            backend: DriverBackendFlags {
-                selected: Backend::Vm,
-                use_core_to_llvm: false,
-                emit_llvm: false,
-                emit_binary: false,
-                output_path: None,
-            },
-            input: DriverInputFlags {
-                input_path: None,
-                roots: Vec::new(),
-                roots_only: false,
-                test_filter: None,
-            },
-            runtime: DriverRuntimeFlags {
-                verbose: false,
-                leak_detector: false,
-                trace: false,
-                trace_aether: false,
-                show_stats: false,
-                profiling: false,
-            },
-            dumps: DriverDumpFlags {
-                dump_repr: false,
-                dump_cfg: false,
-                dump_core: CoreDumpMode::None,
-                dump_aether: AetherDumpMode::None,
-                dump_lir: false,
-                dump_lir_llvm: false,
-            },
-            diagnostics: DriverDiagnosticFlags {
-                max_errors: 20,
-                diagnostics_format: DiagnosticOutputFormat::Text,
-                all_errors: false,
-            },
-            cache: DriverCacheFlags {
-                cache_dir: None,
-                no_cache: false,
-            },
-            language: DriverLanguageFlags {
-                enable_optimize: false,
-                enable_analyze: false,
-                strict_mode: false,
-                strict_types: false,
-            },
-        }
-    }
 
     fn import_statement(symbol: Symbol) -> Statement {
         Statement::Import {
@@ -416,39 +333,39 @@ mod tests {
 
     #[test]
     fn merged_program_is_only_built_for_multimodule_dump_surfaces() {
-        let flags = make_flags();
+        let flags = base_flags();
         assert!(!should_build_merged_program(&flags, false));
         assert!(!should_build_merged_program(&flags, true));
 
-        let mut dump_core_flags = make_flags();
+        let mut dump_core_flags = base_flags();
         dump_core_flags.dumps.dump_core = CoreDumpMode::Readable;
         assert!(!should_build_merged_program(&dump_core_flags, false));
         assert!(should_build_merged_program(&dump_core_flags, true));
 
-        let mut dump_aether_flags = make_flags();
+        let mut dump_aether_flags = base_flags();
         dump_aether_flags.dumps.dump_aether = AetherDumpMode::Summary;
         assert!(should_build_merged_program(&dump_aether_flags, true));
 
-        let mut dump_cfg_flags = make_flags();
+        let mut dump_cfg_flags = base_flags();
         dump_cfg_flags.dumps.dump_cfg = true;
         assert!(should_build_merged_program(&dump_cfg_flags, true));
 
-        let mut dump_lir_flags = make_flags();
+        let mut dump_lir_flags = base_flags();
         dump_lir_flags.dumps.dump_lir = true;
         assert!(should_build_merged_program(&dump_lir_flags, true));
 
-        let mut dump_lir_llvm_flags = make_flags();
+        let mut dump_lir_llvm_flags = base_flags();
         dump_lir_llvm_flags.dumps.dump_lir_llvm = true;
         assert!(should_build_merged_program(&dump_lir_llvm_flags, true));
     }
 
     #[test]
     fn parallel_vm_fast_path_requires_multimodule_cacheable_vm_run() {
-        let flags = make_flags();
+        let flags = base_flags();
         assert!(!should_try_parallel_vm_fast_path(&flags, false));
         assert!(should_try_parallel_vm_fast_path(&flags, true));
 
-        let mut no_cache_flags = make_flags();
+        let mut no_cache_flags = base_flags();
         no_cache_flags.cache.no_cache = true;
         assert!(!should_try_parallel_vm_fast_path(&no_cache_flags, true));
     }
