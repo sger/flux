@@ -1,6 +1,6 @@
 - Feature Name: Decouple Aether from Core IR
 - Start Date: 2026-04-11
-- Status: Not Implemented
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

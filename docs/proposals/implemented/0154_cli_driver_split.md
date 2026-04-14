@@ -1,6 +1,6 @@
 - Feature Name: CLI / Driver Architecture Split
 - Start Date: 2026-04-11
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0153
