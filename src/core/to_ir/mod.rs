@@ -30,19 +30,7 @@ pub use free_vars::collect_free_vars_core;
 
 /// Convert a `CoreType` to the backend IR `IrType`.
 fn core_type_to_ir_type(ct: &crate::core::CoreType) -> IrType {
-    use crate::core::CoreType;
-    match ct {
-        CoreType::Int => IrType::Int,
-        CoreType::Float => IrType::Float,
-        CoreType::Bool => IrType::Bool,
-        CoreType::String => IrType::String,
-        CoreType::Unit => IrType::Unit,
-        CoreType::List(_) => IrType::List,
-        CoreType::Array(_) => IrType::Array,
-        CoreType::Tuple(elems) => IrType::Tuple(elems.len()),
-        CoreType::Function(params, _) => IrType::Function(params.len()),
-        _ => IrType::Any,
-    }
+    IrType::from_core_type(ct)
 }
 
 use fn_ctx::FnCtx;
@@ -143,7 +131,14 @@ impl ToIrCtx {
         }
 
         for def in &core.defs {
-            if let CoreExpr::Lam { params, body, .. } = &def.expr {
+            if let CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } = &def.expr
+            {
                 // This def is a function — emit as a named IrFunction.
                 let fn_id = entry_fn.ctx.alloc_function();
                 let fn_block = entry_fn.ctx.alloc_block();
@@ -161,16 +156,36 @@ impl ToIrCtx {
                         effects.clone(),
                     );
                     fn_ctx.name = Some(def.name);
-                    // Populate HM-inferred types from CoreDef.result_ty.
-                    if let Some(crate::core::CoreType::Function(ref param_tys, ref ret_ty)) =
+                    if !param_types.is_empty() {
+                        fn_ctx.inferred_param_types = param_types.clone();
+                    } else if let Some(crate::core::CoreType::Function(ref inferred_params, _)) =
                         def.result_ty
                     {
-                        fn_ctx.inferred_param_types =
-                            param_tys.iter().map(|t| Some(t.clone())).collect();
+                        // `CoreDef::result_ty` for named functions is normally the
+                        // function result, not the full function signature. Only
+                        // reuse it for parameter metadata if it actually matches
+                        // the runtime arity.
+                        if inferred_params.len() == params.len() {
+                            fn_ctx.inferred_param_types =
+                                inferred_params.iter().map(|ty| Some(ty.clone())).collect();
+                        }
+                    }
+                    if fn_ctx.inferred_param_types.len() != params.len() {
+                        // Some top-level lambda-valued defs still carry a
+                        // result-type-shaped `CoreDef::result_ty` rather than a
+                        // full parameter list. Keep runtime lowering correct by
+                        // dropping mismatched semantic param metadata instead of
+                        // emitting invalid IR.
+                        fn_ctx.inferred_param_types.clear();
+                    }
+                    if let Some(ret_ty) = result_ty.clone() {
+                        fn_ctx.inferred_return_type = Some(ret_ty);
+                    } else if let Some(crate::core::CoreType::Function(_, ref ret_ty)) =
+                        def.result_ty
+                    {
                         fn_ctx.inferred_return_type = Some((**ret_ty).clone());
-                    } else if let Some(ref ty) = def.result_ty {
-                        // Non-function def (e.g. thunk) — set return type only.
-                        fn_ctx.inferred_return_type = Some(ty.clone());
+                    } else {
+                        fn_ctx.inferred_return_type = def.result_ty.clone();
                     }
                     for (&binder_id, &binder_name) in &entry_fn.binder_names {
                         let v = fn_ctx.ctx.alloc_var();
@@ -182,7 +197,7 @@ impl ToIrCtx {
                         fn_ctx.env.insert(binder_id, v);
                         fn_ctx.binder_names.insert(binder_id, binder_name);
                     }
-                    for (i, &p) in params.iter().enumerate() {
+                    for (i, p) in params.iter().enumerate() {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.env.insert(p.id, v);
                         fn_ctx.binder_names.insert(p.id, p.name);
@@ -191,7 +206,7 @@ impl ToIrCtx {
                             .get(i)
                             .and_then(|t| t.as_ref())
                             .map(core_type_to_ir_type)
-                            .unwrap_or(IrType::Any);
+                            .unwrap_or(IrType::Tagged);
                         fn_ctx.params.push(IrParam {
                             name: p.name,
                             var: v,
@@ -314,11 +329,16 @@ impl ToIrCtx {
                     if let Some(crate::core::CoreType::Function(ref param_tys, ref ret_ty)) =
                         def.result_ty
                     {
-                        fn_ctx.inferred_param_types =
-                            param_tys.iter().map(|t| Some(t.clone())).collect();
+                        if param_tys.len() == params.len() {
+                            fn_ctx.inferred_param_types =
+                                param_tys.iter().map(|t| Some(t.clone())).collect();
+                        }
                         fn_ctx.inferred_return_type = Some((**ret_ty).clone());
                     } else if let Some(ref ty) = def.result_ty {
                         fn_ctx.inferred_return_type = Some(ty.clone());
+                    }
+                    if fn_ctx.inferred_param_types.len() != params.len() {
+                        fn_ctx.inferred_param_types.clear();
                     }
                     for (&binder_id, &binder_name) in &entry_fn.binder_names {
                         let v = fn_ctx.ctx.alloc_var();
@@ -330,7 +350,7 @@ impl ToIrCtx {
                         fn_ctx.env.insert(binder_id, v);
                         fn_ctx.binder_names.insert(binder_id, binder_name);
                     }
-                    for (i, &p) in params.iter().enumerate() {
+                    for (i, p) in params.iter().enumerate() {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.env.insert(p.id, v);
                         fn_ctx.binder_names.insert(p.id, p.name);
@@ -339,7 +359,7 @@ impl ToIrCtx {
                             .get(i)
                             .and_then(|t| t.as_ref())
                             .map(core_type_to_ir_type)
-                            .unwrap_or(IrType::Any);
+                            .unwrap_or(IrType::Tagged);
                         fn_ctx.params.push(IrParam {
                             name: p.name,
                             var: v,
@@ -574,6 +594,7 @@ mod tests {
     };
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
+    use std::borrow::Borrow;
 
     fn make_interner() -> Interner {
         Interner::new()
@@ -583,8 +604,8 @@ mod tests {
         CoreBinder::new(CoreBinderId(raw), name)
     }
 
-    fn var_expr(binder: CoreBinder) -> CoreExpr {
-        CoreExpr::bound_var(binder, Span::default())
+    fn var_expr<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
+        CoreExpr::bound_var(binder.borrow(), Span::default())
     }
 
     #[test]
@@ -629,6 +650,8 @@ mod tests {
                 f_binder,
                 CoreExpr::Lam {
                     params: vec![x_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(var_expr(x_binder)),
                     span: Span::default(),
                 },
@@ -657,6 +680,8 @@ mod tests {
                 add_binder,
                 CoreExpr::Lam {
                     params: vec![a_binder, b_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::PrimOp {
                         op: CorePrimOp::Add,
                         args: vec![var_expr(a_binder), var_expr(b_binder)],
@@ -679,6 +704,82 @@ mod tests {
     }
 
     #[test]
+    fn lower_preserves_hash_and_never_ir_return_types() {
+        let mut interner = make_interner();
+        let hash_name = interner.intern("hashy");
+        let abort_name = interner.intern("aborty");
+        let hash_binder = binder(0, hash_name);
+        let abort_binder = binder(1, abort_name);
+
+        let mut hash_def = CoreDef::new(
+            hash_binder,
+            CoreExpr::Lam {
+                params: Vec::new(),
+                param_types: vec![],
+                result_ty: None,
+                body: Box::new(CoreExpr::PrimOp {
+                    op: CorePrimOp::MakeHash,
+                    args: Vec::new(),
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            },
+            false,
+            Span::default(),
+        );
+        hash_def.result_ty = Some(crate::core::CoreType::Function(
+            Vec::new(),
+            Box::new(crate::core::CoreType::Map(
+                Box::new(crate::core::CoreType::String),
+                Box::new(crate::core::CoreType::Int),
+            )),
+        ));
+
+        let mut abort_def = CoreDef::new(
+            abort_binder,
+            CoreExpr::Lam {
+                params: Vec::new(),
+                param_types: vec![],
+                result_ty: None,
+                body: Box::new(CoreExpr::PrimOp {
+                    op: CorePrimOp::Panic,
+                    args: vec![CoreExpr::Lit(
+                        CoreLit::String("boom".to_string()),
+                        Span::default(),
+                    )],
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            },
+            false,
+            Span::default(),
+        );
+        abort_def.result_ty = Some(crate::core::CoreType::Function(
+            Vec::new(),
+            Box::new(crate::core::CoreType::Never),
+        ));
+
+        let ir = lower_core_to_ir(&CoreProgram {
+            defs: vec![hash_def, abort_def],
+            top_level_items: Vec::new(),
+        });
+
+        let hash_fn = ir
+            .functions
+            .iter()
+            .find(|f| f.name == Some(hash_name))
+            .expect("expected lowered hash function");
+        assert_eq!(hash_fn.ret_type, IrType::Hash);
+
+        let abort_fn = ir
+            .functions
+            .iter()
+            .find(|f| f.name == Some(abort_name))
+            .expect("expected lowered never-returning function");
+        assert_eq!(abort_fn.ret_type, IrType::Never);
+    }
+
+    #[test]
     #[should_panic(expected = "Core binder resolution invariant failed during Core→IR lowering")]
     fn lower_panics_on_missing_bound_binder() {
         let mut interner = make_interner();
@@ -687,7 +788,7 @@ mod tests {
         let prog = CoreProgram {
             defs: vec![CoreDef::new(
                 binder(0, name),
-                CoreExpr::bound_var(bogus, Span::default()),
+                CoreExpr::bound_var(&bogus, Span::default()),
                 false,
                 Span::default(),
             )],
@@ -800,6 +901,8 @@ mod tests {
                 f_binder,
                 CoreExpr::Lam {
                     params: vec![xs_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                     span: Span::default(),
                 },
@@ -815,8 +918,10 @@ mod tests {
                 binder: f_binder,
                 expr: AetherExpr::Lam {
                     params: vec![xs_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(AetherExpr::DropSpecialized {
-                        scrutinee: CoreVarRef::resolved(xs_binder),
+                        scrutinee: CoreVarRef::resolved(&xs_binder),
                         unique_body: Box::new(AetherExpr::Lit(CoreLit::Int(1), Span::default())),
                         shared_body: Box::new(AetherExpr::Lit(CoreLit::Int(2), Span::default())),
                         span: Span::default(),
@@ -886,10 +991,14 @@ mod tests {
                 main_binder,
                 CoreExpr::Lam {
                     params: vec![x_binder, y_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::Let {
                         var: f_binder,
                         rhs: Box::new(CoreExpr::Lam {
                             params: vec![z_binder],
+                            param_types: vec![],
+                            result_ty: None,
                             body: Box::new(CoreExpr::PrimOp {
                                 op: CorePrimOp::Add,
                                 args: vec![var_expr(x_binder), var_expr(z_binder)],
@@ -956,10 +1065,14 @@ mod tests {
                 main_binder,
                 CoreExpr::Lam {
                     params: vec![x_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::LetRec {
                         var: f_binder,
                         rhs: Box::new(CoreExpr::Lam {
                             params: vec![n_binder],
+                            param_types: vec![],
+                            result_ty: None,
                             body: Box::new(CoreExpr::Let {
                                 var: tmp_binder,
                                 rhs: Box::new(CoreExpr::App {
@@ -1017,13 +1130,17 @@ mod tests {
                 main_binder,
                 CoreExpr::Lam {
                     params: vec![x_binder, y_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::Handle {
                         body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                         effect: effect_name,
                         handlers: vec![CoreHandler {
                             operation: op_name,
                             params: vec![arg_binder],
+                            param_types: vec![],
                             resume: resume_binder,
+                            resume_ty: None,
                             body: CoreExpr::App {
                                 func: Box::new(var_expr(resume_binder)),
                                 args: vec![var_expr(x_binder)],

@@ -243,15 +243,17 @@ fn build_contextual_dictionary_method_closure(
         .collect();
     let mut args: Vec<CoreExpr> = context_binders
         .iter()
-        .map(|binder| CoreExpr::bound_var(*binder, span))
+        .map(|binder| CoreExpr::bound_var(binder, span))
         .collect();
     args.extend(
         user_params
             .iter()
-            .map(|binder| CoreExpr::bound_var(*binder, span)),
+            .map(|binder| CoreExpr::bound_var(binder, span)),
     );
     CoreExpr::Lam {
         params: user_params,
+        param_types: Vec::new(),
+        result_ty: None,
         body: Box::new(CoreExpr::App {
             func: Box::new(CoreExpr::external_var(mangled_sym, span)),
             args,
@@ -302,7 +304,7 @@ fn rewrite_constrained_functions(
                 None => continue,
             };
 
-            let dict_binder = if let Some(existing) = existing_dict_params.get(index).copied() {
+            let dict_binder = if let Some(existing) = existing_dict_params.get(index).cloned() {
                 existing
             } else {
                 let class_str = interner.resolve(constraint.class_name);
@@ -314,13 +316,13 @@ fn rewrite_constrained_functions(
                 *next_id += 1;
                 let binder =
                     CoreBinder::with_rep(CoreBinderId(binder_id), param_name, FluxRep::BoxedRep);
-                dict_params.push(binder);
+                dict_params.push(binder.clone());
                 binder
             };
 
             // Map each method of this class to its tuple index + dict binder.
             for (idx, method_sig) in class_def.methods.iter().enumerate() {
-                method_map.insert(method_sig.name, (dict_binder, idx));
+                method_map.insert(method_sig.name, (dict_binder.clone(), idx));
             }
         }
 
@@ -422,7 +424,7 @@ fn build_caller_dict_map(
         // The first N params are dictionary params (one per constraint).
         for (i, constraint) in constraints.iter().enumerate() {
             if let Some(binder) = params.get(i) {
-                map.insert(constraint.class_name, *binder);
+                map.insert(constraint.class_name, binder.clone());
             }
         }
     }
@@ -491,8 +493,16 @@ fn insert_dict_args_expr(
         // different context.
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(insert_dict_args_expr(
                 *body,
                 constrained_fns,
@@ -584,6 +594,7 @@ fn insert_dict_args_expr(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(insert_dict_args_expr(
@@ -609,6 +620,7 @@ fn insert_dict_args_expr(
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
 
@@ -738,7 +750,7 @@ fn resolve_dict_arg(
     span: Span,
 ) -> Option<CoreExpr> {
     // Case 1: Polymorphic forwarding — caller has a dict for this class.
-    if let Some(&binder) = caller_dicts.get(&constraint.class_name) {
+    if let Some(binder) = caller_dicts.get(&constraint.class_name) {
         return Some(CoreExpr::bound_var(binder, span));
     }
 
@@ -759,13 +771,19 @@ fn prepend_lam_params(expr: CoreExpr, extra_params: Vec<CoreBinder>) -> CoreExpr
     match expr {
         CoreExpr::Lam {
             mut params,
+            mut param_types,
+            result_ty,
             body,
             span,
         } => {
             let mut new_params = extra_params;
+            let mut new_param_types = vec![None; new_params.len()];
             new_params.append(&mut params);
+            new_param_types.append(&mut param_types);
             CoreExpr::Lam {
                 params: new_params,
+                param_types: new_param_types,
+                result_ty,
                 body,
                 span,
             }
@@ -774,6 +792,8 @@ fn prepend_lam_params(expr: CoreExpr, extra_params: Vec<CoreBinder>) -> CoreExpr
             // Non-lambda constrained def (unlikely, but handle gracefully).
             CoreExpr::Lam {
                 params: extra_params,
+                param_types: Vec::new(),
+                result_ty: None,
                 body: Box::new(other),
                 span: Span::default(),
             }
@@ -811,13 +831,13 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(&(dict_binder, index)) = method_map.get(&var.name)
+                && let Some((dict_binder, index)) = method_map.get(&var.name)
             {
                 // Class method reference — extract from dictionary.
                 let dict_ref = CoreExpr::bound_var(dict_binder, span);
                 let method_extract = CoreExpr::TupleField {
                     object: Box::new(dict_ref),
-                    index,
+                    index: *index,
                     span,
                 };
                 let rewritten_args = args
@@ -844,8 +864,16 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         // Recursive cases for all other expression forms.
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(rewrite_expr(*body, method_map)),
             span,
         },
@@ -890,6 +918,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(rewrite_expr(*scrutinee, method_map)),
@@ -901,6 +930,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
 
@@ -1256,8 +1286,8 @@ mod tests {
                 span: s(),
             }),
             args: vec![
-                CoreExpr::bound_var(x_binder, s()),
-                CoreExpr::bound_var(y_binder, s()),
+                CoreExpr::bound_var(&x_binder, s()),
+                CoreExpr::bound_var(&y_binder, s()),
             ],
             span: s(),
         };
@@ -1298,7 +1328,7 @@ mod tests {
                 var: CoreVarRef::unresolved(println_name),
                 span: s(),
             }),
-            args: vec![CoreExpr::bound_var(x_binder, s())],
+            args: vec![CoreExpr::bound_var(&x_binder, s())],
             span: s(),
         };
 
@@ -1333,7 +1363,7 @@ mod tests {
 
         // App(Var(eq, binder=99), [Lit(1)]) — bound var with class method name.
         let expr = CoreExpr::App {
-            func: Box::new(CoreExpr::bound_var(local_eq, s())),
+            func: Box::new(CoreExpr::bound_var(&local_eq, s())),
             args: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
             span: s(),
         };
@@ -1362,6 +1392,8 @@ mod tests {
 
         let lam = CoreExpr::Lam {
             params: vec![x],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             span: s(),
         };
@@ -1459,14 +1491,16 @@ mod tests {
                 binder: contains_binder,
                 expr: CoreExpr::Lam {
                     params: vec![x_binder, y_binder],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::App {
                         func: Box::new(CoreExpr::Var {
                             var: CoreVarRef::unresolved(eq_method),
                             span: s(),
                         }),
                         args: vec![
-                            CoreExpr::bound_var(x_binder, s()),
-                            CoreExpr::bound_var(y_binder, s()),
+                            CoreExpr::bound_var(&x_binder, s()),
+                            CoreExpr::bound_var(&y_binder, s()),
                         ],
                         span: s(),
                     }),
@@ -1552,7 +1586,7 @@ mod tests {
         let (_ty, mapping, constraints) = scheme.instantiate(&mut counter);
 
         assert_eq!(constraints.len(), 1);
-        let new_var = mapping.get(&0).copied().unwrap();
+        let new_var = mapping.get(&0).cloned().unwrap();
         assert_eq!(constraints[0].type_vars, vec![new_var]);
         assert_eq!(constraints[0].class_name, eq_sym);
     }

@@ -199,7 +199,7 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
             if params.iter().any(|p| p.id == var) {
                 false // shadowed
             } else {
-                // Any occurrence inside the lambda body counts as "under lambda".
+                // Every occurrence inside the lambda body counts as "under lambda".
                 count_occurrences(var, body) > 0
             }
         }

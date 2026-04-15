@@ -273,8 +273,16 @@ fn promote_expr(
                 span,
             }
         }
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(promote_expr(
                 *body,
                 table,
@@ -362,6 +370,7 @@ fn promote_expr(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(promote_expr(
@@ -387,6 +396,7 @@ fn promote_expr(
                     ..alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
