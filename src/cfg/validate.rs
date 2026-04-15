@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     BlockId, FunctionId, IrCallTarget, IrExpr, IrHandleArm, IrInstr, IrProgram, IrStringPart,
-    IrTerminator, IrVar,
+    IrTerminator, IrType, IrVar,
 };
 
 #[allow(clippy::result_large_err)]
@@ -22,8 +22,10 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
         if !block_ids.contains(&function.entry) {
             return Err(invalid_ir(None, "function entry block does not exist"));
         }
+        validate_function_rep_metadata(function)?;
         let reachable_defs = compute_reachable_defs(function, &block_ids)?;
         for block in &function.blocks {
+            validate_block_param_rep_metadata(block)?;
             let mut defined = reachable_defs.get(&block.id).cloned().unwrap_or_default();
             defined.extend(block.params.iter().map(|param| param.var));
             for param in &function.params {
@@ -91,6 +93,72 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                 return Err(invalid_ir(
                     None,
                     "block parameter arity does not match predecessor jump arguments",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn validate_function_rep_metadata(function: &super::IrFunction) -> Result<(), Diagnostic> {
+    if !function.inferred_param_types.is_empty()
+        && function.inferred_param_types.len() != function.params.len()
+    {
+        return Err(invalid_ir(
+            None,
+            &format!(
+                "function inferred parameter metadata must align with runtime params (function={}, id={}, origin={:?}, runtime_params={}, inferred_params={})",
+                function
+                    .name
+                    .map(|name| name.to_string())
+                    .unwrap_or_else(|| format!("#{}", function.id.0)),
+                function.id.0,
+                function.origin,
+                function.params.len(),
+                function.inferred_param_types.len()
+            ),
+        ));
+    }
+
+    for (param, inferred_ty) in function
+        .params
+        .iter()
+        .zip(function.inferred_param_types.iter())
+    {
+        if let Some(inferred_ty) = inferred_ty {
+            let expected = IrType::from_core_type(inferred_ty);
+            if param.ty != expected {
+                return Err(invalid_ir(
+                    None,
+                    "function param runtime representation does not match inferred semantic type",
+                ));
+            }
+        }
+    }
+
+    if let Some(inferred_return_type) = function.inferred_return_type.as_ref() {
+        let expected = IrType::from_core_type(inferred_return_type);
+        if function.ret_type != expected {
+            return Err(invalid_ir(
+                None,
+                "function return runtime representation does not match inferred semantic type",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
+fn validate_block_param_rep_metadata(block: &super::IrBlock) -> Result<(), Diagnostic> {
+    for param in &block.params {
+        if let Some(inferred_ty) = param.inferred_ty.as_ref() {
+            let expected = IrType::from_core_type(inferred_ty);
+            if param.ty != expected {
+                return Err(invalid_ir(
+                    None,
+                    "block param runtime representation does not match inferred semantic type",
                 ));
             }
         }
@@ -433,7 +501,7 @@ mod tests {
                 effects: Vec::new(),
                 captures: Vec::new(),
                 body_span: crate::diagnostics::position::Span::default(),
-                ret_type: IrType::Any,
+                ret_type: IrType::Tagged,
                 blocks: vec![IrBlock {
                     id: BlockId(0),
                     params: Vec::new(),
@@ -445,6 +513,134 @@ mod tests {
                 metadata: IrMetadata::empty(),
                 inferred_param_types: Vec::new(),
                 inferred_return_type: None,
+            }],
+            entry: FunctionId(0),
+            globals: Vec::new(),
+            global_bindings: Vec::new(),
+            hm_expr_types: HashMap::new(),
+            core: None,
+        };
+
+        assert!(validate_ir(&program).is_err());
+    }
+
+    #[test]
+    fn rejects_param_rep_mismatch_against_inferred_semantic_type() {
+        let program = IrProgram {
+            top_level_items: Vec::new(),
+            functions: vec![IrFunction {
+                id: FunctionId(0),
+                name: None,
+                params: vec![super::super::IrParam {
+                    name: crate::syntax::interner::Interner::new().intern("x"),
+                    var: IrVar(0),
+                    ty: IrType::Tagged,
+                }],
+                parameter_types: vec![None],
+                return_type_annotation: None,
+                effects: Vec::new(),
+                captures: Vec::new(),
+                body_span: crate::diagnostics::position::Span::default(),
+                ret_type: IrType::Tagged,
+                blocks: vec![IrBlock {
+                    id: BlockId(0),
+                    params: Vec::new(),
+                    instrs: Vec::new(),
+                    terminator: IrTerminator::Return(IrVar(0), IrMetadata::empty()),
+                }],
+                entry: BlockId(0),
+                origin: IrFunctionOrigin::ModuleTopLevel,
+                metadata: IrMetadata::empty(),
+                inferred_param_types: vec![Some(crate::core::CoreType::Int)],
+                inferred_return_type: None,
+            }],
+            entry: FunctionId(0),
+            globals: Vec::new(),
+            global_bindings: Vec::new(),
+            hm_expr_types: HashMap::new(),
+            core: None,
+        };
+
+        assert!(validate_ir(&program).is_err());
+    }
+
+    #[test]
+    fn rejects_block_param_rep_mismatch_against_inferred_semantic_type() {
+        let program = IrProgram {
+            top_level_items: Vec::new(),
+            functions: vec![IrFunction {
+                id: FunctionId(0),
+                name: None,
+                params: Vec::new(),
+                parameter_types: Vec::new(),
+                return_type_annotation: None,
+                effects: Vec::new(),
+                captures: Vec::new(),
+                body_span: crate::diagnostics::position::Span::default(),
+                ret_type: IrType::Tagged,
+                blocks: vec![
+                    IrBlock {
+                        id: BlockId(0),
+                        params: Vec::new(),
+                        instrs: Vec::new(),
+                        terminator: IrTerminator::Jump(
+                            BlockId(1),
+                            vec![IrVar(0)],
+                            IrMetadata::empty(),
+                        ),
+                    },
+                    IrBlock {
+                        id: BlockId(1),
+                        params: vec![super::super::IrBlockParam {
+                            var: IrVar(0),
+                            ty: IrType::Tagged,
+                            inferred_ty: Some(crate::core::CoreType::Int),
+                        }],
+                        instrs: Vec::new(),
+                        terminator: IrTerminator::Return(IrVar(0), IrMetadata::empty()),
+                    },
+                ],
+                entry: BlockId(0),
+                origin: IrFunctionOrigin::ModuleTopLevel,
+                metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
+            }],
+            entry: FunctionId(0),
+            globals: Vec::new(),
+            global_bindings: Vec::new(),
+            hm_expr_types: HashMap::new(),
+            core: None,
+        };
+
+        assert!(validate_ir(&program).is_err());
+    }
+
+    #[test]
+    fn rejects_return_rep_mismatch_against_inferred_semantic_type() {
+        let program = IrProgram {
+            top_level_items: Vec::new(),
+            functions: vec![IrFunction {
+                id: FunctionId(0),
+                name: None,
+                params: Vec::new(),
+                parameter_types: Vec::new(),
+                return_type_annotation: None,
+                effects: Vec::new(),
+                captures: Vec::new(),
+                body_span: crate::diagnostics::position::Span::default(),
+                ret_type: IrType::Tagged,
+                blocks: vec![IrBlock {
+                    id: BlockId(0),
+                    params: Vec::new(),
+                    instrs: Vec::new(),
+                    terminator: IrTerminator::Return(IrVar(0), IrMetadata::empty()),
+                }],
+                entry: BlockId(0),
+                origin: IrFunctionOrigin::ModuleTopLevel,
+                metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: Some(crate::core::CoreType::Bool),
             }],
             entry: FunctionId(0),
             globals: Vec::new(),
