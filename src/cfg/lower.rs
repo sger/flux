@@ -87,7 +87,7 @@ impl Lowerer {
             context.lower_statement(stmt, false)?;
         }
         let ret = context.ensure_return_var();
-        context.finish(IrType::Any, ret);
+        context.finish(IrType::Tagged, ret);
 
         let top_level_statements = self.top_level_statements.clone();
         self.lower_functions_in_statements(&top_level_statements)?;
@@ -123,13 +123,13 @@ impl Lowerer {
                         function_context.params.push(IrParam {
                             name: *param,
                             var,
-                            ty: IrType::Any,
+                            ty: IrType::Tagged,
                         });
                     }
                     function_context.lower_block(body)?;
                     let ret = function_context.ensure_return_var();
                     function_context.finish_with_metadata(
-                        IrType::Any,
+                        IrType::Tagged,
                         ret,
                         IrMetadata {
                             span: Some(*span),
@@ -956,6 +956,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1137,6 +1138,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1338,6 +1340,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1505,6 +1508,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1672,6 +1676,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1770,6 +1775,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -2382,6 +2388,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -2410,7 +2417,7 @@ impl<'a> FunctionLoweringContext<'a> {
             nested.params.push(IrParam {
                 name: *capture,
                 var,
-                ty: IrType::Any,
+                ty: IrType::Tagged,
             });
         }
         for param in parameters {
@@ -2419,13 +2426,13 @@ impl<'a> FunctionLoweringContext<'a> {
             nested.params.push(IrParam {
                 name: *param,
                 var,
-                ty: IrType::Any,
+                ty: IrType::Tagged,
             });
         }
         nested.lower_block(body)?;
         let ret = nested.ensure_return_var();
         nested.finish_with_metadata(
-            IrType::Any,
+            IrType::Tagged,
             ret,
             IrMetadata::empty(),
             vec![None; parameters.len()],
@@ -2784,7 +2791,7 @@ fn infer_type_to_ir(infer_type: Option<&InferType>) -> IrType {
         Some(InferType::Con(TypeConstructor::Bool)) => IrType::Bool,
         Some(InferType::Con(TypeConstructor::String)) => IrType::String,
         Some(InferType::Con(TypeConstructor::Unit)) => IrType::Unit,
-        _ => IrType::Any,
+        _ => IrType::Tagged,
     }
 }
 
