@@ -91,10 +91,7 @@ impl OperatorDesugarPass<'_> {
     }
 
     fn is_dynamic_operand(&self, expr: &Expression) -> bool {
-        matches!(
-            self.operand_type(expr),
-            None | Some(InferType::Con(TypeConstructor::Any))
-        )
+        self.operand_type(expr).is_none()
     }
 
     fn is_type_var_operand(&self, expr: &Expression) -> bool {
@@ -160,12 +157,12 @@ impl OperatorDesugarPass<'_> {
 
     // Decision order matters here:
     // 1. Never rewrite non-overloadable operators.
-    // 2. Preserve infix when either operand is dynamic (`Any` / missing HM type),
+    // 2. Preserve infix when either operand is dynamic (missing HM type),
     //    because downstream runtime semantics still own those cases.
     // 3. Outside an explicit class-constraint context, keep arithmetic,
     //    comparisons, and type-variable operands infix so unconstrained code
     //    does not pick up synthetic class-method calls.
-    // 4. Preserve clearly concrete non-`Any` pairs, then use the narrower
+    // 4. Preserve clearly concrete pairs, then use the narrower
     //    Int/Float/String fast-path checks below to keep primitive lowering for
     //    the operator/type combinations we specialize.
     // 5. Everything else rewrites to the corresponding class method.
@@ -314,10 +311,7 @@ impl OperatorDesugarDetector<'_> {
     }
 
     fn is_dynamic_operand(&self, expr: &Expression) -> bool {
-        matches!(
-            self.operand_type(expr),
-            None | Some(InferType::Con(TypeConstructor::Any))
-        )
+        self.operand_type(expr).is_none()
     }
 
     fn is_type_var_operand(&self, expr: &Expression) -> bool {

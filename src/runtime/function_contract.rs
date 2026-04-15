@@ -49,7 +49,6 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
         TypeExpr::Named { name, args, .. } => {
             let name_str = interner.try_resolve(*name)?;
             match (name_str, args.len()) {
-                ("Any", 0) => Some(RuntimeType::Any),
                 ("Int", 0) => Some(RuntimeType::Int),
                 ("Float", 0) => Some(RuntimeType::Float),
                 ("Bool", 0) => Some(RuntimeType::Bool),
