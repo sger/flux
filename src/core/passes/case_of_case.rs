@@ -27,6 +27,7 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts: outer_alts,
+            join_ty: outer_join_ty,
             span: outer_span,
         } => {
             // First, recursively transform the scrutinee and outer alts.
@@ -44,6 +45,7 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
             if let CoreExpr::Case {
                 scrutinee: inner_scrutinee,
                 alts: inner_alts,
+                join_ty: inner_join_ty,
                 span: inner_span,
             } = scrutinee
             {
@@ -54,9 +56,11 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
                         scrutinee: Box::new(CoreExpr::Case {
                             scrutinee: inner_scrutinee,
                             alts: inner_alts,
+                            join_ty: inner_join_ty.clone(),
                             span: inner_span,
                         }),
                         alts: outer_alts,
+                        join_ty: outer_join_ty,
                         span: outer_span,
                     };
                 }
@@ -68,6 +72,7 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
                         inner_alt.rhs = CoreExpr::Case {
                             scrutinee: Box::new(inner_alt.rhs),
                             alts: outer_alts.clone(),
+                            join_ty: outer_join_ty.clone(),
                             span: outer_span,
                         };
                         // Recursively simplify — the pushed case may now be
@@ -80,12 +85,14 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
                 CoreExpr::Case {
                     scrutinee: inner_scrutinee,
                     alts: new_inner_alts,
+                    join_ty: inner_join_ty,
                     span: inner_span,
                 }
             } else {
                 CoreExpr::Case {
                     scrutinee: Box::new(scrutinee),
                     alts: outer_alts,
+                    join_ty: outer_join_ty,
                     span: outer_span,
                 }
             }

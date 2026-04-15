@@ -585,7 +585,7 @@ fn format_rep(rep: super::FluxRep) -> &'static str {
 }
 
 fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
-    use super::CoreType;
+    use super::{CoreAbstractType, CoreType};
     match ty {
         CoreType::Int => "Int".to_string(),
         CoreType::Float => "Float".to_string(),
@@ -593,7 +593,35 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
         CoreType::String => "String".to_string(),
         CoreType::Unit => "Unit".to_string(),
         CoreType::Never => "Never".to_string(),
-        CoreType::Any => "Any".to_string(),
+        CoreType::Var(var) => format!("t{var}"),
+        CoreType::Forall(vars, body) => {
+            let vars = vars.iter().map(|var| format!("t{var}")).collect::<Vec<_>>();
+            format!(
+                "forall {}. {}",
+                vars.join(", "),
+                format_core_type(body, interner)
+            )
+        }
+        CoreType::Abstract(CoreAbstractType::ConstructorHead(tc)) => format!("{tc:?}"),
+        CoreType::Abstract(CoreAbstractType::HigherKindedApp) => "Abstract<HKT>".to_string(),
+        CoreType::Abstract(CoreAbstractType::UnsupportedApp(tc)) => {
+            format!("Abstract<{tc:?}>")
+        }
+        CoreType::Abstract(CoreAbstractType::Named(name, args)) => {
+            let name = interner
+                .try_resolve(*name)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("Abstract#{}", name.as_u32()));
+            if args.is_empty() {
+                name
+            } else {
+                let rendered = args
+                    .iter()
+                    .map(|arg| format_core_type(arg, interner))
+                    .collect::<Vec<_>>();
+                format!("{name}<{}>", rendered.join(", "))
+            }
+        }
         CoreType::List(elem) => format!("List<{}>", format_core_type(elem, interner)),
         CoreType::Array(elem) => format!("Array<{}>", format_core_type(elem, interner)),
         CoreType::Option(elem) => format!("Option<{}>", format_core_type(elem, interner)),
@@ -625,9 +653,53 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                 format_core_type(ret, interner)
             )
         }
-        CoreType::Adt(name) => interner
-            .try_resolve(*name)
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("Adt#{}", name.as_u32())),
+        CoreType::Adt(name, args) => {
+            let name = interner
+                .try_resolve(*name)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("Adt#{}", name.as_u32()));
+            if args.is_empty() {
+                name
+            } else {
+                let rendered = args
+                    .iter()
+                    .map(|arg| format_core_type(arg, interner))
+                    .collect::<Vec<_>>();
+                format!("{name}<{}>", rendered.join(", "))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        core::{CoreAbstractType, CoreType},
+        syntax::interner::Interner,
+    };
+
+    use super::format_core_type;
+
+    #[test]
+    fn format_core_type_renders_explicit_semantic_forms() {
+        let mut interner = Interner::new();
+        let result = interner.intern("Result");
+        let elem = interner.intern("a");
+
+        let ty = CoreType::Forall(
+            vec![3],
+            Box::new(CoreType::Function(
+                vec![
+                    CoreType::Adt(result, vec![CoreType::Var(3), CoreType::Int]),
+                    CoreType::Abstract(CoreAbstractType::Named(elem, vec![])),
+                ],
+                Box::new(CoreType::Var(3)),
+            )),
+        );
+
+        assert_eq!(
+            format_core_type(&ty, &interner),
+            "forall t3. (Result<t3, Int>, a) -> t3"
+        );
     }
 }

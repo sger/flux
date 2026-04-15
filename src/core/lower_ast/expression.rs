@@ -70,6 +70,7 @@ impl<'a> super::AstLowerer<'a> {
                 consequence,
                 alternative,
                 span,
+                id,
                 ..
             } => {
                 let cond = self.lower_expr(condition);
@@ -95,6 +96,7 @@ impl<'a> super::AstLowerer<'a> {
                             span: *span,
                         },
                     ],
+                    join_ty: self.infer_core_type(*id),
                     span: *span,
                 }
             }
@@ -127,6 +129,7 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let params: Vec<_> = self.bind_lambda_params(parameters, *id);
+                let (param_types, result_ty) = self.lambda_signature_from_expr_id(*id);
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
@@ -134,11 +137,13 @@ impl<'a> super::AstLowerer<'a> {
                     // so the resulting IR function has arity 0.
                     CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: Box::new(body_expr),
                         span: *span,
                     }
                 } else {
-                    CoreExpr::lambda(params, body_expr, *span)
+                    CoreExpr::lambda_typed(params, param_types, result_ty, body_expr, *span)
                 }
             }
 
@@ -283,7 +288,7 @@ impl<'a> super::AstLowerer<'a> {
                 scrutinee,
                 arms,
                 span,
-                ..
+                id,
             } => {
                 // Look up the scrutinee's HM-inferred type for typed pattern binders.
                 let scrutinee_ty = self.hm_expr_types.get(&scrutinee.expr_id()).cloned();
@@ -295,6 +300,7 @@ impl<'a> super::AstLowerer<'a> {
                 CoreExpr::Case {
                     scrutinee: Box::new(scrut),
                     alts,
+                    join_ty: self.infer_core_type(*id),
                     span: *span,
                 }
             }
@@ -365,12 +371,13 @@ impl<'a> super::AstLowerer<'a> {
                 effect,
                 arms,
                 span,
-                ..
+                id,
             } => {
                 let body = self.lower_expr(expr);
+                let handle_result_ty = self.infer_core_type(*id);
                 let handlers: Vec<CoreHandler> = arms
                     .iter()
-                    .map(|arm| self.lower_handle_arm_typed(arm, *effect))
+                    .map(|arm| self.lower_handle_arm_typed(arm, *effect, handle_result_ty.clone()))
                     .collect();
                 CoreExpr::Handle {
                     body: Box::new(body),
@@ -407,7 +414,7 @@ impl<'a> super::AstLowerer<'a> {
         // For arithmetic ops (+, -, *, /, %), only emit typed variants (IAdd/FAdd)
         // when both operands AND the result are provably the correct type.
         // Under gradual typing, a type mismatch (e.g. 1 + None) may infer the
-        // result as Int while one operand is Any/None — emitting IAdd would skip
+        // result as Int while one operand is unresolved/None — emitting IAdd would skip
         // the runtime type check and produce garbage.
         let result_ty = self.hm_expr_types.get(&id);
         let left_ty = self.hm_expr_types.get(&left.expr_id());
