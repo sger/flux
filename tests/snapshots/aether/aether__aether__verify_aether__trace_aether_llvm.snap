@@ -3,7 +3,55 @@ source: tests/aether_cli_snapshots.rs
 ---
 [1 of 1] Cached     verify_aether
 [lir→llvm] Compiling via per-module LLVM native backend...
-[1 of 1] Cached     verify_aether
+[1 of 1] Linking    verify_aether
+• 2 warnings • examples/aether/verify_aether.flx
+Warning: FBIP Contract Not Proven
+
+@fip on `my_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/verify_aether.flx:17:6
+   |
+17 | @fip fn my_map(xs, f) {
+   |      ^^^^^^^^^^^^^^^^^^
+18 |     match xs {
+   | ^^^^^^^^^^^^^^
+19 |         [h | t] -> [f(h) | my_map(t, f)],
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |         _ -> [],
+   | ^^^^^^^^^^^^^^^^
+21 |     }
+   | ^^^^^
+22 | }
+   | ^
+
+
+Warning: FBIP Contract Not Proven
+
+@fip on `option_map` analysis result NotProvable:
+- fresh heap allocation remains on at least one path
+- calls indirect or opaque callee `f` whose FBIP behavior is unknown
+- control-flow join loses a precise allocation bound across paths
+
+  examples/aether/verify_aether.flx:25:6
+   |
+25 | @fip fn option_map(opt, f) {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^
+26 |     match opt {
+   | ^^^^^^^^^^^^^^^
+27 |         Some(x) -> Some(f(x)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |         _ -> None,
+   | ^^^^^^^^^^^^^^^^^^
+29 |     }
+   | ^^^^^
+30 | }
+   | ^
+
+Found 2 warnings.
+
 
 ── Aether Trace ──
 file: <workspace>/examples/aether/verify_aether.flx

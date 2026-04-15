@@ -1069,13 +1069,13 @@ Warning: FBIP Contract Not Proven
 @fip on `fail_indirect` analysis result NotProvable:
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 
-  examples/aether/fbip_failure_cases.flx:11:6
+  examples/aether/fbip_failure_cases.flx:16:6
    |
-11 | @fip fn fail_indirect(f, x) {
+16 | @fip fn fail_indirect(f, x) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^^
-12 |     f(x)
+17 |     f(x)
    | ^^^^^^^^
-13 | }
+18 | }
    | ^
 
 
@@ -1084,13 +1084,13 @@ Warning: FBIP Contract Not Proven
 @fip on `fail_imported` analysis result NotProvable:
 - calls indirect or opaque callee `Symbol(4000011)` whose FBIP behavior is unknown
 
-  examples/aether/fbip_failure_cases.flx:15:6
+  examples/aether/fbip_failure_cases.flx:20:6
    |
-15 | @fip fn fail_imported(x: Int) -> Int {
+20 | @fip fn fail_imported(x: Int) -> Int {
    |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |     Imported.imported_inc(x)
+21 |     Imported.imported_inc(x)
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-17 | }
+22 | }
    | ^
 
 
@@ -1099,13 +1099,13 @@ Warning: FBIP Contract Not Proven
 @fip on `fail_fresh` analysis result Fbip { bound: 1 }:
 - fresh heap allocation remains on at least one path
 
-  examples/aether/fbip_failure_cases.flx:19:6
+  examples/aether/fbip_failure_cases.flx:24:6
    |
-19 | @fip fn fail_fresh(x: Int) {
+24 | @fip fn fail_fresh(x: Int) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^
-20 |     Some(x)
+25 |     Some(x)
    | ^^^^^^^^^^^
-21 | }
+26 | }
    | ^
 
 Found 3 warnings.

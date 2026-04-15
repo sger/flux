@@ -1,39 +1,39 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-letrec __tc_Eq_Int_eq : (Any, Any) -> Bool =
+letrec __tc_Eq_Int_eq : forall t674. (t674, t674) -> Bool =
 λ__x0#1:Int, __x1#2:Int.
     Eq(__x0#1, __x1#2)
 
-letrec __tc_Eq_Int_neq : (Any, Any) -> Bool =
+letrec __tc_Eq_Int_neq : forall t674. (t674, t674) -> Bool =
 λ__x0#4:Int, __x1#5:Int.
     NEq(__x0#4, __x1#5)
 
-letrec __tc_Eq_Float_eq : (Any, Any) -> Bool =
+letrec __tc_Eq_Float_eq : forall t674. (t674, t674) -> Bool =
 λ__x0#7:Float, __x1#8:Float.
     Eq(__x0#7, __x1#8)
 
-letrec __tc_Eq_Float_neq : (Any, Any) -> Bool =
+letrec __tc_Eq_Float_neq : forall t674. (t674, t674) -> Bool =
 λ__x0#10:Float, __x1#11:Float.
     NEq(__x0#10, __x1#11)
 
-letrec __tc_Eq_String_eq : (Any, Any) -> Bool =
+letrec __tc_Eq_String_eq : forall t674. (t674, t674) -> Bool =
 λ__x0#13:Box, __x1#14:Box.
     Eq(__x0#13, __x1#14)
 
-letrec __tc_Eq_String_neq : (Any, Any) -> Bool =
+letrec __tc_Eq_String_neq : forall t674. (t674, t674) -> Bool =
 λ__x0#16:Box, __x1#17:Box.
     NEq(__x0#16, __x1#17)
 
-letrec __tc_Eq_Bool_eq : (Any, Any) -> Bool =
+letrec __tc_Eq_Bool_eq : forall t674. (t674, t674) -> Bool =
 λ__x0#19:Bool, __x1#20:Bool.
     Eq(__x0#19, __x1#20)
 
-letrec __tc_Eq_Bool_neq : (Any, Any) -> Bool =
+letrec __tc_Eq_Bool_neq : forall t674. (t674, t674) -> Bool =
 λ__x0#22:Bool, __x1#23:Bool.
     NEq(__x0#22, __x1#23)
 
-letrec __tc_Ord_Int_compare : (Any, Any) -> Bool =
+letrec __tc_Ord_Int_compare : forall t674. (t674, t674) -> Bool =
 λ__x0#25:Int, __x1#26:Int.
     let %t1:Bool = Lt(__x0#25, __x1#26)
     case #4000718[synthetic]#718 of
@@ -47,23 +47,23 @@ letrec __tc_Ord_Int_compare : (Any, Any) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_Int_lt : (Any, Any) -> Bool =
+letrec __tc_Ord_Int_lt : forall t674. (t674, t674) -> Bool =
 λ__x0#28:Int, __x1#29:Int.
     Lt(__x0#28, __x1#29)
 
-letrec __tc_Ord_Int_lte : (Any, Any) -> Bool =
+letrec __tc_Ord_Int_lte : forall t674. (t674, t674) -> Bool =
 λ__x0#31:Int, __x1#32:Int.
     Le(__x0#31, __x1#32)
 
-letrec __tc_Ord_Int_gt : (Any, Any) -> Bool =
+letrec __tc_Ord_Int_gt : forall t674. (t674, t674) -> Bool =
 λ__x0#34:Int, __x1#35:Int.
     Gt(__x0#34, __x1#35)
 
-letrec __tc_Ord_Int_gte : (Any, Any) -> Bool =
+letrec __tc_Ord_Int_gte : forall t674. (t674, t674) -> Bool =
 λ__x0#37:Int, __x1#38:Int.
     Ge(__x0#37, __x1#38)
 
-letrec __tc_Ord_Float_compare : (Any, Any) -> Bool =
+letrec __tc_Ord_Float_compare : forall t674. (t674, t674) -> Bool =
 λ__x0#40:Float, __x1#41:Float.
     let %t3:Bool = Lt(__x0#40, __x1#41)
     case #4000720[synthetic]#720 of
@@ -77,23 +77,23 @@ letrec __tc_Ord_Float_compare : (Any, Any) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_Float_lt : (Any, Any) -> Bool =
+letrec __tc_Ord_Float_lt : forall t674. (t674, t674) -> Bool =
 λ__x0#43:Float, __x1#44:Float.
     Lt(__x0#43, __x1#44)
 
-letrec __tc_Ord_Float_lte : (Any, Any) -> Bool =
+letrec __tc_Ord_Float_lte : forall t674. (t674, t674) -> Bool =
 λ__x0#46:Float, __x1#47:Float.
     Le(__x0#46, __x1#47)
 
-letrec __tc_Ord_Float_gt : (Any, Any) -> Bool =
+letrec __tc_Ord_Float_gt : forall t674. (t674, t674) -> Bool =
 λ__x0#49:Float, __x1#50:Float.
     Gt(__x0#49, __x1#50)
 
-letrec __tc_Ord_Float_gte : (Any, Any) -> Bool =
+letrec __tc_Ord_Float_gte : forall t674. (t674, t674) -> Bool =
 λ__x0#52:Float, __x1#53:Float.
     Ge(__x0#52, __x1#53)
 
-letrec __tc_Ord_String_compare : (Any, Any) -> Bool =
+letrec __tc_Ord_String_compare : forall t674. (t674, t674) -> Bool =
 λ__x0#55:Box, __x1#56:Box.
     let %t5:Bool = Lt(__x0#55, __x1#56)
     case #4000722[synthetic]#722 of
@@ -107,119 +107,119 @@ letrec __tc_Ord_String_compare : (Any, Any) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_String_lt : (Any, Any) -> Bool =
+letrec __tc_Ord_String_lt : forall t674. (t674, t674) -> Bool =
 λ__x0#58:Box, __x1#59:Box.
     Lt(__x0#58, __x1#59)
 
-letrec __tc_Ord_String_lte : (Any, Any) -> Bool =
+letrec __tc_Ord_String_lte : forall t674. (t674, t674) -> Bool =
 λ__x0#61:Box, __x1#62:Box.
     Le(__x0#61, __x1#62)
 
-letrec __tc_Ord_String_gt : (Any, Any) -> Bool =
+letrec __tc_Ord_String_gt : forall t674. (t674, t674) -> Bool =
 λ__x0#64:Box, __x1#65:Box.
     Gt(__x0#64, __x1#65)
 
-letrec __tc_Ord_String_gte : (Any, Any) -> Bool =
+letrec __tc_Ord_String_gte : forall t674. (t674, t674) -> Bool =
 λ__x0#67:Box, __x1#68:Box.
     Ge(__x0#67, __x1#68)
 
-letrec __tc_Num_Int_add : (Any, Any) -> Bool =
+letrec __tc_Num_Int_add : forall t674. (t674, t674) -> Bool =
 λ__x0#70:Int, __x1#71:Int.
     Add(__x0#70, __x1#71)
 
-letrec __tc_Num_Int_sub : (Any, Any) -> Bool =
+letrec __tc_Num_Int_sub : forall t674. (t674, t674) -> Bool =
 λ__x0#73:Int, __x1#74:Int.
     Sub(__x0#73, __x1#74)
 
-letrec __tc_Num_Int_mul : (Any, Any) -> Bool =
+letrec __tc_Num_Int_mul : forall t674. (t674, t674) -> Bool =
 λ__x0#76:Int, __x1#77:Int.
     Mul(__x0#76, __x1#77)
 
-letrec __tc_Num_Int_div : (Any, Any) -> Bool =
+letrec __tc_Num_Int_div : forall t674. (t674, t674) -> Bool =
 λ__x0#79:Int, __x1#80:Int.
     Div(__x0#79, __x1#80)
 
-letrec __tc_Num_Float_add : (Any, Any) -> Bool =
+letrec __tc_Num_Float_add : forall t674. (t674, t674) -> Bool =
 λ__x0#82:Float, __x1#83:Float.
     Add(__x0#82, __x1#83)
 
-letrec __tc_Num_Float_sub : (Any, Any) -> Bool =
+letrec __tc_Num_Float_sub : forall t674. (t674, t674) -> Bool =
 λ__x0#85:Float, __x1#86:Float.
     Sub(__x0#85, __x1#86)
 
-letrec __tc_Num_Float_mul : (Any, Any) -> Bool =
+letrec __tc_Num_Float_mul : forall t674. (t674, t674) -> Bool =
 λ__x0#88:Float, __x1#89:Float.
     Mul(__x0#88, __x1#89)
 
-letrec __tc_Num_Float_div : (Any, Any) -> Bool =
+letrec __tc_Num_Float_div : forall t674. (t674, t674) -> Bool =
 λ__x0#91:Float, __x1#92:Float.
     Div(__x0#91, __x1#92)
 
-letrec __tc_Show_Int_show : (Any, Any) -> Bool =
+letrec __tc_Show_Int_show : forall t674. (t674, t674) -> Bool =
 λ__x0#94:Int.
     ToString(__x0#94)
 
-letrec __tc_Show_Float_show : (Any, Any) -> Bool =
+letrec __tc_Show_Float_show : forall t674. (t674, t674) -> Bool =
 λ__x0#96:Float.
     ToString(__x0#96)
 
-letrec __tc_Show_String_show : (Any, Any) -> Bool =
+letrec __tc_Show_String_show : forall t674. (t674, t674) -> Bool =
 λ__x0#98:Box.
     ToString(__x0#98)
 
-letrec __tc_Show_Bool_show : (Any, Any) -> Bool =
+letrec __tc_Show_Bool_show : forall t674. (t674, t674) -> Bool =
 λ__x0#100:Bool.
     ToString(__x0#100)
 
-letrec __tc_Semigroup_String_append : (Any, Any) -> Bool =
+letrec __tc_Semigroup_String_append : forall t674. (t674, t674) -> Bool =
 λ__x0#102:Box, __x1#103:Box.
     string_concat#?[external](__x0#102, __x1#103)
 
-letrec compare : (Any, Any) -> Bool =
+letrec compare : forall t674. (t674, t674) -> Bool =
 λ__x0#105, __x1#106.
     Panic("No instance of Ord.compare for the given type")
 
-letrec lt : (Any, Any) -> Bool =
+letrec lt : forall t674. (t674, t674) -> Bool =
 λ__x0#108, __x1#109.
     Panic("No instance of Ord.lt for the given type")
 
-letrec lte : (Any, Any) -> Bool =
+letrec lte : forall t674. (t674, t674) -> Bool =
 λ__x0#111, __x1#112.
     Panic("No instance of Ord.lte for the given type")
 
-letrec gt : (Any, Any) -> Bool =
+letrec gt : forall t674. (t674, t674) -> Bool =
 λ__x0#114, __x1#115.
     Panic("No instance of Ord.gt for the given type")
 
-letrec gte : (Any, Any) -> Bool =
+letrec gte : forall t674. (t674, t674) -> Bool =
 λ__x0#117, __x1#118.
     Panic("No instance of Ord.gte for the given type")
 
-letrec eq : (Any, Any) -> Bool =
+letrec eq : forall t674. (t674, t674) -> Bool =
 λ__x0#120, __x1#121.
     Panic("No instance of Eq.eq for the given type")
 
-letrec neq : (Any, Any) -> Bool =
+letrec neq : forall t674. (t674, t674) -> Bool =
 λ__x0#123, __x1#124.
     Panic("No instance of Eq.neq for the given type")
 
-letrec add : (Any, Any) -> Bool =
+letrec add : forall t674. (t674, t674) -> Bool =
 λ__x0#126, __x1#127.
     Panic("No instance of Num.add for the given type")
 
-letrec sub : (Any, Any) -> Bool =
+letrec sub : forall t674. (t674, t674) -> Bool =
 λ__x0#129, __x1#130.
     Panic("No instance of Num.sub for the given type")
 
-letrec mul : (Any, Any) -> Bool =
+letrec mul : forall t674. (t674, t674) -> Bool =
 λ__x0#132, __x1#133.
     Panic("No instance of Num.mul for the given type")
 
-letrec div : (Any, Any) -> Bool =
+letrec div : forall t674. (t674, t674) -> Bool =
 λ__x0#135, __x1#136.
     Panic("No instance of Num.div for the given type")
 
-letrec show : (Any, Any) -> Bool =
+letrec show : forall t674. (t674, t674) -> Bool =
 λ__x0#138.
     Panic("No instance of Show.show for the given type")
 
@@ -268,7 +268,7 @@ letrec assert_false =
         Panic("assert_false failed")
 
 letrec assert_gt =
-λa#156:Box, b#157:Box.
+λa#156:Int, b#157:Int.
     let %t15:Bool = Gt(a#156, b#157)
     case #4000728[synthetic]#728 of
       true →
@@ -286,7 +286,7 @@ letrec assert_lt =
         Panic("assert_lt failed")
 
 letrec assert_gte =
-λa#162:Box, b#163:Box.
+λa#162:Int, b#163:Int.
     let %t17:Bool = Ge(a#162, b#163)
     case #4000730[synthetic]#730 of
       true →
@@ -448,7 +448,7 @@ letrec fold =
     fold_list#225(xs#222, acc#223)
 
 letrec foldr =
-λxs#231:Box, acc#232:Box, f#233:Box.
+λxs#231:Box, acc#232:Int, f#233:Box.
     case xs#231 of
       ::(h#234, t#235:Box) →
         let %t48 = foldr#230(t#235, acc#232, f#233)
@@ -457,7 +457,7 @@ letrec foldr =
         acc#232
 
 letrec fold1 =
-λxs#237:Box, f#238:Box.
+λxs#237:Box, f#238.
     case xs#237 of
       ::(h#239, t#240:Int) →
         fold#221(t#240, h#239, f#238)
@@ -465,7 +465,7 @@ letrec fold1 =
         Panic("fold1 called on empty list")
 
 letrec flat_map =
-λxs#242:Box, f#243:Box.
+λxs#242:Box, f#243.
     letrec flat_map_acc#244 = (λys#245, acc#246.
       case ys#245 of
         ::(h#247, t#248:Box) →
@@ -496,7 +496,7 @@ letrec concat =
     flatten#249(xss#257)
 
 letrec any =
-λxs#259:Box, pred#260:Box.
+λxs#259:Box, pred#260.
     case xs#259 of
       ::(h#261, t#262:Int) →
         let %t56 = pred#260(h#261)
@@ -509,7 +509,7 @@ letrec any =
         false
 
 letrec all =
-λxs#264:Box, pred#265:Box.
+λxs#264:Box, pred#265.
     case xs#264 of
       ::(h#266, t#267:Int) →
         let %t57 = pred#265(h#266)
@@ -522,7 +522,7 @@ letrec all =
         true
 
 letrec find =
-λxs#269:Box, pred#270:Box.
+λxs#269:Box, pred#270.
     case xs#269 of
       ::(h#271, t#272:Bool) →
         let %t58 = pred#270(h#271)
@@ -535,7 +535,7 @@ letrec find =
         None
 
 letrec count =
-λxs#274:Box, pred#275:Box.
+λxs#274:Box, pred#275.
     letrec count_go#276 = (λys#277, n#278.
       case ys#277 of
         ::(h#279, t#280:Box) →
@@ -551,7 +551,7 @@ letrec count =
     count_go#276(xs#274, 0)
 
 letrec each =
-λxs#282:Box, f#283:Box.
+λxs#282:Box, f#283.
     case xs#282 of
       ::(h#284, t#285:Box) →
         let %t61 = f#283(h#284)
@@ -592,7 +592,7 @@ letrec drop =
             []
 
 letrec take_while =
-λxs#302:Box, pred#303:Box.
+λxs#302:Box, pred#303.
     letrec take_while_acc#304 = (λys#305, acc#306.
       case ys#305 of
         ::(h#307, t#308:Box) →
@@ -609,7 +609,7 @@ letrec take_while =
     take_while_acc#304(xs#302, #4000779[synthetic]#779)
 
 letrec drop_while =
-λxs#310:Box, pred#311:Box.
+λxs#310:Box, pred#311.
     case xs#310 of
       ::(h#312, t#313:Box) →
         let %t71 = pred#311(h#312)
@@ -646,7 +646,7 @@ letrec split_at =
             MakeTuple(#4000787[synthetic]#787, #4000788[synthetic]#788)
 
 letrec span =
-λxs#322:Box, pred#323:Box.
+λxs#322:Box, pred#323.
     case xs#322 of
       ::(h#324, t#325:Box) →
         let %t80 = pred#323(h#324)
@@ -669,12 +669,12 @@ letrec span =
         MakeTuple(#4000794[synthetic]#794, #4000795[synthetic]#795)
 
 letrec scanl =
-λxs#329:Box, acc#330, f#331:Box.
+λxs#329:Box, acc#330, f#331.
     let %t87 = scanl_rest#516(xs#329, acc#330, f#331)
     ::(acc#330, #4000796[synthetic]#796)
 
 letrec scanr =
-λxs#333:Box, acc#334, f#335:Box.
+λxs#333:Box, acc#334, f#335.
     let %t88 = scanr_go#540(xs#333, acc#334, f#335)
     case #4000797[synthetic]#797 of
       (result#336:Box, last_acc#337) →
@@ -689,7 +689,7 @@ letrec sort =
     merge_sort_by#559(xs#339, #4000798[synthetic]#798)
 
 letrec sort_by =
-λxs#342:Box, f#343:Box.
+λxs#342:Box, f#343.
     merge_sort_by#559(xs#342, f#343)
 
 letrec first =
@@ -782,7 +782,7 @@ letrec zip =
     reverse#378(#4000807[synthetic]#807)
 
 letrec zip_with =
-λxs#389:Box, ys#390:Box, f#391:Box.
+λxs#389:Box, ys#390:Box, f#391.
     let %t99 = (let %t100:Unit = []
     zip_with_go#585(xs#389, ys#390, f#391, #4000808[synthetic]#808))
     reverse#378(#4000809[synthetic]#809)
@@ -830,7 +830,7 @@ letrec nub =
     unique_by#471(xs#407, #4000818[synthetic]#818)
 
 letrec partition =
-λxs#410:Box, pred#411:Box.
+λxs#410:Box, pred#411.
     case xs#410 of
       ::(h#412, t#413:Box) →
         let %t110 = partition#409(t#413, pred#411)
@@ -955,7 +955,7 @@ letrec replicate =
         ::(x#457, #4000843[synthetic]#843)
 
 letrec iterate =
-λx#459, f#460:Box, n#461:Int.
+λx#459, f#460, n#461:Int.
     let %t135:Bool = ICmpLe(n#461, 0)
     case #4000844[synthetic]#844 of
       true →
@@ -967,7 +967,7 @@ letrec iterate =
         ::(x#459, #4000847[synthetic]#847)
 
 letrec unfold =
-λseed#463, f#464:Box.
+λseed#463, f#464.
     let %t139 = f#464(seed#463)
     case #4000848[synthetic]#848 of
       Some(step#465:Box) →
@@ -979,7 +979,7 @@ letrec unfold =
         []
 
 letrec group_by =
-λxs#467:Box, eq#468:Box.
+λxs#467:Box, eq#468.
     case xs#467 of
       ::(h#469, t#470:Box) →
         group_by_head#594(h#469, t#470, eq#468)
@@ -987,7 +987,7 @@ letrec group_by =
         []
 
 letrec unique_by =
-λxs#472:Box, f#473:Box.
+λxs#472:Box, f#473.
     let %t143 = (let %t144:Unit = []
     let %t145:Unit = []
     unique_by_go#526(xs#472, f#473, #4000852[synthetic]#852, #4000853[synthetic]#853))
@@ -1476,7 +1476,7 @@ letrec str_contains =
         sc_go#671(0)
 
 letrec my_map : List<Int> =
-λxs#676:Box, f#677:Box.
+λxs#676:Box, f#677.
     case xs#676 of
       ::(h#678:Int, t#679:Box) →
         let %t242 = f#677(h#678)
@@ -1486,7 +1486,7 @@ letrec my_map : List<Int> =
         []
 
 letrec option_map : Option<Int> =
-λopt#681:Box, f#682:Box.
+λopt#681:Box, f#682.
     case opt#681 of
       Some(x#683:Int) →
         let %t244 = f#682(x#683)
@@ -1512,7 +1512,7 @@ letrec my_len : Int =
         0
 
 letrec my_filter : List<Int> =
-λxs#693:Box, f#694:Box.
+λxs#693:Box, f#694.
     case xs#693 of
       ::(h#695:Int, t#696:Box) →
         let %t246 = f#694(h#695)
@@ -1577,19 +1577,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:9:6
+  examples/aether/verify_aether.flx:17:6
    |
- 9 | @fip fn my_map(xs, f) {
+17 | @fip fn my_map(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^
-10 |     match xs {
+18 |     match xs {
    | ^^^^^^^^^^^^^^
-11 |         [h | t] -> [f(h) | my_map(t, f)],
+19 |         [h | t] -> [f(h) | my_map(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-12 |         _ -> [],
+20 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-13 |     }
+21 |     }
    | ^^^^^
-14 | }
+22 | }
    | ^
 
 
@@ -1600,19 +1600,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:17:6
+  examples/aether/verify_aether.flx:25:6
    |
-17 | @fip fn option_map(opt, f) {
+25 | @fip fn option_map(opt, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^
-18 |     match opt {
+26 |     match opt {
    | ^^^^^^^^^^^^^^^
-19 |         Some(x) -> Some(f(x)),
+27 |         Some(x) -> Some(f(x)),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-20 |         _ -> None,
+28 |         _ -> None,
    | ^^^^^^^^^^^^^^^^^^
-21 |     }
+29 |     }
    | ^^^^^
-22 | }
+30 | }
    | ^
 
 Found 2 warnings.

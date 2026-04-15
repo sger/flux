@@ -117,6 +117,7 @@ pub fn run_parity_check(args: &[String]) {
                 capture_lir: config.capture_lir,
                 compare_surfaces_only: config.compare_surfaces_only,
                 explain: config.explain,
+                expected_stdout: fixture_meta.expected_stdout.as_deref(),
             },
         );
         print_result(&parity_result, config.display_filter, config.explain);
@@ -144,9 +145,12 @@ pub fn run_parity_check(args: &[String]) {
     print_summary(&results);
 
     // Exit with appropriate code
-    let has_mismatch = results
-        .iter()
-        .any(|r| matches!(r.verdict, Verdict::Mismatch { .. }));
+    let has_mismatch = results.iter().any(|r| {
+        matches!(
+            r.verdict,
+            Verdict::Mismatch { .. } | Verdict::ExpectedOutputMismatch { .. }
+        )
+    });
     let has_pass = results.iter().any(|r| matches!(r.verdict, Verdict::Pass));
 
     if has_mismatch || !has_pass {
@@ -167,6 +171,7 @@ struct CheckOpts<'a> {
     capture_lir: bool,
     compare_surfaces_only: bool,
     explain: bool,
+    expected_stdout: Option<&'a str>,
 }
 
 /// Run all requested ways on a single file and compare.
@@ -288,7 +293,23 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let verdict = if details.is_empty() {
-        Verdict::Pass
+        if let Some(expected_stdout) = opts.expected_stdout {
+            let expected = expected_stdout.trim();
+            let actual = run_results
+                .first()
+                .map(|run| run.normalized_stdout.trim().to_string())
+                .unwrap_or_default();
+            if actual != expected {
+                Verdict::ExpectedOutputMismatch {
+                    expected: expected.to_string(),
+                    actual,
+                }
+            } else {
+                Verdict::Pass
+            }
+        } else {
+            Verdict::Pass
+        }
     } else {
         Verdict::Mismatch { details }
     };
@@ -1185,6 +1206,14 @@ fn build_diagnosis_txt(result: &ParityResult) -> String {
             out.push_str("skip\n");
             out.push_str(&format!("reason: {reason}\n"));
         }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            out.push_str("expected_output_mismatch\n");
+            out.push_str(
+                "diagnosis: backends agree, but the output disagrees with the fixture expected output\n",
+            );
+            out.push_str(&format!("expected:\n{expected}\n"));
+            out.push_str(&format!("actual:\n{actual}\n"));
+        }
         Verdict::Mismatch { details } => {
             out.push_str("mismatch\n");
             if let Some(summary) = diagnose_mismatch(details) {
@@ -1211,6 +1240,20 @@ fn build_metadata_json(result: &ParityResult) -> String {
         verdict_label(&result.verdict)
     ));
     match &result.verdict {
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            out.push_str(
+                "  \"diagnosis\": \"backends agree, but the output disagrees with the fixture expected output\",\n",
+            );
+            out.push_str(&format!(
+                "  \"expected_stdout\": \"{}\",\n",
+                json_escape(expected)
+            ));
+            out.push_str(&format!(
+                "  \"actual_stdout\": \"{}\",\n",
+                json_escape(actual)
+            ));
+            out.push_str("  \"mismatch_details\": [],\n");
+        }
         Verdict::Mismatch { details } => {
             match diagnose_mismatch(details) {
                 Some(summary) => {
@@ -1341,6 +1384,7 @@ fn verdict_label(verdict: &Verdict) -> &'static str {
     match verdict {
         Verdict::Pass => "pass",
         Verdict::Mismatch { .. } => "mismatch",
+        Verdict::ExpectedOutputMismatch { .. } => "expected_output_mismatch",
         Verdict::Skip { .. } => "skip",
     }
 }

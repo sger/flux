@@ -125,11 +125,8 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         request.flags.is_native_backend(),
     )?;
 
-    let strict_hash = hash_bytes(if request.session.strict_mode {
-        b"strict=1"
-    } else {
-        b"strict=0"
-    });
+    let strict_hash =
+        hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
 
@@ -141,7 +138,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
     let compile_start = Instant::now();
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
-    compiler.set_strict_types(request.session.strict_types);
+    compiler.set_strict_inference(request.session.strict_inference);
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }

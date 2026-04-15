@@ -22,23 +22,19 @@ impl<'a> InferCtx<'a> {
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),
             other => {
                 if self.strict_mode_enabled() {
-                    self.emit_strict_inference_error(left.span(),
+                    self.emit_strict_inference_error(
+                        left.span(),
                         format!(
                             "Index access is only supported on arrays, lists, maps, and tuples in strict mode, but this expression has type `{}`.",
                             self.display_type(&other)
                         ),
-                        "Use indexing on Array/List/Map/Tuple values or add a type annotation."
+                        "Use indexing on Array/List/Map/Tuple values or add a type annotation.",
                     );
-                    InferType::App(
-                        TypeConstructor::Option,
-                        vec![self.env.alloc_infer_type_var()],
-                    )
-                } else {
-                    InferType::App(
-                        TypeConstructor::Option,
-                        vec![self.env.alloc_infer_type_var()],
-                    )
                 }
+                InferType::App(
+                    TypeConstructor::Option,
+                    vec![self.env.alloc_infer_type_var()],
+                )
             }
         }
     }
@@ -109,10 +105,8 @@ impl<'a> InferCtx<'a> {
                 ),
                 "Only imported module member access is currently typed here; add an annotation or use a supported access shape.",
             );
-            self.env.alloc_infer_type_var()
-        } else {
-            self.env.alloc_infer_type_var()
         }
+        self.env.alloc_infer_type_var()
     }
 
     /// Infer tuple field projection by static index.
@@ -129,10 +123,8 @@ impl<'a> InferCtx<'a> {
                         format!("Tuple field .{index} is out of bounds for this tuple expression."),
                         "Use a valid tuple field index for the inferred tuple arity.",
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }),
             other => {
                 if self.strict_mode_enabled() {
@@ -144,10 +136,8 @@ impl<'a> InferCtx<'a> {
                         ),
                         "Use tuple field access only on tuple values.",
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }
         }
     }

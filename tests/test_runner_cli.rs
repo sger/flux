@@ -247,6 +247,39 @@ fn test_mode_flow_list_module_fixture_passes() {
 }
 
 #[test]
+fn test_mode_flow_list_module_fixture_reports_strict_stdlib_diagnostics() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--strict",
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("tests/flux/Flow/List_test.flx")
+            || text.contains("lib/Flow/List.flx")
+            || text.contains("lib/Flow/Assert.flx"),
+        "expected strict Flow-related module path in output, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("error[E417]")
+            || text.contains("error[E430]")
+            || text.contains("error[E425]"),
+        "expected strict typing diagnostics from stdlib, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn test_mode_flow_array_module_fixture_passes() {
     let file = fixture_path("Flow/Array_test.flx");
     let output = run_flux(&[
@@ -290,6 +323,39 @@ fn test_mode_flow_array_module_fixture_passes() {
     assert!(
         text.contains("5 tests: 5 passed, 0 failed"),
         "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_mode_flow_array_module_fixture_reports_strict_stdlib_diagnostics() {
+    let file = fixture_path("Flow/Array_test.flx");
+    let output = run_flux(&[
+        "--strict",
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("tests/flux/Flow/Array_test.flx")
+            || text.contains("lib/Flow/Array.flx")
+            || text.contains("lib/Flow/Assert.flx"),
+        "expected strict Flow-related module path in output, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("error[E417]")
+            || text.contains("error[E430]")
+            || text.contains("error[E425]"),
+        "expected strict typing diagnostics from stdlib, output:\n{}",
         text
     );
 }
@@ -903,6 +969,34 @@ fn dump_core_debug_excludes_aether_stats() {
     assert!(
         !text.contains("DropSpecs: "),
         "dump-core debug should not include Aether stats, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn dump_core_debug_shows_explicit_polymorphism_without_dynamic() {
+    let file = example_path("aether/polymorphic_core_types.flx");
+    let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-core debug success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("forall "),
+        "expected dump-core debug to render explicit polymorphism, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("letrec id : t") && text.contains("letrec choose : t"),
+        "expected dump-core debug to preserve explicit type-variable residue for local polymorphic defs, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("Dynamic"),
+        "dump-core debug should not regress to semantic Dynamic placeholders, output:\n{}",
         text
     );
 }

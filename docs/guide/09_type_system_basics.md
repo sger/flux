@@ -1,22 +1,27 @@
 # Chapter 9 — Type System Basics
 
-> Examples: [`examples/guide_type_system/01_typed_let_and_fn.flx`](../../examples/guide_type_system/01_typed_let_and_fn.flx), [`02_annotations_vs_inference.flx`](../../examples/guide_type_system/02_annotations_vs_inference.flx), [`03_pure_function_boundaries.flx`](../../examples/guide_type_system/03_pure_function_boundaries.flx)
+> Examples: [`examples/guide_type_system/01_typed_let_and_fn.flx`](../../examples/guide_type_system/01_typed_let_and_fn.flx), [`02_annotations_vs_inference.flx`](../../examples/guide_type_system/02_annotations_vs_inference.flx), [`03_pure_function_boundaries.flx`](../../examples/guide_type_system/03_pure_function_boundaries.flx), [`13_any_is_rejected.flx`](../../examples/guide_type_system/13_any_is_rejected.flx)
 
 ## Learning Goals
 
 - Read and write typed `let` bindings and function signatures.
 - Understand what Hindley-Milner inference does and when it kicks in.
-- Understand `Any` as the gradual fallback type.
 - Recognize compile-time type mismatches (`E300`) and when they occur.
 
 ## Overview
 
-Flux has a **gradual type system**: type annotations are optional, and unannotated code participates in Hindley-Milner (HM) inference. The key properties are:
+Flux uses Hindley-Milner (HM) type inference: type annotations are optional, and unannotated code is inferred where possible. The key properties are:
 
 - **Annotated paths** — if you write a type, it is statically validated. Mismatches are compile-time errors (`E300`).
 - **Inferred paths** — HM fills types for unannotated local expressions. The compiler reports concrete mismatches without false positives.
-- **`Any` as escape hatch** — when inference can't determine a concrete type (heterogeneous branches, unresolvable generics), the type degrades to `Any`. `Any` unifies with everything, suppressing errors.
-- **Gradual adoption** — you can type some functions and leave others untyped. The two coexist safely.
+- **Strict typing direction** — the maintained language direction is that ordinary source programs should resolve to concrete static types rather than relying on fallback typing.
+- **Incremental adoption** — you can still add annotations gradually, but the long-term model is static typing, not `Any` as a normal escape hatch.
+
+Flux is a statically typed language:
+
+- accepted programs are type-checked before execution
+- source-language typing is decided in HM/Core, not deferred to backend runtime representation
+- backend generic values such as tagged runtime values are representation details, not dynamic source typing
 
 ---
 
@@ -36,10 +41,6 @@ Flux has a **gradual type system**: type annotations are optional, and unannotat
 | `Map<K, V>` | HAMT persistent hash map | `{"a": 1}` |
 | `(A, B)` | Tuple (any arity) | `(1, "hi")` |
 | `A -> B` | Function type | `\x -> x + 1` |
-| `Any` | Gradual type — unifies with everything | — |
-
----
-
 ## Typed `let` Bindings
 
 ```flux
@@ -88,7 +89,7 @@ HM inference runs between PASS 1 (predeclaration) and PASS 2 (code generation). 
 
 1. Assign fresh type variables to unannotated parameters and `let` bindings.
 2. Propagate constraints from how values are used.
-3. Unify constrained variables — if two types conflict, emit `E300` only when both sides are concrete (non-`Any`).
+3. Unify constrained variables — if two concrete types conflict, emit `E300`.
 4. Generalize unconstrained variables into polymorphic `Scheme`s for `let`-bound functions.
 5. Instantiate `Scheme`s fresh at each use site (the identity function can be used at both `Int` and `String` in the same scope).
 
@@ -108,30 +109,36 @@ fn main() -> Unit {
 
 ---
 
-## The `Any` Type
+## `Any` and Legacy Surfaces
 
-`Any` is the gradual escape hatch. When inference cannot determine a concrete type, the value is treated as `Any`.
+`Any` still exists in some internal and compatibility-oriented parts of the repo, but it is not part of the intended normal source-language model.
 
-`Any` unifies with everything, which means:
-- No error is emitted when `Any` meets a concrete type.
-- Typed checks are bypassed for that expression.
+For ordinary Flux code, the goal is:
 
-`Any` occurs naturally in:
-- Unannotated heterogeneous `if`/`match` branches.
-- Calls to functions whose result type can't be resolved.
-- Runtime values that arrive from dynamic dispatch.
+- expressions resolve to concrete static types
+- mismatches are reported as compile-time diagnostics
+- user-facing docs and examples do not treat `Any` as the normal typing story
 
-```flux
-// This is fine — the branch types are String and Int,
-// but without a typed let, the result is Any
-let x = if true { "hello" } else { 42 }
-```
+If you encounter `Any` in diagnostics, internals docs, or older examples, treat it as legacy or migration residue rather than the recommended way to write Flux.
+
+If you try to use `Any` as a source annotation, Flux rejects it:
 
 ```flux
-// This fails — typed let expects Int, but branch is Any → Int mismatch
-let y: Int = if true { "hello" } else { 42 }
-// E300: type mismatch
+fn bad(x: Any) -> Int {
+    x
+}
 ```
+
+Run:
+
+```bash
+cargo run -- --no-cache examples/guide_type_system/13_any_is_rejected.flx
+```
+
+Expected result:
+
+- compile failure with `E423`
+- `Any` is treated as an invalid source annotation, not as a dynamic top type
 
 ---
 

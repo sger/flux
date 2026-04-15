@@ -1,0 +1,5 @@
+module Math {
+    public fn inc(x) { x + 1 }
+
+    fn hidden(x) { x + 100 }
+}

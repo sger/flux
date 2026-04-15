@@ -44,7 +44,6 @@ impl<'a> InferCtx<'a> {
                         .with_span(input.span)
                         .with_category(DiagnosticCategory::TypeInference),
                 );
-                return self.env.alloc_infer_type_var();
             }
             return self.env.alloc_infer_type_var();
         }

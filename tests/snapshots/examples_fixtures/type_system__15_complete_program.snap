@@ -18,6 +18,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+error[E423]: Unknown Type
+
+I can't find a type named `Summary`.
+
+  examples/type_system/15_complete_program.flx:30:12
+   |
+30 | let stats: Summary = Stats.summarize(scores)
+   |            ^^^^^^^
+   |            ------- unknown type used here
+
+Hint:
+  Use a built-in type, an in-scope type parameter, or a declared ADT.
+
+
 error[E011]: Private Member
 
 Cannot access private member `summarize`.
@@ -704,6 +718,6 @@ Cannot access private member `fold_list`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 51 errors.
+Found 52 errors.
 == stdout ==
 <not executed>

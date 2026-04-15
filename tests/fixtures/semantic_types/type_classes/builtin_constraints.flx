@@ -1,0 +1,8 @@
+fn eq_op(x, y) { x == y }
+
+fn add_op(x, y) { x + y }
+
+fn main() with IO {
+    print(eq_op(3, 3))
+    print(add_op(20, 22))
+}

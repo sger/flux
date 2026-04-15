@@ -298,6 +298,33 @@ fn snapshot_class_borrow_calls_dump_core() {
 }
 
 #[test]
+fn snapshot_polymorphic_core_types_dump_core_debug() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path("aether/polymorphic_core_types.flx");
+    let transcript = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let focused = transcript
+        .lines()
+        .filter(|line| {
+            line.starts_with("letrec __tc_Eqish_Int_same :")
+                || line.starts_with("letrec __tc_Eq_Int_eq : forall ")
+                || line.starts_with("letrec id : t")
+                || line.starts_with("letrec choose : t")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(
+            "aether__aether__polymorphic_core_types__dump_core_debug",
+            focused
+        );
+    });
+}
+
+#[test]
 fn snapshot_class_borrow_calls_dump_aether() {
     assert_cli_snapshot(
         "aether/class_borrow_calls.flx",

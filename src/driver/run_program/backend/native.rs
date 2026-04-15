@@ -9,8 +9,7 @@ use crate::driver::shared::{
 #[cfg(feature = "llvm")]
 use crate::driver::{
     backend_policy::{
-        native_binary_up_to_date_banner, native_lir_lowering_banner,
-        native_module_lowering_banner,
+        native_binary_up_to_date_banner, native_lir_lowering_banner, native_module_lowering_banner,
     },
     pipeline::native::{
         NativeParallelCompileRequest, compile_native_modules_parallel,
@@ -215,10 +214,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     .compiler
                     .infer_expr_types_for_program(native_program);
             }
-            eprintln!(
-                "{}",
-                native_lir_lowering_banner()
-            );
+            eprintln!("{}", native_lir_lowering_banner());
             let mut llvm_module = match request
                 .program
                 .compiler
@@ -262,10 +258,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 flux::llvm::pipeline::toolchain_info()
             );
         }
-        eprintln!(
-            "{}",
-            native_module_lowering_banner()
-        );
+        eprintln!("{}", native_module_lowering_banner());
         let native_modules_start = Instant::now();
         let (mut object_paths, any_native_recompiled) = match compile_native_modules_parallel(
             NativeParallelCompileRequest {
@@ -273,7 +266,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 cache_layout: request.cache.cache_layout,
                 no_cache: request.cache.no_cache,
                 strict_mode: request.compile.strict_mode,
-                strict_types: request.compile.strict_types,
+                strict_inference: request.compile.strict_inference,
                 enable_optimize: request.compile.enable_optimize,
                 enable_analyze: request.compile.enable_analyze,
                 verbose: request.runtime.verbose,
@@ -346,10 +339,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 "libflux_std_O0.a"
             };
             let archive_path = request.cache.cache_layout.native_dir().join(archive_name);
-            let need_rebuild = !flux::llvm::pipeline::archive_is_up_to_date(
-                &std_lib_objects,
-                &archive_path,
-            );
+            let need_rebuild =
+                !flux::llvm::pipeline::archive_is_up_to_date(&std_lib_objects, &archive_path);
             if need_rebuild {
                 if let Err(err) =
                     flux::llvm::pipeline::create_archive(&std_lib_objects, &archive_path)
@@ -416,16 +407,11 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
 
         if binary_up_to_date {
             if request.runtime.verbose {
-                eprintln!(
-                    "{}",
-                    native_binary_up_to_date_banner()
-                );
+                eprintln!("{}", native_binary_up_to_date_banner());
             }
-        } else if let Err(e) = flux::llvm::pipeline::link_objects(
-            &link_paths,
-            &out,
-            runtime_lib_dir.as_deref(),
-        ) {
+        } else if let Err(e) =
+            flux::llvm::pipeline::link_objects(&link_paths, &out, runtime_lib_dir.as_deref())
+        {
             eprintln!("llvm linker failed: {e}");
             std::process::exit(1);
         }

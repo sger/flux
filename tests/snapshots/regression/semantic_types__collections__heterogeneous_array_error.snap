@@ -1,0 +1,32 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx
+exit_code: 1
+
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+• 1 error • tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx:2:10
+  |
+2 |     [|1, "x"|]
+  |          ^^^
+  |          --- this expression has type `String`
+
+  |          --- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: String
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.

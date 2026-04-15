@@ -29,6 +29,8 @@ pub struct FixtureMeta {
     pub expect: Expect,
     /// One-line description of the bug shape.
     pub bug: Option<String>,
+    /// Optional expected normalized stdout block.
+    pub expected_stdout: Option<String>,
 }
 
 impl Default for FixtureMeta {
@@ -37,6 +39,7 @@ impl Default for FixtureMeta {
             ways: vec![Way::Vm, Way::Llvm],
             expect: Expect::Success,
             bug: None,
+            expected_stdout: None,
         }
     }
 }
@@ -51,6 +54,8 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
     };
 
     let mut meta = FixtureMeta::default();
+    let mut collecting_expected_stdout = false;
+    let mut expected_stdout_lines: Vec<String> = Vec::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -64,6 +69,17 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             continue;
         };
         let comment = comment.trim();
+
+        if collecting_expected_stdout {
+            if comment == "parity-expected-stdout-end" || comment == "parity-oracle-stdout-end" {
+                collecting_expected_stdout = false;
+                meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
+                expected_stdout_lines.clear();
+                continue;
+            }
+            expected_stdout_lines.push(comment.to_string());
+            continue;
+        }
 
         if let Some(value) = comment.strip_prefix("parity:") {
             let value = value.trim();
@@ -84,7 +100,15 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             };
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
+        } else if comment == "parity-expected-stdout-begin"
+            || comment == "parity-oracle-stdout-begin"
+        {
+            collecting_expected_stdout = true;
         }
+    }
+
+    if collecting_expected_stdout {
+        meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
     }
 
     meta
@@ -104,6 +128,10 @@ mod tests {
         writeln!(f, "// parity: vm, llvm").unwrap();
         writeln!(f, "// expect: runtime_error").unwrap();
         writeln!(f, "// bug: division by zero differs across backends").unwrap();
+        writeln!(f, "// parity-expected-stdout-begin").unwrap();
+        writeln!(f, "// line 1").unwrap();
+        writeln!(f, "// line 2").unwrap();
+        writeln!(f, "// parity-expected-stdout-end").unwrap();
         writeln!(f, "fn main() {{ }}").unwrap();
 
         let meta = parse_fixture_meta(&path);
@@ -113,6 +141,7 @@ mod tests {
             meta.bug.as_deref(),
             Some("division by zero differs across backends")
         );
+        assert_eq!(meta.expected_stdout.as_deref(), Some("line 1\nline 2"));
 
         let _ = std::fs::remove_file(&path);
     }
@@ -129,6 +158,7 @@ mod tests {
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::Success);
         assert!(meta.bug.is_none());
+        assert!(meta.expected_stdout.is_none());
 
         let _ = std::fs::remove_file(&path);
     }

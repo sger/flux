@@ -40,6 +40,8 @@ Adt(Symbol)
 
 `Adt(Symbol)` stores an interned symbol ID, not a resolved string. Its `Display` impl renders as `$<id>` (e.g. `$7`) because `Symbol::Display` renders the raw interned ID — this is intentional for diagnostic/debug output, not user-facing type names.
 
+`Any` still exists in the internal type model for legacy and compatibility reasons, but it is not intended as a normal user-facing source-language type.
+
 No logic lives here; the type is a pure data enum.
 
 ---

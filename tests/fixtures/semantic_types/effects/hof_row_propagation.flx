@@ -1,0 +1,22 @@
+effect Logger {
+    log: String -> ()
+}
+
+fn apply(f, x) {
+    f(x)
+}
+
+fn log_and_id(x) with Logger {
+    perform Logger.log("seen")
+    x
+}
+
+fn run(x) {
+    apply(log_and_id, x) handle Logger {
+        log(resume, _msg) -> resume(())
+    }
+}
+
+fn main() with IO {
+    print(run(9))
+}

@@ -268,7 +268,7 @@ fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8;
     let source = std::fs::read(file).unwrap_or_default();
     let source_hash = hash_bytes(&source);
     let roots_hash = hash_bytes(roots_marker(file, extra_args).as_bytes());
-    let strict_hash = hash_bytes(b"strict=0");
+    let strict_hash = hash_bytes(b"strict=0\n");
     let bytecode_key = hash_cache_key(&hash_cache_key(&source_hash, &roots_hash), &strict_hash);
     let module_key = hash_cache_key(&source_hash, &strict_hash);
     let native_key = hash_cache_key(&source_hash, &strict_hash);
@@ -330,9 +330,7 @@ pub fn is_native_skip(result: &RunResult) -> Option<String> {
         return None;
     }
     for line in result.stderr.lines() {
-        if line.contains("llvm compilation failed")
-            || line.contains("unsupported CoreToLlvm")
-        {
+        if line.contains("llvm compilation failed") || line.contains("unsupported CoreToLlvm") {
             let reason = line
                 .rsplit_once(": ")
                 .map(|(_, r)| r.to_string())

@@ -6,7 +6,9 @@ use std::{
 };
 
 #[cfg(feature = "llvm")]
-use crate::llvm::module_cache::{DependencyStatus, NativeModuleCache, support_object_path};
+use crate::llvm::module_cache::{
+    DependencyStatus, NativeModuleCache, compute_native_cache_key, support_object_path,
+};
 use crate::{
     bytecode::bytecode_cache::module_cache::ModuleDependencyStatus,
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
@@ -430,7 +432,7 @@ fn print_native_cache_summary(
     };
     let source_hash = hash_bytes(source.as_bytes());
     let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
-    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
     let native_cache = NativeModuleCache::new(cache_layout.native_dir());
 
     println!("module: {}", module_path.display());

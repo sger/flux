@@ -105,8 +105,9 @@ pub(crate) struct ParallelReplayRequest<'a> {
     pub(crate) nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
     pub(crate) loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
     pub(crate) base_interner: &'a Interner,
+    pub(crate) entry_module_kind: ModuleKind,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_types: bool,
+    pub(crate) strict_inference: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -118,8 +119,9 @@ pub(crate) fn replay_module_diagnostics_for(request: ParallelReplayRequest<'_>) 
         nodes_by_path: request.nodes_by_path,
         loaded_interfaces: request.loaded_interfaces,
         base_interner: request.base_interner,
+        entry_module_kind: request.entry_module_kind,
         strict_mode: request.strict_mode,
-        strict_types: request.strict_types,
+        strict_inference: request.strict_inference,
         enable_optimize: request.enable_optimize,
         enable_analyze: request.enable_analyze,
     })

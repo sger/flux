@@ -13,7 +13,6 @@ use crate::{
         Identifier, data_variant::DataVariant, effect_expr::EffectExpr, effect_ops::EffectOp,
         type_expr::TypeExpr,
     },
-    types::TypeVarId,
 };
 
 pub mod display;
@@ -88,10 +87,6 @@ pub enum CoreAbstractType {
     Named(Identifier, Vec<CoreType>),
 }
 
-/// Core-level type representation.
-///
-/// Simplified from `InferType` — no unification variables, no quantifiers.
-/// Populated during AST→Core lowering from HM inference results.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CoreType {
     Int,
@@ -108,8 +103,8 @@ pub enum CoreType {
     Either(Box<CoreType>, Box<CoreType>),
     Map(Box<CoreType>, Box<CoreType>),
     Adt(Identifier, Vec<CoreType>),
-    Var(TypeVarId),
-    Forall(Vec<TypeVarId>, Box<CoreType>),
+    Var(crate::types::TypeVarId),
+    Forall(Vec<crate::types::TypeVarId>, Box<CoreType>),
     Abstract(CoreAbstractType),
 }
 

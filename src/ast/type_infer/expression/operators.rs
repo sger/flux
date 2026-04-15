@@ -31,10 +31,8 @@ impl<'a> InferCtx<'a> {
                             .with_message(format!("Unknown infix operator: `{op}`."))
                             .with_category(DiagnosticCategory::TypeInference),
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }
         }
     }
@@ -150,10 +148,8 @@ impl<'a> InferCtx<'a> {
                         ),
                         "Use operands with the same concrete String or numeric type.",
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }
         }
     }
@@ -186,10 +182,8 @@ impl<'a> InferCtx<'a> {
                         ),
                         "Use operands with the same concrete Int or Float type.",
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }
         }
     }
