@@ -11,6 +11,49 @@ mod operators;
 mod patterns;
 
 impl<'a> InferCtx<'a> {
+    /// Infer an identifier use, instantiating its scheme or reporting a strict-mode hole.
+    fn infer_identifier_expression(&mut self, expr: &Expression, name: Identifier) -> InferType {
+        if let Some(scheme) = self.env.lookup(name).cloned() {
+            let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+            for &fresh in mapping.values() {
+                self.env.record_var_level(fresh);
+            }
+            self.emit_scheme_constraints(&constraints, expr.span());
+            return ty;
+        }
+
+        if self.known_flow_names.contains(&name) {
+            self.emit_missing_flow_hm_signature(name, expr.span());
+        }
+        if self.strict_mode_enabled() {
+            self.emit_strict_inference_error(
+                expr.span(),
+                format!(
+                    "Could not infer a concrete type for unresolved identifier `{}` in strict mode.",
+                    self.interner.resolve(name)
+                ),
+                "Define the identifier first or add an explicit type annotation at the use site.",
+            );
+            self.env.alloc_infer_type_var()
+        } else {
+            self.env.alloc_infer_type_var()
+        }
+    }
+
+    /// Handle future or unsupported expression variants without duplicating strict-mode fallback.
+    fn infer_unsupported_expression(&mut self, expr: &Expression) -> InferType {
+        if self.strict_mode_enabled() {
+            self.emit_strict_inference_error(
+                expr.span(),
+                "Encountered an expression shape that HM inference cannot type in strict mode yet.",
+                "Rewrite the expression into a supported form or add an explicit annotation.",
+            );
+            self.env.alloc_infer_type_var()
+        } else {
+            self.env.alloc_infer_type_var()
+        }
+    }
+
     /// Infer an expression and record its resolved HM type under a stable node id.
     ///
     /// Uses a single flat match over all expression variants — each variant is
@@ -46,21 +89,7 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Either, vec![left, inner])
             }
             // Identifiers
-            Expression::Identifier { name, .. } => {
-                if let Some(scheme) = self.env.lookup(*name).cloned() {
-                    let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
-                    for &fresh in mapping.values() {
-                        self.env.record_var_level(fresh);
-                    }
-                    self.emit_scheme_constraints(&constraints, expr.span());
-                    ty
-                } else {
-                    if self.known_flow_names.contains(name) {
-                        self.emit_missing_flow_hm_signature(*name, expr.span());
-                    }
-                    InferType::Con(TypeConstructor::Any)
-                }
-            }
+            Expression::Identifier { name, .. } => self.infer_identifier_expression(expr, *name),
             // Operators
             Expression::Prefix { right, .. } => self.infer_expression(right),
             Expression::Infix {
@@ -152,7 +181,7 @@ impl<'a> InferCtx<'a> {
             } => self.infer_handle_expression(expr, *effect, arms),
             // Fallback guards against future Expression variants
             #[allow(unreachable_patterns)]
-            _ => InferType::Con(TypeConstructor::Any),
+            _ => self.infer_unsupported_expression(expr),
         };
 
         let resolved = inferred.apply_type_subst(&self.subst);

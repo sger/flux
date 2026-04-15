@@ -1,4 +1,7 @@
 use super::*;
+use crate::diagnostics::{
+    DiagnosticCategory, compiler_errors::UNKNOWN_INFIX_OPERATOR, diagnostic_for,
+};
 
 impl<'a> InferCtx<'a> {
     /// Infer infix operators with gradual fallback semantics.
@@ -19,7 +22,20 @@ impl<'a> InferCtx<'a> {
             "&&" | "||" => self.infer_bool_operator(&left_ty, &right_ty, span),
             "++" => self.infer_semigroup_operator(&left_ty, &right_ty, span),
             "|>" => right_ty,
-            _ => InferType::Con(TypeConstructor::Any),
+            _ => {
+                if self.strict_mode_enabled() {
+                    self.errors.push(
+                        diagnostic_for(&UNKNOWN_INFIX_OPERATOR)
+                            .with_file(self.file_path.clone())
+                            .with_span(span)
+                            .with_message(format!("Unknown infix operator: `{op}`."))
+                            .with_category(DiagnosticCategory::TypeInference),
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
+            }
         }
     }
 
@@ -122,12 +138,22 @@ impl<'a> InferCtx<'a> {
                 substituted
             }
             InferType::Con(TypeConstructor::String) => substituted,
-            // Unresolved variable: preserve it — let call-site unification resolve.
-            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        span,
+                        format!(
+                            "Operator `+` requires String or Num operands, but this expression resolved to `{}`.",
+                            self.display_type(&other)
+                        ),
+                        "Use operands with the same concrete String or numeric type.",
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
             }
         }
     }
@@ -148,11 +174,22 @@ impl<'a> InferCtx<'a> {
             }
             // Unresolved variable: preserve it — let call-site unification resolve.
             InferType::Var(_) => substituted,
-            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        span,
+                        format!(
+                            "Arithmetic operators require numeric operands, but this expression resolved to `{}`.",
+                            self.display_type(&other)
+                        ),
+                        "Use operands with the same concrete Int or Float type.",
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
             }
         }
     }

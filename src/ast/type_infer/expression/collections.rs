@@ -27,7 +27,8 @@ impl<'a> InferCtx<'a> {
         )
     }
 
-    /// Infer array literals, reducing heterogeneous element sets to `Array<Any>`.
+    /// Infer array literals, recovering heterogeneous element sets with a fresh
+    /// element variable.
     pub(super) fn infer_array_literal_expression(&mut self, elements: &[Expression]) -> InferType {
         if elements.is_empty() {
             return InferType::App(
@@ -49,7 +50,16 @@ impl<'a> InferCtx<'a> {
         let elem_ty = if homogeneous {
             first.apply_type_subst(&self.subst)
         } else {
-            InferType::Con(TypeConstructor::Any)
+            if self.strict_mode_enabled() {
+                self.emit_strict_inference_error(
+                    elements[0].span(),
+                    "Array literals must have one concrete element type in strict mode.",
+                    "Use elements with a single shared type or add explicit conversions.",
+                );
+                first.apply_type_subst(&self.subst)
+            } else {
+                self.env.alloc_infer_type_var()
+            }
         };
         InferType::App(TypeConstructor::Array, vec![elem_ty])
     }

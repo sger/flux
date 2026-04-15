@@ -1,4 +1,5 @@
 use super::*;
+use crate::diagnostics::{DiagnosticCategory, compiler_errors::EMPTY_MATCH, diagnostic_for};
 
 impl<'a> InferCtx<'a> {
     /// Infer `if` expressions, constraining condition to `Bool` and joining branch results.
@@ -36,7 +37,16 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_match_expression(&mut self, input: MatchInferInput<'_>) -> InferType {
         let scrutinee_ty = self.infer_expression(input.scrutinee);
         if input.arms.is_empty() {
-            return InferType::Con(TypeConstructor::Any);
+            if self.strict_mode_enabled() {
+                self.errors.push(
+                    diagnostic_for(&EMPTY_MATCH)
+                        .with_file(self.file_path.clone())
+                        .with_span(input.span)
+                        .with_category(DiagnosticCategory::TypeInference),
+                );
+                return self.env.alloc_infer_type_var();
+            }
+            return self.env.alloc_infer_type_var();
         }
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(&scrutinee_ty, &input);
         let (first_ty, first_span) =
