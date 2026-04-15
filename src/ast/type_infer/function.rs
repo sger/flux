@@ -339,7 +339,7 @@ impl<'a> InferCtx<'a> {
             refined_resolved
         } else if refined_resolved.contains_any() {
             // Keep the prior concrete inference when the refinement pass did not
-            // increase precision and would otherwise fall back to Any.
+            // increase precision and would otherwise fall back to an unresolved variable.
             current_resolved
         } else {
             self.unify_silent(&current_resolved, &refined_resolved)
