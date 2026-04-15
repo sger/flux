@@ -66,21 +66,6 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Join two types by attempting unification.
-    ///
-    /// When unification succeeds, the substitution is extended and the unified
-    /// type is returned — this propagates constraints through type variables
-    /// (e.g. `?a` joining with `Int` constrains `?a = Int`).
-    ///
-    /// On failure, falls back to `Any` without emitting diagnostics. Callers
-    /// that need diagnostics should use `unify_with_context` directly.
-    pub(super) fn join_types(&mut self, t1: &InferType, t2: &InferType) -> InferType {
-        match self.try_unify_and_compose_subst(t1, t2, Span::default()) {
-            Ok(unified) => unified,
-            Err(_) => InferType::Con(TypeConstructor::Any),
-        }
-    }
-
     /// Unify `t1` with `t2` silently — update the substitution for type
     /// propagation but never emit a diagnostic on failure.
     ///
@@ -134,7 +119,7 @@ impl<'a> InferCtx<'a> {
 
     /// Return whether a unification error should be emitted as a diagnostic.
     ///
-    /// Checks concrete-and-non-Any guard, then deduplicates by (expected, actual)
+    /// Checks concrete/non-fallback guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
         if !error.expected.is_concrete()
@@ -350,7 +335,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// Behavior:
     /// - Performs row-aware unification.
-    /// - Emits contextual diagnostics only when both sides are concrete and non-`Any`.
+    /// - Emits contextual diagnostics only when both sides are concrete and non-fallback`.
     ///
     /// Side effects:
     /// - Mutates `self.subst` on success.
@@ -380,14 +365,15 @@ impl<'a> InferCtx<'a> {
                     self.append_type_name_suggestions(&mut diagnostic, &error);
                     self.errors.push(diagnostic);
                 }
-                // R13: recover with the expected type (t1) instead of Any when
-                // t1 is concrete, so downstream inference sees useful type info
-                // rather than a black hole. Only use Any as last resort.
+                // R13: recover with the expected type (t1) when it is already
+                // concrete so downstream inference keeps useful information
+                // instead of collapsing through a legacy dynamic sink.
+                // TODO: Fix comment
                 let t1_resolved = t1.apply_type_subst(&self.subst);
                 if t1_resolved.is_concrete() && !t1_resolved.contains_any() {
                     t1_resolved
                 } else {
-                    InferType::Con(TypeConstructor::Any)
+                    self.env.alloc_infer_type_var()
                 }
             }
         }
@@ -396,8 +382,8 @@ impl<'a> InferCtx<'a> {
     /// Unify `t1` with `t2`, composing the result into `self.subst`.
     ///
     /// On success, returns the resolved first type.
-    /// On failure, emits a diagnostic and returns `Any` so that inference can
-    /// continue without cascading errors.
+    /// On failure, emits a diagnostic and returns a fresh inference variable so
+    /// inference can continue without reintroducing gradual fallback semantics.
     pub(super) fn unify_reporting(
         &mut self,
         t1: &InferType,

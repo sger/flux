@@ -247,7 +247,7 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Return `true` when `ty` is concrete and does not contain gradual `Any`.
+    /// Return whether a type is fully concrete and contains no fallback residue.
     fn is_concrete_non_any(ty: &InferType) -> bool {
         ty.is_concrete() && !ty.contains_any()
     }
@@ -255,6 +255,42 @@ impl<'a> InferCtx<'a> {
     /// Record a constraint in the log for observability and future deferred solving.
     fn record_constraint(&mut self, constraint: constraint::Constraint) {
         self.contraint_log.push(constraint);
+    }
+
+    /// Eager fallback diagnostics are disabled by default.
+    ///
+    /// The maintained static-typing contract is now enforced by the
+    /// post-inference residue validator rather than by turning every HM
+    /// recovery site into an immediate error.
+    /// TODO Do we need this?
+    fn strict_mode_enabled(&self) -> bool {
+        false
+    }
+
+    /// Emit a strict-mode HM inference error when a maintained path would otherwise fall back.
+    fn emit_strict_inference_error(
+        &mut self,
+        span: Span,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) {
+        if !self.strict_mode_enabled() {
+            return;
+        }
+        self.errors.push(
+            Diagnostic::make_error_dynamic(
+                "E430",
+                "ANY TYPE INFERRED",
+                crate::diagnostics::ErrorType::Compiler,
+                message.into(),
+                Some(hint.into()),
+                self.file_path.clone(),
+                span,
+            )
+            .with_display_title("Strict Typing Failure")
+            .with_category(crate::diagnostics::DiagnosticCategory::TypeInference)
+            .with_primary_label(span, "strict typing failed here"),
+        );
     }
 
     /// Emit a type class constraint (e.g., `Num<a>` from `x + y`).
@@ -423,7 +459,7 @@ pub struct InferProgramConfig {
 /// inferred scheme) and a list of type-error diagnostics.
 ///
 /// Type errors are **non-fatal**: inference always completes, recovering with
-/// `Any` when unification fails.  The compiler can then use the env to enrich
+/// fresh inference variables when unification fails.  The compiler can then use the env to enrich
 /// its own static type information without gating on type errors.
 ///
 /// # Examples
