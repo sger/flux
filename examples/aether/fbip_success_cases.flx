@@ -1,5 +1,10 @@
 // Aether FBIP success regression fixture.
 // Every annotation in this file is expected to remain provable today.
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// Some(41)
+// Node(Black, Leaf, 5, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

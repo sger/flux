@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// Fully typed ADT construction and pattern matching — passes --strict-types.
+// Fully typed ADT construction and pattern matching — passes the default static-typing checks.
 
 data Shape {
     Circle(Int),

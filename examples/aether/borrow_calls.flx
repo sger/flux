@@ -1,5 +1,9 @@
 // Aether borrow-call regression fixture.
 // Used by --dump-core / --dump-aether snapshot tests and backend parity.
+// parity-expected-stdout-begin
+// 6
+// 42
+// parity-expected-stdout-end
 
 fn my_len(xs) {
     len(xs)

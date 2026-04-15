@@ -1,6 +1,6 @@
 // Deriving type class instances for ADTs.
 // `deriving (Eq)` auto-registers an Eq instance so the constraint
-// solver accepts == on the ADT under --strict-types.
+// solver accepts == on the ADT under the default static-typing checks.
 
 data Color { Red, Green, Blue } deriving (Eq)
 
