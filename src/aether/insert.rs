@@ -88,7 +88,7 @@ fn plan_expr(
             body,
             span,
         } => {
-            scope.insert(var.id, var);
+            scope.insert(var.id, var.clone());
 
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
             // This prevents the parent from being dropped while the field
@@ -104,7 +104,7 @@ fn plan_expr(
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
-                body_expr = wrap_drop(var, body_expr, span);
+                body_expr = wrap_drop(var.clone(), body_expr, span);
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -139,12 +139,12 @@ fn plan_expr(
             body,
             span,
         } => {
-            scope.insert(var.id, var);
+            scope.insert(var.id, var.clone());
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
-                body_expr = wrap_drop(var, body_expr, span);
+                body_expr = wrap_drop(var.clone(), body_expr, span);
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -178,7 +178,7 @@ fn plan_expr(
             span,
         } => {
             for (var, _) in &bindings {
-                scope.insert(var.id, *var);
+                scope.insert(var.id, var.clone());
             }
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let mut body_expr = body_plan.expr;
@@ -186,7 +186,7 @@ fn plan_expr(
             for (var, _) in bindings.iter().rev() {
                 let bd = binder_demand(&body_plan.env_before, var.id);
                 if bd == ValueDemand::Ignore {
-                    body_expr = wrap_drop(*var, body_expr, span);
+                    body_expr = wrap_drop(var.clone(), body_expr, span);
                 }
             }
 
@@ -216,10 +216,16 @@ fn plan_expr(
                 env_before: env,
             }
         }
-        CoreExpr::Lam { params, body, span } => {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => {
             let mut param_ids = Vec::with_capacity(params.len());
             for param in &params {
-                scope.insert(param.id, *param);
+                scope.insert(param.id, param.clone());
                 param_ids.push(param.id);
             }
 
@@ -238,13 +244,13 @@ fn plan_expr(
             let mut body_expr = body_plan.expr;
             for param in params.iter().rev() {
                 if !body_plan.env_before.is_live(param.id) {
-                    body_expr = wrap_drop(*param, body_expr, span);
+                    body_expr = wrap_drop(param.clone(), body_expr, span);
                 }
             }
 
             let mut env_before = AetherEnv::default();
             env_before.union_from(&tail_env);
-            for capture in body_plan.env_before.live.iter().copied() {
+            for capture in body_plan.env_before.live.iter().cloned() {
                 if !param_ids.contains(&capture) {
                     if body_plan.env_before.is_owned(capture) {
                         env_before.mark_owned(capture);
@@ -257,6 +263,8 @@ fn plan_expr(
             AetherPlan {
                 expr: CoreExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: Box::new(body_expr),
                     span,
                 },
@@ -371,6 +379,7 @@ fn plan_expr(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee_var = match scrutinee.as_ref() {
@@ -395,7 +404,7 @@ fn plan_expr(
 
                 // Track field→scrutinee relationships for nested cases.
                 // Pattern binders are fields extracted from the scrutinee.
-                if let Some(sv) = scrutinee_var {
+                if let Some(sv) = scrutinee_var.as_ref() {
                     let parent_tag = pat_constructor_tag(&pat);
                     for &bid in &pat_ids {
                         field_parents.insert(bid, (sv.id, parent_tag.clone()));
@@ -435,11 +444,11 @@ fn plan_expr(
                 // If so, destructured pattern binders are borrowed views
                 // into the scrutinee — dropping them would free memory
                 // the scrutinee still references (use-after-free).
-                let scrutinee_live_in_rhs = scrutinee_var.is_some_and(|sv| {
+                let scrutinee_live_in_rhs = scrutinee_var.as_ref().is_some_and(|sv| {
                     rhs_plan.env_before.is_live(sv.id) || expr_uses_binder(&rhs, sv.id)
                 });
 
-                for binder_id in pat_ids.iter().rev().copied() {
+                for binder_id in pat_ids.iter().rev().cloned() {
                     if !rhs_plan.env_before.is_live(binder_id)
                         && !expr_uses_binder(&rhs, binder_id)
                         && !scrutinee_live_in_rhs
@@ -450,15 +459,15 @@ fn plan_expr(
                 }
 
                 let mut env_without_pats = branch_env.clone();
-                env_without_pats.remove_all(pat_ids.iter().copied());
+                env_without_pats.remove_all(pat_ids.iter().cloned());
 
-                if let Some(scrut_binder) = scrutinee_var
+                if let Some(scrut_binder) = scrutinee_var.as_ref()
                     && is_constructor_pat(&pat)
                     && !env_without_pats.is_live(scrut_binder.id)
                     && !expr_uses_binder(&rhs, scrut_binder.id)
                     && has_compatible_con(&pat, &rhs)
                 {
-                    rhs = wrap_drop(scrut_binder, rhs, alt_span);
+                    rhs = wrap_drop(scrut_binder.clone(), rhs, alt_span);
                 }
 
                 branch_plans.push((pat, guard, rhs, alt_span, env_without_pats));
@@ -477,7 +486,7 @@ fn plan_expr(
                     let compensation: Vec<_> = joined
                         .owned
                         .iter()
-                        .copied()
+                        .cloned()
                         .filter(|binder_id| {
                             !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
                         })
@@ -505,7 +514,7 @@ fn plan_expr(
                         })
                         .filter(|binder_id| !expr_uses_binder(&rhs, *binder_id))
                         .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
-                        .filter_map(|binder_id| scope.get(&binder_id).copied())
+                        .filter_map(|binder_id| scope.get(&binder_id).cloned())
                         .collect();
                     let rhs = compensation
                         .into_iter()
@@ -534,6 +543,7 @@ fn plan_expr(
                 expr: CoreExpr::Case {
                     scrutinee: Box::new(scrutinee_plan.expr),
                     alts,
+                    join_ty,
                     span,
                 },
                 env_before: scrutinee_plan.env_before,
@@ -617,10 +627,10 @@ fn plan_expr(
             let mut planned_handlers = Vec::with_capacity(handlers.len());
 
             for handler in handlers {
-                scope.insert(handler.resume.id, handler.resume);
+                scope.insert(handler.resume.id, handler.resume.clone());
                 let mut shadow_ids = vec![handler.resume.id];
                 for param in &handler.params {
-                    scope.insert(param.id, *param);
+                    scope.insert(param.id, param.clone());
                     shadow_ids.push(param.id);
                 }
 
@@ -643,7 +653,9 @@ fn plan_expr(
                 planned_handlers.push(AetherHandler {
                     operation: handler.operation,
                     params: handler.params,
-                    resume: handler.resume,
+                    param_types: handler.param_types,
+                    resume: handler.resume.clone(),
+                    resume_ty: handler.resume_ty,
                     body: handler_plan.expr,
                     span: handler.span,
                 });
@@ -867,7 +879,7 @@ fn plan_var(
             let needs_dup = tail_env.is_live(id);
             tail_env.mark_owned(id);
             let expr = if needs_dup {
-                if let Some(binder) = scope.get(&id).copied() {
+                if let Some(binder) = scope.get(&id).cloned() {
                     wrap_dups(binder, CoreExpr::Var { var, span }, span, 1)
                 } else {
                     CoreExpr::Var { var, span }
@@ -899,7 +911,7 @@ fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
         return body;
     }
     CoreExpr::Drop {
-        var: CoreVarRef::resolved(binder),
+        var: CoreVarRef::resolved(&binder),
         body: Box::new(body),
         span,
     }
@@ -913,7 +925,7 @@ fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreEx
     let mut result = body;
     for _ in 0..n {
         result = CoreExpr::Dup {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(&binder),
             body: Box::new(result),
             span,
         };
@@ -925,7 +937,7 @@ fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Optio
     match pat {
         crate::core::CorePat::Var(binder) => {
             if binder.id == target {
-                Some(*binder)
+                Some(binder.clone())
             } else {
                 None
             }
@@ -1006,7 +1018,7 @@ fn tags_shape_compatible(a: &CoreTag, b: &CoreTag) -> bool {
 }
 
 fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
-    use_counts_aether(expr).get(&binder).copied().unwrap_or(0) > 0
+    use_counts_aether(expr).get(&binder).cloned().unwrap_or(0) > 0
 }
 
 fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
@@ -1082,7 +1094,7 @@ mod tests {
 
     fn var(binder: CoreBinder) -> CoreExpr {
         CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(&binder),
             span: Span::default(),
         }
     }
@@ -1168,6 +1180,8 @@ mod tests {
 
         let expr = CoreExpr::Lam {
             params: vec![f, x],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::App {
                 func: Box::new(var(f)),
                 args: vec![var(x)],
@@ -1205,10 +1219,14 @@ mod tests {
 
         let expr = CoreExpr::Lam {
             params: vec![xs],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Let {
                 var: f,
                 rhs: Box::new(CoreExpr::Lam {
                     params: vec![],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::App {
                         func: Box::new(CoreExpr::Var {
                             var: CoreVarRef::unresolved(len_name),
@@ -1263,13 +1281,17 @@ mod tests {
 
         let expr = CoreExpr::Lam {
             params: vec![outer],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Handle {
                 body: Box::new(CoreExpr::Lit(CoreLit::Unit, Span::default())),
                 effect,
                 handlers: vec![CoreHandler {
                     operation: op,
                     params: vec![shadow],
+                    param_types: vec![],
                     resume,
+                    resume_ty: None,
                     body: var(shadow),
                     span: Span::default(),
                 }],
@@ -1306,6 +1328,8 @@ mod tests {
 
         let expr = CoreExpr::Lam {
             params: vec![x],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
                 alts: vec![
@@ -1329,6 +1353,7 @@ mod tests {
                         span: Span::default(),
                     },
                 ],
+                join_ty: None,
                 span: Span::default(),
             }),
             span: Span::default(),

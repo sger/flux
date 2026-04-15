@@ -41,8 +41,16 @@ pub fn specialize_reuse_aether(expr: CoreExpr) -> CoreExpr {
 fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(specialize_with_env(*body, &ReuseEnv::default())),
             span,
         },
@@ -119,6 +127,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee = specialize_with_env(*scrutinee, env);
@@ -148,6 +157,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             CoreExpr::Case {
                 scrutinee: Box::new(scrutinee),
                 alts,
+                join_ty,
                 span,
             }
         }
@@ -271,8 +281,16 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
 fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
     match expr {
         AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => expr,
-        AetherExpr::Lam { params, body, span } => AetherExpr::Lam {
+        AetherExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => AetherExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(specialize_with_env_aether(*body, &ReuseEnv::default())),
             span,
         },
@@ -349,6 +367,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         AetherExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee = specialize_with_env_aether(*scrutinee, env);
@@ -380,6 +399,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             AetherExpr::Case {
                 scrutinee: Box::new(scrutinee),
                 alts,
+                join_ty,
                 span,
             }
         }
@@ -616,8 +636,8 @@ mod tests {
         CoreBinder::new(crate::core::CoreBinderId(raw), name)
     }
 
-    fn v(binder: CoreBinder) -> CoreExpr {
-        CoreExpr::bound_var(binder, s())
+    fn v<B: std::borrow::Borrow<CoreBinder>>(binder: B) -> CoreExpr {
+        CoreExpr::bound_var(binder.borrow().clone(), s())
     }
 
     fn expect_mask(expr: CoreExpr) -> Option<u64> {
@@ -644,7 +664,7 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Reuse {
-                    token: CoreVarRef::resolved(xs),
+                    token: CoreVarRef::resolved(&xs),
                     tag: CoreTag::Cons,
                     fields: vec![v(h), v(t)],
                     field_mask: None,
@@ -652,6 +672,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -687,7 +708,7 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Reuse {
-                    token: CoreVarRef::resolved(t),
+                    token: CoreVarRef::resolved(&t),
                     tag: CoreTag::Named(node),
                     fields: vec![
                         CoreExpr::Lit(crate::core::CoreLit::Int(1), s()),
@@ -704,6 +725,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -739,7 +761,7 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Reuse {
-                    token: CoreVarRef::resolved(t),
+                    token: CoreVarRef::resolved(&t),
                     tag: CoreTag::Named(node),
                     fields: vec![
                         CoreExpr::Lit(crate::core::CoreLit::Int(1), s()),
@@ -756,6 +778,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -781,7 +804,7 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Reuse {
-                    token: CoreVarRef::resolved(opt),
+                    token: CoreVarRef::resolved(&opt),
                     tag: CoreTag::Some,
                     fields: vec![v(x)],
                     field_mask: None,
@@ -789,6 +812,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -827,7 +851,7 @@ mod tests {
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Reuse {
-                        token: CoreVarRef::resolved(xs),
+                        token: CoreVarRef::resolved(&xs),
                         tag: CoreTag::Cons,
                         fields: vec![CoreExpr::Lit(crate::core::CoreLit::Int(0), s()), v(tmp)],
                         field_mask: None,
@@ -837,6 +861,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -883,10 +908,11 @@ mod tests {
                                 span: s(),
                             },
                         ],
+                        join_ty: None,
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Reuse {
-                        token: CoreVarRef::resolved(xs),
+                        token: CoreVarRef::resolved(&xs),
                         tag: CoreTag::Cons,
                         fields: vec![v(h), v(tail)],
                         field_mask: None,
@@ -896,6 +922,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -931,7 +958,7 @@ mod tests {
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Reuse {
-                        token: CoreVarRef::resolved(xs),
+                        token: CoreVarRef::resolved(&xs),
                         tag: CoreTag::Cons,
                         fields: vec![v(y), v(t)],
                         field_mask: None,
@@ -941,6 +968,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -987,10 +1015,11 @@ mod tests {
                                 span: s(),
                             },
                         ],
+                        join_ty: None,
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Reuse {
-                        token: CoreVarRef::resolved(xs),
+                        token: CoreVarRef::resolved(&xs),
                         tag: CoreTag::Cons,
                         fields: vec![CoreExpr::Lit(crate::core::CoreLit::Int(0), s()), v(tail)],
                         field_mask: None,
@@ -1000,6 +1029,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
@@ -1027,9 +1057,9 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::DropSpecialized {
-                    scrutinee: CoreVarRef::resolved(xs),
+                    scrutinee: CoreVarRef::resolved(&xs),
                     unique_body: Box::new(CoreExpr::Reuse {
-                        token: CoreVarRef::resolved(xs),
+                        token: CoreVarRef::resolved(&xs),
                         tag: CoreTag::Cons,
                         fields: vec![v(h), v(t)],
                         field_mask: None,
@@ -1044,6 +1074,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
