@@ -280,6 +280,20 @@ mod tests {
     }
 
     #[test]
+    fn runtime_type_compatibility_requires_matching_shapes() {
+        let ctx = TestCtx::new();
+        assert!(!RuntimeType::Int.matches_value(&Value::String("x".to_string().into()), &ctx));
+        assert!(!super::runtime_type_compatible(
+            &RuntimeType::Int,
+            &RuntimeType::String
+        ));
+        assert!(super::runtime_type_compatible(
+            &RuntimeType::Int,
+            &RuntimeType::Int
+        ));
+    }
+
+    #[test]
     fn function_runtime_type_accepts_closure_with_subset_effects() {
         let ctx = TestCtx::new();
         let contract = FunctionContract {
