@@ -5,6 +5,12 @@
 // - fresh rebuild remains fresh when no exact reuse proof exists
 // - forwarding near-miss stays fresh when two wrapper fields compete for the
 //   same child token
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// 3
+// Node(Black, Leaf, 0, Leaf)
+// Pair2([1, 10, 20], [1, 10, 20])
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

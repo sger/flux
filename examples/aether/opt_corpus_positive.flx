@@ -6,6 +6,13 @@
 // - branch-sensitive `DropSpecialized` with asymmetric unique/shared behavior
 // - one forwarded-child `Reuse` inside a fresh wrapper rebuild
 // - one borrowed-only higher-order traversal
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// Node(Black, Leaf, 5, Leaf)
+// Node(Red, Leaf, 5, Leaf)
+// Pair2([1, 10, 20], [2, 3])
+// 9
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

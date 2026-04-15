@@ -4,6 +4,14 @@
 //
 // Exercises current Aether optimizations: dup/drop, drop spec, reuse, and borrowed params.
 // FBIP annotations remain intentionally conservative in higher-order map cases.
+// parity-expected-stdout-begin
+// [2, 4, 6]
+// Some(43)
+// Node(Black, Leaf, 5, Leaf)
+// 5
+// [2, 4, 6]
+// 15
+// parity-expected-stdout-end
 
 // ── 1. Cons list map: borrowed recursive traversal + early drop (FBIP still conservative) ──
 @fip fn my_map(xs, f) {

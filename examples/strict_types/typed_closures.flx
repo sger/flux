@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// Typed closures with capture — passes --strict-types.
+// Typed closures with capture — passes the default static-typing checks.
 
 fn make_adder(n: Int) -> (Int) -> Int {
     \(x: Int) -> x + n

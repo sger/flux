@@ -7,6 +7,11 @@ import Aether.FbipImportedSupport as Imported
 // - module-qualified imported call that still remains conservative on the
 //   current source path
 // - fresh allocation without reuse
+// parity-expected-stdout-begin
+// 2
+// 3
+// Some(4)
+// parity-expected-stdout-end
 
 @fip fn fail_indirect(f, x) {
     f(x)
