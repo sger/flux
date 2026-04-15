@@ -1,5 +1,5 @@
 use crate::ast::type_infer::constraint::WantedClassConstraint;
-use crate::ast::type_infer::strict_types::validate_strict_types;
+use crate::ast::type_infer::static_type_validation::validate_static_types;
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::program::Program;
 use crate::types::class_solver::solve_class_constraints;
@@ -35,14 +35,17 @@ impl Compiler {
         let mut hm_diagnostics = hm_final.diagnostics;
         tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
 
-        // Strict-types validation: reject any binding whose inferred type
-        // still contains `Any`. Runs after inference on the final program.
-        if self.strict_types {
-            let mut strict_diags =
-                validate_strict_types(final_program.as_ref(), &self.type_env, &self.interner);
-            tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
-            hm_diagnostics.extend(strict_diags);
-        }
+        // Reject any binding or subexpression whose inferred type still
+        // contains unresolved fallback residue. This is now part of the
+        // default static-typing contract rather than a separate mode flag.
+        let mut strict_diags = validate_static_types(
+            final_program.as_ref(),
+            &self.type_env,
+            &self.hm_expr_types,
+            &self.interner,
+        );
+        tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
+        hm_diagnostics.extend(strict_diags);
 
         // Type class constraint solving: verify that concrete-type constraints
         // have matching instances in the ClassEnv (Proposal 0145, Step 4).

@@ -903,7 +903,6 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
-    strict_types: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -1075,7 +1074,6 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
-            strict_types: false,
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -1456,10 +1454,6 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
-    }
-
-    pub fn set_strict_types(&mut self, enabled: bool) {
-        self.strict_types = enabled;
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
@@ -3486,11 +3480,7 @@ impl Compiler {
     }
 
     fn validate_strict_mode(&mut self, program: &Program, has_main: bool) {
-        if !self.strict_mode {
-            return;
-        }
-
-        if self.strict_require_main && !has_main {
+        if self.strict_mode && self.strict_require_main && !has_main {
             self.errors.push(
                 Diagnostic::make_error_dynamic(
                     "E415",
@@ -3520,6 +3510,7 @@ impl Compiler {
             Statement::Function {
                 is_public,
                 name,
+                type_params,
                 parameters,
                 parameter_types,
                 return_type,
@@ -3527,7 +3518,7 @@ impl Compiler {
                 span,
                 ..
             } => {
-                if *is_public {
+                if self.strict_mode && *is_public {
                     if parameter_types.iter().any(Option::is_none) {
                         self.errors.push(
                             Diagnostic::make_error_dynamic(
@@ -3567,42 +3558,52 @@ impl Compiler {
                     }
                 }
 
-                let missing_effects = self.strict_missing_ambient_effects(
-                    module_name,
-                    *name,
-                    parameters.len(),
-                    effects,
-                );
-                for effect_name in missing_effects {
-                    let effect_text = self.sym(effect_name).to_string();
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E418",
-                            "STRICT EFFECT ANNOTATION REQUIRED",
-                            ErrorType::Compiler,
-                            format!(
-                                "Effectful function `{}` must declare `with {}` in strict mode.",
-                                self.sym(*name),
-                                effect_text,
-                            ),
-                            Some(format!(
-                                "Add explicit `with {}` to the function signature.",
-                                effect_text
-                            )),
-                            self.file_path.clone(),
-                            *span,
-                        )
-                        .with_category(DiagnosticCategory::ModuleSystem)
-                        .with_primary_label(*span, "missing explicit effect annotation"),
+                if self.strict_mode {
+                    let missing_effects = self.strict_missing_ambient_effects(
+                        module_name,
+                        *name,
+                        parameters.len(),
+                        effects,
                     );
+                    for effect_name in missing_effects {
+                        let effect_text = self.sym(effect_name).to_string();
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E418",
+                                "STRICT EFFECT ANNOTATION REQUIRED",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Effectful function `{}` must declare `with {}` in strict mode.",
+                                    self.sym(*name),
+                                    effect_text,
+                                ),
+                                Some(format!(
+                                    "Add explicit `with {}` to the function signature.",
+                                    effect_text
+                                )),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_category(DiagnosticCategory::ModuleSystem)
+                            .with_primary_label(*span, "missing explicit effect annotation"),
+                        );
+                    }
                 }
 
+                let allowed_type_params: HashSet<Symbol> =
+                    type_params.iter().map(|param| param.name).collect();
                 for ty in parameter_types.iter().flatten() {
-                    self.error_on_any_type_expr_in_strict(ty);
+                    self.error_on_unknown_type_expr(ty, &allowed_type_params);
                 }
                 if let Some(ret) = return_type {
-                    self.error_on_any_type_expr_in_strict(ret);
+                    self.error_on_unknown_type_expr(ret, &allowed_type_params);
                 }
+            }
+            Statement::Let {
+                type_annotation: Some(annotation),
+                ..
+            } => {
+                self.error_on_unknown_type_expr(annotation, &HashSet::new());
             }
             Statement::Module { name, body, .. } => {
                 for nested in &body.statements {
@@ -3611,6 +3612,76 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn error_on_unknown_type_expr(&mut self, ty: &TypeExpr, allowed_type_params: &HashSet<Symbol>) {
+        match ty {
+            TypeExpr::Named { name, args, span } => {
+                for arg in args {
+                    self.error_on_unknown_type_expr(arg, allowed_type_params);
+                }
+
+                if self.is_known_annotation_type(*name, allowed_type_params) {
+                    return;
+                }
+
+                let type_name = self.sym(*name).to_string();
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E423",
+                        "UNKNOWN TYPE",
+                        ErrorType::Compiler,
+                        format!("I can't find a type named `{type_name}`."),
+                        Some(
+                            "Use a built-in type, an in-scope type parameter, or a declared ADT."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        *span,
+                    )
+                    .with_display_title("Unknown Type")
+                    .with_category(DiagnosticCategory::TypeInference)
+                    .with_primary_label(*span, "unknown type used here"),
+                );
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    self.error_on_unknown_type_expr(element, allowed_type_params);
+                }
+            }
+            TypeExpr::Function { params, ret, .. } => {
+                for param in params {
+                    self.error_on_unknown_type_expr(param, allowed_type_params);
+                }
+                self.error_on_unknown_type_expr(ret, allowed_type_params);
+            }
+        }
+    }
+
+    fn is_known_annotation_type(
+        &self,
+        name: Symbol,
+        allowed_type_params: &HashSet<Symbol>,
+    ) -> bool {
+        if allowed_type_params.contains(&name) {
+            return true;
+        }
+
+        matches!(
+            self.sym(name),
+            "Int"
+                | "Float"
+                | "Bool"
+                | "String"
+                | "Unit"
+                | "None"
+                | "Never"
+                | "List"
+                | "Array"
+                | "Map"
+                | "Option"
+                | "Either"
+        ) || self.adt_registry.lookup_adt(name).is_some()
     }
 
     fn strict_missing_ambient_effects(
@@ -3649,48 +3720,6 @@ impl Compiler {
 
         missing.sort_by_key(|effect| self.sym(*effect).to_string());
         missing
-    }
-
-    fn error_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
-        if !Self::type_expr_contains_any(ty, &self.interner) {
-            return;
-        }
-
-        let span = ty.span();
-        self.errors.push(
-            Diagnostic::make_error_dynamic(
-                "E423",
-                "STRICT ANY TYPE",
-                ErrorType::Compiler,
-                "Using `Any` in strict mode weakens static guarantees.",
-                Some("Replace `Any` with explicit concrete types in strict mode.".to_string()),
-                self.file_path.clone(),
-                span,
-            )
-            .with_display_title("Strict Any Type")
-            .with_category(DiagnosticCategory::TypeInference)
-            .with_primary_label(span, "`Any` used here"),
-        );
-    }
-
-    fn type_expr_contains_any(ty: &TypeExpr, interner: &Interner) -> bool {
-        match ty {
-            TypeExpr::Named { name, args, .. } => {
-                interner.resolve(*name) == "Any"
-                    || args
-                        .iter()
-                        .any(|arg| Self::type_expr_contains_any(arg, interner))
-            }
-            TypeExpr::Tuple { elements, .. } => elements
-                .iter()
-                .any(|elem| Self::type_expr_contains_any(elem, interner)),
-            TypeExpr::Function { params, ret, .. } => {
-                params
-                    .iter()
-                    .any(|param| Self::type_expr_contains_any(param, interner))
-                    || Self::type_expr_contains_any(ret, interner)
-            }
-        }
     }
 
     fn has_explicit_top_level_main_call(&self, program: &Program, main_symbol: Symbol) -> bool {
@@ -3921,7 +3950,7 @@ impl Compiler {
     ) -> Result<(), Vec<Diagnostic>> {
         // Pointer-identity invariant for HM ExprTypeMap:
         // HM expression IDs are keyed by expression allocation addresses from the
-        // Program passed to `compile`. Any AST rewrites must happen before this call.
+        // Program passed to `compile`. All AST rewrites must happen before this call.
         // `program_to_compile` is therefore the single transformed Program consumed by
         // both HM inference and PASS 2 codegen validation in one invocation.
         // Apply optimizations only when requested.

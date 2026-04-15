@@ -982,8 +982,8 @@ impl Compiler {
                     } else if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(inferred) =
                         self.hm_expr_type_strict_path(value)
                     {
-                        let runtime = TypeEnv::to_runtime(&inferred, &Default::default());
-                        if runtime != crate::runtime::runtime_type::RuntimeType::Any {
+                        if let Ok(runtime) = TypeEnv::try_to_runtime(&inferred, &Default::default())
+                        {
                             self.bind_static_type(name, runtime);
                         }
                     }
