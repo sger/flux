@@ -67,10 +67,6 @@ impl Compiler {
         expected: &InferType,
         actual: &InferType,
     ) -> Result<(), (String, String)> {
-        // Any is compatible with every type (gradual typing boundary).
-        if expected.contains_any() || actual.contains_any() {
-            return Ok(());
-        }
         if let Some((resolved_expected, resolved_actual)) =
             Self::resolved_unify_types(expected, actual)
             && resolved_expected == resolved_actual
