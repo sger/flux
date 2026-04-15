@@ -6,6 +6,12 @@
 // JIT:   cargo run -- --jit examples/aether/queue_workload.flx
 // LLVM:  cargo run -- --llvm examples/aether/queue_workload.flx
 // Stats: cargo run -- --dump-aether examples/aether/queue_workload.flx
+// parity-expected-stdout-begin
+// "Queue workload"
+// "=============="
+// "rotated total = 3502500"
+// "drained total = 2001000"
+// parity-expected-stdout-end
 
 type Queue<T> = Queue(List<T>, List<T>)
 type Pop<T> = EmptyQ | Popped(T, Queue<T>)

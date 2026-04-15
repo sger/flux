@@ -3,6 +3,11 @@
 // - plain Reuse on a higher-order recursive list rebuild
 // - borrowed-only higher-order recursive traversal without rebuild
 // - one intentionally conservative @fip warning on an option wrapper rebuild
+// parity-expected-stdout-begin
+// [2, 3, 4]
+// 3
+// Some(11)
+// parity-expected-stdout-end
 
 @fip fn map_reuse(xs, f) {
     match xs {

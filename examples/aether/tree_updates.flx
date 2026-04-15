@@ -4,6 +4,15 @@
 // - zero-mask named-ADT reuse on exact rebuilds
 // - plain named-ADT reuse on wider rewrites
 // - asymmetric DropSpecialized behavior on branch-sensitive updates
+// parity-expected-stdout-begin
+// "Tree workload"
+// "============="
+// Node(Black, Leaf, 5, Leaf)
+// Node(Black, Leaf, 9, Leaf)
+// Node(Black, Leaf, 0, Leaf)
+// Node(Red, Leaf, 5, Leaf)
+// Node(Black, Leaf, 0, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

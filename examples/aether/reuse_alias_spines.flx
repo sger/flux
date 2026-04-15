@@ -1,5 +1,9 @@
 // Aether reuse regression fixture that relies on administrative let spines
 // introduced during lowering rather than source-level let expressions.
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// Node(Black, Leaf, 5, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

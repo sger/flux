@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// Typed recursive functions — passes --strict-types.
+// Typed recursive functions — passes the default static-typing checks.
 
 fn factorial(n: Int) -> Int {
     if n <= 1 {

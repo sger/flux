@@ -1,4 +1,8 @@
 // Aether drop-spec regression fixture.
+// parity-expected-stdout-begin
+// [1, 1, 2, 3]
+// Node(Red, Leaf, 5, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

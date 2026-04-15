@@ -5,6 +5,10 @@
 //   - __tc_Sizeable_Int_size / __tc_Sizeable_String_size (monomorphic dispatch)
 //   - Borrow inference on user-defined class method implementations
 //   - Multiple class instances with different parameter usage patterns
+// parity-expected-stdout-begin
+// 6
+// 10
+// parity-expected-stdout-end
 
 class Sizeable<a> {
     fn size(x: a) -> Int

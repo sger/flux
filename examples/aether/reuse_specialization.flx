@@ -1,4 +1,9 @@
 // Aether reuse-specialization regression fixture.
+// parity-expected-stdout-begin
+// Node(Black, Leaf, 5, Leaf)
+// Node(Black, Leaf, 0, Leaf)
+// Some(42)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)

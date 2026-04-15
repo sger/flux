@@ -1,4 +1,7 @@
 // Aether drop-spec recursive regression fixture.
+// parity-expected-stdout-begin
+// [1, 1, 2, 2, 3, 3]
+// parity-expected-stdout-end
 
 fn rec_copy_or_keep(xs, choose) {
     match xs {

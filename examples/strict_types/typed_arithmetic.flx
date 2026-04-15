@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// Fully typed arithmetic — passes --strict-types.
+// Fully typed arithmetic — passes the default static-typing checks.
 
 fn add(x: Int, y: Int) -> Int { x + y }
 fn mul(x: Int, y: Int) -> Int { x * y }
