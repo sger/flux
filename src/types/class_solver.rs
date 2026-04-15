@@ -216,7 +216,6 @@ fn instantiate_context_type_expr(
                 "String" => TypeConstructor::String,
                 "Unit" | "None" => TypeConstructor::Unit,
                 "Never" => TypeConstructor::Never,
-                "Any" => TypeConstructor::Any,
                 "List" => TypeConstructor::List,
                 "Array" => TypeConstructor::Array,
                 "Map" => TypeConstructor::Map,
@@ -253,11 +252,10 @@ fn instantiate_context_type_expr(
     }
 }
 
-/// Check if a type is concrete (not a variable, not Any).
+/// Check if a type is concrete (not a variable).
 fn is_concrete_type(ty: &InferType) -> bool {
     match ty {
         InferType::Var(_) => false,
-        InferType::Con(TypeConstructor::Any) => false,
         InferType::Con(_) => true,
         InferType::App(_, args) => args.iter().all(is_concrete_type),
         InferType::Tuple(elems) => elems.iter().all(is_concrete_type),
