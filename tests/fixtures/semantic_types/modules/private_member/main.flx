@@ -1,0 +1,5 @@
+import Math as M
+
+fn main() {
+    M.hidden(1)
+}

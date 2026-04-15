@@ -9,12 +9,32 @@
 ## Summary
 [summary]: #summary
 
-Define Flux's typed core (HM-style inference + boundary annotations + algebraic effects) while preserving gradual migration from untyped code.
+Define the foundational typed syntax and algebraic-effect model for Flux:
+
+- HM-style inference at the source level
+- explicit type and effect annotations
+- algebraic effect declarations and handlers
+- typed boundaries that later proposals can harden further
+
+This proposal is foundational. It is not the current source of truth for
+post-`Any` static-typing policy. Later proposals own that work:
+
+- `0156` closes maintained front-end static typing
+- `0157` explains the semantic-vs-representation split
+- `0158` executes the downstream representation cleanup
 
 ## Motivation
 [motivation]: #motivation
 
-Flux began as dynamically typed, so many type/effect errors surfaced at runtime. This proposal defines compile-time semantics that improve correctness and diagnostics without breaking gradual adoption.
+Flux needed a typed language core that could express:
+
+- inferred local types
+- explicit public/annotation boundaries
+- effect-aware function types
+- effect handlers as first-class language constructs
+
+This proposal established that base layer. It no longer defines the full modern
+static-typing story by itself.
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
@@ -23,7 +43,7 @@ Flux began as dynamically typed, so many type/effect errors surfaced at runtime.
 
 | Principle | Rationale |
 |---|---|
-| Gradual | Untyped code can continue to run during migration. |
+| Typed foundation | Core syntax, inference, and effect forms must be explicit and testable. |
 | Inferred | Local inference minimizes annotation burden. |
 | Effect-aware | Effects are modeled in function types, not as runtime-only checks. |
 | Boundary-first | Public contracts and typed boundaries carry stronger guarantees. |
@@ -36,9 +56,16 @@ let point: (Int, Int) = (10, 20)
 let entry: (String, Int) = ("score", 100)
 ```
 
-### 7. The `Any` Type: Semantics
+### 7. Historical note on `Any`
 
-`Any` is the gradual boundary type. It is not a semantic supertype; crossings between typed and untyped paths may require runtime checks.
+Early iterations of Flux used `Any` as a gradual boundary type during the
+language migration. That is no longer the maintained source-language model.
+
+Current policy is:
+
+- `Any` is not part of intended normal user-visible typing semantics
+- source annotations do not accept `Any`
+- maintained static-typing policy is tracked in `0156`, not here
 
 ### Phase 1: Type Syntax (Parser)
 
@@ -81,7 +108,9 @@ expr handle Console {
 
 - Implementation status: landed and used by the current type/effect diagnostics pipeline.
 - HM inference + compiler validation boundaries are explicit and test-backed.
-- Effect checking is compile-time first, with runtime boundary checks where `Any` is involved.
+- Effect checking is compile-time first.
+- This proposal establishes the typed/effectful language base; later proposals
+  refine static-typing strictness and downstream IR contracts.
 
 ### Detailed specification (migrated legacy content)
 
@@ -110,7 +139,6 @@ Normative behavior is captured by this proposal plus fixtures in `examples/type_
 |---|---|---|
 | Koka | Algebraic effects + HM | Effect-aware typing model |
 | OCaml 5 | Practical effect runtime | Handler ergonomics |
-| TypeScript | Gradual typing | Boundary discipline |
 | Rust | Generic ergonomics | Type parameter syntax |
 
 ## Unresolved questions

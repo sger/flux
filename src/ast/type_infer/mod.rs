@@ -138,6 +138,7 @@ struct InferCtx<'a> {
     interner: &'a Interner,
     errors: Vec<Diagnostic>,
     file_path: Rc<str>,
+    strict_inference: bool,
     /// Accumulated global substitution — grows monotonically as constraints
     /// are solved.  Apply this to any `Ty` retrieved from the env to obtain
     /// its most-resolved form.
@@ -209,6 +210,7 @@ impl<'a> InferCtx<'a> {
     fn new(
         interner: &'a Interner,
         file_path: Rc<str>,
+        strict_inference: bool,
         preloaded_base_schemes: HashMap<Identifier, Scheme>,
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
         known_flow_names: HashSet<Identifier>,
@@ -225,6 +227,7 @@ impl<'a> InferCtx<'a> {
             interner,
             errors: Vec::new(),
             file_path,
+            strict_inference,
             subst: TypeSubst::empty(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
@@ -257,17 +260,12 @@ impl<'a> InferCtx<'a> {
         self.contraint_log.push(constraint);
     }
 
-    /// Eager fallback diagnostics are disabled by default.
-    ///
-    /// The maintained static-typing contract is now enforced by the
-    /// post-inference residue validator rather than by turning every HM
-    /// recovery site into an immediate error.
-    /// TODO Do we need this?
+    /// Return whether eager HM fallback diagnostics should be emitted.
     fn strict_mode_enabled(&self) -> bool {
-        false
+        self.strict_inference
     }
 
-    /// Emit a strict-mode HM inference error when a maintained path would otherwise fall back.
+    /// Emit an HM inference error when a maintained path falls back.
     fn emit_strict_inference_error(
         &mut self,
         span: Span,
@@ -444,6 +442,7 @@ pub use display::{display_infer_type, suggest_type_name};
 /// ```
 pub struct InferProgramConfig {
     pub file_path: Option<Rc<str>>,
+    pub strict_inference: bool,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub known_flow_names: HashSet<Identifier>,
@@ -459,7 +458,7 @@ pub struct InferProgramConfig {
 /// inferred scheme) and a list of type-error diagnostics.
 ///
 /// Type errors are **non-fatal**: inference always completes, recovering with
-/// fresh inference variables when unification fails.  The compiler can then use the env to enrich
+/// fresh inference variables when unification fails. The compiler can then use the env to enrich
 /// its own static type information without gating on type errors.
 ///
 /// # Examples
@@ -487,6 +486,7 @@ pub fn infer_program(
     let mut ctx = InferCtx::new(
         interner,
         file,
+        config.strict_inference,
         config.preloaded_base_schemes,
         config.preloaded_module_member_schemes,
         config.known_flow_names,

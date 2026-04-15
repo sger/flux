@@ -1,0 +1,16 @@
+fn add1(x) { x + 1 }
+
+fn choose(flag) {
+    if flag { 1 } else { 0 }
+}
+
+fn do_result() {
+    let seed = 10
+    seed + 1
+}
+
+fn main() with IO {
+    print(add1(41))
+    print(choose(false))
+    print(do_result())
+}

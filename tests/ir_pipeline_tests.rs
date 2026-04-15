@@ -606,12 +606,12 @@ fn main() { access(42) }
     );
 }
 
-// ── Test 11: Any type boundary ──────────────────────────────────────────────
+// ── Test 11: Explicit typed identity ────────────────────────────────────────
 
 #[test]
-fn pipeline_any_type_accepts_int() {
+fn pipeline_typed_identity_accepts_int() {
     let src = r#"
-fn identity(x: Any) -> Any { x }
+fn identity(x: Int) -> Int { x }
 fn main() { identity(42) }
 "#;
     assert_eq!(run(src), Value::Integer(42));

@@ -320,6 +320,7 @@ pub struct ParityResult {
 pub enum Verdict {
     Pass,
     Mismatch { details: Vec<MismatchDetail> },
+    ExpectedOutputMismatch { expected: String, actual: String },
     Skip { reason: String },
 }
 

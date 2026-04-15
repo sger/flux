@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/guide_type_system/13_any_is_rejected.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E423]: Unknown Type
+
+I can't find a type named `Any`.
+
+  examples/guide_type_system/13_any_is_rejected.flx:5:11
+  |
+5 | fn bad(x: Any) -> Int {
+  |           ^^^
+  |           --- unknown type used here
+
+Hint:
+  Use a built-in type, an in-scope type parameter, or a declared ADT.
+== stdout ==
+<not executed>

@@ -1,7 +1,7 @@
-//! Unit tests for the strict types infrastructure (Proposal 0123).
+//! Unit tests for the post-inference static type validation infrastructure.
 //!
 //! Covers:
-//! - `validate_strict_types()` — E430 rejection of Any-inferred bindings
+//! - `validate_static_types()` — E430 rejection of unresolved fallback residue
 //! - `ClassEnv` validation — E440 (duplicate class), E441 (unknown class),
 //!   E442 (missing method), E443 (duplicate instance)
 //! - `solve_class_constraints()` — E444 (no instance for concrete type)
@@ -43,6 +43,28 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
     );
     let mut interner = parser.take_interner();
     let flow_sym = interner.intern("Flow");
+    let mut effect_op_sigs = HashMap::new();
+
+    fn collect_effect_sigs(
+        statements: &[Statement],
+        out: &mut HashMap<
+            (flux::syntax::Identifier, flux::syntax::Identifier),
+            flux::syntax::type_expr::TypeExpr,
+        >,
+    ) {
+        for statement in statements {
+            match statement {
+                Statement::EffectDecl { name, ops, .. } => {
+                    for op in ops {
+                        out.insert((*name, op.name), op.type_expr.clone());
+                    }
+                }
+                Statement::Module { body, .. } => collect_effect_sigs(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+    collect_effect_sigs(&program.statements, &mut effect_op_sigs);
 
     // Build ClassEnv from program statements (using same interner)
     let mut class_env = ClassEnv::new();
@@ -54,11 +76,12 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+            strict_inference: false,
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),
             flow_module_symbol: flow_sym,
-            preloaded_effect_op_signatures: HashMap::new(),
+            preloaded_effect_op_signatures: effect_op_sigs,
             class_env: Some(class_env),
         },
     );
@@ -106,6 +129,7 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+            strict_inference: false,
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),
@@ -118,15 +142,16 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// validate_strict_types — E430
+// validate_static_types — E430
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn strict_types_accepts_fully_typed_function() {
+fn static_type_validation_accepts_fully_typed_function() {
     let (result, program, interner) = infer("fn add(x: Int, y: Int) -> Int { x + y }");
-    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.type_env,
+        &result.expr_types,
         &interner,
     );
     assert!(
@@ -136,30 +161,76 @@ fn strict_types_accepts_fully_typed_function() {
 }
 
 #[test]
-fn strict_types_accepts_polymorphic_identity() {
+fn static_type_validation_accepts_polymorphic_identity() {
     let (result, program, interner) = infer("fn identity(x) { x }");
-    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.type_env,
+        &result.expr_types,
         &interner,
     );
     assert!(
         diags.is_empty(),
-        "identity should infer as a -> a with no Any"
+        "identity should infer as a -> a with no fallback residue"
     );
 }
 
 #[test]
-fn strict_types_accepts_polymorphic_arithmetic() {
+fn static_type_validation_accepts_polymorphic_arithmetic() {
     let (result, program, interner) = infer("fn add(x, y) { x + y }");
-    let diags = flux::ast::type_infer::strict_types::validate_strict_types(
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.type_env,
+        &result.expr_types,
         &interner,
     );
     assert!(
         diags.is_empty(),
-        "add should infer as a -> a -> a with no Any"
+        "add should infer as a -> a -> a with no fallback residue"
+    );
+}
+
+#[test]
+fn hm_inference_does_not_eagerly_emit_member_access_residue_diagnostic() {
+    let (result, _program, _interner) = infer(
+        r#"
+fn main() {
+    let value = 1.value
+    value
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn hm_inference_does_not_eagerly_emit_handler_arm_residue_diagnostic() {
+    let (result, _program, _interner) = infer(
+        r#"
+effect Console {
+    print: String -> Int
+}
+fn main() {
+    let _ = (perform Console.print("x")) handle Console {
+        print(resume, msg) -> msg.value
+    }
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
     );
 }
 
@@ -1132,5 +1203,94 @@ instance Eq<Int, String> {
     assert!(
         diags.iter().any(|diag| diag.code() == Some("E447")),
         "expected E447 for mismatched instance head arity, got: {diags:?}"
+    );
+}
+
+#[test]
+fn heterogeneous_array_now_reports_type_mismatch_without_eager_e430() {
+    let (result, _program, _interner) = infer(
+        r#"
+fn main() {
+    let xs = [|1, "x"|]
+    xs
+}
+"#,
+    );
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E300")),
+        "expected heterogeneous array mismatch diagnostic, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn hm_inference_does_not_eagerly_emit_member_access_site_diagnostic() {
+    let (result, _program, _interner) = infer(
+        r#"
+fn main() {
+    let x = 1
+    x.value
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn hm_inference_does_not_eagerly_emit_effect_signature_site_diagnostic() {
+    let (result, _program, _interner) = infer(
+        r#"
+fn main() {
+    perform Console.print("hi")
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn hm_inference_does_not_eagerly_emit_constructor_pattern_site_diagnostic() {
+    let (result, _program, _interner) = infer(
+        r#"
+data Pair<a, b> { Pair(a, b) }
+fn main() {
+    match Pair(1, 2) {
+        Pair(x) -> x
+    }
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E430")),
+        "did not expect eager E430 from HM inference, got: {:#?}",
+        result.diagnostics
     );
 }

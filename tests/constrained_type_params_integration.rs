@@ -94,8 +94,6 @@ fn main() {
 }
 "#,
     );
-    compiler.set_strict_types(true);
-
     let diags = compiler
         .compile_with_opts(&program, false, false)
         .expect_err("missing explicit-bound instance should fail compilation");

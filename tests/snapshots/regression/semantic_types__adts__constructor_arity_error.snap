@@ -1,0 +1,21 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/semantic_types/adts/constructor_arity_error.flx
+exit_code: 1
+
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+• 1 error • tests/fixtures/semantic_types/adts/constructor_arity_error.flx
+error[E082]: Constructor Arity Mismatch
+
+Constructor `Pair` expects 2 argument(s) but got 1.
+
+  tests/fixtures/semantic_types/adts/constructor_arity_error.flx:4:5
+  |
+4 |     Pair(1)
+  |     ^^^^^^^

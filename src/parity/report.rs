@@ -59,6 +59,10 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         (&result.verdict, filter),
         (Verdict::Pass, DisplayFilter::FailOnly)
             | (Verdict::Mismatch { .. }, DisplayFilter::PassOnly)
+            | (
+                Verdict::ExpectedOutputMismatch { .. },
+                DisplayFilter::PassOnly
+            )
             | (Verdict::Skip { .. }, DisplayFilter::PassOnly)
     );
     if dominated {
@@ -96,6 +100,21 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
             }
             print_cache_summary(result);
         }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            println!("{} {name}", red("EXPECTED_OUTPUT_MISMATCH"));
+            println!(
+                "  {} backends agree, but the output disagrees with the fixture expected output",
+                cyan("diagnosis:")
+            );
+            println!("  {}", cyan("expected stdout differs:"));
+            print_inline_diff(
+                "expected".to_string(),
+                expected,
+                "actual".to_string(),
+                actual,
+            );
+            print_cache_summary(result);
+        }
     }
     println!();
 }
@@ -107,6 +126,29 @@ pub fn print_debug_first_failure(result: &ParityResult) {
         Verdict::Skip { reason } => {
             println!("{} {}", cyan("debug:"), result.file.display());
             println!("  {} {reason}", cyan("skip_reason:"));
+        }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            println!("{} {}", cyan("debug:"), result.file.display());
+            println!(
+                "  {} backends agree, but the output disagrees with the fixture expected output",
+                cyan("diagnosis:")
+            );
+            println!("  {}", cyan("expected stdout differs:"));
+            print_inline_diff(
+                "expected".to_string(),
+                expected,
+                "actual".to_string(),
+                actual,
+            );
+            for run in &result.results {
+                println!(
+                    "  {} {} exit={} code={}",
+                    cyan("way:"),
+                    run.way,
+                    run.exit_kind,
+                    run.exit_code
+                );
+            }
         }
         Verdict::Mismatch { details } => {
             println!("{} {}", cyan("debug:"), result.file.display());
@@ -717,6 +759,10 @@ pub fn print_summary(results: &[ParityResult]) {
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::Mismatch { .. }))
         .count();
+    let expected_output_mismatch = results
+        .iter()
+        .filter(|r| matches!(r.verdict, Verdict::ExpectedOutputMismatch { .. }))
+        .count();
     let skip = results
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
@@ -727,9 +773,13 @@ pub fn print_summary(results: &[ParityResult]) {
     println!("Total:    {total}");
     println!("Pass:     {}", green(&pass.to_string()));
     println!("Mismatch: {}", red(&mismatch.to_string()));
+    println!(
+        "ExpectedMismatch: {}",
+        red(&expected_output_mismatch.to_string())
+    );
     println!("Skip:     {}", yellow(&skip.to_string()));
 
-    if mismatch == 0 && pass > 0 {
+    if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {
         println!();
         println!("{}", green("All compiled examples match!"));
     }

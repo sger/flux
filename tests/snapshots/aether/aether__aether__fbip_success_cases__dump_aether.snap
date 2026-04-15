@@ -1081,19 +1081,19 @@ Warning: FBIP Contract Not Proven
 @fip on `rebuild_list` analysis result Fbip { bound: 1 }:
 - fresh heap allocation remains on at least one path
 
-  examples/aether/fbip_success_cases.flx:7:6
+  examples/aether/fbip_success_cases.flx:12:6
    |
- 7 | @fip fn rebuild_list(xs) {
+12 | @fip fn rebuild_list(xs) {
    |      ^^^^^^^^^^^^^^^^^^^^^
- 8 |     match xs {
+13 |     match xs {
    | ^^^^^^^^^^^^^^
- 9 |         [h | t] -> [h | t],
+14 |         [h | t] -> [h | t],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-10 |         _ -> [],
+15 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-11 |     }
+16 |     }
    | ^^^^^
-12 | }
+17 | }
    | ^
 
 
@@ -1102,19 +1102,19 @@ Warning: FBIP Contract Not Proven
 @fip on `rebuild_some` analysis result Fbip { bound: 1 }:
 - fresh heap allocation remains on at least one path
 
-  examples/aether/fbip_success_cases.flx:14:6
+  examples/aether/fbip_success_cases.flx:19:6
    |
-14 | @fip fn rebuild_some(opt) {
+19 | @fip fn rebuild_some(opt) {
    |      ^^^^^^^^^^^^^^^^^^^^^^
-15 |     match opt {
+20 |     match opt {
    | ^^^^^^^^^^^^^^^
-16 |         Some(x) -> Some(x),
+21 |         Some(x) -> Some(x),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-17 |         _ -> None,
+22 |         _ -> None,
    | ^^^^^^^^^^^^^^^^^^
-18 |     }
+23 |     }
    | ^^^^^
-19 | }
+24 | }
    | ^
 
 
@@ -1123,19 +1123,19 @@ Warning: FBIP Contract Not Proven
 @fip on `set_black` analysis result NotProvable:
 - calls imported or name-only function `Node` whose FBIP behavior is conservative
 
-  examples/aether/fbip_success_cases.flx:21:6
+  examples/aether/fbip_success_cases.flx:26:6
    |
-21 | @fip fn set_black(t) {
+26 | @fip fn set_black(t) {
    |      ^^^^^^^^^^^^^^^^^
-22 |     match t {
+27 |     match t {
    | ^^^^^^^^^^^^^
-23 |         Node(_, left, key, right) -> Node(Black, left, key, right),
+28 |         Node(_, left, key, right) -> Node(Black, left, key, right),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-24 |         _ -> t,
+29 |         _ -> t,
    | ^^^^^^^^^^^^^^^
-25 |     }
+30 |     }
    | ^^^^^
-26 | }
+31 | }
    | ^
 
 Found 3 warnings.

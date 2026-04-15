@@ -3,8 +3,60 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/26_any_boundary_success.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E423]: Unknown Type
+
+I can't find a type named `Any`.
+
+  examples/type_system/26_any_boundary_success.flx:3:16
+  |
+3 | fn identity(x: Any) -> Any {
+  |                ^^^
+  |                --- unknown type used here
+
+Hint:
+  Use a built-in type, an in-scope type parameter, or a declared ADT.
+
+
+error[E423]: Unknown Type
+
+I can't find a type named `Any`.
+
+  examples/type_system/26_any_boundary_success.flx:3:24
+  |
+3 | fn identity(x: Any) -> Any {
+  |                        ^^^
+  |                        --- unknown type used here
+
+Hint:
+  Use a built-in type, an in-scope type parameter, or a declared ADT.
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `identity`.
+
+  examples/type_system/26_any_boundary_success.flx:8:26
+  |
+3 | fn identity(x: Any) -> Any {
+4 |     x
+5 | }
+6 | 
+7 | fn main() -> Unit with IO {
+8 |     let value = identity(42)
+  |                          ^^
+  |                          -- this argument has type `Int`
+
+Note:
+  expected argument type: Any
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Any` value as the 1st argument.
+
+Found 3 errors.
 == stdout ==
 <not executed>

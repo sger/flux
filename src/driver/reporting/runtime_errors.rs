@@ -1,7 +1,6 @@
 #[cfg(feature = "llvm")]
 use crate::diagnostics::{
-    self,
-    Diagnostic, DiagnosticPhase,
+    self, Diagnostic, DiagnosticPhase,
     position::{Position, Span},
     quality::render_runtime_diagnostic,
     render_display_path,

@@ -23,7 +23,7 @@ Last updated: 2026-04-09
 | **1. Parser** | `class`/`instance` keywords, AST types, superclass `=>` syntax, instance context syntax | `token_type.rs` (`FatArrow`), `type_class.rs`, `statement.rs`, `parser/statement.rs`, `core/mod.rs`, `cfg/mod.rs` | Full pipeline: Core IR, CFG, LIR. `class Eq<a> => Ord<a>` and `instance Eq<a> => Eq<List<a>>` parse correctly. |
 | **2. ClassEnv** | Collect and validate declarations, error codes E440–E446 | `types/class_env.rs`, `compiler_errors.rs`, `registry.rs` | Validates: duplicate class (E440), unknown class (E441), missing methods (E442), duplicate instances (E443, structural equality), superclass instances (E445), extra methods (E446). |
 | **3. Constraints** | Emit class constraints during HM inference for operators and class method calls | `constraint.rs`, `operators.rs`, `calls.rs`, `mod.rs` | Multi-param support: `type_args: Vec<InferType>`. Constraints recorded + resolved in `InferProgramResult`. |
-| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints under `--strict-types`. Multi-param matching. Type variables promoted to `Scheme.constraints`. |
+| **4. Constraint solving** | Resolve constraints at generalization: concrete types → instance lookup | `class_solver.rs` | E444 for unsatisfied concrete constraints in the maintained static-typing path. Multi-param matching. Type variables promoted to `Scheme.constraints`. |
 | **5. Dispatch** | Compile-time monomorphic resolution, operator desugaring | `class_dispatch.rs`, `compiler/pipeline.rs`, `core/lower_ast/mod.rs`, `expression.rs` | Mangled instance functions (`__tc_Class_Type1_Type2_method`). Operators desugar to class methods (`==` → `eq`, `+` → `add`, `++` → `append`). `type_of()` fallback removed. |
 | **5b. Dictionary elaboration** | Core-to-Core pass: dict construction, body rewriting, constraint promotion, call-site resolution | `dict_elaborate.rs`, `scheme.rs`, `constraint.rs`, `function.rs`, `statement.rs`, `class_dispatch.rs`, `class_env.rs`, `cfg/mod.rs` | `Scheme.constraints` carries class constraints. `__dict_{Class}_{Type}` CoreDefs as MakeTuple. Constrained Lams get dict params. Class method calls → TupleField. Polymorphic forwarding + concrete call-site resolution via `resolve_dict_args_for_call`. |
 | **6. Built-in classes** | `Eq`, `Ord`, `Num`, `Show`, `Semigroup` with instances for primitive types | `class_env.rs` | Builtins registered before user classes. Don't override user declarations. |
@@ -65,7 +65,7 @@ All four original limitations have been addressed:
 
 ## Motivation
 
-After Proposal 0123 Phase 1 (`--strict-types`) and the typed primop foundation, Flux can reject programs with `Any` types. But many real programs still rely on polymorphic operations:
+After the maintained static-typing hardening and the typed primop foundation, Flux can reject programs with `Any`-style escape hatches. But many real programs still rely on polymorphic operations:
 
 ```flux
 fn add(x, y) { x + y }     // inferred as: a -> a -> a (polymorphic)
@@ -620,7 +620,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Emit class constraint when a class method name is called (e.g., `eq(x, y)` → `Eq<typeof(x)>`)
 - [x] Resolved constraints exposed in `InferProgramResult.class_constraints`
 - [x] Generate functions for default class methods (e.g., `neq` from `Eq`)
-- [x] Constraints enforced under `--strict-types` via `solve_class_constraints` (Step 4)
+- [x] Constraints enforced in the maintained static-typing path via `solve_class_constraints` (Step 4)
 
 ### Step 4: Constraint solving — DONE
 
@@ -628,7 +628,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Concrete type with no instance → E444 "No type class instance"
 - [x] Type variables left unsolved (future: add to scheme)
 - [x] Compiler-generated code (default spans) skipped
-- [x] Only enforced under `--strict-types` (Flow stdlib excluded)
+- [x] Enforced in the maintained static-typing path
 - [ ] Defaulting: unconstrained `Num` variables default to `Int` (deferred — Flux integer literals already infer as `Int` directly, unlike Haskell's polymorphic `Num a => a` literals. Defaulting only matters with `fromInteger` or polymorphic numeric constructors, which Flux doesn't have yet)
 
 ### Step 5: Dictionary elaboration — DONE
@@ -658,7 +658,7 @@ instance Monoid<String>      { fn empty() { "" } }
 - [x] Register `Eq`, `Ord`, `Num`, `Show`, `Semigroup` in the class environment
 - [x] Register built-in instances: Eq/Show (Int, Float, String, Bool), Ord (Int, Float, String), Num (Int, Float), Semigroup (String)
 - [x] Built-in classes don't override user-declared classes
-- [x] Constraint solver verifies operator usage against built-in instances under `--strict-types`
+- [x] Constraint solver verifies operator usage against built-in instances in the maintained static-typing path
 - [ ] Register `Monoid` class (deferred — low value without `Foldable`; `Semigroup` covers `append`)
 - [ ] Wire operator desugaring to class methods — see **Proposal 0149** (early operator desugaring). Desugar polymorphic operators to class method calls during type inference (AST→AST pass before Core IR), so both VM and LLVM backends see the same representation. Concrete Int/Float operators keep using fast-path primops.
 - [ ] Remove `Any`-typed primop overloads — replaced by class dispatch (after Proposal 0149)
@@ -754,7 +754,7 @@ instance Functor<Option> {
 
 | Phase | What happens | User impact |
 |-------|-------------|-------------|
-| Now | Flow stdlib excluded from `--strict-types` | None — existing code works |
+| Now | Flow stdlib follows the maintained static-typing path | None — existing code works |
 | Step 6 (built-in classes) | Add typed signatures to Flow functions that have obvious types (e.g., `assert_eq<a: Eq>`) | None — signatures are additive |
 | Step 7a | Split `Flow.List.map` / `Flow.Array.map` into separate typed functions | Import change: `import Flow.List exposing (map)` for list-specific map |
 | Step 7b | Add `Foldable` class with `fold`, `length`, `to_list` methods | Explicit-import `Flow.Foldable` abstraction over existing List/Array implementations |

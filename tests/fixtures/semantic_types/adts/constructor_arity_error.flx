@@ -1,0 +1,5 @@
+type Pair = Pair(Int, Int)
+
+fn main() {
+    Pair(1)
+}

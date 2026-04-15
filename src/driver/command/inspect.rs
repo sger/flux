@@ -15,7 +15,9 @@ use crate::{
         support::shared::{DiagnosticRenderRequest, emit_diagnostics},
     },
     runtime::value::Value,
-    syntax::{formatter::format_source, lexer::Lexer, linter::Linter, parser::Parser, program::Program},
+    syntax::{
+        formatter::format_source, lexer::Lexer, linter::Linter, parser::Parser, program::Program,
+    },
 };
 
 /// Lexes and prints the raw token stream for a source file.
@@ -50,7 +52,7 @@ pub fn show_bytecode(flags: &DriverFlags) {
     let interner = parsed.parser.take_interner();
     let mut compiler = Compiler::new_with_interner(path, interner);
     compiler.set_strict_mode(flags.language.strict_mode);
-    compiler.set_strict_types(flags.language.strict_types);
+    compiler.set_strict_inference(flags.language.strict_inference);
     let compile_result = compiler.compile_with_opts(
         &parsed.program,
         flags.language.enable_optimize,

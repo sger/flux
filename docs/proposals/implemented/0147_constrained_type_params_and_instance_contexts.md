@@ -1,9 +1,10 @@
 - Feature Name: Constrained Type Parameters and Instance Context Enforcement
 - Start Date: 2026-04-08
+- Status: Implemented
+- Completion Date: 2026-04-14
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 (Type Classes), Proposal 0146 (Type Class Hardening)
-- Status: Draft
 
 ## Summary
 
@@ -14,6 +15,26 @@ Close the two remaining gaps in Flux's type class system:
 2. **Instance context enforcement**: When `instance Eq<a> => Eq<List<a>>` is declared, enforce that methods in the instance body can only use `eq` on elements of type `a` because the `Eq<a>` context guarantees it.
 
 Without these, the type class system works internally (HM inference emits constraints, dictionary elaboration passes dictionaries) but users cannot express constrained polymorphism in source syntax, and instance contexts are parsed but ignored at the method level.
+
+## Implementation status
+
+Last updated: 2026-04-14
+
+`0147` is **implemented**.
+
+Implemented:
+
+- constrained generic parameter syntax parses
+- constrained generic params are represented in the AST
+- explicit-bound class constraints are emitted during function inference
+- generalized schemes carry those constraints
+- call sites re-emit generalized scheme constraints
+
+Completed:
+
+- full instance-context enforcement for contextual instances
+- end-to-end dictionary threading through contextual instance methods
+- contextual-instance lowering through Core/native paths with focused runtime and dump coverage
 
 ---
 
@@ -238,15 +259,20 @@ if type_args.len() != class_def.type_params.len() {
 - [x] Dictionary elaboration prepends dict params to constrained function bodies
 - [x] Call-site resolution passes concrete dictionaries (`__dict_Eq_Int`, etc.)
 
-### Step 3: Instance context enforcement — BLOCKED on Proposal 0149
+### Step 3: Instance context enforcement — DONE
 
-- [ ] Thread context constraints from `InstanceDef.context` into mangled function generation
-- [ ] Add dictionary parameters to contextual instance methods
-- [ ] At call sites, resolve and pass context dictionaries
+- [x] Thread context constraints from `InstanceDef.context` into mangled function generation
+- [x] Add dictionary parameters to contextual instance methods
+- [x] At call sites, resolve and pass context dictionaries
 
-**Current state**: `instance Eq<a> => Eq<List<a>>` parses, and the context `Eq<a>` is stored in `InstanceDef.context`. But the mangled instance method `__tc_Eq_List_eq` doesn't receive a dictionary for `Eq<a>`, so `eq(h1, h2)` (where `h1: a`) panics at runtime with "No instance of Eq.eq for the given type".
+**Current state**: contextual instances are fully semantic in the maintained paths. The generated mangled instance methods receive their context dictionaries, Core lowering resolves contextual dictionary arguments, and focused tests cover runtime dispatch, Core dumps, strict typing, and native lowering.
 
-**Dependency on Proposal 0149**: Operators like `==` inside instance bodies need to desugar to class method calls (`eq(h1, h2)`) before dict elaboration can thread the context dictionary. Without early operator desugaring, the `==` goes directly to a generic primop that bypasses the dictionary system entirely.
+**Verification**:
+
+- `tests/constrained_type_params_integration.rs`
+- `tests/static_type_validation_tests.rs`
+- `tests/ir_pipeline_tests.rs`
+- `tests/llvm_type_class.rs`
 
 ### Step 4: Instance type argument count validation — DONE
 

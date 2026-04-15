@@ -120,7 +120,6 @@ impl<'a> InferCtx<'a> {
                     ),
                     "Make sure the constructor is declared and imported before calling it.",
                 );
-                return self.env.alloc_infer_type_var();
             }
             return self.env.alloc_infer_type_var();
         };

@@ -119,7 +119,7 @@ impl<'a> InferCtx<'a> {
 
     /// Return whether a unification error should be emitted as a diagnostic.
     ///
-    /// Checks concrete/non-fallback guard, then deduplicates by (expected, actual)
+    /// Checks the concrete/non-fallback guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
         if !error.expected.is_concrete()
@@ -335,7 +335,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// Behavior:
     /// - Performs row-aware unification.
-    /// - Emits contextual diagnostics only when both sides are concrete and non-fallback`.
+    /// - Emits contextual diagnostics only when both sides are concrete and non-fallback.
     ///
     /// Side effects:
     /// - Mutates `self.subst` on success.
@@ -368,7 +368,6 @@ impl<'a> InferCtx<'a> {
                 // R13: recover with the expected type (t1) when it is already
                 // concrete so downstream inference keeps useful information
                 // instead of collapsing through a legacy dynamic sink.
-                // TODO: Fix comment
                 let t1_resolved = t1.apply_type_subst(&self.subst);
                 if t1_resolved.is_concrete() && !t1_resolved.contains_any() {
                     t1_resolved

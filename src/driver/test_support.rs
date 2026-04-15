@@ -52,7 +52,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             enable_optimize: false,
             enable_analyze: false,
             strict_mode: false,
-            strict_types: false,
+            strict_inference: false,
         },
     }
 }
