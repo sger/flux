@@ -6,7 +6,7 @@ use super::backend_policy::should_run_tests_native;
 use super::{
     flags::DriverFlags,
     frontend::{collect_roots, inject_flow_prelude},
-    module_compile::tag_module_diagnostics,
+    module_compile::{effective_module_strictness, tag_module_diagnostics},
     session::DriverSession,
     shared::{
         DriverDiagnosticConfig, emit_diagnostics_or_exit, sort_stdlib_first, tag_and_attach_file,
@@ -21,11 +21,7 @@ use flux::{
         vm::test_runner::{collect_test_functions, print_test_report, run_tests},
     },
     diagnostics::{Diagnostic, DiagnosticPhase},
-    syntax::{
-        lexer::Lexer,
-        module_graph::{ModuleGraph, ModuleKind},
-        parser::Parser,
-    },
+    syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
 #[cfg(any(feature = "llvm", test))]
 use flux::{
@@ -224,10 +220,7 @@ fn analyze_top_level_main_usage(source: &str) -> Result<TopLevelMainAnalysis, St
         let is_function_name = expect_function_name && token_type == TokenType::Ident;
         if expect_function_name {
             expect_function_name = false;
-            if is_function_name
-                && token.literal.as_str() == "main"
-                && function_name_depth == 0
-            {
+            if is_function_name && token.literal.as_str() == "main" && function_name_depth == 0 {
                 top_level_main_ranges.push(token_rewrite_range(source, &token)?);
             }
         } else if token_type == TokenType::Fn {
@@ -354,11 +347,11 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
     let graph = graph_result.graph;
+    let entry_module_kind = graph.entry_node().map(|node| node.kind).unwrap_or_default();
 
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
-    compiler.set_strict_types(request.session.strict_types);
-    let entry_canonical = std::fs::canonicalize(entry_path).ok();
+    compiler.set_strict_inference(request.session.strict_inference);
 
     let mut ordered_nodes = graph.topo_order();
     sort_stdlib_first(&mut ordered_nodes, |node| node.kind);
@@ -369,22 +362,16 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
-        let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-        let is_flow_library = node.kind == ModuleKind::FlowStdlib;
-        compiler.set_strict_require_main(is_entry_module);
-        if is_flow_library {
-            compiler.set_strict_mode(false);
-            compiler.set_strict_types(false);
-        }
+        let module_strict_mode =
+            effective_module_strictness(node.kind, entry_module_kind, request.session.strict_mode);
+        compiler.set_strict_mode(module_strict_mode);
+        compiler.set_strict_inference(request.session.strict_inference);
+        compiler.set_strict_require_main(false);
         let compile_result = compiler.compile_with_opts(
             &node.program,
             request.session.enable_optimize,
             request.session.enable_analyze,
         );
-        if is_flow_library {
-            compiler.set_strict_mode(request.session.strict_mode);
-            compiler.set_strict_types(request.session.strict_types);
-        }
         let mut compiler_warnings = compiler.take_warnings();
         tag_module_diagnostics(
             &mut compiler_warnings,
@@ -438,7 +425,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             enable_optimize: request.session.enable_optimize,
             enable_analyze: request.session.enable_analyze,
             strict_mode: request.session.strict_mode,
-            strict_types: request.session.strict_types,
+            strict_inference: request.session.strict_inference,
             use_native: should_use_native_test_backend(request.flags),
         })
     } else {
@@ -464,7 +451,7 @@ struct NativeTestRunConfig<'a> {
     enable_optimize: bool,
     enable_analyze: bool,
     strict_mode: bool,
-    strict_types: bool,
+    strict_inference: bool,
     use_native: bool,
 }
 
@@ -487,8 +474,8 @@ fn append_native_test_command_args(
     if config.strict_mode {
         cmd.arg("--strict");
     }
-    if config.strict_types {
-        cmd.arg("--strict-types");
+    if config.strict_inference {
+        cmd.arg("--strict-inference");
     }
     if config.roots_only {
         cmd.arg("--roots-only");
@@ -518,21 +505,18 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
     for (idx, (name, _)) in config.tests.iter().enumerate() {
         let start = Instant::now();
         let hidden_main_name = format!("__flux_test_user_main_{}_{}", unique, idx);
-        let harness_source = match build_native_test_harness_source(
-            config.source,
-            name,
-            &hidden_main_name,
-        ) {
-            Ok(harness_source) => harness_source,
-            Err(err) => {
-                results.push(TestResult {
-                    name: name.clone(),
-                    elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-                    outcome: TestOutcome::Fail(err),
-                });
-                continue;
-            }
-        };
+        let harness_source =
+            match build_native_test_harness_source(config.source, name, &hidden_main_name) {
+                Ok(harness_source) => harness_source,
+                Err(err) => {
+                    results.push(TestResult {
+                        name: name.clone(),
+                        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+                        outcome: TestOutcome::Fail(err),
+                    });
+                    continue;
+                }
+            };
         let harness_path = std::env::temp_dir().join(format!(
             "flux_native_test_{}_{}_{}.flx",
             std::process::id(),
@@ -593,9 +577,9 @@ mod tests {
         NativeTestHarnessSource, build_native_test_harness_source, filter_tests_by_name,
         should_use_native_test_backend,
     };
-    use crate::driver::{backend::Backend, test_support::base_flags};
     #[cfg(feature = "llvm")]
     use super::{NativeTestRunConfig, append_native_test_command_args};
+    use crate::driver::{backend::Backend, test_support::base_flags};
     #[cfg(feature = "llvm")]
     use std::path::{Path, PathBuf};
 
@@ -728,7 +712,7 @@ mod tests {
             enable_optimize: true,
             enable_analyze: true,
             strict_mode: true,
-            strict_types: true,
+            strict_inference: true,
             use_native: true,
         };
         let mut cmd = std::process::Command::new("flux");
@@ -748,7 +732,7 @@ mod tests {
                 "--optimize",
                 "--analyze",
                 "--strict",
-                "--strict-types",
+                "--strict-inference",
                 "--roots-only",
                 "--root",
                 "tests",

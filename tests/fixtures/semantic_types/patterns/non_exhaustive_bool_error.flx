@@ -1,0 +1,6 @@
+fn main() {
+    let flag = false
+    match flag {
+        false -> 0,
+    }
+}

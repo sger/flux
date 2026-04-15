@@ -7,8 +7,8 @@ use crate::{
         backend::Backend, backend_policy, flags::DriverFlags,
         frontend::load_module_graph_for_cache_info,
     },
-    syntax::module_graph::ModuleGraph,
     shared::cache_paths::{self, CacheLayout},
+    syntax::module_graph::ModuleGraph,
 };
 
 /// Grouped cache visibility settings for `cache-info` style commands.
@@ -55,9 +55,7 @@ pub(crate) fn resolve_cache_layout_for_input(input: CacheCommandInput<'_>) -> (&
 }
 
 /// Loads the module graph for cache inspection, returning a printable error on failure.
-pub(crate) fn load_cache_graph(
-    input: CacheCommandInput<'_>,
-) -> Result<ModuleGraph, String> {
+pub(crate) fn load_cache_graph(input: CacheCommandInput<'_>) -> Result<ModuleGraph, String> {
     load_module_graph_for_cache_info(input.path, input.extra_roots)
 }
 

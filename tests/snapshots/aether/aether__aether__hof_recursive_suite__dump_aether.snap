@@ -1056,19 +1056,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/hof_recursive_suite.flx:7:6
+  examples/aether/hof_recursive_suite.flx:12:6
    |
- 7 | @fip fn map_reuse(xs, f) {
+12 | @fip fn map_reuse(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^
- 8 |     match xs {
+13 |     match xs {
    | ^^^^^^^^^^^^^^
- 9 |         [h | t] -> [f(h) | map_reuse(t, f)],
+14 |         [h | t] -> [f(h) | map_reuse(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-10 |         _ -> [],
+15 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-11 |     }
+16 |     }
    | ^^^^^
-12 | }
+17 | }
    | ^
 
 
@@ -1079,19 +1079,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/hof_recursive_suite.flx:21:6
+  examples/aether/hof_recursive_suite.flx:26:6
    |
-21 | @fip fn option_chain(opt, f) {
+26 | @fip fn option_chain(opt, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^^^
-22 |     match opt {
+27 |     match opt {
    | ^^^^^^^^^^^^^^^
-23 |         Some(x) -> Some(f(x)),
+28 |         Some(x) -> Some(f(x)),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-24 |         _ -> None,
+29 |         _ -> None,
    | ^^^^^^^^^^^^^^^^^^
-25 |     }
+30 |     }
    | ^^^^^
-26 | }
+31 | }
    | ^
 
 Found 2 warnings.

@@ -28,10 +28,8 @@ impl<'a> InferCtx<'a> {
                         ),
                         "Match the declared operation signature exactly.",
                     );
-                    self.env.alloc_infer_type_var()
-                } else {
-                    self.env.alloc_infer_type_var()
                 }
+                self.env.alloc_infer_type_var()
             }
         } else {
             if self.strict_mode_enabled() {
@@ -44,10 +42,8 @@ impl<'a> InferCtx<'a> {
                     ),
                     "Declare the effect operation before using `perform`, and make sure it is in scope.",
                 );
-                self.env.alloc_infer_type_var()
-            } else {
-                self.env.alloc_infer_type_var()
             }
+            self.env.alloc_infer_type_var()
         }
     }
 
@@ -103,10 +99,8 @@ impl<'a> InferCtx<'a> {
                     "Handle expressions must include at least one typed handler arm in strict mode.",
                     "Add at least one handler arm, or use a handled expression with a declared effect operation.",
                 );
-                self.env.alloc_infer_type_var()
-            } else {
-                self.env.alloc_infer_type_var()
             }
+            self.env.alloc_infer_type_var()
         });
         self.unify_with_context(&handled_ty, &arm_ty, expr.span(), ReportContext::Plain)
     }

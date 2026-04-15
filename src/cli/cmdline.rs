@@ -455,7 +455,6 @@ mod tests {
             ".flux-cache",
             "--no-cache",
             "--strict",
-            "--strict-types",
             "--optimize",
             "--analyze",
             "--verbose",
@@ -477,7 +476,6 @@ mod tests {
                 );
                 assert!(flags.cache.no_cache);
                 assert!(flags.language.strict_mode);
-                assert!(flags.language.strict_types);
                 assert!(flags.language.enable_optimize);
                 assert!(flags.language.enable_analyze);
                 assert!(flags.runtime.verbose);

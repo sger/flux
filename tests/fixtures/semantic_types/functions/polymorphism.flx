@@ -1,0 +1,10 @@
+let id = fn(x) { x }
+
+let const_ = fn(a, b) { a }
+
+let apply = fn(f, x) { f(x) }
+
+fn main() with IO {
+    print(apply(id, 7))
+    print(id("x"))
+}

@@ -1,0 +1,17 @@
+fn half(x) { x / 2.0 }
+
+fn greet(name) { "hi, " + name }
+
+fn double(x) { x * 2 }
+
+fn add1(x) { x + 1 }
+
+fn piped(x) {
+    x |> double |> add1
+}
+
+fn main() with IO {
+    print(half(8.0))
+    print(greet("flux"))
+    print(piped(20))
+}

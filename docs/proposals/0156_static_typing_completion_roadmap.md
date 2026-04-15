@@ -10,7 +10,7 @@
 ## Summary
 [summary]: #summary
 
-Complete Flux's transition from a gradual HM system with `Any` escape hatches to a genuinely static type system across parsing, inference, Core lowering, module boundaries, and runtime type translation.
+Record the completion of Flux's transition from a gradual HM system with `Any` escape hatches to a genuinely static type system across parsing, inference, module boundaries, and runtime type translation.
 
 This proposal does **not** restart static typing from scratch. It treats the current repo state as the baseline:
 
@@ -20,42 +20,86 @@ This proposal does **not** restart static typing from scratch. It treats the cur
 - base HM signature tightening is implemented
 - type classes, deriving, and dictionary elaboration exist
 
-The remaining work is concentrated in five areas:
+The maintained front-end semantic work is complete. Related follow-on work is
+now split clearly:
 
-1. finish the remaining source-level class semantics
-2. eliminate `Any` from HM fallback paths
-3. make strict typing part of inference semantics, not just a post-check
-4. remove stdlib and module-boundary escape hatches
-5. close structural typing gaps that still leak `Any`
+1. `0155` owns Core validation follow-on work such as `core_lint`
+2. `0157` explains the semantic-vs-representation split
+3. `0158` executes removal of downstream semantic `Dynamic` placeholders
+4. `0159` owns signature-directed checking and skolemisation follow-on work
+5. `0160` owns the final hardening and closure criteria across scheme surfaces,
+   Core validation, and checked-signature completion
+
+## Implementation status
+[implementation-status]: #implementation-status
+
+Last updated: 2026-04-14
+
+### Completed prerequisites
+
+| Item | Status | Notes |
+|---|---|---|
+| 0149 operator desugaring | Done | Implemented in AST/type inference pipeline |
+| 0150 HKT instance resolution | Done | Constructor-headed HKT instances resolve |
+| 0074 base HM signatures | Done | Core builtins are substantially tighter than old `Any` signatures |
+| typed Core/Aether/native groundwork | Done enough | Present in proposal 0123 and current code |
+
+### Remaining phases
+
+| Phase | Focus | Status |
+|---|---|---|
+| 0 | Roadmap alignment | This proposal |
+| 1 | Source-level class semantics completion | Complete |
+| 2 | HM `Any` elimination | Complete |
+| 3 | Strict mode becomes semantic | Complete |
+| 4 | Remove stdlib/module exclusions | Complete |
+| 5 | Runtime translation + structural gaps | Complete |
 
 ## Motivation
 [motivation]: #motivation
 
-Flux is much more statically typed than it used to be, but the current repo still has a split personality:
+Flux used to have a split personality:
 
 - **the proposal/docs story** says full static typing is complete
-- **the implementation reality** still contains a live gradual escape hatch via `Any`
+- **the implementation reality** still contained a live gradual escape hatch via `Any`
 
-The main evidence is direct:
+That implementation gap has now been closed:
 
-- unification still treats `Any` as compatible with everything in [unify.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/unify.rs:21)
-- strict typing is implemented as a post-inference binding check in [strict_types.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/strict_types.rs:1)
-- many HM inference paths still return `Any` on unsupported or mixed cases
-- runtime type lowering still collapses unresolved/high-level forms to `RuntimeType::Any` in [type_env.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/type_env.rs:354)
+- source annotations no longer accept `Any`
+- HM inference no longer uses `Any` as a maintained-path fallback
+- runtime boundary lowering no longer reintroduces `Any`
+- module/interface strictness is part of semantic/cache identity
 
-This creates three problems:
+The remaining distinction is architectural:
 
-1. **Static typing is not yet semantic truth**
-   - today, strict typing mostly means “reject some residual `Any` after inference”
-   - it does not mean “the inference engine itself is non-gradual”
+1. **Static typing is now semantic truth in the maintained front-end pipeline**
+   - strict typing is enforced during inference and validation
+   - `Any` is no longer a source-language or HM/runtime escape hatch
 
-2. **Backend improvements sit on a soft type foundation**
-   - typed Core, Aether, and LLVM work are valuable
-   - but they still inherit unresolved `Any` zones from HM and runtime translation
+2. **Downstream representation cleanup is no longer part of this roadmap**
+   - the remaining architectural work moved into `0157` + `0158`
+   - that work is about semantic-vs-runtime-representation separation, not source-level gradual typing
+
+Downstream execution of that representation cleanup is now tracked by
+[0158_core_semantic_types_and_backend_rep_split_execution.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0158_core_semantic_types_and_backend_rep_split_execution.md:1),
+with [0157_explicit_core_types_and_runtime_representation_split.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0157_explicit_core_types_and_runtime_representation_split.md:1)
+as the architectural rationale.
 
 3. **Proposal state is stale**
-   - some old blockers are already done
-   - the real remaining blockers are now concentrated in `Any` elimination and strict typing depth
+   - the code has moved further than the old text
+   - the roadmap must distinguish completed static-typing work from future backend representation tightening
+
+### Corrected critical path
+
+The old static-typing critical path is no longer accurate. The corrected status is now:
+
+```text
+complete HM/module/runtime `Any` removal
+  -> close static typing in the maintained front-end pipeline
+  -> treat downstream representation cleanup as `0157` + `0158`
+```
+
+The central blocker is no longer broad type-class infrastructure, and it is no longer live `Any` cleanup. The remaining downstream work is tracked separately from this completed static-typing roadmap.
 
 ## Current State
 [current-state]: #current-state
@@ -75,14 +119,15 @@ These items were previously on the static-typing critical path but are already d
 
 ### Still missing
 
-The remaining gaps are now:
+Within the scope of this roadmap, nothing remains open.
 
-- **0147 instance context enforcement and constrained type parameter completion**
-  - [0147_constrained_type_params_and_instance_contexts.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0147_constrained_type_params_and_instance_contexts.md:1)
-- **`Any` elimination from HM inference**
-- **strict typing as an inference mode instead of only a post-validation mode**
-- **deeper expression-level and module-level strict validation**
-- **runtime type lowering that no longer silently collapses unresolved forms to `Any`**
+The major follow-on work is now outside this proposal:
+
+- `0155` for Core validation and `core_lint`
+- `0158` for the downstream semantic-`Dynamic` cleanup that has now been implemented
+- `0159` for inference-completeness follow-on work around checked signatures
+- `0160` for the final static-typing hardening closure and scheme-surface
+  normalization criteria
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
@@ -95,10 +140,11 @@ After this roadmap is complete:
 - `Any` should not silently mask unresolved typing inside maintained compiler paths
 - the stdlib should type-check under the same strict rules as user code
 - Core/Aether/backend work should rely on a truly static upstream contract
+- backend `Dynamic` should be understood as representation, not as a source-language type escape hatch
 
-The key implementation rule is:
+The key implementation rule that closed this roadmap was:
 
-> remove `Any` from semantic fallback paths before adding more downstream typed optimizations.
+> remove `Any` from semantic fallback paths before claiming static typing is complete.
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -124,25 +170,75 @@ This phase does not add features. It updates the static-typing roadmap to reflec
 - proposal updates only
 - no compiler behavior change
 
+#### Exit criteria
+
+- the proposal corpus no longer lists already-implemented items as blockers for static typing completion
+- future work references this roadmap instead of the stale critical path
+
 ---
 
 ### Phase 1 — Complete source-level class semantics
 
-The remaining type-class work is no longer broad infrastructure. It is the last source-language gap that affects strict typing.
+The remaining type-class work is no longer broad infrastructure. It is the last source-language gap that still affects strict typing and class-soundness at the source level.
+
+This phase is complete.
+
+Implemented baseline:
+
+- constrained generic parameter syntax
+- explicit-bound constraint emission
+- generalized constrained schemes
+- contextual instance dictionary threading
+- contextual instance lowering through Core and native maintained paths
 
 #### Scope
 
-1. **Constrained type parameter syntax and enforcement**
+1. **Confirm and preserve the already-landed constrained-type-param path**
    - `fn f<a: Eq>(x: a, y: a) -> Bool`
-   - ensure declared constraints are carried into checking and generalized schemes
+   - parsed generic constraints
+   - emitted explicit-bound class constraints
+   - generalized scheme constraints
+   - call-site scheme constraint re-emission
 
 2. **Instance context enforcement**
    - `instance Eq<a> => Eq<List<a>>`
    - instance method bodies must see and use the context dictionaries implied by the instance head
 
+3. **Close the gap between “context parses” and “context is semantically enforced”**
+   - contextual instance methods must not rely on panic stubs for operations that the instance context should justify
+   - dictionary threading for contextual instance methods must be end-to-end
+
+#### Current evidence
+
+Already implemented:
+
+- constrained generic parameter parsing:
+  - [statement.rs](/Users/s.gerokostas/Downloads/Github/flux/src/syntax/parser/statement.rs:1721)
+- `FunctionTypeParam.constraints` in the AST:
+  - [statement.rs](/Users/s.gerokostas/Downloads/Github/flux/src/syntax/statement.rs:21)
+- explicit-bound constraint emission during function inference:
+  - [function.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/function.rs:88)
+- generalized scheme constraints:
+  - [function.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/function.rs:286)
+  - [scheme.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/scheme.rs:193)
+- scheme constraint re-emission at use sites:
+  - [mod.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/mod.rs:306)
+- parser and integration tests for constrained functions:
+  - [parser_test.rs](/Users/s.gerokostas/Downloads/Github/flux/src/syntax/parser/parser_test.rs:669)
+  - [constrained_type_params_integration.rs](/Users/s.gerokostas/Downloads/Github/flux/tests/constrained_type_params_integration.rs:32)
+
+Phase-1-complete evidence:
+
+- contextual instance runtime/Core tests:
+  - [ir_pipeline_tests.rs](/Users/s.gerokostas/Downloads/Github/flux/tests/ir_pipeline_tests.rs:143)
+- strict typing contextual instance tests:
+  - [static_type_validation_tests.rs](/Users/s.gerokostas/Downloads/Github/flux/tests/static_type_validation_tests.rs:1)
+- native lowering contextual instance test:
+  - [llvm_type_class.rs](/Users/s.gerokostas/Downloads/Github/flux/tests/llvm_type_class.rs:200)
+
 #### Files
 
-- [0147_constrained_type_params_and_instance_contexts.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0147_constrained_type_params_and_instance_contexts.md:1)
+- [0147_constrained_type_params_and_instance_contexts.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/implemented/0147_constrained_type_params_and_instance_contexts.md:1)
 - likely implementation in:
   - `src/syntax/parser/statement.rs`
   - `src/syntax/type_class.rs`
@@ -153,9 +249,23 @@ The remaining type-class work is no longer broad infrastructure. It is the last 
 
 #### Success condition
 
-- constrained polymorphic functions are expressible and enforced
+- constrained polymorphic functions remain expressible and enforced
 - instance contexts are semantic, not decorative
-- no class-method call in a valid constrained context falls back to an untyped/panic path
+- no class-method call in a valid constrained instance context falls back to an untyped/panic path in maintained paths
+- contextual instances pass the required dictionaries through generated instance methods and call sites
+
+#### Non-goals
+
+- new type-class features beyond existing roadmap scope
+- redesign of dictionary elaboration
+- generalized overhaul of class dispatch naming or mangling
+
+#### Verification used to close Phase 1
+
+- `cargo test --test constrained_type_params_integration --features llvm`
+- `cargo test --test ir_pipeline_tests --features llvm`
+- `cargo test --test static_type_validation_tests --features llvm`
+- focused contextual/native tests in `llvm_type_class`
 
 ---
 
@@ -163,65 +273,45 @@ The remaining type-class work is no longer broad infrastructure. It is the last 
 
 This is the main static-typing phase.
 
-#### Problem
+This phase is complete.
 
-Today, HM inference still produces `Any` in many places. Representative live sites:
+#### Implemented work
 
-- ADT inference fallbacks:
-  - [adt.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/adt.rs:113)
-- collection inference:
-  - [collections.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/collections.rs:52)
-- operator inference:
-  - [operators.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/operators.rs:22)
-- effect inference:
-  - [effects_nodes.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/effects_nodes.rs:22)
-- access/member/index inference:
-  - [access.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/access.rs:23)
-  - [access.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/access.rs:84)
-- control-flow joins:
-  - [unification.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/unification.rs:77)
-- generic expression fallback:
-  - [expression/mod.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/expression/mod.rs:61)
-
-#### Work items
-
-1. **Unknown operator handling**
-   - replace `Any` fallback with typed diagnostics
+1. **Strict-mode HM plumbing**
+   - maintained HM fallback sites were tightened so `Any` stopped acting as the maintained-path recovery model
+   - later cleanup removed the separate `--strict-types` switch and made unresolved-residue validation default
 
 2. **Heterogeneous collection handling**
-   - heterogeneous arrays/lists should fail with a type error instead of collapsing to `Any`
+   - strict-mode heterogeneous array inference now emits a diagnostic instead of degrading to `Array<Any>`
 
 3. **Branch-join behavior**
-   - `join_types` must stop using `Any` as a conflict sink in strict mode
-   - mismatched `if`/`match` branches should produce proper diagnostics
+   - strict-mode HM no longer uses `Any` as the recovery sink for branch/result joins in maintained paths
+   - branch conflicts now keep diagnostics and recover with a fresh inference variable when needed
 
 4. **Member/index access**
-   - non-module member access and unsupported access shapes should produce typed errors
-   - they should not silently infer as `Any`
+   - unsupported strict-mode member/index/tuple-field access now emits typed diagnostics instead of silently inferring `Any`
 
 5. **Effect nodes**
-   - unresolved `perform`/`handle` typing must become diagnostic, not gradual fallback
+   - unresolved or unsupported `perform`/`handle` inference now emits strict-mode diagnostics instead of degrading to `Any`
 
 6. **ADT decomposition and pattern typing**
-   - unknown or unsupported field/pattern typing must no longer bind through `Any`
+   - unresolved constructor calls and constructor-pattern arity mismatches now emit strict-mode diagnostics instead of binding through `Any`
 
-#### Unifier change
+#### Notes
 
-This phase must also change the foundational rule in [unify.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/unify.rs:101):
-
-```rust
-(InferType::Con(TypeConstructor::Any), _) | (_, InferType::Con(TypeConstructor::Any))
-```
-
-That rule is the core gradual-typing escape hatch. Full static typing requires:
-
-- either removing it entirely for strict mode
-- or structurally forbidding `Any` from reaching unification in strict mode
+- Phase 2 closed the maintained HM fallback sites that previously depended on `Any`.
+- Later cleanup removed the remaining unifier/runtime/source-level `Any` compatibility paths instead of keeping them as a legacy escape hatch.
 
 #### Success condition
 
-- strict typing no longer depends on a live `Any` compatibility rule
-- unsupported inference paths emit diagnostics instead of degrading to `Any`
+- maintained HM inference no longer depends on `Any` at the fallback sites covered by this phase
+- unsupported maintained HM paths no longer degrade to `Any`
+- targeted regressions cover the prior HM `Any` sinks
+
+#### Non-goals
+
+- removal of `Any` from all legacy or compatibility-oriented code in one step
+- advanced new inference features unrelated to `Any` elimination
 
 ---
 
@@ -229,49 +319,70 @@ That rule is the core gradual-typing escape hatch. Full static typing requires:
 
 Today, strict typing is primarily a post-pass:
 
-- [strict_types.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/strict_types.rs:1)
+- [static_type_validation.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/static_type_validation.rs:1)
 
 It checks top-level binding schemes after HM completes. That is useful, but too shallow.
 
-#### Work items
+This phase is complete.
+
+#### Implemented work
 
 1. **Inference-mode strictness**
-   - thread a strict-typing mode into HM inference itself
-   - strict mode should alter fallback behavior during inference, not only after it
+   - expression-level unresolved-residue validation is now part of the default static-typing contract
+   - maintained paths no longer depend on a separate `--strict-types` CLI mode to reject leftover fallback residue
 
 2. **Expression-level validation**
-   - reject unresolved/gradual subexpressions even when the top-level binding scheme looks clean
+   - `validate_static_types` now walks expression trees as well as binding schemes
+   - it reports nested unresolved residue at the smallest surviving expression site
 
 3. **Better error provenance**
-   - diagnostics should point at the actual unresolved subexpression, not only the surrounding binding name
+   - maintained typing diagnostics report the failing subexpression directly on supported paths
+   - focused regressions cover nested failures in ordinary expressions and handler arms
 
 4. **Boundary-sensitive enforcement**
-   - ensure public APIs, instance methods, handler arms, and effect boundaries are checked under the same strict policy
+   - expression diagnostics are exercised through normal function bodies and handler-arm boundaries
+   - post-validation still checks top-level binding schemes and nested expressions for residual unresolved residue
 
 #### Success condition
 
-- strict typing means “inference is non-gradual here”, not “we checked for leftover `Any` later”
+- static typing means “inference is non-gradual here”, not “we checked for leftover `Any` only behind an opt-in flag”
+- maintained failures report the real expression site rather than only the enclosing binding
+
+#### Non-goals
+
+- changing language semantics outside strict paths during the first landing
+- redesigning HM inference wholesale
+
+#### Verification used to close Phase 3
+
+- `cargo test --test static_type_validation_tests`
+- `cargo test --features llvm --test static_type_validation_tests`
+- `cargo test --test type_inference_tests`
 
 ---
 
 ### Phase 4 — Remove stdlib and module-boundary exclusions
 
-Strict typing is not complete while maintained library code is excluded.
+This phase is complete.
 
-#### Current issue
+#### Implemented work
 
-The current roadmap and code paths still carry special handling for Flow stdlib and module-boundary looseness. The compiler should not permanently rely on stdlib carve-outs.
+1. **Removed unconditional Flow stdlib carve-outs**
+   - serial module compilation, parallel VM/native module compilation, and test-mode module compilation now honor the requested strictness settings for Flow stdlib modules instead of forcibly disabling them
 
-#### Work items
+2. **Made strict typing part of module/interface cache identity**
+   - module interface semantic hashes include strictness
+   - module bytecode/native cache strict hashes include strictness
+   - strict builds no longer reuse non-strict module/interface artifacts as if they were equivalent
 
-1. **Remove Flow stdlib strict-type exclusion**
-   - after base signatures and class plumbing are strong enough, `lib/Flow/` should type-check under strict mode
+3. **Added regression coverage for enforced stdlib strictness**
+   - strict CLI runs against Flow stdlib test fixtures now surface real stdlib diagnostics instead of silently compiling through the old carve-out
+   - interface validation tests reject stale `.flxi` files when semantic strictness changes
 
-2. **Tighten cross-module typing**
-   - module interfaces must preserve enough type information that strict mode remains meaningful across module boundaries
-
-3. **Revisit partial module contracts work**
-   - integrate remaining useful parts of module contract checking into the static typing story
+4. **Preserved remaining work as explicit diagnostics**
+   - several `lib/Flow` modules still fail under strict mode today
+   - those failures are now visible and actionable rather than being hidden behind driver policy
+   - fixing the library/API/runtime causes of those diagnostics is future cleanup, not a reason to keep the carve-out
 
 #### Related areas
 
@@ -283,71 +394,100 @@ The current roadmap and code paths still carry special handling for Flow stdlib 
 - no unconditional stdlib strict-mode carve-out remains
 - strict typing remains meaningful across imports and cached module boundaries
 
+#### Non-goals
+
+- broad stdlib API redesign
+- package-manager or edition-policy changes
+
+#### Verification used to close Phase 4
+
+- `cargo test --lib bytecode::compiler::module_interface`
+- `cargo test --test test_runner_cli test_mode_flow_list_module_fixture_reports_strict_stdlib_diagnostics -- --nocapture`
+- `cargo test --test test_runner_cli test_mode_flow_array_module_fixture_reports_strict_stdlib_diagnostics -- --nocapture`
+- `cargo check --lib`
+
 ---
 
 ### Phase 5 — Fix runtime type lowering and structural gaps
 
-Even after HM and Core are stricter, runtime-facing type translation still collapses many forms to `Any`.
+This phase is complete.
 
-#### Current issue
+#### Implemented work
 
-`TypeEnv::to_runtime` still maps several forms to `RuntimeType::Any`:
+1. **Added checked runtime lowering**
+   - `TypeEnv::try_to_runtime` now distinguishes:
+     - unresolved type variables
+     - open function effect rows
+     - unsupported nominal/HKT shapes
+   - representable runtime types are preserved instead of being flattened immediately
 
-- unresolved vars
-- functions
-- HKT apps
-- many non-primitive ADT/runtime cases
+2. **Preserved concrete function boundary types**
+   - closed HM function types now lower to `RuntimeType::Function`
+   - this keeps runtime-facing type information for higher-order values that are actually representable
 
-See:
-- [type_env.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/type_env.rs:354)
-- [type_env.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/type_env.rs:399)
+3. **Stopped silent fallback in maintained lowering consumers**
+   - inferred binding/static-type plumbing now only binds runtime types when lowering succeeds
+   - diagnostics that previously printed `Any` for known-but-unsupported HM shapes now fall back to the HM type display instead of masking the real shape
 
-#### Work items
-
-1. **Tighten runtime type translation**
-   - make translation preserve more static information where required
-   - stop silently collapsing unresolved forms in strict paths
-
-2. **Expression-level strictness on translated boundaries**
-   - typed runtime contracts should fail at compile time when static proof is unavailable
-
-3. **Structural typing gaps**
-   - evaluate remaining gaps that still force `Any`, including:
-     - typed records / named structural field access
-     - partial module contract coverage
-     - unresolved structural access shapes
+4. **Documented unsupported runtime-boundary shapes explicitly**
+   - open effect rows, unresolved HKT parameters, and unsupported nominal types now have a first-class lowering outcome instead of only collapsing through a gradual fallback
+   - the checked path is now the canonical runtime-boundary translation surface
 
 #### Success condition
 
 - runtime type lowering no longer reintroduces “hidden graduality” after HM has succeeded
 
-## Detailed gap inventory
+#### Non-goals
+
+- feature-complete structural typing
+- solving every future record/module contract feature in this proposal
+
+#### Verification used to close Phase 5
+
+- `cargo test --lib types::type_env`
+- `cargo test --test type_inference_tests`
+- `cargo test --lib bytecode::compiler::compiler_test`
+- `cargo check --lib`
+
+## Historical gap inventory
 [detailed-gap-inventory]: #detailed-gap-inventory
 
-### Gap A — `Any` remains part of the type model
+### Gap A — downstream semantic `Dynamic` cleanup
 
-- `InferType::Con(TypeConstructor::Any)` is still first-class in:
-  - [infer_type.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/infer_type.rs:257)
-- `contains_any()` is still a core utility:
-  - [infer_type.rs](/Users/s.gerokostas/Downloads/Github/flux/src/types/infer_type.rs:272)
+This was the major downstream caveat at the time this roadmap was closed.
 
-This is compatible with gradual typing, but not with claiming that static typing is complete.
+It is now historical:
 
-### Gap B — strict mode checks only top-level binding schemes
+- `0157` explained the semantic-vs-representation split
+- `0158` executed the maintained-path cleanup
 
-- [strict_types.rs](/Users/s.gerokostas/Downloads/Github/flux/src/ast/type_infer/strict_types.rs:17)
+### Gap B — unsupported structural/runtime shapes are still future feature work
 
-This misses:
+- typed records / named structural field access
+- richer nominal ADT runtime contracts
+- fuller module contract coverage for currently unsupported boundary forms
 
-- unresolved subexpressions hidden inside otherwise-generalized bindings
-- localized fallback sites that never surface clearly at the binding boundary
+These are no longer hidden graduality inside the maintained runtime-lowering path, but they remain unsupported features outside the scope of this roadmap.
 
-### Gap C — docs and proposal state are ahead of implementation reality
+### Gap C — docs and proposal state were behind implementation reality
 
-- [0123_full_static_typing.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/implemented/0123_full_static_typing.md:1) says “all phases complete”
-- current internals docs still describe intentional gradual fallback zones
+- `0123` required Phase 0 correction and now points remaining work here
+- older roadmap text described live `Any` fallback zones that have since been removed
 
 The roadmap must align the proposal corpus with the actual compiler.
+
+## Recommended implementation order
+[recommended-implementation-order]: #recommended-implementation-order
+
+The implementation order recorded here is now historical.
+
+Recommended order:
+
+1. Phase 2 removed HM `Any` fallback sites.
+2. Phase 3 made strictness semantic during inference and validation.
+3. Phases 4 and 5 removed stdlib/module carve-outs and runtime-lowering fallback behavior.
+
+Future work should now be tracked separately from this completed static-typing roadmap.
 
 ## Testing plan
 [testing-plan]: #testing-plan
@@ -360,12 +500,19 @@ The roadmap must align the proposal corpus with the actual compiler.
 
 ### Phase 2
 
-- strict-mode regression tests for every prior `Any` fallback site
+- strict-mode regression tests for prior HM fallback sites
 - focused HM tests for:
-  - heterogeneous arrays/lists
+  - heterogeneous arrays
   - unresolved member/index access
-  - branch mismatch
   - unsupported effect signatures
+  - constructor-pattern arity mismatches
+
+Verification used to close Phase 2:
+
+- `cargo test --test static_type_validation_tests`
+- `cargo test --features llvm --test static_type_validation_tests`
+- `cargo test --test type_inference_tests`
+- `cargo test --lib`
 
 ### Phase 3
 
@@ -387,36 +534,47 @@ The roadmap must align the proposal corpus with the actual compiler.
 ## Drawbacks
 [drawbacks]: #drawbacks
 
-- This proposal will break code that currently relies on gradual fallback.
-- Strict typing diagnostics may become more numerous before they become better.
-- Removing `Any` from inference paths will expose latent stdlib and test-suite issues that are currently masked.
+- Tightening the source/HM/runtime contract exposes latent stdlib and test-suite issues that were previously masked.
+- The proposal boundary is now narrower than a blanket “every IR node is fully concrete” claim.
+- Follow-on work now lives in separate proposals instead of remaining implicit here.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
 ### Why not declare static typing “done”
 
-Because the compiler still contains semantic `Any` fallback in inference and runtime translation. Marking the work complete would make later backend and language work build on a false premise.
+Within the maintained source/HM/runtime semantic pipeline, it is done. The
+historical caution here was about not confusing that closure with every possible
+downstream representation refinement.
 
 ### Why not keep `Any` and just harden validation
 
-Because a post-check cannot fully replace a non-gradual inference engine. If `Any` remains part of normal unification and join behavior, strict mode will always be weaker and harder to reason about.
+Because a post-check cannot fully replace a non-gradual inference engine. The completed work removed `Any` from normal source/HM/runtime behavior instead of relying on validation alone.
 
 ### Why not solve only backend typing now
 
-Because typed backends are downstream consumers. The remaining blocker is upstream: HM and runtime type translation still allow hidden graduality.
+Because typed backends are downstream consumers. The highest-value prerequisite was removing hidden graduality from the source/HM/runtime path first.
+
+## Post-completion `Any` policy
+[post-completion-any-policy]: #post-completion-any-policy
+
+With this roadmap complete in maintained paths, Flux should treat `Any` as removed from intended normal user-visible language semantics.
+
+That means:
+
+- guide-level docs, examples, and user-facing typing explanations should stop teaching `Any` as a normal escape hatch
+- reintroduction of `Any` as a normal source-language feature would be a regression against this proposal
+- downstream representation cleanup should use `Dynamic` or other backend-specific terminology instead of reviving `Any`
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Should strict mode remove `Any` from unification entirely, or only forbid it from being constructed in maintained inference paths?
-- Should strict typing become the default immediately after these phases, or after one compatibility cycle?
-- How much runtime type detail is actually required for maintained strict paths?
-- Which structural typing features should be considered mandatory for “full static typing” versus follow-up language work?
+- Should strict typing become the default immediately, or after a compatibility cycle?
+- Which structural typing features should be considered mandatory for future language work versus explicitly out of scope for static-typing completion?
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- Once the type system is genuinely non-gradual in maintained paths, a later proposal can consider removing `Any` entirely from user-visible language semantics.
-- After strict typing is complete, Core-level type-driven optimizations become safer and easier to justify.
-- A later proposal can narrow the language’s compatibility story around strict mode and editions once the implementation no longer depends on gradual escape hatches.
+- `0158` already covered the maintained-path semantic-`Dynamic` cleanup.
+- A later proposal can further reduce or specialize runtime representation where that materially improves optimization or code generation.
+- A later proposal can narrow the language’s compatibility story around strict mode once the project wants to change defaults.

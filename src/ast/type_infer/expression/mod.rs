@@ -6,7 +6,6 @@ mod collections;
 mod control_flow;
 mod effects_nodes;
 mod lambda;
-mod literals;
 mod operators;
 mod patterns;
 
@@ -34,10 +33,8 @@ impl<'a> InferCtx<'a> {
                 ),
                 "Define the identifier first or add an explicit type annotation at the use site.",
             );
-            self.env.alloc_infer_type_var()
-        } else {
-            self.env.alloc_infer_type_var()
         }
+        self.env.alloc_infer_type_var()
     }
 
     /// Handle future or unsupported expression variants without duplicating strict-mode fallback.
@@ -48,10 +45,8 @@ impl<'a> InferCtx<'a> {
                 "Encountered an expression shape that HM inference cannot type in strict mode yet.",
                 "Rewrite the expression into a supported form or add an explicit annotation.",
             );
-            self.env.alloc_infer_type_var()
-        } else {
-            self.env.alloc_infer_type_var()
         }
+        self.env.alloc_infer_type_var()
     }
 
     /// Infer an expression and record its resolved HM type under a stable node id.

@@ -31,10 +31,6 @@ fn bool_() -> InferType {
     InferType::Con(TypeConstructor::Bool)
 }
 
-fn any() -> InferType {
-    InferType::Con(TypeConstructor::Any)
-}
-
 fn var(v: u32) -> InferType {
     InferType::Var(v)
 }
@@ -110,6 +106,7 @@ fn infer_program_from_source(
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+            strict_inference: false,
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),
@@ -499,27 +496,7 @@ fn main() -> Unit {
             &result,
             "The branches of this `if` expression do not agree on a type."
         ),
-        "did not expect contextual if-branch mismatch diagnostic when one branch is Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
-fn infer_if_with_nested_any_branch_type_does_not_emit_contextual_e300() {
-    let source = r#"
-fn concrete_fn(x: Int) -> Int { x }
-fn any_param_fn(x: Any) -> Int { 0 }
-fn main() -> Unit {
-    let _f = if true { concrete_fn } else { any_param_fn }
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "The branches of this `if` expression do not agree on a type."
-        ),
-        "did not expect contextual if-branch mismatch diagnostic when one branch contains nested Any, got: {:#?}",
+        "did not expect contextual if-branch mismatch diagnostic when one branch is unresolved, got: {:#?}",
         result.diagnostics
     );
 }
@@ -642,30 +619,7 @@ fn main() -> Unit {
             &result,
             "The arms of this `match` expression do not agree on a type."
         ),
-        "did not expect contextual match-arm mismatch diagnostic when one arm is Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
-fn infer_match_with_nested_any_arm_type_does_not_emit_contextual_e300() {
-    let source = r#"
-fn concrete_fn(x: Int) -> Int { x }
-fn any_param_fn(x: Any) -> Int { 0 }
-fn main() -> Unit {
-    let _f = match true {
-        true -> concrete_fn,
-        false -> any_param_fn,
-    }
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "The arms of this `match` expression do not agree on a type."
-        ),
-        "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
+        "did not expect contextual match-arm mismatch diagnostic when one arm is unresolved, got: {:#?}",
         result.diagnostics
     );
 }
@@ -802,11 +756,11 @@ fn main() -> Unit {
         B1(w) -> w,
     }
 }
-"#;
+    "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        result.diagnostics.is_empty(),
-        "expected no diagnostics for mixed-ADT-family propagation guard, got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected concrete mismatch diagnostics for mixed-ADT-family unresolved match, got: {:#?}",
         result.diagnostics
     );
 }
@@ -1378,12 +1332,10 @@ fn unify_tuple_length_mismatch() {
 }
 
 #[test]
-fn unify_any_with_int() {
-    // Any is compatible with everything (gradual typing)
-    assert!(unify(&any(), &int()).is_ok());
-    assert!(unify(&int(), &any()).is_ok());
-    assert!(unify(&any(), &list(string())).is_ok());
-    assert!(unify(&any(), &var(42)).is_ok());
+fn unify_var_with_concrete_and_composite_types() {
+    assert!(unify(&var(42), &int()).is_ok());
+    assert!(unify(&int(), &var(42)).is_ok());
+    assert!(unify(&var(7), &list(string())).is_ok());
 }
 
 #[test]
@@ -1587,49 +1539,46 @@ fn type_env_free_vars() {
 }
 
 #[test]
-fn type_env_to_runtime_primitives() {
+fn type_env_try_to_runtime_primitives() {
     use flux::runtime::runtime_type::RuntimeType;
     assert_eq!(
-        TypeEnv::to_runtime(&int(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&int(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Int
     );
     assert_eq!(
-        TypeEnv::to_runtime(&float(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&float(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Float
     );
     assert_eq!(
-        TypeEnv::to_runtime(&string(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&string(), &TypeSubst::empty()).unwrap(),
         RuntimeType::String
     );
     assert_eq!(
-        TypeEnv::to_runtime(&bool_(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&bool_(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Bool
     );
     assert_eq!(
-        TypeEnv::to_runtime(&any(), &TypeSubst::empty()),
-        RuntimeType::Any
-    );
-    // Unresolved var → Any
-    assert_eq!(
-        TypeEnv::to_runtime(&var(0), &TypeSubst::empty()),
-        RuntimeType::Any
+        TypeEnv::try_to_runtime(&var(0), &TypeSubst::empty())
+            .expect_err("unresolved vars should not lower as a concrete runtime type")
+            .issue(),
+        &flux::types::type_env::RuntimeTypeLoweringIssue::UnresolvedTypeVariable
     );
 }
 
 #[test]
-fn type_env_to_runtime_option() {
+fn type_env_try_to_runtime_option() {
     use flux::runtime::runtime_type::RuntimeType;
-    let rt = TypeEnv::to_runtime(&option(int()), &TypeSubst::empty());
+    let rt = TypeEnv::try_to_runtime(&option(int()), &TypeSubst::empty()).unwrap();
     assert_eq!(rt, RuntimeType::Option(Box::new(RuntimeType::Int)));
 }
 
 #[test]
-fn type_env_to_runtime_resolves_var() {
+fn type_env_try_to_runtime_resolves_var() {
     use flux::runtime::runtime_type::RuntimeType;
     let mut subst = TypeSubst::empty();
     subst.insert(0, int());
     // var(0) with substitution {0 → Int} → Int
-    let rt = TypeEnv::to_runtime(&var(0), &subst);
+    let rt = TypeEnv::try_to_runtime(&var(0), &subst).unwrap();
     assert_eq!(rt, RuntimeType::Int);
 }
 
@@ -1738,23 +1687,6 @@ fn main() -> Unit {
 }
 
 #[test]
-fn infer_call_with_nested_any_param_does_not_emit_contextual_callarg_e300() {
-    let source = r#"
-fn accepts_any_param_fn(f: (Any) -> Int) -> Int { f(0) }
-fn concrete_fn(x: Int) -> Int { x }
-fn main() -> Unit {
-    let _x = accepts_any_param_fn(concrete_fn)
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to"),
-        "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
 fn base_missing_hm_metadata_emits_e426() {
     let source = r#"
 fn id(x: Int) -> Int { x }
@@ -1780,6 +1712,7 @@ fn main() -> Unit {
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+            strict_inference: false,
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names,

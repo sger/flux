@@ -11,7 +11,7 @@ pub struct DriverSession {
     pub roots: Vec<PathBuf>,
     pub cache_dir: Option<PathBuf>,
     pub strict_mode: bool,
-    pub strict_types: bool,
+    pub strict_inference: bool,
     pub diagnostics_format: DiagnosticOutputFormat,
     pub all_errors: bool,
 }
@@ -26,7 +26,7 @@ impl From<&DriverFlags> for DriverSession {
             roots: value.input.roots.clone(),
             cache_dir: value.cache.cache_dir.clone(),
             strict_mode: value.language.strict_mode,
-            strict_types: value.language.strict_types,
+            strict_inference: value.language.strict_inference,
             diagnostics_format: value.diagnostics.diagnostics_format,
             all_errors: value.diagnostics.all_errors,
         }
@@ -62,6 +62,7 @@ mod tests {
         flags.cache.no_cache = true;
         flags.language.enable_optimize = true;
         flags.language.strict_mode = true;
+        flags.language.strict_inference = true;
 
         let session = DriverSession::from(&flags);
 
@@ -72,7 +73,7 @@ mod tests {
         assert_eq!(session.roots, flags.input.roots);
         assert_eq!(session.cache_dir, Some(PathBuf::from(".flux-cache")));
         assert!(session.strict_mode);
-        assert!(!session.strict_types);
+        assert!(session.strict_inference);
         assert_eq!(
             session.diagnostics_format,
             DiagnosticOutputFormat::JsonCompact
@@ -93,7 +94,7 @@ mod tests {
             roots: Vec::new(),
             cache_dir: Some(PathBuf::from("target/flux-cache")),
             strict_mode: false,
-            strict_types: false,
+            strict_inference: false,
             diagnostics_format: DiagnosticOutputFormat::Text,
             all_errors: false,
         };
