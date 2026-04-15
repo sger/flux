@@ -20,6 +20,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee = case_of_known_constructor(*scrutinee);
@@ -42,6 +43,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,
+                                        join_ty: join_ty.clone(),
                                         span,
                                     };
                                 }
@@ -56,6 +58,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                     CoreExpr::Case {
                         scrutinee: Box::new(scrutinee),
                         alts,
+                        join_ty: join_ty.clone(),
                         span,
                     }
                 }
@@ -71,6 +74,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,
+                                        join_ty: join_ty.clone(),
                                         span,
                                     };
                                 }
@@ -85,12 +89,14 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                     CoreExpr::Case {
                         scrutinee: Box::new(scrutinee),
                         alts,
+                        join_ty: join_ty.clone(),
                         span,
                     }
                 }
                 _ => CoreExpr::Case {
                     scrutinee: Box::new(scrutinee),
                     alts,
+                    join_ty,
                     span,
                 },
             }

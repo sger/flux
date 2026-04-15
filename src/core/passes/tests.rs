@@ -7,6 +7,7 @@ use crate::{
     diagnostics::position::Span,
     syntax::interner::Interner,
 };
+use std::borrow::Borrow;
 
 fn s() -> Span {
     Span::default()
@@ -16,8 +17,8 @@ fn binder(raw: u32, name: crate::syntax::Identifier) -> CoreBinder {
     CoreBinder::new(CoreBinderId(raw), name)
 }
 
-fn var_ref(binder: CoreBinder) -> CoreExpr {
-    CoreExpr::bound_var(binder, s())
+fn var_ref<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
+    CoreExpr::bound_var(binder.borrow(), s())
 }
 
 // ── case_of_known_constructor ─────────────────────────────────────────────
@@ -53,6 +54,7 @@ fn cokc_reduces_some_constructor() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -82,6 +84,7 @@ fn cokc_reduces_bool_literal() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -124,6 +127,7 @@ fn cokc_skips_guarded_arm() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -150,6 +154,7 @@ fn cokc_leaves_unknown_scrutinee_alone() {
             rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
             span: s(),
         }],
+        join_ty: None,
         span: s(),
     };
 
@@ -278,6 +283,8 @@ fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
         binder: delete_binder,
         expr: CoreExpr::Lam {
             params: vec![xs_binder, x_binder],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             span: s(),
         },
@@ -458,7 +465,9 @@ fn inline_trivial_substitutes_inside_handler_body() {
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![],
+                param_types: vec![],
                 resume: resume_binder,
+                resume_ty: None,
                 body: var_ref(x_binder),
                 span: s(),
             }],
@@ -499,7 +508,9 @@ fn inline_trivial_respects_handler_shadowing() {
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![handler_x],
+                param_types: vec![],
                 resume: resume_binder,
+                resume_ty: None,
                 body: var_ref(handler_x),
                 span: s(),
             }],
@@ -549,6 +560,7 @@ fn cokc_then_inline_collapses_field_binding() {
             rhs: var_ref(x_binder),
             span: s(),
         }],
+        join_ty: None,
         span: s(),
     };
 
@@ -604,6 +616,7 @@ fn case_of_case_pushes_outer_into_inner_arms() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -629,6 +642,7 @@ fn case_of_case_pushes_outer_into_inner_arms() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -694,6 +708,7 @@ fn case_of_case_leaves_non_case_scrutinee_alone() {
             rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
             span: s(),
         }],
+        join_ty: None,
         span: s(),
     };
 
@@ -735,6 +750,7 @@ fn case_of_case_preserves_inner_guards() {
                 span: s(),
             },
         ],
+        join_ty: None,
         span: s(),
     };
 
@@ -746,6 +762,7 @@ fn case_of_case_preserves_inner_guards() {
             rhs: CoreExpr::Lit(CoreLit::Int(99), s()),
             span: s(),
         }],
+        join_ty: None,
         span: s(),
     };
 
@@ -866,6 +883,8 @@ fn inliner_preserves_letrec() {
         var: f_binder,
         rhs: Box::new(CoreExpr::Lam {
             params: vec![binder(1, interner.intern("n"))],
+            param_types: vec![],
+            result_ty: None,
             body: Box::new(CoreExpr::Lit(CoreLit::Int(0), s())),
             span: s(),
         }),
@@ -1021,8 +1040,8 @@ fn run_core_passes_rejects_malformed_aether_before_lowering() {
     let xs = binder(1, interner.intern("xs"));
 
     let expr = crate::aether::AetherExpr::Drop {
-        var: crate::core::CoreVarRef::resolved(xs),
-        body: Box::new(crate::aether::AetherExpr::bound_var(xs, s())),
+        var: crate::core::CoreVarRef::resolved(&xs),
+        body: Box::new(crate::aether::AetherExpr::bound_var(xs.clone(), s())),
         span: s(),
     };
     let err = crate::aether::verify::verify_contract_aether(&expr)

@@ -18,13 +18,27 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 CoreExpr::Var { var: ref_var, span }
             }
         }
-        CoreExpr::Lam { params, body, span } => {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => {
             if params.iter().any(|p| p.id == var) {
                 // Shadowed — don't substitute inside.
-                CoreExpr::Lam { params, body, span }
+                CoreExpr::Lam {
+                    params,
+                    param_types,
+                    result_ty,
+                    body,
+                    span,
+                }
             } else {
                 CoreExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: Box::new(subst(*body, var, replacement)),
                     span,
                 }
@@ -64,6 +78,7 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee = subst(*scrutinee, var, replacement);
@@ -80,6 +95,7 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
             CoreExpr::Case {
                 scrutinee: Box::new(scrutinee),
                 alts,
+                join_ty,
                 span,
             }
         }
@@ -216,8 +232,16 @@ pub(super) fn subst_handler(
 
 pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(f(*body)),
             span,
         },
@@ -263,6 +287,7 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(f(*scrutinee)),
@@ -274,6 +299,7 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
