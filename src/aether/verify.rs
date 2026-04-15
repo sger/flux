@@ -561,6 +561,7 @@ mod tests {
         AetherDiagnosticKind, AetherErrorKind, verify_contract_aether as verify_contract,
         verify_diagnostics_aether as verify_diagnostics,
     };
+    use std::borrow::Borrow;
 
     fn binder(raw: u32, name: crate::syntax::Identifier) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), name)
@@ -570,8 +571,8 @@ mod tests {
         Span::default()
     }
 
-    fn v(binder: CoreBinder) -> CoreExpr {
-        CoreExpr::bound_var(binder, s())
+    fn v<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
+        CoreExpr::bound_var(binder.borrow().clone(), s())
     }
 
     #[test]
@@ -579,7 +580,7 @@ mod tests {
         let mut interner = Interner::new();
         let x = binder(1, interner.intern("x"));
         let expr = CoreExpr::Drop {
-            var: crate::core::CoreVarRef::resolved(x),
+            var: crate::core::CoreVarRef::resolved(&x),
             body: Box::new(v(x)),
             span: s(),
         };
@@ -592,7 +593,7 @@ mod tests {
         let mut interner = Interner::new();
         let x = binder(1, interner.intern("x"));
         let expr = CoreExpr::Reuse {
-            token: crate::core::CoreVarRef::resolved(x),
+            token: crate::core::CoreVarRef::resolved(&x),
             tag: CoreTag::Cons,
             fields: vec![v(x), CoreExpr::Lit(CoreLit::Int(0), s())],
             field_mask: None,
@@ -610,7 +611,7 @@ mod tests {
         let mut interner = Interner::new();
         let x = binder(1, interner.intern("x"));
         let expr = CoreExpr::Reuse {
-            token: crate::core::CoreVarRef::resolved(x),
+            token: crate::core::CoreVarRef::resolved(&x),
             tag: CoreTag::Nil,
             fields: vec![],
             field_mask: None,
@@ -630,7 +631,7 @@ mod tests {
         let h = binder(2, interner.intern("h"));
         let t = binder(3, interner.intern("t"));
         let expr = CoreExpr::Reuse {
-            token: crate::core::CoreVarRef::resolved(x),
+            token: crate::core::CoreVarRef::resolved(&x),
             tag: CoreTag::Cons,
             fields: vec![v(h), v(t)],
             field_mask: Some(0b100),
@@ -668,14 +669,14 @@ mod tests {
         let t = binder(3, interner.intern("t"));
 
         let expr = CoreExpr::DropSpecialized {
-            scrutinee: crate::core::CoreVarRef::resolved(xs),
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(CoreExpr::Con {
                 tag: CoreTag::Cons,
                 fields: vec![v(h), v(t)],
                 span: s(),
             }),
             shared_body: Box::new(CoreExpr::Reuse {
-                token: crate::core::CoreVarRef::resolved(xs),
+                token: crate::core::CoreVarRef::resolved(&xs),
                 tag: CoreTag::Cons,
                 fields: vec![v(h), v(t)],
                 field_mask: None,
@@ -723,7 +724,7 @@ mod tests {
         let node = CoreTag::Named(interner.intern("Node"));
 
         let list_reuse = CoreExpr::Reuse {
-            token: crate::core::CoreVarRef::resolved(xs),
+            token: crate::core::CoreVarRef::resolved(&xs),
             tag: CoreTag::Cons,
             fields: vec![v(h), v(t)],
             field_mask: Some(0),
@@ -732,7 +733,7 @@ mod tests {
         assert!(verify_contract(&list_reuse).is_ok());
 
         let named_adt_reuse = CoreExpr::Reuse {
-            token: crate::core::CoreVarRef::resolved(xs),
+            token: crate::core::CoreVarRef::resolved(&xs),
             tag: node.clone(),
             fields: vec![v(color), v(left), v(key), v(right)],
             field_mask: Some(0b1),
@@ -741,9 +742,9 @@ mod tests {
         assert!(verify_contract(&named_adt_reuse).is_ok());
 
         let list_drop_spec = CoreExpr::DropSpecialized {
-            scrutinee: crate::core::CoreVarRef::resolved(xs),
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(CoreExpr::Reuse {
-                token: crate::core::CoreVarRef::resolved(xs),
+                token: crate::core::CoreVarRef::resolved(&xs),
                 tag: CoreTag::Cons,
                 fields: vec![v(h), v(t)],
                 field_mask: Some(0b10),
@@ -759,11 +760,11 @@ mod tests {
         assert!(verify_contract(&list_drop_spec).is_ok());
 
         let named_adt_drop_spec = CoreExpr::DropSpecialized {
-            scrutinee: crate::core::CoreVarRef::resolved(xs),
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(CoreExpr::Drop {
-                var: crate::core::CoreVarRef::resolved(right),
+                var: crate::core::CoreVarRef::resolved(&right),
                 body: Box::new(CoreExpr::Reuse {
-                    token: crate::core::CoreVarRef::resolved(xs),
+                    token: crate::core::CoreVarRef::resolved(&xs),
                     tag: node.clone(),
                     fields: vec![v(color), v(left), v(key), v(left)],
                     field_mask: Some(0b1000),
@@ -772,7 +773,7 @@ mod tests {
                 span: s(),
             }),
             shared_body: Box::new(CoreExpr::Drop {
-                var: crate::core::CoreVarRef::resolved(right),
+                var: crate::core::CoreVarRef::resolved(&right),
                 body: Box::new(CoreExpr::Con {
                     tag: node.clone(),
                     fields: vec![v(color), v(left), v(key), v(left)],
@@ -786,7 +787,7 @@ mod tests {
 
         let keep = binder(8, interner.intern("keep"));
         let branchy_named = CoreExpr::DropSpecialized {
-            scrutinee: crate::core::CoreVarRef::resolved(xs),
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(v(keep)),
                 alts: vec![
@@ -794,7 +795,7 @@ mod tests {
                         pat: CorePat::Lit(CoreLit::Bool(true)),
                         guard: None,
                         rhs: CoreExpr::Reuse {
-                            token: crate::core::CoreVarRef::resolved(xs),
+                            token: crate::core::CoreVarRef::resolved(&xs),
                             tag: node.clone(),
                             fields: vec![v(color), v(left), v(key), v(right)],
                             field_mask: Some(0),
@@ -806,7 +807,7 @@ mod tests {
                         pat: CorePat::Wildcard,
                         guard: None,
                         rhs: CoreExpr::Reuse {
-                            token: crate::core::CoreVarRef::resolved(xs),
+                            token: crate::core::CoreVarRef::resolved(&xs),
                             tag: node,
                             fields: vec![v(color), v(left), v(key), v(left)],
                             field_mask: Some(0b1000),
@@ -815,6 +816,7 @@ mod tests {
                         span: s(),
                     },
                 ],
+                join_ty: None,
                 span: s(),
             }),
             shared_body: Box::new(CoreExpr::Case {
@@ -841,6 +843,7 @@ mod tests {
                         span: s(),
                     },
                 ],
+                join_ty: None,
                 span: s(),
             }),
             span: s(),
@@ -895,6 +898,7 @@ mod tests {
                 },
                 span: s(),
             }],
+            join_ty: None,
             span: s(),
         };
 
