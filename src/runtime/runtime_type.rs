@@ -7,7 +7,6 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeType {
-    Any,
     Int,
     Float,
     Bool,
@@ -29,7 +28,6 @@ pub enum RuntimeType {
 impl RuntimeType {
     pub fn type_name(&self) -> String {
         match self {
-            RuntimeType::Any => "Any".to_string(),
             RuntimeType::Int => "Int".to_string(),
             RuntimeType::Float => "Float".to_string(),
             RuntimeType::Bool => "Bool".to_string(),
@@ -72,7 +70,6 @@ impl RuntimeType {
 
     pub fn matches_value(&self, value: &Value, ctx: &dyn RuntimeContext) -> bool {
         match self {
-            RuntimeType::Any => true,
             RuntimeType::Int => matches!(value, Value::Integer(_)),
             RuntimeType::Float => matches!(value, Value::Float(_)),
             RuntimeType::Bool => matches!(value, Value::Boolean(_)),
@@ -153,8 +150,6 @@ impl RuntimeType {
 
 fn runtime_type_compatible(expected: &RuntimeType, actual: &RuntimeType) -> bool {
     match (expected, actual) {
-        (RuntimeType::Any, _) => true,
-        (_, RuntimeType::Any) => false,
         (RuntimeType::Int, RuntimeType::Int)
         | (RuntimeType::Float, RuntimeType::Float)
         | (RuntimeType::Bool, RuntimeType::Bool)
