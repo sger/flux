@@ -11,13 +11,13 @@
 use std::collections::HashSet;
 
 use crate::core::CorePrimOp;
+use crate::lir::*;
 use crate::llvm::codegen::builtins;
 use crate::llvm::ir::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind, render_module,
 };
-use crate::lir::*;
 
 // ── Pointer-tag constants (must match runtime/c/flux_rt.h and prelude.rs) ───
 

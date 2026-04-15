@@ -10,8 +10,8 @@ use std::collections::HashSet;
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
-    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
-    CoreProgram, CoreTag, CoreTopLevelItem,
+    CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
+    CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem, CoreType, FluxRep,
 };
 use crate::lir::*;
 use crate::syntax::Identifier;
@@ -65,6 +65,73 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
         ("safe_div", 2) => Some(CorePrimOp::SafeDiv),
         ("safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,
+    }
+}
+
+fn peel_function_type(ty: &CoreType) -> Option<(&[CoreType], &CoreType)> {
+    match ty {
+        CoreType::Function(params, ret) => Some((params.as_slice(), ret.as_ref())),
+        CoreType::Forall(_, body) => peel_function_type(body),
+        _ => None,
+    }
+}
+
+fn rep_from_semantic_type(ty: Option<&CoreType>) -> FluxRep {
+    ty.map(FluxRep::from_core_type)
+        .unwrap_or(FluxRep::TaggedRep)
+}
+
+fn rep_for_typed_binder(binder: &CoreBinder, ty: Option<&CoreType>) -> FluxRep {
+    ty.map(FluxRep::from_core_type).unwrap_or(binder.rep)
+}
+
+fn result_rep_for_def_expr(expr: &CoreExpr, def_result_ty: Option<&CoreType>) -> FluxRep {
+    match expr {
+        CoreExpr::Lam {
+            result_ty: Some(result_ty),
+            ..
+        } => FluxRep::from_core_type(result_ty),
+        _ => match def_result_ty {
+            Some(def_result_ty) => peel_function_type(def_result_ty)
+                .map(|(_, ret_ty)| FluxRep::from_core_type(ret_ty))
+                .unwrap_or_else(|| FluxRep::from_core_type(def_result_ty)),
+            None => FluxRep::TaggedRep,
+        },
+    }
+}
+
+fn result_rep_for_aether_def_expr(expr: &AetherExpr, def_result_ty: Option<&CoreType>) -> FluxRep {
+    match expr {
+        AetherExpr::Lam {
+            result_ty: Some(result_ty),
+            ..
+        } => FluxRep::from_core_type(result_ty),
+        _ => match def_result_ty {
+            Some(def_result_ty) => peel_function_type(def_result_ty)
+                .map(|(_, ret_ty)| FluxRep::from_core_type(ret_ty))
+                .unwrap_or_else(|| FluxRep::from_core_type(def_result_ty)),
+            None => FluxRep::TaggedRep,
+        },
+    }
+}
+
+fn lambda_result_rep(result_ty: Option<&CoreType>) -> FluxRep {
+    rep_from_semantic_type(result_ty)
+}
+
+fn handler_resume_result_rep(handler: &CoreHandler) -> FluxRep {
+    match handler.resume_ty.as_ref() {
+        Some(CoreType::Function(_, ret_ty)) => FluxRep::from_core_type(ret_ty),
+        Some(other) => FluxRep::from_core_type(other),
+        None => FluxRep::TaggedRep,
+    }
+}
+
+fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
+    match handler.resume_ty.as_ref() {
+        Some(CoreType::Function(_, ret_ty)) => FluxRep::from_core_type(ret_ty),
+        Some(other) => FluxRep::from_core_type(other),
+        None => FluxRep::TaggedRep,
     }
 }
 
@@ -1124,7 +1191,7 @@ impl<'a> FnLower<'a> {
                 // Phase 1: Pre-assign synthetic func IDs and placeholder functions.
                 let mut temp_program = std::mem::take(&mut *self.program);
 
-                for (var, _) in bindings {
+                for (var, rhs) in bindings {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
@@ -1139,7 +1206,12 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: match rhs.as_ref() {
+                            CoreExpr::Lam { result_ty, .. } => {
+                                lambda_result_rep(result_ty.as_ref())
+                            }
+                            _ => FluxRep::TaggedRep,
+                        },
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     entries.push(GroupEntry {
@@ -1154,6 +1226,8 @@ impl<'a> FnLower<'a> {
                 for (i, (var, rhs)) in bindings.iter().enumerate() {
                     if let CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: lam_body,
                         ..
                     } = rhs.as_ref()
@@ -1220,11 +1294,16 @@ impl<'a> FnLower<'a> {
                         }
 
                         // Register parameters.
-                        for param in params {
+                        inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                        for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
                             inner.bind(param.id, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(param.rep);
+                            inner.func.param_reps.push(rep_for_typed_binder(
+                                param,
+                                param_types.get(index).and_then(|ty| ty.as_ref()),
+                            ));
                         }
 
                         // Lower the body.
@@ -1265,6 +1344,8 @@ impl<'a> FnLower<'a> {
                 // 3. The inner lambda sees itself via its own function index
                 if let CoreExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: lam_body,
                     ..
                 } = rhs.as_ref()
@@ -1294,7 +1375,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
@@ -1344,11 +1425,16 @@ impl<'a> FnLower<'a> {
                     }
 
                     // Register parameters.
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
 
                     // Lower the body.
@@ -1387,7 +1473,13 @@ impl<'a> FnLower<'a> {
 
             CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
 
-            CoreExpr::Lam { params, body, .. } => {
+            CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } => {
                 // Always create a nested LirFunction for lambdas.
                 // Even non-capturing lambdas need to be callable via OpCall.
                 let free = collect_free_vars(expr);
@@ -1431,11 +1523,16 @@ impl<'a> FnLower<'a> {
                     }
 
                     // Register parameters.
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
 
                     // Lower the body in the inner context.
@@ -1652,7 +1749,13 @@ impl<'a> FnLower<'a> {
                 };
                 self.lower_expr(&core)
             }
-            AetherExpr::Lam { params, body, .. } => {
+            AetherExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } => {
                 let free = crate::aether::free_vars::collect_free_vars_aether(expr);
                 let outer_captures: Vec<(CoreBinderId, LirVar)> = free
                     .iter()
@@ -1686,11 +1789,16 @@ impl<'a> FnLower<'a> {
                         inner.func.capture_vars.push(inner_var);
                         inner.bind(binder_id, inner_var);
                     }
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
                     let result = inner.lower_expr_aether(body);
                     inner.set_terminator(LirTerminator::Return(result));
@@ -1749,7 +1857,7 @@ impl<'a> FnLower<'a> {
                     .collect();
 
                 let mut temp_program = std::mem::take(&mut *self.program);
-                for (var, _) in bindings {
+                for (var, rhs) in bindings {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
@@ -1764,7 +1872,12 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: match rhs.as_ref() {
+                            AetherExpr::Lam { result_ty, .. } => {
+                                lambda_result_rep(result_ty.as_ref())
+                            }
+                            _ => FluxRep::TaggedRep,
+                        },
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     entries.push(GroupEntry {
@@ -1777,6 +1890,8 @@ impl<'a> FnLower<'a> {
                 for (i, (var, rhs)) in bindings.iter().enumerate() {
                     if let AetherExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: lam_body,
                         ..
                     } = rhs.as_ref()
@@ -1833,11 +1948,16 @@ impl<'a> FnLower<'a> {
                                 inner.bind(entry_j.binder_id, sibling_var);
                             }
                         }
-                        for param in params {
+                        inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                        for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
                             inner.bind(param.id, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(param.rep);
+                            inner.func.param_reps.push(rep_for_typed_binder(
+                                param,
+                                param_types.get(index).and_then(|ty| ty.as_ref()),
+                            ));
                         }
                         let result = inner.lower_expr_aether(lam_body);
                         inner.set_terminator(LirTerminator::Return(result));
@@ -1861,6 +1981,8 @@ impl<'a> FnLower<'a> {
             AetherExpr::LetRec { var, rhs, body, .. } => {
                 if let AetherExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: lam_body,
                     ..
                 } = rhs.as_ref()
@@ -1885,7 +2007,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     let func_name = format!("letrec_{}", func_idx);
@@ -1922,11 +2044,16 @@ impl<'a> FnLower<'a> {
                     if outer_captures.is_empty() {
                         inner.direct_func_vars.insert(self_var, synthetic_id);
                     }
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
                     let result = inner.lower_expr_aether(lam_body);
                     inner.set_terminator(LirTerminator::Return(result));
@@ -2857,12 +2984,21 @@ impl<'a> FnLower<'a> {
         let resume_var = inner.fresh_var();
         inner.bind(handler.resume.id, resume_var);
         inner.func.params.push(resume_var);
+        inner
+            .func
+            .param_reps
+            .push(rep_from_semantic_type(handler.resume_ty.as_ref()));
 
-        for p in &handler.params {
+        for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
             inner.bind(p.id, pv);
             inner.func.params.push(pv);
+            inner.func.param_reps.push(rep_from_semantic_type(
+                handler.param_types.get(index).and_then(|ty| ty.as_ref()),
+            ));
         }
+
+        inner.func.result_rep = handler_resume_result_rep(handler);
 
         // Lower handler body.
         let result = inner.lower_expr(&handler.body);
@@ -2932,12 +3068,21 @@ impl<'a> FnLower<'a> {
         let resume_var = inner.fresh_var();
         inner.bind(handler.resume.id, resume_var);
         inner.func.params.push(resume_var);
+        inner
+            .func
+            .param_reps
+            .push(rep_from_semantic_type(handler.resume_ty.as_ref()));
 
-        for p in &handler.params {
+        for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
             inner.bind(p.id, pv);
             inner.func.params.push(pv);
+            inner.func.param_reps.push(rep_from_semantic_type(
+                handler.param_types.get(index).and_then(|ty| ty.as_ref()),
+            ));
         }
+
+        inner.func.result_rep = aether_handler_resume_result_rep(handler);
 
         let result = inner.lower_expr_aether(&handler.body);
         inner.set_terminator(LirTerminator::Return(result));
@@ -4345,20 +4490,24 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     // created when functions escape as values.
 
     // Set result representation from HM-inferred return type.
-    ctx.func.result_rep = def
-        .result_ty
-        .as_ref()
-        .map(crate::core::FluxRep::from_core_type)
-        .unwrap_or(crate::core::FluxRep::TaggedRep);
+    ctx.func.result_rep = result_rep_for_def_expr(&def.expr, def.result_ty.as_ref());
 
     // If the def is a lambda, register its parameters.
     let body = match &def.expr {
-        CoreExpr::Lam { params, body, .. } => {
-            for param in params {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            body,
+            ..
+        } => {
+            for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(param.rep);
+                ctx.func.param_reps.push(rep_for_typed_binder(
+                    param,
+                    param_types.get(index).and_then(|ty| ty.as_ref()),
+                ));
             }
             body.as_ref()
         }
@@ -4397,19 +4546,23 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
         },
     );
 
-    ctx.func.result_rep = def
-        .result_ty
-        .as_ref()
-        .map(crate::core::FluxRep::from_core_type)
-        .unwrap_or(crate::core::FluxRep::TaggedRep);
+    ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
     let body = match &def.expr {
-        AetherExpr::Lam { params, body, .. } => {
-            for param in params {
+        AetherExpr::Lam {
+            params,
+            param_types,
+            body,
+            ..
+        } => {
+            for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(param.rep);
+                ctx.func.param_reps.push(rep_for_typed_binder(
+                    param,
+                    param_types.get(index).and_then(|ty| ty.as_ref()),
+                ));
             }
             body.as_ref()
         }
@@ -4950,10 +5103,14 @@ fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderI
 
 #[cfg(test)]
 mod tests {
-    use super::{build_qualified_names, lir_symbol_name_for_def};
+    use super::{
+        build_qualified_names, lir_symbol_name_for_def, result_rep_for_aether_def_expr,
+        result_rep_for_def_expr,
+    };
+    use crate::aether::AetherExpr;
     use crate::core::{
         CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreTopLevelItem,
-        FluxRep,
+        CoreType, FluxRep,
     };
     use crate::diagnostics::position::{Position, Span};
     use crate::syntax::Identifier;
@@ -5015,6 +5172,63 @@ mod tests {
         assert_eq!(
             lir_symbol_name_for_def(CoreBinderId(2), true, &qualified, "def_2"),
             "expr_2"
+        );
+    }
+
+    #[test]
+    fn top_level_core_function_result_rep_uses_function_return_type() {
+        let span = Span::new(Position::new(1, 1), Position::new(1, 1));
+        let binder = mk_binder(1, Identifier::new(1));
+        let expr = CoreExpr::Lam {
+            params: vec![binder],
+            param_types: vec![Some(CoreType::Int)],
+            result_ty: None,
+            body: Box::new(CoreExpr::Var {
+                var: crate::core::CoreVarRef::resolved(&binder),
+                span,
+            }),
+            span,
+        };
+
+        assert_eq!(
+            result_rep_for_def_expr(
+                &expr,
+                Some(&CoreType::Function(
+                    vec![CoreType::Int],
+                    Box::new(CoreType::Int)
+                ))
+            ),
+            FluxRep::IntRep
+        );
+    }
+
+    #[test]
+    fn top_level_aether_function_result_rep_peels_forall_function_return() {
+        let span = Span::new(Position::new(1, 1), Position::new(1, 1));
+        let binder = mk_binder(1, Identifier::new(1));
+        let expr = AetherExpr::Lam {
+            params: vec![binder],
+            param_types: vec![Some(CoreType::Var(7))],
+            result_ty: None,
+            body: Box::new(AetherExpr::Var {
+                var: crate::core::CoreVarRef::resolved(&binder),
+                span,
+            }),
+            span,
+        };
+
+        assert_eq!(
+            result_rep_for_aether_def_expr(
+                &expr,
+                Some(&CoreType::Forall(
+                    vec![7],
+                    Box::new(CoreType::Function(
+                        vec![CoreType::Var(7)],
+                        Box::new(CoreType::Bool)
+                    ))
+                ))
+            ),
+            FluxRep::BoolRep
         );
     }
 }
