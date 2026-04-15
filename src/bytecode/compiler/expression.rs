@@ -1293,7 +1293,9 @@ impl Compiler {
                 }
                 continue;
             };
-            let expected_infer = TypeEnv::infer_type_from_runtime(&expected_runtime);
+            let Ok(expected_infer) = TypeEnv::try_infer_type_from_runtime(&expected_runtime) else {
+                continue;
+            };
             let maybe_contextual = match self.hm_expr_type_strict_path(argument) {
                 super::hm_expr_typer::HmExprTypeResult::Known(actual) => {
                     if expected_infer.is_concrete()
@@ -1762,7 +1764,15 @@ impl Compiler {
         primary_label: &str,
         help: String,
     ) -> CompileResult<()> {
-        let expected_infer = TypeEnv::infer_type_from_runtime(expected);
+        let Ok(expected_infer) = TypeEnv::try_infer_type_from_runtime(expected) else {
+            if self.strict_mode {
+                return Err(Self::boxed(self.unresolved_boundary_error(
+                    expression,
+                    "runtime-typed expectation",
+                )));
+            }
+            return Ok(());
+        };
         self.validate_expr_expected_type(
             &expected_infer,
             expression,
@@ -1831,8 +1841,12 @@ impl Compiler {
         };
         let actual = format!(
             "{} and {}",
-            TypeEnv::to_runtime(&left_ty, &TypeSubst::empty()).type_name(),
-            TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name()
+            TypeEnv::try_to_runtime(&left_ty, &TypeSubst::empty())
+                .map(|ty| ty.type_name())
+                .unwrap_or_else(|_| display_infer_type(&left_ty, &self.interner)),
+            TypeEnv::try_to_runtime(&right_ty, &TypeSubst::empty())
+                .map(|ty| ty.type_name())
+                .unwrap_or_else(|_| display_infer_type(&right_ty, &self.interner))
         );
         let op_span = Span::new(left.span().start, right.span().end);
 
@@ -1866,7 +1880,9 @@ impl Compiler {
             return Ok(());
         }
 
-        let actual = TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name();
+        let actual = TypeEnv::try_to_runtime(&right_ty, &TypeSubst::empty())
+            .map(|ty| ty.type_name())
+            .unwrap_or_else(|_| display_infer_type(&right_ty, &self.interner));
         Err(Self::boxed(
             type_unification_error(
                 self.file_path.clone(),
@@ -1917,7 +1933,9 @@ impl Compiler {
                     self.file_path.clone(),
                     left.span(),
                     "indexable value (Array/List/Tuple/Map)",
-                    &TypeEnv::to_runtime(&other, &TypeSubst::empty()).type_name(),
+                    &TypeEnv::try_to_runtime(&other, &TypeSubst::empty())
+                        .map(|ty| ty.type_name())
+                        .unwrap_or_else(|_| display_infer_type(&other, &self.interner)),
                 )
                 .with_secondary_label(left.span(), "indexed value is known at compile time")
                 .with_help("index only arrays, lists, tuples, or maps"),

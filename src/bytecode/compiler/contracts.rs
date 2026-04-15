@@ -27,7 +27,6 @@ pub fn convert_type_expr(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeTy
         TypeExpr::Named { name, args, .. } => {
             let name = interner.resolve(*name);
             match (name, args.len()) {
-                ("Any", 0) => Some(RuntimeType::Any),
                 ("Int", 0) => Some(RuntimeType::Int),
                 ("Float", 0) => Some(RuntimeType::Float),
                 ("Bool", 0) => Some(RuntimeType::Bool),
