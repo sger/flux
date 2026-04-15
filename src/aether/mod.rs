@@ -60,7 +60,9 @@ pub struct AetherAlt {
 pub struct AetherHandler {
     pub operation: Identifier,
     pub params: Vec<CoreBinder>,
+    pub param_types: Vec<Option<CoreType>>,
     pub resume: CoreBinder,
+    pub resume_ty: Option<CoreType>,
     pub body: AetherExpr,
     pub span: Span,
 }
@@ -74,6 +76,8 @@ pub enum AetherExpr {
     Lit(CoreLit, Span),
     Lam {
         params: Vec<CoreBinder>,
+        param_types: Vec<Option<CoreType>>,
+        result_ty: Option<CoreType>,
         body: Box<AetherExpr>,
         span: Span,
     },
@@ -108,6 +112,7 @@ pub enum AetherExpr {
     Case {
         scrutinee: Box<AetherExpr>,
         alts: Vec<AetherAlt>,
+        join_ty: Option<CoreType>,
         span: Span,
     },
     Con {
@@ -255,7 +260,7 @@ impl AetherDef {
 impl AetherExpr {
     pub fn bound_var(binder: CoreBinder, span: Span) -> Self {
         Self::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(&binder),
             span,
         }
     }
@@ -271,8 +276,16 @@ impl AetherExpr {
         match expr {
             CoreExpr::Var { var, span } => Self::Var { var, span },
             CoreExpr::Lit(lit, span) => Self::Lit(lit, span),
-            CoreExpr::Lam { params, body, span } => Self::Lam {
+            CoreExpr::Lam {
                 params,
+                param_types,
+                result_ty,
+                body,
+                span,
+            } => Self::Lam {
+                params,
+                param_types,
+                result_ty,
                 body: Box::new(Self::from_core(*body)),
                 span,
             },
@@ -318,10 +331,12 @@ impl AetherExpr {
             CoreExpr::Case {
                 scrutinee,
                 alts,
+                join_ty,
                 span,
             } => Self::Case {
                 scrutinee: Box::new(Self::from_core(*scrutinee)),
                 alts: alts.into_iter().map(AetherAlt::from_core).collect(),
+                join_ty,
                 span,
             },
             CoreExpr::Con { tag, fields, span } => Self::Con {
@@ -385,8 +400,16 @@ impl AetherExpr {
         match self {
             Self::Var { var, span } => CoreExpr::Var { var, span },
             Self::Lit(lit, span) => CoreExpr::Lit(lit, span),
-            Self::Lam { params, body, span } => CoreExpr::Lam {
+            Self::Lam {
                 params,
+                param_types,
+                result_ty,
+                body,
+                span,
+            } => CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
                 body: Box::new(body.into_core()),
                 span,
             },
@@ -432,10 +455,12 @@ impl AetherExpr {
             Self::Case {
                 scrutinee,
                 alts,
+                join_ty,
                 span,
             } => CoreExpr::Case {
                 scrutinee: Box::new(scrutinee.into_core()),
                 alts: alts.into_iter().map(AetherAlt::into_core).collect(),
+                join_ty,
                 span,
             },
             Self::Con { tag, fields, span } => CoreExpr::Con {
@@ -553,7 +578,9 @@ impl AetherHandler {
         Self {
             operation: handler.operation,
             params: handler.params,
+            param_types: handler.param_types,
             resume: handler.resume,
+            resume_ty: handler.resume_ty,
             body: AetherExpr::from_core(handler.body),
             span: handler.span,
         }
@@ -563,7 +590,9 @@ impl AetherHandler {
         CoreHandler {
             operation: self.operation,
             params: self.params,
+            param_types: self.param_types,
             resume: self.resume,
+            resume_ty: self.resume_ty,
             body: self.body.into_core(),
             span: self.span,
         }
