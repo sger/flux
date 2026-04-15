@@ -6,11 +6,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
     shared::cache_paths,
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v2:closure-entry-wrappers";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {
@@ -84,6 +86,15 @@ impl NativeModuleCacheLoadError {
 
 pub struct NativeModuleCache {
     cache_dir: PathBuf,
+}
+
+pub fn compute_native_cache_key(
+    source_hash: &[u8; 32],
+    semantic_config_hash: &[u8; 32],
+) -> [u8; 32] {
+    let semantic_key = hash_cache_key(source_hash, semantic_config_hash);
+    let abi_hash = hash_bytes(NATIVE_CACHE_ABI_TAG);
+    hash_cache_key(&semantic_key, &abi_hash)
 }
 
 impl NativeModuleCache {
