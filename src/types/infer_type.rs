@@ -23,7 +23,7 @@ use crate::{
 pub enum InferType {
     /// Unification variable. Resolved via `Subst`.
     Var(TypeVarId),
-    /// Concrete nullary type: `Int`, `String`, `Any`, …
+    /// Concrete nullary type: `Int`, `String`, …
     Con(TypeConstructor),
     /// Type application: `List<T>`, `Map<K, V>`, `Option<T>`, `Adt<T>`.
     App(TypeConstructor, Vec<InferType>),
@@ -254,9 +254,8 @@ impl InferType {
         }
     }
 
-    /// `Any` is the gradual escape hatch.
     pub fn is_any(&self) -> bool {
-        matches!(self, InferType::Con(TypeConstructor::Any))
+        false
     }
 
     /// Extract parameter types from a function type.
@@ -268,21 +267,13 @@ impl InferType {
         }
     }
 
-    /// Returns `true` if this type contains `Any` at any nesting depth.
+    /// Returns `true` if this type contains legacy gradual fallback residue.
+    ///
+    /// The old gradual escape hatch has been removed from the maintained type model, so this now
+    /// returns `false` for all values and exists only to minimize churn at
+    /// older call sites while they are simplified.
     pub fn contains_any(&self) -> bool {
-        match self {
-            InferType::Con(TypeConstructor::Any) => true,
-            InferType::App(_, args) | InferType::Tuple(args) => {
-                args.iter().any(InferType::contains_any)
-            }
-            InferType::Fun(params, ret, _) => {
-                params.iter().any(InferType::contains_any) || ret.contains_any()
-            }
-            InferType::Var(_) | InferType::Con(_) => false,
-            InferType::HktApp(head, args) => {
-                head.contains_any() || args.iter().any(InferType::contains_any)
-            }
-        }
+        false
     }
 }
 
@@ -414,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn concrete_and_any_checks() {
+    fn concrete_checks() {
         let concrete = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Bool)]);
         assert!(concrete.is_concrete());
         assert!(!concrete.is_any());
@@ -427,40 +418,22 @@ mod tests {
         );
         assert!(!not_concrete.is_concrete());
         assert!(!not_concrete.contains_any());
-
-        let any = InferType::Con(TypeConstructor::Any);
-        assert!(any.is_any());
-        assert!(any.is_concrete());
-        assert!(any.contains_any());
     }
 
     #[test]
-    fn contains_any_checks_nested_types() {
-        let nested_any_app = InferType::App(
-            TypeConstructor::List,
-            vec![InferType::Con(TypeConstructor::Any)],
-        );
-        assert!(nested_any_app.contains_any());
+    fn contains_any_is_false_for_supported_types() {
+        let list_ty = InferType::App(TypeConstructor::List, vec![int()]);
+        assert!(!list_ty.contains_any());
 
-        let nested_any_tuple = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Any)]);
-        assert!(nested_any_tuple.contains_any());
+        let tuple_ty = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::String)]);
+        assert!(!tuple_ty.contains_any());
 
-        let nested_any_fun = InferType::Fun(
-            vec![InferType::Con(TypeConstructor::Any)],
-            Box::new(int()),
-            InferEffectRow::closed_empty(),
-        );
-        assert!(nested_any_fun.contains_any());
-
-        let nested_any_fun_ret = InferType::Fun(
+        let fun_ty = InferType::Fun(
             vec![int()],
-            Box::new(InferType::App(
-                TypeConstructor::Option,
-                vec![InferType::Con(TypeConstructor::Any)],
-            )),
+            Box::new(InferType::Con(TypeConstructor::String)),
             InferEffectRow::closed_empty(),
         );
-        assert!(nested_any_fun_ret.contains_any());
+        assert!(!fun_ty.contains_any());
     }
 
     #[test]

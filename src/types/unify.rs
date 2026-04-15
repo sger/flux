@@ -9,7 +9,6 @@ use crate::{
         TypeVarId,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        type_constructor::TypeConstructor,
         type_subst::TypeSubst,
         unify_error::{UnifyError, UnifyErrorDetail},
     },
@@ -18,7 +17,6 @@ use crate::{
 /// Unify two types, returning the minimal substitution that makes them equal.
 ///
 /// The substitution must be applied to both types to obtain the unified form.
-/// `Any` is compatible with everything (gradual typing escape).
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
     unify_core(
@@ -98,11 +96,6 @@ pub fn unify_core(
     let actual_head = resolve_head(actual, ctx_subst);
 
     match (expected_head, actual_head) {
-        // Any is compatible with everything (gradual typing)
-        (InferType::Con(TypeConstructor::Any), _) | (_, InferType::Con(TypeConstructor::Any)) => {
-            Ok(TypeSubst::empty())
-        }
-
         // Identical types unify trivially
         (InferType::Con(c1), InferType::Con(c2)) if c1 == c2 => Ok(TypeSubst::empty()),
 
@@ -557,11 +550,10 @@ mod tests {
     }
 
     #[test]
-    fn unify_any_is_compatible_with_everything() {
-        let any = InferType::Con(TypeConstructor::Any);
+    fn unify_tuple_and_scalar_mismatch() {
         let tuple = InferType::Tuple(vec![int(), bool_t()]);
-        let subst = unify(&any, &tuple).expect("Any should unify with every type");
-        assert!(subst.is_empty());
+        let err = unify(&int(), &tuple).expect_err("mismatched concrete types should fail");
+        assert_eq!(err.kind, UnifyErrorKind::Mismatch)
     }
 
     #[test]
