@@ -20,7 +20,26 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Option, vec![args[1].clone()])
             }
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),
-            _ => InferType::Con(TypeConstructor::Any),
+            other => {
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(left.span(),
+                        format!(
+                            "Index access is only supported on arrays, lists, maps, and tuples in strict mode, but this expression has type `{}`.",
+                            self.display_type(&other)
+                        ),
+                        "Use indexing on Array/List/Map/Tuple values or add a type annotation."
+                    );
+                    InferType::App(
+                        TypeConstructor::Option,
+                        vec![self.env.alloc_infer_type_var()],
+                    )
+                } else {
+                    InferType::App(
+                        TypeConstructor::Option,
+                        vec![self.env.alloc_infer_type_var()],
+                    )
+                }
+            }
         }
     }
 
@@ -43,8 +62,8 @@ impl<'a> InferCtx<'a> {
             elements
                 .first()
                 .cloned()
-                .unwrap_or(InferType::Con(TypeConstructor::Any)),
-            |acc, ty| self.join_types(&acc, ty),
+                .unwrap_or_else(|| self.env.alloc_infer_type_var()),
+            |acc, ty| self.unify_reporting(&acc, ty, index.span()),
         );
         InferType::App(TypeConstructor::Option, vec![joined])
     }
@@ -81,7 +100,19 @@ impl<'a> InferCtx<'a> {
             self.emit_missing_flow_hm_signature(member, expr.span());
         }
         self.infer_expression(object);
-        InferType::Con(TypeConstructor::Any)
+        if self.strict_mode_enabled() {
+            self.emit_strict_inference_error(
+                expr.span(),
+                format!(
+                    "Strict typing could not resolve member access `{}` on this expression.",
+                    expr.display_with(self.interner)
+                ),
+                "Only imported module member access is currently typed here; add an annotation or use a supported access shape.",
+            );
+            self.env.alloc_infer_type_var()
+        } else {
+            self.env.alloc_infer_type_var()
+        }
     }
 
     /// Infer tuple field projection by static index.
@@ -91,11 +122,33 @@ impl<'a> InferCtx<'a> {
         index: usize,
     ) -> InferType {
         match self.infer_expression(object).apply_type_subst(&self.subst) {
-            InferType::Tuple(elements) => elements
-                .get(index)
-                .cloned()
-                .unwrap_or(InferType::Con(TypeConstructor::Any)),
-            _ => InferType::Con(TypeConstructor::Any),
+            InferType::Tuple(elements) => elements.get(index).cloned().unwrap_or_else(|| {
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        object.span(),
+                        format!("Tuple field .{index} is out of bounds for this tuple expression."),
+                        "Use a valid tuple field index for the inferred tuple arity.",
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
+            }),
+            other => {
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        object.span(),
+                        format!(
+                            "Tuple field access requires a tuple, but this expression has type `{}`.",
+                            self.display_type(&other)
+                        ),
+                        "Use tuple field access only on tuple values.",
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
+            }
         }
     }
 }

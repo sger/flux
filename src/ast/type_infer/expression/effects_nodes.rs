@@ -19,10 +19,35 @@ impl<'a> InferCtx<'a> {
                 }
                 ret_ty.apply_type_subst(&self.subst)
             } else {
-                InferType::Con(TypeConstructor::Any)
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        span,
+                        format!(
+                            "Effect operation `{}` was called with the wrong number of arguments in strict mode.",
+                            self.interner.resolve(operation)
+                        ),
+                        "Match the declared operation signature exactly.",
+                    );
+                    self.env.alloc_infer_type_var()
+                } else {
+                    self.env.alloc_infer_type_var()
+                }
             }
         } else {
-            InferType::Con(TypeConstructor::Any)
+            if self.strict_mode_enabled() {
+                self.emit_strict_inference_error(
+                    span,
+                    format!(
+                        "Could not resolve the effect signature for `{}.{}` in strict mode.",
+                        self.interner.resolve(effect),
+                        self.interner.resolve(operation)
+                    ),
+                    "Declare the effect operation before using `perform`, and make sure it is in scope.",
+                );
+                self.env.alloc_infer_type_var()
+            } else {
+                self.env.alloc_infer_type_var()
+            }
         }
     }
 
@@ -35,7 +60,7 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let handled_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(expr));
         let mut arm_result: Option<InferType> = None;
-        for arm in arms {
+        for (arm_index, arm) in arms.iter().enumerate() {
             self.env.enter_scope();
             if let Some((param_tys, _ret_ty)) =
                 self.effect_op_signature_types(effect, arm.operation_name)
@@ -43,16 +68,46 @@ impl<'a> InferCtx<'a> {
                 for (param_name, param_ty) in arm.params.iter().zip(param_tys.iter()) {
                     self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
                 }
+            } else if self.strict_mode_enabled() {
+                self.emit_strict_inference_error(
+                    arm.span,
+                    format!(
+                        "Could not resolve handler arm `{}.{}` in strict mode.",
+                        self.interner.resolve(effect),
+                        self.interner.resolve(arm.operation_name)
+                    ),
+                    "Declare the handled operation before using it in a handler arm.",
+                );
             }
             let body_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(&arm.body));
             self.env.leave_scope();
             arm_result = Some(match arm_result {
-                Some(prev) => self.join_types(&prev, &body_ty),
+                Some(prev) => self.unify_with_context(
+                    &prev,
+                    &body_ty,
+                    arm.body.span(),
+                    ReportContext::MatchArm {
+                        first_span: arms[0].body.span(),
+                        arm_span: arm.body.span(),
+                        arm_index: arm_index + 1,
+                    },
+                ),
                 None => body_ty,
             });
         }
 
-        let arm_ty = arm_result.unwrap_or(InferType::Con(TypeConstructor::Any));
-        self.join_types(&handled_ty, &arm_ty)
+        let arm_ty = arm_result.unwrap_or_else(|| {
+            if self.strict_mode_enabled() {
+                self.emit_strict_inference_error(
+                    expr.span(),
+                    "Handle expressions must include at least one typed handler arm in strict mode.",
+                    "Add at least one handler arm, or use a handled expression with a declared effect operation.",
+                );
+                self.env.alloc_infer_type_var()
+            } else {
+                self.env.alloc_infer_type_var()
+            }
+        });
+        self.unify_with_context(&handled_ty, &arm_ty, expr.span(), ReportContext::Plain)
     }
 }

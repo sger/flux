@@ -51,7 +51,7 @@ impl<'a> InferCtx<'a> {
     /// - Emits per-argument mismatch diagnostics only on fixed-arity typed paths.
     ///
     /// Returns:
-    /// - Inferred call return type or `Any` via fallback paths.
+    /// - Inferred call return type or a fresh inference variable via fallback paths.
     pub(super) fn infer_function_call(&mut self, input: CallInferInput<'_>) -> InferType {
         let fn_ty = self.infer_expression(input.function);
         let fn_ty_resolved = fn_ty.apply_type_subst(&self.subst);

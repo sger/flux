@@ -213,14 +213,36 @@ impl<'a> InferCtx<'a> {
                     self.bind_pattern_variables(field, field_ty, span);
                 }
             } else {
+                if self.strict_mode_enabled() {
+                    self.emit_strict_inference_error(
+                        pattern.span(),
+                        format!(
+                            "Pattern `{}` uses the wrong number of constructor fields in strict mode.",
+                            pattern.display_with(self.interner)
+                        ),
+                        "Match the constructor arity exactly in the pattern.",
+                    );
+                }
                 for field in fields {
-                    self.bind_pattern_variables(field, &InferType::Con(TypeConstructor::Any), span);
+                    let fallback = self.env.alloc_infer_type_var();
+                    self.bind_pattern_variables(field, &fallback, span);
                 }
             }
             return;
         }
+        if self.strict_mode_enabled() {
+            self.emit_strict_inference_error(
+                pattern.span(),
+                format!(
+                    "Could not resolve constructor pattern `{}` in strict mode.",
+                    pattern.display_with(self.interner)
+                ),
+                "Make sure the constructor exists and is in scope before using it in a pattern.",
+            );
+        }
         for field in fields {
-            self.bind_pattern_variables(field, &InferType::Con(TypeConstructor::Any), span);
+            let fallback = self.env.alloc_infer_type_var();
+            self.bind_pattern_variables(field, &fallback, span);
         }
     }
 
