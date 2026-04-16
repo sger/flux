@@ -1,3 +1,20 @@
+// parity-expected-stdout-begin
+// Right(42)
+// Left("error occurred")
+// "Success: 42"
+// "Error: error occurred"
+// Right(5)
+// Left("division by zero")
+// "Result: 5"
+// "Failed: division by zero"
+// true
+// false
+// true
+// false
+// 100
+// 0
+// parity-expected-stdout-end
+
 fn describe(result) {
     match result {
         Left(err) -> "Error: " + err,
@@ -10,8 +27,8 @@ fn safeDivide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
-    Right(a / b)
-}
+        Right(a / b)
+    }
 }
 
 fn isRight(either) {

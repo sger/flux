@@ -1,3 +1,9 @@
+// parity-expected-stdout-begin
+// 1
+// 2
+// 3
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Rebinding in Flux uses new binding names, not assignment.
 

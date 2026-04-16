@@ -1,3 +1,14 @@
+// parity-expected-stdout-begin
+// Some("Alice")
+// Some(30)
+// Some("Bob")
+// Some(25)
+// 3
+// Some("Alice")
+// Some("Charlie")
+// "Not found"
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn opt_eq(opt, value) {
@@ -20,13 +31,13 @@ fn findById(records, id) {
     if len(records) == 0 {
         None
     } else {
-    let record = expectSome(Array.first(records), "database unexpectedly empty")
-    if opt_eq(record["id"], id) {
-        record
-    } else {
-    findById(Array.drop(records, 1), id)
-}
-}
+        let record = expectSome(Array.first(records), "database unexpectedly empty")
+        if opt_eq(record["id"], id) {
+            record
+        } else {
+            findById(Array.drop(records, 1), id)
+        }
+    }
 }
 
 fn main() with IO {
@@ -43,9 +54,9 @@ fn main() with IO {
 
     // Database is an array of records (hashes)
     let db = [|
-    {"id": 1, "name": "Alice", "age": 30},
-    {"id": 2, "name": "Bob", "age": 25},
-    {"id": 3, "name": "Charlie", "age": 35}
+        {"id": 1, "name": "Alice", "age": 30},
+        {"id": 2, "name": "Bob", "age": 25},
+        {"id": 3, "name": "Charlie", "age": 35}
     |]
 
     // Get records by position
