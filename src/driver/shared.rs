@@ -14,7 +14,6 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DriverCompileConfig {
     pub(crate) strict_mode: bool,
-    pub(crate) strict_inference: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -23,7 +22,6 @@ impl From<&DriverSession> for DriverCompileConfig {
     fn from(value: &DriverSession) -> Self {
         Self {
             strict_mode: value.strict_mode,
-            strict_inference: value.strict_inference,
             enable_optimize: value.enable_optimize,
             enable_analyze: value.enable_analyze,
         }
@@ -162,13 +160,11 @@ mod tests {
     fn compile_config_matches_session() {
         let mut session = base_session();
         session.strict_mode = true;
-        session.strict_inference = true;
         session.enable_optimize = true;
 
         let config = DriverCompileConfig::from(&session);
 
         assert!(config.strict_mode);
-        assert!(config.strict_inference);
         assert!(config.enable_optimize);
         assert!(!config.enable_analyze);
     }
