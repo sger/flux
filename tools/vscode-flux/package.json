@@ -2,7 +2,7 @@
   "name": "flux-language",
   "displayName": "Flux Language",
   "description": "Syntax highlighting and language configuration for Flux (.flx)",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "flux-local",
   "license": "MIT",
   "engines": {
