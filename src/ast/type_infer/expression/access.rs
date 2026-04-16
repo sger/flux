@@ -106,7 +106,7 @@ impl<'a> InferCtx<'a> {
                 "Only imported module member access is currently typed here; add an annotation or use a supported access shape.",
             );
         }
-        self.env.alloc_infer_type_var()
+        self.alloc_fallback_var()
     }
 
     /// Infer tuple field projection by static index.
@@ -124,7 +124,7 @@ impl<'a> InferCtx<'a> {
                         "Use a valid tuple field index for the inferred tuple arity.",
                     );
                 }
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }),
             other => {
                 if self.strict_mode_enabled() {
@@ -137,7 +137,7 @@ impl<'a> InferCtx<'a> {
                         "Use tuple field access only on tuple values.",
                     );
                 }
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }
         }
     }

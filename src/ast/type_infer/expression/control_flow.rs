@@ -45,7 +45,7 @@ impl<'a> InferCtx<'a> {
                         .with_category(DiagnosticCategory::TypeInference),
                 );
             }
-            return self.env.alloc_infer_type_var();
+            return self.alloc_fallback_var();
         }
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(&scrutinee_ty, &input);
         let (first_ty, first_span) =

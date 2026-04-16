@@ -10,7 +10,24 @@ exit_code: 1
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-• 1 error • tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx
+• 2 errors • tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx
+error[E430]: Any Type Inferred
+
+Could not determine a concrete type for `main`. Inferred type: `() -> Array<_>`.
+
+  tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx:1:1
+  |
+1 | fn main() {
+  | ^^^^^^^^^^^
+2 |     [|1, "x"|]
+  | ^^^^^^^^^^^^^^
+3 | }
+  | ^
+
+Hint:
+  Add a type annotation: e.g. `fn main(x: Int, y: Int): Int`
+
+
 error[E300]: Type Mismatch
 
 I found a type mismatch.
@@ -30,3 +47,5 @@ Note:
 
 Help:
   These two types are not compatible.
+
+Found 2 errors.

@@ -368,7 +368,7 @@ impl<'a> InferCtx<'a> {
                 if t1_resolved.is_concrete() {
                     t1_resolved
                 } else {
-                    self.env.alloc_infer_type_var()
+                    self.alloc_fallback_var()
                 }
             }
         }

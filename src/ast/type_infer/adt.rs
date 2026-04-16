@@ -121,7 +121,7 @@ impl<'a> InferCtx<'a> {
                     "Make sure the constructor is declared and imported before calling it.",
                 );
             }
-            return self.env.alloc_infer_type_var();
+            return self.alloc_fallback_var();
         };
         if arg_tys.len() != param_tys.len() {
             let name_str = self.interner.resolve(constructor).to_string();
@@ -136,7 +136,7 @@ impl<'a> InferCtx<'a> {
                     ))
                     .with_file(self.file_path.clone()),
             );
-            return self.env.alloc_infer_type_var();
+            return self.alloc_fallback_var();
         }
         for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
             self.unify_reporting(actual, expected, span);

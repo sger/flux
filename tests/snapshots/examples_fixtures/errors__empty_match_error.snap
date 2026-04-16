@@ -5,6 +5,19 @@ Fixture: examples/errors/empty_match_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E430]: Any Type Inferred
+
+Could not determine a concrete type for `x`. Inferred type: `_`.
+
+  examples/errors/empty_match_error.flx:2:1
+  |
+2 | let x = match 1 { };
+  | ^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add a type annotation: e.g. `fn x(x: Int, y: Int): Int`
+
+
 error[E014]: Empty Match
 
 Match expression must have at least one arm.
@@ -72,6 +85,6 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 5 errors.
+Found 6 errors.
 == stdout ==
 <not executed>
