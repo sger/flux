@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/advanced/functional_pipeline.flx:35:19
+  examples/advanced/functional_pipeline.flx:37:19
    |
-35 |     let doubled = map(numbers, /x -> x * 2)
+37 |     let doubled = map(numbers, /x -> x * 2)
    |                   ^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/advanced/functional_pipeline.flx:39:19
+  examples/advanced/functional_pipeline.flx:41:19
    |
-39 |     let bigNums = filter(numbers, /x -> x > 3)
+41 |     let bigNums = filter(numbers, /x -> x > 3)
    |                   ^^^^^^
 
 Hint:
@@ -35,9 +35,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/advanced/functional_pipeline.flx:43:17
+  examples/advanced/functional_pipeline.flx:45:17
    |
-43 |     let total = fold(numbers, 0, /(acc, x) -> acc + x)
+45 |     let total = fold(numbers, 0, /(acc, x) -> acc + x)
    |                 ^^^^
 
 Hint:
@@ -48,9 +48,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/advanced/functional_pipeline.flx:47:24
+  examples/advanced/functional_pipeline.flx:49:24
    |
-47 |     let totalProduct = fold(numbers, 1, /(acc, x) -> acc * x)
+49 |     let totalProduct = fold(numbers, 1, /(acc, x) -> acc * x)
    |                        ^^^^
 
 Hint:
@@ -61,49 +61,23 @@ error[E004]: Undefined Variable
 
 I can't find a value named `first`.
 
-  examples/advanced/functional_pipeline.flx:73:11
+  examples/advanced/functional_pipeline.flx:75:5
    |
-73 |     match first(names) {
-   |           ^^^^^
+75 |     first(names) |> upper |> print
+   |     ^^^^^
 
 Hint:
   Define it first: let first = ...;
-
-
-error[E300]: Match Arm Type Mismatch
-
-The arms of this `match` expression do not agree on a type.
-
-  examples/advanced/functional_pipeline.flx:75:14
-   |
-74 |         Some(n) -> print(upper(n)),
-   |                    --------------- first arm returns `Unit`
-
-   |                    --------------- this arm established the expected type
-75 |         _ -> ()
-   |              ^^
-   |              -- arm 2 has type `()`
-
-   |              -- arm 2 conflicts with that type
-
-Note:
-  first arm type: Unit
-  this arm type: ()
-  the first arm fixes the type expected from the whole `match`
-  this arm produces the competing type
-
-Help:
-  Change arm 2 so every arm returns the same type.
 
 
 error[E004]: Undefined Variable
 
 I can't find a value named `first`.
 
-  examples/advanced/functional_pipeline.flx:78:11
+  examples/advanced/functional_pipeline.flx:76:5
    |
-78 |     match first(rest(names)) {
-   |           ^^^^^
+76 |     first(rest(names)) |> upper |> print
+   |     ^^^^^
 
 Hint:
   Define it first: let first = ...;
@@ -113,14 +87,14 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/advanced/functional_pipeline.flx:88:22
+  examples/advanced/functional_pipeline.flx:83:22
    |
-88 |     let uppercased = map(words, /w -> w |> upper)
+83 |     let uppercased = map(words, /w -> w |> upper)
    |                      ^^^
 
 Hint:
   Define it first: let map = ...;
 
-Found 8 errors.
+Found 7 errors.
 == stdout ==
 <not executed>

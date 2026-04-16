@@ -1,16 +1,4 @@
 // Test: Using Functional Patterns with Pipelines and Lambdas
-// Expected output:
-// Using functional helper functions:
-// Doubled: [|2, 4, 6, 8, 10|]
-// Evens: [|2, 4|]
-// Sum: 15
-// Composing with lambdas:
-// Triple then add 1: 16
-// Applied 4 times: 80
-// Pipeline with functions:
-// HELLO
-// WORLD
-// FLUX
 // parity-expected-stdout-begin
 // "Using functional helper functions:"
 // "Doubled: [|2, 4, 6, 8, 10|]"
@@ -35,8 +23,8 @@ fn applyN(f, n, x) {
     if n <= 0 {
         x
     } else {
-    applyN(f, n - 1, f(x))
-}
+        applyN(f, n - 1, f(x))
+    }
 }
 
 fn main() with IO {
