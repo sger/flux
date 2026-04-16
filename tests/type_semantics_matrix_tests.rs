@@ -1,8 +1,8 @@
-#[path = "support/semantic_matrix.rs"]
-mod semantic_matrix;
+#[path = "support/semantic_infer.rs"]
+mod semantic_infer;
 
 use flux::diagnostics::render_diagnostics;
-use semantic_matrix::{
+use semantic_infer::{
     assert_module_member_schemes, assert_named_schemes, compile_module_fixture,
     compile_single_file_fixture, first_error_code,
 };

@@ -1,7 +1,7 @@
-#[path = "support/semantic_matrix.rs"]
-mod semantic_matrix;
+#[path = "support/semantic_runtime.rs"]
+mod semantic_runtime;
 
-use semantic_matrix::{combined_output, run_fixture};
+use semantic_runtime::{combined_output, run_fixture};
 
 fn output_lines(text: &str) -> Vec<String> {
     text.lines()

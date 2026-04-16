@@ -1,7 +1,7 @@
-#[path = "support/semantic_matrix.rs"]
-mod semantic_matrix;
+#[path = "support/semantic_core_dump.rs"]
+mod semantic_core_dump;
 
-use semantic_matrix::dump_core_debug_fixture;
+use semantic_core_dump::dump_core_debug_fixture;
 
 #[test]
 fn debug_core_preserves_polymorphic_function_types_without_dynamic() {
