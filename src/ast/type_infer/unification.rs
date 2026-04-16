@@ -122,11 +122,7 @@ impl<'a> InferCtx<'a> {
     /// Checks the concrete/non-fallback guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
-        if !error.expected.is_concrete()
-            || !error.actual.is_concrete()
-            || error.expected.contains_any()
-            || error.actual.contains_any()
-        {
+        if !error.expected.is_concrete() || !error.actual.is_concrete() {
             return false;
         }
 
@@ -369,7 +365,7 @@ impl<'a> InferCtx<'a> {
                 // concrete so downstream inference keeps useful information
                 // instead of collapsing through a legacy dynamic sink.
                 let t1_resolved = t1.apply_type_subst(&self.subst);
-                if t1_resolved.is_concrete() && !t1_resolved.contains_any() {
+                if t1_resolved.is_concrete() {
                     t1_resolved
                 } else {
                     self.env.alloc_infer_type_var()

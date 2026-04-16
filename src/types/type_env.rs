@@ -12,7 +12,6 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeTypeLoweringIssue {
-    ExplicitAny,
     UnresolvedTypeVariable,
     OpenFunctionEffects,
     UnsupportedNominalType,

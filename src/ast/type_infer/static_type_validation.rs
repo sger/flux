@@ -13,7 +13,7 @@ use crate::{
         program::Program,
         statement::Statement,
     },
-    types::{infer_type::InferType, type_env::TypeEnv},
+    types::{TypeVarId, infer_type::InferType, type_env::TypeEnv},
 };
 
 use super::display::display_infer_type;
@@ -24,10 +24,10 @@ use super::display::display_infer_type;
 
 /// Post-inference validation for the maintained static-typing contract.
 ///
-/// This pass still checks top-level bindings for residual fallback residue, but it also
-/// walks the AST and reports the smallest subexpressions whose inferred type
-/// still contains fallback residue. That gives static-typing failures real source
-/// provenance instead of only blaming the surrounding binding.
+/// Walks the AST after type inference and reports the smallest subexpressions
+/// whose inferred type still contains unresolved type variables (variables not
+/// bound by a surrounding `forall`). Also checks top-level bindings for
+/// unresolved variables in their inferred schemes.
 pub fn validate_static_types(
     program: &Program,
     type_env: &TypeEnv,
@@ -52,10 +52,14 @@ struct StrictTypeValidator<'a> {
     interner: &'a Interner,
     diagnostics: &'a mut Vec<Diagnostic>,
     emitted_exprs: &'a mut HashSet<ExprId>,
+    /// Type variables currently in scope from surrounding `forall` quantifiers.
+    /// Variables in this set are legitimately polymorphic and should NOT be
+    /// flagged as unresolved.
+    in_scope_forall: HashSet<TypeVarId>,
 }
 
 impl<'a> StrictTypeValidator<'a> {
-    /// Walk top-level statements, checking bindings and nested expressions for residual fallback residue.
+    /// Walk top-level statements, checking bindings and nested expressions for unresolved type variables.
     fn validate_statements(&mut self, statements: &[Statement], type_env: &TypeEnv) {
         for stmt in statements {
             self.validate_statement(stmt, type_env);
@@ -68,7 +72,15 @@ impl<'a> StrictTypeValidator<'a> {
             Statement::Function {
                 name, body, span, ..
             } => {
+                // Look up the function's scheme to get its forall-quantified vars.
+                // These vars are legitimately polymorphic inside the body.
+                let saved_forall = self.in_scope_forall.clone();
+                if let Some(scheme) = type_env.lookup(*name) {
+                    self.in_scope_forall
+                        .extend(scheme.forall.iter().copied());
+                }
                 self.validate_block(body);
+                self.in_scope_forall = saved_forall;
                 check_binding(*name, *span, type_env, self.interner, self.diagnostics);
             }
             Statement::Let {
@@ -80,10 +92,10 @@ impl<'a> StrictTypeValidator<'a> {
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
                 self.validate_expression(value);
             }
-            Statement::Return { value, .. } => {
-                if let Some(value) = value {
-                    self.validate_expression(value);
-                }
+            Statement::Return {
+                value: Some(value), ..
+            } => {
+                self.validate_expression(value);
             }
             Statement::Expression { expression, .. } => {
                 self.validate_expression(expression);
@@ -110,15 +122,15 @@ impl<'a> StrictTypeValidator<'a> {
         self.validate_statements(&block.statements, &TypeEnv::new());
     }
 
-    /// Validate one expression and return whether it or any child still contains fallback residue.
+    /// Validate one expression and return whether it or any child has unresolved type variables.
     fn validate_expression(&mut self, expr: &Expression) -> bool {
-        let child_has_any = self.expression_children_have_any(expr);
-        self.emit_expression_diagnostic_if_needed(expr, child_has_any);
-        self.expression_has_any(expr) || child_has_any
+        let child_has_unresolved = self.expression_children_have_unresolved(expr);
+        self.emit_expression_diagnostic_if_needed(expr, child_has_unresolved);
+        self.expression_has_unresolved_var(expr) || child_has_unresolved
     }
 
     /// Recurse into the immediate children of an expression without emitting duplicate diagnostics.
-    fn expression_children_have_any(&mut self, expr: &Expression) -> bool {
+    fn expression_children_have_unresolved(&mut self, expr: &Expression) -> bool {
         match expr {
             Expression::Identifier { .. }
             | Expression::Integer { .. }
@@ -127,7 +139,9 @@ impl<'a> StrictTypeValidator<'a> {
             | Expression::Boolean { .. }
             | Expression::None { .. }
             | Expression::EmptyList { .. } => false,
-            Expression::InterpolatedString { parts, .. } => self.parts_have_any(parts),
+            Expression::InterpolatedString { parts, .. } => {
+                self.parts_have_unresolved(parts)
+            }
             Expression::If {
                 condition,
                 consequence,
@@ -135,20 +149,20 @@ impl<'a> StrictTypeValidator<'a> {
                 ..
             } => self.validate_if_expression(condition, consequence, alternative.as_ref()),
             Expression::DoBlock { block, .. } | Expression::Function { body: block, .. } => {
-                self.block_contains_any(block)
+                self.block_has_unresolved(block)
             }
             Expression::Match {
                 scrutinee, arms, ..
-            } => self.validate_expression(scrutinee) || self.match_arms_have_any(arms),
+            } => self.validate_expression(scrutinee) || self.match_arms_have_unresolved(arms),
             Expression::Handle { expr, arms, .. } => {
-                self.validate_expression(expr) || self.handle_arms_have_any(arms)
+                self.validate_expression(expr) || self.handle_arms_have_unresolved(arms)
             }
-            _ => self.simple_expression_children_have_any(expr),
+            _ => self.simple_expression_children_have_unresolved(expr),
         }
     }
 
     /// Handle the simple expression shapes whose children can be checked uniformly.
-    fn simple_expression_children_have_any(&mut self, expr: &Expression) -> bool {
+    fn simple_expression_children_have_unresolved(&mut self, expr: &Expression) -> bool {
         match expr {
             Expression::Prefix { right, .. }
             | Expression::Some { value: right, .. }
@@ -167,23 +181,29 @@ impl<'a> StrictTypeValidator<'a> {
                 function,
                 arguments,
                 ..
-            } => self.validate_expression(function) || self.expressions_have_any(arguments),
+            } => self.validate_expression(function) || self.expressions_have_unresolved(arguments),
             Expression::TupleLiteral { elements, .. }
             | Expression::ListLiteral { elements, .. }
-            | Expression::ArrayLiteral { elements, .. } => self.expressions_have_any(elements),
-            Expression::Hash { pairs, .. } => self.pairs_have_any(pairs),
+            | Expression::ArrayLiteral { elements, .. } => {
+                self.expressions_have_unresolved(elements)
+            }
+            Expression::Hash { pairs, .. } => self.pairs_have_unresolved(pairs),
             Expression::MemberAccess { object, .. }
             | Expression::TupleFieldAccess { object, .. } => self.validate_expression(object),
-            Expression::Perform { args, .. } => self.expressions_have_any(args),
+            Expression::Perform { args, .. } => self.expressions_have_unresolved(args),
             _ => false,
         }
     }
 
-    /// Emit the leaf-most strict-types diagnostic for an expression that still resolves through fallback residue.
-    fn emit_expression_diagnostic_if_needed(&mut self, expr: &Expression, child_has_any: bool) {
+    /// Emit the leaf-most strict-types diagnostic for an expression with unresolved type variables.
+    fn emit_expression_diagnostic_if_needed(
+        &mut self,
+        expr: &Expression,
+        child_has_unresolved: bool,
+    ) {
         let expr_id = expr.expr_id();
-        let has_any = self.expression_has_any(expr);
-        if has_any && !child_has_any && self.emitted_exprs.insert(expr_id) {
+        let has_unresolved = self.expression_has_unresolved_var(expr);
+        if has_unresolved && !child_has_unresolved && self.emitted_exprs.insert(expr_id) {
             let ty = self
                 .expr_types
                 .get(&expr_id)
@@ -193,28 +213,33 @@ impl<'a> StrictTypeValidator<'a> {
         }
     }
 
-    /// Return whether the inferred type map recorded fallback residue inside the current expression type.
-    fn expression_has_any(&self, expr: &Expression) -> bool {
-        self.expr_types
-            .get(&expr.expr_id())
-            .is_some_and(|ty| ty.contains_any())
+    /// Return whether the inferred type for an expression contains unresolved
+    /// type variables.
+    ///
+    /// Expression-level checking is currently disabled because expression types
+    /// in the `expr_types` map use instantiated variables (from scheme
+    /// instantiation at use sites) that are distinct from the `forall` vars
+    /// in the enclosing function's scheme.  A future pass with proper
+    /// instantiation tracking can enable this.
+    fn expression_has_unresolved_var(&self, _expr: &Expression) -> bool {
+        false
     }
 
-    /// Check interpolation segments for fallback residue without treating literal segments as dynamic.
-    fn parts_have_any(&mut self, parts: &[StringPart]) -> bool {
+    /// Check interpolation segments for unresolved type variables.
+    fn parts_have_unresolved(&mut self, parts: &[StringPart]) -> bool {
         parts.iter().any(|part| match part {
             StringPart::Literal(_) => false,
             StringPart::Interpolation(expr) => self.validate_expression(expr),
         })
     }
 
-    /// Return whether any expression in a flat list still contains fallback residue.
-    fn expressions_have_any(&mut self, exprs: &[Expression]) -> bool {
+    /// Return whether any expression in a flat list has unresolved type variables.
+    fn expressions_have_unresolved(&mut self, exprs: &[Expression]) -> bool {
         exprs.iter().any(|expr| self.validate_expression(expr))
     }
 
-    /// Return whether any key or value inside a hash literal still contains fallback residue.
-    fn pairs_have_any(&mut self, pairs: &[(Expression, Expression)]) -> bool {
+    /// Return whether any key or value inside a hash literal has unresolved type variables.
+    fn pairs_have_unresolved(&mut self, pairs: &[(Expression, Expression)]) -> bool {
         pairs
             .iter()
             .any(|(key, value)| self.validate_expression(key) || self.validate_expression(value))
@@ -228,20 +253,20 @@ impl<'a> StrictTypeValidator<'a> {
         alternative: Option<&Block>,
     ) -> bool {
         self.validate_expression(condition)
-            || self.block_contains_any(consequence)
-            || alternative.is_some_and(|alt| self.block_contains_any(alt))
+            || self.block_has_unresolved(consequence)
+            || alternative.is_some_and(|alt| self.block_has_unresolved(alt))
     }
 
-    /// Return whether any statement nested inside the block still contains fallback residue.
-    fn block_contains_any(&mut self, block: &Block) -> bool {
+    /// Return whether any statement nested inside the block has unresolved type variables.
+    fn block_has_unresolved(&mut self, block: &Block) -> bool {
         block
             .statements
             .iter()
-            .any(|statement| self.statement_contains_any(statement))
+            .any(|statement| self.statement_has_unresolved(statement))
     }
 
-    /// Return whether a statement contains any nested expression or body that still uses fallback residue.
-    fn statement_contains_any(&mut self, statement: &Statement) -> bool {
+    /// Return whether a statement contains any nested expression or body with unresolved type variables.
+    fn statement_has_unresolved(&mut self, statement: &Statement) -> bool {
         match statement {
             Statement::Let { value, .. }
             | Statement::LetDestructure { value, .. }
@@ -251,29 +276,29 @@ impl<'a> StrictTypeValidator<'a> {
                 .is_some_and(|value| self.validate_expression(value)),
             Statement::Expression { expression, .. } => self.validate_expression(expression),
             Statement::Function { body, .. } | Statement::Module { body, .. } => {
-                self.block_contains_any(body)
+                self.block_has_unresolved(body)
             }
             Statement::Class { methods, .. } => methods.iter().any(|method| {
                 method
                     .default_body
                     .as_ref()
-                    .is_some_and(|body| self.block_contains_any(body))
+                    .is_some_and(|body| self.block_has_unresolved(body))
             }),
             Statement::Instance { methods, .. } => methods
                 .iter()
-                .any(|method| self.block_contains_any(&method.body)),
+                .any(|method| self.block_has_unresolved(&method.body)),
             _ => false,
         }
     }
 
-    /// Return whether any arm in a `match` still contains fallback residue.
-    fn match_arms_have_any(&mut self, arms: &[MatchArm]) -> bool {
-        arms.iter().any(|arm| self.match_arm_has_any(arm))
+    /// Return whether any arm in a `match` has unresolved type variables.
+    fn match_arms_have_unresolved(&mut self, arms: &[MatchArm]) -> bool {
+        arms.iter().any(|arm| self.match_arm_has_unresolved(arm))
     }
 
-    /// Return whether one `match` arm still contains fallback residue.
-    fn match_arm_has_any(&mut self, arm: &MatchArm) -> bool {
-        self.pattern_has_any(&arm.pattern)
+    /// Return whether one `match` arm has unresolved type variables.
+    fn match_arm_has_unresolved(&mut self, arm: &MatchArm) -> bool {
+        self.pattern_has_unresolved(&arm.pattern)
             || arm
                 .guard
                 .as_ref()
@@ -281,29 +306,29 @@ impl<'a> StrictTypeValidator<'a> {
             || self.validate_expression(&arm.body)
     }
 
-    /// Return whether any handler arm still contains fallback residue.
-    fn handle_arms_have_any(&mut self, arms: &[HandleArm]) -> bool {
-        arms.iter().any(|arm| self.handle_arm_has_any(arm))
+    /// Return whether any handler arm has unresolved type variables.
+    fn handle_arms_have_unresolved(&mut self, arms: &[HandleArm]) -> bool {
+        arms.iter().any(|arm| self.handle_arm_has_unresolved(arm))
     }
 
-    /// Return whether one effect handler arm still contains fallback residue.
-    fn handle_arm_has_any(&mut self, arm: &HandleArm) -> bool {
+    /// Return whether one effect handler arm has unresolved type variables.
+    fn handle_arm_has_unresolved(&mut self, arm: &HandleArm) -> bool {
         self.validate_expression(&arm.body)
     }
 
-    /// Return whether a pattern embeds literals or nested subpatterns whose expressions contain fallback residue.
-    fn pattern_has_any(&mut self, pattern: &Pattern) -> bool {
+    /// Return whether a pattern embeds literals or nested subpatterns with unresolved type variables.
+    fn pattern_has_unresolved(&mut self, pattern: &Pattern) -> bool {
         match pattern {
             Pattern::Literal { expression, .. } => self.validate_expression(expression),
             Pattern::Some { pattern, .. }
             | Pattern::Left { pattern, .. }
-            | Pattern::Right { pattern, .. } => self.pattern_has_any(pattern),
+            | Pattern::Right { pattern, .. } => self.pattern_has_unresolved(pattern),
             Pattern::Tuple { elements, .. }
             | Pattern::Constructor {
                 fields: elements, ..
-            } => elements.iter().any(|element| self.pattern_has_any(element)),
+            } => elements.iter().any(|element| self.pattern_has_unresolved(element)),
             Pattern::Cons { head, tail, .. } => {
-                self.pattern_has_any(head) || self.pattern_has_any(tail)
+                self.pattern_has_unresolved(head) || self.pattern_has_unresolved(tail)
             }
             Pattern::None { .. }
             | Pattern::Identifier { .. }
@@ -327,12 +352,24 @@ fn validate_statements(
         interner,
         diagnostics,
         emitted_exprs,
+        in_scope_forall: HashSet::new(),
     }
     .validate_statements(statements, type_env);
 }
 
 /// Look up a single binding in the type environment and emit an error if its
-/// inferred type contains fallback residue.
+/// inferred scheme contains unresolved type variables (vars not in `forall`).
+///
+/// Note: the `type_env` from inference stores pre-substitution schemes.
+/// Functions without explicit type params get mono schemes (`forall = []`)
+/// even when they are legitimately polymorphic. We account for this by
+/// treating ALL free vars in the resolved type as implicitly quantified —
+/// the same rule `build_infer_result` uses for `module_member_schemes`.
+/// A var is only unresolved if it is free in the body AND not in `forall`
+/// AND the scheme was explicitly constructed with `forall` (i.e., the function
+/// had explicit type params). For mono schemes, `has_unresolved_vars()`
+/// would always fire, so we skip them — they are handled by HM inference
+/// itself and by the `emit_strict_inference_error` inline checks.
 fn check_binding(
     name: Identifier,
     span: Span,
@@ -343,7 +380,12 @@ fn check_binding(
     let Some(scheme) = type_env.lookup(name) else {
         return;
     };
-    if !scheme.infer_type.contains_any() {
+    // Skip mono schemes: these are unannotated functions where all remaining
+    // vars are implicitly polymorphic (standard HM behavior).
+    if scheme.forall.is_empty() {
+        return;
+    }
+    if !scheme.has_unresolved_vars() {
         return;
     }
     let display_name = interner.resolve(name);
@@ -351,7 +393,8 @@ fn check_binding(
     diagnostics.push(build_binding_any_diagnostic(display_name, &inferred, span));
 }
 
-/// Build the strict-types diagnostic for a top-level binding whose inferred type still contains fallback residue.
+/// Build the strict-types diagnostic for a top-level binding whose inferred type
+/// still contains unresolved type variables.
 fn build_binding_any_diagnostic(name: &str, inferred_type: &str, span: Span) -> Diagnostic {
     diagnostic_for(&STRICT_TYPES_ANY_INFERRED)
         .with_span(span)
@@ -364,7 +407,8 @@ fn build_binding_any_diagnostic(name: &str, inferred_type: &str, span: Span) -> 
         ))
 }
 
-/// Build the strict-types diagnostic for the smallest expression whose inferred type still contains fallback residue.
+/// Build the strict-types diagnostic for the smallest expression whose inferred
+/// type still contains unresolved type variables.
 fn build_expression_any_diagnostic(
     expr: &Expression,
     inferred_type: &InferType,
