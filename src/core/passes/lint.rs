@@ -19,6 +19,8 @@ use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreHandler, CorePat, CorePro
 pub struct CoreLintError {
     pub kind: CoreLintErrorKind,
     pub message: String,
+    /// Name symbol of the top-level definition containing the violation.
+    pub def_name: Option<crate::syntax::Identifier>,
 }
 
 /// Categories of Core lint violations.
@@ -51,7 +53,12 @@ pub fn lint_core_program(program: &CoreProgram) -> Result<(), Vec<CoreLintError>
     let top_level_scope: HashSet<CoreBinderId> =
         program.defs.iter().map(|d| d.binder.id).collect();
     for def in &program.defs {
+        let before = errors.len();
         lint_expr(&def.expr, &mut top_level_scope.clone(), &mut errors);
+        // Tag new errors with the definition name.
+        for e in &mut errors[before..] {
+            e.def_name = Some(def.name);
+        }
     }
     if errors.is_empty() {
         Ok(())
@@ -81,6 +88,7 @@ fn lint_expr(expr: &CoreExpr, in_scope: &mut HashSet<CoreBinderId>, errors: &mut
                 if !in_scope.contains(&id) {
                     errors.push(CoreLintError {
                         kind: CoreLintErrorKind::UnresolvedVar,
+                        def_name: None,
                         message: format!(
                             "variable `{}` references binder {:?} which is not in scope",
                             var.name.as_u32(),
@@ -102,6 +110,7 @@ fn lint_expr(expr: &CoreExpr, in_scope: &mut HashSet<CoreBinderId>, errors: &mut
             if !param_types.is_empty() && param_types.len() != params.len() {
                 errors.push(CoreLintError {
                     kind: CoreLintErrorKind::LamParamTypeMismatch,
+                    def_name: None,
                     message: format!(
                         "Lam has {} params but {} param_types",
                         params.len(),
@@ -151,6 +160,7 @@ fn lint_expr(expr: &CoreExpr, in_scope: &mut HashSet<CoreBinderId>, errors: &mut
             if bindings.is_empty() {
                 errors.push(CoreLintError {
                     kind: CoreLintErrorKind::LetRecGroupEmpty,
+                    def_name: None,
                     message: "LetRecGroup has zero bindings".to_string(),
                 });
             }
@@ -227,6 +237,7 @@ fn lint_handler(
     if !handler.param_types.is_empty() && handler.param_types.len() != handler.params.len() {
         errors.push(CoreLintError {
             kind: CoreLintErrorKind::HandlerParamTypeMismatch,
+            def_name: None,
             message: format!(
                 "Handler has {} params but {} param_types",
                 handler.params.len(),
@@ -269,6 +280,7 @@ fn check_duplicate_binders(
         if !seen.insert(id) {
             errors.push(CoreLintError {
                 kind: CoreLintErrorKind::DuplicateBinder,
+                def_name: None,
                 message: format!("duplicate binder {:?} in {context}", id),
             });
         }

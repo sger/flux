@@ -37,13 +37,25 @@ pub fn format_source(source: &str) -> String {
 
 fn leading_close_count(line: &str) -> usize {
     let mut count = 0;
-    for ch in line.chars() {
+    let mut chars = line.chars().peekable();
+    while let Some(&ch) = chars.peek() {
         if ch.is_whitespace() {
+            chars.next();
             continue;
         }
-        if ch == '}' || ch == ')' {
+        if ch == '}' || ch == ')' || ch == ']' {
             count += 1;
+            chars.next();
             continue;
+        }
+        // Handle array close delimiter: |]
+        if ch == '|' {
+            chars.next();
+            if chars.peek() == Some(&']') {
+                count += 1;
+                chars.next();
+                continue;
+            }
         }
         break;
     }
@@ -70,8 +82,8 @@ fn brace_delta(line: &str, leading_closes: usize) -> usize {
             continue;
         }
         match ch {
-            '{' | '(' => opens += 1,
-            '}' | ')' => closes += 1,
+            '{' | '(' | '[' => opens += 1,
+            '}' | ')' | ']' => closes += 1,
             _ => {}
         }
     }

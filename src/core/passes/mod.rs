@@ -178,7 +178,7 @@ fn run_semantic_core_passes_with_optional_interner(
         }
 
         // Verify Core invariants after each simplification round.
-        core_lint_stage(program, "simplification", &mut warnings);
+        core_lint_stage(program, "simplification", &mut warnings, interner);
 
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
@@ -205,7 +205,7 @@ fn run_semantic_core_passes_with_optional_interner(
     }
 
     // Verify Core invariants after normalization.
-    core_lint_stage(program, "normalization", &mut warnings);
+    core_lint_stage(program, "normalization", &mut warnings, interner);
 
     Ok(warnings)
 }
@@ -328,11 +328,27 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
 /// Collects lint violations as warnings rather than blocking compilation.
 /// This allows pre-existing Core IR issues to be surfaced without breaking
 /// the build, matching GHC's opt-in `-dcore-lint` approach.
-fn core_lint_stage(program: &CoreProgram, stage: &'static str, warnings: &mut Vec<Diagnostic>) {
+fn core_lint_stage(
+    program: &CoreProgram,
+    stage: &'static str,
+    warnings: &mut Vec<Diagnostic>,
+    interner: Option<&Interner>,
+) {
     if let Err(errors) = lint::lint_core_program(program) {
         let detail = errors
             .iter()
-            .map(|e| format!("  [{:?}] {}", e.kind, e.message))
+            .map(|e| {
+                let def = e
+                    .def_name
+                    .map(|n| {
+                        let resolved = interner
+                            .and_then(|i| i.try_resolve(n))
+                            .unwrap_or("?");
+                        format!(" in `{resolved}`")
+                    })
+                    .unwrap_or_default();
+                format!("  [{:?}]{def} {}", e.kind, e.message)
+            })
             .collect::<Vec<_>>()
             .join("\n");
         warnings.push(

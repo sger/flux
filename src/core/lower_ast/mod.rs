@@ -625,8 +625,15 @@ impl<'a> AstLowerer<'a> {
             } => {
                 let binder = self.bind_name(*name);
                 let params = self.bind_fn_params(*name, parameters);
-                let (param_types, inferred_result_ty) =
+                let (mut param_types, inferred_result_ty) =
                     self.lambda_signature_from_function_name(*name);
+                // Guard: param_types must match params length. If the scheme's
+                // Fun type has a different arity (e.g., from cross-function
+                // inlining or module-scoped name shadowing), discard param_types
+                // to prevent LamParamTypeMismatch.
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -756,7 +763,11 @@ impl<'a> AstLowerer<'a> {
                 } => {
                     let binder = self.bind_name(*name);
                     let params = self.bind_fn_params(*name, parameters);
-                    let (param_types, result_ty) = self.lambda_signature_from_function_name(*name);
+                    let (mut param_types, result_ty) =
+                        self.lambda_signature_from_function_name(*name);
+                    if !param_types.is_empty() && param_types.len() != params.len() {
+                        param_types = Vec::new();
+                    }
                     let body_expr = self.lower_block(body);
                     let expr = CoreExpr::Lam {
                         params,
@@ -1038,7 +1049,11 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
-                let (param_types, result_ty) = self.lambda_signature_from_function_name(*name);
+                let (mut param_types, result_ty) =
+                    self.lambda_signature_from_function_name(*name);
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 (
                     binder,
@@ -1098,7 +1113,11 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
-                let (param_types, result_ty) = self.lambda_signature_from_function_name(*name);
+                let (mut param_types, result_ty) =
+                    self.lambda_signature_from_function_name(*name);
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 CoreExpr::LetRec {
                     var: binder,
