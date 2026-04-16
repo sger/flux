@@ -1,3 +1,14 @@
+// parity-expected-stdout-begin
+// 1
+// 2
+// 3
+// 4
+// 5
+// "done"
+// 15
+// 3
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn printAll(arr) with IO {

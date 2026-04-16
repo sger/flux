@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// 2
+// None
+// 4
+// 3
+// Some(1)
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: do block expressions
     // Expected output:
@@ -28,21 +36,21 @@ fn main() with IO {
             a * 2
         }
     } else {
-    0
-}
-print(branch)
+        0
+    }
+    print(branch)
 
-// do-block inside match arm body
-let m = match 1 {
-    1 -> do {
-        let v = 3
-        v
-    },
-    _ -> 0
-}
-print(m)
+    // do-block inside match arm body
+    let m = match 1 {
+        1 -> do {
+            let v = 3
+            v
+        },
+        _ -> 0
+    }
+    print(m)
 
-// hash literals remain bare braces
-let h = {"a": 1, "b": 2}
-print(h["a"])
+    // hash literals remain bare braces
+    let h = {"a": 1, "b": 2}
+    print(h["a"])
 }

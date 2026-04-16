@@ -1,3 +1,10 @@
+// parity-expected-stdout-begin
+// "Nested comments example running successfully!"
+// "This code is active!"
+// 0
+// "Alice"
+// parity-expected-stdout-end
+
 fn main() with IO {
     // ════════════════════════════════════════════════════════════════════════════
     // Nested Comment Examples - Advanced comment nesting demonstrations
@@ -159,13 +166,13 @@ fn main() with IO {
 
         Flux's comment system supports:
         ✓ Single-line comments (//)
-        ✓ Block comments (/* */)
-        ✓ Arbitrarily nested block comments
-        ✓ Line doc comments (///)
-        ✓ Block doc comments (/** */)
-        ✓ Nested doc comments
+            ✓ Block comments (/* */)
+            ✓ Arbitrarily nested block comments
+            ✓ Line doc comments (///)
+                ✓ Block doc comments (/** */)
+                ✓ Nested doc comments
 
-        This makes it easy to comment out large code sections
-        without worrying about breaking existing comments!
-        */
-    }
+                This makes it easy to comment out large code sections
+                without worrying about breaking existing comments!
+                */
+            }

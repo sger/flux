@@ -1,3 +1,24 @@
+// parity-expected-stdout-begin
+// "Hello World!"
+// "Sum: 3"
+// "Math: 52"
+// "10 + 20 = 30"
+// "Double of 5 is 10"
+// "Result: yes"
+// "Tab:	here"
+// "Newline:
+// here"
+// "Quote:"here""
+// "Escaped: #{not interpolated}"
+// "42"
+// "3.14"
+// "true"
+// "[|1, 2, 3|]"
+// "value"
+// "Flag is true"
+// "Array: [|1, 2, 3|]"
+// parity-expected-stdout-end
+
 fn main() with IO {
     // String interpolation examples
 

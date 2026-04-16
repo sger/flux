@@ -68,18 +68,25 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
         let Some(comment) = trimmed.strip_prefix("//") else {
             continue;
         };
-        let comment = comment.trim();
+        let comment_trimmed = comment.trim();
 
         if collecting_expected_stdout {
-            if comment == "parity-expected-stdout-end" || comment == "parity-oracle-stdout-end" {
+            if comment_trimmed == "parity-expected-stdout-end"
+                || comment_trimmed == "parity-oracle-stdout-end"
+            {
                 collecting_expected_stdout = false;
                 meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
                 expected_stdout_lines.clear();
                 continue;
             }
-            expected_stdout_lines.push(comment.to_string());
+            // Preserve internal whitespace for multi-line strings in expected
+            // stdout. We only strip the `// ` prefix (one leading space), not
+            // the rest of the content.
+            let content_line = comment.strip_prefix(' ').unwrap_or(comment).to_string();
+            expected_stdout_lines.push(content_line);
             continue;
         }
+        let comment = comment_trimmed;
 
         if let Some(value) = comment.strip_prefix("parity:") {
             let value = value.trim();

@@ -1,13 +1,16 @@
+// parity-expected-stdout-begin
+// "Result: 120"
+// parity-expected-stdout-end
+
 fn factorial(n, acc) {
     if n == 0 {
         acc
     } else {
-    factorial(n - 1, n * acc)  // Tail call!
-}
+        factorial(n - 1, n * acc)  // Tail call!
+    }
 }
 
 fn main() with IO {
-    // factorial.flx
-    let result = !!(2 + 3)  // Will be optimized
-    print("Result:", result)
+    let result = factorial(5, 1)
+    print("Result: " + to_string(result))
 }
