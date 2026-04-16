@@ -34,7 +34,7 @@ impl<'a> InferCtx<'a> {
                 "Define the identifier first or add an explicit type annotation at the use site.",
             );
         }
-        self.env.alloc_infer_type_var()
+        self.alloc_fallback_var()
     }
 
     /// Handle future or unsupported expression variants without duplicating strict-mode fallback.
@@ -46,7 +46,7 @@ impl<'a> InferCtx<'a> {
                 "Rewrite the expression into a supported form or add an explicit annotation.",
             );
         }
-        self.env.alloc_infer_type_var()
+        self.alloc_fallback_var()
     }
 
     /// Infer an expression and record its resolved HM type under a stable node id.
