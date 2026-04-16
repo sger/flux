@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/advanced/grade_analyzer.flx:10:26
+  examples/advanced/grade_analyzer.flx:24:26
    |
-10 |     let (total, count) = fold(scores, (0.0, 0.0), /(acc, x) -> (acc.0 + x, acc.1 + 1.0))
+24 |     let (total, count) = fold(scores, (0.0, 0.0), /(acc, x) -> (acc.0 + x, acc.1 + 1.0))
    |                          ^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `total`.
 
-  examples/advanced/grade_analyzer.flx:11:5
+  examples/advanced/grade_analyzer.flx:25:5
    |
-11 |     total / count
+25 |     total / count
    |     ^^^^^
 
 Hint:
@@ -35,9 +35,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/advanced/grade_analyzer.flx:49:5
+  examples/advanced/grade_analyzer.flx:63:5
    |
-49 |     fold(students, {}, /(acc, s) ->
+63 |     fold(students, {}, /(acc, s) ->
    |     ^^^^
 
 Hint:
@@ -48,9 +48,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/advanced/grade_analyzer.flx:58:9
+  examples/advanced/grade_analyzer.flx:72:9
    |
-58 |     len(filter(values(results), /r -> r["passed"] == Some(true)))
+72 |     len(filter(to_list(Map.values(results)), /r -> r["passed"] == Some(true)))
    |         ^^^^^^
 
 Hint:
@@ -61,9 +61,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/advanced/grade_analyzer.flx:62:9
+  examples/advanced/grade_analyzer.flx:76:9
    |
-62 |     len(filter(values(results), /r -> r["passed"] == Some(false)))
+76 |     len(filter(to_list(Map.values(results)), /r -> r["passed"] == Some(false)))
    |         ^^^^^^
 
 Hint:

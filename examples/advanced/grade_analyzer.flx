@@ -1,4 +1,18 @@
+// parity-expected-stdout-begin
+// "=== Student Grade Analysis ==="
+// "Alice: avg=91.5, grade=A, passed=true"
+// "Bob: avg=78.75, grade=C, passed=true"
+// "Charlie: avg=95.5, grade=A, passed=true"
+// "Diana: avg=68.75, grade=D, passed=true"
+// "Eve: avg=53.75, grade=F, passed=false"
+// "=== Summary ==="
+// "Passed: 4"
+// "Failed: 1"
+// parity-expected-stdout-end
+
 // Student Grade Analyzer (self-contained)
+
+import Flow.Map as Map
 
 type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
 
@@ -33,7 +47,7 @@ fn grade_label(grade) {
 fn summarize(student) {
     let scores = match student["scores"] {
         Some(v) -> v,
-        _ -> [||],
+        _ -> None,
     }
     let avg = average(scores)
     let grade = letter_grade(avg)
@@ -47,19 +61,19 @@ fn summarize(student) {
 
 fn analyze(students) {
     fold(students, {}, \(acc, s) ->
-    match s["name"] {
-        Some(name) -> put(acc, name, summarize(s)),
-        _ -> acc,
-    }
+        match s["name"] {
+            Some(name) -> Map.set(acc, name, summarize(s)),
+            _ -> acc,
+        }
     )
 }
 
 fn count_passed(results) {
-    len(filter(values(results), \r -> r["passed"] == Some(true)))
+    len(filter(to_list(Map.values(results)), \r -> r["passed"] == Some(true)))
 }
 
 fn count_failed(results) {
-    len(filter(values(results), \r -> r["passed"] == Some(false)))
+    len(filter(to_list(Map.values(results)), \r -> r["passed"] == Some(false)))
 }
 
 fn format_result_line(name, r) {
@@ -87,13 +101,13 @@ fn show(results, name) with IO {
 }
 
 fn main() with IO {
-    let students = [|
-    make_student("Alice", [|92.0, 88.0, 95.0, 91.0|]),
-    make_student("Bob", [|78.0, 82.0, 75.0, 80.0|]),
-    make_student("Charlie", [|95.0, 98.0, 92.0, 97.0|]),
-    make_student("Diana", [|65.0, 70.0, 68.0, 72.0|]),
-    make_student("Eve", [|55.0, 60.0, 48.0, 52.0|]),
-    |]
+    let students = [
+        make_student("Alice", [92.0, 88.0, 95.0, 91.0]),
+        make_student("Bob", [78.0, 82.0, 75.0, 80.0]),
+        make_student("Charlie", [95.0, 98.0, 92.0, 97.0]),
+        make_student("Diana", [65.0, 70.0, 68.0, 72.0]),
+        make_student("Eve", [55.0, 60.0, 48.0, 52.0]),
+    ]
 
     print("=== Student Grade Analysis ===")
     let results = analyze(students)

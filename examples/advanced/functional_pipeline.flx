@@ -1,21 +1,23 @@
+// parity-expected-stdout-begin
+// "Pipeline with base functions:"
+// "hello world"
+// "HELLO WORLD"
+// "Higher-order functions with lambdas:"
+// "Doubled: [2, 4, 6, 8, 10, 12]"
+// "Filtered: [4, 5, 6]"
+// "Sum: 21"
+// "Product: 720"
+// "Function composition:"
+// "Result: 60"
+// "Data pipeline:"
+// "ALICE"
+// "BOB"
+// "Complex pipeline:"
+// "["HELLO", "WORLD", "FLUX"]"
+// parity-expected-stdout-end
+
 // Test: Combining Modules, Pipelines, and Lambdas
 // This example demonstrates idiomatic functional programming in Flux
-// Expected output:
-// Pipeline with base functions:
-// hello world
-// HELLO WORLD
-// Higher-order functions with lambdas:
-// Doubled: [2, 4, 6, 8, 10, 12]
-// Filtered: [4, 5, 6]
-// Sum: 21
-// Product: 720
-// Function composition:
-// Result: 60
-// Data pipeline:
-// ALICE
-// BOB
-// Complex pipeline:
-// [HELLO, WORLD, FLUX]
 
 fn main() with IO {
     print("Pipeline with base functions:")
@@ -69,16 +71,9 @@ fn main() with IO {
     // Process a list of names
     let names = ["alice", "bob"]
 
-    // first returns Some(value) — unwrap before piping to upper
-    match first(names) {
-        Some(n) -> print(upper(n)),
-        _ -> ()
-    }
-
-    match first(rest(names)) {
-        Some(n) -> print(upper(n)),
-        _ -> ()
-    }
+    // first returns the head element directly
+    first(names) |> upper |> print
+    first(rest(names)) |> upper |> print
 
     print("Complex pipeline:")
 

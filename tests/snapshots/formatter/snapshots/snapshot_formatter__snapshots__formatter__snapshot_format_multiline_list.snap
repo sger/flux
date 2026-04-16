@@ -1,0 +1,9 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+
+let students = [
+    make_student("Alice", [92.0, 88.0]),
+    make_student("Bob", [78.0, 82.0]),
+]
