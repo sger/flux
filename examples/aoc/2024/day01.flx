@@ -1,7 +1,13 @@
+// parity-expected-stdout-begin
+// 0
+// 0
+// parity-expected-stdout-end
+
 // Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
 // Uses input file: examples/aoc/2024/day01.txt
 
 import Aoc2024Shared as Shared
+import Flow.Map as Map
 
 // Parse one line like "3   4" into a tuple (3, 4).
 // Steps:
@@ -13,9 +19,9 @@ import Aoc2024Shared as Shared
 fn parse_pair(line) {
     (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
     where nums =
-        split(trim(line), " ")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_int(t))
+    split(trim(line), " ")
+    |> filter(\t -> trim(t) != "")
+    |> map(\t -> parse_int(t))
 }
 
 // Parse whole input into an array of tuples: [(left, right), ...].
@@ -45,15 +51,15 @@ fn day01a(day_pairs_a) {
 fn day01b(day_pairs_b) {
     left
     |> fold(0, \(acc, x) -> {
-        acc + x * match get(right_freqs, x) { Some(c) -> c, _ -> 0 }
+            acc + x * match Map.get(right_freqs, x) { Some(c) -> c, _ -> 0 }
     })
     where left  = day_pairs_b |> map(\p -> p.0)
     where right_freqs = day_pairs_b
-        |> map(\p -> p.1)
-        |> fold({}, \(m, x) -> match get(m, x) {
-            Some(c) -> put(m, x, c + 1),
-            _ -> put(m, x, 1),
-        })
+    |> map(\p -> p.1)
+    |> fold({}, \(m, x) -> match Map.get(m, x) {
+            Some(c) -> Map.set(m, x, c + 1),
+            _ -> Map.set(m, x, 1),
+    })
 }
 
 // Program entry: parse once, then print both answers.

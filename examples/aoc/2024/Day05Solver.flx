@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 module Day05Solver {
@@ -146,13 +149,13 @@ module Day05Solver {
     public fn day05a_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
-                pages
-                    |> Array.filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
-                    |> Array.map(\orig -> match middle_val(orig) {
-                        Some(v) -> v,
-                        _ -> 0,
-                    })
-                    |> Array.fold(0, \(acc, x) -> acc + x),
+            pages
+            |> Array.filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
+            |> Array.map(\orig -> match middle_val(orig) {
+                    Some(v) -> v,
+                    _ -> 0,
+            })
+            |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }
@@ -164,14 +167,14 @@ module Day05Solver {
     public fn day05b_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
-                pages
-                    |> Array.map(\orig -> (orig, sort_by_rules(rules, orig)))
-                    |> Array.filter(\pair -> !arrays_equal(pair.0, pair.1))
-                    |> Array.map(\pair -> match middle_val(pair.1) {
-                        Some(v) -> v,
-                        _ -> 0,
-                    })
-                    |> Array.fold(0, \(acc, x) -> acc + x),
+            pages
+            |> Array.map(\orig -> (orig, sort_by_rules(rules, orig)))
+            |> Array.filter(\pair -> !arrays_equal(pair.0, pair.1))
+            |> Array.map(\pair -> match middle_val(pair.1) {
+                    Some(v) -> v,
+                    _ -> 0,
+            })
+            |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }

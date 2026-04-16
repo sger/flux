@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 import Flow.Map as Map
 
@@ -326,29 +329,29 @@ module Day06Solver {
             let pos = match candidates[idx] { Some(v) -> v, _ -> 0 }
             count_loops(axis, rows, cols, sr, sc, candidates, idx + 1,
                 acc + check_candidate(axis, rows, cols, sr, sc, pos))
+            }
+        }
+
+        public fn day06a_from_lines(lines: Array<String>) -> Int {
+            let rows = len(lines)
+            let cols = len(line_at(lines, 0))
+            let guard = find_guard_row(lines, 0)
+            let grid = build_grid(lines)
+            let ctx = (grid, rows, cols)
+            let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
+            len(Map.keys(visited))
+        }
+
+        public fn day06b_from_lines(lines: Array<String>) -> Int {
+            let rows = len(lines)
+            let cols = len(line_at(lines, 0))
+            let parsed = build_axes(lines, 0, {}, {}, (-1, -1))
+            let guard = parsed.2
+            let sr = guard.0
+            let sc = guard.1
+            let grid = build_grid(lines)
+            let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
+            let candidates = Map.keys(visited)
+            count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
         }
     }
-
-    public fn day06a_from_lines(lines: Array<String>) -> Int {
-        let rows = len(lines)
-        let cols = len(line_at(lines, 0))
-        let guard = find_guard_row(lines, 0)
-        let grid = build_grid(lines)
-        let ctx = (grid, rows, cols)
-        let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
-        len(Map.keys(visited))
-    }
-
-    public fn day06b_from_lines(lines: Array<String>) -> Int {
-        let rows = len(lines)
-        let cols = len(line_at(lines, 0))
-        let parsed = build_axes(lines, 0, {}, {}, (-1, -1))
-        let guard = parsed.2
-        let sr = guard.0
-        let sc = guard.1
-        let grid = build_grid(lines)
-        let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
-        let candidates = Map.keys(visited)
-        count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
-    }
-}
