@@ -161,7 +161,6 @@ fn compile_parallel_module(
         request.graph_interner,
         entry_module_kind,
         request.compile.strict_mode,
-        request.compile.strict_inference,
         is_entry,
     );
     let compile_result = compiler.compile_with_opts(
@@ -410,7 +409,6 @@ fn replay_warnings_if_needed(
             base_interner: request.graph_interner,
             entry_module_kind,
             strict_mode: request.compile.strict_mode,
-            strict_inference: request.compile.strict_inference,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
         });
@@ -438,7 +436,6 @@ fn replay_errors(
             base_interner: request.graph_interner,
             entry_module_kind,
             strict_mode: request.compile.strict_mode,
-            strict_inference: request.compile.strict_inference,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
         }));

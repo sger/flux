@@ -1385,7 +1385,7 @@ mod tests {
             &interner,
             InferProgramConfig {
                 file_path: None,
-                strict_inference: false,
+
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
                 known_flow_names: std::collections::HashSet::new(),

@@ -183,9 +183,6 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
         let module_strict_mode =
             effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
         request.compiler.set_strict_mode(module_strict_mode);
-        request
-            .compiler
-            .set_strict_inference(request.compile.strict_inference);
         let module_semantic_config_hash =
             flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
                 module_strict_mode,

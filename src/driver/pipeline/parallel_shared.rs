@@ -107,7 +107,6 @@ pub(crate) struct ParallelReplayRequest<'a> {
     pub(crate) base_interner: &'a Interner,
     pub(crate) entry_module_kind: ModuleKind,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_inference: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -121,7 +120,6 @@ pub(crate) fn replay_module_diagnostics_for(request: ParallelReplayRequest<'_>) 
         base_interner: request.base_interner,
         entry_module_kind: request.entry_module_kind,
         strict_mode: request.strict_mode,
-        strict_inference: request.strict_inference,
         enable_optimize: request.enable_optimize,
         enable_analyze: request.enable_analyze,
     })

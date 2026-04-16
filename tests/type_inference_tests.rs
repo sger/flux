@@ -106,7 +106,7 @@ fn infer_program_from_source(
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
-            strict_inference: false,
+
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),
@@ -1712,7 +1712,7 @@ fn main() -> Unit {
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
-            strict_inference: false,
+
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names,

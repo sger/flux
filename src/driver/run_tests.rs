@@ -351,7 +351,6 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
 
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
-    compiler.set_strict_inference(request.session.strict_inference);
 
     let mut ordered_nodes = graph.topo_order();
     sort_stdlib_first(&mut ordered_nodes, |node| node.kind);
@@ -365,7 +364,6 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         let module_strict_mode =
             effective_module_strictness(node.kind, entry_module_kind, request.session.strict_mode);
         compiler.set_strict_mode(module_strict_mode);
-        compiler.set_strict_inference(request.session.strict_inference);
         compiler.set_strict_require_main(false);
         let compile_result = compiler.compile_with_opts(
             &node.program,

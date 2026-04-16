@@ -903,7 +903,6 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
-    strict_inference: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -1075,7 +1074,6 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
-            strict_inference: false,
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -1456,10 +1454,6 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
-    }
-
-    pub fn set_strict_inference(&mut self, strict_inference: bool) {
-        self.strict_inference = strict_inference;
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
@@ -2334,7 +2328,6 @@ impl Compiler {
 
         InferProgramConfig {
             file_path: Some(self.file_path.as_str().into()),
-            strict_inference: self.strict_inference,
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
             known_flow_names: HashSet::new(),
