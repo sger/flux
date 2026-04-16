@@ -1,17 +1,21 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Aoc2024Shared as Shared
+import Flow.Array as Array
 
 module Day02Solver {
-    fn parse_report(line) {
+    public fn parse_report(line) {
         split(trim(line), " ")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_int(t))
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_int(t))
     }
 
     public fn parse_reports(lines) {
         lines
-        |> map(\line -> trim(line))
-        |> filter(\line -> line != "")
-        |> map(\line -> parse_report(line))
+        |> Array.map(\line -> trim(line))
+        |> Array.filter(\line -> line != "")
+        |> Array.map(\line -> parse_report(line))
     }
 
     fn diffs_from(xs, idx, acc) {
@@ -21,18 +25,18 @@ module Day02Solver {
             diffs_from(
                 xs,
                 idx + 1,
-                push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
+                Array.concat(acc, [|Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)|]),
             )
         }
     }
 
-    fn predicate(xs) {
+    public fn predicate(xs) {
         let ds = diffs_from(xs, 0, [||])
-        all(ds, \d -> d >= 1 && d <= 3) || all(ds, \d -> d >= -3 && d <= -1)
+        Array.all(ds, \d -> d >= 1 && d <= 3) || Array.all(ds, \d -> d >= -3 && d <= -1)
     }
 
     fn prepend_to_all(x, arrs) {
-        map(arrs, \arr -> concat([|x|], arr))
+        Array.map(arrs, \arr -> Array.concat([|x|], arr))
     }
 
     // Haskell-equivalent tryDrops:
@@ -42,18 +46,18 @@ module Day02Solver {
         if len(xs) == 0 {
             [|[||]|]
         } else {
-            let tail = slice(xs, 1, len(xs))
+            let tail = Array.slice(xs, 1, len(xs))
             let drop_head = [|tail|]
             let keep_head = prepend_to_all(Shared.int_at(xs, 0), try_drops(tail))
-            concat(drop_head, keep_head)
+            Array.concat(drop_head, keep_head)
         }
     }
 
     public fn day02a(reports) {
-        count(reports, \r -> predicate(r))
+        Array.count(reports, \r -> predicate(r))
     }
 
     public fn day02b(reports) {
-        count(reports, \r -> any(try_drops(r), \candidate -> predicate(candidate)))
+        Array.count(reports, \r -> Array.any(try_drops(r), \candidate -> predicate(candidate)))
     }
 }

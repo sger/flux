@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Day04Solver as Day04
 
 fn sample_grid() {
@@ -49,10 +52,10 @@ fn test_day04_part1_vertical_forward() {
 fn test_day04_part1_diagonal_down_right() {
     assert_eq(
         Day04.day04a_from_lines([|
-            "X...",
-            ".M..",
-            "..A.",
-            "...S",
+                "X...",
+                ".M..",
+                "..A.",
+                "...S",
         |]),
         1,
     )
@@ -74,9 +77,9 @@ fn test_day04_part2_prompt_sample_is_9() {
 fn test_day04_part2_single_cross() {
     assert_eq(
         Day04.day04b_from_lines([|
-            "M.S",
-            ".A.",
-            "M.S",
+                "M.S",
+                ".A.",
+                "M.S",
         |]),
         1,
     )
@@ -85,9 +88,9 @@ fn test_day04_part2_single_cross() {
 fn test_day04_part2_rejects_non_cross_and_small() {
     assert_eq(
         Day04.day04b_from_lines([|
-            "M.S",
-            ".A.",
-            "M.M",
+                "M.S",
+                ".A.",
+                "M.M",
         |]),
         0,
     )

@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 module Day03Solver {
     // Tokens that can appear at any position in the memory string.
     data Token {
@@ -80,21 +83,21 @@ module Day03Solver {
         state.1
         where indices = range(0, len(memory))
         where state = fold(indices, (0, 0), fn(st, i) {
-            let next_idx = st.0
-            let total = st.1
+                let next_idx = st.0
+                let total = st.1
 
-            if i != next_idx {
-                st
-            } else {
-                match parse_token_at(memory, i) {
-                    Some(hit) -> if hit.0 == 0 {
-                        (hit.2, total + hit.1)
-                    } else {
-                        (hit.2, total)
-                    },
-                    _ -> (i + 1, total),
+                if i != next_idx {
+                    st
+                } else {
+                    match parse_token_at(memory, i) {
+                        Some(hit) -> if hit.0 == 0 {
+                            (hit.2, total + hit.1)
+                        } else {
+                            (hit.2, total)
+                        },
+                        _ -> (i + 1, total),
+                    }
                 }
-            }
         })
     }
 
@@ -104,26 +107,26 @@ module Day03Solver {
         state.2
         where indices = range(0, len(memory))
         where state = fold(indices, (0, true, 0), fn(st, i) {
-            let next_idx = st.0
-            let enabled = st.1
-            let total = st.2
+                let next_idx = st.0
+                let enabled = st.1
+                let total = st.2
 
-            if i != next_idx {
-                st
-            } else {
-                match parse_token_at(memory, i) {
-                    Some(hit) -> if hit.0 == 1 {
-                        (hit.2, true, total)
-                    } else if hit.0 == 2 {
-                        (hit.2, false, total)
-                    } else if enabled {
-                        (hit.2, true, total + hit.1)
-                    } else {
-                        (hit.2, false, total)
-                    },
-                    _ -> (i + 1, enabled, total),
+                if i != next_idx {
+                    st
+                } else {
+                    match parse_token_at(memory, i) {
+                        Some(hit) -> if hit.0 == 1 {
+                            (hit.2, true, total)
+                        } else if hit.0 == 2 {
+                            (hit.2, false, total)
+                        } else if enabled {
+                            (hit.2, true, total + hit.1)
+                        } else {
+                            (hit.2, false, total)
+                        },
+                        _ -> (i + 1, enabled, total),
+                    }
                 }
-            }
         })
     }
 

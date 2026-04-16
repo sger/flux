@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Aether FBIP failure regression fixture.
 
 fn alloc(x) {

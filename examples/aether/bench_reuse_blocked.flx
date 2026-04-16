@@ -1,9 +1,5 @@
 // Aether plain-Reuse benchmark control: recursive list rebuild with an
 // explicit token-touching precompute let that should keep plain Reuse disabled.
-// Run:   cargo run --release -- examples/aether/bench_reuse_blocked.flx
-// JIT:   cargo run --release --features 'jit llvm' -- --jit examples/aether/bench_reuse_blocked.flx
-// LLVM:  cargo run --release --features 'jit llvm' -- --llvm examples/aether/bench_reuse_blocked.flx
-// Stats: cargo run --release -- --dump-aether examples/aether/bench_reuse_blocked.flx
 // parity-expected-stdout-begin
 // "blocked: result head = 101"
 // parity-expected-stdout-end
