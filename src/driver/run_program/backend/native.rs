@@ -266,7 +266,6 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 cache_layout: request.cache.cache_layout,
                 no_cache: request.cache.no_cache,
                 strict_mode: request.compile.strict_mode,
-                strict_inference: request.compile.strict_inference,
                 enable_optimize: request.compile.enable_optimize,
                 enable_analyze: request.compile.enable_analyze,
                 verbose: request.runtime.verbose,

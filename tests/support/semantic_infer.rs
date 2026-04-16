@@ -105,7 +105,7 @@ pub fn infer_fixture(rel: &str) -> InferredFixture {
         &interner,
         InferProgramConfig {
             file_path: Some(rel.into()),
-            strict_inference: false,
+
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),

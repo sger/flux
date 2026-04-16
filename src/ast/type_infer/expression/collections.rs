@@ -50,16 +50,7 @@ impl<'a> InferCtx<'a> {
         let elem_ty = if homogeneous {
             first.apply_type_subst(&self.subst)
         } else {
-            if self.strict_mode_enabled() {
-                self.emit_strict_inference_error(
-                    elements[0].span(),
-                    "Array literals must have one concrete element type in strict mode.",
-                    "Use elements with a single shared type or add explicit conversions.",
-                );
-                first.apply_type_subst(&self.subst)
-            } else {
-                self.alloc_fallback_var()
-            }
+            self.alloc_fallback_var()
         };
         InferType::App(TypeConstructor::Array, vec![elem_ty])
     }

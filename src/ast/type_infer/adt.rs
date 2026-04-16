@@ -111,16 +111,6 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expression(a)).collect();
         let Some((param_tys, result_ty)) = self.instantiate_constructor_parts(constructor) else {
-            if self.strict_mode_enabled() {
-                self.emit_strict_inference_error(
-                    span,
-                    format!(
-                        "Could not resolve constructor `{}` in strict mode.",
-                        self.interner.resolve(constructor)
-                    ),
-                    "Make sure the constructor is declared and imported before calling it.",
-                );
-            }
             return self.alloc_fallback_var();
         };
         if arg_tys.len() != param_tys.len() {
