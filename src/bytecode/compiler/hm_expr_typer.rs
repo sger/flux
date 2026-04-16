@@ -38,7 +38,7 @@ impl Compiler {
     }
 
     fn is_hm_type_resolved(infer: &InferType) -> bool {
-        infer.free_vars().is_empty() && !infer.contains_any()
+        infer.free_vars().is_empty()
     }
 
     fn format_infer_type(&self, infer: &InferType) -> String {
@@ -165,7 +165,7 @@ impl Compiler {
             let HmExprTypeResult::Known(actual) = self.hm_expr_type_strict_path(element) else {
                 return false;
             };
-            if actual.contains_any() || !actual.free_vars().is_empty() {
+            if !actual.free_vars().is_empty() {
                 return false;
             }
             if let Some(expected) = &first_known {
@@ -190,7 +190,7 @@ impl Compiler {
         let concrete_arms: Vec<InferType> = arms
             .iter()
             .filter_map(|arm| match self.hm_expr_type_strict_path(&arm.body) {
-                HmExprTypeResult::Known(ty) if !ty.contains_any() && ty.free_vars().is_empty() => {
+                HmExprTypeResult::Known(ty) if ty.free_vars().is_empty() => {
                     Some(ty)
                 }
                 _ => None,
