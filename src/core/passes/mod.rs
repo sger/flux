@@ -12,6 +12,7 @@ mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+pub mod lint;
 mod primop_promote;
 mod tail_resumptive;
 
@@ -132,7 +133,7 @@ fn run_semantic_core_passes_with_optional_interner(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    let warnings = Vec::new();
+    let mut warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -176,6 +177,9 @@ fn run_semantic_core_passes_with_optional_interner(
             def.expr = e;
         }
 
+        // Verify Core invariants after each simplification round.
+        core_lint_stage(program, "simplification", &mut warnings);
+
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
         if round > 0 {
@@ -199,6 +203,9 @@ fn run_semantic_core_passes_with_optional_interner(
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
     }
+
+    // Verify Core invariants after normalization.
+    core_lint_stage(program, "normalization", &mut warnings);
 
     Ok(warnings)
 }
@@ -313,6 +320,35 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         MemberAccess { object, .. } | TupleField { object, .. } => {
             collect_max_binder_id(object, max);
         }
+    }
+}
+
+/// Verify Core IR structural invariants for the entire program.
+///
+/// Collects lint violations as warnings rather than blocking compilation.
+/// This allows pre-existing Core IR issues to be surfaced without breaking
+/// the build, matching GHC's opt-in `-dcore-lint` approach.
+fn core_lint_stage(program: &CoreProgram, stage: &'static str, warnings: &mut Vec<Diagnostic>) {
+    if let Err(errors) = lint::lint_core_program(program) {
+        let detail = errors
+            .iter()
+            .map(|e| format!("  [{:?}] {}", e.kind, e.message))
+            .collect::<Vec<_>>()
+            .join("\n");
+        warnings.push(
+            Diagnostic::make_warning(
+                "W998",
+                "CORE LINT",
+                format!(
+                    "Core IR has {} structural violation(s) after `{stage}`:\n{detail}",
+                    errors.len()
+                ),
+                "",
+                Default::default(),
+            )
+            .with_category(DiagnosticCategory::Internal)
+            .with_phase(DiagnosticPhase::Validation),
+        );
     }
 }
 
