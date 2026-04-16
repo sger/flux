@@ -1265,11 +1265,9 @@ impl Compiler {
                         self.hm_expr_type_strict_path(function)
                         && let Some(hm_expected) = hm_params.get(index)
                         && hm_expected.free_vars().is_empty()
-                        && !hm_expected.contains_any()
                         && let HmExprTypeResult::Known(actual) =
                             self.hm_expr_type_strict_path(argument)
                         && actual.free_vars().is_empty()
-                        && !actual.contains_any()
                     {
                         let types_match = if let Ok(subst) = unify(hm_expected, &actual) {
                             hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
@@ -1300,8 +1298,6 @@ impl Compiler {
                 super::hm_expr_typer::HmExprTypeResult::Known(actual) => {
                     if expected_infer.is_concrete()
                         && actual.is_concrete()
-                        && !expected_infer.contains_any()
-                        && !actual.contains_any()
                     {
                         let compatible = if let Ok(subst) = unify(&expected_infer, &actual) {
                             expected_infer.apply_type_subst(&subst)

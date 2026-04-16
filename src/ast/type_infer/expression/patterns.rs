@@ -180,7 +180,7 @@ impl<'a> InferCtx<'a> {
             return;
         }
 
-        if Self::is_concrete_non_any(resolved_scrutinee) {
+        if Self::is_fully_concrete(resolved_scrutinee) {
             let expected = self.display_type(&tuple_shape.apply_type_subst(&self.subst));
             let actual = self.display_type(resolved_scrutinee);
             self.errors.push(type_unification_error(

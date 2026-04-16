@@ -330,14 +330,14 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);
         let current_resolved = current_ret.apply_type_subst(&self.subst);
-        let current_concrete = Self::is_concrete_non_any(&current_resolved);
-        let refined_concrete = Self::is_concrete_non_any(&refined_resolved);
+        let current_concrete = Self::is_fully_concrete(&current_resolved);
+        let refined_concrete = Self::is_fully_concrete(&refined_resolved);
 
         if current_concrete && !refined_concrete {
             current_resolved
-        } else if (refined_concrete && !current_concrete) || current_ret.contains_any() {
+        } else if (refined_concrete && !current_concrete) || !current_ret.is_concrete() {
             refined_resolved
-        } else if refined_resolved.contains_any() {
+        } else if !refined_resolved.is_concrete() {
             // Keep the prior concrete inference when the refinement pass did not
             // increase precision and would otherwise fall back to an unresolved variable.
             current_resolved

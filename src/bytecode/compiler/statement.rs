@@ -824,10 +824,7 @@ impl Compiler {
         let HmExprTypeResult::Known(actual) = self.hm_expr_type_strict_path(expression) else {
             return None;
         };
-        if !expected.is_concrete()
-            || !actual.is_concrete()
-            || expected.contains_any()
-            || actual.contains_any()
+        if !expected.is_concrete() || !actual.is_concrete()
         {
             return None;
         }

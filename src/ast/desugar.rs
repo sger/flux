@@ -98,9 +98,9 @@ impl OperatorDesugarPass<'_> {
         matches!(self.operand_type(expr), Some(InferType::Var(_)))
     }
 
-    fn is_concrete_non_any_operand(&self, expr: &Expression) -> bool {
+    fn is_concrete_operand(&self, expr: &Expression) -> bool {
         self.operand_type(expr)
-            .is_some_and(|ty| ty.is_concrete() && !ty.contains_any())
+            .is_some_and(|ty| ty.is_concrete())
     }
 
     fn concrete_numeric_operands(
@@ -182,8 +182,8 @@ impl OperatorDesugarPass<'_> {
             return true;
         }
         if operator != "++"
-            && self.is_concrete_non_any_operand(left)
-            && self.is_concrete_non_any_operand(right)
+            && self.is_concrete_operand(left)
+            && self.is_concrete_operand(right)
         {
             return true;
         }
@@ -318,9 +318,9 @@ impl OperatorDesugarDetector<'_> {
         matches!(self.operand_type(expr), Some(InferType::Var(_)))
     }
 
-    fn is_concrete_non_any_operand(&self, expr: &Expression) -> bool {
+    fn is_concrete_operand(&self, expr: &Expression) -> bool {
         self.operand_type(expr)
-            .is_some_and(|ty| ty.is_concrete() && !ty.contains_any())
+            .is_some_and(|ty| ty.is_concrete())
     }
 
     fn concrete_numeric_operands(
@@ -391,8 +391,8 @@ impl OperatorDesugarDetector<'_> {
             return true;
         }
         if operator != "++"
-            && self.is_concrete_non_any_operand(left)
-            && self.is_concrete_non_any_operand(right)
+            && self.is_concrete_operand(left)
+            && self.is_concrete_operand(right)
         {
             return true;
         }

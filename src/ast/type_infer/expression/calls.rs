@@ -199,8 +199,6 @@ impl<'a> InferCtx<'a> {
                     let actual_resolved = arg_ty.apply_type_subst(&self.subst);
                     if expected_resolved.is_concrete()
                         && actual_resolved.is_concrete()
-                        && !expected_resolved.contains_any()
-                        && !actual_resolved.contains_any()
                     {
                         let exp_str = self.display_type(&expected_resolved);
                         let act_str = self.display_type(&actual_resolved);

@@ -131,12 +131,12 @@ impl<'a> InferCtx<'a> {
         first_ty: &InferType,
         arm_types: &[(InferType, Span, usize)],
     ) {
-        if Self::is_concrete_non_any(first_ty) {
+        if Self::is_fully_concrete(first_ty) {
             return;
         }
         let pivot = arm_types
             .iter()
-            .find(|(ty, _, _)| Self::is_concrete_non_any(ty))
+            .find(|(ty, _, _)| Self::is_fully_concrete(ty))
             .cloned();
         let Some((pivot_ty, pivot_span, pivot_index)) = pivot else {
             return;
@@ -145,7 +145,7 @@ impl<'a> InferCtx<'a> {
             if *arm_index == pivot_index {
                 continue;
             }
-            if Self::is_concrete_non_any(arm_ty) {
+            if Self::is_fully_concrete(arm_ty) {
                 let _ = self.unify_with_context(
                     &pivot_ty,
                     arm_ty,

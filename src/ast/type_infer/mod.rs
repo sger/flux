@@ -250,9 +250,9 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Return whether a type is fully concrete and contains no fallback residue.
-    fn is_concrete_non_any(ty: &InferType) -> bool {
-        ty.is_concrete() && !ty.contains_any()
+    /// Return whether a type is fully concrete (no unresolved type variables).
+    fn is_fully_concrete(ty: &InferType) -> bool {
+        ty.is_concrete()
     }
 
     /// Record a constraint in the log for observability and future deferred solving.
@@ -322,7 +322,7 @@ impl<'a> InferCtx<'a> {
                 type_args: type_args.clone(),
                 span,
                 origin,
-                originated_from_concrete_type: type_args.iter().all(Self::is_concrete_non_any),
+                originated_from_concrete_type: type_args.iter().all(Self::is_fully_concrete),
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
