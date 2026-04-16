@@ -44,7 +44,6 @@ pub(crate) struct ParsedCliLanguageFlags {
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_inference: bool,
 }
 
 /// Parsed dump-related CLI flags that select dump-only execution surfaces.
@@ -167,7 +166,6 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--stats" => flags.runtime.show_stats = remove_bool_flag(args, i),
             "--test" => flags.execution.test_mode = remove_bool_flag(args, i),
             "--strict" => flags.language.strict_mode = remove_bool_flag(args, i),
-            "--strict-inference" => flags.language.strict_inference = remove_bool_flag(args, i),
             "--no-strict" => {
                 args.remove(i);
             }
@@ -315,7 +313,6 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             enable_optimize: parsed.language.enable_optimize,
             enable_analyze: parsed.language.enable_analyze,
             strict_mode: parsed.language.strict_mode,
-            strict_inference: parsed.language.strict_inference,
         },
     }
     .finalize_backend()
