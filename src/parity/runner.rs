@@ -22,6 +22,68 @@ use super::{
 /// Default timeout per way per fixture.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 15;
 
+/// Outcome of the `--compile` pre-pass on a single fixture+backend.
+pub struct CompileOutcome {
+    pub success: bool,
+    pub exit_code: i32,
+    pub stderr: String,
+}
+
+/// Compile a fixture (populate caches) without collecting output for parity.
+///
+/// Used by `--compile`: runs the fixture with cache enabled so that downstream
+/// parity ways can reuse the cached artifacts. Returns success/failure so the
+/// caller can bail before the parity phase if any fixture fails to compile.
+///
+/// Note: this still executes the program (Flux does not currently expose a
+/// `--check-only` mode). The exit code tells us whether compilation + run
+/// succeeded; cache artifacts are the side effect we want.
+pub fn compile_fixture(
+    vm_binary: &Path,
+    llvm_binary: &Path,
+    file: &Path,
+    way: Way,
+    extra_args: &[String],
+    timeout: Duration,
+) -> CompileOutcome {
+    // Clear cache before each fixture to avoid cross-fixture contamination
+    // (native caches share `target/flux/native/` and can produce incompatible
+    // exports across fixtures with different module usage shapes).
+    clear_cache_files(file, extra_args);
+    let (bin, mut args) = build_way_args(vm_binary, llvm_binary, way.base_way());
+    // Do NOT pass --no-cache: we want cache artifacts populated.
+    args.push(file.to_string_lossy().into_owned());
+    args.extend_from_slice(extra_args);
+
+    if !bin.exists() {
+        return CompileOutcome {
+            success: false,
+            exit_code: -1,
+            stderr: format!("binary not found: {}", bin.display()),
+        };
+    }
+
+    match spawn_with_timeout(bin, &args, timeout) {
+        SpawnResult::Completed {
+            exit_code, stderr, ..
+        } => CompileOutcome {
+            success: exit_code == 0,
+            exit_code,
+            stderr,
+        },
+        SpawnResult::Timeout => CompileOutcome {
+            success: false,
+            exit_code: -1,
+            stderr: format!("timed out after {}s", timeout.as_secs()),
+        },
+        SpawnResult::SpawnError(err) => CompileOutcome {
+            success: false,
+            exit_code: -1,
+            stderr: err,
+        },
+    }
+}
+
 /// Run a single fixture under a single way.
 ///
 /// The caller must provide paths to pre-built binaries:

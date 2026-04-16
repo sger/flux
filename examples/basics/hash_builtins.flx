@@ -1,3 +1,13 @@
+// parity-expected-stdout-begin
+// [|"city", "name", "age"|]
+// [|"NYC", "Alice", 30|]
+// true
+// false
+// {"lang": "fr", "notifications": true, "theme": "dark"}
+// "Config with defaults example"
+// None
+// parity-expected-stdout-end
+
 import Flow.Map as Map
 
 fn main() with IO {

@@ -1,3 +1,16 @@
+// parity-expected-stdout-begin
+// 10
+// 10
+// 7
+// 42
+// 11
+// 12
+// "Higher-order functions:"
+// 3
+// 6
+// 9
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn main() with IO {

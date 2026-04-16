@@ -309,51 +309,10 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     None
 }
 
-fn print_cache_summary(result: &ParityResult) {
-    for run in &result.results {
-        if run.cache_observations.is_empty() {
-            continue;
-        }
-        println!("  {} {}", cyan("cache:"), run.way);
-        let created = run
-            .cache_observations
-            .iter()
-            .filter(|obs| obs.state == super::CacheFileState::Created)
-            .count();
-        let existed = run
-            .cache_observations
-            .iter()
-            .filter(|obs| obs.state == super::CacheFileState::Existed)
-            .count();
-        println!(
-            "    created={created} reused={existed} artifacts={}",
-            run.cache_observations.len()
-        );
-        for obs in &run.cache_observations {
-            println!(
-                "    - {} [{}] {}",
-                obs.kind,
-                state_label(obs.state),
-                obs.path.display()
-            );
-        }
-        if run.way == Way::LlvmCached && created > 0 && existed > 0 {
-            println!(
-                "    note: native artifact boundary working; cached output matched with artifact reuse observed"
-            );
-        } else if run.way == Way::LlvmCached && existed > 0 {
-            println!(
-                "    note: native cached way matched output; full module skipping is not required in this phase"
-            );
-        }
-    }
-}
-
-fn state_label(state: super::CacheFileState) -> &'static str {
-    match state {
-        super::CacheFileState::Created => "created",
-        super::CacheFileState::Existed => "reused",
-    }
+fn print_cache_summary(_result: &ParityResult) {
+    // Per-artifact cache listings are suppressed for readability. The cache
+    // state is still observed internally (and available to mismatch diagnostics
+    // via ParityResult.results[*].cache_observations) but not logged inline.
 }
 
 /// Build a copy-pasteable `cargo run` command for a given way.
