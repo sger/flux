@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Day03Solver as Day03
 
 fn test_day03_part1_single_valid_mul() {

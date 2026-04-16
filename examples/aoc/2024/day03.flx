@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 174960292
+// 56275602
+// parity-expected-stdout-end
+
 // Advent of Code 2024 - Day 3
 // Uses input file: examples/aoc/2024/day03.txt
 

@@ -17,8 +17,8 @@ fn copy_or_keep_head(xs, copy) {
 fn keep_or_dup_left(t, keep) {
     match t {
         Node(color, left, key, right) ->
-            if keep { Node(color, left, key, right) }
-            else { Node(color, left, key, left) },
+        if keep { Node(color, left, key, right) }
+        else { Node(color, left, key, left) },
         _ -> t,
     }
 }

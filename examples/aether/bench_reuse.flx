@@ -1,7 +1,4 @@
 // Aether list workload fixture.
-// Run:   cargo run -- examples/aether/bench_reuse.flx
-// JIT:   cargo run -- --jit examples/aether/bench_reuse.flx
-// Stats: cargo run -- --dump-aether examples/aether/bench_reuse.flx
 // parity-expected-stdout-begin
 // "Aether Reuse Benchmark"
 // "======================"
