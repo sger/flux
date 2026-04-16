@@ -138,7 +138,6 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
     let compile_start = Instant::now();
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
-    compiler.set_strict_inference(request.session.strict_inference);
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }

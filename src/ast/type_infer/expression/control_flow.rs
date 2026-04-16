@@ -37,14 +37,12 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_match_expression(&mut self, input: MatchInferInput<'_>) -> InferType {
         let scrutinee_ty = self.infer_expression(input.scrutinee);
         if input.arms.is_empty() {
-            if self.strict_mode_enabled() {
-                self.errors.push(
-                    diagnostic_for(&EMPTY_MATCH)
-                        .with_file(self.file_path.clone())
-                        .with_span(input.span)
-                        .with_category(DiagnosticCategory::TypeInference),
-                );
-            }
+            self.errors.push(
+                diagnostic_for(&EMPTY_MATCH)
+                    .with_file(self.file_path.clone())
+                    .with_span(input.span)
+                    .with_category(DiagnosticCategory::TypeInference),
+            );
             return self.alloc_fallback_var();
         }
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(&scrutinee_ty, &input);

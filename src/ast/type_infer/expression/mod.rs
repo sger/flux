@@ -24,28 +24,11 @@ impl<'a> InferCtx<'a> {
         if self.known_flow_names.contains(&name) {
             self.emit_missing_flow_hm_signature(name, expr.span());
         }
-        if self.strict_mode_enabled() {
-            self.emit_strict_inference_error(
-                expr.span(),
-                format!(
-                    "Could not infer a concrete type for unresolved identifier `{}` in strict mode.",
-                    self.interner.resolve(name)
-                ),
-                "Define the identifier first or add an explicit type annotation at the use site.",
-            );
-        }
         self.alloc_fallback_var()
     }
 
-    /// Handle future or unsupported expression variants without duplicating strict-mode fallback.
-    fn infer_unsupported_expression(&mut self, expr: &Expression) -> InferType {
-        if self.strict_mode_enabled() {
-            self.emit_strict_inference_error(
-                expr.span(),
-                "Encountered an expression shape that HM inference cannot type in strict mode yet.",
-                "Rewrite the expression into a supported form or add an explicit annotation.",
-            );
-        }
+    /// Handle future or unsupported expression variants.
+    fn infer_unsupported_expression(&mut self, _expr: &Expression) -> InferType {
         self.alloc_fallback_var()
     }
 

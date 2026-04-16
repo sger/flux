@@ -121,7 +121,6 @@ pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) cache_layout: &'a CacheLayout,
     pub(crate) no_cache: bool,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_inference: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
     pub(crate) verbose: bool,

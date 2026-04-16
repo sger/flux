@@ -47,7 +47,7 @@ fn infer_program_perf_guard() {
             &interner_for_base,
             InferProgramConfig {
                 file_path: Some("<perf_guard>".into()),
-                strict_inference: false,
+
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
                 known_flow_names: HashSet::new(),

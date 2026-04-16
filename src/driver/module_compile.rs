@@ -73,7 +73,6 @@ pub(crate) fn build_module_compiler(
     base_interner: &Interner,
     entry_module_kind: ModuleKind,
     strict_mode: bool,
-    strict_inference: bool,
     is_entry_module: bool,
 ) -> Compiler {
     let strict_mode = effective_module_strictness(node.kind, entry_module_kind, strict_mode);
@@ -84,7 +83,6 @@ pub(crate) fn build_module_compiler(
     compiler.set_current_module_kind(node.kind);
     compiler.set_strict_require_main(is_entry_module);
     compiler.set_strict_mode(strict_mode);
-    compiler.set_strict_inference(strict_inference);
     for dep in &node.imports {
         if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
             compiler.preload_module_interface(interface);
@@ -134,7 +132,6 @@ pub(crate) struct ModuleReplayRequest<'a> {
     pub(crate) base_interner: &'a Interner,
     pub(crate) entry_module_kind: ModuleKind,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_inference: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -148,7 +145,6 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
         request.base_interner,
         request.entry_module_kind,
         request.strict_mode,
-        request.strict_inference,
         false,
     );
     let compile_result = compiler.compile_with_opts(

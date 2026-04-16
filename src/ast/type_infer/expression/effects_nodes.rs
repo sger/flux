@@ -1,8 +1,15 @@
-use crate::syntax::expression::HandleArm;
+use crate::{
+    diagnostics::position::Span,
+    syntax::{
+        Identifier,
+        expression::{Expression, HandleArm},
+    },
+    types::{infer_type::InferType, scheme::Scheme},
+};
 
-use super::*;
+use super::super::{InferCtx, ReportContext};
 
-impl<'a> InferCtx<'a> {
+impl InferCtx<'_> {
     /// Infer `perform` expression nodes.
     pub(super) fn infer_perform_expression(
         &mut self,
@@ -11,7 +18,7 @@ impl<'a> InferCtx<'a> {
         args: &[Expression],
         span: Span,
     ) -> InferType {
-        let arg_tys: Vec<InferType> = args.iter().map(|arg| self.infer_expression(arg)).collect();
+        let arg_tys: Vec<InferType> = args.iter().map(|a| self.infer_expression(a)).collect();
         if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(effect, operation) {
             if arg_tys.len() == param_tys.len() {
                 for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
@@ -19,30 +26,9 @@ impl<'a> InferCtx<'a> {
                 }
                 ret_ty.apply_type_subst(&self.subst)
             } else {
-                if self.strict_mode_enabled() {
-                    self.emit_strict_inference_error(
-                        span,
-                        format!(
-                            "Effect operation `{}` was called with the wrong number of arguments in strict mode.",
-                            self.interner.resolve(operation)
-                        ),
-                        "Match the declared operation signature exactly.",
-                    );
-                }
                 self.alloc_fallback_var()
             }
         } else {
-            if self.strict_mode_enabled() {
-                self.emit_strict_inference_error(
-                    span,
-                    format!(
-                        "Could not resolve the effect signature for `{}.{}` in strict mode.",
-                        self.interner.resolve(effect),
-                        self.interner.resolve(operation)
-                    ),
-                    "Declare the effect operation before using `perform`, and make sure it is in scope.",
-                );
-            }
             self.alloc_fallback_var()
         }
     }
@@ -64,16 +50,6 @@ impl<'a> InferCtx<'a> {
                 for (param_name, param_ty) in arm.params.iter().zip(param_tys.iter()) {
                     self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
                 }
-            } else if self.strict_mode_enabled() {
-                self.emit_strict_inference_error(
-                    arm.span,
-                    format!(
-                        "Could not resolve handler arm `{}.{}` in strict mode.",
-                        self.interner.resolve(effect),
-                        self.interner.resolve(arm.operation_name)
-                    ),
-                    "Declare the handled operation before using it in a handler arm.",
-                );
             }
             let body_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(&arm.body));
             self.env.leave_scope();
@@ -92,16 +68,7 @@ impl<'a> InferCtx<'a> {
             });
         }
 
-        let arm_ty = arm_result.unwrap_or_else(|| {
-            if self.strict_mode_enabled() {
-                self.emit_strict_inference_error(
-                    expr.span(),
-                    "Handle expressions must include at least one typed handler arm in strict mode.",
-                    "Add at least one handler arm, or use a handled expression with a declared effect operation.",
-                );
-            }
-            self.alloc_fallback_var()
-        });
+        let arm_ty = arm_result.unwrap_or_else(|| self.alloc_fallback_var());
         self.unify_with_context(&handled_ty, &arm_ty, expr.span(), ReportContext::Plain)
     }
 }
