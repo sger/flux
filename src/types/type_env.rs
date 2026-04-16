@@ -120,6 +120,13 @@ impl TypeEnv {
         self.bindings.get(&name)?.last().map(|e| &e.scheme)
     }
 
+    /// Iterate over all currently visible bindings (top of each shadow stack).
+    pub fn visible_bindings(&self) -> impl Iterator<Item = (Identifier, &Scheme)> {
+        self.bindings
+            .iter()
+            .filter_map(|(name, entries)| entries.last().map(|e| (*name, &e.scheme)))
+    }
+
     /// Look up a name's definition span O(1) via shadow stack top.
     pub fn lookup_span(&self, name: Identifier) -> Option<Span> {
         self.bindings.get(&name)?.last().and_then(|e| e.def_span)

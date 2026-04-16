@@ -191,7 +191,7 @@ impl<'a> InferCtx<'a> {
             ));
         }
         for elem in elements {
-            let fallback = self.env.alloc_infer_type_var();
+            let fallback = self.alloc_fallback_var();
             self.bind_pattern_variables(elem, &fallback, span);
         }
     }
@@ -224,7 +224,7 @@ impl<'a> InferCtx<'a> {
                     );
                 }
                 for field in fields {
-                    let fallback = self.env.alloc_infer_type_var();
+                    let fallback = self.alloc_fallback_var();
                     self.bind_pattern_variables(field, &fallback, span);
                 }
             }
@@ -241,7 +241,7 @@ impl<'a> InferCtx<'a> {
             );
         }
         for field in fields {
-            let fallback = self.env.alloc_infer_type_var();
+            let fallback = self.alloc_fallback_var();
             self.bind_pattern_variables(field, &fallback, span);
         }
     }

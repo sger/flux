@@ -5,6 +5,31 @@ Fixture: examples/type_system/failing/172_self_recursive_unresolved_guard_no_fal
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E430]: Any Type Inferred
+
+Could not determine a concrete type for `loop_unknown`. Inferred type: `(Int) -> _`.
+
+  examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:1:1
+  |
+1 | fn loop_unknown(n) {
+  | ^^^^^^^^^^^^^^^^^^^^
+2 |     if n == 0 {
+  | ^^^^^^^^^^^^^^^
+3 |         mystery_value
+  | ^^^^^^^^^^^^^^^^^^^^^
+4 |     } else {
+  | ^^^^^^^^^^^^
+5 |         loop_unknown(n - 1)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |     }
+  | ^^^^^
+7 | }
+  | ^
+
+Hint:
+  Add a type annotation: e.g. `fn loop_unknown(x: Int, y: Int): Int`
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
@@ -16,5 +41,7 @@ I can't find a value named `mystery_value`.
 
 Hint:
   Define it first: let mystery_value = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

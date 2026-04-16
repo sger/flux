@@ -32,7 +32,7 @@ impl<'a> InferCtx<'a> {
                             .with_category(DiagnosticCategory::TypeInference),
                     );
                 }
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }
         }
     }
@@ -149,7 +149,7 @@ impl<'a> InferCtx<'a> {
                         "Use operands with the same concrete String or numeric type.",
                     );
                 }
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }
         }
     }
@@ -183,7 +183,7 @@ impl<'a> InferCtx<'a> {
                         "Use operands with the same concrete Int or Float type.",
                     );
                 }
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }
         }
     }

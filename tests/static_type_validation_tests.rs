@@ -150,7 +150,7 @@ fn static_type_validation_accepts_fully_typed_function() {
     let (result, program, interner) = infer("fn add(x: Int, y: Int) -> Int { x + y }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.type_env,
+        &result.resolved_binding_schemes,
         &result.expr_types,
         &interner,
     );
@@ -165,7 +165,7 @@ fn static_type_validation_accepts_polymorphic_identity() {
     let (result, program, interner) = infer("fn identity(x) { x }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.type_env,
+        &result.resolved_binding_schemes,
         &result.expr_types,
         &interner,
     );
@@ -180,13 +180,84 @@ fn static_type_validation_accepts_polymorphic_arithmetic() {
     let (result, program, interner) = infer("fn add(x, y) { x + y }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.type_env,
+        &result.resolved_binding_schemes,
         &result.expr_types,
         &interner,
     );
     assert!(
         diags.is_empty(),
         "add should infer as a -> a -> a with no fallback residue"
+    );
+}
+
+#[test]
+fn static_type_validation_flags_mono_scheme_with_fallback_var() {
+    // `mystery` is an unresolved identifier — its type variable is a fallback.
+    // The validation pass should flag `f` even though it has a mono scheme.
+    let (result, program, interner) = infer("fn f(x) { mystery }");
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &interner,
+    );
+    assert!(
+        !diags.is_empty(),
+        "mono scheme containing unresolved identifier should emit E430"
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E430")),
+        "expected E430 diagnostic, got: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_accepts_concrete_annotated_function() {
+    let (result, program, interner) =
+        infer("fn double(x: Int) -> Int { x + x }");
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "concrete annotated function should have no fallback vars"
+    );
+}
+
+#[test]
+fn static_type_validation_no_false_positive_for_recursive_function() {
+    let (result, program, interner) = infer("fn f(n) { if n == 0 { 0 } else { f(n - 1) } }");
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "recursive function with concrete inference should not trigger E430, got: {diags:?}"
+    );
+}
+
+#[test]
+fn fallback_vars_populated_for_unresolved_identifier() {
+    let (result, _program, _interner) = infer("fn f(x) { unknown_thing }");
+    assert!(
+        !result.fallback_vars.is_empty(),
+        "unresolved identifier should produce fallback vars"
+    );
+}
+
+#[test]
+fn fallback_vars_empty_for_valid_program() {
+    let (result, _program, _interner) = infer("fn id(x) { x }");
+    assert!(
+        result.fallback_vars.is_empty(),
+        "valid polymorphic program should have no fallback vars, got: {:?}",
+        result.fallback_vars
     );
 }
 

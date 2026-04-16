@@ -168,6 +168,10 @@ struct InferCtx<'a> {
     class_env: Option<crate::types::class_env::ClassEnv>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
     class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Type variables allocated as fallback after inference failures.
+    /// These are "tainted" — if they appear in a binding's resolved type,
+    /// the binding has unresolved inference even if the scheme is mono.
+    fallback_vars: HashSet<TypeVarId>,
     /// Pre-resolved class name symbols for constraint emission in operators.
     /// `None` if the class is not declared in the current program.
     class_sym_eq: Option<Identifier>,
@@ -241,6 +245,7 @@ impl<'a> InferCtx<'a> {
             seen_error_keys: HashSet::new(),
             contraint_log: Vec::new(),
             deferred_constraints: Vec::new(),
+            fallback_vars: HashSet::new(),
             class_env: None,
             class_constraints: Vec::new(),
             class_sym_eq: None,
@@ -253,6 +258,18 @@ impl<'a> InferCtx<'a> {
     /// Return whether a type is fully concrete (no unresolved type variables).
     fn is_fully_concrete(ty: &InferType) -> bool {
         ty.is_concrete()
+    }
+
+    /// Allocate a fresh type variable and mark it as a fallback from an
+    /// inference failure. Fallback vars are tracked so the static type
+    /// validation pass can distinguish them from legitimately polymorphic
+    /// variables.
+    fn alloc_fallback_var(&mut self) -> InferType {
+        let ty = self.env.alloc_infer_type_var();
+        if let InferType::Var(v) = &ty {
+            self.fallback_vars.insert(*v);
+        }
+        ty
     }
 
     /// Record a constraint in the log for observability and future deferred solving.
@@ -499,6 +516,48 @@ pub fn infer_program(
     build_infer_result(ctx)
 }
 
+/// Expand the fallback set through the substitution and build resolved binding
+/// schemes with `forall = free_vars(resolved) - fallback_vars`.
+fn resolve_binding_schemes(
+    env: &TypeEnv,
+    subst: &TypeSubst,
+    fallback_vars: &HashSet<TypeVarId>,
+) -> (HashSet<TypeVarId>, HashMap<Identifier, Scheme>) {
+    // Expand fallback set: if a fallback var was unified with another var,
+    // the target is also tainted.
+    let mut expanded = fallback_vars.clone();
+    for &fv in fallback_vars {
+        let resolved = InferType::Var(fv).apply_type_subst(subst);
+        if let InferType::Var(target) = resolved {
+            expanded.insert(target);
+        }
+    }
+
+    let schemes = env
+        .visible_bindings()
+        .map(|(name, scheme)| {
+            let resolved_type = scheme.infer_type.apply_type_subst(subst);
+            let mut forall: Vec<TypeVarId> = resolved_type
+                .free_vars()
+                .into_iter()
+                .filter(|v| !expanded.contains(v))
+                .collect();
+            forall.sort_unstable();
+            forall.dedup();
+            (
+                name,
+                Scheme {
+                    forall,
+                    constraints: scheme.constraints.clone(),
+                    infer_type: resolved_type,
+                },
+            )
+        })
+        .collect();
+
+    (expanded, schemes)
+}
+
 /// Apply final substitution to all inferred types and build the result.
 fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     let constraint_count = ctx.contraint_log.len();
@@ -537,6 +596,9 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
             c
         })
         .collect();
+    let (expanded_fallback, resolved_binding_schemes) =
+        resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
+
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
@@ -544,6 +606,8 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         module_member_schemes: resolved_schemes,
         constraint_count,
         class_constraints: resolved_class_constraints,
+        fallback_vars: expanded_fallback,
+        resolved_binding_schemes,
     }
 }
 
@@ -592,6 +656,16 @@ pub struct InferProgramResult {
     /// usage or class method calls. Currently informational — Step 4 (solving)
     /// will resolve these against known instances.
     pub class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Type variables that were allocated as fallback after inference failures.
+    /// Used by the static type validation pass to distinguish fallback vars
+    /// from legitimately polymorphic vars in mono schemes.
+    pub fallback_vars: HashSet<TypeVarId>,
+    /// Resolved binding schemes: each top-level binding's type after applying
+    /// the final substitution, with `forall` recomputed as
+    /// `free_vars(resolved) - fallback_vars`. This is the authoritative source
+    /// for the static type validation pass — `has_unresolved_vars()` on these
+    /// schemes correctly identifies bindings with unresolved inference.
+    pub resolved_binding_schemes: HashMap<Identifier, Scheme>,
 }
 
 /// Stable identifier for one expression node within a single inference run.

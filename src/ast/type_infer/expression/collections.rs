@@ -58,7 +58,7 @@ impl<'a> InferCtx<'a> {
                 );
                 first.apply_type_subst(&self.subst)
             } else {
-                self.env.alloc_infer_type_var()
+                self.alloc_fallback_var()
             }
         };
         InferType::App(TypeConstructor::Array, vec![elem_ty])

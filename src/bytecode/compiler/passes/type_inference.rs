@@ -31,16 +31,16 @@ impl Compiler {
         self.cached_member_schemes
             .extend(hm_final.module_member_schemes);
         let class_constraints: Vec<WantedClassConstraint> = hm_final.class_constraints;
+        let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
         let mut hm_diagnostics = hm_final.diagnostics;
         tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
 
-        // Reject any binding or subexpression whose inferred type still
-        // contains unresolved fallback residue. This is now part of the
-        // default static-typing contract rather than a separate mode flag.
+        // Authoritative static-typing gate: reject any binding whose
+        // resolved scheme still contains unresolved fallback type variables.
         let mut strict_diags = validate_static_types(
             final_program.as_ref(),
-            &self.type_env,
+            &resolved_binding_schemes,
             &self.hm_expr_types,
             &self.interner,
         );
