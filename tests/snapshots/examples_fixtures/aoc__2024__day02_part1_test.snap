@@ -7,120 +7,55 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
+I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/Day02Solver.flx:7:12
-  |
-7 |         |> map(/t -> parse_int(t))
-  |            ^^^
+  examples/aoc/2024/day02_part1_test.flx:18:5
+   |
+18 |     assert_eq(Day02.day02a(sample_reports()), 2)
+   |     ^^^^^^^^^
 
 Hint:
-  Define it first: let map = ...;
+  Define it first: let assert_eq = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
+I can't find a value named `assert_true`.
 
-  examples/aoc/2024/Day02Solver.flx:14:12
+  examples/aoc/2024/day02_part1_test.flx:22:5
    |
-14 |         |> map(/line -> parse_report(line))
-   |            ^^^
+22 |     assert_true(Day02.predicate(Day02.parse_report("7 6 4 2 1")))
+   |     ^^^^^^^^^^^
 
 Hint:
-  Define it first: let map = ...;
+  Define it first: let assert_true = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `push`.
+I can't find a value named `assert_true`.
 
-  examples/aoc/2024/Day02Solver.flx:24:17
+  examples/aoc/2024/day02_part1_test.flx:26:5
    |
-24 |                 push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
-   |                 ^^^^
+26 |     assert_true(Day02.predicate(Day02.parse_report("1 3 6 7 9")))
+   |     ^^^^^^^^^^^
 
 Hint:
-  Define it first: let push = ...;
+  Define it first: let assert_true = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `all`.
+I can't find a value named `assert_false`.
 
-  examples/aoc/2024/Day02Solver.flx:31:9
+  examples/aoc/2024/day02_part1_test.flx:30:5
    |
-31 |         all(ds, /d -> d >= 1 && d <= 3) || all(ds, /d -> d >= -3 && d <= -1)
-   |         ^^^
+30 |     assert_false(Day02.predicate(Day02.parse_report("1 3 2 4 5")))
+   |     ^^^^^^^^^^^^
 
 Hint:
-  Define it first: let all = ...;
+  Define it first: let assert_false = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2024/Day02Solver.flx:35:9
-   |
-35 |         map(arrs, /arr -> concat([|x|], arr))
-   |         ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `slice`.
-
-  examples/aoc/2024/Day02Solver.flx:45:24
-   |
-45 |             let tail = slice(xs, 1, len(xs))
-   |                        ^^^^^
-
-Hint:
-  Define it first: let slice = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `concat`.
-
-  examples/aoc/2024/Day02Solver.flx:48:13
-   |
-48 |             concat(drop_head, keep_head)
-   |             ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `count`.
-
-  examples/aoc/2024/Day02Solver.flx:53:9
-   |
-53 |         count(reports, /r -> predicate(r))
-   |         ^^^^^
-
-Hint:
-  Define it first: let count = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `count`.
-
-  examples/aoc/2024/Day02Solver.flx:57:9
-   |
-57 |         count(reports, /r -> any(try_drops(r), /candidate -> predicate(candidate)))
-   |         ^^^^^
-
-Hint:
-  Define it first: let count = ...;
-
-Found 9 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

@@ -68,10 +68,18 @@ impl<'a> InferCtx<'a> {
         let key_ty = self.infer_expression(&pairs[0].0);
         let value_ty = self.infer_expression(&pairs[0].1);
         for (key, value) in pairs.iter().skip(1) {
-            self.infer_expression(key);
-            self.infer_expression(value);
+            let k_ty = self.infer_expression(key);
+            self.unify_reporting(&key_ty, &k_ty, key.span());
+            let v_ty = self.infer_expression(value);
+            self.unify_reporting(&value_ty, &v_ty, value.span());
         }
-        InferType::App(TypeConstructor::Map, vec![key_ty, value_ty])
+        InferType::App(
+            TypeConstructor::Map,
+            vec![
+                key_ty.apply_type_subst(&self.subst),
+                value_ty.apply_type_subst(&self.subst),
+            ],
+        )
     }
 
     /// Infer cons expressions and constrain the tail to the constructed list type.
