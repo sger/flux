@@ -12,12 +12,30 @@ impl<'a> InferCtx<'a> {
         // reference constructors defined later in the file.
         self.predeclare_data_constructors_in_statements(&program.statements);
 
-        // Phase A: pre-declare all top-level function names with a fresh type
-        // variable so that mutually-recursive functions can reference each other.
+        // Phase A: pre-declare all top-level function names. Functions with a
+        // complete explicit signature (all parameters annotated + return type)
+        // get their declared polymorphic scheme so recursive call sites
+        // instantiate at fresh types (Proposal 0159, Phase 3). Functions
+        // lacking a complete signature fall back to the `Scheme::mono` slot
+        // used for mutual-recursion forward references.
         for stmt in &program.statements {
-            if let Statement::Function { name, span, .. } = stmt {
-                let v = self.env.alloc_infer_type_var();
-                self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
+            if let Statement::Function {
+                name,
+                span,
+                type_params,
+                parameter_types,
+                return_type,
+                effects,
+                ..
+            } = stmt
+            {
+                let scheme = self
+                    .declared_fn_scheme(type_params, parameter_types, return_type, effects)
+                    .unwrap_or_else(|| {
+                        let v = self.env.alloc_infer_type_var();
+                        Scheme::mono(v)
+                    });
+                self.env.bind_with_span(*name, scheme, Some(*span));
             }
         }
 
@@ -203,6 +221,29 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_module(&mut self, module_name: Identifier, body: &Block) {
         self.env.enter_scope();
         self.predeclare_data_constructors_in_statements(&body.statements);
+        // Annotation-gated Phase A for modules (Proposal 0159, Phase 3):
+        // only predeclare functions with a complete explicit signature,
+        // using their declared polymorphic scheme so each call site
+        // instantiates at fresh types. Unannotated helpers are left out —
+        // the old `Scheme::mono(fresh)` predeclare caused distinct callers
+        // to collapse their polymorphic parameters through a shared var
+        // (see docs/internals/proposal_0159_investigation.md).
+        for stmt in &body.statements {
+            if let Statement::Function {
+                name,
+                span,
+                type_params,
+                parameter_types,
+                return_type,
+                effects,
+                ..
+            } = stmt
+                && let Some(scheme) =
+                    self.declared_fn_scheme(type_params, parameter_types, return_type, effects)
+            {
+                self.env.bind_with_span(*name, scheme, Some(*span));
+            }
+        }
         for stmt in &body.statements {
             self.infer_statement(stmt);
             if let Statement::Function {

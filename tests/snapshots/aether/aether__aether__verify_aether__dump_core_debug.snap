@@ -1,39 +1,39 @@
 ---
 source: tests/aether_cli_snapshots.rs
 ---
-letrec __tc_Eq_Int_eq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Int_eq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#1:Int, __x1#2:Int.
     Eq(__x0#1, __x1#2)
 
-letrec __tc_Eq_Int_neq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Int_neq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#4:Int, __x1#5:Int.
     NEq(__x0#4, __x1#5)
 
-letrec __tc_Eq_Float_eq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Float_eq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#7:Float, __x1#8:Float.
     Eq(__x0#7, __x1#8)
 
-letrec __tc_Eq_Float_neq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Float_neq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#10:Float, __x1#11:Float.
     NEq(__x0#10, __x1#11)
 
-letrec __tc_Eq_String_eq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_String_eq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#13:Box, __x1#14:Box.
     Eq(__x0#13, __x1#14)
 
-letrec __tc_Eq_String_neq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_String_neq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#16:Box, __x1#17:Box.
     NEq(__x0#16, __x1#17)
 
-letrec __tc_Eq_Bool_eq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Bool_eq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#19:Bool, __x1#20:Bool.
     Eq(__x0#19, __x1#20)
 
-letrec __tc_Eq_Bool_neq : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Eq_Bool_neq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#22:Bool, __x1#23:Bool.
     NEq(__x0#22, __x1#23)
 
-letrec __tc_Ord_Int_compare : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Int_compare : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#25:Int, __x1#26:Int.
     let %t1:Bool = Lt(__x0#25, __x1#26)
     case #4000718[synthetic]#718 of
@@ -47,23 +47,23 @@ letrec __tc_Ord_Int_compare : forall t10272. (t10272, t10272) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_Int_lt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Int_lt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#28:Int, __x1#29:Int.
     Lt(__x0#28, __x1#29)
 
-letrec __tc_Ord_Int_lte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Int_lte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#31:Int, __x1#32:Int.
     Le(__x0#31, __x1#32)
 
-letrec __tc_Ord_Int_gt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Int_gt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#34:Int, __x1#35:Int.
     Gt(__x0#34, __x1#35)
 
-letrec __tc_Ord_Int_gte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Int_gte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#37:Int, __x1#38:Int.
     Ge(__x0#37, __x1#38)
 
-letrec __tc_Ord_Float_compare : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Float_compare : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#40:Float, __x1#41:Float.
     let %t3:Bool = Lt(__x0#40, __x1#41)
     case #4000720[synthetic]#720 of
@@ -77,23 +77,23 @@ letrec __tc_Ord_Float_compare : forall t10272. (t10272, t10272) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_Float_lt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Float_lt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#43:Float, __x1#44:Float.
     Lt(__x0#43, __x1#44)
 
-letrec __tc_Ord_Float_lte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Float_lte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#46:Float, __x1#47:Float.
     Le(__x0#46, __x1#47)
 
-letrec __tc_Ord_Float_gt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Float_gt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#49:Float, __x1#50:Float.
     Gt(__x0#49, __x1#50)
 
-letrec __tc_Ord_Float_gte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_Float_gte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#52:Float, __x1#53:Float.
     Ge(__x0#52, __x1#53)
 
-letrec __tc_Ord_String_compare : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_String_compare : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#55:Box, __x1#56:Box.
     let %t5:Bool = Lt(__x0#55, __x1#56)
     case #4000722[synthetic]#722 of
@@ -107,119 +107,119 @@ letrec __tc_Ord_String_compare : forall t10272. (t10272, t10272) -> Bool =
           _ →
             0
 
-letrec __tc_Ord_String_lt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_String_lt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#58:Box, __x1#59:Box.
     Lt(__x0#58, __x1#59)
 
-letrec __tc_Ord_String_lte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_String_lte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#61:Box, __x1#62:Box.
     Le(__x0#61, __x1#62)
 
-letrec __tc_Ord_String_gt : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_String_gt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#64:Box, __x1#65:Box.
     Gt(__x0#64, __x1#65)
 
-letrec __tc_Ord_String_gte : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Ord_String_gte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#67:Box, __x1#68:Box.
     Ge(__x0#67, __x1#68)
 
-letrec __tc_Num_Int_add : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Int_add : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#70:Int, __x1#71:Int.
     Add(__x0#70, __x1#71)
 
-letrec __tc_Num_Int_sub : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Int_sub : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#73:Int, __x1#74:Int.
     Sub(__x0#73, __x1#74)
 
-letrec __tc_Num_Int_mul : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Int_mul : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#76:Int, __x1#77:Int.
     Mul(__x0#76, __x1#77)
 
-letrec __tc_Num_Int_div : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Int_div : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#79:Int, __x1#80:Int.
     Div(__x0#79, __x1#80)
 
-letrec __tc_Num_Float_add : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Float_add : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#82:Float, __x1#83:Float.
     Add(__x0#82, __x1#83)
 
-letrec __tc_Num_Float_sub : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Float_sub : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#85:Float, __x1#86:Float.
     Sub(__x0#85, __x1#86)
 
-letrec __tc_Num_Float_mul : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Float_mul : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#88:Float, __x1#89:Float.
     Mul(__x0#88, __x1#89)
 
-letrec __tc_Num_Float_div : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Num_Float_div : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#91:Float, __x1#92:Float.
     Div(__x0#91, __x1#92)
 
-letrec __tc_Show_Int_show : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Show_Int_show : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#94:Int.
     ToString(__x0#94)
 
-letrec __tc_Show_Float_show : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Show_Float_show : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#96:Float.
     ToString(__x0#96)
 
-letrec __tc_Show_String_show : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Show_String_show : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#98:Box.
     ToString(__x0#98)
 
-letrec __tc_Show_Bool_show : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Show_Bool_show : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#100:Bool.
     ToString(__x0#100)
 
-letrec __tc_Semigroup_String_append : forall t10272. (t10272, t10272) -> Bool =
+letrec __tc_Semigroup_String_append : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#102:Box, __x1#103:Box.
     string_concat#?[external](__x0#102, __x1#103)
 
-letrec compare : forall t10272. (t10272, t10272) -> Bool =
+letrec compare : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#105, __x1#106.
     Panic("No instance of Ord.compare for the given type")
 
-letrec lt : forall t10272. (t10272, t10272) -> Bool =
+letrec lt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#108, __x1#109.
     Panic("No instance of Ord.lt for the given type")
 
-letrec lte : forall t10272. (t10272, t10272) -> Bool =
+letrec lte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#111, __x1#112.
     Panic("No instance of Ord.lte for the given type")
 
-letrec gt : forall t10272. (t10272, t10272) -> Bool =
+letrec gt : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#114, __x1#115.
     Panic("No instance of Ord.gt for the given type")
 
-letrec gte : forall t10272. (t10272, t10272) -> Bool =
+letrec gte : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#117, __x1#118.
     Panic("No instance of Ord.gte for the given type")
 
-letrec eq : forall t10272. (t10272, t10272) -> Bool =
+letrec eq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#120, __x1#121.
     Panic("No instance of Eq.eq for the given type")
 
-letrec neq : forall t10272. (t10272, t10272) -> Bool =
+letrec neq : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#123, __x1#124.
     Panic("No instance of Eq.neq for the given type")
 
-letrec add : forall t10272. (t10272, t10272) -> Bool =
+letrec add : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#126, __x1#127.
     Panic("No instance of Num.add for the given type")
 
-letrec sub : forall t10272. (t10272, t10272) -> Bool =
+letrec sub : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#129, __x1#130.
     Panic("No instance of Num.sub for the given type")
 
-letrec mul : forall t10272. (t10272, t10272) -> Bool =
+letrec mul : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#132, __x1#133.
     Panic("No instance of Num.mul for the given type")
 
-letrec div : forall t10272. (t10272, t10272) -> Bool =
+letrec div : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#135, __x1#136.
     Panic("No instance of Num.div for the given type")
 
-letrec show : forall t10272. (t10272, t10272) -> Bool =
+letrec show : forall t10340. (t10340, t10340) -> Bool =
 λ__x0#138.
     Panic("No instance of Show.show for the given type")
 
@@ -1537,12 +1537,12 @@ letrec my_sum : Int =
 letrec main : Unit =
 λ.
     let result#716:Box = (let %t249:Box = MakeList(1, 2, 3)
-    let %t250:Box = (λx#717:Int.
+    let %t250:Box = (λx#717.
       IMul(x#717, 2))
     my_map#675(#4000958[synthetic]#958, #4000959[synthetic]#959))
     let %t251 = Print(result#716)
     let opt#713:Box = (let %t252:Box = Some(42)
-    let %t253:Box = (λx#714:Int.
+    let %t253:Box = (λx#714.
       IAdd(x#714, 1))
     option_map#680(#4000960[synthetic]#960, #4000961[synthetic]#961))
     let %t254 = Print(opt#713)
@@ -1553,7 +1553,7 @@ letrec main : Unit =
     my_len#689(#4000962[synthetic]#962))
     let %t257 = Print(n#707)
     let evens#704:Box = (let %t258:Box = MakeList(1, 2, 3, 4, 5, 6)
-    let %t259:Box = (λx#705:Int.
+    let %t259:Box = (λx#705.
       let %t260:Int = IMod(x#705, 2)
       ICmpEq(#4000964[synthetic]#964, 0))
     my_filter#692(#4000963[synthetic]#963, #4000965[synthetic]#965))

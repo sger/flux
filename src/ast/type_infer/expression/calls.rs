@@ -124,6 +124,7 @@ impl<'a> InferCtx<'a> {
         if has_higher_order_params {
             return self.infer_call_higher_order_path(
                 spec.fn_ty,
+                spec.param_tys,
                 spec.input.arguments,
                 spec.fn_effects,
                 spec.input.span,
@@ -150,13 +151,15 @@ impl<'a> InferCtx<'a> {
     fn infer_call_higher_order_path(
         &mut self,
         fn_ty: &InferType,
+        param_tys: &[InferType],
         arguments: &[Expression],
         fn_effects: &InferEffectRow,
         span: Span,
     ) -> InferType {
         let arg_tys: Vec<InferType> = arguments
             .iter()
-            .map(|arg| self.infer_expression(arg))
+            .enumerate()
+            .map(|(i, arg)| self.infer_higher_order_call_arg(param_tys.get(i), arg))
             .collect();
         let ret_var = self.env.alloc_infer_type_var();
         let expected_fn_ty = InferType::Fun(
@@ -166,6 +169,31 @@ impl<'a> InferCtx<'a> {
         );
         self.unify_reporting(fn_ty, &expected_fn_ty, span);
         ret_var.apply_type_subst(&self.subst)
+    }
+
+    /// Infer one higher-order call argument with bidirectional propagation
+    /// for lambdas against concrete expected types (Proposal 0159, Phase 3).
+    /// Non-lambda args silently unify against the expected parameter type so
+    /// later propagatable args see resolved callee type variables, without
+    /// shadowing downstream effect-row diagnostics.
+    fn infer_higher_order_call_arg(
+        &mut self,
+        expected: Option<&InferType>,
+        arg: &Expression,
+    ) -> InferType {
+        let Some(expected) = expected else {
+            return self.infer_expression(arg);
+        };
+        let expected_resolved = expected.apply_type_subst(&self.subst);
+        if is_propagatable_call_arg(arg) && lambda_param_types_concrete(&expected_resolved) {
+            self.check_expression(arg, &expected_resolved);
+            return expected_resolved.apply_type_subst(&self.subst);
+        }
+        let arg_ty = self.infer_expression(arg);
+        if !is_propagatable_call_arg(arg) {
+            self.unify_silent(&expected_resolved, &arg_ty);
+        }
+        arg_ty.apply_type_subst(&self.subst)
     }
 
     /// Infer fixed-arity call arguments and emit per-argument mismatch diagnostics.
@@ -353,5 +381,23 @@ impl<'a> InferCtx<'a> {
             self.constrain_call_effects(&effect_row, &ambient_effect_row, info.span);
         }
         Some(resolved_type_args)
+    }
+}
+
+/// Return true when a call argument benefits from expected-type propagation
+/// (Proposal 0159, Phase 3). Currently: lambda expressions. Other argument
+/// shapes fall back to plain inference so the existing call_arg_type_mismatch
+/// diagnostic keeps its canonical form.
+fn is_propagatable_call_arg(expr: &Expression) -> bool {
+    matches!(expr, Expression::Function { .. })
+}
+
+/// Return true when the expected type for a lambda argument has its parameter
+/// list fully resolved — the return type may remain flexible since checking a
+/// lambda body against a flexible expected return is a no-op.
+fn lambda_param_types_concrete(expected: &InferType) -> bool {
+    match expected {
+        InferType::Fun(params, _, _) => params.iter().all(InferType::is_concrete),
+        _ => expected.is_concrete(),
     }
 }
