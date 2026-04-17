@@ -657,7 +657,7 @@ module Local {
     public data StdoutHandle { Stdout }
 
     public instance Logger<StdoutHandle> {
-        fn log(hnd, msg) { None }
+        fn log(hnd, msg) { }
     }
 }
 "#,
@@ -850,7 +850,7 @@ module Local {
     public data StdoutHandle { Stdout }
 
     public instance Logger<StdoutHandle> {
-        fn log(hnd, msg) { None }
+        fn log(hnd, msg) { }
     }
 }
 "#,

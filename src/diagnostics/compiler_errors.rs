@@ -802,6 +802,16 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
     hint: Some("Declare the type variable in the function's generic parameter list: fn f<T>(...)"),
 };
 
+pub const INVALID_TYPE_ANNOTATION: ErrorCode = ErrorCode {
+    code: "E303",
+    title: "INVALID TYPE ANNOTATION",
+    error_type: ErrorType::Compiler,
+    message: "Cannot interpret this type annotation.",
+    hint: Some(
+        "Check the annotation for unknown type constructors, malformed effect rows, or unsupported syntax.",
+    ),
+};
+
 pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     code: "E430",
     title: "ANY TYPE INFERRED",
