@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `count`.
 
-  examples/aoc/2024/Day04Solver.flx:34:9
+  examples/aoc/2024/Day04Solver.flx:37:9
    |
-34 |         count([
+37 |         count([
    |         ^^^^^
 
 Hint:
@@ -25,9 +25,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/aoc/2024/Day04Solver.flx:88:16
+  examples/aoc/2024/Day04Solver.flx:91:16
    |
-88 |             |> filter(/s -> s != "")
+91 |             |> filter(/s -> s != "")
    |                ^^^^^^
 
 Hint:
@@ -38,9 +38,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `filter`.
 
-  examples/aoc/2024/Day04Solver.flx:143:16
+  examples/aoc/2024/Day04Solver.flx:147:16
     |
-143 |             |> filter(/s -> s != "")
+147 |             |> filter(/s -> s != "")
     |                ^^^^^^
 
 Hint:

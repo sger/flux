@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:18:12
+  examples/aoc/2024/day01.flx:24:8
    |
-18 |         |> map(/t -> parse_int(t))
-   |            ^^^
+24 |     |> map(/t -> parse_int(t))
+   |        ^^^
 
 Hint:
   Define it first: let map = ...;
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:26:8
+  examples/aoc/2024/day01.flx:32:8
    |
-26 |     |> map(/s -> parse_pair(s))
+32 |     |> map(/s -> parse_pair(s))
    |        ^^^
 
 Hint:
@@ -35,9 +35,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:35:8
+  examples/aoc/2024/day01.flx:41:8
    |
-35 |     |> fold(0, /(acc, p) -> acc + abs(p.0 - p.1))
+41 |     |> fold(0, /(acc, p) -> acc + abs(p.0 - p.1))
    |        ^^^^
 
 Hint:
@@ -48,9 +48,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:36:34
+  examples/aoc/2024/day01.flx:42:34
    |
-36 |     where left  = day_pairs_a |> map(/p -> p.0) |> sort_by(/x -> x)
+42 |     where left  = day_pairs_a |> map(/p -> p.0) |> sort_by(/x -> x)
    |                                  ^^^
 
 Hint:
@@ -61,9 +61,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:37:34
+  examples/aoc/2024/day01.flx:43:34
    |
-37 |     where right = day_pairs_a |> map(/p -> p.1) |> sort_by(/x -> x)
+43 |     where right = day_pairs_a |> map(/p -> p.1) |> sort_by(/x -> x)
    |                                  ^^^
 
 Hint:
@@ -74,9 +74,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:47:8
+  examples/aoc/2024/day01.flx:53:8
    |
-47 |     |> fold(0, /(acc, x) -> {
+53 |     |> fold(0, /(acc, x) -> {
    |        ^^^^
 
 Hint:
@@ -87,9 +87,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/aoc/2024/day01.flx:50:34
+  examples/aoc/2024/day01.flx:56:34
    |
-50 |     where left  = day_pairs_b |> map(/p -> p.0)
+56 |     where left  = day_pairs_b |> map(/p -> p.0)
    |                                  ^^^
 
 Hint:
@@ -100,10 +100,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/day01.flx:53:12
+  examples/aoc/2024/day01.flx:59:8
    |
-53 |         |> fold({}, /(m, x) -> match get(m, x) {
-   |            ^^^^
+59 |     |> fold({}, /(m, x) -> match Map.get(m, x) {
+   |        ^^^^
 
 Hint:
   Define it first: let fold = ...;

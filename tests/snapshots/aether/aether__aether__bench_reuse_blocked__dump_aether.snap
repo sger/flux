@@ -1074,17 +1074,17 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/bench_reuse_blocked.flx:25:6
+  examples/aether/bench_reuse_blocked.flx:21:6
    |
-25 | @fip fn map_blocked(xs, f) {
+21 | @fip fn map_blocked(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^
-26 |     match xs {
+22 |     match xs {
    | ^^^^^^^^^^^^^^
-27 |         [h | t] -> [touch_token(xs, f(h)) | map_blocked(t, f)],
+23 |         [h | t] -> [touch_token(xs, f(h)) | map_blocked(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-28 |         _ -> [],
+24 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-29 |     }
+25 |     }
    | ^^^^^
-30 | }
+26 | }
    | ^
