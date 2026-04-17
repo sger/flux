@@ -229,6 +229,11 @@ impl<'a> InferCtx<'a> {
         preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ) -> Self {
         let mut env = TypeEnv::new();
+        advance_counter_past_preloaded_schemes(
+            &mut env,
+            &preloaded_base_schemes,
+            &preloaded_module_member_schemes,
+        );
         for (name, scheme) in preloaded_base_schemes {
             env.bind(name, scheme);
         }
@@ -404,11 +409,6 @@ impl<'a> InferCtx<'a> {
     /// Mark a type variable as rigid (skolem) for the duration of a checked
     /// signature (Proposal 0159). While marked, `unify_core` rejects any
     /// attempt to bind `v` to a non-identical type.
-    ///
-    /// Not called from the inference driver in Commit 2 — the E305
-    /// infrastructure lands ahead of activation while the Core-IR snapshot
-    /// interaction is being resolved. Follow-up commit will turn marking on.
-    #[allow(dead_code)]
     pub(super) fn mark_skolem(&mut self, v: TypeVarId, name: Identifier) {
         self.skolem_vars.insert(v);
         self.skolem_names.insert(v, name);
@@ -416,7 +416,6 @@ impl<'a> InferCtx<'a> {
 
     /// Unmark a set of skolems; called when leaving the declared-signature
     /// scope so the variables can behave flexibly in downstream contexts.
-    #[allow(dead_code)]
     pub(super) fn unmark_skolems(&mut self, vs: &[TypeVarId]) {
         for v in vs {
             self.skolem_vars.remove(v);
@@ -512,6 +511,32 @@ pub fn infer_program(
     ctx.infer_program(program);
     ctx.solve_deferred_constraints();
     build_infer_result(ctx)
+}
+
+/// Expand the fallback set through the substitution and build resolved binding
+/// schemes with `forall = free_vars(resolved) - fallback_vars`.
+/// Advance the env's type-var counter past any TypeVarId used in preloaded
+/// schemes so freshly-allocated vars in this pass cannot collide with IDs
+/// baked into cross-pass scheme bodies (Proposal 0159).
+fn advance_counter_past_preloaded_schemes(
+    env: &mut TypeEnv,
+    base: &HashMap<Identifier, Scheme>,
+    module_members: &HashMap<(Identifier, Identifier), Scheme>,
+) {
+    let max_id = base
+        .values()
+        .chain(module_members.values())
+        .flat_map(|s| {
+            let mut ids: Vec<TypeVarId> = s.infer_type.free_vars().into_iter().collect();
+            ids.extend(s.forall.iter().copied());
+            ids
+        })
+        .max();
+    if let Some(m) = max_id
+        && env.counter <= m
+    {
+        env.counter = m + 1;
+    }
 }
 
 /// Expand the fallback set through the substitution and build resolved binding
