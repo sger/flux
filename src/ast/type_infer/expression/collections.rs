@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::unify::unify;
 
 impl<'a> InferCtx<'a> {
     /// Infer tuple literals by inferring each element in order.
@@ -37,20 +38,20 @@ impl<'a> InferCtx<'a> {
             );
         }
         let first = self.infer_expression(&elements[0]);
-        let mut homogeneous = true;
+        let mut heterogeneous = false;
         for element in elements.iter().skip(1) {
             let ty = self.infer_expression(element);
             let ty_resolved = ty.apply_type_subst(&self.subst);
             let first_resolved = first.apply_type_subst(&self.subst);
-            if ty_resolved != first_resolved {
-                homogeneous = false;
+            if unify(&first_resolved, &ty_resolved).is_err() {
+                heterogeneous = true;
                 self.unify_reporting(&first, &ty, element.span());
             }
         }
-        let elem_ty = if homogeneous {
-            first.apply_type_subst(&self.subst)
-        } else {
+        let elem_ty = if heterogeneous {
             self.alloc_fallback_var()
+        } else {
+            first.apply_type_subst(&self.subst)
         };
         InferType::App(TypeConstructor::Array, vec![elem_ty])
     }

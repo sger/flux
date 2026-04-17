@@ -7,19 +7,6 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `reverse`.
-
-  examples/aoc/2025/aoc_day4_haskell_style.flx:43:13
-   |
-43 |             reverse(acc)
-   |             ^^^^^^^
-
-Hint:
-  Define it first: let reverse = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `put`.
 
   examples/aoc/2025/aoc_day4_haskell_style.flx:52:48
@@ -49,19 +36,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `reverse`.
-
-  examples/aoc/2025/aoc_day4_haskell_style.flx:84:18
-   |
-84 |             _ -> reverse(acc)
-   |                  ^^^^^^^
-
-Hint:
-  Define it first: let reverse = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `has_key`.
 
   examples/aoc/2025/aoc_day4_haskell_style.flx:91:20
@@ -71,40 +45,6 @@ I can't find a value named `has_key`.
 
 Hint:
   Define it first: let has_key = ...;
-
-
-error[E001]: Duplicate Name
-
-Duplicate binding: `point_set` is already defined.
-
-  examples/aoc/2025/aoc_day4_haskell_style.flx:102:9
-    |
-102 |         let point_set = points_to_set(points, {})
-    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  examples/aoc/2025/aoc_day4_haskell_style.flx:0:1
-  |
-
-
-error[E001]: Duplicate Name
-
-Duplicate binding: `point_set` is already defined.
-
-  examples/aoc/2025/aoc_day4_haskell_style.flx:110:13
-    |
-110 |             let point_set = points_to_set(points, {})
-    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  examples/aoc/2025/aoc_day4_haskell_style.flx:0:1
-  |
 
 
 error[E001]: Duplicate Name
@@ -140,6 +80,6 @@ Hint:
   examples/aoc/2025/aoc_day4_haskell_style.flx:0:1
   |
 
-Found 9 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

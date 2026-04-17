@@ -33,19 +33,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `concat`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:26:9
-   |
-26 |         concat(concat(left, [|value|]), right)
-   |         ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `push`.
 
   examples/aoc/2025/aoc_day8_part2.flx:45:13
@@ -186,84 +173,6 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:128:16
-    |
-128 |     let idxs = range(0, n)
-    |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:130:5
-    |
-130 |     fold(idxs, [||], /(acc, i) -> {
-    |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:136:29
-    |
-136 |     let parents0 = to_array(range(0, n))
-    |                             ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:137:27
-    |
-137 |     let sizes0 = to_array(map(range(0, n), /_ -> 1))
-    |                           ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:139:5
-    |
-139 |     fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
-    |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_part2.flx:158:14
-    |
-158 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
-    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Found 20 errors.
+Found 13 errors.
 == stdout ==
 <not executed>

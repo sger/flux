@@ -3,59 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/using_list_module.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/advanced/using_list_module.flx:40:5
-   |
-40 |     fold(lst, 0, /(acc, x) -> acc + x)
-   |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `filter`.
-
-  examples/advanced/using_list_module.flx:127:17
-    |
-127 |     let evens = filter(nums, /x -> x % 2 == 0)
-    |                 ^^^^^^
-
-Hint:
-  Define it first: let filter = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/advanced/using_list_module.flx:131:19
-    |
-131 |     let squared = map(evens, /x -> x * x)
-    |                   ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/advanced/using_list_module.flx:159:18
-    |
-159 |     let grades = fold(paired, {}, /(acc, pair) -> Map.set(acc, to_string(first(pair)), grade(last(pair))))
-    |                  ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

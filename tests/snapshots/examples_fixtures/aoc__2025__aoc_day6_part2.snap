@@ -5,65 +5,22 @@ Fixture: examples/aoc/2025/aoc_day6_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E300]: Argument Type Mismatch
 
-I can't find a value named `map`.
+I found the wrong type in the 1st argument to `join`.
 
-  examples/aoc/2025/aoc_day6_part2.flx:82:18
+  examples/aoc/2025/aoc_day6_part2.flx:87:28
    |
-82 |     let digits = [
-   |                  ^
-83 |     char_at_pad(line_at(lines, row), col)
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-84 |     | row <- range(0, num_rows),
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-85 |     char_at_pad(line_at(lines, row), col) != " "
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-86 |     ]
-   | ^^^^^
+87 |     let joined = trim(join(digits, ""))
+   |                            ^^^^^^
+   |                            ------ this argument has type `List<String>`
 
-Hint:
-  Define it first: let map = ...;
+Note:
+  expected argument type: Array<String>
+  found argument type: List<String>
+  the actual argument type is inferred from this expression
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:94:16
-   |
-94 |     let cols = range(start, stop)
-   |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:96:23
-   |
-96 |         let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
-   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `product`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:97:9
-   |
-97 |         product(factors)
-   |         ^^^^^^^
-
-Hint:
-  Define it first: let product = ...;
-
-Found 4 errors.
+Help:
+  Pass a `Array<String>` value as the 1st argument.
 == stdout ==
 <not executed>

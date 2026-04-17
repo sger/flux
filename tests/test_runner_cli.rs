@@ -858,8 +858,8 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         text
     );
     assert!(
-        text.contains("IAdd(1, 2)"),
-        "expected lowered typed primop in Core dump, output:\n{}",
+        text.contains("Print(3)"),
+        "expected optimized readable Core dump for arithmetic example, output:\n{}",
         text
     );
     assert!(

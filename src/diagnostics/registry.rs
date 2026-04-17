@@ -105,6 +105,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     RIGID_VAR_ESCAPE,
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
+    CORE_LINT_FAILURE,
     // Type class errors (E440–E449)
     DUPLICATE_CLASS,
     INSTANCE_UNKNOWN_CLASS,

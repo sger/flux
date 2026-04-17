@@ -443,6 +443,8 @@ impl<'a> InferCtx<'a> {
             Scheme::mono(fn_ty)
         };
 
+        self.binding_schemes_by_span
+            .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
     }
 

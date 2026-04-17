@@ -16,20 +16,5 @@ I can't find a value named `push`.
 
 Hint:
   Define it first: let push = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:79:13
-   |
-79 | let lines = [line | line <- raw_lines, line != ""]
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Found 2 errors.
 == stdout ==
 <not executed>

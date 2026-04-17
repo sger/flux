@@ -7,58 +7,6 @@ failed (compile)
 == diagnostics ==
 error[E004]: Undefined Variable
 
-I can't find a value named `first`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:37:21
-   |
-37 |         let start = first(split_ints(trim(token), "-"));
-   |                     ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `last`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:38:19
-   |
-38 |         let end = last(split_ints(trim(token), "-"));
-   |                   ^^^^
-
-Hint:
-  Define it first: let last = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:47:12
-   |
-47 |         |> map(/t -> parse_range_token(t))
-   |            ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:56:19
-   |
-56 |         ranges |> fold(false, /(found, r) -> if found { true } else { id_in_range(id, r) })
-   |                   ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `has_key`.
 
   examples/aoc/2025/aoc_day2_haskell_style.flx:64:16
@@ -68,36 +16,5 @@ I can't find a value named `has_key`.
 
 Hint:
   Define it first: let has_key = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:92:16
-   |
-92 |             |> fold(state, /(acc, s) ->
-   |                ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day2_haskell_style.flx:126:24
-    |
-126 |     let day02b = day02(range(2, 12), ranges)
-    |                        ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-Help:
-  Did you mean `ranges`?
-
-Found 7 errors.
 == stdout ==
 <not executed>

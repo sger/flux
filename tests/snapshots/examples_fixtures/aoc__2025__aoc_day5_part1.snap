@@ -20,55 +20,63 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
+I can't find a value named `slice`.
 
-  examples/aoc/2025/aoc_day5_part1.flx:81:19
+  examples/aoc/2025/aoc_day5_part1.flx:81:41
    |
 81 | let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
-   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                                         ^^^^^
 
 Hint:
-  Define it first: let map = ...;
+  Define it first: let slice = ...;
 
 
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
+I can't find a value named `slice`.
 
-  examples/aoc/2025/aoc_day5_part1.flx:82:14
-   |
-82 | let ranges = [parse_range_line(line) | line <- range_lines]
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day5_part1.flx:83:16
+  examples/aoc/2025/aoc_day5_part1.flx:83:38
    |
 83 | let id_lines = [trim(line) | line <- slice(lines, sep + 1, len(lines)), trim(line) != ""]
-   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                                      ^^^^^
 
 Hint:
-  Define it first: let map = ...;
+  Define it first: let slice = ...;
 
 
-error[E004]: Undefined Variable
+error[E300]: Argument Type Mismatch
 
-I can't find a value named `map`.
+I found the wrong type in the 1st argument to `count_fresh`.
 
-  examples/aoc/2025/aoc_day5_part1.flx:84:11
+  examples/aoc/2025/aoc_day5_part1.flx:85:19
    |
+69 | fn count_fresh(ids, ranges, idx, acc) {
+70 |     if idx >= len(ids) {
+71 |         acc
+72 |     } else {
+73 |     let id = int_at(ids, idx)
+74 |     let add = if id_in_any_range(id, ranges, 0) { 1 } else { 0 }
+75 |     count_fresh(ids, ranges, idx + 1, acc + add)
+76 | }
+77 | }
+78 | 
+79 | let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
+... |
+83 | let id_lines = [trim(line) | line <- slice(lines, sep + 1, len(lines)), trim(line) != ""]
 84 | let ids = [parse_int(line) | line <- id_lines]
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+85 | print(count_fresh(ids, ranges, 0, 0))
+   |                   ^^^
+   |                   --- this argument has type `List<Int>`
 
-Hint:
-  Define it first: let map = ...;
+Note:
+  expected argument type: Array<Int>
+  found argument type: List<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
-Found 5 errors.
+Help:
+  Pass a `Array<Int>` value as the 1st argument.
+
+Found 4 errors.
 == stdout ==
 <not executed>

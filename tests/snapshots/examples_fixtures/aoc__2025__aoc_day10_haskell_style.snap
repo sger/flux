@@ -33,19 +33,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `concat`.
-
-  examples/aoc/2025/aoc_day10_haskell_style.flx:49:5
-   |
-49 |     concat(concat(left, [|value|]), right)
-   |     ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `push`.
 
   examples/aoc/2025/aoc_day10_haskell_style.flx:57:40
@@ -82,6 +69,6 @@ I can't find a value named `push`.
 Hint:
   Define it first: let push = ...;
 
-Found 6 errors.
+Found 5 errors.
 == stdout ==
 <not executed>
