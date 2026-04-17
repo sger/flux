@@ -13,7 +13,7 @@ use crate::{
         program::Program,
         statement::Statement,
     },
-    types::{infer_type::InferType, scheme::Scheme},
+    types::{TypeVarId, infer_type::InferType, scheme::Scheme},
 };
 
 use super::display::display_infer_type;
@@ -36,6 +36,9 @@ pub fn validate_static_types(
     program: &Program,
     resolved_schemes: &HashMap<Identifier, Scheme>,
     expr_types: &HashMap<ExprId, InferType>,
+    module_member_schemes: &HashMap<(Identifier, Identifier), Scheme>,
+    fallback_vars: &HashSet<TypeVarId>,
+    instantiated_expr_vars: &HashSet<TypeVarId>,
     interner: &Interner,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -43,9 +46,14 @@ pub fn validate_static_types(
     StrictTypeValidator {
         resolved_schemes,
         expr_types,
+        module_member_schemes,
+        fallback_vars,
+        instantiated_expr_vars,
         interner,
         diagnostics: &mut diagnostics,
         emitted_exprs: &mut emitted_exprs,
+        allowed_generalized_vars: HashSet::new(),
+        current_module: None,
     }
     .validate_statements(&program.statements);
     diagnostics
@@ -54,9 +62,14 @@ pub fn validate_static_types(
 struct StrictTypeValidator<'a> {
     resolved_schemes: &'a HashMap<Identifier, Scheme>,
     expr_types: &'a HashMap<ExprId, InferType>,
+    module_member_schemes: &'a HashMap<(Identifier, Identifier), Scheme>,
+    fallback_vars: &'a HashSet<TypeVarId>,
+    instantiated_expr_vars: &'a HashSet<TypeVarId>,
     interner: &'a Interner,
     diagnostics: &'a mut Vec<Diagnostic>,
     emitted_exprs: &'a mut HashSet<ExprId>,
+    allowed_generalized_vars: HashSet<TypeVarId>,
+    current_module: Option<Identifier>,
 }
 
 impl<'a> StrictTypeValidator<'a> {
@@ -73,13 +86,15 @@ impl<'a> StrictTypeValidator<'a> {
             Statement::Function {
                 name, body, span, ..
             } => {
-                self.validate_block(body);
+                self.with_binding_allowance(*name, |validator| validator.validate_block(body));
                 self.emit_binding_diagnostic(*name, *span);
             }
             Statement::Let {
                 name, value, span, ..
             } => {
-                self.validate_expression(value);
+                self.with_binding_allowance(*name, |validator| {
+                    validator.validate_expression(value)
+                });
                 self.emit_binding_diagnostic(*name, *span);
             }
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
@@ -93,7 +108,11 @@ impl<'a> StrictTypeValidator<'a> {
             Statement::Expression { expression, .. } => {
                 self.validate_expression(expression);
             }
-            Statement::Module { body, .. } => self.validate_statements(&body.statements),
+            Statement::Module { name, body, .. } => {
+                self.with_module(*name, |validator| {
+                    validator.validate_statements(&body.statements)
+                });
+            }
             Statement::Class { methods, .. } => {
                 for method in methods {
                     if let Some(body) = &method.default_body {
@@ -137,6 +156,34 @@ impl<'a> StrictTypeValidator<'a> {
     /// Validate every statement in a block.
     fn validate_block(&mut self, block: &Block) {
         self.validate_statements(&block.statements);
+    }
+
+    /// Run a validation subpass with the enclosing binding's generalized vars.
+    fn with_binding_allowance<R>(&mut self, name: Identifier, f: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = std::mem::take(&mut self.allowed_generalized_vars);
+        if let Some(scheme) = self.lookup_binding_scheme(name) {
+            self.allowed_generalized_vars = scheme.forall.iter().copied().collect();
+        } else {
+            self.allowed_generalized_vars = previous.clone();
+        }
+        let result = f(self);
+        self.allowed_generalized_vars = previous;
+        result
+    }
+
+    /// Run a validation subpass inside a module-member scope.
+    fn with_module<R>(&mut self, module_name: Identifier, f: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = self.current_module.replace(module_name);
+        let result = f(self);
+        self.current_module = previous;
+        result
+    }
+
+    /// Resolve the current binding scheme from either top-level or module-member maps.
+    fn lookup_binding_scheme(&self, name: Identifier) -> Option<&Scheme> {
+        self.current_module
+            .and_then(|module_name| self.module_member_schemes.get(&(module_name, name)))
+            .or_else(|| self.resolved_schemes.get(&name))
     }
 
     /// Validate one expression and return whether it or any child has unresolved type variables.
@@ -203,11 +250,26 @@ impl<'a> StrictTypeValidator<'a> {
                 self.expressions_have_unresolved(elements)
             }
             Expression::Hash { pairs, .. } => self.pairs_have_unresolved(pairs),
-            Expression::MemberAccess { object, .. }
-            | Expression::TupleFieldAccess { object, .. } => self.validate_expression(object),
+            Expression::MemberAccess { object, member, .. } => {
+                self.member_access_children_have_unresolved(object, *member)
+            }
+            Expression::TupleFieldAccess { object, .. } => self.validate_expression(object),
             Expression::Perform { args, .. } => self.expressions_have_unresolved(args),
             _ => false,
         }
+    }
+
+    /// Skip validating the module name operand for resolved module-member access.
+    fn member_access_children_have_unresolved(
+        &mut self,
+        object: &Expression,
+        member: Identifier,
+    ) -> bool {
+        if let Expression::Identifier { .. } = object {
+            return false;
+        }
+        let _ = member;
+        self.validate_expression(object)
     }
 
     /// Emit the leaf-most strict-types diagnostic for an expression with unresolved type variables.
@@ -247,8 +309,15 @@ impl<'a> StrictTypeValidator<'a> {
     /// instantiation at use sites) that are distinct from the `forall` vars
     /// in the enclosing function's scheme. A future pass with proper
     /// instantiation tracking can enable this.
-    fn expression_has_unresolved_var(&self, _expr: &Expression) -> bool {
-        false
+    fn expression_has_unresolved_var(&self, expr: &Expression) -> bool {
+        let Some(ty) = self.expr_types.get(&expr.expr_id()) else {
+            return false;
+        };
+        ty.free_vars().into_iter().any(|var| {
+            !self.allowed_generalized_vars.contains(&var)
+                && !self.instantiated_expr_vars.contains(&var)
+                && self.fallback_vars.contains(&var)
+        })
     }
 
     /// Check interpolation segments for unresolved type variables.
@@ -294,15 +363,21 @@ impl<'a> StrictTypeValidator<'a> {
     /// Return whether a statement contains nested expressions with unresolved type variables.
     fn statement_has_unresolved(&mut self, statement: &Statement) -> bool {
         match statement {
-            Statement::Let { value, .. }
-            | Statement::LetDestructure { value, .. }
-            | Statement::Assign { value, .. } => self.validate_expression(value),
+            Statement::Let { name, value, .. } => {
+                self.with_binding_allowance(*name, |validator| validator.validate_expression(value))
+            }
+            Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
+                self.validate_expression(value)
+            }
             Statement::Return { value, .. } => value
                 .as_ref()
                 .is_some_and(|value| self.validate_expression(value)),
             Statement::Expression { expression, .. } => self.validate_expression(expression),
-            Statement::Function { body, .. } | Statement::Module { body, .. } => {
-                self.block_has_unresolved(body)
+            Statement::Function { name, body, .. } => {
+                self.with_binding_allowance(*name, |validator| validator.block_has_unresolved(body))
+            }
+            Statement::Module { name, body, .. } => {
+                self.with_module(*name, |validator| validator.block_has_unresolved(body))
             }
             Statement::Class { methods, .. } => methods.iter().any(|method| {
                 method

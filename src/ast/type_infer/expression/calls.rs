@@ -378,9 +378,11 @@ impl<'a> InferCtx<'a> {
         }?;
 
         let (resolved_fn_ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
-        for &fresh in mapping.values() {
+        let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+        for &fresh in &fresh_vars {
             self.env.record_var_level(fresh);
         }
+        self.record_instantiated_expr_vars(fresh_vars);
         self.emit_scheme_constraints(&constraints, info.span);
 
         if let InferType::Fun(_, _, effect_row) = resolved_fn_ty.apply_type_subst(&self.subst) {

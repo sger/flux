@@ -172,6 +172,10 @@ struct InferCtx<'a> {
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
     fallback_vars: HashSet<TypeVarId>,
+    /// Type variables introduced by `Scheme::instantiate(...)` at expression
+    /// use sites. Surviving unresolved vars from this set are expected to be
+    /// resolved by later call-site unification and should not trigger E430.
+    instantiated_expr_vars: HashSet<TypeVarId>,
     /// Rigid (skolem) type variables introduced by a declared signature
     /// (Proposal 0159). A skolem cannot be unified with anything other than
     /// itself; `unify_core` enforces this inline via the threaded
@@ -258,6 +262,7 @@ impl<'a> InferCtx<'a> {
             contraint_log: Vec::new(),
             deferred_constraints: Vec::new(),
             fallback_vars: HashSet::new(),
+            instantiated_expr_vars: HashSet::new(),
             skolem_vars: HashSet::new(),
             skolem_names: HashMap::new(),
             class_env: None,
@@ -284,6 +289,14 @@ impl<'a> InferCtx<'a> {
             self.fallback_vars.insert(*v);
         }
         ty
+    }
+
+    /// Record fresh vars created by expression-site scheme instantiation.
+    fn record_instantiated_expr_vars<I>(&mut self, vars: I)
+    where
+        I: IntoIterator<Item = TypeVarId>,
+    {
+        self.instantiated_expr_vars.extend(vars);
     }
 
     /// Record a constraint in the log for observability and future deferred solving.
@@ -576,6 +589,11 @@ fn resolve_binding_schemes(
 /// Apply final substitution to all inferred types and build the result.
 fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     let constraint_count = ctx.contraint_log.len();
+    let resolved_instantiated_expr_vars = ctx
+        .instantiated_expr_vars
+        .iter()
+        .flat_map(|&var| InferType::Var(var).apply_type_subst(&ctx.subst).free_vars())
+        .collect();
     let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
         .module_member_schemes
         .into_iter()
@@ -622,6 +640,7 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         constraint_count,
         class_constraints: resolved_class_constraints,
         fallback_vars: expanded_fallback,
+        instantiated_expr_vars: resolved_instantiated_expr_vars,
         resolved_binding_schemes,
     }
 }
@@ -675,6 +694,9 @@ pub struct InferProgramResult {
     /// Used by the static type validation pass to distinguish fallback vars
     /// from legitimately polymorphic vars in mono schemes.
     pub fallback_vars: HashSet<TypeVarId>,
+    /// Type variables introduced by expression-site scheme instantiation after
+    /// applying the final substitution.
+    pub instantiated_expr_vars: HashSet<TypeVarId>,
     /// Resolved binding schemes: each top-level binding's type after applying
     /// the final substitution, with `forall` recomputed as
     /// `free_vars(resolved) - fallback_vars`. This is the authoritative source
