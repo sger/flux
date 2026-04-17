@@ -207,6 +207,17 @@ impl<'a> InferCtx<'a> {
         for (index, (arg_expr, expected_param_ty)) in
             arguments.iter().zip(param_tys.iter()).enumerate()
         {
+            // Propagate the expected parameter type into propagatable
+            // arguments (Proposal 0159, Phase 3 follow-up) so per-sub-
+            // expression mismatches report at the offending span. The
+            // subsequent unify_core + call_arg_type_mismatch emission
+            // remains as the canonical argument-level diagnostic.
+            if is_propagatable_call_arg(arg_expr) {
+                let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
+                if expected_resolved.is_concrete() {
+                    self.check_expression(arg_expr, &expected_resolved);
+                }
+            }
             let arg_ty = self.infer_expression(arg_expr);
 
             // Lazy substitution: pass &self.subst for on-demand variable
@@ -385,11 +396,27 @@ impl<'a> InferCtx<'a> {
 }
 
 /// Return true when a call argument benefits from expected-type propagation
-/// (Proposal 0159, Phase 3). Currently: lambda expressions. Other argument
-/// shapes fall back to plain inference so the existing call_arg_type_mismatch
-/// diagnostic keeps its canonical form.
+/// (Proposal 0159, Phase 3 + follow-up). Covers lambda expressions plus
+/// control-flow and collection / wrapper literals that `check_expression`
+/// has specialised rules for. Non-propagatable shapes fall back to plain
+/// inference so the existing call_arg_type_mismatch diagnostic keeps its
+/// canonical form.
 fn is_propagatable_call_arg(expr: &Expression) -> bool {
-    matches!(expr, Expression::Function { .. })
+    matches!(
+        expr,
+        Expression::Function { .. }
+            | Expression::If { .. }
+            | Expression::Match { .. }
+            | Expression::DoBlock { .. }
+            | Expression::TupleLiteral { .. }
+            | Expression::ListLiteral { .. }
+            | Expression::ArrayLiteral { .. }
+            | Expression::Hash { .. }
+            | Expression::Cons { .. }
+            | Expression::Some { .. }
+            | Expression::Left { .. }
+            | Expression::Right { .. }
+    )
 }
 
 /// Return true when the expected type for a lambda argument has its parameter

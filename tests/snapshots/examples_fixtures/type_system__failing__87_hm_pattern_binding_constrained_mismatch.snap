@@ -29,22 +29,27 @@ Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
 
-error[E300]: Type Mismatch
+error[E300]: Match Arm Type Mismatch
 
-I found a type mismatch.
+The arms of this `match` expression do not agree on a type.
 
   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:3:20
   |
 3 |         Some(v) -> v,
   |                    ^
-  |                    - this expression has type `Int`
+  |                    - arm 1 has type `Int`
 
-  |                    - this type mismatch is reported here
+  |                    - first arm returns `String`
+
+  |                    - this arm established the expected type
+
+  |                    - arm 1 conflicts with that type
 
 Note:
-  expected type: String
-  found type: Int
-  the conflicting types meet at this expression
+  first arm type: String
+  this arm type: Int
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
 
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.

@@ -41,6 +41,32 @@ Note:
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
-Found 2 errors.
+
+error[E300]: Match Arm Type Mismatch
+
+The arms of this `match` expression do not agree on a type.
+
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:5:17
+  |
+4 |         Some(n) -> n,
+  |                    - first arm returns `String`
+
+  |                    - this arm established the expected type
+5 |         None -> 0,
+  |                 ^
+  |                 - arm 2 has type `Int`
+
+  |                 - arm 2 conflicts with that type
+
+Note:
+  first arm type: String
+  this arm type: Int
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

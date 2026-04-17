@@ -1,6 +1,6 @@
 # HM Inference in the Flux Compiler
 
-> **Related:** [type_system_effects.md](type_system_effects.md) · [Guide Ch. 9 — Type System Basics](../guide/09_type_system_basics.md)
+> **Related:** [type_system_effects.md](type_system_effects.md) · [signature_directed_checking.md](signature_directed_checking.md) · [Guide Ch. 9 — Type System Basics](../guide/09_type_system_basics.md)
 
 This document explains how Hindley-Milner (HM) inference is wired into Flux compilation today.
 
@@ -22,7 +22,11 @@ The maintained implementation targets a statically typed source model:
 
 ## Main Entry Points
 
-- HM engine core: `src/ast/type_infer.rs`
+- HM engine core: `src/ast/type_infer/` (split across `mod.rs`,
+  `statement.rs`, `function.rs`, `unification.rs`, `effects.rs`,
+  `constraint.rs`, `solver.rs`, `adt.rs`, `display.rs`,
+  `static_type_validation.rs`, and `expression/`)
+- Bidirectional check mode: `src/ast/type_infer/expression/checked.rs`
 - Type primitives and unification:
   - `src/types/infer_type.rs`
   - `src/types/type_subst.rs`
@@ -64,23 +68,54 @@ Important invariant:
 
 ## Inference Model (Current)
 
-`src/ast/type_infer.rs` uses an Algorithm-W style structure with recovery:
+`src/ast/type_infer/` uses an Algorithm-W style structure **augmented with
+bidirectional checking** (Proposal 0159):
 
 - Program phase:
-  - prebind top-level functions to fresh vars (enables mutual recursion),
+  - prebind top-level functions: functions with a **complete explicit
+    signature** (all params annotated + return type) get their declared
+    polymorphic scheme via `declared_fn_scheme`; unannotated functions
+    get `Scheme::mono(fresh_var)` as a mutual-recursion slot,
   - infer each statement.
+- Module phase (`infer_module`):
+  - annotation-gated predeclaration — only fully-annotated module members
+    are predeclared. Unannotated helpers are **not** predeclared to avoid
+    the cross-caller polymorphism collapse documented in
+    [proposal_0159_investigation.md](proposal_0159_investigation.md).
 - Let-polymorphism:
   - infer value type,
   - `generalize` over env-free vars,
   - store `Scheme` in `TypeEnv`,
   - instantiate at use sites.
+- Bidirectional checking:
+  - `check_expression(expr, expected)` pushes the expected type into
+    structured sub-expressions (`If`, `Match`, `DoBlock`, `Lambda`,
+    `Tuple`, `ListLiteral`, `ArrayLiteral`, `Hash`, `Cons`, `Some`,
+    `Left`, `Right`). Wired at typed-`let`, annotated function bodies,
+    and call-site arguments (both fixed-arity and higher-order paths).
+  - See [signature_directed_checking.md](signature_directed_checking.md)
+    for the detailed model.
+- Skolemisation:
+  - declared type parameters (`fn f<a>(...)`) are marked as rigid skolems
+    for the duration of body inference via `mark_skolem`,
+  - `unify_core` threads a `skolems: &HashSet<TypeVarId>` parameter and
+    rejects binding a skolem to a non-identical type via
+    `UnifyErrorKind::RigidBind`, surfaced as E305.
 - Unification:
-  - implemented in `src/types/unify_error.rs`,
+  - implemented in `src/types/unify.rs`,
   - supports vars, constructors, apps, tuples, function types,
-  - function unification requires effect-set equality.
+  - function unification requires effect-set equality,
+  - flip rule for `(Var(skol), Var(flex))` so flex binds to skol rather
+    than the illegal reverse.
 - Recovery:
-  - `unify_reporting` emits diagnostics only when both conflicting sides are concrete,
-  - on failure inference preserves explicit residue instead of manufacturing a semantic top type.
+  - `unify_reporting` emits diagnostics only when both conflicting sides
+    are concrete (with a `RigidBind` bypass so E305 always surfaces),
+  - on failure inference preserves explicit residue instead of
+    manufacturing a semantic top type.
+- Cross-pass ID safety:
+  - `advance_counter_past_preloaded_schemes` bumps the env counter past
+    any TypeVarId used in preloaded schemes so locally-allocated vars
+    cannot collide with IDs baked into cross-module scheme bodies.
 
 ## Expression Precision and Known Fallbacks
 
@@ -175,6 +210,9 @@ This prevents silent runtime-boundary fallback on strict typed boundaries.
 Primary HM-related diagnostics:
 - `E300 TYPE_UNIFICATION_ERROR` (mismatch),
 - `E301 OCCURS_CHECK_FAILURE` (infinite type),
+- `E303 INVALID_TYPE_ANNOTATION` (parameter / return annotation cannot be lowered),
+- `E304 INVALID_EFFECT_ROW` (conflicting row variables in a single effect row),
+- `E305 RIGID_VAR_ESCAPE` (declared type parameter unified with a concrete type inside the function body — Proposal 0159),
 - `E425 STRICT UNRESOLVED BOUNDARY TYPE` (strict boundary cannot be proven from HM result).
 
 Also relevant:

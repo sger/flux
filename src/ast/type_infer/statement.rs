@@ -132,14 +132,13 @@ impl<'a> InferCtx<'a> {
         annotation: Option<&TypeExpr>,
         value: &Expression,
     ) {
-        let val_ty = self.infer_expression(value);
-
-        // Enforce the let annotation: unify val_ty with ann_ty and emit the
-        // canonical E300 (let_annotation_type_mismatch) on mismatch. When the
-        // initializer has structure that benefits from expected-type
-        // propagation (If / Match / DoBlock per Proposal 0159 Phase 1), also
-        // run check mode so branch/arm mismatches report at the offending
-        // sub-expression. The unification dedup ensures no duplicate E300s.
+        // Propagation order (Proposal 0159): when the initializer benefits
+        // from expected-type propagation, run check_expression BEFORE the
+        // canonical annotation unify. Check mode emits per-sub-expression
+        // diagnostics at precise spans; running it first primes the
+        // `seen_error_keys` dedup so later broader diagnostics (list-level
+        // unify, canonical annotation E300) don't duplicate the same
+        // (expected, actual) pair at a vaguer span.
         let final_ty = match annotation {
             Some(ann) => {
                 let mut row_var_env = HashMap::new();
@@ -151,16 +150,16 @@ impl<'a> InferCtx<'a> {
                     &mut self.env.counter,
                 ) {
                     Some(ann_ty) => {
-                        let final_ty = self.check_let_annotation(name, ann, &ann_ty, value, &val_ty);
                         if benefits_from_check_propagation(value) {
                             self.check_expression(value, &ann_ty);
                         }
-                        final_ty
+                        let val_ty = self.infer_expression(value);
+                        self.check_let_annotation(name, ann, &ann_ty, value, &val_ty)
                     }
-                    None => val_ty.apply_type_subst(&self.subst),
+                    None => self.infer_expression(value).apply_type_subst(&self.subst),
                 }
             }
-            None => val_ty.apply_type_subst(&self.subst),
+            None => self.infer_expression(value).apply_type_subst(&self.subst),
         };
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
@@ -329,10 +328,20 @@ impl<'a> InferCtx<'a> {
 }
 
 /// Return true when a typed-`let` initializer benefits from expected-type
-/// propagation into sub-expressions (per Proposal 0159, Phase 1).
+/// propagation into sub-expressions (per Proposal 0159, Phase 1 + follow-up).
 fn benefits_from_check_propagation(expr: &Expression) -> bool {
     matches!(
         expr,
-        Expression::If { .. } | Expression::Match { .. } | Expression::DoBlock { .. }
+        Expression::If { .. }
+            | Expression::Match { .. }
+            | Expression::DoBlock { .. }
+            | Expression::TupleLiteral { .. }
+            | Expression::ListLiteral { .. }
+            | Expression::ArrayLiteral { .. }
+            | Expression::Hash { .. }
+            | Expression::Cons { .. }
+            | Expression::Some { .. }
+            | Expression::Left { .. }
+            | Expression::Right { .. }
     )
 }
