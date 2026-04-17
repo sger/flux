@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:21:5
+  examples/aoc/2024/day06_test.flx:24:5
    |
-21 |     assert_eq(Day06.day06a_from_lines(sample_grid()), 41)
+24 |     assert_eq(Day06.day06a_from_lines(sample_grid()), 41)
    |     ^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:26:5
+  examples/aoc/2024/day06_test.flx:29:5
    |
-26 |     assert_eq(Day06.day06b_from_lines(sample_grid()), 6)
+29 |     assert_eq(Day06.day06b_from_lines(sample_grid()), 6)
    |     ^^^^^^^^^
 
 Hint:
@@ -35,9 +35,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:35:5
+  examples/aoc/2024/day06_test.flx:38:5
    |
-35 |     assert_eq(Day06.day06a_from_lines(grid), 2)
+38 |     assert_eq(Day06.day06a_from_lines(grid), 2)
    |     ^^^^^^^^^
 
 Hint:
@@ -48,9 +48,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:43:5
+  examples/aoc/2024/day06_test.flx:46:5
    |
-43 |     assert_eq(Day06.day06b_from_lines(grid), 0)
+46 |     assert_eq(Day06.day06b_from_lines(grid), 0)
    |     ^^^^^^^^^
 
 Hint:
@@ -61,9 +61,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:56:5
+  examples/aoc/2024/day06_test.flx:59:5
    |
-56 |     assert_eq(Day06.day06a_from_lines(grid), 2)
+59 |     assert_eq(Day06.day06a_from_lines(grid), 2)
    |     ^^^^^^^^^
 
 Hint:
@@ -74,9 +74,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:75:5
+  examples/aoc/2024/day06_test.flx:78:5
    |
-75 |     assert_eq(result_b >= 0, true)
+78 |     assert_eq(result_b >= 0, true)
    |     ^^^^^^^^^
 
 Hint:
@@ -87,9 +87,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:81:5
+  examples/aoc/2024/day06_test.flx:84:5
    |
-81 |     assert_eq(Day06.day06a_from_lines(grid), 1)
+84 |     assert_eq(Day06.day06a_from_lines(grid), 1)
    |     ^^^^^^^^^
 
 Hint:
@@ -100,9 +100,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `assert_eq`.
 
-  examples/aoc/2024/day06_test.flx:82:5
+  examples/aoc/2024/day06_test.flx:85:5
    |
-82 |     assert_eq(Day06.day06b_from_lines(grid), 0)
+85 |     assert_eq(Day06.day06b_from_lines(grid), 0)
    |     ^^^^^^^^^
 
 Hint:

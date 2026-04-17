@@ -3,8 +3,49 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/array_hash_combo.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/array_hash_combo.flx:25:34
+   |
+25 |         {"name": "Alice", "age": 25},
+   |                                  ^^
+   |                                  -- this expression has type `Int`
+
+   |                                  -- this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/basics/array_hash_combo.flx:68:18
+   |
+68 |         "count": 3
+   |                  ^
+   |                  - this expression has type `Int`
+
+   |                  - this type mismatch is reported here
+
+Note:
+  expected type: Array<String>
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+Found 2 errors.
 == stdout ==
 <not executed>

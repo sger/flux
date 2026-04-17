@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
 
-  examples/aoc/2024/Day05Solver.flx:103:9
+  examples/aoc/2024/Day05Solver.flx:106:9
     |
-103 |         fold(
+106 |         fold(
     |         ^^^^
 
 Hint:

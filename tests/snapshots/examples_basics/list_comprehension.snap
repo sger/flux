@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/basics/list_comprehension.flx:10:11
+  examples/basics/list_comprehension.flx:24:11
    |
-10 |     print([x * 2 | x <- nums])
+24 |     print([x * 2 | x <- nums])
    |           ^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/basics/list_comprehension.flx:13:11
+  examples/basics/list_comprehension.flx:27:11
    |
-13 |     print([x | x <- nums, x % 2 == 0])
+27 |     print([x | x <- nums, x % 2 == 0])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -35,9 +35,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/basics/list_comprehension.flx:16:11
+  examples/basics/list_comprehension.flx:30:11
    |
-16 |     print([x * x | x <- nums, x > 2])
+30 |     print([x * x | x <- nums, x > 2])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -48,9 +48,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/basics/list_comprehension.flx:19:11
+  examples/basics/list_comprehension.flx:33:11
    |
-19 |     print([x | x <- r, x > 3, x < 8])
+33 |     print([x | x <- r, x > 3, x < 8])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -61,64 +61,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `flat_map`.
 
-  examples/basics/list_comprehension.flx:24:11
+  examples/basics/list_comprehension.flx:38:11
    |
-24 |     print([color + "-" + size | color <- colors, size <- sizes])
+38 |     print([color + "-" + size | color <- colors, size <- sizes])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let flat_map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `flat_map`.
-
-  examples/basics/list_comprehension.flx:28:11
-   |
-28 |     print([x * y | x <- small, y <- small])
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let flat_map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `flat_map`.
-
-  examples/basics/list_comprehension.flx:31:11
-   |
-31 |     print([to_string(x) + "+" + to_string(y) | x <- small, y <- small, x + y > 4])
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let flat_map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `flat_map`.
-
-  examples/basics/list_comprehension.flx:34:19
-   |
-34 |     let triples = [to_string(a) + "," + to_string(b) + "," + to_string(c)
-   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-35 |     | a <- r, b <- r, b >= a, c <- r, c >= b, a*a + b*b == c*c]
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let flat_map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `flat_map`.
-
-  examples/basics/list_comprehension.flx:41:11
-   |
-41 |     print([a + b | a <- ps, b <- qs])
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
   Define it first: let flat_map = ...;
@@ -130,7 +76,59 @@ I can't find a value named `flat_map`.
 
   examples/basics/list_comprehension.flx:42:11
    |
-42 |     print([a * b | a <- ps, a > 1, b <- qs])
+42 |     print([x * y | x <- small, y <- small])
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let flat_map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `flat_map`.
+
+  examples/basics/list_comprehension.flx:47:11
+   |
+47 |     print([x + y | x <- small, y <- small, x + y > 4])
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let flat_map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `flat_map`.
+
+  examples/basics/list_comprehension.flx:50:19
+   |
+50 |     let triples = [a + b + c | a <- r, b <- r, b >= a, c <- r, c >= b, a * a + b * b == c * c]
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let flat_map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `flat_map`.
+
+  examples/basics/list_comprehension.flx:56:11
+   |
+56 |     print([a + b | a <- ps, b <- qs])
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let flat_map = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `flat_map`.
+
+  examples/basics/list_comprehension.flx:57:11
+   |
+57 |     print([a * b | a <- ps, a > 1, b <- qs])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -141,9 +139,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `map`.
 
-  examples/basics/list_comprehension.flx:43:11
+  examples/basics/list_comprehension.flx:58:11
    |
-43 |     print([x | x <- nums, x > 1, x < 5])
+58 |     print([x | x <- nums, x > 1, x < 5])
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

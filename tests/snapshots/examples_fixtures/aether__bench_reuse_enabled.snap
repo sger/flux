@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `first`.
 
-  examples/aether/bench_reuse_enabled.flx:40:37
+  examples/aether/bench_reuse_enabled.flx:36:37
    |
-40 |     print("enabled: result head = #{first(mapped)}")
+36 |     print("enabled: result head = #{first(mapped)}")
    |                                     ^^^^^
 
 Hint:

@@ -31,6 +31,28 @@ Hint:
   Define it first: let total = ...;
 
 
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/advanced/grade_analyzer.flx:57:18
+   |
+57 |         "grade": grade,
+   |                  ^^^^^
+   |                  ----- this expression has type `Grade`
+
+   |                  ----- this type mismatch is reported here
+
+Note:
+  expected type: Float
+  found type: Grade
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `fold`.
@@ -69,6 +91,92 @@ I can't find a value named `filter`.
 Hint:
   Define it first: let filter = ...;
 
-Found 5 errors.
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 2nd argument to `make_student`.
+
+  examples/advanced/grade_analyzer.flx:105:31
+    |
+ 19 | fn make_student(name, scores) {
+ 20 |     {"name": name, "scores": scores}
+ 21 | }
+ 22 | 
+ 23 | fn average(scores) {
+... |
+103 | fn main() with IO {
+104 |     let students = [
+105 |         make_student("Alice", [92.0, 88.0, 95.0, 91.0]),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |                               ------------------------ this argument has type `List<Float>`
+
+Note:
+  expected argument type: String
+  found argument type: List<Float>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `String` value as the 2nd argument.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 2nd argument to `make_student`.
+
+  examples/advanced/grade_analyzer.flx:107:33
+    |
+ 19 | fn make_student(name, scores) {
+ 20 |     {"name": name, "scores": scores}
+ 21 | }
+ 22 | 
+ 23 | fn average(scores) {
+... |
+105 |         make_student("Alice", [92.0, 88.0, 95.0, 91.0]),
+106 |         make_student("Bob", [78.0, 82.0, 75.0, 80.0]),
+107 |         make_student("Charlie", [95.0, 98.0, 92.0, 97.0]),
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |                                 ------------------------ this argument has type `List<Float>`
+
+Note:
+  expected argument type: String
+  found argument type: List<Float>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `String` value as the 2nd argument.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 2nd argument to `make_student`.
+
+  examples/advanced/grade_analyzer.flx:109:29
+    |
+ 19 | fn make_student(name, scores) {
+ 20 |     {"name": name, "scores": scores}
+ 21 | }
+ 22 | 
+ 23 | fn average(scores) {
+... |
+107 |         make_student("Charlie", [95.0, 98.0, 92.0, 97.0]),
+108 |         make_student("Diana", [65.0, 70.0, 68.0, 72.0]),
+109 |         make_student("Eve", [55.0, 60.0, 48.0, 52.0]),
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |                             ------------------------ this argument has type `List<Float>`
+
+Note:
+  expected argument type: String
+  found argument type: List<Float>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `String` value as the 2nd argument.
+
+Found 9 errors.
 == stdout ==
 <not executed>
