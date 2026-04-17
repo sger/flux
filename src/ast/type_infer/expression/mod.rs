@@ -15,9 +15,11 @@ impl<'a> InferCtx<'a> {
     fn infer_identifier_expression(&mut self, expr: &Expression, name: Identifier) -> InferType {
         if let Some(scheme) = self.env.lookup(name).cloned() {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
-            for &fresh in mapping.values() {
+            let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+            for &fresh in &fresh_vars {
                 self.env.record_var_level(fresh);
             }
+            self.record_instantiated_expr_vars(fresh_vars);
             self.emit_scheme_constraints(&constraints, expr.span());
             return ty;
         }

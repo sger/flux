@@ -152,6 +152,9 @@ fn static_type_validation_accepts_fully_typed_function() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
@@ -167,6 +170,9 @@ fn static_type_validation_accepts_polymorphic_identity() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
@@ -182,6 +188,9 @@ fn static_type_validation_accepts_polymorphic_arithmetic() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
@@ -199,6 +208,9 @@ fn static_type_validation_flags_mono_scheme_with_fallback_var() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
@@ -218,6 +230,9 @@ fn static_type_validation_accepts_concrete_annotated_function() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
@@ -233,11 +248,89 @@ fn static_type_validation_no_false_positive_for_recursive_function() {
         &program,
         &result.resolved_binding_schemes,
         &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
         &interner,
     );
     assert!(
         diags.is_empty(),
         "recursive function with concrete inference should not trigger E430, got: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_flags_unresolved_leaf_expression() {
+    let (result, program, interner) = infer("fn f(x) { mystery }");
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
+        &interner,
+    );
+    let e430_count = diags
+        .iter()
+        .filter(|diag| diag.code() == Some("E430"))
+        .count();
+    assert!(
+        e430_count >= 2,
+        "expected both binding and leaf expression E430 diagnostics, got: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_accepts_bare_instantiated_identifier() {
+    let (result, program, interner) = infer(
+        r#"
+fn id(x) { x }
+fn main() {
+    let f = id
+    f
+}
+"#,
+    );
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "bare instantiated identifier should not trigger E430: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_accepts_partially_applied_polymorphic_call() {
+    let (result, program, interner) = infer(
+        r#"
+fn id(x) { x }
+fn apply(f, x) { f(x) }
+fn main() {
+    let keep = apply(id)
+    keep(1)
+}
+"#,
+    );
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "partially applied polymorphic call should not trigger E430: {diags:?}"
     );
 }
 
