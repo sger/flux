@@ -28,9 +28,11 @@ impl Compiler {
         let hm_final = final_inference.hm_final;
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
+        let module_member_schemes = hm_final.module_member_schemes;
         self.cached_member_schemes
-            .extend(hm_final.module_member_schemes);
+            .extend(module_member_schemes.clone());
         let class_constraints: Vec<WantedClassConstraint> = hm_final.class_constraints;
+        let instantiated_expr_vars = hm_final.instantiated_expr_vars;
         let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
         let mut hm_diagnostics = hm_final.diagnostics;
@@ -42,6 +44,9 @@ impl Compiler {
             final_program.as_ref(),
             &resolved_binding_schemes,
             &self.hm_expr_types,
+            &module_member_schemes,
+            &hm_final.fallback_vars,
+            &instantiated_expr_vars,
             &self.interner,
         );
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
