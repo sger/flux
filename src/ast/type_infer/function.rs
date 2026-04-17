@@ -45,6 +45,8 @@ impl<'a> InferCtx<'a> {
             &mut row_var_env,
             input.return_type,
             &body_ty,
+            Some(input.name),
+            input.body,
         );
 
         // T11 (self-only): run one extra refinement pass for unannotated
@@ -172,17 +174,36 @@ impl<'a> InferCtx<'a> {
     ) -> Vec<InferType> {
         let mut param_tys: Vec<InferType> = Vec::with_capacity(parameters.len());
         for (index, &param) in parameters.iter().enumerate() {
-            let ty = parameter_types
-                .get(index)
-                .and_then(|opt| opt.as_ref())
-                .and_then(|type_expr| {
-                    self.infer_type_from_annotation(type_expr, type_params, row_var_env)
-                })
-                .unwrap_or_else(|| self.env.alloc_infer_type_var());
+            let annotation = parameter_types.get(index).and_then(|opt| opt.as_ref());
+            let ty = match annotation {
+                Some(type_expr) => self
+                    .infer_type_from_annotation(type_expr, type_params, row_var_env)
+                    .unwrap_or_else(|| {
+                        self.emit_invalid_annotation_diag(param, type_expr);
+                        self.env.alloc_infer_type_var()
+                    }),
+                None => self.env.alloc_infer_type_var(),
+            };
             param_tys.push(ty.clone());
             self.env.bind(param, Scheme::mono(ty));
         }
         param_tys
+    }
+
+    /// Emit E303 for a parameter whose type annotation could not be lowered.
+    fn emit_invalid_annotation_diag(&mut self, param: Identifier, annotation: &TypeExpr) {
+        let name = self.interner.resolve(param);
+        let diag = Diagnostic::make_error(
+            &crate::diagnostics::compiler_errors::INVALID_TYPE_ANNOTATION,
+            &[],
+            self.file_path.clone(),
+            annotation.span(),
+        )
+        .with_primary_label(
+            annotation.span(),
+            format!("parameter `{name}` has an unresolvable type annotation"),
+        );
+        self.errors.push(diag);
     }
 
     /// Infer the function effect rows used for signature publication and body checks.
@@ -211,25 +232,81 @@ impl<'a> InferCtx<'a> {
         (declared_effect_row, ambient_effect_row)
     }
 
-    /// Infer the function return type, applying annotation constraints silently.
+    /// Infer the function return type and enforce the optional annotation.
     ///
-    /// Annotation mismatches are propagated via substitutions diagnostics are
-    /// emitted by compiler boundary checks, not by this HM helper.
+    /// When a return annotation is present, unifies the body type against it
+    /// and emits E300 (Return Type Mismatch) on failure. HM is authoritative;
+    /// downstream compiler boundary checks remain a fallback and the
+    /// diagnostic aggregator dedupes overlapping E300s.
     pub(super) fn infer_return_type_with_optional_annotation(
         &mut self,
         type_params: &HashMap<Identifier, TypeVarId>,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
         return_type: &Option<TypeExpr>,
         body_ty: &InferType,
+        fn_name: Option<Identifier>,
+        body: &Block,
     ) -> InferType {
         match return_type {
             Some(ret_ann) => {
                 match self.infer_type_from_annotation(ret_ann, type_params, row_var_env) {
-                    Some(ann_ty) => self.unify_silent(body_ty, &ann_ty),
+                    Some(ann_ty) => {
+                        self.check_return_annotation(fn_name, ret_ann, &ann_ty, body, body_ty)
+                    }
                     None => body_ty.apply_type_subst(&self.subst),
                 }
             }
             None => body_ty.apply_type_subst(&self.subst),
+        }
+    }
+
+    /// Unify the body type against the declared return annotation, emitting
+    /// E300 on failure and recovering with the annotation type so downstream
+    /// inference remains consistent.
+    fn check_return_annotation(
+        &mut self,
+        fn_name: Option<Identifier>,
+        ret_ann: &TypeExpr,
+        ann_ty: &InferType,
+        body: &Block,
+        body_ty: &InferType,
+    ) -> InferType {
+        match crate::types::unify::unify_core(
+            body_ty,
+            ann_ty,
+            &self.subst,
+            Span::default(),
+            &mut self.env.counter,
+        ) {
+            Ok(s) => {
+                self.subst = std::mem::take(&mut self.subst).compose(&s);
+                body_ty.apply_type_subst(&self.subst)
+            }
+            Err(_) => {
+                let body_resolved = body_ty.apply_type_subst(&self.subst);
+                let ann_resolved = ann_ty.apply_type_subst(&self.subst);
+                // Only emit when both sides are fully resolved; unresolved
+                // bodies (e.g. forward references inside library modules) are
+                // left to downstream boundary checks to avoid false positives.
+                if body_resolved.is_concrete() && ann_resolved.is_concrete() {
+                    let fn_name_str = fn_name
+                        .map(|n| self.interner.resolve(n).to_string())
+                        .unwrap_or_else(|| "lambda".to_string());
+                    let ann_str = display_infer_type(&ann_resolved, self.interner);
+                    let body_str = display_infer_type(&body_resolved, self.interner);
+                    let diag =
+                        crate::diagnostics::compiler_errors::fun_return_annotation_mismatch(
+                            self.file_path.clone(),
+                            ret_ann.span(),
+                            self.block_value_span(body),
+                            &fn_name_str,
+                            &ann_str,
+                            &body_str,
+                        );
+                    self.errors.push(diag);
+                }
+                ann_resolved
+            }
         }
     }
 

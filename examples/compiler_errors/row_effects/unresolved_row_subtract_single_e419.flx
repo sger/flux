@@ -3,6 +3,5 @@ fn unresolved(x: Int) -> Int with |e - IO {
 }
 
 fn main() -> Unit {
-    unresolved(1)
-    None
+    let _ = unresolved(1)
 }

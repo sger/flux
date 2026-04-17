@@ -31,6 +31,8 @@ impl<'a> InferCtx<'a> {
             &mut row_var_env,
             input.return_type,
             &body_ty,
+            None,
+            input.body,
         );
 
         let final_param_tys: Vec<InferType> = param_tys
