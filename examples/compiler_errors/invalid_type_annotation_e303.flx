@@ -1,0 +1,13 @@
+// E303: Invalid type annotation.
+//
+// The parameter annotation references a type constructor that cannot be
+// resolved (`NotAType` is neither a primitive, an ADT, nor an imported
+// type), so the annotation cannot be lowered into an HM type.
+
+fn use_unknown(x: NotAType) -> Int {
+    0
+}
+
+fn main() -> Unit {
+    let _ = use_unknown(1)
+}

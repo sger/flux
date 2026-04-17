@@ -1,6 +1,6 @@
 - Feature Name: Signature-Directed Checking and Skolemisation
 - Start Date: 2026-04-15
-- Status: Delivered (2026-04-17)
+- Status: Implemented (2026-04-17)
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0127 (Type Inference Completion Roadmap), 0145 (Type Classes), 0156 (Static Typing Completion Roadmap)

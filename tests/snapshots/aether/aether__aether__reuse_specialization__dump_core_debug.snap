@@ -376,7 +376,7 @@ letrec println_all =
 
 letrec read_lines =
 λpath#193:Box.
-    let content#194:Int = ReadFile(path#193)
+    let content#194:Box = ReadFile(path#193)
     Split(content#194, "\n")
 
 letrec parse_ints =
@@ -1509,7 +1509,7 @@ letrec main : Unit =
     keep_right_only#680(#4000930[synthetic]#930))
     Print(#4000931[synthetic]#931))
     let %t249 = (let %t250:Box = Some(41)
-    let %t251:Box = (λx#691.
+    let %t251:Box = (λx#691:Int.
       IAdd(x#691, 1))
     option_map#686(#4000932[synthetic]#932, #4000933[synthetic]#933))
     Print(#4000934[synthetic]#934)
