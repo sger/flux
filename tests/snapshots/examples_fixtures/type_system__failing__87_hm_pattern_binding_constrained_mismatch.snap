@@ -5,6 +5,30 @@ Fixture: examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `x` does not match its type annotation.
+
+  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:2:21
+  |
+2 |     let x: String = match Some(1) {
+  |                     ^^^^^^^^^^^^^^^
+  |            ------ but `x` was annotated as `String`
+3 |         Some(v) -> v,
+  | ^^^^^^^^^^^^^^^^^^^^^
+4 |         None -> 0,
+  | ^^^^^^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
+
+Note:
+  annotated type: String
+  value type: Int
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+
 error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
@@ -27,5 +51,7 @@ Note:
 
 Help:
   Return a `Unit` value from `main` or change its annotation.
+
+Found 2 errors.
 == stdout ==
 <not executed>
