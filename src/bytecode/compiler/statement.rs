@@ -8,7 +8,9 @@ use crate::cfg::{IrFunction, IrProgram};
 use crate::{
     ast::type_infer::display_infer_type,
     bytecode::{
-        compiler::{Compiler, contracts::convert_type_expr, suggestions::suggest_effect_name},
+        compiler::{
+            Compiler, contracts::convert_type_expr_checked, suggestions::suggest_effect_name,
+        },
         debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants,
         op_code::OpCode,
@@ -972,7 +974,12 @@ impl Compiler {
                     }
                     self.compile_expression(value)?;
                     if let Some(annotation) = type_annotation
-                        && let Some(ty) = convert_type_expr(annotation, &self.interner)
+                        && let Ok(ty) = convert_type_expr_checked(
+                            annotation,
+                            &self.interner,
+                            &[],
+                            &self.adt_contract_specs,
+                        )
                     {
                         self.bind_static_type(name, ty);
                     } else if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(inferred) =
@@ -1299,7 +1306,12 @@ impl Compiler {
         for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameter_types.get(index)
-                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
+                && let Ok(runtime_ty) = convert_type_expr_checked(
+                    param_ty,
+                    &self.interner,
+                    &[],
+                    &self.adt_contract_specs,
+                )
             {
                 self.bind_static_type(*param, runtime_ty);
             }

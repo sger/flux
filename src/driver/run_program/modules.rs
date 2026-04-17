@@ -432,6 +432,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                             })
                         })
                         .collect();
+                    let exported_runtime_contracts = request.compiler.exported_runtime_contracts();
                     let interface = flux::bytecode::compiler::module_interface::build_interface(
                         &module_name,
                         module_sym,
@@ -439,6 +440,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                         &module_semantic_config_hash,
                         core.as_core(),
                         request.compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &request.compiler.module_function_visibility,
                         Some(request.compiler.class_env()),
                         dependency_fingerprints,

@@ -287,6 +287,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             },
         )]),
         borrow_signatures: std::collections::HashMap::new(),
+        runtime_contracts: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
         public_classes: vec![PublicClassEntry {
@@ -332,6 +333,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
         interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::new(),
         borrow_signatures: std::collections::HashMap::new(),
+        runtime_contracts: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),

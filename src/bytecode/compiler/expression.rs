@@ -10,7 +10,7 @@ use crate::{
         binding::Binding,
         compiler::{
             Compiler,
-            contracts::{FnContract, convert_type_expr},
+            contracts::{ContractLoweringIssue, FnContract, convert_type_expr_checked},
             effect_rows::{
                 EffectRow, RowConstraint, RowConstraintViolation, solve_row_constraints,
             },
@@ -1152,16 +1152,28 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.check_direct_builtin_effect_call(function)?;
 
-        let Some(contract) = self
+        if let Some(contract) = self
             .resolve_call_contract(function, arguments.len())
             .cloned()
-        else {
+        {
+            return self.check_source_contract_call(function, arguments, &contract);
+        }
+
+        let Some(contract) = self.resolve_call_runtime_contract(function).cloned() else {
             return Ok(());
         };
+        self.check_imported_runtime_contract_call(function, arguments, &contract)
+    }
 
+    fn check_source_contract_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        contract: &FnContract,
+    ) -> CompileResult<()> {
         if !contract.effects.is_empty() {
             let required_row = EffectRow::from_effect_exprs(&contract.effects);
-            let constraints = self.collect_effect_row_constraints(&contract, arguments);
+            let constraints = self.collect_effect_row_constraints(contract, arguments);
             let solution = solve_row_constraints(&constraints);
 
             if let Some(first_violation) = solution.violations.first() {
@@ -1193,11 +1205,7 @@ impl Compiler {
 
             for required_name in required_effects {
                 if !self.is_effect_available(required_name) {
-                    let function_name = match function {
-                        Expression::Identifier { name, .. } => self.sym(*name).to_string(),
-                        Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
-                        _ => "<call>".to_string(),
-                    };
+                    let function_name = self.call_function_name(function);
                     let missing = self.sym(required_name).to_string();
                     return Err(Self::boxed(
                         Diagnostic::make_error_dynamic(
@@ -1228,68 +1236,79 @@ impl Compiler {
             let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
                 continue;
             };
-            let Some(expected_runtime) = convert_type_expr(expected_ty, &self.interner) else {
-                if self.strict_mode && !matches!(expected_ty, TypeExpr::Function { .. }) {
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E425",
-                            "STRICT UNRESOLVED BOUNDARY TYPE",
-                            ErrorType::Compiler,
-                            format!(
-                                "Strict mode cannot enforce runtime boundary check for unresolved parameter type `{}`.",
-                                expected_ty
-                            ),
-                            Some(
-                                "Use a concrete parameter type (avoid unresolved generic-only boundary types) or make this API internal."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            argument.span(),
+            let expected_runtime = match convert_type_expr_checked(
+                expected_ty,
+                &self.interner,
+                &contract.type_params,
+                &self.adt_contract_specs,
+            ) {
+                Ok(runtime) => runtime,
+                Err(err) => {
+                    if self.strict_mode
+                        && !matches!(expected_ty, TypeExpr::Function { .. })
+                        && matches!(
+                            err.issue(),
+                            ContractLoweringIssue::GenericParameter
+                                | ContractLoweringIssue::UnsupportedBoundaryType
                         )
-                        .with_display_title("Unresolved Boundary Type")
-                        .with_category(DiagnosticCategory::TypeInference)
-                        .with_primary_label(
-                            argument.span(),
-                            "runtime boundary check is unresolved in strict mode",
-                        ),
-                    ));
-                }
-                // Stage 2 (0051): when the contract has no concrete RuntimeType (e.g. generic
-                // param T or user ADT), fall back to HM's call-site-instantiated function type.
-                // Only fires when HM has fully resolved the function's param type and the
-                // argument type, and they don't match. Skipped if HM already emitted E300 for
-                // this argument to avoid duplicate diagnostics.
-                if !self.type_error_already_reported_for(argument) {
-                    use super::hm_expr_typer::HmExprTypeResult;
-                    if let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
-                        self.hm_expr_type_strict_path(function)
-                        && let Some(hm_expected) = hm_params.get(index)
-                        && hm_expected.free_vars().is_empty()
-                        && let HmExprTypeResult::Known(actual) =
-                            self.hm_expr_type_strict_path(argument)
-                        && actual.free_vars().is_empty()
                     {
-                        let types_match = if let Ok(subst) = unify(hm_expected, &actual) {
-                            hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
-                        } else {
-                            false
-                        };
-                        if !types_match {
-                            let expected_str = display_infer_type(hm_expected, &self.interner);
-                            let actual_str = display_infer_type(&actual, &self.interner);
-                            return Err(Self::boxed(call_arg_type_mismatch(
+                        return Err(Self::boxed(
+                            Diagnostic::make_error_dynamic(
+                                "E425",
+                                "STRICT UNRESOLVED BOUNDARY TYPE",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Strict mode cannot enforce runtime boundary check for unresolved parameter type `{}`.",
+                                    expected_ty
+                                ),
+                                Some(
+                                    "Use a concrete parameter type (avoid unresolved generic-only boundary types) or make this API internal."
+                                        .to_string(),
+                                ),
                                 self.file_path.clone(),
                                 argument.span(),
-                                Some(&function_name),
-                                index + 1,
-                                def_span,
-                                &expected_str,
-                                &actual_str,
-                            )));
+                            )
+                            .with_display_title("Unresolved Boundary Type")
+                            .with_category(DiagnosticCategory::TypeInference)
+                            .with_primary_label(
+                                argument.span(),
+                                "runtime boundary check is unresolved in strict mode",
+                            ),
+                        ));
+                    }
+                    if !self.type_error_already_reported_for(argument) {
+                        use super::hm_expr_typer::HmExprTypeResult;
+                        if let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
+                            self.hm_expr_type_strict_path(function)
+                            && let Some(hm_expected) = hm_params.get(index)
+                            && hm_expected.free_vars().is_empty()
+                            && let HmExprTypeResult::Known(actual) =
+                                self.hm_expr_type_strict_path(argument)
+                            && actual.free_vars().is_empty()
+                        {
+                            let types_match = if let Ok(subst) = unify(hm_expected, &actual) {
+                                hm_expected.apply_type_subst(&subst)
+                                    == actual.apply_type_subst(&subst)
+                            } else {
+                                false
+                            };
+                            if !types_match {
+                                let expected_str = display_infer_type(hm_expected, &self.interner);
+                                let actual_str = display_infer_type(&actual, &self.interner);
+                                return Err(Self::boxed(call_arg_type_mismatch(
+                                    self.file_path.clone(),
+                                    argument.span(),
+                                    Some(&function_name),
+                                    index + 1,
+                                    def_span,
+                                    &expected_str,
+                                    &actual_str,
+                                )));
+                            }
                         }
                     }
+                    continue;
                 }
-                continue;
             };
             let Ok(expected_infer) = TypeEnv::try_infer_type_from_runtime(&expected_runtime) else {
                 continue;
@@ -1337,6 +1356,33 @@ impl Compiler {
             )?;
         }
 
+        Ok(())
+    }
+
+    fn check_imported_runtime_contract_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        contract: &crate::runtime::function_contract::FunctionContract,
+    ) -> CompileResult<()> {
+        let function_name = self.call_function_name(function);
+        for (index, argument) in arguments.iter().enumerate() {
+            let Some(expected_runtime) =
+                contract.params.get(index).and_then(|param| param.as_ref())
+            else {
+                continue;
+            };
+            self.validate_runtime_expected_type(
+                expected_runtime,
+                argument,
+                "argument type is known at compile time",
+                format!(
+                    "argument {} to `{}` does not match the imported boundary type",
+                    index + 1,
+                    function_name
+                ),
+            )?;
+        }
         Ok(())
     }
 
@@ -1751,6 +1797,20 @@ impl Compiler {
         }
     }
 
+    fn resolve_call_runtime_contract<'a>(
+        &'a self,
+        function: &Expression,
+    ) -> Option<&'a crate::runtime::function_contract::FunctionContract> {
+        match function {
+            Expression::Identifier { name, .. } => self.lookup_unqualified_runtime_contract(*name),
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object)?;
+                self.lookup_runtime_contract(module_name, *member)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn validate_runtime_expected_type(
         &self,
         expected: &RuntimeType,
@@ -1973,7 +2033,12 @@ impl Compiler {
         for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameters_types.get(index)
-                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
+                && let Ok(runtime_ty) = convert_type_expr_checked(
+                    param_ty,
+                    &self.interner,
+                    &[],
+                    &self.adt_contract_specs,
+                )
             {
                 self.bind_static_type(*param, runtime_ty);
             }

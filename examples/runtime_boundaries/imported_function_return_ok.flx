@@ -1,0 +1,11 @@
+// Typed function boundaries accept returned callables when a contract is stored.
+// parity-expected-stdout-begin
+// "true"
+// parity-expected-stdout-end
+
+import RuntimeBoundaries.Predicates as Predicates
+
+fn main() with IO {
+    let predicate = Predicates.exported_predicate()
+    print(to_string(predicate(6)))
+}

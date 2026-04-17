@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     aether::borrow_infer::BorrowSignature,
+    runtime::function_contract::FunctionContract,
     syntax::{
         Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
         type_expr::TypeExpr,
@@ -115,6 +116,9 @@ pub struct ModuleInterface {
     pub schemes: HashMap<String, Scheme>,
     /// Exported borrow signatures keyed by unqualified function name.
     pub borrow_signatures: HashMap<String, BorrowSignature>,
+    /// Exported runtime contracts keyed by unqualified function name.
+    #[serde(default)]
+    pub runtime_contracts: HashMap<String, FunctionContract>,
     /// Fingerprints of direct imported module interfaces used to compile this module.
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
     /// Portable symbol table: maps serialized Symbol u32 IDs to their string names.
@@ -203,6 +207,7 @@ impl ModuleInterface {
             interface_fingerprint: String::new(),
             schemes: HashMap::new(),
             borrow_signatures: HashMap::new(),
+            runtime_contracts: HashMap::new(),
             dependency_fingerprints: Vec::new(),
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),

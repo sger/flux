@@ -23,7 +23,10 @@ use crate::{
         compilation_scope::CompilationScope,
         compiler::{
             adt_registry::AdtRegistry,
-            contracts::{ContractKey, FnContract, ModuleContractTable, to_runtime_contract},
+            contracts::{
+                AdtConstructorContractSpec, AdtContractSpec, ContractKey, FnContract,
+                ModuleContractTable, to_runtime_contract, to_runtime_contract_checked,
+            },
         },
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
         emitted_instruction::EmittedInstruction,
@@ -879,6 +882,7 @@ pub struct Compiler {
     pub module_contracts: ModuleContractTable,
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
+    pub(super) adt_contract_specs: HashMap<Symbol, AdtContractSpec>,
     pub(crate) preloaded_imported_globals: HashSet<Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
@@ -897,6 +901,7 @@ pub struct Compiler {
     /// `(module_name, member_name)`.
     pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     pub(super) cached_member_borrow_signatures: HashMap<(Symbol, Symbol), BorrowSignature>,
+    pub(super) cached_member_runtime_contracts: HashMap<(Symbol, Symbol), FunctionContract>,
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
@@ -1058,6 +1063,7 @@ impl Compiler {
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
             module_adt_constructors: HashMap::new(),
+            adt_contract_specs: HashMap::new(),
             preloaded_imported_globals: HashSet::new(),
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
@@ -1070,6 +1076,7 @@ impl Compiler {
             hm_expr_types: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
+            cached_member_runtime_contracts: HashMap::new(),
             has_hm_diagnostics: false,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
@@ -1504,6 +1511,20 @@ impl Compiler {
         &self.cached_member_schemes
     }
 
+    pub fn exported_runtime_contracts(&self) -> HashMap<(Symbol, Symbol), FunctionContract> {
+        self.module_contracts
+            .iter()
+            .filter_map(|(key, contract)| {
+                let module_name = key.module_name?;
+                let runtime =
+                    to_runtime_contract_checked(contract, &self.interner, &self.adt_contract_specs)
+                        .ok()
+                        .flatten()?;
+                Some(((module_name, key.function_name), runtime))
+            })
+            .collect()
+    }
+
     /// Proposal 0151, Phase 2: read-only access to the collected class
     /// environment so that `build_interface` can extract `public class`
     /// and `public instance` entries owned by the current module.
@@ -1548,6 +1569,23 @@ impl Compiler {
                 .insert((module_name, member), true);
             self.cached_member_borrow_signatures
                 .insert((module_name, member), signature.clone());
+        }
+        for (member_name, runtime_contract) in &interface.runtime_contracts {
+            let member = self.interner.intern(member_name);
+            let qualified = self.interner.intern_join(module_name, member);
+            if !self.symbol_table.exists_in_current_scope(qualified) {
+                self.symbol_table.define(qualified, Span::default());
+            }
+            self.preloaded_imported_globals.insert(qualified);
+            self.module_function_visibility
+                .insert((module_name, member), true);
+            let remapped = if symbol_remap.is_empty() {
+                runtime_contract.clone()
+            } else {
+                runtime_contract.remap_symbols(&symbol_remap)
+            };
+            self.cached_member_runtime_contracts
+                .insert((module_name, member), remapped);
         }
 
         for class_entry in &interface.public_classes {
@@ -1919,20 +1957,45 @@ impl Compiler {
 
     fn collect_adt_definitions(&mut self, program: &Program) {
         self.adt_registry = AdtRegistry::new();
+        self.adt_contract_specs.clear();
         for statement in &program.statements {
-            self.collect_adt_definitions_from_stmt(statement);
+            self.collect_adt_definitions_from_stmt(statement, None);
         }
     }
 
-    fn collect_adt_definitions_from_stmt(&mut self, statement: &Statement) {
+    fn collect_adt_definitions_from_stmt(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
         match statement {
-            Statement::Data { name, variants, .. } => {
+            Statement::Data {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
                 self.adt_registry
                     .register_adt(*name, variants, &self.interner);
+                self.adt_contract_specs.insert(
+                    *name,
+                    AdtContractSpec {
+                        module_name,
+                        type_name: *name,
+                        type_params: type_params.clone(),
+                        constructors: variants
+                            .iter()
+                            .map(|variant| AdtConstructorContractSpec {
+                                name: variant.name,
+                                fields: variant.fields.clone(),
+                            })
+                            .collect(),
+                    },
+                );
             }
-            Statement::Module { body, .. } => {
+            Statement::Module { name, body, .. } => {
                 for statement in &body.statements {
-                    self.collect_adt_definitions_from_stmt(statement);
+                    self.collect_adt_definitions_from_stmt(statement, Some(*name));
                 }
             }
             _ => {}
@@ -3787,6 +3850,30 @@ impl Compiler {
         self.lookup_contract(None, function_name, arity)
     }
 
+    pub(super) fn lookup_runtime_contract(
+        &self,
+        module_name: Symbol,
+        function_name: Symbol,
+    ) -> Option<&FunctionContract> {
+        self.cached_member_runtime_contracts
+            .get(&(module_name, function_name))
+    }
+
+    pub(super) fn lookup_unqualified_runtime_contract(
+        &self,
+        function_name: Symbol,
+    ) -> Option<&FunctionContract> {
+        if let Some(module_name) = self.current_module_prefix
+            && let Some(contract) = self.lookup_runtime_contract(module_name, function_name)
+        {
+            return Some(contract);
+        }
+
+        self.cached_member_runtime_contracts
+            .iter()
+            .find_map(|((_, member), contract)| (*member == function_name).then_some(contract))
+    }
+
     pub(super) fn module_member_function_is_public(
         &self,
         module_name: Symbol,
@@ -3892,7 +3979,10 @@ impl Compiler {
     }
 
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
-        to_runtime_contract(contract, &self.interner)
+        to_runtime_contract_checked(contract, &self.interner, &self.adt_contract_specs)
+            .ok()
+            .flatten()
+            .or_else(|| to_runtime_contract(contract, &self.interner))
     }
 
     #[inline]
