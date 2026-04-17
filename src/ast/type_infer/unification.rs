@@ -76,7 +76,14 @@ impl<'a> InferCtx<'a> {
     pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         // Lazy substitution: pass &self.subst into unification for on-demand
         // variable resolution instead of pre-resolving both types upfront.
-        match unify_core(t1, t2, &self.subst, Span::default(), &mut self.env.counter) {
+        match unify_core(
+            t1,
+            t2,
+            &self.subst,
+            Span::default(),
+            &mut self.env.counter,
+            &self.skolem_vars,
+        ) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
                 t1.apply_type_subst(&self.subst)
@@ -112,7 +119,14 @@ impl<'a> InferCtx<'a> {
         t2: &InferType,
         span: Span,
     ) -> Result<InferType, UnifyError> {
-        let solved = unify_core(t1, t2, &self.subst, span, &mut self.env.counter)?;
+        let solved = unify_core(
+            t1,
+            t2,
+            &self.subst,
+            span,
+            &mut self.env.counter,
+            &self.skolem_vars,
+        )?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
         Ok(t1.apply_type_subst(&self.subst))
     }
@@ -122,7 +136,11 @@ impl<'a> InferCtx<'a> {
     /// Checks the concrete/non-fallback guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
-        if !error.expected.is_concrete() || !error.actual.is_concrete() {
+        // RigidBind errors report a skolem escape; the skolem appears as
+        // `InferType::Var(_)` on the expected side, which fails the concrete
+        // guard. Allow them through explicitly — they are always actionable.
+        let is_rigid = matches!(error.kind, UnifyErrorKind::RigidBind(_));
+        if !is_rigid && (!error.expected.is_concrete() || !error.actual.is_concrete()) {
             return false;
         }
 
@@ -182,6 +200,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
             UnifyErrorKind::Mismatch => {
                 let exp_str = self.display_type(&error.expected);
                 let act_str = self.display_type(&error.actual);
@@ -213,6 +232,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -240,6 +260,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -274,6 +295,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -307,6 +329,32 @@ impl<'a> InferCtx<'a> {
             } => self.build_call_arg_context_diagnostic(fn_name, *fn_def_span, error, span),
         };
         with_type_origin_notes(diag, self.type_origin_notes_for_context(context, span))
+    }
+
+    /// Build a rigid-variable-escape (E305) diagnostic, using the declared
+    /// skolem source name when known so the user sees the type parameter
+    /// they wrote rather than a synthetic slot identifier.
+    fn build_rigid_bind_diagnostic(
+        &self,
+        v: TypeVarId,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        let name = self
+            .skolem_names
+            .get(&v)
+            .map(|id| self.interner.resolve(*id).to_string())
+            .unwrap_or_else(|| format!("t{v}"));
+        let bound = self.display_type(&error.actual);
+        crate::diagnostics::diagnostic_for(
+            &crate::diagnostics::compiler_errors::RIGID_VAR_ESCAPE,
+        )
+        .with_file(self.file_path.clone())
+        .with_span(span)
+        .with_message(format!(
+            "Rigid type variable `{name}` cannot be unified with `{bound}`."
+        ))
+        .with_primary_label(span, format!("forces `{name}` to become `{bound}`"))
     }
 
     /// Append type-name typo suggestion hints onto an existing diagnostic.

@@ -820,6 +820,16 @@ pub const INVALID_EFFECT_ROW: ErrorCode = ErrorCode {
     hint: Some("Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`)."),
 };
 
+pub const RIGID_VAR_ESCAPE: ErrorCode = ErrorCode {
+    code: "E305",
+    title: "RIGID TYPE VARIABLE ESCAPE",
+    error_type: ErrorType::Compiler,
+    message: "Rigid type variable `{}` cannot be unified with `{}`.",
+    hint: Some(
+        "The declared signature introduces this as a universally quantified type parameter; the body must keep it abstract.",
+    ),
+};
+
 pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     code: "E430",
     title: "ANY TYPE INFERRED",
