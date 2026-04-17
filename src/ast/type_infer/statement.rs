@@ -116,9 +116,10 @@ impl<'a> InferCtx<'a> {
     ) {
         let val_ty = self.infer_expression(value);
 
-        // Propagate the let annotation constraint silently — the compiler's
-        // boundary checker in statement.rs is the authoritative reporter for
-        // typed-let initializer mismatches.
+        // Enforce the let annotation: unify val_ty with ann_ty and emit E300
+        // on mismatch. HM is authoritative; downstream boundary checks in the
+        // bytecode compiler remain a fallback for non-HM paths, and the
+        // diagnostic aggregator dedupes overlapping E300s.
         let final_ty = match annotation {
             Some(ann) => {
                 let mut row_var_env = HashMap::new();
@@ -129,7 +130,7 @@ impl<'a> InferCtx<'a> {
                     &mut row_var_env,
                     &mut self.env.counter,
                 ) {
-                    Some(ann_ty) => self.unify_silent(&val_ty, &ann_ty),
+                    Some(ann_ty) => self.check_let_annotation(name, ann, &ann_ty, value, &val_ty),
                     None => val_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -145,6 +146,48 @@ impl<'a> InferCtx<'a> {
             generalize_with_constraints(&final_ty, &env_free, constraints)
         };
         self.env.bind(name, scheme);
+    }
+
+    /// Unify a `let` binding's value type against its annotation, emitting
+    /// E300 (Annotation Type Mismatch) on failure and recovering with the
+    /// annotation type so downstream inference remains consistent.
+    fn check_let_annotation(
+        &mut self,
+        name: Identifier,
+        ann: &TypeExpr,
+        ann_ty: &InferType,
+        value: &Expression,
+        val_ty: &InferType,
+    ) -> InferType {
+        match crate::types::unify::unify_core(
+            val_ty,
+            ann_ty,
+            &self.subst,
+            Span::default(),
+            &mut self.env.counter,
+        ) {
+            Ok(s) => {
+                self.subst = std::mem::take(&mut self.subst).compose(&s);
+                val_ty.apply_type_subst(&self.subst)
+            }
+            Err(_) => {
+                let val_resolved = val_ty.apply_type_subst(&self.subst);
+                let ann_resolved = ann_ty.apply_type_subst(&self.subst);
+                let name_str = self.interner.resolve(name).to_string();
+                let ann_str = display_infer_type(&ann_resolved, self.interner);
+                let val_str = display_infer_type(&val_resolved, self.interner);
+                let diag = crate::diagnostics::compiler_errors::let_annotation_type_mismatch(
+                    self.file_path.clone(),
+                    ann.span(),
+                    value.span(),
+                    &name_str,
+                    &ann_str,
+                    &val_str,
+                );
+                self.errors.push(diag);
+                ann_resolved
+            }
+        }
     }
 
     /// Infer a module body in an inner scope and export public function schemes.
