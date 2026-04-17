@@ -42,14 +42,33 @@ impl<'a> InferCtx<'a> {
     /// assert!(row.tail().is_some()); // open row due to `e`
     /// ```
     pub(super) fn infer_effect_row(
+        &mut self,
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
-        row_var_counter: &mut u32,
     ) -> InferEffectRow {
-        // The parser prevents two distinct row variables in one `with` clause, so
-        // `Err` is unreachable for well-formed AST; fall back to a closed empty row.
-        InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
-            .unwrap_or_else(|_| InferEffectRow::closed_empty())
+        let mut row_var_counter = self.env.counter;
+        let result = InferEffectRow::from_effect_exprs(effects, row_var_env, &mut row_var_counter);
+        self.env.counter = row_var_counter;
+        match result {
+            Ok(row) => row,
+            Err(err) => {
+                let span = effects
+                    .first()
+                    .map(|e| e.span())
+                    .unwrap_or_else(Span::default);
+                let first = self.interner.resolve(err.first).to_string();
+                let second = self.interner.resolve(err.second).to_string();
+                let diag = Diagnostic::make_error(
+                    &crate::diagnostics::compiler_errors::INVALID_EFFECT_ROW,
+                    &[&first, &second],
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "conflicting row variables in this effect row");
+                self.errors.push(diag);
+                InferEffectRow::closed_empty()
+            }
+        }
     }
 
     /// Emit diagnostic `E426` when a referenced Flow function has no HM metadata.
