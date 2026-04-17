@@ -1552,10 +1552,13 @@ fn example_effect_row_unresolved_single_e419_196() {
 
 #[test]
 fn example_effect_row_unresolved_multi_e420_197() {
+    // HM now reports E304 (Invalid Effect Row) directly at the annotation
+    // site when a single `with` clause mixes distinct row variables, which
+    // supersedes the downstream E420 this fixture historically produced.
     assert_example_error(
         "examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx",
         &[],
-        "E420",
+        "E304",
     );
 }
 

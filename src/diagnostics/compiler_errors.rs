@@ -812,6 +812,14 @@ pub const INVALID_TYPE_ANNOTATION: ErrorCode = ErrorCode {
     ),
 };
 
+pub const INVALID_EFFECT_ROW: ErrorCode = ErrorCode {
+    code: "E304",
+    title: "INVALID EFFECT ROW",
+    error_type: ErrorType::Compiler,
+    message: "Cannot interpret this effect row: `{}` and `{}` are distinct row variables in the same row.",
+    hint: Some("Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`)."),
+};
+
 pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     code: "E430",
     title: "ANY TYPE INFERRED",
