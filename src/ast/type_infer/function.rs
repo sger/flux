@@ -96,6 +96,53 @@ impl<'a> InferCtx<'a> {
             .collect()
     }
 
+    /// Construct a polymorphic scheme for a function with a complete explicit
+    /// signature (all parameters annotated + return type annotated) so
+    /// recursive call sites can instantiate it at fresh types rather than
+    /// unifying against the current function's concrete param types.
+    ///
+    /// Returns `None` when any parameter type or the return type is missing,
+    /// or when any annotation fails to lower — the caller then falls back to
+    /// the `Scheme::mono(fresh_var)` side-channel.
+    pub(super) fn declared_fn_scheme(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        parameter_types: &[Option<TypeExpr>],
+        return_type: &Option<TypeExpr>,
+        effects: &[EffectExpr],
+    ) -> Option<Scheme> {
+        if parameter_types.iter().any(|ann| ann.is_none()) || return_type.is_none() {
+            return None;
+        }
+        let tp_map = self.allocate_type_parameter_vars(type_params);
+        let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
+        let param_tys: Vec<InferType> = parameter_types
+            .iter()
+            .map(|ann| {
+                ann.as_ref().and_then(|t| {
+                    self.infer_type_from_annotation(t, &tp_map, &mut row_var_env)
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let ret_ann = return_type.as_ref()?;
+        let ret_ty = self.infer_type_from_annotation(ret_ann, &tp_map, &mut row_var_env)?;
+        let effect_row = if effects.is_empty() {
+            InferEffectRow::closed_empty()
+        } else {
+            self.infer_effect_row(effects, &mut row_var_env)
+        };
+        let fn_ty = InferType::Fun(param_tys, Box::new(ret_ty), effect_row);
+        let mut forall: Vec<TypeVarId> = tp_map.values().copied().collect();
+        forall.extend(row_var_env.values().copied());
+        forall.sort_unstable();
+        forall.dedup();
+        Some(Scheme {
+            forall,
+            constraints: Vec::new(),
+            infer_type: fn_ty,
+        })
+    }
+
     /// Allocate fresh HM type variables for explicit generic type parameters.
     fn allocate_type_parameter_vars(
         &mut self,
