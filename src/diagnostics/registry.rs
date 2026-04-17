@@ -101,6 +101,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     OCCURS_CHECK_FAILURE,
     UNDEFINED_TYPE_VAR,
     INVALID_TYPE_ANNOTATION,
+    INVALID_EFFECT_ROW,
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
     // Type class errors (E440–E449)

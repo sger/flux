@@ -1955,3 +1955,38 @@ fn f(x: Widget) -> Int { 0 }
         result.diagnostics
     );
 }
+
+// ── Effect row annotation (effects.rs:infer_effect_row) ──
+
+#[test]
+fn infer_effect_row_multiple_row_vars_emits_e304() {
+    // Mixing two distinct row variables in one `with` clause is
+    // semantically ambiguous — HM now reports E304 at the annotation site
+    // instead of silently defaulting to a closed empty row.
+    let source = r#"
+fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E304"),
+        "expected E304 for distinct row variables in the same row, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_effect_row_single_row_var_ok() {
+    let source = r#"
+fn f(x: Int) -> Int with |e - IO {
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E304"),
+        "unexpected E304 for single-row-var annotation: {:#?}",
+        result.diagnostics
+    );
+}
