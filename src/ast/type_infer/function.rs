@@ -24,6 +24,7 @@ impl<'a> InferCtx<'a> {
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
         self.emit_declared_type_param_constraints(input.type_params, &tp_map, input.fn_span);
+        let skolem_ids = self.mark_signature_skolems(input.type_params, &tp_map);
 
         self.env.enter_scope();
 
@@ -66,6 +67,8 @@ impl<'a> InferCtx<'a> {
             );
         }
 
+        self.unmark_skolems(&skolem_ids);
+
         self.finalize_and_bind_function_scheme(
             input.name,
             input.fn_span,
@@ -74,6 +77,23 @@ impl<'a> InferCtx<'a> {
             &ret_ty,
             &declared_effect_row,
         )
+    }
+
+    /// Mark the declared type parameters of a function as rigid (skolems)
+    /// for the duration of body inference (Proposal 0159, Phase 2).
+    fn mark_signature_skolems(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        tp_map: &HashMap<Identifier, TypeVarId>,
+    ) -> Vec<TypeVarId> {
+        type_params
+            .iter()
+            .filter_map(|tp| tp_map.get(&tp.name).copied().map(|v| (tp.name, v)))
+            .map(|(name, v)| {
+                self.mark_skolem(v, name);
+                v
+            })
+            .collect()
     }
 
     /// Allocate fresh HM type variables for explicit generic type parameters.
