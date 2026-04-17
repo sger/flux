@@ -116,10 +116,12 @@ impl<'a> InferCtx<'a> {
     ) {
         let val_ty = self.infer_expression(value);
 
-        // Enforce the let annotation: unify val_ty with ann_ty and emit E300
-        // on mismatch. HM is authoritative; downstream boundary checks in the
-        // bytecode compiler remain a fallback for non-HM paths, and the
-        // diagnostic aggregator dedupes overlapping E300s.
+        // Enforce the let annotation: unify val_ty with ann_ty and emit the
+        // canonical E300 (let_annotation_type_mismatch) on mismatch. When the
+        // initializer has structure that benefits from expected-type
+        // propagation (If / Match / DoBlock per Proposal 0159 Phase 1), also
+        // run check mode so branch/arm mismatches report at the offending
+        // sub-expression. The unification dedup ensures no duplicate E300s.
         let final_ty = match annotation {
             Some(ann) => {
                 let mut row_var_env = HashMap::new();
@@ -130,7 +132,13 @@ impl<'a> InferCtx<'a> {
                     &mut row_var_env,
                     &mut self.env.counter,
                 ) {
-                    Some(ann_ty) => self.check_let_annotation(name, ann, &ann_ty, value, &val_ty),
+                    Some(ann_ty) => {
+                        let final_ty = self.check_let_annotation(name, ann, &ann_ty, value, &val_ty);
+                        if benefits_from_check_propagation(value) {
+                            self.check_expression(value, &ann_ty);
+                        }
+                        final_ty
+                    }
                     None => val_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -276,4 +284,13 @@ impl<'a> InferCtx<'a> {
         }
         last_ty
     }
+}
+
+/// Return true when a typed-`let` initializer benefits from expected-type
+/// propagation into sub-expressions (per Proposal 0159, Phase 1).
+fn benefits_from_check_propagation(expr: &Expression) -> bool {
+    matches!(
+        expr,
+        Expression::If { .. } | Expression::Match { .. } | Expression::DoBlock { .. }
+    )
 }

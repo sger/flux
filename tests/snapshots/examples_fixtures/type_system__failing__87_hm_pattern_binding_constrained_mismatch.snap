@@ -29,6 +29,27 @@ Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
 
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:3:20
+  |
+3 |         Some(v) -> v,
+  |                    ^
+  |                    - this expression has type `Int`
+
+  |                    - this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+
 error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
@@ -52,6 +73,6 @@ Note:
 Help:
   Return a `Unit` value from `main` or change its annotation.
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>
