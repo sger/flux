@@ -213,8 +213,7 @@ fn static_type_validation_flags_mono_scheme_with_fallback_var() {
 
 #[test]
 fn static_type_validation_accepts_concrete_annotated_function() {
-    let (result, program, interner) =
-        infer("fn double(x: Int) -> Int { x + x }");
+    let (result, program, interner) = infer("fn double(x: Int) -> Int { x + x }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,

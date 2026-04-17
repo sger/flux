@@ -20,6 +20,7 @@ impl<'a> InferCtx<'a> {
     /// Invariants:
     /// - Preserves existing function inference ordering and refinement conditions.
     pub(super) fn infer_function_declaration(&mut self, input: FnInferInput<'_>) {
+        let constraint_start = self.binding_constraint_start();
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
@@ -50,13 +51,7 @@ impl<'a> InferCtx<'a> {
             input.body,
         );
 
-        // T11 (self-only): run one extra refinement pass for unannotated
-        // self-recursive functions so recursive call result types can feed
-        // back into the function return slot.
-        if input.return_type.is_none()
-            && input.type_params.is_empty()
-            && self.block_contains_self_call(input.body, input.name)
-        {
+        if self.should_refine_self_recursive_return(input) {
             ret_ty = self.refine_unannotated_self_recursive_return(
                 input.name,
                 input.parameters,
@@ -76,7 +71,22 @@ impl<'a> InferCtx<'a> {
             &param_tys,
             &ret_ty,
             &declared_effect_row,
+            constraint_start,
         )
+    }
+
+    /// Return the current index into `class_constraints` so one function can
+    /// later slice out only the obligations it introduced during inference.
+    fn binding_constraint_start(&self) -> usize {
+        self.class_constraints.len()
+    }
+
+    /// Return whether this function qualifies for the extra self-recursive
+    /// return-refinement pass used for unannotated self recursion.
+    fn should_refine_self_recursive_return(&self, input: FnInferInput<'_>) -> bool {
+        input.return_type.is_none()
+            && input.type_params.is_empty()
+            && self.block_contains_self_call(input.body, input.name)
     }
 
     /// Mark the declared type parameters of a function as rigid (skolems)
@@ -119,9 +129,8 @@ impl<'a> InferCtx<'a> {
         let param_tys: Vec<InferType> = parameter_types
             .iter()
             .map(|ann| {
-                ann.as_ref().and_then(|t| {
-                    self.infer_type_from_annotation(t, &tp_map, &mut row_var_env)
-                })
+                ann.as_ref()
+                    .and_then(|t| self.infer_type_from_annotation(t, &tp_map, &mut row_var_env))
             })
             .collect::<Option<Vec<_>>>()?;
         let ret_ann = return_type.as_ref()?;
@@ -362,15 +371,14 @@ impl<'a> InferCtx<'a> {
                         .unwrap_or_else(|| "lambda".to_string());
                     let ann_str = display_infer_type(&ann_resolved, self.interner);
                     let body_str = display_infer_type(&body_resolved, self.interner);
-                    let diag =
-                        crate::diagnostics::compiler_errors::fun_return_annotation_mismatch(
-                            self.file_path.clone(),
-                            ret_ann.span(),
-                            self.block_value_span(body),
-                            &fn_name_str,
-                            &ann_str,
-                            &body_str,
-                        );
+                    let diag = crate::diagnostics::compiler_errors::fun_return_annotation_mismatch(
+                        self.file_path.clone(),
+                        ret_ann.span(),
+                        self.block_value_span(body),
+                        &fn_name_str,
+                        &ann_str,
+                        &body_str,
+                    );
                     self.errors.push(diag);
                 }
                 ann_resolved
@@ -417,6 +425,7 @@ impl<'a> InferCtx<'a> {
         param_tys: &[InferType],
         ret_ty: &InferType,
         declared_effect_row: &InferEffectRow,
+        constraint_start: usize,
     ) {
         let final_param_tys: Vec<InferType> = param_tys
             .iter()
@@ -428,12 +437,8 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
 
         let scheme = if !type_params.is_empty() {
-            let constraints = self.collect_scheme_constraints(&fn_ty);
-            if constraints.is_empty() {
-                generalize(&fn_ty, &self.env.free_vars())
-            } else {
-                generalize_with_constraints(&fn_ty, &self.env.free_vars(), constraints)
-            }
+            let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
+            self.finalize_binding_scheme(&fn_ty, &relevant_constraints, &self.env.free_vars())
         } else {
             Scheme::mono(fn_ty)
         };

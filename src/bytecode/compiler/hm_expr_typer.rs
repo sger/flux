@@ -190,9 +190,7 @@ impl Compiler {
         let concrete_arms: Vec<InferType> = arms
             .iter()
             .filter_map(|arm| match self.hm_expr_type_strict_path(&arm.body) {
-                HmExprTypeResult::Known(ty) if ty.free_vars().is_empty() => {
-                    Some(ty)
-                }
+                HmExprTypeResult::Known(ty) if ty.free_vars().is_empty() => Some(ty),
                 _ => None,
             })
             .collect();

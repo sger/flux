@@ -146,6 +146,33 @@ fn main() {
 }
 
 #[test]
+fn explicit_num_bound_survives_defaulting_and_elaborates_dictionary() {
+    let (program, mut compiler) = compiler_for(
+        r#"
+fn half<A: Num>(x: A, y: A) -> A {
+    x / y
+}
+
+fn main() {
+    half(8, 2)
+}
+"#,
+    );
+
+    compiler
+        .compile_with_opts(&program, false, false)
+        .expect("explicit Num bound should remain constrained");
+    let dumped = compiler
+        .dump_core_with_opts(&program, false, CoreDisplayMode::Readable)
+        .expect("core dump should succeed");
+
+    assert!(
+        dumped.contains("__dict_Num"),
+        "expected explicit Num bound to elaborate a dictionary parameter, got:\n{dumped}"
+    );
+}
+
+#[test]
 fn constrained_operator_missing_instance_fails_without_strict_types() {
     let (program, mut compiler) = compiler_for(
         r#"

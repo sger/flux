@@ -1049,8 +1049,7 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
-                let (mut param_types, result_ty) =
-                    self.lambda_signature_from_function_name(*name);
+                let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
@@ -1113,8 +1112,7 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
-                let (mut param_types, result_ty) =
-                    self.lambda_signature_from_function_name(*name);
+                let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }

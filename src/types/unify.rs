@@ -38,7 +38,14 @@ pub fn unify_with_span(
 ) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
     let empty: HashSet<TypeVarId> = HashSet::new();
-    unify_core(t1, t2, &TypeSubst::empty(), span, &mut fresh_row_var, &empty)
+    unify_core(
+        t1,
+        t2,
+        &TypeSubst::empty(),
+        span,
+        &mut fresh_row_var,
+        &empty,
+    )
 }
 
 /// Follow variable chains in a substitution to resolve the head constructor.
@@ -107,9 +114,7 @@ pub fn unify_core(
         // is flexible, flip so the flexible one binds to the skolem instead
         // of the (illegal) reverse. Otherwise fall through to the default
         // var-on-left rule.
-        (InferType::Var(v), InferType::Var(w))
-            if skolems.contains(v) && !skolems.contains(w) =>
-        {
+        (InferType::Var(v), InferType::Var(w)) if skolems.contains(v) && !skolems.contains(w) => {
             bind_var_with_ctx(*w, &InferType::Var(*v), ctx_subst, span, skolems)
         }
 
@@ -278,8 +283,8 @@ fn unify_fun_types(
     for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
         let p1_sub = p1.apply_type_subst(&subst);
         let p2_sub = p2.apply_type_subst(&subst);
-        let s = unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var, skolems)
-            .map_err(|e| {
+        let s =
+            unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var, skolems).map_err(|e| {
                 UnifyError::mismatch(
                     e.expected,
                     e.actual,
@@ -292,15 +297,22 @@ fn unify_fun_types(
 
     let ret1_sub = ret1.apply_type_subst(&subst);
     let ret2_sub = ret2.apply_type_subst(&subst);
-    let s2 = unify_core(&ret1_sub, &ret2_sub, ctx_subst, span, fresh_row_var, skolems)
-        .map_err(|e| {
-            UnifyError::mismatch(
-                e.expected,
-                e.actual,
-                e.span,
-                UnifyErrorDetail::FunReturnMismatch,
-            )
-        })?;
+    let s2 = unify_core(
+        &ret1_sub,
+        &ret2_sub,
+        ctx_subst,
+        span,
+        fresh_row_var,
+        skolems,
+    )
+    .map_err(|e| {
+        UnifyError::mismatch(
+            e.expected,
+            e.actual,
+            e.span,
+            UnifyErrorDetail::FunReturnMismatch,
+        )
+    })?;
     Ok(subst.compose(&s2))
 }
 

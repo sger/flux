@@ -276,13 +276,9 @@ impl InferType {
                 args.iter().any(|a| a.contains_unresolved_var(bound_vars))
             }
             InferType::Fun(params, ret, effects) => {
-                params
-                    .iter()
-                    .any(|p| p.contains_unresolved_var(bound_vars))
+                params.iter().any(|p| p.contains_unresolved_var(bound_vars))
                     || ret.contains_unresolved_var(bound_vars)
-                    || effects
-                        .tail()
-                        .is_some_and(|t| !bound_vars.contains(&t))
+                    || effects.tail().is_some_and(|t| !bound_vars.contains(&t))
             }
             InferType::HktApp(head, args) => {
                 head.contains_unresolved_var(bound_vars)
@@ -510,10 +506,7 @@ mod tests {
 
     #[test]
     fn contains_unresolved_var_hkt_app() {
-        let ty = InferType::HktApp(
-            Box::new(infer_var(0)),
-            vec![infer_var(1)],
-        );
+        let ty = InferType::HktApp(Box::new(infer_var(0)), vec![infer_var(1)]);
         assert!(ty.contains_unresolved_var(&HashSet::new()));
         assert!(ty.contains_unresolved_var(&HashSet::from([0])));
         assert!(!ty.contains_unresolved_var(&HashSet::from([0, 1])));
