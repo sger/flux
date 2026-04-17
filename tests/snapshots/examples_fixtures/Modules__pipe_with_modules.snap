@@ -16,7 +16,7 @@ Cannot find module `Modules.Math` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Math.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Math` under roots: examples/Modules, lib, src (imported from examples/Modules/pipe_with_modules.flx).
+  Looked for module `Modules.Math` under roots: examples/Modules, src, lib (imported from examples/Modules/pipe_with_modules.flx).
 
 
 error[E018]: Import Not Found
@@ -30,7 +30,7 @@ Cannot find module `Modules.StringUtils` to import.
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.StringUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.StringUtils` under roots: examples/Modules, lib, src (imported from examples/Modules/pipe_with_modules.flx).
+  Looked for module `Modules.StringUtils` under roots: examples/Modules, src, lib (imported from examples/Modules/pipe_with_modules.flx).
 
 Found 2 errors.
 == stdout ==

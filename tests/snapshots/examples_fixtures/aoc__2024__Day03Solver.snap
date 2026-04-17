@@ -3,59 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day03Solver.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2024/Day03Solver.flx:84:25
-   |
-84 |         where indices = range(0, len(memory))
-   |                         ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2024/Day03Solver.flx:85:23
-   |
-85 |         where state = fold(indices, (0, 0), fn(st, i) {
-   |                       ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2024/Day03Solver.flx:108:25
-    |
-108 |         where indices = range(0, len(memory))
-    |                         ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2024/Day03Solver.flx:109:23
-    |
-109 |         where state = fold(indices, (0, true, 0), fn(st, i) {
-    |                       ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

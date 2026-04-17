@@ -33,19 +33,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `concat`.
-
-  examples/aoc/2025/aoc_day10_part1.flx:49:5
-   |
-49 |     concat(concat(left, [|value|]), right)
-   |     ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `push`.
 
   examples/aoc/2025/aoc_day10_part1.flx:57:40
@@ -82,45 +69,6 @@ I can't find a value named `push`.
 Hint:
   Define it first: let push = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day10_part1.flx:162:21
-    |
-162 | let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
-    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day10_part1.flx:163:15
-    |
-163 | let presses = [machine_min_presses(line) | line <- machine_lines]
-    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sum`.
-
-  examples/aoc/2025/aoc_day10_part1.flx:164:7
-    |
-164 | print(sum(presses))
-    |       ^^^
-
-Hint:
-  Define it first: let sum = ...;
-
-Found 9 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

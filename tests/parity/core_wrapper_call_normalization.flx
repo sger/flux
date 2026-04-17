@@ -1,0 +1,11 @@
+// parity: vm, llvm
+// expect: success
+
+fn inc(x) {
+    x + 1
+}
+
+fn main() with IO {
+    let f = inc
+    print(f(41))
+}

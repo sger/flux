@@ -31,17 +31,18 @@ Hint:
   Define it first: let slice = ...;
 
 
-error[E004]: Undefined Variable
+error[E056]: Wrong Number Of Arguments
 
-I can't find a value named `concat`.
+The `concat` function takes 1 arguments, but 2 were provided.
 
   examples/aoc/2025/aoc_day7_part2.flx:32:5
    |
 32 |     concat(concat(left, [|value|]), right)
-   |     ^^^^^^
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     -------------------------------------- 2 arguments provided here, expected 1
 
-Hint:
-  Define it first: let concat = ...;
+Help:
+  Remove 1 extra argument(s), for example: `concat(arg1)`.
 
 
 error[E004]: Undefined Variable
@@ -108,19 +109,6 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sum`.
-
-  examples/aoc/2025/aoc_day7_part2.flx:130:20
-    |
-130 |         finished + sum(active_counts)
-    |                    ^^^
-
-Hint:
-  Define it first: let sum = ...;
-
-Found 9 errors.
+Found 8 errors.
 == stdout ==
 <not executed>

@@ -4470,10 +4470,29 @@ impl Compiler {
     /// same semantic issue and the compiler's version is preferred.
     fn suppress_overlapping_hm_diagnostics(&self, hm_diagnostics: &mut Vec<Diagnostic>) {
         if self.errors.is_empty() || hm_diagnostics.is_empty() {
+            let has_specific_hm_errors = hm_diagnostics.iter().any(|diag| {
+                diag.severity() == crate::diagnostics::Severity::Error
+                    && diag.code() != Some("E430")
+            });
+            if has_specific_hm_errors {
+                hm_diagnostics.retain(|hm| !Self::is_expression_level_e430(hm));
+            }
             return;
         }
+        let has_specific_compiler_errors = self.errors.iter().any(|existing| {
+            existing.severity() == crate::diagnostics::Severity::Error
+                && existing.code() != Some("E430")
+        });
+        let has_specific_hm_errors = hm_diagnostics.iter().any(|diag| {
+            diag.severity() == crate::diagnostics::Severity::Error && diag.code() != Some("E430")
+        });
         let default_file = &self.file_path;
         hm_diagnostics.retain(|hm| {
+            if (has_specific_compiler_errors || has_specific_hm_errors)
+                && Self::is_expression_level_e430(hm)
+            {
+                return false;
+            }
             // Suppress an HM diagnostic only when its span is equal to or
             // broader than a same-code compiler boundary error. A narrower
             // HM span refines the compiler's diagnostic — keep it so per-
@@ -4486,6 +4505,13 @@ impl Compiler {
                     && !Self::hm_span_strictly_narrower(existing, hm)
             })
         });
+    }
+
+    fn is_expression_level_e430(diag: &Diagnostic) -> bool {
+        diag.code() == Some("E430")
+            && diag
+                .message()
+                .is_some_and(|msg| msg.starts_with("Could not determine a concrete type for this expression."))
     }
 
     fn hm_span_strictly_narrower(compiler: &Diagnostic, hm: &Diagnostic) -> bool {

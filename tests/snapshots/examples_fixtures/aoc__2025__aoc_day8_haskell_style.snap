@@ -33,19 +33,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `concat`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:33:9
-   |
-33 |         concat(concat(left, [|value|]), right)
-   |         ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `push`.
 
   examples/aoc/2025/aoc_day8_haskell_style.flx:44:38
@@ -215,71 +202,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:164:16
-    |
-164 |     let idxs = range(0, n)
-    |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:166:5
-    |
-166 |     fold(idxs, [||], /(acc, i) -> {
-    |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:172:29
-    |
-172 |     let parents0 = to_array(range(0, n))
-    |                             ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:173:27
-    |
-173 |     let sizes0 = to_array(map(range(0, n), /_ -> 1))
-    |                           ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:175:18
-    |
-175 |     let state1 = fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
-    |                  ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `put`.
 
   examples/aoc/2025/aoc_day8_haskell_style.flx:177:15
@@ -312,32 +234,6 @@ Help:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:183:16
-    |
-183 |     let idxs = range(0, n)
-    |                ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:185:5
-    |
-185 |     fold(idxs, [||], /(acc, i) -> {
-    |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `slice`.
 
   examples/aoc/2025/aoc_day8_haskell_style.flx:191:20
@@ -347,45 +243,6 @@ I can't find a value named `slice`.
 
 Hint:
   Define it first: let slice = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `range`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:193:29
-    |
-193 |     let parents0 = to_array(range(0, n))
-    |                             ^^^^^
-
-Hint:
-  Define it first: let range = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:194:27
-    |
-194 |     let sizes0 = to_array(map(range(0, n), /_ -> 1))
-    |                           ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2025/aoc_day8_haskell_style.flx:196:18
-    |
-196 |     let state1 = fold(top_keys, state0, /(st, k) -> union_key(st, k))
-    |                  ^^^^
-
-Hint:
-  Define it first: let fold = ...;
 
 
 error[E004]: Undefined Variable
@@ -400,6 +257,6 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-Found 30 errors.
+Found 19 errors.
 == stdout ==
 <not executed>

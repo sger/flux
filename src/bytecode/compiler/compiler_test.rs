@@ -164,6 +164,86 @@ fn compile_with_opts_collects_tail_calls_when_optimized() {
 }
 
 #[test]
+fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
+    let (program, interner) = parse_program("fn f(x) { mystery }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("expected compile failure");
+
+    let e430_count = diags.iter().filter(|d| d.code() == Some("E430")).count();
+    let e004_count = diags.iter().filter(|d| d.code() == Some("E004")).count();
+    assert_eq!(e430_count, 1, "expected only binding-level E430, got: {diags:?}");
+    assert_eq!(e004_count, 1, "expected unresolved-name E004, got: {diags:?}");
+    assert!(
+        !diags.iter().any(|d| {
+            d.code() == Some("E430")
+                && d.message().is_some_and(|msg| {
+                    msg.starts_with("Could not determine a concrete type for this expression.")
+                })
+        }),
+        "expression-level E430 should be suppressed once specific compiler errors exist: {diags:?}"
+    );
+}
+
+#[test]
+fn final_compile_preserves_specific_effect_errors_over_expression_e430() {
+    let (program, interner) = parse_program("perform Console.print(\"hello\")");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("expected compile failure");
+
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E403")),
+        "expected unknown effect error, got: {diags:?}"
+    );
+    assert!(
+        !diags.iter().any(|d| {
+            d.code() == Some("E430")
+                && d.message().is_some_and(|msg| {
+                    msg.starts_with("Could not determine a concrete type for this expression.")
+                })
+        }),
+        "expression-level E430 should not survive alongside specific effect errors: {diags:?}"
+    );
+}
+
+#[test]
+fn final_compile_suppresses_expression_e430_when_hm_reports_specific_error() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() {
+    [|1, "x"|]
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("expected compile failure");
+
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E300")),
+        "expected heterogeneous-array type mismatch, got: {diags:?}"
+    );
+    assert_eq!(
+        diags.iter().filter(|d| d.code() == Some("E430")).count(),
+        1,
+        "expected only the binding-level E430 summary, got: {diags:?}"
+    );
+    assert!(
+        !diags.iter().any(|d| {
+            d.code() == Some("E430")
+                && d.message().is_some_and(|msg| {
+                    msg.starts_with("Could not determine a concrete type for this expression.")
+                })
+        }),
+        "expression-level E430 should be suppressed when specific HM errors exist: {diags:?}"
+    );
+}
+
+#[test]
 fn compile_with_opts_handles_cfg_lowered_option_match_function() {
     let (program, interner) = parse_program("fn f(x) { match x { Some(n) -> n, None -> 0 } }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);

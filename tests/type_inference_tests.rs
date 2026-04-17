@@ -639,6 +639,52 @@ fn main() -> Unit {
 }
 
 #[test]
+fn infer_array_literal_with_equivalent_generic_map_elements_stays_concrete() {
+    let source = r##"
+import Flow.Map as Map
+
+fn main() -> Unit {
+    let _xs = [|Map.set({}, "x", 1), Map.set(Map.set({}, "y", 2), "z", 3)|]
+}
+"##;
+    let (result, program) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E430"),
+        "did not expect E430 for equivalent generic map elements, got: {:#?}",
+        result.diagnostics
+    );
+
+    let let_value = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            Statement::Function { body, .. } => body.statements.iter().find_map(|statement| {
+                match statement {
+                    Statement::Let { value, .. } => Some(value),
+                    _ => None,
+                }
+            }),
+            _ => None,
+        })
+        .expect("expected let-bound array literal");
+    let ty = result
+        .expr_types
+        .get(&let_value.expr_id())
+        .expect("expected inferred type for array literal");
+    match ty {
+        InferType::App(TypeConstructor::Array, elems) if elems.len() == 1 => match &elems[0] {
+            InferType::Var(var) => assert!(
+                !result.fallback_vars.contains(var),
+                "array element type should stay flexible, not fallback-poisoned: {:#?}",
+                ty
+            ),
+            other => panic!("expected flexible array element type, got {other:#?}"),
+        },
+        other => panic!("expected Array<_> type for array literal, got {other:#?}"),
+    }
+}
+
+#[test]
 fn infer_tuple_destructure_from_concrete_non_tuple_emits_e300() {
     let source = r#"
 fn main() -> Unit {

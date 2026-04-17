@@ -1,35 +1,46 @@
+mod algebraic;
 /// Core IR optimization passes.
 ///
 /// These passes operate on `CoreExpr` / `CoreProgram` before backend lowering.
 /// Passes run after `lower_ast::lower_program_ast` produces a `CoreProgram`.
 mod anf;
 mod beta;
+mod canonicalize;
 mod case_of_case;
 mod cokc;
+mod const_fold;
 mod dead_let;
 pub mod dict_elaborate;
+mod disciplined_inline;
 mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
 pub mod lint;
 mod primop_promote;
+mod specialize;
 mod tail_resumptive;
 
+pub use algebraic::algebraic_simplify;
 pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;
+pub use canonicalize::call_and_case_canonicalize;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
+pub use const_fold::constant_fold;
 pub use dead_let::elim_dead_let;
 pub use dict_elaborate::elaborate_dictionaries;
+pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
+pub use specialize::specialize_known_shapes;
 
 use crate::core::{CoreExpr, CoreLit, CoreProgram};
+use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
-    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
 };
 use crate::syntax::interner::Interner;
 use crate::types::{class_env::ClassEnv, type_env::TypeEnv};
@@ -133,7 +144,7 @@ fn run_semantic_core_passes_with_optional_interner(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -170,6 +181,16 @@ fn run_semantic_core_passes_with_optional_interner(
             verify_aether_contract_stage(def, &e, "case_of_case")?;
             let e = case_of_known_constructor(e);
             verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
+            let e = call_and_case_canonicalize(e);
+            verify_aether_contract_stage(def, &e, "call_and_case_canonicalize")?;
+            let e = specialize_known_shapes(e);
+            verify_aether_contract_stage(def, &e, "specialize_known_shapes")?;
+            let e = algebraic_simplify(e);
+            verify_aether_contract_stage(def, &e, "algebraic_simplify")?;
+            let e = constant_fold(e);
+            verify_aether_contract_stage(def, &e, "constant_fold")?;
+            let e = disciplined_inline(e);
+            verify_aether_contract_stage(def, &e, "disciplined_inline")?;
             let e = inline_lets(e);
             verify_aether_contract_stage(def, &e, "inline_lets")?;
             let e = elim_dead_let(e);
@@ -178,7 +199,7 @@ fn run_semantic_core_passes_with_optional_interner(
         }
 
         // Verify Core invariants after each simplification round.
-        core_lint_stage(program, "simplification", &mut warnings, interner);
+        core_lint_stage(program, "simplification", interner)?;
 
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
@@ -205,7 +226,7 @@ fn run_semantic_core_passes_with_optional_interner(
     }
 
     // Verify Core invariants after normalization.
-    core_lint_stage(program, "normalization", &mut warnings, interner);
+    core_lint_stage(program, "normalization", interner)?;
 
     Ok(warnings)
 }
@@ -331,9 +352,8 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
 fn core_lint_stage(
     program: &CoreProgram,
     stage: &'static str,
-    warnings: &mut Vec<Diagnostic>,
     interner: Option<&Interner>,
-) {
+) -> Result<(), Diagnostic> {
     if let Err(errors) = lint::lint_core_program(program) {
         let detail = errors
             .iter()
@@ -349,21 +369,14 @@ fn core_lint_stage(
             })
             .collect::<Vec<_>>()
             .join("\n");
-        warnings.push(
-            Diagnostic::make_warning(
-                "W998",
-                "CORE LINT",
-                format!(
-                    "Core IR has {} structural violation(s) after `{stage}`:\n{detail}",
-                    errors.len()
-                ),
-                "",
-                Default::default(),
-            )
-            .with_category(DiagnosticCategory::Internal)
-            .with_phase(DiagnosticPhase::Validation),
-        );
+        return Err(diagnostic_for(&CORE_LINT_FAILURE)
+            .with_message(format!(
+                "Core IR has {} structural violation(s) after `{stage}`:\n{detail}",
+                errors.len()
+            ))
+            .with_phase(DiagnosticPhase::Validation));
     }
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]

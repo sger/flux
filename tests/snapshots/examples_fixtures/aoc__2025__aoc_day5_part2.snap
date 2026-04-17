@@ -46,29 +46,16 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `map`.
+I can't find a value named `slice`.
 
-  examples/aoc/2025/aoc_day5_part2.flx:112:19
+  examples/aoc/2025/aoc_day5_part2.flx:112:41
     |
 112 | let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
-    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |                                         ^^^^^
 
 Hint:
-  Define it first: let map = ...;
+  Define it first: let slice = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day5_part2.flx:113:14
-    |
-113 | let ranges = [parse_range_line(line) | line <- range_lines]
-    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Found 5 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

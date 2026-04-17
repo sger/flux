@@ -5,62 +5,131 @@ Fixture: examples/perfomance/complexity_scaling.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E400]: Missing Ambient Effect
 
-I can't find a value named `first`.
+Call to `now_ms` requires effect `Time` in this function signature.
 
-  examples/perfomance/complexity_scaling.flx:12:50
+  examples/perfomance/complexity_scaling.flx:56:22
    |
-12 |             bench_list_head(lst, reps - 1, acc + first(lst))
-   |                                                  ^^^^^
+56 |             let t0 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
 
 Hint:
-  Define it first: let first = ...;
+  Add `with Time` to the enclosing function.
 
 
-error[E004]: Undefined Variable
+error[E400]: Missing Ambient Effect
 
-I can't find a value named `first`.
+Call to `now_ms` requires effect `Time` in this function signature.
 
-  examples/perfomance/complexity_scaling.flx:20:52
+  examples/perfomance/complexity_scaling.flx:58:22
    |
-20 |             bench_array_first(arr, reps - 1, acc + first(arr))
-   |                                                    ^^^^^
+58 |             let t1 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
 
 Hint:
-  Define it first: let first = ...;
+  Add `with Time` to the enclosing function.
 
 
-error[E004]: Undefined Variable
+error[E400]: Missing Ambient Effect
 
-I can't find a value named `concat`.
+Call to `now_ms` requires effect `Time` in this function signature.
 
-  examples/perfomance/complexity_scaling.flx:36:23
+  examples/perfomance/complexity_scaling.flx:60:22
    |
-36 |             let out = concat(arr, [|1|])
-   |                       ^^^^^^
+60 |             let t2 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
 
 Hint:
-  Define it first: let concat = ...;
+  Add `with Time` to the enclosing function.
 
 
-error[E004]: Undefined Variable
+error[E400]: Missing Ambient Effect
 
-I can't find a value named `range`.
+Call to `now_ms` requires effect `Time` in this function signature.
 
-  examples/perfomance/complexity_scaling.flx:53:23
+  examples/perfomance/complexity_scaling.flx:62:22
    |
-53 |             let arr = range(0, n)
-   |                       ^^^^^
+62 |             let t3 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
 
 Hint:
-  Define it first: let range = ...;
+  Add `with Time` to the enclosing function.
 
 
-Note: Downstream Errors Suppressed
+error[E400]: Missing Ambient Effect
 
-I hid 9 later-stage diagnostics (9 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+Call to `now_ms` requires effect `Time` in this function signature.
 
-Found 4 errors.
+  examples/perfomance/complexity_scaling.flx:64:22
+   |
+64 |             let t4 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/perfomance/complexity_scaling.flx:66:22
+   |
+66 |             let t5 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/perfomance/complexity_scaling.flx:68:22
+   |
+68 |             let t6 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/perfomance/complexity_scaling.flx:70:22
+   |
+70 |             let t7 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `print` requires effect `IO` in this function signature.
+
+  examples/perfomance/complexity_scaling.flx:72:13
+   |
+72 |             print(
+   |             ^^^^^
+   |             ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+Found 9 errors.
 == stdout ==
 <not executed>
