@@ -347,18 +347,17 @@ let x: Result<Int, String> = Ok(1)
 }
 
 #[test]
-fn infer_adt_constructor_call_generic_mismatch_silent_in_hm() {
-    // HM uses `unify_propagate` (silent) for let annotation mismatches —
-    // the compiler's boundary checker is the authoritative reporter.
-    // Verify HM does NOT emit E300 for this constraint.
+fn infer_adt_constructor_call_generic_mismatch_emits_e300_in_hm() {
+    // HM is now authoritative for typed-let annotation mismatches and emits
+    // E300 directly; the bytecode compiler's boundary check is a fallback.
     let source = r#"
 type Result<T, E> = Ok(T) | Err(E)
 let x: Result<Int, String> = Ok("oops")
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        !has_diagnostic_code(&result, "E300"),
-        "HM should not emit E300 for let annotation mismatches (compiler handles it), got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "HM should emit E300 for let annotation mismatches, got: {:#?}",
         result.diagnostics
     );
 }
@@ -816,9 +815,10 @@ fn main() -> Unit {
         int(),
         "expected refined recursive call type to be Int, got: {inferred_call_ty:?}"
     );
+    // Annotation `String` conflicts with refined `Int`; HM now reports E300.
     assert!(
-        result.diagnostics.is_empty(),
-        "expected no HM diagnostics in infer_program path, got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for annotation mismatch, got: {:#?}",
         result.diagnostics
     );
 }
@@ -890,9 +890,10 @@ fn main() -> Unit {
         int(),
         "expected refined recursive call type to stay Int, got: {inferred_call_ty:?}"
     );
+    // Annotation `String` conflicts with refined `Int`; HM now reports E300.
     assert!(
-        result.diagnostics.is_empty(),
-        "expected no HM diagnostics in infer_program path, got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for annotation mismatch, got: {:#?}",
         result.diagnostics
     );
 }
@@ -1724,6 +1725,140 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_code(&result, "E426"),
         "expected E426 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Hash literal homogeneity (collections.rs:infer_hash_literal_expression) ──
+
+#[test]
+fn infer_hash_literal_homogeneous_values_ok() {
+    let source = r#"
+let m = {"a": 1, "b": 2}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for homogeneous hash literal: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_hash_literal_heterogeneous_values_emits_e300() {
+    // Second pair's value is Float while the first established Int;
+    // unification of subsequent value types must flag the mismatch.
+    let source = r#"
+let m = {"a": 1, "b": 2.5}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for heterogeneous hash values, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_hash_literal_heterogeneous_keys_emits_e300() {
+    let source = r#"
+let m = {"a": 1, 2: 2}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for heterogeneous hash keys, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Let-binding annotation enforcement (statement.rs:check_let_annotation) ──
+
+#[test]
+fn infer_let_annotation_array_element_mismatch_emits_e300() {
+    let source = r#"
+let xs: Array<Int> = [|0.1, 0.2|]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Array<Int> annotation vs Array<Float> value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_list_element_mismatch_emits_e300() {
+    let source = r#"
+let xs: List<Int> = [1.5, 2.5]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for List<Int> annotation vs List<Float> value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_primitive_mismatch_emits_e300() {
+    let source = r#"
+let x: Int = "hello"
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Int annotation vs String value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_matching_type_ok() {
+    let source = r#"
+let x: Int = 42
+let xs: List<Int> = [1, 2, 3]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for matching annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_empty_list_stays_polymorphic() {
+    // An empty list literal has type List<'a>; the annotation should
+    // instantiate 'a without raising a mismatch.
+    let source = r#"
+let xs: List<Int> = []
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for empty list annotated List<Int>: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_match_expression_mismatch_emits_e300() {
+    // Regression: prior to HM-authoritative annotation checking, a match
+    // whose arms unified to Int was silently accepted as String.
+    let source = r#"
+fn main() -> Unit {
+    let x: String = match Some(1) {
+        Some(v) -> v,
+        None -> 0,
+    }
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for String annotation vs Int match value, got: {:#?}",
         result.diagnostics
     );
 }
