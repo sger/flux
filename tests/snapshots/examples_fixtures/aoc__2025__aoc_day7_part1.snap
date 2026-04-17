@@ -33,32 +33,6 @@ Hint:
 
 error[E004]: Undefined Variable
 
-I can't find a value named `concat`.
-
-  examples/aoc/2025/aoc_day7_part1.flx:31:5
-   |
-31 |     concat(concat(left, [|value|]), right)
-   |     ^^^^^^
-
-Hint:
-  Define it first: let concat = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day7_part1.flx:44:14
-   |
-44 |     to_array(map(range(0, width), /_ -> 0))
-   |              ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
 I can't find a value named `put`.
 
   examples/aoc/2025/aoc_day7_part1.flx:81:13
@@ -108,6 +82,6 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-Found 8 errors.
+Found 6 errors.
 == stdout ==
 <not executed>

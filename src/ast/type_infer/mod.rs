@@ -51,6 +51,8 @@ mod statement;
 pub mod static_type_validation;
 mod unification;
 
+pub(crate) type BindingSpanKey = (usize, usize, usize, usize);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared type definitions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ struct InferCtx<'a> {
     subst: TypeSubst,
     expr_types: HashMap<ExprId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
     known_flow_names: HashSet<Identifier>,
     flow_module_symbol: Identifier,
     adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
@@ -251,6 +254,7 @@ impl<'a> InferCtx<'a> {
             subst: TypeSubst::empty(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
+            binding_schemes_by_span: HashMap::new(),
             known_flow_names,
             flow_module_symbol,
             adt_constructor_types: HashMap::new(),
@@ -589,16 +593,54 @@ fn resolve_binding_schemes(
 /// Apply final substitution to all inferred types and build the result.
 fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     let constraint_count = ctx.contraint_log.len();
-    let resolved_instantiated_expr_vars = ctx
-        .instantiated_expr_vars
+    let (expanded_fallback, resolved_binding_schemes) =
+        resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
+    let resolved_instantiated_expr_vars =
+        resolve_instantiated_expr_vars(&ctx.instantiated_expr_vars, &ctx.subst);
+    let resolved_schemes = resolve_module_member_schemes(ctx.module_member_schemes, &ctx.subst);
+    let resolved_binding_schemes_by_span = resolve_binding_schemes_by_span(
+        ctx.binding_schemes_by_span,
+        &ctx.subst,
+        &expanded_fallback,
+    );
+    let resolved_expr_types = resolve_expr_types(ctx.expr_types, &ctx.subst);
+    let resolved_class_constraints = resolve_class_constraints(ctx.class_constraints, &ctx.subst);
+
+    InferProgramResult {
+        type_env: ctx.env,
+        diagnostics: ctx.errors,
+        expr_types: resolved_expr_types,
+        module_member_schemes: resolved_schemes,
+        constraint_count,
+        class_constraints: resolved_class_constraints,
+        fallback_vars: expanded_fallback,
+        instantiated_expr_vars: resolved_instantiated_expr_vars,
+        resolved_binding_schemes,
+        resolved_binding_schemes_by_span,
+    }
+}
+
+/// Resolve the final set of expression-instantiated type variables through the
+/// completed substitution so static validation can reason about final ids.
+fn resolve_instantiated_expr_vars(
+    instantiated_expr_vars: &HashSet<TypeVarId>,
+    subst: &TypeSubst,
+) -> HashSet<TypeVarId> {
+    instantiated_expr_vars
         .iter()
-        .flat_map(|&var| InferType::Var(var).apply_type_subst(&ctx.subst).free_vars())
-        .collect();
-    let resolved_schemes: HashMap<(Identifier, Identifier), Scheme> = ctx
-        .module_member_schemes
+        .flat_map(|&var| InferType::Var(var).apply_type_subst(subst).free_vars())
+        .collect()
+}
+
+/// Apply the final substitution to imported/module-member schemes.
+fn resolve_module_member_schemes(
+    module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    subst: &TypeSubst,
+) -> HashMap<(Identifier, Identifier), Scheme> {
+    module_member_schemes
         .into_iter()
         .map(|(key, scheme)| {
-            let resolved_type = scheme.infer_type.apply_type_subst(&ctx.subst);
+            let resolved_type = scheme.infer_type.apply_type_subst(subst);
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
@@ -611,38 +653,67 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
                 },
             )
         })
-        .collect();
-    let resolved_expr_types: HashMap<ExprId, InferType> = ctx
-        .expr_types
+        .collect()
+}
+
+/// Apply the final substitution to per-binding schemes while preserving the
+/// strict-types rule that fallback-tainted vars are never generalized.
+fn resolve_binding_schemes_by_span(
+    binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
+    subst: &TypeSubst,
+    fallback_vars: &HashSet<TypeVarId>,
+) -> HashMap<BindingSpanKey, Scheme> {
+    binding_schemes_by_span
         .into_iter()
-        .map(|(id, ty)| (id, ty.apply_type_subst(&ctx.subst)))
-        .collect();
-    let resolved_class_constraints: Vec<constraint::WantedClassConstraint> = ctx
-        .class_constraints
+        .map(|(span, scheme)| {
+            let resolved_type = scheme.infer_type.apply_type_subst(subst);
+            let mut forall = resolved_type
+                .free_vars()
+                .into_iter()
+                .filter(|v| !fallback_vars.contains(v))
+                .collect::<Vec<_>>();
+            forall.sort_unstable();
+            forall.dedup();
+            (
+                span,
+                Scheme {
+                    forall,
+                    constraints: scheme.constraints,
+                    infer_type: resolved_type,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Apply the final substitution to all recorded expression types.
+fn resolve_expr_types(
+    expr_types: HashMap<ExprId, InferType>,
+    subst: &TypeSubst,
+) -> HashMap<ExprId, InferType> {
+    expr_types
+        .into_iter()
+        .map(|(id, ty)| (id, ty.apply_type_subst(subst)))
+        .collect()
+}
+
+/// Apply the final substitution to accumulated class constraints.
+fn resolve_class_constraints(
+    class_constraints: Vec<constraint::WantedClassConstraint>,
+    subst: &TypeSubst,
+) -> Vec<constraint::WantedClassConstraint> {
+    class_constraints
         .into_iter()
         .map(|mut c| {
-            c.type_args = c
-                .type_args
-                .iter()
-                .map(|t| t.apply_type_subst(&ctx.subst))
-                .collect();
+            c.type_args = c.type_args.iter().map(|t| t.apply_type_subst(subst)).collect();
             c
         })
-        .collect();
-    let (expanded_fallback, resolved_binding_schemes) =
-        resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
+        .collect()
+}
 
-    InferProgramResult {
-        type_env: ctx.env,
-        diagnostics: ctx.errors,
-        expr_types: resolved_expr_types,
-        module_member_schemes: resolved_schemes,
-        constraint_count,
-        class_constraints: resolved_class_constraints,
-        fallback_vars: expanded_fallback,
-        instantiated_expr_vars: resolved_instantiated_expr_vars,
-        resolved_binding_schemes,
-    }
+/// Convert a statement span into a stable hashable key for binding-scheme lookup.
+pub(crate) fn binding_span_key(span: Span) -> BindingSpanKey {
+    (span.start.line, span.start.column, span.end.line, span.end.column)
 }
 
 /// Initialize the class environment and pre-resolve well-known class name
@@ -703,6 +774,9 @@ pub struct InferProgramResult {
     /// for the static type validation pass — `has_unresolved_vars()` on these
     /// schemes correctly identifies bindings with unresolved inference.
     pub resolved_binding_schemes: HashMap<Identifier, Scheme>,
+    /// Resolved binding schemes for each statement-level generalization site,
+    /// keyed by the `Statement::Function`/`Statement::Let` span.
+    pub resolved_binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
 }
 
 /// Stable identifier for one expression node within a single inference run.

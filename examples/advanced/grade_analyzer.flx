@@ -15,9 +15,11 @@
 import Flow.Map as Map
 
 type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
+type Student = Student(String, List<Float>)
+type Summary = Summary(Float, Grade, Bool)
 
 fn make_student(name, scores) {
-    {"name": name, "scores": scores}
+    Student(name, scores)
 }
 
 fn average(scores) {
@@ -45,51 +47,51 @@ fn grade_label(grade) {
 }
 
 fn summarize(student) {
-    let scores = match student["scores"] {
-        Some(v) -> v,
-        _ -> None,
+    let scores = match student {
+        Student(_, values) -> values,
     }
     let avg = average(scores)
     let grade = letter_grade(avg)
     let passed = avg >= 60.0
-    {
-        "average": avg,
-        "grade": grade,
-        "passed": passed,
+    Summary(avg, grade, passed)
+}
+
+fn student_name(student) {
+    match student {
+        Student(name, _) -> name,
     }
 }
 
 fn analyze(students) {
     fold(students, {}, \(acc, s) ->
-        match s["name"] {
-            Some(name) -> Map.set(acc, name, summarize(s)),
-            _ -> acc,
-        }
+        Map.set(acc, student_name(s), summarize(s))
     )
 }
 
 fn count_passed(results) {
-    len(filter(to_list(Map.values(results)), \r -> r["passed"] == Some(true)))
+    len(filter(to_list(Map.values(results)), \r ->
+        match r {
+            Summary(_, _, passed) -> passed,
+        }
+    ))
 }
 
 fn count_failed(results) {
-    len(filter(to_list(Map.values(results)), \r -> r["passed"] == Some(false)))
+    len(filter(to_list(Map.values(results)), \r ->
+        match r {
+            Summary(_, _, passed) -> !passed,
+        }
+    ))
 }
 
 fn format_result_line(name, r) {
-    let avg_text = match r["average"] {
-        Some(v) -> to_string(v),
-        _ -> "?",
+    match r {
+        Summary(avg, grade, passed) ->
+            name
+            + ": avg=" + to_string(avg)
+            + ", grade=" + grade_label(grade)
+            + ", passed=" + to_string(passed),
     }
-    let grade_text = match r["grade"] {
-        Some(v) -> grade_label(v),
-        _ -> "?",
-    }
-    let passed_text = match r["passed"] {
-        Some(v) -> to_string(v),
-        _ -> "?",
-    }
-    name + ": avg=" + avg_text + ", grade=" + grade_text + ", passed=" + passed_text
 }
 
 fn show(results, name) with IO {

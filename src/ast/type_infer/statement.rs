@@ -59,9 +59,10 @@ impl<'a> InferCtx<'a> {
                 name,
                 type_annotation,
                 value,
+                span,
                 ..
             } => {
-                self.infer_let_binding(*name, type_annotation.as_ref(), value);
+                self.infer_let_binding(*name, *span, type_annotation.as_ref(), value);
             }
             Statement::LetDestructure {
                 pattern,
@@ -129,6 +130,7 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_let_binding(
         &mut self,
         name: Identifier,
+        let_span: Span,
         annotation: Option<&TypeExpr>,
         value: &Expression,
     ) {
@@ -167,6 +169,8 @@ impl<'a> InferCtx<'a> {
         let env_free = self.env.free_vars();
         let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
         let scheme = self.finalize_binding_scheme(&final_ty, &relevant_constraints, &env_free);
+        self.binding_schemes_by_span
+            .insert(binding_span_key(let_span), scheme.clone());
         self.env.bind(name, scheme);
     }
 

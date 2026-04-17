@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use flux::{
     ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program},
+    diagnostics::{DiagnosticBuilder, compiler_errors::UNDEFINED_VARIABLE, diagnostic_for},
     syntax::{
         interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
     },
@@ -151,10 +152,12 @@ fn static_type_validation_accepts_fully_typed_function() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -169,10 +172,12 @@ fn static_type_validation_accepts_polymorphic_identity() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -187,10 +192,12 @@ fn static_type_validation_accepts_polymorphic_arithmetic() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -207,10 +214,12 @@ fn static_type_validation_flags_mono_scheme_with_fallback_var() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -229,10 +238,12 @@ fn static_type_validation_accepts_concrete_annotated_function() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -247,10 +258,12 @@ fn static_type_validation_no_false_positive_for_recursive_function() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -265,10 +278,12 @@ fn static_type_validation_flags_unresolved_leaf_expression() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     let e430_count = diags
@@ -278,6 +293,38 @@ fn static_type_validation_flags_unresolved_leaf_expression() {
     assert!(
         e430_count >= 2,
         "expected both binding and leaf expression E430 diagnostics, got: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_suppresses_expression_e430_when_primary_error_exists() {
+    let (result, program, interner) = infer("fn f(x) { mystery }");
+    let mystery_span = match &program.statements[0] {
+        Statement::Function { body, .. } => match &body.statements[0] {
+            Statement::Expression { expression, .. } => expression.span(),
+            other => panic!("expected expression statement, got: {other:?}"),
+        },
+        other => panic!("expected function statement, got: {other:?}"),
+    };
+    let existing_diags = vec![diagnostic_for(&UNDEFINED_VARIABLE).with_span(mystery_span)];
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
+        &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
+        &existing_diags,
+        &interner,
+    );
+    let e430_count = diags
+        .iter()
+        .filter(|diag| diag.code() == Some("E430"))
+        .count();
+    assert_eq!(
+        e430_count, 1,
+        "expected only the binding-level E430 after suppressing the leaf noise, got: {diags:?}"
     );
 }
 
@@ -295,10 +342,12 @@ fn main() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
@@ -322,15 +371,44 @@ fn main() {
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
         &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
         &result.expr_types,
         &result.module_member_schemes,
         &result.fallback_vars,
         &result.instantiated_expr_vars,
+        &[],
         &interner,
     );
     assert!(
         diags.is_empty(),
         "partially applied polymorphic call should not trigger E430: {diags:?}"
+    );
+}
+
+#[test]
+fn static_type_validation_accepts_local_function_tuple_projection() {
+    let (result, program, interner) = infer(
+        r#"
+fn outer(x) {
+    fn fst(pair) { pair.0 }
+    fst((x, 1))
+}
+"#,
+    );
+    let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
+        &program,
+        &result.resolved_binding_schemes,
+        &result.resolved_binding_schemes_by_span,
+        &result.expr_types,
+        &result.module_member_schemes,
+        &result.fallback_vars,
+        &result.instantiated_expr_vars,
+        &[],
+        &interner,
+    );
+    assert!(
+        diags.is_empty(),
+        "local generalized tuple projection should not trigger E430: {diags:?}"
     );
 }
 

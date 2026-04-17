@@ -95,11 +95,25 @@ impl<'a> InferCtx<'a> {
         object: &Expression,
         index: usize,
     ) -> InferType {
-        match self.infer_expression(object).apply_type_subst(&self.subst) {
+        let object_ty = self.infer_expression(object);
+        match object_ty.apply_type_subst(&self.subst) {
             InferType::Tuple(elements) => elements
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| self.alloc_fallback_var()),
+            InferType::Var(_) => {
+                // Delay projection failure for unresolved tuple-typed values by
+                // constraining them to a tuple shape. This lets later call-site
+                // unification discharge local helper projections like `pair.0`
+                // instead of poisoning the expression with a fallback hole.
+                let arity = std::cmp::max(index + 1, 2);
+                let elements: Vec<InferType> =
+                    (0..arity).map(|_| self.env.alloc_infer_type_var()).collect();
+                let projected = elements[index].clone();
+                let tuple_shape = InferType::Tuple(elements);
+                self.unify_silent(&object_ty, &tuple_shape);
+                projected.apply_type_subst(&self.subst)
+            }
             _other => self.alloc_fallback_var(),
         }
     }

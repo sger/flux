@@ -1052,3 +1052,165 @@ fn run_core_passes_rejects_malformed_aether_before_lowering() {
         "unexpected Aether verification errors: {err:?}"
     );
 }
+
+#[test]
+fn core_lint_is_fatal_with_e998() {
+    let mut interner = Interner::new();
+    let f = interner.intern("f");
+    let x = interner.intern("x");
+    let x_binder = binder(0, x);
+    let mut program = CoreProgram {
+        defs: vec![CoreDef {
+            name: f,
+            binder: binder(1, f),
+            expr: CoreExpr::Lam {
+                params: vec![x_binder],
+                param_types: vec![None, None],
+                result_ty: None,
+                body: Box::new(var_ref(x_binder)),
+                span: s(),
+            },
+            borrow_signature: None,
+            result_ty: None,
+            is_anonymous: false,
+            is_recursive: false,
+            fip: None,
+            span: s(),
+        }],
+        top_level_items: Vec::new(),
+    };
+
+    let err = run_core_passes_with_interner(&mut program, &interner, false)
+        .expect_err("malformed Core should fail");
+    assert_eq!(err.code(), Some("E998"));
+}
+
+#[test]
+fn algebraic_simplify_removes_int_identity() {
+    let expr = CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![
+            var_ref(binder(0, Interner::new().intern("x"))),
+            CoreExpr::Lit(CoreLit::Int(0), s()),
+        ],
+        span: s(),
+    };
+
+    let result = algebraic_simplify(expr);
+    assert!(matches!(result, CoreExpr::Var { .. }));
+}
+
+#[test]
+fn constant_fold_reduces_literal_arithmetic_and_branch() {
+    let expr = CoreExpr::Case {
+        scrutinee: Box::new(CoreExpr::PrimOp {
+            op: CorePrimOp::ICmpEq,
+            args: vec![
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::IAdd,
+                    args: vec![
+                        CoreExpr::Lit(CoreLit::Int(2), s()),
+                        CoreExpr::Lit(CoreLit::Int(3), s()),
+                    ],
+                    span: s(),
+                },
+                CoreExpr::Lit(CoreLit::Int(5), s()),
+            ],
+            span: s(),
+        }),
+        alts: vec![
+            CoreAlt {
+                pat: CorePat::Lit(CoreLit::Bool(true)),
+                guard: None,
+                rhs: CoreExpr::Lit(CoreLit::Int(1), s()),
+                span: s(),
+            },
+            CoreAlt {
+                pat: CorePat::Wildcard,
+                guard: None,
+                rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
+                span: s(),
+            },
+        ],
+        join_ty: None,
+        span: s(),
+    };
+
+    let result = constant_fold(expr);
+    assert!(matches!(result, CoreExpr::Lit(CoreLit::Int(1), _)));
+}
+
+#[test]
+fn call_and_case_canonicalize_flattens_nested_apps() {
+    let mut interner = Interner::new();
+    let f = binder(0, interner.intern("f"));
+    let expr = CoreExpr::App {
+        func: Box::new(CoreExpr::App {
+            func: Box::new(var_ref(f)),
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
+            span: s(),
+        }),
+        args: vec![CoreExpr::Lit(CoreLit::Int(2), s())],
+        span: s(),
+    };
+
+    let result = call_and_case_canonicalize(expr);
+    match result {
+        CoreExpr::App { args, .. } => assert_eq!(args.len(), 2),
+        other => panic!("expected flattened App, got {other:?}"),
+    }
+}
+
+#[test]
+fn specialize_known_shapes_inlines_single_use_wrapper_callee() {
+    let mut interner = Interner::new();
+    let wrap = binder(0, interner.intern("wrap"));
+    let x = binder(1, interner.intern("x"));
+    let expr = CoreExpr::Let {
+        var: wrap,
+        rhs: Box::new(CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![None],
+            result_ty: None,
+            body: Box::new(CoreExpr::PrimOp {
+                op: CorePrimOp::IAdd,
+                args: vec![var_ref(x), CoreExpr::Lit(CoreLit::Int(1), s())],
+                span: s(),
+            }),
+            span: s(),
+        }),
+        body: Box::new(CoreExpr::App {
+            func: Box::new(var_ref(wrap)),
+            args: vec![CoreExpr::Lit(CoreLit::Int(41), s())],
+            span: s(),
+        }),
+        span: s(),
+    };
+
+    let result = specialize_known_shapes(expr);
+    match result {
+        CoreExpr::App { func, .. } => assert!(matches!(*func, CoreExpr::Lam { .. })),
+        other => panic!("expected specialized direct App, got {other:?}"),
+    }
+}
+
+#[test]
+fn disciplined_inline_skips_recursive_binding() {
+    let mut interner = Interner::new();
+    let f = binder(0, interner.intern("f"));
+    let expr = CoreExpr::LetRec {
+        var: f,
+        rhs: Box::new(CoreExpr::Lam {
+            params: vec![],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(var_ref(f)),
+            span: s(),
+        }),
+        body: Box::new(var_ref(f)),
+        span: s(),
+    };
+
+    let result = disciplined_inline(expr);
+    assert!(matches!(result, CoreExpr::LetRec { .. }));
+}

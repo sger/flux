@@ -43,10 +43,12 @@ impl Compiler {
         let mut strict_diags = validate_static_types(
             final_program.as_ref(),
             &resolved_binding_schemes,
+            &hm_final.resolved_binding_schemes_by_span,
             &self.hm_expr_types,
             &module_member_schemes,
             &hm_final.fallback_vars,
             &instantiated_expr_vars,
+            &hm_diagnostics,
             &self.interner,
         );
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);

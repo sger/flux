@@ -840,6 +840,14 @@ pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     hint: Some("Add a type annotation so the compiler can verify type safety."),
 };
 
+pub const CORE_LINT_FAILURE: ErrorCode = ErrorCode {
+    code: "E998",
+    title: "CORE LINT FAILURE",
+    error_type: ErrorType::Compiler,
+    message: "Core IR validation failed after `{}`.",
+    hint: Some("This is a compiler bug. Inspect --dump-core around the failing stage."),
+};
+
 // Type class errors (E440–E449)
 
 pub const DUPLICATE_CLASS: ErrorCode = ErrorCode {
