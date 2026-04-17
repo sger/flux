@@ -189,6 +189,7 @@ impl<'a> InferCtx<'a> {
                 &self.subst,
                 arg_expr.span(),
                 &mut self.env.counter,
+                &self.skolem_vars,
             ) {
                 Ok(subst) => {
                     self.subst = std::mem::take(&mut self.subst).compose(&subst);

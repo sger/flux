@@ -171,6 +171,15 @@ struct InferCtx<'a> {
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
     fallback_vars: HashSet<TypeVarId>,
+    /// Rigid (skolem) type variables introduced by a declared signature
+    /// (Proposal 0159). A skolem cannot be unified with anything other than
+    /// itself; `unify_core` enforces this inline via the threaded
+    /// `skolems` parameter. Unmarked when the declaring function's scope
+    /// exits so downstream uses treat them as flexible.
+    skolem_vars: HashSet<TypeVarId>,
+    /// Source-level name for each skolem (the type parameter identifier),
+    /// used to render readable E305 diagnostics.
+    skolem_names: HashMap<TypeVarId, Identifier>,
     /// Pre-resolved class name symbols for constraint emission in operators.
     /// `None` if the class is not declared in the current program.
     class_sym_eq: Option<Identifier>,
@@ -243,6 +252,8 @@ impl<'a> InferCtx<'a> {
             contraint_log: Vec::new(),
             deferred_constraints: Vec::new(),
             fallback_vars: HashSet::new(),
+            skolem_vars: HashSet::new(),
+            skolem_names: HashMap::new(),
             class_env: None,
             class_constraints: Vec::new(),
             class_sym_eq: None,
@@ -388,6 +399,29 @@ impl<'a> InferCtx<'a> {
             }
         }
         result
+    }
+
+    /// Mark a type variable as rigid (skolem) for the duration of a checked
+    /// signature (Proposal 0159). While marked, `unify_core` rejects any
+    /// attempt to bind `v` to a non-identical type.
+    ///
+    /// Not called from the inference driver in Commit 2 — the E305
+    /// infrastructure lands ahead of activation while the Core-IR snapshot
+    /// interaction is being resolved. Follow-up commit will turn marking on.
+    #[allow(dead_code)]
+    pub(super) fn mark_skolem(&mut self, v: TypeVarId, name: Identifier) {
+        self.skolem_vars.insert(v);
+        self.skolem_names.insert(v, name);
+    }
+
+    /// Unmark a set of skolems; called when leaving the declared-signature
+    /// scope so the variables can behave flexibly in downstream contexts.
+    #[allow(dead_code)]
+    pub(super) fn unmark_skolems(&mut self, vs: &[TypeVarId]) {
+        for v in vs {
+            self.skolem_vars.remove(v);
+            self.skolem_names.remove(v);
+        }
     }
 
     /// Check if a name is a known class method. Returns the class name if so.

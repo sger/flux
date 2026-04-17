@@ -102,6 +102,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     UNDEFINED_TYPE_VAR,
     INVALID_TYPE_ANNOTATION,
     INVALID_EFFECT_ROW,
+    RIGID_VAR_ESCAPE,
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
     // Type class errors (E440–E449)

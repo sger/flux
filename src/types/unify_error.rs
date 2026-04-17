@@ -12,6 +12,11 @@ pub enum UnifyErrorKind {
     Mismatch,
     /// Occurs check failed: a type variable appears inside the type it would be bound to.
     OccursCheck(TypeVarId),
+    /// Rigid (skolem) type variable would be bound to a non-identical type.
+    /// Proposal 0159: declared type parameters are rigid for the duration of
+    /// checking; attempting to unify them with anything other than themselves
+    /// violates the declared signature contract.
+    RigidBind(TypeVarId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +83,18 @@ impl UnifyError {
             expected,
             actual: ty,
             kind: UnifyErrorKind::OccursCheck(v),
+            detail: UnifyErrorDetail::None,
+            span,
+        }
+    }
+
+    /// Build a rigid-variable-escape error when a skolem would be bound to a
+    /// non-identical type during unification.
+    pub(crate) fn rigid_bind(v: TypeVarId, ty: InferType, span: Span) -> Self {
+        UnifyError {
+            expected: InferType::Var(v),
+            actual: ty,
+            kind: UnifyErrorKind::RigidBind(v),
             detail: UnifyErrorDetail::None,
             span,
         }
