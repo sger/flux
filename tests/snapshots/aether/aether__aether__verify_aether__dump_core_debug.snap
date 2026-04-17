@@ -1537,12 +1537,12 @@ letrec my_sum : Int =
 letrec main : Unit =
 λ.
     let result#716:Box = (let %t249:Box = MakeList(1, 2, 3)
-    let %t250:Box = (λx#717.
+    let %t250:Box = (λx#717:Int.
       IMul(x#717, 2))
     my_map#675(#4000958[synthetic]#958, #4000959[synthetic]#959))
     let %t251 = Print(result#716)
     let opt#713:Box = (let %t252:Box = Some(42)
-    let %t253:Box = (λx#714.
+    let %t253:Box = (λx#714:Int.
       IAdd(x#714, 1))
     option_map#680(#4000960[synthetic]#960, #4000961[synthetic]#961))
     let %t254 = Print(opt#713)
@@ -1553,7 +1553,7 @@ letrec main : Unit =
     my_len#689(#4000962[synthetic]#962))
     let %t257 = Print(n#707)
     let evens#704:Box = (let %t258:Box = MakeList(1, 2, 3, 4, 5, 6)
-    let %t259:Box = (λx#705.
+    let %t259:Box = (λx#705:Int.
       let %t260:Int = IMod(x#705, 2)
       ICmpEq(#4000964[synthetic]#964, 0))
     my_filter#692(#4000963[synthetic]#963, #4000965[synthetic]#965))

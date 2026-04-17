@@ -92,6 +92,27 @@ Hint:
   Define it first: let filter = ...;
 
 
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/advanced/grade_analyzer.flx:105:31
+    |
+105 |         make_student("Alice", [92.0, 88.0, 95.0, 91.0]),
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |                               ------------------------ this expression has type `List<Float>`
+
+    |                               ------------------------ this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: List<Float>
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+
 error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `make_student`.
@@ -177,6 +198,6 @@ Note:
 Help:
   Pass a `String` value as the 2nd argument.
 
-Found 9 errors.
+Found 10 errors.
 == stdout ==
 <not executed>

@@ -4384,12 +4384,29 @@ impl Compiler {
         }
         let default_file = &self.file_path;
         hm_diagnostics.retain(|hm| {
+            // Suppress an HM diagnostic only when its span is equal to or
+            // broader than a same-code compiler boundary error. A narrower
+            // HM span refines the compiler's diagnostic — keep it so per-
+            // element / per-arm precision from check mode (Proposal 0159)
+            // is not eaten by the whole-value boundary check.
             !self.errors.iter().any(|existing| {
                 existing.code() == hm.code()
                     && existing.severity() == hm.severity()
                     && Self::diagnostic_spans_overlap(existing, hm, default_file)
+                    && !Self::hm_span_strictly_narrower(existing, hm)
             })
         });
+    }
+
+    fn hm_span_strictly_narrower(compiler: &Diagnostic, hm: &Diagnostic) -> bool {
+        let (Some(c), Some(h)) = (compiler.span(), hm.span()) else {
+            return false;
+        };
+        // hm span is strictly narrower (refines) when contained in compiler
+        // span and not equal to it.
+        Self::position_leq(c.start, h.start)
+            && Self::position_leq(h.end, c.end)
+            && (c.start != h.start || c.end != h.end)
     }
 
     fn diagnostic_spans_overlap(a: &Diagnostic, b: &Diagnostic, default_file: &str) -> bool {
