@@ -243,6 +243,7 @@ fn compile_parallel_native_module(
         };
     }
 
+    let exported_runtime_contracts = compiler.exported_runtime_contracts();
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
             compiler
@@ -256,6 +257,7 @@ fn compile_parallel_native_module(
                         &semantic_config_hash,
                         core.as_core(),
                         compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &compiler.module_function_visibility,
                         Some(compiler.class_env()),
                         dependency_fingerprints,

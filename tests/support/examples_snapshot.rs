@@ -143,6 +143,9 @@ pub fn build_transcript(
 
     if diagnostics.is_empty() {
         let mut roots = Vec::new();
+        if fixture_rel.starts_with("examples/runtime_boundaries/RuntimeBoundaries/") {
+            roots.push(workspace_root.join("examples/runtime_boundaries"));
+        }
         if let Some(parent) = fixture.parent() {
             roots.push(parent.to_path_buf());
         }

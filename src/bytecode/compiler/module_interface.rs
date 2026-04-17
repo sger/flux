@@ -14,6 +14,7 @@ use crate::{
     aether::borrow_infer::BorrowSignature,
     bytecode::bytecode_cache::hash_bytes,
     core::CoreProgram,
+    runtime::function_contract::FunctionContract,
     shared::cache_paths,
     syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
@@ -70,6 +71,7 @@ struct CanonicalExport<'a> {
     member: &'a str,
     scheme: Option<&'a Scheme>,
     borrow_signature: Option<&'a BorrowSignature>,
+    runtime_contract: Option<&'a FunctionContract>,
 }
 
 /// Build a module interface from post-Aether Core plus cached HM schemes.
@@ -87,6 +89,7 @@ pub fn build_interface(
     semantic_config_hash: &[u8; 32],
     program: &CoreProgram,
     schemes: &HashMap<(Identifier, Identifier), Scheme>,
+    runtime_contracts: &HashMap<(Identifier, Identifier), FunctionContract>,
     visibility: &HashMap<(Identifier, Identifier), bool>,
     class_env: Option<&ClassEnv>,
     dependency_fingerprints: Vec<DependencyFingerprint>,
@@ -118,7 +121,14 @@ pub fn build_interface(
             interface.schemes.insert(name.clone(), scheme.clone());
         }
         if let Some(signature) = &def.borrow_signature {
-            interface.borrow_signatures.insert(name, signature.clone());
+            interface
+                .borrow_signatures
+                .insert(name.clone(), signature.clone());
+        }
+        if let Some(contract) = runtime_contracts.get(&(module_sym, def.name)) {
+            interface
+                .runtime_contracts
+                .insert(name.clone(), contract.clone());
         }
     }
 
@@ -128,6 +138,9 @@ pub fn build_interface(
     let mut symbols = HashSet::<Symbol>::new();
     for scheme in interface.schemes.values() {
         scheme.collect_symbols(&mut symbols);
+    }
+    for runtime_contract in interface.runtime_contracts.values() {
+        runtime_contract.collect_symbols(&mut symbols);
     }
     collect_symbols_from_public_classes(&interface.public_classes, &mut symbols);
     collect_symbols_from_public_instances(&interface.public_instances, &mut symbols);
@@ -374,6 +387,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         .keys()
         .map(String::as_str)
         .chain(interface.borrow_signatures.keys().map(String::as_str))
+        .chain(interface.runtime_contracts.keys().map(String::as_str))
         .collect();
     members.sort_unstable();
     members.dedup();
@@ -384,6 +398,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
             member,
             scheme: interface.schemes.get(member),
             borrow_signature: interface.borrow_signatures.get(member),
+            runtime_contract: interface.runtime_contracts.get(member),
         })
         .collect();
 
@@ -543,6 +558,10 @@ mod tests {
     use crate::{
         aether::borrow_infer::{BorrowMode, BorrowProvenance, BorrowSignature},
         core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit},
+        runtime::{
+            function_contract::FunctionContract,
+            runtime_type::{AdtConstructorContract, RuntimeType},
+        },
         types::{
             infer_effect_row::InferEffectRow, infer_type::InferType,
             module_interface::DependencyFingerprint, scheme::Scheme,
@@ -624,6 +643,7 @@ mod tests {
             &semantic_hash,
             &program,
             &schemes,
+            &HashMap::new(),
             &visibility,
             None,
             vec![DependencyFingerprint {
@@ -689,6 +709,7 @@ mod tests {
             &semantic_hash,
             &program,
             &schemes,
+            &HashMap::new(),
             &visibility,
             None,
             Vec::new(),
@@ -751,6 +772,7 @@ mod tests {
             &semantic_hash,
             &program,
             &schemes,
+            &HashMap::new(),
             &visibility,
             None,
             Vec::new(),
@@ -775,6 +797,26 @@ mod tests {
             "map".to_string(),
             BorrowSignature::new(vec![BorrowMode::Borrowed], BorrowProvenance::Imported),
         );
+        let mut runtime_contracts = HashMap::new();
+        runtime_contracts.insert(
+            "map".to_string(),
+            FunctionContract {
+                params: vec![Some(RuntimeType::Adt {
+                    module_name: None,
+                    module_name_text: None,
+                    name: crate::syntax::symbol::Symbol::new(7),
+                    display_name: "Color".to_string(),
+                    type_args: vec![],
+                    constructors: vec![AdtConstructorContract {
+                        name: crate::syntax::symbol::Symbol::new(8),
+                        display_name: "Red".to_string(),
+                        fields: vec![],
+                    }],
+                })],
+                ret: Some(RuntimeType::Unit),
+                effects: vec![],
+            },
+        );
 
         let interface = ModuleInterface {
             module_name: "TestMod".to_string(),
@@ -785,6 +827,7 @@ mod tests {
             interface_fingerprint: "abi".to_string(),
             schemes,
             borrow_signatures,
+            runtime_contracts,
             dependency_fingerprints: vec![DependencyFingerprint {
                 module_name: "Flow.List".to_string(),
                 source_path: "lib/Flow/List.flx".to_string(),
@@ -801,6 +844,7 @@ mod tests {
         assert_eq!(loaded.module_name, "TestMod");
         assert_eq!(loaded.schemes.len(), 1);
         assert_eq!(loaded.borrow_signatures.len(), 1);
+        assert_eq!(loaded.runtime_contracts.len(), 1);
         assert!(loaded.schemes.contains_key("map"));
     }
 
@@ -973,6 +1017,7 @@ mod tests {
             &cfg,
             &program,
             &schemes,
+            &HashMap::new(),
             &visibility,
             Some(&env_empty),
             Vec::new(),
@@ -1003,6 +1048,7 @@ mod tests {
             &cfg,
             &program,
             &schemes,
+            &HashMap::new(),
             &visibility,
             Some(&env_priv),
             Vec::new(),

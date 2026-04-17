@@ -1,0 +1,17 @@
+module RuntimeBoundaries.Shapes {
+    public data Shape {
+        Circle(Int),
+        Rect(Int, Int),
+    }
+
+    public fn area(shape: Shape) -> Int {
+        match shape {
+            Circle(r) -> r * r,
+            Rect(w, h) -> w * h,
+        }
+    }
+
+    public fn demo() -> Shape {
+        Rect(3, 4)
+    }
+}

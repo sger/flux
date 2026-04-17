@@ -1,0 +1,10 @@
+// Imported runtime contracts now preserve nominal ADT boundaries.
+// parity-expected-stdout-begin
+// "12"
+// parity-expected-stdout-end
+
+import RuntimeBoundaries.Shapes as Shapes
+
+fn main() with IO {
+    print(to_string(Shapes.area(Shapes.demo())))
+}

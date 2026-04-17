@@ -1,14 +1,47 @@
+use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
+
 use crate::syntax::Identifier;
 use crate::syntax::interner::Interner;
+use crate::syntax::symbol::Symbol;
 use crate::syntax::type_expr::TypeExpr;
 
 use crate::runtime::runtime_type::RuntimeType;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionContract {
     pub params: Vec<Option<RuntimeType>>,
     pub ret: Option<RuntimeType>,
     pub effects: Vec<Identifier>,
+}
+
+impl FunctionContract {
+    pub fn collect_symbols(&self, out: &mut HashSet<Symbol>) {
+        for param in self.params.iter().flatten() {
+            param.collect_symbols(out);
+        }
+        if let Some(ret) = &self.ret {
+            ret.collect_symbols(out);
+        }
+        out.extend(self.effects.iter().copied());
+    }
+
+    pub fn remap_symbols(&self, remap: &std::collections::HashMap<Symbol, Symbol>) -> Self {
+        Self {
+            params: self
+                .params
+                .iter()
+                .map(|param| param.as_ref().map(|param| param.remap_symbols(remap)))
+                .collect(),
+            ret: self.ret.as_ref().map(|ret| ret.remap_symbols(remap)),
+            effects: self
+                .effects
+                .iter()
+                .map(|effect| remap.get(effect).copied().unwrap_or(*effect))
+                .collect(),
+        }
+    }
 }
 
 /// Build a `FunctionContract` from source-level type annotations.

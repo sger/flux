@@ -382,6 +382,21 @@ impl TypeEnv {
                 Box::new(Self::try_infer_type_from_runtime(ret)?),
                 InferEffectRow::closed_from_symbols(effects.iter().copied()),
             ),
+            RuntimeType::Adt {
+                name, type_args, ..
+            } => {
+                if type_args.is_empty() {
+                    InferType::Con(TypeConstructor::Adt(*name))
+                } else {
+                    InferType::App(
+                        TypeConstructor::Adt(*name),
+                        type_args
+                            .iter()
+                            .map(Self::try_infer_type_from_runtime)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
+                }
+            }
         })
     }
 
