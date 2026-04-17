@@ -2,6 +2,6 @@
 source: tests/aether_cli_snapshots.rs
 ---
 letrec __tc_Eqish_Int_same : Int =
-letrec __tc_Eq_Int_eq : forall t676. (t676, t676) -> Bool =
-letrec id : t1094 =
-letrec choose : t1096 =
+letrec __tc_Eq_Int_eq : forall t10274. (t10274, t10274) -> Bool =
+letrec id : t10697 =
+letrec choose : t10699 =

@@ -981,6 +981,17 @@ lam(arr) ->
           aether_call[owned, owned] minl_go#621(1, first#620)
         _ ->
           0
+── fn unwrap_or ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0
+  FreshAllocs: 0
+  verifier: ok
+lam(opt, default) ->
+  case opt#629 of
+    Some(v) ->
+      drop default#630 in
+        v#631
+    _ ->
+      default#630
 ── fn map_option ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
   FreshAllocs: 0
@@ -1044,7 +1055,7 @@ lam() ->
     Print(<sym:4000930>#930)
 
 ── Total ──
-  Dups: 16  Drops: 75  Reuses: 10  DropSpecs: 0  FBIP: fbip(22)
+  Dups: 16  Drops: 76  Reuses: 10  DropSpecs: 0  FBIP: fbip(22)
   FreshAllocs: 22
 
 [1 of 7] Compiling  Assert
