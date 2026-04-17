@@ -817,7 +817,9 @@ pub const INVALID_EFFECT_ROW: ErrorCode = ErrorCode {
     title: "INVALID EFFECT ROW",
     error_type: ErrorType::Compiler,
     message: "Cannot interpret this effect row: `{}` and `{}` are distinct row variables in the same row.",
-    hint: Some("Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`)."),
+    hint: Some(
+        "Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`).",
+    ),
 };
 
 pub const RIGID_VAR_ESCAPE: ErrorCode = ErrorCode {

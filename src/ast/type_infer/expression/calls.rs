@@ -237,9 +237,7 @@ impl<'a> InferCtx<'a> {
                     // Resolve only in the error path for the diagnostic check.
                     let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
                     let actual_resolved = arg_ty.apply_type_subst(&self.subst);
-                    if expected_resolved.is_concrete()
-                        && actual_resolved.is_concrete()
-                    {
+                    if expected_resolved.is_concrete() && actual_resolved.is_concrete() {
                         let exp_str = self.display_type(&expected_resolved);
                         let act_str = self.display_type(&actual_resolved);
                         self.errors.push(call_arg_type_mismatch(

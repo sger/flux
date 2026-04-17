@@ -28,6 +28,7 @@ use crate::{
     },
     types::{
         TypeVarId,
+        class_defaulting::finalize_binding_class_constraints,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
         scheme::{Scheme, generalize, generalize_with_constraints},
@@ -363,47 +364,38 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Extract `SchemeConstraint`s from the global constraint list for a type
-    /// that is about to be generalized.
+    /// Finalize one binding's type-class obligations before generalization.
     ///
-    /// Applies the current substitution to each constraint's type_args, then
-    /// keeps only those whose resolved types are all type variables in the
-    /// type being generalized.
-    fn collect_scheme_constraints(&self, ty: &InferType) -> Vec<constraint::SchemeConstraint> {
-        let ty_free = ty.free_vars();
-        let mut result = Vec::new();
-        let mut seen = HashSet::new();
-        for wc in &self.class_constraints {
-            if wc.origin == constraint::WantedClassConstraintOrigin::InferredOperator {
-                continue;
-            }
-            let resolved: Vec<InferType> = wc
-                .type_args
-                .iter()
-                .map(|t| t.apply_type_subst(&self.subst))
-                .collect();
-            // All type args must resolve to type variables in the generalizing type.
-            let vars: Vec<TypeVarId> = resolved
-                .iter()
-                .filter_map(|t| {
-                    if let InferType::Var(v) = t {
-                        Some(*v)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if vars.len() == resolved.len()
-                && vars.iter().all(|v| ty_free.contains(v))
-                && seen.insert((wc.class_name, vars.clone()))
-            {
-                result.push(constraint::SchemeConstraint {
-                    class_name: wc.class_name,
-                    type_vars: vars,
-                });
-            }
+    /// This validates concrete obligations, applies numeric defaulting for
+    /// truly ambiguous `Num` variables, and returns the resulting scheme.
+    fn finalize_binding_scheme(
+        &mut self,
+        infer_type: &InferType,
+        relevant_constraints: &[constraint::WantedClassConstraint],
+        env_free_vars: &HashSet<TypeVarId>,
+    ) -> Scheme {
+        let finalized = finalize_binding_class_constraints(
+            infer_type,
+            env_free_vars,
+            relevant_constraints,
+            &self.subst,
+            self.class_env.as_ref(),
+            self.interner,
+        );
+        if !finalized.default_subst.is_empty() {
+            self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
         }
-        result
+        self.errors.extend(finalized.diagnostics);
+
+        if finalized.scheme_constraints.is_empty() {
+            generalize(&finalized.infer_type, env_free_vars)
+        } else {
+            generalize_with_constraints(
+                &finalized.infer_type,
+                env_free_vars,
+                finalized.scheme_constraints,
+            )
+        }
     }
 
     /// Mark a type variable as rigid (skolem) for the duration of a checked

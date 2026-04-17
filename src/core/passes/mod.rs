@@ -341,9 +341,7 @@ fn core_lint_stage(
                 let def = e
                     .def_name
                     .map(|n| {
-                        let resolved = interner
-                            .and_then(|i| i.try_resolve(n))
-                            .unwrap_or("?");
+                        let resolved = interner.and_then(|i| i.try_resolve(n)).unwrap_or("?");
                         format!(" in `{resolved}`")
                     })
                     .unwrap_or_default();

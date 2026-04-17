@@ -346,15 +346,13 @@ impl<'a> InferCtx<'a> {
             .map(|id| self.interner.resolve(*id).to_string())
             .unwrap_or_else(|| format!("t{v}"));
         let bound = self.display_type(&error.actual);
-        crate::diagnostics::diagnostic_for(
-            &crate::diagnostics::compiler_errors::RIGID_VAR_ESCAPE,
-        )
-        .with_file(self.file_path.clone())
-        .with_span(span)
-        .with_message(format!(
-            "Rigid type variable `{name}` cannot be unified with `{bound}`."
-        ))
-        .with_primary_label(span, format!("forces `{name}` to become `{bound}`"))
+        crate::diagnostics::diagnostic_for(&crate::diagnostics::compiler_errors::RIGID_VAR_ESCAPE)
+            .with_file(self.file_path.clone())
+            .with_span(span)
+            .with_message(format!(
+                "Rigid type variable `{name}` cannot be unified with `{bound}`."
+            ))
+            .with_primary_label(span, format!("forces `{name}` to become `{bound}`"))
     }
 
     /// Append type-name typo suggestion hints onto an existing diagnostic.

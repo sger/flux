@@ -1296,9 +1296,7 @@ impl Compiler {
             };
             let maybe_contextual = match self.hm_expr_type_strict_path(argument) {
                 super::hm_expr_typer::HmExprTypeResult::Known(actual) => {
-                    if expected_infer.is_concrete()
-                        && actual.is_concrete()
-                    {
+                    if expected_infer.is_concrete() && actual.is_concrete() {
                         let compatible = if let Ok(subst) = unify(&expected_infer, &actual) {
                             expected_infer.apply_type_subst(&subst)
                                 == actual.apply_type_subst(&subst)
