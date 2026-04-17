@@ -188,6 +188,7 @@ fn compile_parallel_module(
     }
 
     let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
+    let exported_runtime_contracts = compiler.exported_runtime_contracts();
 
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
@@ -202,6 +203,7 @@ fn compile_parallel_module(
                         &semantic_config_hash,
                         core.as_core(),
                         compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &compiler.module_function_visibility,
                         Some(compiler.class_env()),
                         dependency_fingerprints,

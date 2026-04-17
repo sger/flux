@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
-    runtime::{function_contract::FunctionContract, runtime_type::RuntimeType},
+    runtime::{
+        function_contract::FunctionContract,
+        runtime_type::{AdtConstructorContract, RuntimeType},
+    },
     syntax::{Identifier, effect_expr::EffectExpr, interner::Interner, type_expr::TypeExpr},
 };
 
@@ -20,88 +23,114 @@ pub struct FnContract {
     pub effects: Vec<EffectExpr>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContractLoweringIssue {
+    GenericParameter,
+    UnsupportedBoundaryType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractLoweringError {
+    issue: ContractLoweringIssue,
+}
+
+impl ContractLoweringError {
+    pub fn new(issue: ContractLoweringIssue) -> Self {
+        Self { issue }
+    }
+
+    pub fn issue(&self) -> &ContractLoweringIssue {
+        &self.issue
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdtConstructorContractSpec {
+    pub name: Identifier,
+    pub fields: Vec<TypeExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdtContractSpec {
+    pub module_name: Option<Identifier>,
+    pub type_name: Identifier,
+    pub type_params: Vec<Identifier>,
+    pub constructors: Vec<AdtConstructorContractSpec>,
+}
+
 pub type ModuleContractTable = HashMap<ContractKey, FnContract>;
 
-pub fn convert_type_expr(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
-    match ty {
-        TypeExpr::Named { name, args, .. } => {
-            let name = interner.resolve(*name);
-            match (name, args.len()) {
-                ("Int", 0) => Some(RuntimeType::Int),
-                ("Float", 0) => Some(RuntimeType::Float),
-                ("Bool", 0) => Some(RuntimeType::Bool),
-                ("String", 0) => Some(RuntimeType::String),
-                ("None", 0) => Some(RuntimeType::Unit),
-                ("Option", 1) => Some(RuntimeType::Option(Box::new(convert_type_expr(
-                    &args[0], interner,
-                )?))),
-                ("List", 1) => Some(RuntimeType::List(Box::new(convert_type_expr(
-                    &args[0], interner,
-                )?))),
-                ("Either", 2) => Some(RuntimeType::Either(
-                    Box::new(convert_type_expr(&args[0], interner)?),
-                    Box::new(convert_type_expr(&args[1], interner)?),
-                )),
-                ("Array", 1) => Some(RuntimeType::Array(Box::new(convert_type_expr(
-                    &args[0], interner,
-                )?))),
-                ("Map", 2) => Some(RuntimeType::Map(
-                    Box::new(convert_type_expr(&args[0], interner)?),
-                    Box::new(convert_type_expr(&args[1], interner)?),
-                )),
-                _ => None,
-            }
-        }
-        TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
-            elements
-                .iter()
-                .map(|e| convert_type_expr(e, interner))
-                .collect::<Option<Vec<_>>>()?,
-        )),
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } => {
-            // Row variables can't be represented in RuntimeType bail to HM path.
-            if effects.iter().any(|e| e.row_var().is_some()) {
-                return None;
-            }
-            let param_types = params
-                .iter()
-                .map(|param| convert_type_expr(param, interner))
-                .collect::<Option<Vec<_>>>()?;
-            let ret_type = convert_type_expr(ret, interner)?;
-            let mut effect_set = effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect::<Vec<_>>();
-            effect_set.sort_by_key(|sym| sym.as_u32());
-            effect_set.dedup();
-            Some(RuntimeType::Function {
-                params: param_types,
-                ret: Box::new(ret_type),
-                effects: effect_set,
-            })
+struct ContractLoweringEnv<'a> {
+    interner: &'a Interner,
+    generic_params: HashSet<Identifier>,
+    adts: &'a HashMap<Identifier, AdtContractSpec>,
+}
+
+impl<'a> ContractLoweringEnv<'a> {
+    fn new(
+        interner: &'a Interner,
+        generic_params: impl IntoIterator<Item = Identifier>,
+        adts: &'a HashMap<Identifier, AdtContractSpec>,
+    ) -> Self {
+        Self {
+            interner,
+            generic_params: generic_params.into_iter().collect(),
+            adts,
         }
     }
 }
 
+#[allow(dead_code)]
+pub fn convert_type_expr(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
+    convert_type_expr_checked(ty, interner, &[], &HashMap::new()).ok()
+}
+
+pub fn convert_type_expr_checked(
+    ty: &TypeExpr,
+    interner: &Interner,
+    generic_params: &[Identifier],
+    adts: &HashMap<Identifier, AdtContractSpec>,
+) -> Result<RuntimeType, ContractLoweringError> {
+    let env = ContractLoweringEnv::new(interner, generic_params.iter().copied(), adts);
+    let bindings = HashMap::new();
+    let mut active_adts = HashSet::new();
+    convert_type_expr_rec(ty, &env, &bindings, &mut active_adts)
+}
+
 pub fn to_runtime_contract(contract: &FnContract, interner: &Interner) -> Option<FunctionContract> {
+    to_runtime_contract_checked(contract, interner, &HashMap::new())
+        .ok()
+        .flatten()
+}
+
+pub fn to_runtime_contract_checked(
+    contract: &FnContract,
+    interner: &Interner,
+    adts: &HashMap<Identifier, AdtContractSpec>,
+) -> Result<Option<FunctionContract>, ContractLoweringError> {
+    let env = ContractLoweringEnv::new(interner, contract.type_params.iter().copied(), adts);
+    let bindings = HashMap::new();
+    let mut active_adts = HashSet::new();
+
     let params = contract
         .params
         .iter()
-        .map(|p| p.as_ref().and_then(|ty| convert_type_expr(ty, interner)))
-        .collect::<Vec<_>>();
+        .map(|param| {
+            param
+                .as_ref()
+                .map(|param| convert_type_expr_rec(param, &env, &bindings, &mut active_adts))
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let ret = contract
         .ret
         .as_ref()
-        .and_then(|ty| convert_type_expr(ty, interner));
+        .map(|ret| convert_type_expr_rec(ret, &env, &bindings, &mut active_adts))
+        .transpose()?;
 
     if params.iter().all(Option::is_none) && ret.is_none() && contract.effects.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let effects = contract
@@ -110,18 +139,179 @@ pub fn to_runtime_contract(contract: &FnContract, interner: &Interner) -> Option
         .flat_map(EffectExpr::normalized_names)
         .collect::<Vec<_>>();
 
-    Some(FunctionContract {
+    Ok(Some(FunctionContract {
         params,
         ret,
         effects,
+    }))
+}
+
+fn convert_type_expr_rec(
+    ty: &TypeExpr,
+    env: &ContractLoweringEnv<'_>,
+    bindings: &HashMap<Identifier, TypeExpr>,
+    active_adts: &mut HashSet<Identifier>,
+) -> Result<RuntimeType, ContractLoweringError> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if let Some(bound) = bindings.get(name) {
+                if !args.is_empty() {
+                    return Err(ContractLoweringError::new(
+                        ContractLoweringIssue::UnsupportedBoundaryType,
+                    ));
+                }
+                return convert_type_expr_rec(bound, env, bindings, active_adts);
+            }
+
+            if env.generic_params.contains(name) {
+                return Err(ContractLoweringError::new(
+                    ContractLoweringIssue::GenericParameter,
+                ));
+            }
+
+            let name_text = env.interner.resolve(*name);
+            match (name_text, args.len()) {
+                ("Int", 0) => Ok(RuntimeType::Int),
+                ("Float", 0) => Ok(RuntimeType::Float),
+                ("Bool", 0) => Ok(RuntimeType::Bool),
+                ("String", 0) => Ok(RuntimeType::String),
+                ("None" | "Unit", 0) => Ok(RuntimeType::Unit),
+                ("Option", 1) => Ok(RuntimeType::Option(Box::new(convert_type_expr_rec(
+                    &args[0],
+                    env,
+                    bindings,
+                    active_adts,
+                )?))),
+                ("List", 1) => Ok(RuntimeType::List(Box::new(convert_type_expr_rec(
+                    &args[0],
+                    env,
+                    bindings,
+                    active_adts,
+                )?))),
+                ("Either", 2) => Ok(RuntimeType::Either(
+                    Box::new(convert_type_expr_rec(&args[0], env, bindings, active_adts)?),
+                    Box::new(convert_type_expr_rec(&args[1], env, bindings, active_adts)?),
+                )),
+                ("Array", 1) => Ok(RuntimeType::Array(Box::new(convert_type_expr_rec(
+                    &args[0],
+                    env,
+                    bindings,
+                    active_adts,
+                )?))),
+                ("Map", 2) => Ok(RuntimeType::Map(
+                    Box::new(convert_type_expr_rec(&args[0], env, bindings, active_adts)?),
+                    Box::new(convert_type_expr_rec(&args[1], env, bindings, active_adts)?),
+                )),
+                _ => lower_adt_type(name, args, env, bindings, active_adts),
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => Ok(RuntimeType::Tuple(
+            elements
+                .iter()
+                .map(|element| convert_type_expr_rec(element, env, bindings, active_adts))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            if effects.iter().any(|effect| effect.row_var().is_some()) {
+                return Err(ContractLoweringError::new(
+                    ContractLoweringIssue::UnsupportedBoundaryType,
+                ));
+            }
+            let params = params
+                .iter()
+                .map(|param| convert_type_expr_rec(param, env, bindings, active_adts))
+                .collect::<Result<Vec<_>, _>>()?;
+            let ret = convert_type_expr_rec(ret, env, bindings, active_adts)?;
+            let mut effect_set = effects
+                .iter()
+                .flat_map(EffectExpr::normalized_names)
+                .collect::<Vec<_>>();
+            effect_set.sort_by_key(|sym| sym.as_u32());
+            effect_set.dedup();
+            Ok(RuntimeType::Function {
+                params,
+                ret: Box::new(ret),
+                effects: effect_set,
+            })
+        }
+    }
+}
+
+fn lower_adt_type(
+    name: &Identifier,
+    args: &[TypeExpr],
+    env: &ContractLoweringEnv<'_>,
+    bindings: &HashMap<Identifier, TypeExpr>,
+    active_adts: &mut HashSet<Identifier>,
+) -> Result<RuntimeType, ContractLoweringError> {
+    let Some(spec) = env.adts.get(name) else {
+        return Err(ContractLoweringError::new(
+            ContractLoweringIssue::UnsupportedBoundaryType,
+        ));
+    };
+
+    if spec.type_params.len() != args.len() || active_adts.contains(name) {
+        return Err(ContractLoweringError::new(
+            ContractLoweringIssue::UnsupportedBoundaryType,
+        ));
+    }
+
+    let type_args = args
+        .iter()
+        .map(|arg| convert_type_expr_rec(arg, env, bindings, active_adts))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut child_bindings = bindings.clone();
+    for (type_param, arg) in spec.type_params.iter().zip(args.iter()) {
+        child_bindings.insert(*type_param, arg.clone());
+    }
+
+    active_adts.insert(*name);
+    let constructors = spec
+        .constructors
+        .iter()
+        .map(|ctor| {
+            let fields = ctor
+                .fields
+                .iter()
+                .map(|field| convert_type_expr_rec(field, env, &child_bindings, active_adts))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(AdtConstructorContract {
+                name: ctor.name,
+                display_name: env.interner.resolve(ctor.name).to_string(),
+                fields,
+            })
+        })
+        .collect::<Result<Vec<_>, ContractLoweringError>>()?;
+    active_adts.remove(name);
+
+    Ok(RuntimeType::Adt {
+        module_name: spec.module_name,
+        module_name_text: spec
+            .module_name
+            .map(|module_name| env.interner.resolve(module_name).to_string()),
+        name: spec.type_name,
+        display_name: env.interner.resolve(spec.type_name).to_string(),
+        type_args,
+        constructors,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::convert_type_expr;
+    use std::collections::HashMap;
+
+    use super::{
+        AdtConstructorContractSpec, AdtContractSpec, ContractLoweringIssue, convert_type_expr,
+        convert_type_expr_checked,
+    };
     use crate::{
-        runtime::runtime_type::RuntimeType,
+        runtime::runtime_type::{AdtConstructorContract, RuntimeType},
         syntax::{interner::Interner, type_expr::TypeExpr},
     };
 
@@ -170,5 +360,83 @@ mod tests {
                 Box::new(RuntimeType::Int)
             ))
         );
+    }
+
+    #[test]
+    fn lowers_nominal_adt_contracts() {
+        let mut interner = Interner::new();
+        let maybe = interner.intern("MaybeInt");
+        let just = interner.intern("Just");
+        let none = interner.intern("Nope");
+        let int = interner.intern("Int");
+
+        let ty = TypeExpr::Named {
+            name: maybe,
+            args: vec![],
+            span: Default::default(),
+        };
+        let adts = HashMap::from([(
+            maybe,
+            AdtContractSpec {
+                module_name: None,
+                type_name: maybe,
+                type_params: vec![],
+                constructors: vec![
+                    AdtConstructorContractSpec {
+                        name: just,
+                        fields: vec![TypeExpr::Named {
+                            name: int,
+                            args: vec![],
+                            span: Default::default(),
+                        }],
+                    },
+                    AdtConstructorContractSpec {
+                        name: none,
+                        fields: vec![],
+                    },
+                ],
+            },
+        )]);
+
+        let lowered = convert_type_expr_checked(&ty, &interner, &[], &adts).expect("lowers ADT");
+
+        assert_eq!(
+            lowered,
+            RuntimeType::Adt {
+                module_name: None,
+                module_name_text: None,
+                name: maybe,
+                display_name: "MaybeInt".to_string(),
+                type_args: vec![],
+                constructors: vec![
+                    AdtConstructorContract {
+                        name: just,
+                        display_name: "Just".to_string(),
+                        fields: vec![RuntimeType::Int],
+                    },
+                    AdtConstructorContract {
+                        name: none,
+                        display_name: "Nope".to_string(),
+                        fields: vec![],
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn generic_parameter_boundary_is_rejected() {
+        let mut interner = Interner::new();
+        let t = interner.intern("T");
+        let ty = TypeExpr::Named {
+            name: t,
+            args: vec![],
+            span: Default::default(),
+        };
+
+        let err = convert_type_expr_checked(&ty, &interner, &[t], &HashMap::new())
+            .expect_err("generic parameter should be rejected");
+
+        assert_eq!(err.issue(), &ContractLoweringIssue::GenericParameter);
     }
 }

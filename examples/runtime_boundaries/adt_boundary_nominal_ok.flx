@@ -1,0 +1,20 @@
+// Phase 4: nominal ADT runtime boundaries now keep constructor/field contracts.
+// parity-expected-stdout-begin
+// "3"
+// parity-expected-stdout-end
+
+data Token {
+    Count(Int),
+    Label(String),
+}
+
+public fn token_size(token: Token) -> Int {
+    match token {
+        Count(n) -> n,
+        Label(text) -> len(text),
+    }
+}
+
+fn main() with IO {
+    print(to_string(token_size(Label("cat"))))
+}
