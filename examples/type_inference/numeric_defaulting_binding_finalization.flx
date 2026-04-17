@@ -1,0 +1,15 @@
+// Numeric defaulting at binding finalization.
+//
+// Flux integer literals already infer as `Int`, so this example shows the
+// concrete end-state that the new defaulting rule now guarantees for hidden
+// numeric locals: if a `Num`-constrained variable remains truly ambiguous and
+// does not escape the binding's public type, it settles to `Int`.
+
+fn answer() -> Int {
+    let hidden = 21 + 21
+    hidden
+}
+
+fn main() with IO {
+    print(answer())
+}

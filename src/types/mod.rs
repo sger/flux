@@ -4,6 +4,7 @@
 //! This module is intentionally separate from:
 //! - surface syntax types (`TypeExpr`)
 //! - runtime contract/checking types (`RuntimeType`)
+pub mod class_defaulting;
 pub mod class_dispatch;
 pub mod class_env;
 pub mod class_id;

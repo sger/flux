@@ -1,0 +1,13 @@
+// Mixed constraints do not default.
+//
+// The new rule only defaults truly ambiguous variables constrained solely by
+// single-parameter `Num`. Once a variable also carries `Eq`, it is no longer
+// eligible for `Num -> Int` defaulting.
+
+fn keep<a: Num + Eq>(x: a, y: a) -> Bool {
+    x == y
+}
+
+fn main() with IO {
+    print(keep(1, 1))
+}

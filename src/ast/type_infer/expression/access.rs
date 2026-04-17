@@ -20,12 +20,10 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Option, vec![args[1].clone()])
             }
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),
-            _other => {
-                InferType::App(
-                    TypeConstructor::Option,
-                    vec![self.env.alloc_infer_type_var()],
-                )
-            }
+            _other => InferType::App(
+                TypeConstructor::Option,
+                vec![self.env.alloc_infer_type_var()],
+            ),
         }
     }
 
@@ -100,7 +98,7 @@ impl<'a> InferCtx<'a> {
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| self.alloc_fallback_var()),
-            _other => self.alloc_fallback_var()
+            _other => self.alloc_fallback_var(),
         }
     }
 }

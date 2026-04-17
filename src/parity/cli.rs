@@ -314,17 +314,19 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         // Fixture declares it should fail. Require all runs to exit non-zero
         // and skip the expected_stdout comparison — stderr carries the real
         // signal for error fixtures and is too volatile to pin to a block.
-        let all_failed = !run_results.is_empty()
-            && run_results.iter().all(|r| r.exit_code != 0);
+        let all_failed = !run_results.is_empty() && run_results.iter().all(|r| r.exit_code != 0);
         if all_failed {
             Verdict::Pass
         } else {
             Verdict::ExpectedOutputMismatch {
-                expected: format!("{} (all backends should exit non-zero)", match opts.expect {
-                    Expect::CompileError => "compile_error",
-                    Expect::RuntimeError => "runtime_error",
-                    Expect::Success => "success",
-                }),
+                expected: format!(
+                    "{} (all backends should exit non-zero)",
+                    match opts.expect {
+                        Expect::CompileError => "compile_error",
+                        Expect::RuntimeError => "runtime_error",
+                        Expect::Success => "success",
+                    }
+                ),
                 actual: run_results
                     .iter()
                     .map(|r| format!("{}: exit={}", r.way, r.exit_code))
@@ -580,10 +582,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
     let mut all_ok = true;
     for file in files {
         let meta = parse_fixture_meta(file);
-        let expects_failure = matches!(
-            meta.expect,
-            Expect::CompileError | Expect::RuntimeError
-        );
+        let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
         for (way, label) in [(Way::Vm, "vm"), (Way::Llvm, "llvm")] {
             let outcome = compile_fixture(
                 &config.vm_binary,

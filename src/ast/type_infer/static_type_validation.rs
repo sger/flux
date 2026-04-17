@@ -156,9 +156,7 @@ impl<'a> StrictTypeValidator<'a> {
             | Expression::Boolean { .. }
             | Expression::None { .. }
             | Expression::EmptyList { .. } => false,
-            Expression::InterpolatedString { parts, .. } => {
-                self.parts_have_unresolved(parts)
-            }
+            Expression::InterpolatedString { parts, .. } => self.parts_have_unresolved(parts),
             Expression::If {
                 condition,
                 consequence,
@@ -354,7 +352,9 @@ impl<'a> StrictTypeValidator<'a> {
             Pattern::Tuple { elements, .. }
             | Pattern::Constructor {
                 fields: elements, ..
-            } => elements.iter().any(|element| self.pattern_has_unresolved(element)),
+            } => elements
+                .iter()
+                .any(|element| self.pattern_has_unresolved(element)),
             Pattern::Cons { head, tail, .. } => {
                 self.pattern_has_unresolved(head) || self.pattern_has_unresolved(tail)
             }

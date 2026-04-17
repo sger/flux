@@ -1,0 +1,13 @@
+// Numeric-polymorphic bindings stay polymorphic.
+//
+// `plus` uses `+`, so it carries a `Num` obligation. The constrained type
+// variable appears in the binding's public type, which means this function
+// must remain polymorphic instead of defaulting to `Int`.
+
+fn plus(x, y) {
+    x + y
+}
+
+fn main() with IO {
+    print(plus(20, 22))
+}
