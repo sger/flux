@@ -30,12 +30,81 @@ impl<'a> InferCtx<'a> {
                 self.check_match_expression(scrutinee, arms, expected, *span)
             }
             Expression::DoBlock { block, .. } => self.check_block_value(block, expected),
+            Expression::Function {
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
+            } => self.check_lambda_expression(
+                LambdaInferInput {
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    body,
+                },
+                expected,
+                expr.span(),
+            ),
             _ => {
                 let actual = self.infer_expression(expr);
                 self.unify_reporting(expected, &actual, expr.span())
             }
         };
         resolved.apply_type_subst(&self.subst)
+    }
+
+    /// Check a lambda against an expected function type, propagating declared
+    /// parameter types into the body so body-level mismatches report at the
+    /// offending sub-expression rather than at the lambda span after-the-fact.
+    /// Arity mismatch falls back to plain inference + unify so the existing
+    /// function-arity diagnostic still fires.
+    fn check_lambda_expression(
+        &mut self,
+        input: LambdaInferInput<'_>,
+        expected: &InferType,
+        lambda_span: Span,
+    ) -> InferType {
+        let InferType::Fun(expected_params, expected_ret, expected_effects) = expected else {
+            let actual = self.infer_lambda_expression(input);
+            return self.unify_reporting(expected, &actual, lambda_span);
+        };
+        if expected_params.len() != input.parameters.len() {
+            let actual = self.infer_lambda_expression(input);
+            return self.unify_reporting(expected, &actual, lambda_span);
+        }
+        self.env.enter_scope();
+        for ((name, expected_ty), annotation) in input
+            .parameters
+            .iter()
+            .zip(expected_params.iter())
+            .zip(input.parameter_types.iter())
+        {
+            let ty = match annotation {
+                Some(ann) => {
+                    let mut row_env = HashMap::new();
+                    let ann_ty = self
+                        .infer_type_from_annotation(ann, &HashMap::new(), &mut row_env)
+                        .unwrap_or_else(|| expected_ty.clone());
+                    self.unify_reporting(expected_ty, &ann_ty, ann.span())
+                }
+                None => expected_ty.clone(),
+            };
+            self.env.bind(*name, Scheme::mono(ty));
+        }
+        let ambient = if input.effects.is_empty() {
+            expected_effects.clone()
+        } else {
+            let mut row_env = HashMap::new();
+            self.infer_effect_row(input.effects, &mut row_env)
+        };
+        self.with_ambient_effect_row(ambient, |ctx| {
+            ctx.check_block_value(input.body, expected_ret);
+        });
+        self.env.leave_scope();
+        expected.apply_type_subst(&self.subst)
     }
 
     /// Check mode for `if` expressions: each branch is checked against the
