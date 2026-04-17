@@ -1862,3 +1862,96 @@ fn main() -> Unit {
         result.diagnostics
     );
 }
+
+// ── Return annotation enforcement (function.rs:check_return_annotation) ──
+
+#[test]
+fn infer_return_annotation_primitive_mismatch_emits_e300() {
+    let source = r#"
+fn f() -> Int { "hello" }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Int return vs String body, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_collection_mismatch_emits_e300() {
+    let source = r#"
+fn f() -> List<Int> { [1.5, 2.5] }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for List<Int> return vs List<Float> body, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_matching_ok() {
+    let source = r#"
+fn f() -> Int { 42 }
+fn g() -> List<Int> { [1, 2, 3] }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for matching return annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_polymorphic_body_skipped() {
+    // When the body type contains free variables, skip the E300 check so
+    // that generic/forward-reference cases don't fire false positives;
+    // downstream compiler boundary checks remain the fallback.
+    let source = r#"
+fn ident<a>(x: a) -> a { x }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for polymorphic identity function: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Parameter annotation lowering (function.rs:infer_and_bind_parameter_types) ──
+// Note: `convert_type_expr_rec` treats unknown named types as ADT stubs rather
+// than returning `None`, so E303 currently only fires for cases the parser
+// can't produce (e.g. multiple distinct row variables on the same row). The
+// happy path — well-formed annotations — must not emit E303.
+
+#[test]
+fn infer_param_annotation_well_formed_no_e303() {
+    let source = r#"
+fn f(x: Int, y: List<Int>) -> Int { x }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E303"),
+        "unexpected E303 for well-formed parameter annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_param_annotation_unknown_name_treated_as_adt_no_e303() {
+    // Unknown bare type names (e.g. `Widget`) are lowered as ADT stubs by
+    // `convert_type_expr_rec`, so they don't trip E303. They surface later
+    // as unification failures or unresolved-reference errors instead.
+    let source = r#"
+fn f(x: Widget) -> Int { 0 }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E303"),
+        "unknown type names should not trigger E303 (they become ADT stubs), got: {:#?}",
+        result.diagnostics
+    );
+}

@@ -100,6 +100,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     TYPE_UNIFICATION_ERROR,
     OCCURS_CHECK_FAILURE,
     UNDEFINED_TYPE_VAR,
+    INVALID_TYPE_ANNOTATION,
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
     // Type class errors (E440–E449)

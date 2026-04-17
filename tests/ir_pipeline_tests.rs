@@ -167,7 +167,7 @@ my_eq([1], [1]);
 fn hkt_functor_list_dispatches_at_runtime() {
     let value = run(r#"
 class Functor<f> {
-    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
 instance Functor<List> {
@@ -193,7 +193,7 @@ fn hkt_functor_list_dump_core_uses_mangled_dispatch_call() {
     let core = dump_core(
         r#"
 class Functor<f> {
-    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
 instance Functor<List> {
