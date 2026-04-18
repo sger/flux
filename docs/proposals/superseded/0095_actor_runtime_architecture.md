@@ -1,6 +1,6 @@
 - Feature Name: Actor Runtime Architecture and Backend Isolation
 - Start Date: 2026-03-08
-- Status: Draft
+- Status: Superseded (2026-04-18) by [Proposal 0143 — Actor Concurrency Roadmap (Aether-Aware)](../0143_actor_concurrency_roadmap.md)
 - Proposal PR:
 - Flux Issue:
 

@@ -1,6 +1,6 @@
 - Feature Name: 043_pure_flux_checklist
 - Start Date: 2026-02-26
-- Status: Partially Implemented
+- Status: Implemented (2026-04-18) — evidence in `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`, A–G fixtures
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 

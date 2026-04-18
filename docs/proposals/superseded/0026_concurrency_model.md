@@ -1,6 +1,6 @@
 - Feature Name: Concurrency Model — Async/Await + Actors
 - Start Date: 2026-02-12
-- Status: Not Implemented
+- Status: Superseded (2026-04-18) by [Proposal 0143 — Actor Concurrency Roadmap (Aether-Aware)](../0143_actor_concurrency_roadmap.md)
 - Proposal PR: 
 - Flux Issue: 
 

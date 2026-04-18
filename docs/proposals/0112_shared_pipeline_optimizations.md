@@ -1,6 +1,6 @@
 - Feature Name: Shared Pipeline Optimizations
 - Start Date: 2026-03-19
-- Status: Not Implemented
+- Status: Partially Implemented — Phase 1 (iterative Core simplifier, `MAX_SIMPLIFIER_ROUNDS = 3` in `src/core/passes/mod.rs`) shipped via Proposal 0155 (2026-04-18). Phase 2 (SSA in CFG) and Phase 3 (Core IR cache) open.
 - Proposal PR:
 - Flux Issue:
 

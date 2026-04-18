@@ -1,6 +1,6 @@
 - Feature Name: M:N Scheduler as Swappable Actor Handler
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded (2026-04-18) by [Proposal 0143 — Actor Concurrency Roadmap (Aether-Aware)](../0143_actor_concurrency_roadmap.md)
 - Proposal PR: pending
 - Flux Issue: pending
 
