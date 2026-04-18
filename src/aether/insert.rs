@@ -88,7 +88,7 @@ fn plan_expr(
             body,
             span,
         } => {
-            scope.insert(var.id, var.clone());
+            scope.insert(var.id, var);
 
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
             // This prevents the parent from being dropped while the field
@@ -104,7 +104,7 @@ fn plan_expr(
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
-                body_expr = wrap_drop(var.clone(), body_expr, span);
+                body_expr = wrap_drop(var, body_expr, span);
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -139,12 +139,12 @@ fn plan_expr(
             body,
             span,
         } => {
-            scope.insert(var.id, var.clone());
+            scope.insert(var.id, var);
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
-                body_expr = wrap_drop(var.clone(), body_expr, span);
+                body_expr = wrap_drop(var, body_expr, span);
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -178,7 +178,7 @@ fn plan_expr(
             span,
         } => {
             for (var, _) in &bindings {
-                scope.insert(var.id, var.clone());
+                scope.insert(var.id, *var);
             }
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let mut body_expr = body_plan.expr;
@@ -186,7 +186,7 @@ fn plan_expr(
             for (var, _) in bindings.iter().rev() {
                 let bd = binder_demand(&body_plan.env_before, var.id);
                 if bd == ValueDemand::Ignore {
-                    body_expr = wrap_drop(var.clone(), body_expr, span);
+                    body_expr = wrap_drop(*var, body_expr, span);
                 }
             }
 
@@ -225,7 +225,7 @@ fn plan_expr(
         } => {
             let mut param_ids = Vec::with_capacity(params.len());
             for param in &params {
-                scope.insert(param.id, param.clone());
+                scope.insert(param.id, *param);
                 param_ids.push(param.id);
             }
 
@@ -244,7 +244,7 @@ fn plan_expr(
             let mut body_expr = body_plan.expr;
             for param in params.iter().rev() {
                 if !body_plan.env_before.is_live(param.id) {
-                    body_expr = wrap_drop(param.clone(), body_expr, span);
+                    body_expr = wrap_drop(*param, body_expr, span);
                 }
             }
 
@@ -467,7 +467,7 @@ fn plan_expr(
                     && !expr_uses_binder(&rhs, scrut_binder.id)
                     && has_compatible_con(&pat, &rhs)
                 {
-                    rhs = wrap_drop(scrut_binder.clone(), rhs, alt_span);
+                    rhs = wrap_drop(*scrut_binder, rhs, alt_span);
                 }
 
                 branch_plans.push((pat, guard, rhs, alt_span, env_without_pats));
@@ -627,10 +627,10 @@ fn plan_expr(
             let mut planned_handlers = Vec::with_capacity(handlers.len());
 
             for handler in handlers {
-                scope.insert(handler.resume.id, handler.resume.clone());
+                scope.insert(handler.resume.id, handler.resume);
                 let mut shadow_ids = vec![handler.resume.id];
                 for param in &handler.params {
-                    scope.insert(param.id, param.clone());
+                    scope.insert(param.id, *param);
                     shadow_ids.push(param.id);
                 }
 
@@ -654,7 +654,7 @@ fn plan_expr(
                     operation: handler.operation,
                     params: handler.params,
                     param_types: handler.param_types,
-                    resume: handler.resume.clone(),
+                    resume: handler.resume,
                     resume_ty: handler.resume_ty,
                     body: handler_plan.expr,
                     span: handler.span,
@@ -937,7 +937,7 @@ fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Optio
     match pat {
         crate::core::CorePat::Var(binder) => {
             if binder.id == target {
-                Some(binder.clone())
+                Some(*binder)
             } else {
                 None
             }

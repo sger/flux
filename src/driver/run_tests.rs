@@ -521,15 +521,14 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
         } else {
             Path::new(config.source_path)
         };
-        if let NativeTestHarnessSource::Generated(ref source_text) = harness_source {
-            if let Err(e) = std::fs::write(&harness_path, source_text) {
+        if let NativeTestHarnessSource::Generated(ref source_text) = harness_source
+            && let Err(e) = std::fs::write(&harness_path, source_text) {
                 eprintln!(
                     "Failed to write native test harness {}: {e}",
                     harness_path.display()
                 );
                 std::process::exit(1);
             }
-        }
         append_native_test_command_args(&mut cmd, &config, child_source_path);
         cmd.env("NO_COLOR", "1");
         let output = cmd.output();

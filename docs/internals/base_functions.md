@@ -38,7 +38,7 @@ fn(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String>
 
 ### 3. Compiler registration
 
-`src/bytecode/compiler/mod.rs` derives Base symbol indices from `BaseModule::new().names().enumerate()` and registers each name with the matching index.
+`src/compiler/mod.rs` derives Base symbol indices from `BaseModule::new().names().enumerate()` and registers each name with the matching index.
 
 This keeps compiler/runtime mapping deterministic without manual duplicated index tables.
 

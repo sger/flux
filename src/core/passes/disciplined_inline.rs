@@ -30,15 +30,10 @@ pub fn disciplined_inline(expr: CoreExpr) -> CoreExpr {
                     body: Box::new(body),
                     span,
                 }
-            } else if count == 1
-                && !occurs_under_lambda(var.id, &body)
-                && is_pure(&rhs)
+            } else if is_pure(&rhs)
                 && !preserves_call_boundary
-            {
-                disciplined_inline(subst(body, var.id, &rhs))
-            } else if expr_size(&rhs) <= INLINE_THRESHOLD
-                && is_pure(&rhs)
-                && !preserves_call_boundary
+                && ((count == 1 && !occurs_under_lambda(var.id, &body))
+                    || expr_size(&rhs) <= INLINE_THRESHOLD)
             {
                 disciplined_inline(subst(body, var.id, &rhs))
             } else {

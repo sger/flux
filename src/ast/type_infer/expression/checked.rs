@@ -400,7 +400,7 @@ impl<'a> InferCtx<'a> {
 /// Unwrap `InferType::App(ctor, [arg])` when the constructor matches, returning
 /// a reference to the single type argument. Used by list/array/option check
 /// rules to pull out the element type from the expected `App`.
-fn unwrap_app1<'a>(ty: &'a InferType, ctor: TypeConstructor) -> Option<&'a InferType> {
+fn unwrap_app1(ty: &InferType, ctor: TypeConstructor) -> Option<&InferType> {
     match ty {
         InferType::App(c, args) if *c == ctor && args.len() == 1 => Some(&args[0]),
         _ => None,

@@ -1,8 +1,18 @@
 - Feature Name: PrimOp / Base / Flow Boundary and Promotion Policy
 - Start Date: 2026-03-08
-- Status: Draft
+- Status: Superseded (2026-04-18)
 - Proposal PR:
 - Flux Issue:
+
+## Why superseded
+
+The three-layer architecture this proposal formalised (PrimOp / Base / Flow)
+no longer exists. `lib/Base/` has been removed; the standard library is now a
+single `lib/Flow/` tree sitting directly on top of PrimOps. With the Base
+layer gone, the promotion question collapses to a binary choice — something
+is either a PrimOp (runtime-privileged) or a Flow module (written in Flux) —
+and does not need a dedicated policy proposal. See `lib/Flow/*.flx` for the
+current standard library; see proposal 0034 for the PrimOp surface rules.
 
 # Proposal 0085: PrimOp / Base / Flow Boundary and Promotion Policy
 

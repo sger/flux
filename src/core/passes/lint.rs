@@ -87,8 +87,8 @@ fn lint_expr(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(id) = var.binder {
-                if !in_scope.contains(&id) {
+            if let Some(id) = var.binder
+                && !in_scope.contains(&id) {
                     errors.push(CoreLintError {
                         kind: CoreLintErrorKind::UnresolvedVar,
                         def_name: None,
@@ -99,7 +99,6 @@ fn lint_expr(
                         ),
                     });
                 }
-            }
         }
 
         CoreExpr::Lit(..) => {}

@@ -86,11 +86,10 @@ pub fn run_parity_check(args: &[String]) {
 
     // `--compile` pre-pass: compile every fixture (populating caches) before
     // starting the parity loop. Bail on the first compilation failure.
-    if config.compile_first {
-        if !run_compile_phase(&files, &config) {
+    if config.compile_first
+        && !run_compile_phase(&files, &config) {
             std::process::exit(1);
         }
-    }
 
     // Run parity checks
     let default_ways = vec![Way::Vm, Way::Llvm];

@@ -1,8 +1,24 @@
 - Feature Name: Compatibility and Editions Policy
 - Start Date: 2026-03-08
-- Status: Draft
+- Status: Superseded (2026-04-18)
 - Proposal PR:
 - Flux Issue:
+
+## Why superseded
+
+The architectural premises this proposal builds on no longer hold:
+
+- The `Base` layer has been removed. The standard library is now a single
+  `lib/Flow/` tree, so the "Base API stability" clauses collapse to plain
+  Flow stability and no longer need a dedicated policy track.
+- "VM/JIT parity" is no longer the backend split — Flux ships a bytecode VM
+  and an LLVM native backend. Compatibility claims about a JIT backend are
+  stale.
+
+A future compatibility / editions proposal should be rewritten against the
+current 2-layer library (PrimOp + Flow) and the current VM + LLVM backend
+story rather than patched in place. Keeping this draft around as authoritative
+policy would lock in an architecture Flux has already moved past.
 
 # Proposal 0087: Compatibility and Editions Policy
 
