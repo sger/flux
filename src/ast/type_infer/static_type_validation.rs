@@ -495,6 +495,10 @@ impl<'a> StrictTypeValidator<'a> {
             | Pattern::Identifier { .. }
             | Pattern::Wildcard { .. }
             | Pattern::EmptyList { .. } => false,
+            Pattern::NamedConstructor { fields, .. } => fields.iter().any(|f| match &f.pattern {
+                Some(sub) => self.pattern_has_unresolved(sub),
+                None => false,
+            }),
         }
     }
 }

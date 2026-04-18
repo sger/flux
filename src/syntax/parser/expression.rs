@@ -10,7 +10,10 @@ use crate::{
     },
     syntax::{
         block::Block,
-        expression::{Expression, HandleArm, MatchArm, Pattern},
+        Identifier,
+        expression::{
+            Expression, HandleArm, MatchArm, NamedFieldInit, NamedFieldPattern, Pattern,
+        },
         precedence::{
             Fixity, Precedence, infix_op, parse_loop_precedence, prefix_op,
             rhs_precedence_for_infix,
@@ -159,7 +162,18 @@ impl Parser {
 
     pub(super) fn parse_prefix(&mut self) -> Option<Expression> {
         match &self.current_token.token_type {
-            TokenType::Ident => self.parse_identifier(),
+            TokenType::Ident => {
+                let is_pascal = super::is_pascal_case_ident(&self.current_token);
+                let ident = self.parse_identifier()?;
+                if self.allow_struct_literal
+                    && is_pascal
+                    && self.is_peek_token(TokenType::LBrace)
+                    && let Expression::Identifier { name, span, .. } = ident
+                {
+                    return self.parse_named_constructor_body(name, span);
+                }
+                Some(ident)
+            }
             TokenType::Int => self.parse_integer(),
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
@@ -957,6 +971,12 @@ impl Parser {
 
     pub(super) fn parse_hash(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+
+        // Spread: `{ ...base, field: value, ... }` (proposal 0152).
+        if self.is_peek_token(TokenType::DotDotDot) {
+            return self.parse_spread_body(start);
+        }
+
         let mut pairs = Vec::new();
 
         while !self.is_peek_token(TokenType::RBrace) {
@@ -1016,12 +1036,229 @@ impl Parser {
         })
     }
 
+    /// Parses `Variant { field: value, punned, ... }` with `current_token` at
+    /// the variant identifier and `peek_token` at the opening `{`.
+    pub(super) fn parse_named_constructor_body(
+        &mut self,
+        name: Identifier,
+        ident_span: Span,
+    ) -> Option<Expression> {
+        // Consume `{`
+        self.next_token();
+
+        let mut fields: Vec<NamedFieldInit> = Vec::new();
+        let saved_struct_literal = self.allow_struct_literal;
+        self.allow_struct_literal = true;
+
+        while !self.is_peek_token(TokenType::RBrace) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected field name in named constructor.".to_string(),
+                "Named constructors use `Variant { field: value, ... }`.".to_string(),
+            ) {
+                self.allow_struct_literal = saved_struct_literal;
+                return None;
+            }
+            let field_start = self.current_token.position;
+            let field_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let field_name_end = self.current_token.end_position;
+
+            let (value, field_end) = if self.is_peek_token(TokenType::Colon) {
+                self.next_token(); // consume ':'
+                self.next_token(); // advance to value
+                let expr = self.parse_expression(Precedence::Lowest)?;
+                let end = expr.span().end;
+                (Some(Box::new(expr)), end)
+            } else {
+                (None, field_name_end)
+            };
+
+            fields.push(NamedFieldInit {
+                name: field_name,
+                value,
+                span: Span::new(field_start, field_end),
+            });
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            } else if !self.is_peek_token(TokenType::RBrace) {
+                self.emit_expected_token(
+                    TokenType::Comma,
+                    "Expected `,` between named-constructor fields.",
+                    "Separate fields with commas: `Variant { a: 1, b: 2 }`.",
+                );
+                self.allow_struct_literal = saved_struct_literal;
+                return None;
+            }
+        }
+
+        self.allow_struct_literal = saved_struct_literal;
+
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close named constructor.".to_string(),
+            "Named constructors use `Variant { field: value, ... }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(Expression::NamedConstructor {
+            name,
+            fields,
+            span: Span::new(ident_span.start, self.current_token.end_position),
+            id: self.next_expr_id(),
+        })
+    }
+
+    /// Parses `{ ...base, field: value, ... }` with `current_token` at `{`
+    /// and `peek_token` at `...`.
+    fn parse_spread_body(&mut self, start: Position) -> Option<Expression> {
+        self.next_token(); // consume '...'
+        self.next_token(); // advance to base expression
+        let base = self.parse_expression(Precedence::Lowest)?;
+
+        let mut overrides: Vec<NamedFieldInit> = Vec::new();
+
+        while self.is_peek_token(TokenType::Comma) {
+            self.next_token(); // consume ','
+            if self.is_peek_token(TokenType::RBrace) {
+                break; // trailing comma
+            }
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected field name in spread override.".to_string(),
+                "Spread overrides use `{ ...base, field: value, ... }`.".to_string(),
+            ) {
+                return None;
+            }
+            let field_start = self.current_token.position;
+            let field_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let field_name_end = self.current_token.end_position;
+
+            let (value, field_end) = if self.is_peek_token(TokenType::Colon) {
+                self.next_token();
+                self.next_token();
+                let expr = self.parse_expression(Precedence::Lowest)?;
+                let end = expr.span().end;
+                (Some(Box::new(expr)), end)
+            } else {
+                (None, field_name_end)
+            };
+
+            overrides.push(NamedFieldInit {
+                name: field_name,
+                value,
+                span: Span::new(field_start, field_end),
+            });
+        }
+
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close spread expression.".to_string(),
+            "Spread overrides use `{ ...base, field: value, ... }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(Expression::Spread {
+            base: Box::new(base),
+            overrides,
+            span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
+        })
+    }
+
+    /// Parses `Variant { field, field: pat, .. }` with `current_token` at
+    /// the variant identifier and `peek_token` at `{`.
+    pub(super) fn parse_named_constructor_pattern(
+        &mut self,
+        name: Identifier,
+        ident_span: Span,
+    ) -> Option<Pattern> {
+        self.next_token(); // consume '{'
+
+        let mut fields: Vec<NamedFieldPattern> = Vec::new();
+        let mut rest = false;
+
+        while !self.is_peek_token(TokenType::RBrace) {
+            if self.is_peek_token(TokenType::DotDotDot) {
+                self.next_token();
+                rest = true;
+                break;
+            }
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected field name in named-constructor pattern.".to_string(),
+                "Named patterns use `Variant { field, field: pat, .. }`.".to_string(),
+            ) {
+                return None;
+            }
+            let field_start = self.current_token.position;
+            let field_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let field_name_end = self.current_token.end_position;
+
+            let (inner, field_end) = if self.is_peek_token(TokenType::Colon) {
+                self.next_token(); // consume ':'
+                self.next_token(); // advance to pattern
+                let pat = self.parse_pattern()?;
+                let end = pat.span().end;
+                (Some(pat), end)
+            } else {
+                (None, field_name_end)
+            };
+
+            fields.push(NamedFieldPattern {
+                name: field_name,
+                pattern: inner,
+                span: Span::new(field_start, field_end),
+            });
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            } else if !self.is_peek_token(TokenType::RBrace) {
+                self.emit_expected_token(
+                    TokenType::Comma,
+                    "Expected `,` between fields.",
+                    "Separate fields with commas: `Variant { a, b }`.",
+                );
+                return None;
+            }
+        }
+
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close named-constructor pattern.".to_string(),
+            "Named patterns use `Variant { field, field: pat, .. }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(Pattern::NamedConstructor {
+            name,
+            fields,
+            rest,
+            span: Span::new(ident_span.start, self.current_token.end_position),
+        })
+    }
+
     // Complex expressions
     pub(super) fn parse_if_expression(&mut self) -> Option<Expression> {
         let _if_context = self.enter_parser_context(ParserContext::IfBranch);
         let start = self.current_token.position;
         self.next_token();
+        let saved_struct_literal = self.allow_struct_literal;
+        self.allow_struct_literal = false;
         let condition = self.parse_expression(Precedence::Lowest)?;
+        self.allow_struct_literal = saved_struct_literal;
 
         if !self.is_peek_token(TokenType::LBrace) {
             let anchor = self.eof_anchor_span(self.current_token.span());
@@ -1342,7 +1579,10 @@ impl Parser {
         let _match_context = self.enter_parser_context(ParserContext::MatchExpression);
         let start = self.current_token.position;
         self.next_token();
+        let saved_struct_literal = self.allow_struct_literal;
+        self.allow_struct_literal = false;
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
+        self.allow_struct_literal = saved_struct_literal;
 
         if !self.expect_peek_context_with_details(
             TokenType::LBrace,
@@ -1530,6 +1770,9 @@ impl Parser {
                         fields,
                         span: Span::new(start, self.current_token.end_position),
                     })
+                } else if self.is_peek_token(TokenType::LBrace) {
+                    let ident_span = Span::new(start, self.current_token.end_position);
+                    self.parse_named_constructor_pattern(name, ident_span)
                 } else {
                     // Zero-argument constructor: `Red`, `None_` etc.
                     Some(Pattern::Constructor {

@@ -810,7 +810,9 @@ impl Compiler {
             Pattern::Identifier { .. } | Pattern::Wildcard { .. } => {
                 Some(self.type_env.alloc_infer_type_var())
             }
-            Pattern::Literal { .. } | Pattern::Constructor { .. } => None,
+            Pattern::Literal { .. }
+            | Pattern::Constructor { .. }
+            | Pattern::NamedConstructor { .. } => None,
         }
     }
 

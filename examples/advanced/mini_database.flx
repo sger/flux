@@ -1,0 +1,66 @@
+// parity-expected-stdout-begin
+// Some("Alice")
+// Some(30)
+// Some("Bob")
+// Some(25)
+// 3
+// Some("Alice")
+// Some("Charlie")
+// "Not found"
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+// Records are named-field ADTs: proposal 0152.
+data Record { Record { id: Int, name: String, age: Int } }
+
+fn expectSome(opt, message) {
+    match opt {
+        Some(v) -> v,
+        None -> panic(message),
+        _ -> panic(message),
+    }
+}
+
+fn findById(records, id) {
+    if len(records) == 0 {
+        None
+    } else {
+        let record = expectSome(Array.first(records), "database unexpectedly empty")
+        if record.id == id {
+            Some(record)
+        } else {
+            findById(Array.drop(records, 1), id)
+        }
+    }
+}
+
+fn main() with IO {
+    let db = [|
+        Record { id: 1, name: "Alice", age: 30 },
+        Record { id: 2, name: "Bob", age: 25 },
+        Record { id: 3, name: "Charlie", age: 35 }
+    |]
+
+    let first_record = expectSome(Array.first(db), "missing first record")
+    print(Some(first_record.name))
+    print(Some(first_record.age))
+
+    let second_record = expectSome(Array.first(Array.drop(db, 1)), "missing second record")
+    print(Some(second_record.name))
+    print(Some(second_record.age))
+
+    print(len(db))
+
+    let found = expectSome(findById(db, 1), "id 1 missing")
+    print(Some(found.name))
+
+    let maybe_charlie = expectSome(findById(db, 3), "id 3 missing")
+    print(Some(maybe_charlie.name))
+
+    let nobody = findById(db, 99)
+    match nobody {
+        None -> print("Not found"),
+        Some(_) -> print(""),
+    }
+}

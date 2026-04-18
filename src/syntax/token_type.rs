@@ -109,6 +109,7 @@ define_tokens! {
         RBracket  => "]",
         Colon     => ":",
         Dot       => ".",
+        DotDotDot => "...",
         Hash      => "#",
         At        => "@",
         Arrow     => "->",

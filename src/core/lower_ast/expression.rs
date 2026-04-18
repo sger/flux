@@ -1,10 +1,16 @@
 use crate::{
     diagnostics::position::Span,
-    syntax::expression::{ExprId, Expression, StringPart},
+    syntax::{
+        Identifier,
+        expression::{ExprId, Expression, NamedFieldInit, StringPart},
+    },
     types::{infer_type::InferType, type_constructor::TypeConstructor},
 };
 
-use crate::core::{CoreAlt, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreTag};
+use crate::core::{
+    CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
+    CoreTag, FluxRep,
+};
 
 impl<'a> super::AstLowerer<'a> {
     // ── Expression lowering ──────────────────────────────────────────────────
@@ -262,6 +268,12 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 ..
             } => {
+                // Proposal 0152: dot access on a named-field ADT value
+                // desugars into a Case expression that extracts the
+                // declared positional field.
+                if let Some(core) = self.try_lower_adt_field_access(object, *member, *span) {
+                    return core;
+                }
                 let obj = self.lower_expr(object);
                 CoreExpr::MemberAccess {
                     object: Box::new(obj),
@@ -386,6 +398,16 @@ impl<'a> super::AstLowerer<'a> {
                     span: *span,
                 }
             }
+
+            Expression::NamedConstructor {
+                name, fields, span, ..
+            } => self.lower_named_constructor(*name, fields, *span),
+            Expression::Spread {
+                base,
+                overrides,
+                span,
+                ..
+            } => self.lower_spread_expression(base, overrides, *span),
         }
     }
 
@@ -488,5 +510,230 @@ impl<'a> super::AstLowerer<'a> {
             args: vec![l, r],
             span,
         }
+    }
+
+    // ── Proposal 0152: named-field desugaring ────────────────────────────────
+
+    /// Lower `Foo { x: e1, y: e2 }` by reordering into declared positional
+    /// order, resolving punning against in-scope bindings, and emitting a
+    /// positional `Con` constructor.
+    pub(super) fn lower_named_constructor(
+        &mut self,
+        name: Identifier,
+        fields: &[NamedFieldInit],
+        span: Span,
+    ) -> CoreExpr {
+        let declared = self.ctor_field_names.get(&name).cloned().unwrap_or_default();
+        let mut positional: Vec<Option<CoreExpr>> = (0..declared.len()).map(|_| None).collect();
+        for init in fields {
+            let Some(index) = declared.iter().position(|n| *n == init.name) else {
+                continue;
+            };
+            let value_expr = match &init.value {
+                Some(v) => self.lower_expr(v),
+                None => CoreExpr::external_var(init.name, init.span),
+            };
+            positional[index] = Some(value_expr);
+        }
+        let ordered: Vec<CoreExpr> = positional
+            .into_iter()
+            .map(|slot| slot.unwrap_or(CoreExpr::Lit(CoreLit::Int(0), span)))
+            .collect();
+        CoreExpr::Con {
+            tag: CoreTag::Named(name),
+            fields: ordered,
+            span,
+        }
+    }
+
+    /// Lower `{ ...base, field: value, ... }`. When the target variant is
+    /// statically known (single-variant ADT or base is itself a
+    /// `NamedConstructor`), reorder overrides and emit a positional `Con`
+    /// whose missing fields are projected from `base` via a `Case`
+    /// expression.
+    pub(super) fn lower_spread_expression(
+        &mut self,
+        base: &Expression,
+        overrides: &[NamedFieldInit],
+        span: Span,
+    ) -> CoreExpr {
+        let variant = match self.resolve_spread_variant(base) {
+            Some(v) => v,
+            None => {
+                // Type inference already emitted E464/E468; recover with a
+                // literal unit-ish placeholder to keep lowering total.
+                return CoreExpr::Lit(CoreLit::Int(0), span);
+            }
+        };
+        let declared = self.ctor_field_names.get(&variant).cloned().unwrap_or_default();
+
+        // Bind the base to a tmp so it's evaluated exactly once.
+        let tmp_name = Identifier::new(0xFFFF_FFF0);
+        let tmp_binder = CoreBinder::with_rep(self.alloc_binder_id(), tmp_name, FluxRep::BoxedRep);
+        let base_expr = self.lower_expr(base);
+
+        // For each declared field, use the override if present; otherwise
+        // synthesize a Case over the tmp that extracts the positional field.
+        let override_map: std::collections::HashMap<Identifier, &NamedFieldInit> =
+            overrides.iter().map(|o| (o.name, o)).collect();
+
+        let positional: Vec<CoreExpr> = declared
+            .iter()
+            .enumerate()
+            .map(|(i, field_name)| {
+                if let Some(init) = override_map.get(field_name) {
+                    match &init.value {
+                        Some(v) => self.lower_expr(v),
+                        None => CoreExpr::external_var(*field_name, init.span),
+                    }
+                } else {
+                    self.project_field_from_binder(variant, declared.len(), i, &tmp_binder, span)
+                }
+            })
+            .collect();
+
+        let body = CoreExpr::Con {
+            tag: CoreTag::Named(variant),
+            fields: positional,
+            span,
+        };
+
+        CoreExpr::Let {
+            var: tmp_binder,
+            rhs: Box::new(base_expr),
+            body: Box::new(body),
+            span,
+        }
+    }
+
+    /// Determine the concrete variant tag for a spread expression.
+    /// Returns `Some(variant)` when the base is a `NamedConstructor` or the
+    /// base's inferred ADT has exactly one named-field variant.
+    fn resolve_spread_variant(&self, base: &Expression) -> Option<Identifier> {
+        if let Expression::NamedConstructor { name, .. } = base {
+            return Some(*name);
+        }
+        let base_ty = self.hm_expr_types.get(&base.expr_id())?;
+        let adt_name = match base_ty {
+            InferType::Con(TypeConstructor::Adt(n)) => *n,
+            InferType::App(TypeConstructor::Adt(n), _) => *n,
+            _ => return None,
+        };
+        let variants = self.adt_variants.get(&adt_name)?;
+        let named_variants: Vec<Identifier> = variants
+            .iter()
+            .copied()
+            .filter(|v| self.ctor_field_names.contains_key(v))
+            .collect();
+        if named_variants.len() == 1 {
+            Some(named_variants[0])
+        } else {
+            None
+        }
+    }
+
+    /// Synthesize `case tmp { Variant(x0, ..., xN) -> xI }` to extract the
+    /// `target_index`-th positional field from a named-variant value.
+    fn project_field_from_binder(
+        &mut self,
+        variant: Identifier,
+        arity: usize,
+        target_index: usize,
+        tmp: &CoreBinder,
+        span: Span,
+    ) -> CoreExpr {
+        let mut field_binders: Vec<CoreBinder> = Vec::with_capacity(arity);
+        for _ in 0..arity {
+            let id = self.alloc_binder_id();
+            field_binders.push(CoreBinder::with_rep(id, Identifier::new(0), FluxRep::BoxedRep));
+        }
+        let target = &field_binders[target_index];
+        let rhs = CoreExpr::bound_var(target, span);
+        let pat = CorePat::Con {
+            tag: CoreTag::Named(variant),
+            fields: field_binders.iter().cloned().map(CorePat::Var).collect(),
+        };
+        let alt = CoreAlt {
+            pat,
+            guard: None,
+            rhs,
+            span,
+        };
+        CoreExpr::Case {
+            scrutinee: Box::new(CoreExpr::bound_var(tmp, span)),
+            alts: vec![alt],
+            join_ty: None,
+            span,
+        }
+    }
+
+    fn alloc_binder_id(&mut self) -> CoreBinderId {
+        let id = CoreBinderId(self.next_binder_id);
+        self.next_binder_id += 1;
+        id
+    }
+
+    /// Proposal 0152: if `object`'s inferred type is a named-field ADT and
+    /// `member` is declared in every variant's named-field list, emit a
+    /// `Case` that pattern-matches each variant and yields the field.
+    fn try_lower_adt_field_access(
+        &mut self,
+        object: &Expression,
+        member: Identifier,
+        span: Span,
+    ) -> Option<CoreExpr> {
+        let object_ty = self.hm_expr_types.get(&object.expr_id())?;
+        let adt_name = match object_ty {
+            InferType::Con(TypeConstructor::Adt(n)) => *n,
+            InferType::App(TypeConstructor::Adt(n), _) => *n,
+            _ => return None,
+        };
+        let variants = self.adt_variants.get(&adt_name)?.clone();
+        let named_variants: Vec<Identifier> = variants
+            .iter()
+            .copied()
+            .filter(|v| self.ctor_field_names.contains_key(v))
+            .collect();
+        if named_variants.is_empty() {
+            return None;
+        }
+        // Every variant must declare `member` — partial-variant dot access
+        // is not desugared here (type inference already flagged it or lifted
+        // the result to Option<T>; full Case-based desugar is a future step).
+        let mut per_variant: Vec<(Identifier, Vec<Identifier>, usize)> = Vec::new();
+        for variant in &named_variants {
+            let field_names = self.ctor_field_names.get(variant)?.clone();
+            let index = field_names.iter().position(|n| *n == member)?;
+            per_variant.push((*variant, field_names, index));
+        }
+
+        let scrutinee = self.lower_expr(object);
+        let alts: Vec<CoreAlt> = per_variant
+            .into_iter()
+            .map(|(variant, field_names, target_index)| {
+                let mut binders: Vec<CoreBinder> = Vec::with_capacity(field_names.len());
+                for _ in 0..field_names.len() {
+                    let id = self.alloc_binder_id();
+                    binders.push(CoreBinder::with_rep(id, Identifier::new(0), FluxRep::BoxedRep));
+                }
+                let target = binders[target_index].clone();
+                let pat = CorePat::Con {
+                    tag: CoreTag::Named(variant),
+                    fields: binders.into_iter().map(CorePat::Var).collect(),
+                };
+                CoreAlt {
+                    pat,
+                    guard: None,
+                    rhs: CoreExpr::bound_var(&target, span),
+                    span,
+                }
+            })
+            .collect();
+        Some(CoreExpr::Case {
+            scrutinee: Box::new(scrutinee),
+            alts,
+            join_ty: None,
+            span,
+        })
     }
 }

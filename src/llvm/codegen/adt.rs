@@ -628,11 +628,13 @@ mod tests {
                         DataVariant {
                             name: none_i,
                             fields: vec![],
+                            field_names: None,
                             span: Span::default(),
                         },
                         DataVariant {
                             name: some_i,
                             fields: vec![],
+                            field_names: None,
                             span: Span::default(),
                         },
                     ],
@@ -644,6 +646,7 @@ mod tests {
                     variants: vec![DataVariant {
                         name: pair_ctor,
                         fields: vec![],
+                        field_names: None,
                         span: Span::default(),
                     }],
                     span: Span::default(),

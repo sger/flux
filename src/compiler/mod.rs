@@ -26,6 +26,7 @@ use crate::{
     compiler::{
         adt_registry::AdtRegistry,
         binding::Binding,
+        field_registry::FieldRegistry,
         compilation_scope::CompilationScope,
         contracts::{
             AdtConstructorContractSpec, AdtContractSpec, ContractKey, FnContract,
@@ -56,6 +57,7 @@ use crate::{
 
 mod adt_definition;
 mod adt_registry;
+pub(crate) mod field_registry;
 pub mod binding;
 mod builder;
 mod cfg_bytecode;
@@ -893,6 +895,7 @@ pub struct Compiler {
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
+    pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
@@ -1074,6 +1077,7 @@ impl Compiler {
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
+            field_registry: FieldRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
@@ -1277,17 +1281,31 @@ impl Compiler {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let program_to_lower = rename(optimized, HashMap::new());
+            let mut program_to_lower = rename(optimized, HashMap::new());
+            self.apply_named_field_desugar(&mut program_to_lower);
             return self.lower_core_from_program(&program_to_lower, true, elaborate_dictionaries);
         }
 
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_core_from_program(
-            prepared.effective_program.as_ref(),
-            false,
-            elaborate_dictionaries,
-        )
+        let mut program_to_lower = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut program_to_lower);
+        self.lower_core_from_program(&program_to_lower, false, elaborate_dictionaries)
+    }
+
+    /// Proposal 0152: run the named-field AST desugar in place. No-op when
+    /// the program declares no named-field variants.
+    fn apply_named_field_desugar(&self, program: &mut Program) {
+        use crate::ast::desugar_named_fields::{
+            NamedFieldDesugarCtx, collect_named_field_metadata, desugar_named_fields_in_program,
+        };
+        let (ctor_field_names, adt_variants) = collect_named_field_metadata(program);
+        let mut ctx = NamedFieldDesugarCtx {
+            ctor_field_names: &ctor_field_names,
+            adt_variants: &adt_variants,
+            hm_expr_types: &self.hm_expr_types,
+        };
+        desugar_named_fields_in_program(program, &mut ctx);
     }
 
     #[allow(clippy::result_large_err)]
@@ -1300,13 +1318,16 @@ impl Compiler {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let program_to_lower = rename(optimized, HashMap::new());
+            let mut program_to_lower = rename(optimized, HashMap::new());
+            self.apply_named_field_desugar(&mut program_to_lower);
             return self.lower_aether_from_program(&program_to_lower, true, true);
         }
 
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
+        let mut program_to_lower = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut program_to_lower);
+        self.lower_aether_from_program(&program_to_lower, false, true)
     }
 
     #[allow(clippy::result_large_err)]
@@ -1321,7 +1342,9 @@ impl Compiler {
 
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.lower_aether_from_program(prepared.effective_program.as_ref(), false, true)
+        let mut program_to_lower = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut program_to_lower);
+        self.lower_aether_from_program(&program_to_lower, false, true)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -1963,6 +1986,7 @@ impl Compiler {
 
     fn collect_adt_definitions(&mut self, program: &Program) {
         self.adt_registry = AdtRegistry::new();
+        self.field_registry = FieldRegistry::new();
         self.adt_contract_specs.clear();
         for statement in &program.statements {
             self.collect_adt_definitions_from_stmt(statement, None);
@@ -1983,6 +2007,7 @@ impl Compiler {
             } => {
                 self.adt_registry
                     .register_adt(*name, variants, &self.interner);
+                self.field_registry.register_adt(*name, variants);
                 self.adt_contract_specs.insert(
                     *name,
                     AdtContractSpec {
@@ -3104,6 +3129,45 @@ impl Compiler {
                 }
                 effects
             }
+
+            Expression::NamedConstructor { fields, .. } => {
+                let mut effects = HashSet::new();
+                for field in fields {
+                    if let Some(value) = &field.value {
+                        effects.extend(self.infer_effects_from_expr(
+                            value,
+                            current_module,
+                            inferred,
+                            io_effect,
+                            time_effect,
+                        ));
+                    }
+                }
+                effects
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                let mut effects = self.infer_effects_from_expr(
+                    base,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
+                for field in overrides {
+                    if let Some(value) = &field.value {
+                        effects.extend(self.infer_effects_from_expr(
+                            value,
+                            current_module,
+                            inferred,
+                            io_effect,
+                            time_effect,
+                        ));
+                    }
+                }
+                effects
+            }
         }
     }
 
@@ -4187,12 +4251,15 @@ impl Compiler {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(effective_program.into_owned());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let program_to_lower = rename(optimized, HashMap::new());
+            let mut program_to_lower = rename(optimized, HashMap::new());
+            self.apply_named_field_desugar(&mut program_to_lower);
             let aether = self.lower_aether_from_program(&program_to_lower, true, true)?;
             (Cow::Owned(program_to_lower), aether)
         } else {
-            let aether = self.lower_aether_from_program(effective_program.as_ref(), false, true)?;
-            (effective_program, aether)
+            let mut program_to_lower = effective_program.into_owned();
+            self.apply_named_field_desugar(&mut program_to_lower);
+            let aether = self.lower_aether_from_program(&program_to_lower, false, true)?;
+            (Cow::<Program>::Owned(program_to_lower), aether)
         };
 
         let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());

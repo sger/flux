@@ -980,6 +980,98 @@ pub const EXPOSING_LOCAL_COLLISION: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0152: a named constructor expression omits one or more declared
+/// fields. Named-field construction has no "default field" semantics.
+pub const NAMED_FIELD_MISSING: ErrorCode = ErrorCode {
+    code: "E460",
+    title: "MISSING NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "Missing field `{}` in `{}` constructor.",
+    hint: Some("Provide every declared field, or add a default using a spread over an existing value."),
+};
+
+/// Proposal 0152: a named constructor, pattern, or spread references a field
+/// name that is not declared by the target variant.
+pub const NAMED_FIELD_UNKNOWN: ErrorCode = ErrorCode {
+    code: "E461",
+    title: "UNKNOWN NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "`{}` has no field named `{}`.",
+    hint: Some("Check the field list declared by this variant."),
+};
+
+/// Proposal 0152: a field name appears more than once inside one named
+/// constructor expression, pattern, or spread override list.
+pub const NAMED_FIELD_DUPLICATE: ErrorCode = ErrorCode {
+    code: "E462",
+    title: "DUPLICATE NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "Field `{}` is listed more than once.",
+    hint: Some("Remove the duplicate field entry."),
+};
+
+/// Proposal 0152: dot access on a value whose ADT declares the field in no
+/// variant at all.
+pub const NAMED_FIELD_NOT_ON_TYPE: ErrorCode = ErrorCode {
+    code: "E463",
+    title: "FIELD NOT ON TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Type `{}` has no field `{}`.",
+    hint: Some("Check the variant's declared fields or use pattern matching to access variant-specific fields."),
+};
+
+/// Proposal 0152: spread `{ ...base, ... }` used on a value whose type is not
+/// a named-field ADT.
+pub const SPREAD_NON_NAMED_ADT: ErrorCode = ErrorCode {
+    code: "E464",
+    title: "SPREAD REQUIRES NAMED-FIELD TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Cannot spread a value of type `{}`; spread requires a named-field data type.",
+    hint: Some("Wrap the value in a named-field constructor or use explicit field assignment."),
+};
+
+/// Proposal 0152: a `data` declaration mixes positional and named-field
+/// variants, which is forbidden.
+pub const DATA_MIXED_FIELD_FORMS: ErrorCode = ErrorCode {
+    code: "E465",
+    title: "MIXED POSITIONAL AND NAMED VARIANTS",
+    error_type: ErrorType::Compiler,
+    message: "Data type `{}` mixes positional and named-field variants.",
+    hint: Some("Pick one style — all variants must use the same field form."),
+};
+
+/// Proposal 0152: a punned field name `Foo { x }` in an expression context
+/// must resolve to an in-scope variable named `x`.
+pub const NAMED_FIELD_PUN_UNBOUND: ErrorCode = ErrorCode {
+    code: "E466",
+    title: "PUNNED FIELD NOT IN SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "No variable named `{}` is in scope for punning.",
+    hint: Some("Declare a binding with this name, or use `{}: <expr>` instead."),
+};
+
+/// Proposal 0152: the same field name appears in more than one variant of an
+/// ADT but with different declared types, so dot access cannot produce a
+/// single coherent result type.
+pub const NAMED_FIELD_TYPE_DIVERGES: ErrorCode = ErrorCode {
+    code: "E467",
+    title: "DIVERGENT FIELD TYPES ACROSS VARIANTS",
+    error_type: ErrorType::Compiler,
+    message: "Field `{}` has inconsistent types across variants of `{}`.",
+    hint: Some("Give the field the same type in every variant, or rename one of them."),
+};
+
+/// Proposal 0152: spread `{ ...base, ... }` targets an ADT with more than
+/// one named-field variant, and the concrete variant cannot be determined
+/// statically from `base`.
+pub const SPREAD_UNKNOWN_VARIANT: ErrorCode = ErrorCode {
+    code: "E468",
+    title: "SPREAD WITH UNKNOWN VARIANT",
+    error_type: ErrorType::Compiler,
+    message: "Cannot spread `{}` because its variant is not statically known.",
+    hint: Some("Pattern match on the value first so the variant is known at this point."),
+};
+
 /// Proposal 0151, Phase 3: a file-level `import A exposing (foo)` and a
 /// module-body `import B exposing (foo)` (where `A != B`) bind the same
 /// short name to two different module targets in overlapping scopes.

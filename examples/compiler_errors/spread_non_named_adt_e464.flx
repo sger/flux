@@ -1,0 +1,10 @@
+// Spread on a value whose type is not a named-field data type.
+//
+// Expected: E464 Spread Requires Named-Field Type
+//   "Cannot spread a value of type `Int`; spread requires a named-field data type."
+
+fn main() {
+    let n = 42
+    let x = { ...n, foo: 1 }
+    x
+}

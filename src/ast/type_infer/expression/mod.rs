@@ -7,6 +7,7 @@ mod collections;
 mod control_flow;
 mod effects_nodes;
 mod lambda;
+mod named_fields;
 mod operators;
 mod patterns;
 
@@ -160,6 +161,16 @@ impl<'a> InferCtx<'a> {
             Expression::Handle {
                 expr, effect, arms, ..
             } => self.infer_handle_expression(expr, *effect, arms),
+            // Named-field construction & spread (Proposal 0152)
+            Expression::NamedConstructor {
+                name, fields, span, ..
+            } => self.infer_named_constructor_call(*name, fields, *span),
+            Expression::Spread {
+                base,
+                overrides,
+                span,
+                ..
+            } => self.infer_spread_expression(base, overrides, *span),
             // Fallback guards against future Expression variants
             #[allow(unreachable_patterns)]
             _ => self.infer_unsupported_expression(expr),

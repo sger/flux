@@ -1,6 +1,6 @@
 - Feature Name: Named Fields for Data Types
 - Start Date: 2026-04-10
-- Status: Not Implemented
+- Status: Implemented (2026-04-18)
 - Proposal PR:
 - Flux Issue:
 - Supersedes: Proposal 0048 (Typed Record Types)

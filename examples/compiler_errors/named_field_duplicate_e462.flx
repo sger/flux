@@ -1,0 +1,11 @@
+// Listing the same field name twice in one constructor.
+//
+// Expected: E462 Duplicate Named Field
+//   "Field `x` is listed more than once."
+
+data Point { Point { x: Int, y: Int } }
+
+fn main() {
+    let p = Point { x: 1, x: 2, y: 3 }
+    p
+}
