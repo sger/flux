@@ -323,6 +323,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 pattern,
                 value,
                 span: _,
+                ..
             } => {
                 self.visit_expr(value);
                 self.extract_pattern_bindings(pattern);

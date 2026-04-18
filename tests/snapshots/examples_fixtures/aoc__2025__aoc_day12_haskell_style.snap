@@ -5,6 +5,27 @@ Fixture: examples/aoc/2025/aoc_day12_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day12_haskell_style.flx:37:5
+   |
+37 |     fold(chars(s), 0, /(acc, c) -> if c == "#" { acc + 1 } else { acc })
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     -------------------------------------------------------------------- parameter 1 has type `Array<String>`
+
+   |     -------------------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `push`.
@@ -44,37 +65,26 @@ Hint:
   Define it first: let push = ...;
 
 
-error[E300]: Argument Type Mismatch
+error[E300]: Type Mismatch
 
-I found the wrong type in the 2nd argument to `weighted_sum`.
+I found a type mismatch.
 
-  examples/aoc/2025/aoc_day12_haskell_style.flx:127:41
-    |
-100 | fn weighted_sum(block_sizes, counts, idx, acc) {
-101 |     if idx >= len(block_sizes) || idx >= len(counts) {
-102 |         acc
-103 |     } else {
-104 |     weighted_sum(block_sizes, counts, idx + 1, acc + (int_at(block_sizes, idx) * int_at(counts, idx)))
-105 | }
-106 | }
-107 | 
-108 | fn area_at(arr, idx) {
-... |
-125 |     }
-126 |     let lhs = w * h
-127 |     let rhs = weighted_sum(block_sizes, counts, 0, 0)
-    |                                         ^^^^^^
-    |                                         ------ this argument has type `Int`
+  examples/aoc/2025/aoc_day12_haskell_style.flx:92:55
+   |
+92 |         parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
+   |                                                       ^^^^^^
+   |                                                       ------ this expression has type `Array<_>`
+
+   |                                                       ------ this type mismatch is reported here
 
 Note:
-  expected argument type: Array<Int>
-  found argument type: Int
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
+  expected type: Int
+  found type: Array<_>
+  the conflicting types meet at this expression
 
 Help:
-  Pass a `Array<Int>` value as the 2nd argument.
+  These two types are not compatible.
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

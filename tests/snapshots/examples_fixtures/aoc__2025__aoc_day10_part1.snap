@@ -69,6 +69,27 @@ I can't find a value named `push`.
 Hint:
   Define it first: let push = ...;
 
-Found 5 errors.
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day10_part1.flx:162:21
+    |
+162 | let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |                     ---------------------------------------------- parameter 1 has type `Array<String>`
+
+    |                     ---------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+Found 6 errors.
 == stdout ==
 <not executed>

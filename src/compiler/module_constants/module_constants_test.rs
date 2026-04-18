@@ -32,6 +32,7 @@ fn analyze_orders_dependencies() {
     let body = Block {
         statements: vec![
             Statement::Let {
+                is_public: false,
                 name: sym_b,
                 type_annotation: None,
                 value: Expression::Identifier {
@@ -42,6 +43,7 @@ fn analyze_orders_dependencies() {
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
             Statement::Let {
+                is_public: false,
                 name: sym_a,
                 type_annotation: None,
                 value: Expression::Integer {
@@ -70,6 +72,7 @@ fn analyze_detects_cycle() {
     let body = Block {
         statements: vec![
             Statement::Let {
+                is_public: false,
                 name: sym_a,
                 type_annotation: None,
                 value: Expression::Identifier {
@@ -80,6 +83,7 @@ fn analyze_detects_cycle() {
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
             Statement::Let {
+                is_public: false,
                 name: sym_b,
                 type_annotation: None,
                 value: Expression::Identifier {

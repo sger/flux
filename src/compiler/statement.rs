@@ -1844,6 +1844,21 @@ impl Compiler {
         // END: MODULE CONSTANTS
         // ====================================================================
 
+        let module_prefix = format!("{}.", self.sym(binding_name));
+        let const_names: HashSet<Symbol> = self
+            .module_constants
+            .keys()
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter_map(|qualified| {
+                let qualified_str = self.interner.try_resolve(qualified)?.to_string();
+                qualified_str
+                    .strip_prefix(module_prefix.as_str())
+                    .map(|short| self.interner.intern(short))
+            })
+            .collect();
+
         // PASS 1: Predeclare all module function names with qualified names
         // This enables forward references within the module
         for statement in &body.statements {
@@ -1869,6 +1884,26 @@ impl Compiler {
                 }
                 // Predeclare the function
                 self.symbol_table.define(qualified_name, *span);
+            }
+        }
+
+        // PASS 1b: Predeclare non-constant module values so functions can
+        // reference them regardless of source order.
+        for statement in &body.statements {
+            if let Statement::Let {
+                is_public,
+                name,
+                span,
+                ..
+            } = statement
+            {
+                if const_names.contains(name) && !*is_public {
+                    continue;
+                }
+                let qualified_name = self.interner.intern_join(binding_name, *name);
+                if self.symbol_table.resolve(qualified_name).is_none() {
+                    self.symbol_table.define(qualified_name, *span);
+                }
             }
         }
 
@@ -1915,6 +1950,30 @@ impl Compiler {
             }
         }
 
+        // PASS 3: Evaluate non-constant module values eagerly once in source order.
+        for statement in &body.statements {
+            if let Statement::Let {
+                is_public,
+                name,
+                type_annotation,
+                value,
+                span,
+                ..
+            } = statement
+            {
+                if const_names.contains(name) && !*is_public {
+                    continue;
+                }
+                self.compile_module_value_binding(
+                    binding_name,
+                    *name,
+                    type_annotation,
+                    value,
+                    *span,
+                )?;
+            }
+        }
+
         self.current_module_prefix = previous_module;
 
         Ok(())
@@ -1928,6 +1987,77 @@ impl Compiler {
         // Data declarations are handled at the registry level (collect_adt_definitions).
         // No bytecode is emitted here — constructors are compiled on-demand when called.
         let _ = (name, variants);
+        Ok(())
+    }
+
+    fn compile_module_value_binding(
+        &mut self,
+        module_name: Symbol,
+        name: Symbol,
+        type_annotation: &Option<TypeExpr>,
+        value: &Expression,
+        span: Span,
+    ) -> CompileResult<()> {
+        let qualified_name = self.interner.intern_join(module_name, name);
+        let symbol = self
+            .symbol_table
+            .resolve(qualified_name)
+            .unwrap_or_else(|| self.symbol_table.define(qualified_name, span));
+
+        if let Some(annotation) = type_annotation {
+            if let Some(expected_infer) =
+                TypeEnv::infer_type_from_type_expr(annotation, &Default::default(), &self.interner)
+            {
+                if let Some((expected_str, actual_str)) =
+                    self.known_concrete_expr_type_mismatch(&expected_infer, value)
+                {
+                    let name_str = self.sym(name).to_string();
+                    return Err(Self::boxed(let_annotation_type_mismatch(
+                        self.file_path.clone(),
+                        annotation.span(),
+                        value.span(),
+                        &name_str,
+                        &expected_str,
+                        &actual_str,
+                    )));
+                }
+                self.validate_expr_expected_type_with_policy(
+                    &expected_infer,
+                    value,
+                    "initializer type is known at compile time",
+                    "binding initializer does not match type annotation".to_string(),
+                    "typed let initializer",
+                    true,
+                )?;
+            }
+        }
+
+        self.compile_expression(value)?;
+        if let Some(annotation) = type_annotation
+            && let Ok(ty) =
+                convert_type_expr_checked(annotation, &self.interner, &[], &self.adt_contract_specs)
+        {
+            self.bind_static_type(qualified_name, ty);
+        } else if let HmExprTypeResult::Known(inferred) = self.hm_expr_type_strict_path(value)
+            && let Ok(runtime) = TypeEnv::try_to_runtime(&inferred, &Default::default())
+        {
+            self.bind_static_type(qualified_name, runtime);
+        }
+
+        self.track_effect_alias_for_binding(qualified_name, value);
+        match symbol.symbol_scope {
+            SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+            SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+            _ => {
+                return Err(Self::boxed(Diagnostic::make_error(
+                    &ICE_SYMBOL_SCOPE_LET,
+                    &[],
+                    self.file_path.clone(),
+                    Span::new(Position::default(), Position::default()),
+                )));
+            }
+        };
+        self.symbol_table.mark_assigned(qualified_name).ok();
         Ok(())
     }
 

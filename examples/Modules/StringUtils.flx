@@ -1,30 +1,30 @@
 module Modules.StringUtils {
     public fn wrap(s, prefix, suffix) {
-        prefix + s + suffix;
+        return prefix + s + suffix
     }
 
     fn parenthesize(s) {
-        "(" + s + ")";
+        return "(" + s + ")"
     }
 
     fn bracket(s) {
-        "[" + s + "]";
+        return "[" + s + "]"
     }
 
     fn quote(s) {
-        "\"" + s + "\"";
+        return "\"" + s + "\""
     }
 
     fn exclaim(s) {
-        s + "!";
+        return s + "!"
     }
 
     fn greet(name) {
-        "Hello, " + name;
+        return "Hello, " + name
     }
 
     fn uppercase_first(s) {
         // Simple simulation - just adds a marker
-        "[UPPER]" + s;
+        return "[UPPER]" + s
     }
 }

@@ -68,14 +68,14 @@ fn main() with IO {
     fn list_map(lst, f) {
         match lst {
             [h | t] -> [f(h) | list_map(t, f)],
-            _ -> None,
+            _ -> [],
         }
     }
 
     fn list_filter(lst, pred) {
         match lst {
             [h | t] -> if pred(h) { [h | list_filter(t, pred)] } else { list_filter(t, pred) },
-            _ -> None,
+            _ -> [],
         }
     }
 
@@ -109,7 +109,7 @@ fn main() with IO {
     fn flatten(lst) {
         match lst {
             [h | t] -> list_append(h, flatten(t)),
-            _ -> None,
+            _ -> [],
         }
     }
 
@@ -139,11 +139,11 @@ fn main() with IO {
 
     fn take(lst, n) {
         if n <= 0 {
-            None
+            []
         } else {
             match lst {
                 [h | t] -> [h | take(t, n - 1)],
-                _ -> None,
+                _ -> [],
             }
         }
     }
@@ -154,7 +154,7 @@ fn main() with IO {
         } else {
             match lst {
                 [h | t] -> drop(t, n - 1),
-                _ -> None,
+                _ -> [],
             }
         }
     }

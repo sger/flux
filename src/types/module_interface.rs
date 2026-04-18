@@ -127,6 +127,13 @@ pub struct ModuleInterface {
     /// maps above.
     #[serde(default)]
     pub runtime_contracts: HashMap<String, FunctionContract>,
+    /// Exported member kind keyed by unqualified member name.
+    ///
+    /// `true` means the member is a value binding (`public let`), `false`
+    /// means it is a function. This lets the native backend distinguish
+    /// imported zero-arg functions from imported exported values.
+    #[serde(default)]
+    pub member_is_value: HashMap<String, bool>,
     /// Fingerprints of direct imported module interfaces used to compile this module.
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
     /// Portable symbol table: maps serialized Symbol u32 IDs to their string names.
@@ -216,6 +223,7 @@ impl ModuleInterface {
             schemes: HashMap::new(),
             borrow_signatures: HashMap::new(),
             runtime_contracts: HashMap::new(),
+            member_is_value: HashMap::new(),
             dependency_fingerprints: Vec::new(),
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
@@ -303,7 +311,7 @@ mod tests {
 
     #[test]
     fn symbol_table_defaults_empty_for_old_format() {
-        // Simulates loading an old .flxi without the symbol_table field
+        // Simulates loading an old .flxi without the symbol_table/member_is_value fields
         let json = r#"{
             "module_name": "Old",
             "source_hash": "abc",
@@ -317,6 +325,7 @@ mod tests {
         }"#;
         let decoded: ModuleInterface = serde_json::from_str(json).expect("deserialize old format");
         assert!(decoded.symbol_table.is_empty());
+        assert!(decoded.member_is_value.is_empty());
     }
 
     #[test]
@@ -351,6 +360,10 @@ mod tests {
                 BorrowProvenance::Imported,
             ),
         );
+        interface.member_is_value.insert("map".to_string(), false);
+        interface
+            .member_is_value
+            .insert("answer".to_string(), true);
         interface.interface_fingerprint = "f00d".to_string();
         interface
             .dependency_fingerprints

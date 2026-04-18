@@ -72,6 +72,7 @@ struct CanonicalExport<'a> {
     scheme: Option<&'a Scheme>,
     borrow_signature: Option<&'a BorrowSignature>,
     runtime_contract: Option<&'a FunctionContract>,
+    is_value: bool,
 }
 
 /// Build a module interface from post-Aether Core plus cached HM schemes.
@@ -130,6 +131,9 @@ pub fn build_interface(
                 .runtime_contracts
                 .insert(name.clone(), contract.clone());
         }
+        interface
+            .member_is_value
+            .insert(name, !matches!(def.expr, crate::core::CoreExpr::Lam { .. }));
     }
 
     // Build portable symbol table: collect all Symbol IDs from schemes and
@@ -399,6 +403,11 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
             scheme: interface.schemes.get(member),
             borrow_signature: interface.borrow_signatures.get(member),
             runtime_contract: interface.runtime_contracts.get(member),
+            is_value: interface
+                .member_is_value
+                .get(member)
+                .copied()
+                .unwrap_or(false),
         })
         .collect();
 
@@ -828,6 +837,7 @@ mod tests {
             schemes,
             borrow_signatures,
             runtime_contracts,
+            member_is_value: HashMap::from([("map".to_string(), false)]),
             dependency_fingerprints: vec![DependencyFingerprint {
                 module_name: "Flow.List".to_string(),
                 source_path: "lib/Flow/List.flx".to_string(),
@@ -846,6 +856,7 @@ mod tests {
         assert_eq!(loaded.borrow_signatures.len(), 1);
         assert_eq!(loaded.runtime_contracts.len(), 1);
         assert!(loaded.schemes.contains_key("map"));
+        assert_eq!(loaded.member_is_value.get("map"), Some(&false));
     }
 
     #[test]

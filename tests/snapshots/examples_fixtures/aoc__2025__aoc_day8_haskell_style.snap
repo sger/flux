@@ -200,6 +200,27 @@ Hint:
   Define it first: let push = ...;
 
 
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_haskell_style.flx:175:18
+    |
+175 |     let state1 = fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |                  ------------------------------------------------------- parameter 1 has type `Array<_>`
+
+    |                  ------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<_>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `put`.
@@ -257,6 +278,6 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-Found 19 errors.
+Found 20 errors.
 == stdout ==
 <not executed>

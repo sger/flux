@@ -5,17 +5,40 @@ Fixture: examples/type_system/failing/201_base_hof_callback_effect_missing_e400.
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E300]: Parameter Type Mismatch
 
-Call to `map_with_io_callback` requires effect `IO` in this function signature.
+Parameter 2 has the wrong type.
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:13:13
-   |
-13 |     let _ = map_with_io_callback(noisy_inc)
-   |             ^^^^^^^^^^^^^^^^^^^^
-   |             -------------------- effectful call occurs here
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
+  |
+8 |     each([1, 2, 3], noisy_log)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     -------------------------- parameter 2 has type `() -> Unit with IO`
+
+  |     -------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: () -> Unit
+  found parameter type: () -> Unit with IO
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 2 to use `() -> Unit` consistently.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
+  |
+8 |     each([1, 2, 3], noisy_log)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     -------------------------- requires `IO`
 
 Hint:
-  Add `with IO` to the enclosing function.
+  annotate the enclosing function with `with IO`
+
+Found 2 errors.
 == stdout ==
 <not executed>

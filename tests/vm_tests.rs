@@ -1039,64 +1039,70 @@ fn test_fold_with_lambda() {
 
 #[test]
 fn test_map_type_error_not_array() {
-    // map now operates on cons lists; passing an integer just returns []
-    assert_eq!(run("len(map(42, fn(x) { x }));"), Value::Integer(0));
+    let err = run_any_error("map(42, fn(x) { x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
+    );
 }
 
 #[test]
 fn test_map_type_error_not_function() {
-    // map now operates on cons lists; passing a non-function as callback triggers a runtime error
-    let err = run_error("map([1, 2], 42);");
+    let err = run_any_error("map([1, 2], 42);");
     assert!(
-        err.contains("not a function")
-            || err.contains("wrong number of arguments")
-            || err.contains("Cannot call"),
-        "Expected function call error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback type mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_type_error() {
-    // filter now operates on cons lists; passing an integer just returns []
-    assert_eq!(run("len(filter(42, fn(x) { x }));"), Value::Integer(0));
+    let err = run_any_error("filter(42, fn(x) { x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
+    );
 }
 
 #[test]
 fn test_fold_type_error() {
-    // fold now operates on cons lists; passing an integer just returns the accumulator
-    assert_eq!(
-        run("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });"),
-        Value::Integer(0)
+    let err = run_any_error("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
     );
 }
 
 #[test]
 fn test_map_callback_arity_error_propagates() {
-    let err = run_error("map([1], fn(a, b) { a + b });");
+    let err = run_any_error("map([1], fn(a, b) { a + b });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_callback_arity_error_propagates() {
-    let err = run_error("filter([1], fn(a, b) { a > b });");
+    let err = run_any_error("filter([1], fn(a, b) { a > b });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_fold_callback_arity_error_propagates() {
-    let err = run_error("fold([1], 0, fn(a) { a });");
+    let err = run_any_error("fold([1], 0, fn(a) { a });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 3"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }

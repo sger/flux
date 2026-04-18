@@ -951,6 +951,11 @@ pub struct CoreDef {
 
 #[derive(Debug, Clone)]
 pub enum CoreTopLevelItem {
+    Let {
+        is_public: bool,
+        name: Identifier,
+        span: Span,
+    },
     Function {
         is_public: bool,
         name: Identifier,

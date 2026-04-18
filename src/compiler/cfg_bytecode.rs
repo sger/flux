@@ -162,13 +162,17 @@ impl Compiler {
                         return false;
                     }
                 }
-                IrTerminator::Unreachable(_) => return false,
+                IrTerminator::Unreachable(_) => {}
             }
         }
 
         matches!(
             function.blocks.last().map(|block| &block.terminator),
-            Some(IrTerminator::Return(..) | IrTerminator::TailCall { .. })
+            Some(
+                IrTerminator::Return(..)
+                    | IrTerminator::TailCall { .. }
+                    | IrTerminator::Unreachable(_)
+            )
         )
     }
 
@@ -282,9 +286,7 @@ impl Compiler {
                         pending_jumps.push((true_jump, *then_block));
                     }
                     IrTerminator::Unreachable(_) => {
-                        return Err(Self::boxed(Diagnostic::warning(
-                            "unsupported unreachable CFG bytecode block",
-                        )));
+                        self.compile_ir_cfg_terminator(&block.terminator, &bindings, current_name)?;
                     }
                 }
             }
@@ -1147,6 +1149,18 @@ impl Compiler {
                     this.emit(OpCode::OpCall, &[args.len()]);
                     this.emit(OpCode::OpReturnValue, &[]);
                 }
+                Ok(())
+            }
+            IrTerminator::Unreachable(_) => {
+                let message_idx = this.add_constant(Value::String(Rc::new(
+                    "entered unreachable CFG block".to_string(),
+                )));
+                this.emit_constant_index(message_idx);
+                this.emit(
+                    OpCode::OpPrimOp,
+                    &[crate::core::CorePrimOp::Panic.id() as usize, 1],
+                );
+                this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
             _ => Err(Self::boxed(Diagnostic::warning(

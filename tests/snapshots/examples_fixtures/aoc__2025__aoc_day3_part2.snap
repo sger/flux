@@ -3,8 +3,26 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day3_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day3_part2.flx:41:17
+   |
+41 | let non_empty = [trim(line) | line <- lines, trim(line) != ""]
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                 ---------------------------------------------- parameter 1 has type `Array<String>`
+
+   |                 ---------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
 == stdout ==
 <not executed>

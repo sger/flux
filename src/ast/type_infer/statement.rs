@@ -68,6 +68,7 @@ impl<'a> InferCtx<'a> {
                 pattern,
                 value,
                 span,
+                ..
             } => {
                 let val_ty = self.infer_expression(value);
                 self.bind_pattern_variables(pattern, &val_ty, *span);
@@ -221,6 +222,20 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_module(&mut self, module_name: Identifier, body: &Block) {
         self.env.enter_scope();
         self.predeclare_data_constructors_in_statements(&body.statements);
+        self.predeclare_module_members(&body.statements);
+        for stmt in &body.statements {
+            self.infer_statement(stmt);
+            self.capture_public_module_member_scheme(module_name, stmt);
+        }
+        self.env.leave_scope();
+    }
+
+    /// Predeclare module-scope `let` and explicitly-annotated function members.
+    ///
+    /// This mirrors the top-level Phase A pass, but runs inside the module's
+    /// inner scope so recursive and forward references can resolve while
+    /// preserving Proposal 0159's annotation-gated polymorphic predeclaration.
+    fn predeclare_module_members(&mut self, statements: &[Statement]) {
         // Annotation-gated Phase A for modules (Proposal 0159, Phase 3):
         // only predeclare functions with a complete explicit signature,
         // using their declared polymorphic scheme so each call site
@@ -228,36 +243,100 @@ impl<'a> InferCtx<'a> {
         // the old `Scheme::mono(fresh)` predeclare caused distinct callers
         // to collapse their polymorphic parameters through a shared var
         // (see docs/internals/proposal_0159_investigation.md).
-        for stmt in &body.statements {
-            if let Statement::Function {
-                name,
-                span,
-                type_params,
-                parameter_types,
-                return_type,
-                effects,
-                ..
-            } = stmt
-                && let Some(scheme) =
-                    self.declared_fn_scheme(type_params, parameter_types, return_type, effects)
-            {
-                self.env.bind_with_span(*name, scheme, Some(*span));
-            }
+        for stmt in statements {
+            self.predeclare_module_let(stmt);
+            self.predeclare_module_function(stmt);
         }
-        for stmt in &body.statements {
-            self.infer_statement(stmt);
-            if let Statement::Function {
+    }
+
+    /// Reserve a module-scope `let` binding before body inference.
+    ///
+    /// Annotated lets use their declared type as the monomorphic placeholder;
+    /// unannotated lets receive a fresh inference variable to be refined once
+    /// the initializer is visited.
+    fn predeclare_module_let(&mut self, stmt: &Statement) {
+        let Statement::Let {
+            name,
+            type_annotation,
+            span,
+            ..
+        } = stmt
+        else {
+            return;
+        };
+
+        let scheme = match type_annotation {
+            Some(annotation) => {
+                let mut row_var_env = HashMap::new();
+                TypeEnv::convert_type_expr_rec(
+                    annotation,
+                    &HashMap::new(),
+                    self.interner,
+                    &mut row_var_env,
+                    &mut self.env.counter,
+                )
+                .map(Scheme::mono)
+                .unwrap_or_else(|| {
+                    let v = self.env.alloc_infer_type_var();
+                    Scheme::mono(v)
+                })
+            }
+            None => {
+                let v = self.env.alloc_infer_type_var();
+                Scheme::mono(v)
+            }
+        };
+        self.env.bind_with_span(*name, scheme, Some(*span));
+    }
+
+    /// Bind a module function's declared polymorphic scheme when available.
+    ///
+    /// Functions without a complete explicit signature are left alone here and
+    /// inferred normally during the statement pass.
+    fn predeclare_module_function(&mut self, stmt: &Statement) {
+        let Statement::Function {
+            name,
+            span,
+            type_params,
+            parameter_types,
+            return_type,
+            effects,
+            ..
+        } = stmt
+        else {
+            return;
+        };
+
+        if let Some(scheme) =
+            self.declared_fn_scheme(type_params, parameter_types, return_type, effects)
+        {
+            self.env.bind_with_span(*name, scheme, Some(*span));
+        }
+    }
+
+    /// Export the inferred scheme for a public module member after inference.
+    ///
+    /// Module consumers read these cached schemes for qualified lookups and
+    /// cross-module typechecking.
+    fn capture_public_module_member_scheme(&mut self, module_name: Identifier, stmt: &Statement) {
+        let name = match stmt {
+            Statement::Function {
                 is_public: true,
                 name,
                 ..
-            } = stmt
-                && let Some(scheme) = self.env.lookup(*name).cloned()
-            {
-                self.module_member_schemes
-                    .insert((module_name, *name), scheme);
             }
+            | Statement::Let {
+                is_public: true,
+                name,
+                ..
+            } => *name,
+            _ => return,
+        };
+
+        if let Some(scheme) = self.env.lookup(name).cloned() {
+            self.module_member_schemes
+                .insert((module_name, name), scheme);
         }
-        self.env.leave_scope();
     }
 
     /// Span of the expression that determines a block's value in HM inference.

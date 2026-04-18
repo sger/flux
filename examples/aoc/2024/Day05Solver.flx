@@ -103,7 +103,7 @@ module Day05Solver {
     }
 
     fn indegree(rules: Array<(Int, Int)>, remaining: Array<Int>, node: Int) -> Int {
-        fold(
+        Array.fold(
             rules,
             0,
             \(acc, r) -> if r.1 == node && contains_int(remaining, r.0) {

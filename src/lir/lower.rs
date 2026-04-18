@@ -21,6 +21,7 @@ use crate::syntax::interner::Interner;
 pub struct ImportedNativeSymbol {
     pub symbol: String,
     pub arity: usize,
+    pub is_value: bool,
 }
 
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
@@ -156,6 +157,21 @@ fn collect_module_paths(
     entry_qualifier: Option<&str>,
 ) {
     match item {
+        CoreTopLevelItem::Let { name, span, .. } => {
+            let value_name = interner
+                .map(|i| i.resolve(*name).to_string())
+                .unwrap_or_else(|| format!("sym_{}", name.as_u32()));
+            let qualified = if !prefix.is_empty() {
+                let mut parts = prefix.to_vec();
+                parts.push(value_name);
+                parts.join("_")
+            } else if let Some(qual) = entry_qualifier {
+                format!("{qual}_{value_name}")
+            } else {
+                value_name
+            };
+            out.push((*name, qualified.replace('.', "_"), *span));
+        }
         CoreTopLevelItem::Function { name, span, .. } => {
             let func_name = interner
                 .map(|i| i.resolve(*name).to_string())
@@ -321,6 +337,7 @@ fn collect_ctor_tags_inner(
             CoreTopLevelItem::Module { body, .. } => {
                 collect_ctor_tags_inner(body, tags, next_tag, interner);
             }
+            CoreTopLevelItem::Let { .. } => {}
             _ => {}
         }
     }
@@ -348,7 +365,7 @@ pub fn lower_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
+    lower_program_with_interner_and_externs(program, interner, globals_map, None, None, true, None)
 }
 
 pub fn lower_aether_program_with_interner(
@@ -356,7 +373,7 @@ pub fn lower_aether_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_aether_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
+    lower_aether_program_with_interner_and_externs(program, interner, globals_map, None, None, true, None)
 }
 
 /// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
@@ -366,6 +383,7 @@ pub fn lower_program_with_interner_and_externs(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
     extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
@@ -380,6 +398,11 @@ pub fn lower_program_with_interner_and_externs(
         &mut lir.constructor_tags,
         interner,
     );
+    if let Some(imported) = imported_constructor_tags {
+        for (name, tag) in imported {
+            lir.constructor_tags.entry(name.clone()).or_insert(*tag);
+        }
+    }
 
     // Find the main def — it could be at any position in defs[].
     let main_idx = if emit_main {
@@ -498,6 +521,7 @@ pub fn lower_aether_program_with_interner_and_externs(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
     extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
@@ -506,6 +530,11 @@ pub fn lower_aether_program_with_interner_and_externs(
 
     let qualified_names = build_qualified_names(core, interner, entry_qualifier);
     collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+    if let Some(imported) = imported_constructor_tags {
+        for (name, tag) in imported {
+            lir.constructor_tags.entry(name.clone()).or_insert(*tag);
+        }
+    }
 
     let main_idx = if emit_main {
         if let Some(interner) = interner {
@@ -871,6 +900,29 @@ impl<'a> FnLower<'a> {
             .and_then(|symbols| symbols.get(source_name).cloned())
     }
 
+    fn emit_extern_value_getter(&mut self, symbol: String) -> LirVar {
+        let cont_idx = self.new_block();
+        let cont_id = BlockId(cont_idx as u32);
+        let result = self.fresh_var();
+        self.func.blocks[cont_idx].params.push(result);
+
+        let dummy = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: dummy,
+            value: LirConst::None,
+        });
+        self.set_terminator(LirTerminator::Call {
+            dst: result,
+            func: dummy,
+            args: Vec::new(),
+            cont: cont_id,
+            kind: CallKind::DirectExtern { symbol },
+            yield_cont: None,
+        });
+        self.switch_to_block(cont_idx);
+        result
+    }
+
     /// In merged native mode, duplicate bare names from different modules can
     /// carry the wrong binder. Prefer a sibling function from the current
     /// module when the qualified name matches exactly.
@@ -1085,6 +1137,11 @@ impl<'a> FnLower<'a> {
                     // Check if this unbound name is a known ADT constructor
                     // (zero-field constructors like Dir.Up appear as unbound Vars).
                     let name = self.resolve_name(var.name);
+                    if let Some(extern_symbol) = self.resolve_external_symbol(&name)
+                        && extern_symbol.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_symbol.symbol);
+                    }
                     if let Some(&ctor_tag) = self.program.constructor_tags.get(&name) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeCtor {
@@ -1665,7 +1722,11 @@ impl<'a> FnLower<'a> {
                     let object_name = self.resolve_name(var.name);
                     let member_name = self.resolve_name(*member);
                     let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
+                        && extern_fn.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
@@ -1676,7 +1737,11 @@ impl<'a> FnLower<'a> {
                     }
                 }
                 let member_name = self.resolve_name(*member);
-                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
+                    && extern_fn.is_value
+                {
+                    return self.emit_extern_value_getter(extern_fn.symbol);
+                } else if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
@@ -2174,7 +2239,11 @@ impl<'a> FnLower<'a> {
                     let object_name = self.resolve_name(var.name);
                     let member_name = self.resolve_name(*member);
                     let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
+                        && extern_fn.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
@@ -2186,7 +2255,11 @@ impl<'a> FnLower<'a> {
                 }
 
                 let member_name = self.resolve_name(*member);
-                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
+                    && extern_fn.is_value
+                {
+                    return self.emit_extern_value_getter(extern_fn.symbol);
+                } else if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
