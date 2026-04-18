@@ -1,0 +1,11 @@
+// Using a field name that the variant does not declare.
+//
+// Expected: E461 Unknown Named Field
+//   "`Point` has no field named `z`."
+
+data Point { Point { x: Int, y: Int } }
+
+fn main() {
+    let p = Point { x: 1, y: 2, z: 3 }
+    p
+}

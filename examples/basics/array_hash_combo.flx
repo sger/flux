@@ -9,43 +9,37 @@
 // Some(3)
 // parity-expected-stdout-end
 
-fn main() with IO {
-    // Test: Arrays and hashes combined
-    // Expected output:
-    // Alice
-    // Bob
-    // 25
-    // 30
-    // python
-    // rust
-    // 3
+// Arrays combined with named-field records (proposal 0152) and with a
+// homogeneous String-keyed map.
 
-    // Array of hashes
+data User { User { name: String, age: Int } }
+
+fn main() with IO {
     let users = [|
-        {"name": "Alice", "age": 25},
-        {"name": "Bob", "age": 30}
+        User { name: "Alice", age: 25 },
+        User { name: "Bob", age: 30 }
     |]
 
     let first_user = users[0]
     let second_user = users[1]
 
     let first_name = match first_user {
-        Some(u) -> u["name"],
+        Some(u) -> Some(u.name),
         None -> None,
         _ -> None,
     }
     let second_name = match second_user {
-        Some(u) -> u["name"],
+        Some(u) -> Some(u.name),
         None -> None,
         _ -> None,
     }
     let first_age = match first_user {
-        Some(u) -> u["age"],
+        Some(u) -> Some(u.age),
         None -> None,
         _ -> None,
     }
     let second_age = match second_user {
-        Some(u) -> u["age"],
+        Some(u) -> Some(u.age),
         None -> None,
         _ -> None,
     }
@@ -62,23 +56,15 @@ fn main() with IO {
     print(first_age)
     print(second_age)
 
-    // Hash with array values
-    let skills = {
-        "languages": [|"python", "rust", "go"|],
-        "count": 3
-    }
+    // Map with homogeneous Array<String> values. (Counts go in a separate
+    // field on a record when they're needed; mixing types inside one
+    // `{ "a": ..., "b": ... }` hash is rejected by HM.)
+    let languages = [|"python", "rust", "go"|]
+    let first_lang = languages[0]
+    let second_lang = languages[1]
+    let count = Some(len(languages))
 
-    let first_lang = match skills["languages"] {
-        Some(v) -> v[0],
-        None -> None,
-        _ -> None,
-    }
-    let second_lang = match skills["languages"] {
-        Some(v) -> v[1],
-        None -> None,
-        _ -> None,
-    }
     print(first_lang)
     print(second_lang)
-    print(skills["count"])
+    print(count)
 }

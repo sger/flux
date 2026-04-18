@@ -117,6 +117,7 @@ Primary frontend components:
 
 Flux still uses AST-level helper passes before Core lowering in a few places:
 - `desugar`
+- `desugar_named_fields` — proposal 0152 named-field rewriter (see below)
 - `constant_fold_with_interner`
 - `rename`
 - `collect_free_vars_in_program`
@@ -144,6 +145,31 @@ families:
 - Core lowering uses it for type-directed Core construction
 - the VM path carries it into `cfg::IrProgram`
 - the native path reuses it before Core -> LIR lowering
+
+### 3a. Named-field registries (proposal 0152)
+
+Collection phase populates two structures alongside the existing ADT
+machinery:
+
+- `compiler::adt_registry::AdtRegistry` — constructor arity + `FluxRep`s.
+- `compiler::field_registry::FieldRegistry` — per-variant named-field
+  layout (`variant → Vec<FieldInfo>`), a per-ADT common-field view (fields
+  whose name and type appear in every variant), and a list of divergent
+  shared names for E467 reporting.
+
+Both registries are read-only after Phase 1. HM inference extends
+`AdtConstructorTypeInfo` with `field_names: Option<Vec<Identifier>>` and
+consults it to reorder named-constructor arguments, resolve dot access,
+and type-check spreads and named patterns.
+
+After HM, `ast::desugar_named_fields::desugar_named_fields_in_program`
+rewrites every `Expression::NamedConstructor`, `Expression::Spread`, and
+`Pattern::NamedConstructor` into its classic positional form (named
+constructors become `Call(Ident, ...)`, spread becomes a
+`Match(base, [Variant(...) -> Variant(...)])`, and field-dot access
+becomes a `Match(obj, [Variant(...) -> field_binder])`). Downstream
+stages — Core lowering, Aether RC, CFG, LLVM — see only positional AST
+nodes, so proposal 0152 required zero changes below the AST.
 
 ## Canonical Semantic Pipeline
 

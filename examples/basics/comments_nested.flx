@@ -107,8 +107,9 @@ fn main() with IO {
         /* Database settings /* production */ */
         "db": "postgres",
 
-        // Server port
-        "port": 8080,
+        // Server port (stringly typed here so the map stays homogeneous;
+        // see `examples/basics/records.flx` for typed heterogeneous fields).
+        "port": "8080",
 
         /**
         * API settings

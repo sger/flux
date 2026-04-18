@@ -1,0 +1,11 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 32
+---
+Fixture: examples/advanced/mini_database.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

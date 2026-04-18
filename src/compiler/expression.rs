@@ -1138,6 +1138,12 @@ impl Compiler {
             } => {
                 self.compile_handle(expr, *effect, arms)?;
             }
+            Expression::NamedConstructor { .. } | Expression::Spread { .. } => {
+                unreachable!(
+                    "named-field expression must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
         }
         self.current_span = previous_span;
         Ok(())
@@ -2808,6 +2814,12 @@ impl Compiler {
 
                 Ok(jumps)
             }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
         }
     }
 
@@ -3049,6 +3061,12 @@ impl Compiler {
                     }
                     self.compile_pattern_bind(&inner_symbol, field_pat)?;
                 }
+            }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
             }
         }
         Ok(())
@@ -3773,6 +3791,23 @@ impl Compiler {
             | Expression::Boolean { .. }
             | Expression::None { .. }
             | Expression::EmptyList { .. } => {}
+            Expression::NamedConstructor { fields, .. } => {
+                for field in fields {
+                    if let Some(value) = &field.value {
+                        self.collect_consumable_param_uses(value, counts);
+                    }
+                }
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                self.collect_consumable_param_uses(base, counts);
+                for field in overrides {
+                    if let Some(value) = &field.value {
+                        self.collect_consumable_param_uses(value, counts);
+                    }
+                }
+            }
         }
     }
 
@@ -4799,6 +4834,11 @@ impl Compiler {
                     false
                 }
             }
+
+            // Named-field patterns are lowered to positional Constructor
+            // patterns during type inference; this branch is reached only for
+            // patterns that survived to the compiler, which would be a bug.
+            Pattern::NamedConstructor { .. } => false,
         }
     }
 

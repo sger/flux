@@ -1,3 +1,6 @@
+use crate::ast::desugar_named_fields::{
+    NamedFieldDesugarCtx, collect_named_field_metadata, desugar_named_fields_in_program,
+};
 use crate::ast::type_infer::constraint::WantedClassConstraint;
 use crate::ast::type_infer::static_type_validation::{
     StaticTypeValidationCtx, validate_static_types,
@@ -26,7 +29,7 @@ impl Compiler {
         program: &'a Program,
     ) -> TypeInferenceResult<'a> {
         let final_inference = self.infer_final_program(program);
-        let final_program = final_inference.effective_program;
+        let mut final_program = final_inference.effective_program;
         let hm_final = final_inference.hm_final;
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
@@ -68,6 +71,21 @@ impl Compiler {
         }
 
         self.has_hm_diagnostics = !hm_diagnostics.is_empty();
+
+        // Proposal 0152, Phase 3: desugar named-field AST nodes into their
+        // positional equivalents so every downstream phase (AST-fallback
+        // bytecode, Core lowering, LLVM) sees only classic AST forms.
+        {
+            let (ctor_field_names, adt_variants) =
+                collect_named_field_metadata(final_program.as_ref());
+            let mut ctx = NamedFieldDesugarCtx {
+                ctor_field_names: &ctor_field_names,
+                adt_variants: &adt_variants,
+                hm_expr_types: &self.hm_expr_types,
+            };
+            let owned = final_program.to_mut();
+            desugar_named_fields_in_program(owned, &mut ctx);
+        }
 
         TypeInferenceResult {
             final_program,

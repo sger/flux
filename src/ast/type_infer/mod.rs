@@ -65,6 +65,9 @@ struct AdtConstructorTypeInfo {
     adt_name: Identifier,
     type_params: Vec<Identifier>,
     fields: Vec<TypeExpr>,
+    /// Field names for named-field variants (Proposal 0152).
+    /// `None` for positional variants. When `Some`, length matches `fields`.
+    field_names: Option<Vec<Identifier>>,
 }
 
 // ── Diagnostic context ───────────────────────────────────────────────────────

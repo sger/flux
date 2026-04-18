@@ -793,6 +793,12 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
+            Expression::NamedConstructor { .. } | Expression::Spread { .. } => {
+                unreachable!(
+                    "named-field expression must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
         }
     }
 
@@ -2127,6 +2133,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     self.emit_pattern_test(field_var, field, fail_block, *ctor_span)?;
                 }
             }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
             Pattern::Literal {
                 expression: _,
                 span: lit_span,
@@ -2311,6 +2323,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     });
                     self.emit_pattern_bindings(field_var, field, span)?;
                 }
+            }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
             }
         }
         Ok(())

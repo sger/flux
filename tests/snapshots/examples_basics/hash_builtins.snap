@@ -3,70 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/hash_builtins.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/hash_builtins.flx:29:43
-   |
-29 |     let person = {"name": "Alice", "age": 30, "city": "NYC"};
-   |                                           ^^
-   |                                           -- this expression has type `Int`
-
-   |                                           -- this type mismatch is reported here
-
-Note:
-  expected type: String
-  found type: Int
-  the conflicting types meet at this expression
-
-Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/hash_builtins.flx:43:52
-   |
-43 |     let settings = {"lang": "fr", "notifications": true};
-   |                                                    ^^^^
-   |                                                    ---- this expression has type `Bool`
-
-   |                                                    ---- this type mismatch is reported here
-
-Note:
-  expected type: String
-  found type: Bool
-  the conflicting types meet at this expression
-
-Help:
-  These two types are not compatible.
-
-
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/hash_builtins.flx:52:70
-   |
-52 |         let config_defaults = {"timeout": 30, "retries": 3, "debug": false};
-   |                                                                      ^^^^^
-   |                                                                      ----- this expression has type `Bool`
-
-   |                                                                      ----- this type mismatch is reported here
-
-Note:
-  expected type: Int
-  found type: Bool
-  the conflicting types meet at this expression
-
-Help:
-  These two types are not compatible.
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

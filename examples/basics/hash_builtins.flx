@@ -1,59 +1,42 @@
 // parity-expected-stdout-begin
 // [|"city", "name", "age"|]
-// [|"NYC", "Alice", 30|]
+// [|"NYC", "Alice", "30"|]
 // true
 // false
-// {"lang": "fr", "notifications": true, "theme": "dark"}
+// {"lang": "fr", "theme": "dark"}
 // "Config with defaults example"
-// None
+// {"retries": "3", "timeout": "60"}
 // parity-expected-stdout-end
 
 import Flow.Map as Map
 
 fn main() with IO {
-    // Test: Hash base functions
-    // Expected output:
-    // [|"name", "age", "city"|]
-    // [|"Alice", 30, "NYC"|]
-    // true
-    // false
-    // {"theme": "dark", "lang": "fr", "notifications": true}
-    // Config with defaults example
-    // {"timeout": 60, "retries": 3, "debug": true}
+    // Hash / Map base functions — proposal 0152 migration keeps this demo
+    // homogeneous (String -> String) so the values all share a single type.
+    // For mixed-type records, see `examples/basics/records.flx`.
 
-    // =============================================================================
-    // Hash Base Functions (Milestone 5.3)
-    // =============================================================================
+    let person = {"name": "Alice", "age": "30", "city": "NYC"}
 
-    // Sample hash for testing
-    let person = {"name": "Alice", "age": 30, "city": "NYC"};
+    // keys / values — note order is HashMap iteration order, not insertion.
+    print(Map.keys(person))
+    print(Map.values(person))
 
-    // keys - get all keys from a hash
-    print(Map.keys(person));  // [|"name", "age", "city"|]
+    // has — key membership
+    print(Map.has(person, "name"))
+    print(Map.has(person, "email"))
 
-    // values - get all values from a hash
-    print(Map.values(person));  // [|"Alice", 30, "NYC"|]
+    // merge — right operand wins on conflicts
+    let defaults = {"theme": "dark", "lang": "en"}
+    let settings = {"lang": "fr"}
+    print(Map.merge(defaults, settings))
 
-    // has_key - check if a key exists
-    print(Map.has(person, "name"));   // true
-    print(Map.has(person, "email"));  // false
-
-    // merge - combine two hashes (second hash overwrites conflicts)
-    let defaults = {"theme": "dark", "lang": "en"};
-    let settings = {"lang": "fr", "notifications": true};
-    print(Map.merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notifications": true}
-
-    // =============================================================================
-    // Practical Examples
-    // =============================================================================
-
-    // Example 1: Config with defaults
+    // A tiny "config with defaults" demo over Map<String, String>.
     fn getConfig(userConfig) {
-        let config_defaults = {"timeout": 30, "retries": 3, "debug": false};
-        Map.merge(config_defaults, userConfig);
+        let base_defaults = {"timeout": "30", "retries": "3"}
+        Map.merge(base_defaults, userConfig)
     }
 
-    print("Config with defaults example");
-    let config = getConfig({"timeout": 60, "debug": true});
-    print(config);  // {"timeout": 60, "retries": 3, "debug": true}
+    print("Config with defaults example")
+    let config = getConfig({"timeout": "60"})
+    print(config)
 }

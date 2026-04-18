@@ -366,6 +366,23 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&arm.body);
             }
         }
+        Expression::NamedConstructor { fields, .. } => {
+            for field in fields {
+                if let Some(value) = &field.value {
+                    visitor.visit_expr(value);
+                }
+            }
+        }
+        Expression::Spread {
+            base, overrides, ..
+        } => {
+            visitor.visit_expr(base);
+            for field in overrides {
+                if let Some(value) = &field.value {
+                    visitor.visit_expr(value);
+                }
+            }
+        }
     }
 }
 
@@ -404,6 +421,13 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
         Pattern::Constructor { fields, .. } => {
             for field in fields {
                 visitor.visit_pat(field);
+            }
+        }
+        Pattern::NamedConstructor { fields, .. } => {
+            for field in fields {
+                if let Some(pat) = &field.pattern {
+                    visitor.visit_pat(pat);
+                }
             }
         }
     }

@@ -105,6 +105,7 @@ pub fn lower_program_ast_with_class_env(
     class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> CoreProgram {
     let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
+    lowerer.collect_ctor_field_names(program);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -138,6 +139,15 @@ pub(super) struct AstLowerer<'a> {
     pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
     /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
     pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
+    /// Proposal 0152: variant name → declared field names in declaration
+    /// order. Used to desugar named-field constructor expressions, spread
+    /// expressions, and named-field patterns into positional form.
+    pub(super) ctor_field_names:
+        std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
+    /// Proposal 0152: ADT name → list of variant names. Used when
+    /// desugaring dot access on multi-variant ADTs.
+    pub(super) adt_variants:
+        std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -156,7 +166,41 @@ impl<'a> AstLowerer<'a> {
             type_env,
             effect_op_sigs,
             class_env,
+            ctor_field_names: std::collections::HashMap::new(),
+            adt_variants: std::collections::HashMap::new(),
         }
+    }
+
+    /// Proposal 0152: populate `ctor_field_names` from a program's `data`
+    /// declarations. Walks both top-level and module-nested statements.
+    pub(super) fn collect_ctor_field_names(&mut self, program: &Program) {
+        fn walk(
+            stmts: &[Statement],
+            field_names: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
+            adt_variants: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
+        ) {
+            for stmt in stmts {
+                match stmt {
+                    Statement::Data { name, variants, .. } => {
+                        adt_variants.insert(*name, variants.iter().map(|v| v.name).collect());
+                        for variant in variants {
+                            if let Some(names) = variant.field_names.as_ref() {
+                                field_names.insert(variant.name, names.clone());
+                            }
+                        }
+                    }
+                    Statement::Module { body, .. } => {
+                        walk(&body.statements, field_names, adt_variants);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(
+            &program.statements,
+            &mut self.ctor_field_names,
+            &mut self.adt_variants,
+        );
     }
 
     pub(super) fn bind_name(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
