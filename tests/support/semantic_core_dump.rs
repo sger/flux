@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     core::display::CoreDisplayMode,
     diagnostics::{Diagnostic, render_diagnostics},
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},

@@ -5,7 +5,7 @@
 //! fingerprint changed).
 
 use flux::{
-    bytecode::compiler::{Compiler, module_interface},
+    compiler::{Compiler, module_interface},
     syntax::{lexer::Lexer, parser::Parser},
     types::module_interface::ModuleInterface,
 };

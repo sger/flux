@@ -5,8 +5,8 @@
 //! These tests caught bugs where the linker skipped rebasing for new opcodes,
 //! causing the VM to index into wrong constants (e.g., adding Int + String).
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;

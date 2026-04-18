@@ -3053,7 +3053,7 @@ fn unsupported_lowering(span: crate::diagnostics::position::Span, message: &str)
 #[cfg(test)]
 mod tests {
     use crate::{
-        bytecode::compiler::Compiler,
+        compiler::Compiler,
         cfg::validate_ir,
         syntax::{lexer::Lexer, parser::Parser},
     };

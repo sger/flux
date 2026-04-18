@@ -7,8 +7,8 @@
 //! - Flow library functions (fold, filter, any) are unavailable in modules
 //! - Recursive tail calls with if-expression arguments fail after linking
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;

@@ -8,7 +8,7 @@ use std::{
 };
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::{
         DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, Severity,
         quality::module_skipped_note,

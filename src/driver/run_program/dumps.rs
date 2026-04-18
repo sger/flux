@@ -4,7 +4,7 @@ use crate::driver::support::shared::{DiagnosticRenderRequest, emit_diagnostics};
 use flux::syntax::program::Program;
 
 pub(crate) struct DumpRequest<'a> {
-    pub(crate) compiler: &'a mut flux::bytecode::compiler::Compiler,
+    pub(crate) compiler: &'a mut flux::compiler::Compiler,
     pub(crate) merged_program: &'a Program,
     pub(crate) path: &'a str,
     pub(crate) source: &'a str,

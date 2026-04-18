@@ -34,7 +34,8 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
-    bytecode::{bytecode_cache::hash_bytes, compiler::Compiler},
+    bytecode::bytecode_cache::hash_bytes,
+    compiler::Compiler,
     diagnostics::Diagnostic,
     shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::core::{
     lower_ast::lower_program_ast,
     passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
@@ -30,7 +30,7 @@ fn parse_and_infer(
     let interner = parser.take_interner();
 
     let mut compiler =
-        flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner.clone());
+        flux::compiler::Compiler::new_with_interner("<test>", interner.clone());
     let types = compiler.infer_expr_types_for_program(&program);
     (program, types, interner)
 }
@@ -45,9 +45,9 @@ fn run(src: &str) -> Value {
         parser.errors
     );
     let interner = parser.take_interner();
-    let mut compiler = flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner);
+    let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("compile ok");
-    let mut vm = flux::bytecode::vm::VM::new(compiler.bytecode());
+    let mut vm = flux::vm::VM::new(compiler.bytecode());
     vm.run().expect("vm run ok");
     vm.last_popped_stack_elem().clone()
 }

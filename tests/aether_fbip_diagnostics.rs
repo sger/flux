@@ -1,4 +1,4 @@
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::diagnostics::Diagnostic;
 use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
 use std::path::Path;

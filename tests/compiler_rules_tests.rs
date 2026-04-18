@@ -1,4 +1,4 @@
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::diagnostics::{Diagnostic, LabelStyle, render_diagnostics};
 use flux::syntax::{lexer::Lexer, parser::Parser};
 

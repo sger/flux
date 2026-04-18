@@ -12,7 +12,7 @@ use crate::llvm::module_cache::{
 use crate::{
     bytecode::bytecode_cache::module_cache::ModuleDependencyStatus,
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
-    bytecode::compiler::module_interface::{
+    compiler::module_interface::{
         compute_semantic_config_hash, interface_path, load_cached_interface, load_interface,
         load_valid_interface,
     },

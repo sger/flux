@@ -224,7 +224,7 @@ impl NativeModuleCache {
             .iter()
             .map(|dependency| {
                 let dependency_path = PathBuf::from(&dependency.source_path);
-                match crate::bytecode::compiler::module_interface::load_cached_interface(
+                match crate::compiler::module_interface::load_cached_interface(
                     cache_root,
                     &dependency_path,
                 ) {
@@ -298,10 +298,10 @@ mod tests {
         let source = Path::new("examples/aoc/2024/Day06Solver.flx");
         let dep_path = Path::new("lib/Flow/List.flx");
         let dep_interface_path =
-            crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
+            crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(
+        crate::compiler::module_interface::save_interface(
             &dep_interface_path,
             &dep_interface,
         )
@@ -338,10 +338,10 @@ mod tests {
         let source = Path::new("examples/aoc/2024/Day06Solver.flx");
         let dep_path = Path::new("lib/Flow/List.flx");
         let dep_interface_path =
-            crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
+            crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(
+        crate::compiler::module_interface::save_interface(
             &dep_interface_path,
             &dep_interface,
         )

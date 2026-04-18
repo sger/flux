@@ -1,4 +1,4 @@
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::bytecode::op_code::disassemble;
 use flux::diagnostics::render_diagnostics;
 use flux::syntax::lexer::Lexer;

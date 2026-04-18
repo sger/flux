@@ -7,7 +7,7 @@ use std::{
 
 use crate as flux;
 use crate::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticPhase},
     syntax::{
         interner::Interner,

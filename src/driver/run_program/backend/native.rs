@@ -97,7 +97,7 @@ fn emit_native_aether_trace(
 /// Frontend state already prepared by the pipeline before native execution starts.
 pub(crate) struct NativeProgramInput<'a> {
     pub(crate) graph: &'a ModuleGraph,
-    pub(crate) compiler: &'a mut flux::bytecode::compiler::Compiler,
+    pub(crate) compiler: &'a mut flux::compiler::Compiler,
     pub(crate) path: &'a str,
     pub(crate) source: &'a str,
     pub(crate) is_multimodule: bool,
