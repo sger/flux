@@ -1,6 +1,6 @@
 - Feature Name: PrimOp Effect Levels
 - Start Date: 2026-03-26
-- Status: Draft
+- Status: Partially Implemented, remainder Superseded (2026-04-18) by [Proposal 0161 — Effect System Decomposition and Capabilities](../0161_effect_system_decomposition_and_capabilities.md) (Phase 3: derive Pure/CanFail/HasEffect from effect-row category instead of a hardcoded match)
 - Proposal PR:
 - Flux Issue:
 - Depends on: None (standalone optimizer improvement)

@@ -1,9 +1,9 @@
 - Feature Name: Base Function Effect Purity Audit
 - Start Date: 2026-03-18
-- Status: Draft
+- Status: Superseded (2026-04-18) by [Proposal 0161 — Effect System Decomposition and Capabilities](../0161_effect_system_decomposition_and_capabilities.md) (Phase 1.5: audit absorbed once primop signatures live in `Flow.Primops`)
 - Proposal PR:
 - Flux Issue:
-- Depends on: 0074 (base signature tightening), 0099 (static purity completion)
+- Depends on: 0074 (base signature tightening)
 
 # Proposal 0108: Base Function Effect Purity Audit
 

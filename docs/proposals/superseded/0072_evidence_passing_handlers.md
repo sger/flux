@@ -1,6 +1,6 @@
 - Feature Name: Evidence Passing for Tail-Resumptive Effect Handlers
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded (2026-04-18) by [Proposal 0162 — Unified Effect Handler Runtime](../0162_unified_effect_handler_runtime.md) (Phase 1)
 - Proposal PR: pending
 - Flux Issue: pending
 

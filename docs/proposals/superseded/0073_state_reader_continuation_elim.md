@@ -1,6 +1,6 @@
 - Feature Name: Eliminate Continuation Allocation for State and Reader Effects
 - Start Date: 2026-03-01
-- Status: Not Implemented
+- Status: Superseded (2026-04-18) by [Proposal 0162 — Unified Effect Handler Runtime](../0162_unified_effect_handler_runtime.md) (Phase 2)
 - Proposal PR: pending
 - Flux Issue: pending
 
