@@ -572,7 +572,7 @@ mod tests {
     }
 
     fn v<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::bound_var(binder.borrow().clone(), s())
+        CoreExpr::bound_var(*binder.borrow(), s())
     }
 
     #[test]

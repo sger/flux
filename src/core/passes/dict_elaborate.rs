@@ -316,13 +316,13 @@ fn rewrite_constrained_functions(
                 *next_id += 1;
                 let binder =
                     CoreBinder::with_rep(CoreBinderId(binder_id), param_name, FluxRep::BoxedRep);
-                dict_params.push(binder.clone());
+                dict_params.push(binder);
                 binder
             };
 
             // Map each method of this class to its tuple index + dict binder.
             for (idx, method_sig) in class_def.methods.iter().enumerate() {
-                method_map.insert(method_sig.name, (dict_binder.clone(), idx));
+                method_map.insert(method_sig.name, (dict_binder, idx));
             }
         }
 
@@ -424,7 +424,7 @@ fn build_caller_dict_map(
         // The first N params are dictionary params (one per constraint).
         for (i, constraint) in constraints.iter().enumerate() {
             if let Some(binder) = params.get(i) {
-                map.insert(constraint.class_name, binder.clone());
+                map.insert(constraint.class_name, *binder);
             }
         }
     }

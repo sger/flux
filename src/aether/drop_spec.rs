@@ -63,7 +63,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
                     if let Some(binder) = &scrut_binder {
                         let field_binders = pat_binders(&alt.pat);
                         if !field_binders.is_empty() {
-                            alt.rhs = try_specialize(binder.clone(), &field_binders, alt.rhs, span);
+                            alt.rhs = try_specialize(*binder, &field_binders, alt.rhs, span);
                         }
                     }
 
@@ -557,7 +557,7 @@ fn rewrite_mode(
                 inner
             } else {
                 CoreExpr::Dup {
-                    var: var.clone(),
+                    var: *var,
                     body: Box::new(inner),
                     span: *span,
                 }
@@ -568,7 +568,7 @@ fn rewrite_mode(
                 rewrite_mode(body, mode, scrutinee_id, duped_fields)
             } else {
                 CoreExpr::Drop {
-                    var: var.clone(),
+                    var: *var,
                     body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
                     span: *span,
                 }
@@ -580,7 +580,7 @@ fn rewrite_mode(
             body,
             span,
         } => CoreExpr::Let {
-            var: var.clone(),
+            var: *var,
             rhs: Box::new(rewrite_mode(rhs, mode, scrutinee_id, duped_fields)),
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             span: *span,
@@ -591,7 +591,7 @@ fn rewrite_mode(
             body,
             span,
         } => CoreExpr::LetRec {
-            var: var.clone(),
+            var: *var,
             rhs: rhs.clone(),
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             span: *span,
@@ -698,7 +698,7 @@ fn rewrite_mode(
                     operation: handler.operation,
                     params: handler.params.clone(),
                     param_types: handler.param_types.clone(),
-                    resume: handler.resume.clone(),
+                    resume: handler.resume,
                     resume_ty: handler.resume_ty.clone(),
                     body: rewrite_mode(&handler.body, mode, scrutinee_id, duped_fields),
                     span: handler.span,

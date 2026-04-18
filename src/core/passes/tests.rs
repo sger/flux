@@ -1041,7 +1041,7 @@ fn run_core_passes_rejects_malformed_aether_before_lowering() {
 
     let expr = crate::aether::AetherExpr::Drop {
         var: crate::core::CoreVarRef::resolved(&xs),
-        body: Box::new(crate::aether::AetherExpr::bound_var(xs.clone(), s())),
+        body: Box::new(crate::aether::AetherExpr::bound_var(xs, s())),
         span: s(),
     };
     let err = crate::aether::verify::verify_contract_aether(&expr)

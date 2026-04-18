@@ -200,7 +200,7 @@ impl FbipDefView for crate::core::CoreDef {
     }
 
     fn binder(&self) -> crate::core::CoreBinder {
-        self.binder.clone()
+        self.binder
     }
 
     fn span(&self) -> crate::diagnostics::position::Span {
@@ -218,7 +218,7 @@ impl FbipDefView for crate::aether::AetherDef {
     }
 
     fn binder(&self) -> crate::core::CoreBinder {
-        self.binder.clone()
+        self.binder
     }
 
     fn span(&self) -> crate::diagnostics::position::Span {

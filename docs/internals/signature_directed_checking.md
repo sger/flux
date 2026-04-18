@@ -137,7 +137,7 @@ In `src/ast/type_infer/expression/calls.rs`:
   expected)` runs *before* the canonical per-arg `unify_core` +
   `call_arg_type_mismatch` emission. Per-sub-expression diagnostics
   survive thanks to `hm_span_strictly_narrower` in
-  `src/bytecode/compiler/mod.rs::suppress_overlapping_hm_diagnostics`,
+  `src/compiler/mod.rs::suppress_overlapping_hm_diagnostics`,
   which keeps HM diagnostics whose span is strictly contained in the
   compiler's whole-value boundary span.
 - `infer_call_higher_order_path` — for lambda arguments, runs
@@ -182,7 +182,7 @@ Production code:
 - [src/types/unify.rs](../../src/types/unify.rs) — threaded skolem parameter, flip rule, rigid-bind rejection.
 - [src/types/unify_error.rs](../../src/types/unify_error.rs) — `UnifyErrorKind::RigidBind`.
 - [src/diagnostics/compiler_errors.rs](../../src/diagnostics/compiler_errors.rs) + [src/diagnostics/registry.rs](../../src/diagnostics/registry.rs) — E305 registration.
-- [src/bytecode/compiler/mod.rs](../../src/bytecode/compiler/mod.rs) — `hm_span_strictly_narrower`.
+- [src/compiler/mod.rs](../../src/compiler/mod.rs) — `hm_span_strictly_narrower`.
 
 Fixtures:
 

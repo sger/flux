@@ -34,14 +34,14 @@ The maintained implementation targets a statically typed source model:
   - `src/types/type_env.rs`
   - `src/types/unify_error.rs`
 - Compiler integration:
-  - `src/bytecode/compiler/mod.rs`
-  - `src/bytecode/compiler/hm_expr_typer.rs`
-  - `src/bytecode/compiler/statement.rs`
-  - `src/bytecode/compiler/expression.rs`
+  - `src/compiler/mod.rs`
+  - `src/compiler/hm_expr_typer.rs`
+  - `src/compiler/statement.rs`
+  - `src/compiler/expression.rs`
 
 ## Compile Pipeline Placement
 
-Inside `Compiler::compile` (`src/bytecode/compiler/mod.rs`), HM runs after pass-1 function predeclaration and before pass-2 statement codegen.
+Inside `Compiler::compile` (`src/compiler/mod.rs`), HM runs after pass-1 function predeclaration and before pass-2 statement codegen.
 
 High-level order:
 1. Reset per-file compiler state.
@@ -195,7 +195,7 @@ In this case, HM infers `id("hi") : String`, typed binding expects `Int`, and co
 
 ## Strict-Path Consumption in Compiler
 
-`src/bytecode/compiler/hm_expr_typer.rs` is the strict consumer for HM expression types:
+`src/compiler/hm_expr_typer.rs` is the strict consumer for HM expression types:
 - `hm_expr_type_strict_path` resolves expression node id and fetches inferred type,
 - resolved means: no free vars and no unsupported fallback residue,
 - typed checks call `validate_expr_expected_type(_with_policy)`.
@@ -231,7 +231,7 @@ Main HM tests:
 - `tests/type_inference_tests.rs`
 
 Compiler/HM integration tests:
-- `src/bytecode/compiler/compiler_test.rs`
+- `src/compiler/compiler_test.rs`
 - `tests/compiler_rules_tests.rs`
 
 Parity and fixture coverage:
@@ -336,7 +336,7 @@ When adding a new expression form or statement that needs type-checked behavior:
    - Produce and record an `InferType` for the new node.
    - Emit `E300` via `unify_reporting` for concrete mismatches.
 
-2. **Compiler consumption side** (`src/bytecode/compiler/`):
+2. **Compiler consumption side** (`src/compiler/`):
    - If the construct has an annotated type, call `hm_expr_type_strict_path` to get the HM-inferred type, then `validate_expr_expected_type_with_policy` to check it.
    - Avoid re-deriving the type in the compiler — always consume the `ExprTypeMap` result.
 
