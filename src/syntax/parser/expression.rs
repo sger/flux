@@ -9,11 +9,9 @@ use crate::{
         unclosed_delimiter, unexpected_token, unexpected_token_with_details, unknown_keyword_alias,
     },
     syntax::{
-        block::Block,
         Identifier,
-        expression::{
-            Expression, HandleArm, MatchArm, NamedFieldInit, NamedFieldPattern, Pattern,
-        },
+        block::Block,
+        expression::{Expression, HandleArm, MatchArm, NamedFieldInit, NamedFieldPattern, Pattern},
         precedence::{
             Fixity, Precedence, infix_op, parse_loop_precedence, prefix_op,
             rhs_precedence_for_infix,

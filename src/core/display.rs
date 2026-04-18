@@ -646,8 +646,8 @@ fn collect_core_bound_var_order(
 }
 
 fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
-    use std::collections::HashMap;
     use super::{CoreAbstractType, CoreType};
+    use std::collections::HashMap;
     fn go(
         ty: &CoreType,
         interner: &Interner,
@@ -690,8 +690,11 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                     .iter()
                     .map(|var| names.get(var).cloned().unwrap())
                     .collect::<Vec<_>>();
-                let rendered =
-                    format!("forall {}. {}", vars.join(", "), go(body, interner, names, next));
+                let rendered = format!(
+                    "forall {}. {}",
+                    vars.join(", "),
+                    go(body, interner, names, next)
+                );
                 for var in inserted {
                     names.remove(&var);
                 }
@@ -739,7 +742,11 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                     .iter()
                     .map(|p| go(p, interner, names, next))
                     .collect();
-                format!("({}) -> {}", parts.join(", "), go(ret, interner, names, next))
+                format!(
+                    "({}) -> {}",
+                    parts.join(", "),
+                    go(ret, interner, names, next)
+                )
             }
             CoreType::Adt(name, args) => {
                 let name = interner

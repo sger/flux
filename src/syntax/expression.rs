@@ -965,7 +965,9 @@ impl Pattern {
                 let mut parts: Vec<String> = fields
                     .iter()
                     .map(|f| match &f.pattern {
-                        Some(p) => format!("{}: {}", interner.resolve(f.name), p.display_with(interner)),
+                        Some(p) => {
+                            format!("{}: {}", interner.resolve(f.name), p.display_with(interner))
+                        }
                         None => interner.resolve(f.name).to_string(),
                     })
                     .collect();

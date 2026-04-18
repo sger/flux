@@ -115,11 +115,21 @@ impl VM {
         Some((file.to_string(), location.span))
     }
 
-    pub(super) fn format_frame(&self, frame: &Frame) -> (String, Option<String>) {
+    pub(super) fn format_frame(
+        &self,
+        frame: &Frame,
+        is_root_frame: bool,
+    ) -> (String, Option<String>) {
         let debug_info = frame.closure.function.debug_info.as_ref();
         let name = debug_info
             .and_then(|info| info.name.clone())
-            .unwrap_or_else(|| "<anonymous>".to_string());
+            .unwrap_or_else(|| {
+                if is_root_frame {
+                    "<entry>".to_string()
+                } else {
+                    "<anonymous>".to_string()
+                }
+            });
         let location = debug_info.and_then(|info| {
             info.location_at(frame.ip).and_then(|loc| {
                 info.file_for(loc.file_id).map(|file| {
@@ -140,8 +150,10 @@ impl VM {
         let stack_frames = self.frames[..=self.frame_index]
             .iter()
             .rev()
-            .map(|frame| {
-                let (name, location) = self.format_frame(frame);
+            .enumerate()
+            .map(|(index, frame)| {
+                let is_root_frame = index == self.frame_index;
+                let (name, location) = self.format_frame(frame, is_root_frame);
                 match location {
                     Some(loc) => format!("{name} ({loc})"),
                     None => name,

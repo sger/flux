@@ -1,5 +1,5 @@
 module Modules.StringUtils {
-    fn wrap(s, prefix, suffix) {
+    public fn wrap(s, prefix, suffix) {
         prefix + s + suffix;
     }
 

@@ -6,9 +6,7 @@ use std::{
 };
 
 use crate::{
-    compiler::module_interface::{
-        interface_path, module_interface_changed, save_interface,
-    },
+    compiler::module_interface::{interface_path, module_interface_changed, save_interface},
     diagnostics::{Diagnostic, Severity},
     syntax::{
         interner::Interner,
@@ -18,9 +16,7 @@ use crate::{
 };
 
 #[cfg(feature = "llvm")]
-use crate::{
-    compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph,
-};
+use crate::{compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph};
 
 use crate::driver::{
     module_compile::{ModuleReplayRequest, replay_module_diagnostics},

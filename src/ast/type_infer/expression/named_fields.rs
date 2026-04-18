@@ -51,7 +51,10 @@ impl<'a> InferCtx<'a> {
         }
         let resolved_field = self.merge_field_types(adt_name, member, &present, span);
         if missing_any {
-            Some(InferType::App(TypeConstructor::Option, vec![resolved_field]))
+            Some(InferType::App(
+                TypeConstructor::Option,
+                vec![resolved_field],
+            ))
         } else {
             Some(resolved_field)
         }

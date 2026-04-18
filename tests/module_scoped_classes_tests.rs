@@ -9,11 +9,11 @@
 //! here is "the validator no longer rejects the source."
 
 use flux::compiler::Compiler;
-use flux::vm::VM;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 
 /// Parse `source` and run it through the bytecode compiler. Returns the list
 /// of diagnostics. The test asserts on the diagnostic codes.

@@ -29,8 +29,7 @@ fn parse_and_infer(
     );
     let interner = parser.take_interner();
 
-    let mut compiler =
-        flux::compiler::Compiler::new_with_interner("<test>", interner.clone());
+    let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner.clone());
     let types = compiler.infer_expr_types_for_program(&program);
     (program, types, interner)
 }

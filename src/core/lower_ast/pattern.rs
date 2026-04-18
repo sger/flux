@@ -265,17 +265,14 @@ impl<'a> super::AstLowerer<'a> {
                         .collect(),
                 }
             }
-            Pattern::NamedConstructor {
-                name, fields, ..
-            } => {
+            Pattern::NamedConstructor { name, fields, .. } => {
                 // Proposal 0152: reorder named fields into declaration order
                 // and emit as a positional constructor pattern. Unknown or
                 // duplicate fields have already been diagnosed in HM; we
                 // recover with wildcards for any missing slot.
                 let declared = self.ctor_field_names.get(name).cloned().unwrap_or_default();
-                let mut positional: Vec<CorePat> = (0..declared.len())
-                    .map(|_| CorePat::Wildcard)
-                    .collect();
+                let mut positional: Vec<CorePat> =
+                    (0..declared.len()).map(|_| CorePat::Wildcard).collect();
                 for field in fields {
                     if let Some(index) = declared.iter().position(|n| *n == field.name) {
                         let sub = match &field.pattern {

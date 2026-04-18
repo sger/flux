@@ -35,9 +35,6 @@ impl DataVariant {
     /// Returns the positional index of a named field, or `None` if the
     /// variant is positional or the name is unknown.
     pub fn field_index(&self, name: Identifier) -> Option<usize> {
-        self.field_names
-            .as_ref()?
-            .iter()
-            .position(|n| *n == name)
+        self.field_names.as_ref()?.iter().position(|n| *n == name)
     }
 }

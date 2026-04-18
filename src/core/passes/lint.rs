@@ -88,17 +88,18 @@ fn lint_expr(
     match expr {
         CoreExpr::Var { var, .. } => {
             if let Some(id) = var.binder
-                && !in_scope.contains(&id) {
-                    errors.push(CoreLintError {
-                        kind: CoreLintErrorKind::UnresolvedVar,
-                        def_name: None,
-                        message: format!(
-                            "variable `{}` references binder {:?} which is not in scope",
-                            var.name.as_u32(),
-                            id
-                        ),
-                    });
-                }
+                && !in_scope.contains(&id)
+            {
+                errors.push(CoreLintError {
+                    kind: CoreLintErrorKind::UnresolvedVar,
+                    def_name: None,
+                    message: format!(
+                        "variable `{}` references binder {:?} which is not in scope",
+                        var.name.as_u32(),
+                        id
+                    ),
+                });
+            }
         }
 
         CoreExpr::Lit(..) => {}
