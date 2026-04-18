@@ -52,6 +52,7 @@ pub mod static_type_validation;
 mod unification;
 
 pub(crate) type BindingSpanKey = (usize, usize, usize, usize);
+pub use display::{display_infer_type, render_scheme_canonical};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared type definitions
@@ -446,7 +447,7 @@ impl<'a> InferCtx<'a> {
     }
 }
 
-pub use display::{display_infer_type, suggest_type_name};
+pub use display::suggest_type_name;
 
 /// Pre-loaded data arguments required by [`infer_program`].
 ///

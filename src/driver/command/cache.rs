@@ -217,6 +217,8 @@ pub(crate) fn show_interface_info_file(path: &str) {
         println!("interface: not found or invalid");
         return;
     };
+    let mut interner = crate::syntax::interner::Interner::new();
+    let remap = interface.build_symbol_remap(&mut interner);
 
     println!("interface file: {}", path);
     println!("module: {}", interface.module_name);
@@ -268,7 +270,7 @@ pub(crate) fn show_interface_info_file(path: &str) {
             interface
                 .schemes
                 .get(&member)
-                .map(format_scheme_for_cli)
+                .map(|scheme| format_scheme_for_cli(&interner, &scheme.remap_symbols(&remap)))
                 .unwrap_or_else(|| "<no scheme>".to_string())
         );
         if let Some(signature) = interface.borrow_signatures.get(&member) {

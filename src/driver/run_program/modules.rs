@@ -456,7 +456,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     });
                     if request.runtime.verbose && interface_changed {
                         if let Some(old) = old_interface.as_ref() {
-                            log_interface_diff(old, &interface);
+                            log_interface_diff(old, &interface, &request.compiler.interner);
                         } else {
                             eprintln!("  interface: new (no previous interface)");
                         }

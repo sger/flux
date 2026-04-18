@@ -168,13 +168,14 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
 pub(crate) fn log_interface_diff(
     old: &flux::types::module_interface::ModuleInterface,
     new: &flux::types::module_interface::ModuleInterface,
+    interner: &crate::syntax::interner::Interner,
 ) {
     for name in new.schemes.keys() {
         if !old.schemes.contains_key(name) {
             eprintln!(
                 "  + public {}: {}",
                 name,
-                format_scheme_for_cli(&new.schemes[name])
+                format_scheme_for_cli(interner, &new.schemes[name])
             );
         }
     }
@@ -190,8 +191,8 @@ pub(crate) fn log_interface_diff(
             eprintln!(
                 "  ~ public {}: {} -> {}",
                 name,
-                format_scheme_for_cli(old_scheme),
-                format_scheme_for_cli(new_scheme)
+                format_scheme_for_cli(interner, old_scheme),
+                format_scheme_for_cli(interner, new_scheme)
             );
         }
     }
