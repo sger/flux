@@ -1,449 +1,410 @@
 - Feature Name: Actor Concurrency Roadmap (Aether-Aware)
 - Start Date: 2026-03-21
-- Status: Draft
+- Last Updated: 2026-04-18
+- Status: Draft (realistic implementation plan, 2026-04-18)
 - Proposal PR:
 - Flux Issue:
+- Supersedes: [0026](superseded/0026_concurrency_model.md), [0065](superseded/0065_actor_effect_stdlib.md), [0066](superseded/0066_thread_per_actor_handler.md), [0067](superseded/0067_gchandle_actor_boundary_error.md), [0071](superseded/0071_mn_scheduler_actor_handler.md), [0095](superseded/0095_actor_runtime_architecture.md)
+- Depends on: [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
 
-# Proposal 0115: Actor Concurrency Roadmap (Aether-Aware)
+# Proposal 0143: Actor Concurrency Roadmap (Aether-Aware)
 
 ## Summary
 [summary]: #summary
 
 Define the canonical path for bringing real concurrency to Flux on top of the
-landed Aether memory model.
+landed Aether memory model. Flux ships **actors with isolated heaps** first,
+backed by **typed mailboxes** and **supervision** primitives, with a
+**deterministic test scheduler** from day one so concurrent code benefits from
+Flux's proof-oriented testing identity.
 
-This proposal supersedes the repo's older concurrency planning split across:
-
-- proposal 0026 (`async/await + actors` umbrella)
-- proposal 0065 (`Actor` effect definition)
-- proposal 0066 (thread-per-actor MVP runtime)
-- proposal 0067 (`GcHandle` actor-boundary error`, now superseded)
-- proposal 0071 (M:N actor scheduler)
-
-This roadmap now covers both:
-
-- actor isolation and sendability
-- the later shared-RC / explicit-promotion extension
-
-The sequencing is deliberate:
-
-1. Flux ships **actor concurrency first**
-2. actor boundaries use **isolation + sendability**, not shared-memory aliasing
-3. Aether remains **single-threaded inside an actor** in the first rollout
-4. shared RC arrives later through **explicit promotion/transfer only**
-5. scheduling upgrades and transfer optimizations happen without silently
-   broadening existing Aether semantics
-
-This proposal does **not** add `async/await` in the first concurrency
-milestone. Phases A-D do **not** require atomic/thread-shared reference
-counting. Later phases define the shared-RC extension explicitly.
+Shared-memory concurrency is explicitly deferred and may never land — the
+goal is an Erlang/OCaml-5-quality actor story, not a C++-style thread/shared-
+state story.
 
 ## Motivation
 [motivation]: #motivation
 
-The current proposal set reflects an earlier design era:
+Flux is a pure functional language with algebraic effects and a single-
+threaded reference-counting memory model (Aether/Perceus). None of those
+choices are obstacles to concurrency; together they point cleanly at the one
+model that actually fits: isolated actors communicating by typed messages,
+with the scheduler implemented as an effect handler.
 
-- 0026 mixes actors, async/await, syntax ideas, and runtime notes in one broad
-  umbrella
-- 0065, 0066, and 0071 capture a better actor-first direction, but predate
-  Aether's current `Rc`-everywhere reality
-- 0067 is now superseded because it targeted the pre-Aether `Value::Gc` /
-  `GcHandle` runtime model, which no longer exists after GC elimination
+The earlier concurrency proposal set (0026, 0065, 0066, 0067, 0071) was
+drafted before Aether and before the effect-system closure. They are now
+superseded by this roadmap.
 
-Today the codebase is in a different place:
+## Hard constraints from the current codebase
+[hard-constraints]: #hard-constraints
 
-- Aether is landed as a single-threaded `Rc`-based memory model
-- continuations and closures remain actor-local/runtime-local values
-- there is no implemented actor runtime in `src/`
-- there is no sendability checking in the type system
+These constraints determine the space of realistic designs:
 
-That means the next milestone is no longer "invent a concurrency vision." The
-next milestone is "define one safe, implementable actor model that fits Aether
-as it exists now, while preserving a later path to explicit shared RC."
+- **`Value` is `Rc`-everywhere** ([src/runtime/value.rs:272-294](../../src/runtime/value.rs#L272-L294)): not `Send`, not `Sync`. Any scheme that requires sharing `Value` across threads requires a runtime rewrite larger than the concurrency feature itself. Ruled out for the foreseeable future.
+- **Aether is single-threaded by design** ([docs/proposals/implemented/0084_aether_memory_model.md](implemented/0084_aether_memory_model.md)). Making it multi-threaded means atomic refcounts on the hot path — which Koka's Perceus design explicitly avoids.
+- **Effect handlers exist** and are being unified ([Proposal 0162](0162_unified_effect_handler_runtime.md)). OCaml 5 demonstrates that effect handlers are the cleanest building block for cooperative concurrency (fibers-as-effects).
 
-Flux should therefore:
+These constraints force one conclusion: **isolated actors with message-
+passing, not shared memory**.
 
-- ship actor isolation first
-- keep local Aether optimizations valid inside one actor
-- add shared RC later as a distinct runtime regime
-- avoid silently generalizing `Dup` / `Drop` / `Reuse` to shared objects
+## Reference-language synthesis
+[reference-languages]: #reference-languages
+
+| Language | Model | What Flux takes | What Flux skips |
+|---|---|---|---|
+| **Erlang/OTP** | Isolated actors, untyped mailboxes, supervision trees, copy-on-send | Supervision, monitoring, death propagation, fail-fast philosophy | Untyped mailboxes (Flux has HM) |
+| **Pony** | Actors + reference capabilities (`iso`, `val`, `ref`) proven at compile time | Capability-typed send (`iso` = unique-move, `val` = deep-immutable share) | Full capability system (too heavy for MVP) |
+| **GHC Haskell** | Green threads on M:N, MVar/STM | M:N scheduler design (work-stealing, fuel-based preemption) | Shared mutable state via STM |
+| **OCaml 5** | Domains (OS threads) + fibers scheduled via effect handlers | Fibers-via-effects: `spawn`/`await` are handler operations, scheduler is a user-swappable handler | Multicore shared memory |
+| **Koka** | Async as effect; task-based parallelism via threads + promise | Effect-handler foundation for async — same architecture Flux is already on | Their actor story (there isn't one) |
+
+**Synthesis:** actors with isolated heaps (Erlang-style), typed mailboxes
+(Pony-style), scheduler as an effect handler (OCaml-5-style), supervision
+built in from day one (Erlang-style). No shared memory.
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
-### What Flux should aim to ship first
-
-The first real concurrency release should be:
-
-- actor-based
-- effect-typed
-- copy-on-send or equivalent sendable transfer at the boundary
-- backend-parity tested across VM, Cranelift JIT, and LLVM
-
-User-facing shape:
+### User-facing shape (Phase A+B after typing)
 
 ```flux
 import Flow.Actor
 
-fn worker() with Actor, IO {
-    let msg = recv()
-    print(msg)
-    worker()
+fn worker(req: Request) with Actor, IO {
+    match req {
+        Ping -> send(self_id(), Pong)
+        Stop -> ()
+    }
 }
 
 fn main() with Actor, IO {
-    let w = spawn(\() with Actor -> worker())
-    send(w, "hello")
-    send(w, "world")
+    let w: ActorId<Request> = spawn(\() with Actor -> worker_loop())
+    send(w, Ping)
+    let reply = recv::<Response>()
+    print(reply)
 }
 ```
 
-### What this first milestone does not promise
+### What ships in the first concurrency release
 
-- no shared-memory concurrency in the initial actor milestone
+- actor-based, effect-typed
+- copy-on-send at the boundary
+- VM and LLVM parity tested
+- supervision + cancellation
+- deterministic test scheduler for property testing
+
+### What does not ship, explicitly
+
+- no shared-memory concurrency
 - no `Arc`-backed general `Value`
 - no cross-actor sending of closures, continuations, handlers, or runtime-owned
   control state
-- no `async/await` syntax in the first milestone
+- no `async/await` syntax in the first milestone (use actors for now)
 - no M:N scheduler in the first milestone
 - no shared-object reuse
 
-### Why actors first
-
-Actors fit Flux's current architecture best:
-
-- they preserve purity at the language boundary
-- they isolate each actor's runtime state
-- they avoid forcing thread-safe RC into every value path immediately
-- they let Aether keep optimizing within one actor before cross-actor transfer
-  optimization is attempted
-
-## Reference-level explanation
-[reference-level-explanation]: #reference-level-explanation
-
 ## Canonical design decisions
+[canonical-design-decisions]: #canonical-design-decisions
 
 ### 1. Concurrency model
-
-Flux's first concurrency model is:
-
 - **actors only**
 - **message passing only**
 - **isolated actor-local heaps/runtime state**
 
-Shared-memory concurrency is explicitly out of scope for the first actor
-milestone. Shared RC is a later extension to this roadmap, not a property of
-all values from the start.
-
 ### 2. Actor boundary semantics
 
 Cross-actor transfer is defined by sendability rules:
-
 - primitives are sendable
 - immutable structural values are sendable through boundary conversion
-- `ActorId` values are sendable
+- `ActorId<m>` values are sendable
 - closures are not sendable as ordinary messages
 - continuations are not sendable
 - handler descriptors / perform descriptors are not sendable
 - any future runtime-private value remains actor-local unless explicitly
   specified otherwise
 
-Spawn policy:
-
-- `spawn` may accept closures capturing only statically sendable/promotable
-  values
-- non-sendable captures must be rejected
-
-Dead actor policy:
-
-- sending to a dead actor is a runtime error
-
-This is the crucial boundary that turns Aether from "good single-threaded memory
-model" into "safe foundation for actor concurrency."
-
 ### 3. Aether interaction
 
 Aether remains intentionally single-threaded inside an actor:
-
 - `Rc` remains the ownership mechanism for actor-local values
 - Perceus dup/drop/borrow/reuse optimizations continue to reason within one
   actor
 - actor sendability is an additional boundary layer, not a replacement for
   Aether
 
-Phases A-D therefore do not require:
+### 4. `Actor` as a Flow.Effects label
 
-- atomic `Arc` everywhere
-- `Send + Sync` for the general `Value`
-- cross-thread sharing of continuations
+The `Actor` effect is declared in [Flow.Effects](../../lib/Flow/) (per
+[0161](0161_effect_system_decomposition_and_capabilities.md)) as a phantom
+label. Actor operations (`spawn`, `send`, `recv`, `self_id`) are primops
+declared in `Flow.Primops` with `with Actor` signatures.
 
-Flux does **not** silently generalize current `Dup` / `Drop` / `Reuse`
-semantics to shared objects.
+### 5. Scheduler as an effect handler
 
-### 4. Shared-RC extension model
+Following OCaml 5: the scheduler itself is a handler installed at program
+start. Default: thread-per-actor or worker pool (Phase A / Phase D). User-
+swappable: deterministic scheduler for tests (Phase D).
 
-Later shared RC follows these rules:
+## Phased rollout with realistic time estimates
+[phased-rollout]: #phased-rollout
 
-- **Local RC**
-  - actor-local
-  - non-atomic
-  - current Aether fast path
-- **Shared RC**
-  - concurrency-safe
-  - entered only through explicit promotion/transfer
-  - no initial reuse
+The estimates below assume one engineer working primarily on concurrency.
+Each phase produces a shippable release slice.
 
-Boundary model:
+### Phase A — Actor MVP (~6 weeks)
 
-- values are local by default
-- only explicit actor-boundary transfer/promotion may enter shared RC
+**Goal:** `spawn → send → recv` end-to-end, VM and LLVM parity.
 
-Send path:
+**Scope:**
+- New module `src/runtime/actor/` with thread-per-actor runtime. Each actor
+  owns its own VM instance with its own `Rc` heap.
+- New stdlib `lib/Flow/Actor.flx` declaring:
+  ```flux
+  public extern fn spawn<a>(f: () -> a with Actor) -> ActorId with Actor
+  public extern fn send<m>(to: ActorId, msg: m) -> () with Actor
+  public extern fn recv<m>() -> m with Actor
+  public extern fn self_id() -> ActorId with Actor
+  ```
+- Send semantics: deep-copy the message into a serialized representation,
+  reconstruct on recv. Slow but trivially safe.
+- Runtime-level sendability check: at send time, panic if the value contains
+  a closure, continuation, or handler descriptor. Compile-time checking lands
+  in Phase B.
+- New diagnostics: `E470` (runtime: send of non-sendable value), `E471`
+  (runtime: recv received wrong message type).
+- Dead-actor policy: `send` to a dead actor raises a runtime error.
 
-- actor send uses **unique move + shared fallback**
+**Ships:**
+- `examples/actors/counter.flx`, `examples/actors/ping_pong.flx`.
+- `tests/actor_mvp_tests.rs` — spawn/send/recv smoke, dead-actor behaviour,
+  cross-backend parity.
+- `docs/guide/16_actors.md` — user-facing guide chapter.
 
-Shared reuse:
+**Does not ship:** compile-time sendability, typed mailboxes beyond bare
+monomorphic, supervision, cancellation, scheduler cleverness.
 
-- prohibited in the initial shared-RC rollout
+**Prerequisites:** 0161 Phase 1 (Flow.Effects exists). 0162 Phase 1 is
+recommended but not blocking.
 
-Verifier scope:
+### Phase B — Typed mailboxes + compile-time sendability (~4 weeks)
 
-- local uniqueness/reuse/drop-spec assumptions stop at promotion/transfer
-  boundaries
+**Goal:** Replace runtime panics with compile errors where possible.
 
-### 5. Runtime architecture
+**Scope:**
+- `ActorId<m>` parameterized by message type. `send : ActorId<m> -> m -> ()`.
+- Compile-time `Sendable<T>` predicate derived structurally:
+  - primitives → sendable
+  - ADTs of sendable types → sendable
+  - immutable collections of sendable → sendable
+  - closures / continuations / `Mutable<T>` → NOT sendable
+- New diagnostics: `E472` (spawn captures non-sendable value), `E473` (send
+  value does not satisfy mailbox type).
+- Users with polymorphic mailboxes wrap messages in a sum ADT.
 
-The first runtime implementation should be thread-per-actor or a small worker
-pool with actor isolation, but the semantics must not depend on scheduler
-cleverness.
+**Prerequisites:** [0152](0152_named_fields_for_data_types.md) (named fields)
+makes structured messages ergonomic.
 
-The key runtime requirements are:
+### Phase C — Supervision + cancellation (~5 weeks)
 
-- each actor owns its own execution context
-- messages are transferred through a sendable representation
-- `recv()` blocks or parks according to the installed runtime handler
-- later shared RC must remain explicit and must not penalize ordinary local
-  execution paths
+**Goal:** Systems that don't fall over on one actor panic.
 
-### 6. Effect-system integration
+**Scope:**
+- Erlang-style supervision primitives in `Flow.Actor`:
+  - `spawn_linked(parent, f)` — parent receives exit signal on child death.
+  - `link(a, b)` — bidirectional death propagation.
+  - `trap_exit` — convert death signals into regular messages.
+- Cancellation tokens threaded through the `Actor` effect. A cancelled
+  actor's next `perform` on `Actor` or `IO` fires the cancellation handler.
+- Timeouts: `recv_timeout(Duration) -> Option<msg>`.
+- Supervision tree example in `examples/actors/supervisor.flx`.
 
-The `Actor` effect remains the right language-level abstraction.
+**Prerequisites:** [0162](0162_unified_effect_handler_runtime.md) Phase 3
+(unified yield algorithm) — cancellation composes cleanly on top of the
+unified handler runtime, avoids special-casing per backend.
 
-The first milestones keep:
+### Phase D — Scheduler upgrade (~6 weeks)
 
-- `spawn`
-- `send`
-- `recv`
+**Goal:** Work-stealing M:N scheduler without changing actor semantics.
 
-And defer:
+**Scope:**
+- N OS worker threads, M actors → work-stealing queue per worker.
+- Actors park on `recv` and wake when a message arrives.
+- Fuel-based preemption: count bytecode instructions or piggyback on the
+  0162 yield checkpoints at function returns.
+- **Deterministic test scheduler** installable as a handler for property
+  testing — single thread, explicit interleaving control, reproducible
+  traces. This is where Flux's testing story beats Erlang's.
+- Semantics unchanged: same `Actor` surface behavior as Phase A–C.
 
-- typed mailboxes/channels
-- `ask`/reply protocols
-- `async/await`
+**Prerequisites:** 0162 Phase 3 fully landed (yield checkpoints are the
+preemption mechanism).
 
-## Phased rollout
+### Phase E — Unique-move transfer optimization (~4 weeks)
 
-### Phase A: Actor semantic MVP
+**Goal:** Elide the deep-copy when Aether proves the value is unique at the
+send site.
 
-Scope:
+**Scope:**
+- At a `send` call site, if Aether's borrow inference proves the value is
+  unique (single-owner, not aliased) at that point, transfer the `Rc`
+  directly (zero-copy move). Otherwise fall back to deep-copy.
+- Requires a small extension to the Aether verifier at actor boundaries.
+- Zero user-visible change.
+- Benchmarked to verify the optimization fires on common patterns (forwarded
+  messages, freshly-constructed payloads, `recv → transform → send` chains).
 
-- define `Flow.Actor`
-- add runtime actor support in `src/runtime/actor/`
-- implement `spawn`, `send`, `recv`
-- use deep-copy or equivalent sendable conversion at the boundary
-- reject obviously non-sendable runtime values
-- allow thread-per-actor or a small worker pool, but keep semantics independent
-  of scheduler strategy
-- treat sending to a dead actor as a runtime error
+**Prerequisites:** Aether borrow inference stable (already landed).
 
-Success criteria:
+### Phase F — Shared-RC substrate (deferred — may never land)
 
-- actor programs run on VM, JIT, and LLVM
-- no shared runtime state is unsafely aliased
-- docs and parity tests define actor semantics
+**Honest recommendation: defer indefinitely.** Actors + unique-move
+(Phases A–E) cover the overwhelming majority of use cases and keep Aether
+clean. Shared RC is a large, risky runtime rewrite.
 
-### Phase B: Static sendability and spawn-capture rules
+Do this only if a specific workload (e.g. shared read-only caches that
+dwarf the working set, read-mostly configuration fan-out to many actors)
+proves it necessary. Most Erlang-scale systems never need it.
 
-Scope:
+If pursued, the 0143 earlier draft's Phase E/F/G content applies: explicit
+promotion, shared-safe payload representation, verifier scope restrictions.
 
-- add compile-time sendability checking where types are known
-- define legal/illegal spawn captures
-- reject closures, continuations, handler descriptors, perform descriptors, and
-  runtime-private state across boundaries
-- surface actor-boundary diagnostics in the type/effect checker
+## Sequencing against other roadmap work
+[sequencing]: #sequencing
 
-Success criteria:
+| Release | Concurrency work | Prerequisites |
+|---|---|---|
+| v0.0.7 | Nothing. 0161 Phase 1 provides the `Actor` label infra for later. | 0161 Phase 1 |
+| v0.0.8 | **Phase A** — Actor MVP. | 0161 done; 0162 Phase 1 optional |
+| v0.0.9 | **Phase B** — Typed mailboxes + compile-time sendability. | 0152 (named fields) |
+| v0.2.0 | **Phase C** — Supervision + cancellation. | 0162 Phase 3 strongly preferred |
+| v0.3.0 | **Phase D** — Scheduler upgrade + deterministic test scheduler. | 0162 Phase 3 |
+| v0.4.0 | **Phase E** — Unique-move transfer optimization. | Aether borrow inference stable |
+| ≥ v1.0.0 | Phase F (shared RC) | user demand |
 
-- common invalid sends fail at compile time
-- spawned closure legality is documented and tested
-- runtime-only failures become narrow
+That's a two-year horizon to a robust actor story. Not ambitious —
+realistic given per-phase scope and the prerequisite chain.
 
-### Phase C: Scheduler upgrade
+## Open design decisions
+[open-decisions]: #open-decisions
 
-Scope:
+### D1. One thread per actor vs. worker pool in Phase A?
 
-- fold in M:N scheduling guidance from 0071
-- keep exact same actor semantics as Phases A/B
-- add fairness, parking, wakeups, and fuel/preemption
-- avoid semantic dependence on scheduler internals
+- **Thread-per-actor:** simpler to reason about, no scheduler to debug, OS handles fairness. Doesn't scale past a few thousand actors.
+- **Worker pool:** harder to implement, matches Erlang/OCaml 5. Needed for 10K+ actor workloads.
 
-Success criteria:
+**Recommendation (locked in):** thread-per-actor for Phase A, worker pool in Phase D.
 
-- same `Actor` surface behavior as earlier phases
-- better scalability
-- parity and liveness coverage
+### D2. Typed mailbox: single-typed vs. open union?
 
-### Phase D: Local Aether transfer optimization
+- **Single-typed (`ActorId<Request>` receives only `Request`):** clean types, caller wraps in sum ADT for polymorphic mailboxes.
+- **Open union (`ActorId<Request | Control | Query>`):** more flexible, complicates inference.
 
-Scope:
+**Recommendation (locked in):** single-typed. Callers explicitly declare message variants via an ADT.
 
-- add unique-transfer fast paths on top of actor isolation
-- avoid unnecessary deep copies when local uniqueness can be proved or checked
-- optimize transfer without introducing shared RC as the default value model
+### D3. Default root handler for the `Actor` effect?
 
-Success criteria:
+Yes — `main() with IO, Actor` needs someone to install the runtime handler.
+The compiler injects a root handler at program entry that routes to the
+real scheduler (thread-per-actor in Phase A, work-stealing pool in Phase D).
 
-- actor-boundary transfer is measurably cheaper for unique values
-- ordinary local workloads stay on the local Aether fast path
-- semantics remain unchanged
+**Recommendation (locked in):** compiler-provided root handler, user-
+swappable via `with_scheduler { … }` in tests.
 
-### Phase E: Shared RC substrate
+### D4. Cancellation: cooperative or asynchronous?
 
-Scope:
+- **Cooperative:** cancellation is checked at effect-handler boundaries. Simple, predictable, no UB.
+- **Asynchronous:** thread injection. Fast, but notoriously hard to reason about (clean-up semantics, resource leaks, interrupt-safety).
 
-- introduce explicit shared RC runtime support
-- ensure shared RC is entered only through explicit promotion/transfer
-- keep local execution non-atomic
-- add shared-safe payload/runtime representation
-- define receive-side conversion back into actor-local values unless the design
-  intentionally retains a shared wrapper
+**Recommendation (locked in):** cooperative only. The effect system makes
+cancellation points natural — every `perform` is a potential yield point.
 
-Success criteria:
+### D5. Determinism harness in scope for Phase D?
 
-- shared RC exists without penalizing local-only execution
-- actor boundary can carry shared-safe values using explicit runtime rules
-- no backend invents different promotion behavior
+**Recommendation (locked in):** yes. Makes Flux's "proof-oriented" identity
+meaningful for concurrent code. A deterministic scheduler + property test
+harness + recorded traces is genuinely rare across FP languages and a
+credible differentiator.
 
-### Phase F: Shared RC verification and boundary semantics
+### Still open
 
-Scope:
-
-- add verifier/runtime rules that forbid local-only Aether assumptions on shared
-  values
-- formalize that local `Reuse` cannot target shared objects
-- formalize that `DropSpecialized` local fast paths do not apply to shared
-  payloads
-- make actor-boundary promotion rules explicit in docs and diagnostics
-
-Success criteria:
-
-- shared RC is explicitly scoped in semantics, verifier rules, and diagnostics
-- local and shared ownership regimes are not conflated
-
-### Phase G: Future shared-RC optimizations (explicitly deferred)
-
-Scope:
-
-- reserve this phase for any future shared-RC-specific optimizations
-- state clearly that shared reuse is out of scope
-- require any future revisit to arrive as a separate extension proposal
-
-Success criteria:
-
-- roadmap stays honest about what is and is not planned
-- no accidental commitment to shared reuse
+- **D6. Mailbox bound:** unbounded queues (Erlang default) vs. bounded with backpressure (Pony default). Backpressure is safer for production; unbounded is simpler for MVP. Decision deferred to Phase B.
+- **D7. Spawn-closure capture rules under module-scoped classes:** if a closure captures a class-method dispatch that itself captures handlers, is that sendable? Depends on 0151's semantics. Decision deferred until 0151 Phase 1b lands.
 
 ## Proposal merge guidance
+[merge-guidance]: #merge-guidance
 
-This proposal should become the canonical concurrency roadmap.
+This proposal is the canonical concurrency roadmap.
 
-### Merge / supersede
-
-- **0026** should be treated as historical vision, not the active delivery plan
-- **0065** should be retained only for detailed `Actor` effect surface syntax if
-  still useful
-- **0066** should be folded in as Phase A implementation guidance
-- **0067** is already superseded and should be treated as historical context
-  only
-- **0071** should be folded in as Phase C implementation guidance
-- the duplicate local/shared-runtime proposal content is now merged here and
-  should no longer stand as a separate proposal identity
-
-### Keep separate
-
-- **0075 effect sealing** should stay separate
-
-Reason:
-
-Effect sealing is a broader capability/sandboxing feature. It may later refine
-actor spawning policy, but it is not required to ship the first actor
-concurrency milestone.
+- **0026** superseded — treated as historical vision, not active delivery plan.
+- **0065** superseded — its `Actor` effect surface is absorbed into Phase A's `Flow.Actor` design.
+- **0066** superseded — folded into Phase A implementation guidance.
+- **0067** superseded — targeted the pre-Aether `Value::Gc` model which no longer exists.
+- **0071** superseded — folded into Phase D scheduler implementation guidance.
+- **0095** superseded — pre-Aether draft of this roadmap.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
-### Why not start with `async/await`
+### Why actors first (not async/await)
 
-The older umbrella in 0026 mixes actor concurrency with async/await. That is too
-much surface area for the first concurrency milestone.
+Async/await is a language-surface convenience for a cooperative scheduler.
+You can get it via effect handlers once the actor runtime exists — OCaml 5
+demonstrates this. Shipping async/await before the runtime would be syntax
+in search of semantics.
 
-Actors already solve the immediate need for concurrency while fitting Flux's
+Actors solve the immediate need for concurrency while fitting Flux's
 existing purity/effect story more naturally.
 
 ### Why not switch all values to `Arc`
 
-That would impose cross-thread atomic overhead on all actor-local execution
-before Flux has even shipped actor semantics. It is the wrong order.
-
-The correct sequence is:
-
-1. ship actor isolation
-2. ship sendability
-3. ship transfer optimization
-4. add explicit shared RC substrate
-5. consider any future shared-memory extensions
+Atomic refcounts on every Rc operation for a feature that 90% of code will
+never touch. Koka explicitly rejected this with Perceus and Flux should too.
 
 ### Why explicit promotion instead of ambient sharing
 
 Explicit promotion keeps local Aether assumptions valid and prevents hidden
 backend/runtime broadening of ownership semantics.
 
-### Why shared reuse is intentionally excluded at first
+### Why shared reuse is intentionally excluded
 
 Shared reuse would require a separate legality and proof story. The initial
-shared-RC extension should keep shared objects conservative and preserve the
-current local fast path.
+shared-RC extension (if it ever lands) keeps shared objects conservative and
+preserves the current local fast path.
 
-### Why not merge everything into one giant spec
+### Why supervision matters from day one
 
-This roadmap is canonical for sequencing and decisions, but focused proposals
-and implementation notes can still exist for detailed syntax or runtime work.
+Erlang's defining insight: isolated actors make *systems* robust only if
+death can be observed and acted on. Shipping actors without supervision
+gives users a tool that can't survive its own first production incident.
+Phase C is not optional.
+
+### Why a deterministic test scheduler is non-negotiable
+
+Flux's static-typing closure (0160) already makes "proof of correctness"
+the brand. Shipping concurrency without a deterministic scheduler means
+concurrent tests are probabilistic — incompatible with the brand.
 
 ## Prior art
 [prior-art]: #prior-art
 
-- Erlang/OTP actor model
-- Elixir `GenServer` / `Task`
-- Gleam's actor-oriented FP direction
-- Koka / Perceus for ownership optimization context
-- Pony for actor isolation and sendability inspiration
+- **Erlang/OTP** — the gold standard for actor-based concurrency and supervision.
+- **Elixir `GenServer` / `Task`** — ergonomic actor patterns on BEAM.
+- **Pony** — capability-typed actors; proof-driven sendability.
+- **OCaml 5** — effect-handler-based concurrency; scheduler as handler.
+- **Koka / Perceus** — ownership optimization context, though no actor story.
+- **Gleam** — actor-oriented FP direction on BEAM; close to where Flux lands syntactically.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-1. Should Phase A use one OS thread per actor or a smaller fixed worker-pool
-   runtime while preserving the same actor surface?
-2. How much compile-time sendability can Flux prove before typed mailboxes
-   exist?
-3. What exact shared payload/runtime representation is best for Phase E:
-   dedicated shared value graph, sendable mirror representation, or a hybrid?
+Superseded by the "Open design decisions" section above (D1–D7).
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- typed actor protocols
-- `ask` / reply patterns
-- supervision and monitors
-- deterministic test/simulation handlers for actors
-- effect sealing for spawn boundaries
-- shared-memory concurrency beyond actors in a separate future proposal
+- typed actor protocols (`ActorProtocol<State>` with state machines)
+- `ask` / reply patterns as a library on top of Phase B
+- `async/await` syntactic sugar over spawn+await once Phase D lands
+- STM-style retries for actor state (nothing shared, but within-actor transactions could use effect handlers)
+- distributed actors across OS processes (far future)
+- shared-memory concurrency beyond actors in a separate future proposal (Phase F or its own umbrella)
