@@ -1,10 +1,13 @@
 - Feature Name: Type Inference Completion Roadmap
 - Start Date: 2026-03-26
-- Status: Draft
-- Last Updated: 2026-04-15
+- Status: Implemented (2026-04-18)
+- Last Updated: 2026-04-18
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 (Type Classes), Proposal 0156 (Static Typing Completion Roadmap)
+- Closed under: [0160 (Static Typing Hardening Closure)](0160_static_typing_hardening_closure.md)
+- Related implemented work: [0159 (Signature-Directed Checking and Skolemisation)](0159_signature_directed_checking_and_skolemisation.md), [0155 (Core IR Parity Simplification)](0155_core_ir_parity_simplification.md)
+- Delivery commits: `457eae2d` (numeric defaulting), `db228cf1`/`d4806c84`/`f1b5ddb7` (skolems + checked mode, via 0159), `0dba6d46`/`605fd7fa` (annotation enforcement)
 
 # Proposal 0127: Type Inference Completion Roadmap
 

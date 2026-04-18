@@ -1,9 +1,10 @@
 - Feature Name: Static Typing Hardening Closure
 - Start Date: 2026-04-15
-- Status: Draft
+- Status: Implemented (2026-04-18)
 - Proposal PR:
 - Flux Issue:
-- Depends on: 0127 (Type Inference Completion Roadmap), 0155 (Core IR Parity Simplification), 0156 (Static Typing Completion Roadmap), 0158 (Core Semantic Types and Backend Representation Split Execution), 0159 (Signature-Directed Checking and Skolemisation)
+- Depends on: [0127](0127_type_inference_ghc_parity.md) (Type Inference Completion Roadmap), [0155](0155_core_ir_parity_simplification.md) (Core IR Parity Simplification), [0156](0156_static_typing_completion_roadmap.md) (Static Typing Completion Roadmap), [0158](0158_core_semantic_types_and_backend_rep_split_execution.md) (Core Semantic Types and Backend Representation Split Execution), [0159](0159_signature_directed_checking_and_skolemisation.md) (Signature-Directed Checking and Skolemisation)
+- Delivery commits: `4863a52c` (canonical scheme rendering, Track A), `9347ac8c`/`38259d1c` (core_lint + E998, Track B via 0155), `db228cf1`/`d4806c84`/`f1b5ddb7` (checked signatures + skolems, Track C via 0159), `728f3d84` (runtime boundary hardening), `8b04ba14`/`38259d1c` (expression-level E430)
 
 # Proposal 0160: Static Typing Hardening Closure
 
