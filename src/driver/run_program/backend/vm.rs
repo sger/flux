@@ -15,7 +15,7 @@ use crate::driver::{
     },
 };
 use flux::{
-    bytecode::vm::VM,
+    vm::VM,
     diagnostics::Diagnostic,
     syntax::{module_graph::ModuleGraph, program::Program},
 };
@@ -173,7 +173,7 @@ pub(crate) fn try_run_parallel_vm(request: ParallelVmRunRequest<'_>) -> bool {
 }
 
 pub(crate) struct VmRunRequest<'a> {
-    pub(crate) compiler: &'a mut flux::bytecode::compiler::Compiler,
+    pub(crate) compiler: &'a mut flux::compiler::Compiler,
     pub(crate) program: &'a Program,
     pub(crate) path: &'a str,
     pub(crate) source: &'a str,

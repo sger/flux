@@ -1,7 +1,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::Diagnostic,
     syntax::{
         lexer::Lexer, parser::Parser, pattern_validate::validate_program_patterns, program::Program,

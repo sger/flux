@@ -4,7 +4,8 @@ use std::fs;
 
 use crate::{
     ast::{collect_free_vars_in_program, find_tail_calls},
-    bytecode::{compiler::Compiler, op_code::disassemble},
+    bytecode::op_code::disassemble,
+    compiler::Compiler,
     driver::{
         command::shared::{
             ParseCommandConfig, emit_parser_diagnostics, parse_program_for_command,

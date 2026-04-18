@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    bytecode::{bytecode::Bytecode, symbol_table::SymbolTable},
+    bytecode::bytecode::Bytecode,
+    compiler::symbol_table::SymbolTable,
     diagnostics::Diagnostic,
     driver::shared::{DriverCacheConfig, DriverCompileConfig, DriverRuntimeConfig},
     syntax::{interner::Interner, module_graph::ModuleGraph},
@@ -40,7 +41,8 @@ pub(crate) fn compile_vm_modules_parallel(
 #[cfg(test)]
 mod tests {
     use super::ParallelVmBuild;
-    use crate::bytecode::{bytecode::Bytecode, symbol_table::SymbolTable};
+    use crate::bytecode::bytecode::Bytecode;
+    use crate::compiler::symbol_table::SymbolTable;
 
     #[test]
     fn parallel_vm_build_preserves_cache_counters() {

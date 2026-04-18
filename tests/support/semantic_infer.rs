@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use flux::{
     ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program, render_scheme_canonical},
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticsAggregator, render_diagnostics},
     syntax::{
         interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,

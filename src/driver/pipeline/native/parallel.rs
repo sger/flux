@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     bytecode::bytecode_cache::hash_bytes,
-    bytecode::compiler::module_interface::{
+    compiler::module_interface::{
         build_interface, compute_semantic_config_hash, load_cached_interface,
     },
     diagnostics::{Diagnostic, DiagnosticPhase},

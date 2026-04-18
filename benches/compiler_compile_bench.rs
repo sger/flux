@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser, program::Program},
 };
 

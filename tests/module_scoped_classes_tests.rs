@@ -8,8 +8,8 @@
 //! modules — that lands in later Phase 1a/1b commits. The minimum guarantee
 //! here is "the validator no longer rejects the source."
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
