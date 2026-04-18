@@ -151,14 +151,16 @@ fn static_type_validation_accepts_fully_typed_function() {
     let (result, program, interner) = infer("fn add(x: Int, y: Int) -> Int { x + y }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -171,14 +173,16 @@ fn static_type_validation_accepts_polymorphic_identity() {
     let (result, program, interner) = infer("fn identity(x) { x }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -191,14 +195,16 @@ fn static_type_validation_accepts_polymorphic_arithmetic() {
     let (result, program, interner) = infer("fn add(x, y) { x + y }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -213,14 +219,16 @@ fn static_type_validation_flags_mono_scheme_with_fallback_var() {
     let (result, program, interner) = infer("fn f(x) { mystery }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         !diags.is_empty(),
@@ -237,14 +245,16 @@ fn static_type_validation_accepts_concrete_annotated_function() {
     let (result, program, interner) = infer("fn double(x: Int) -> Int { x + x }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -257,14 +267,16 @@ fn static_type_validation_no_false_positive_for_recursive_function() {
     let (result, program, interner) = infer("fn f(n) { if n == 0 { 0 } else { f(n - 1) } }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -277,14 +289,16 @@ fn static_type_validation_flags_unresolved_leaf_expression() {
     let (result, program, interner) = infer("fn f(x) { mystery }");
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     let e430_count = diags
         .iter()
@@ -309,14 +323,16 @@ fn static_type_validation_suppresses_expression_e430_when_primary_error_exists()
     let existing_diags = vec![diagnostic_for(&UNDEFINED_VARIABLE).with_span(mystery_span)];
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &existing_diags,
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &existing_diags,
+            interner: &interner,
+        },
     );
     let e430_count = diags
         .iter()
@@ -341,14 +357,16 @@ fn main() {
     );
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -370,14 +388,16 @@ fn main() {
     );
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
@@ -397,14 +417,16 @@ fn outer(x) {
     );
     let diags = flux::ast::type_infer::static_type_validation::validate_static_types(
         &program,
-        &result.resolved_binding_schemes,
-        &result.resolved_binding_schemes_by_span,
-        &result.expr_types,
-        &result.module_member_schemes,
-        &result.fallback_vars,
-        &result.instantiated_expr_vars,
-        &[],
-        &interner,
+        &flux::ast::type_infer::static_type_validation::StaticTypeValidationCtx {
+            resolved_schemes: &result.resolved_binding_schemes,
+            resolved_binding_schemes_by_span: &result.resolved_binding_schemes_by_span,
+            expr_types: &result.expr_types,
+            module_member_schemes: &result.module_member_schemes,
+            fallback_vars: &result.fallback_vars,
+            instantiated_expr_vars: &result.instantiated_expr_vars,
+            existing_diagnostics: &[],
+            interner: &interner,
+        },
     );
     assert!(
         diags.is_empty(),
