@@ -1,16 +1,18 @@
 - Feature Name: Static Typing Completion Roadmap
 - Start Date: 2026-04-14
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0123 (Full Static Typing), 0147 (Constrained Type Params and Instance Contexts)
 
-# Proposal 0156: Static Typing Completion Roadmap
+# Proposal 0156: Static Typing Completion Record
 
 ## Summary
 [summary]: #summary
 
-Record the completion of Flux's transition from a gradual HM system with `Any` escape hatches to a genuinely static type system across parsing, inference, module boundaries, and runtime type translation.
+Record the completed transition from a gradual HM system with `Any` escape
+hatches to a genuinely static type system across parsing, inference, module
+boundaries, and runtime type translation.
 
 This proposal does **not** restart static typing from scratch. It treats the current repo state as the baseline:
 
@@ -25,8 +27,8 @@ now split clearly:
 
 1. `0155` owns Core validation follow-on work such as `core_lint`
 2. `0157` explains the semantic-vs-representation split
-3. `0158` executes removal of downstream semantic `Dynamic` placeholders
-4. `0159` owns signature-directed checking and skolemisation follow-on work
+3. `0158` records the completed downstream semantic `Dynamic` cleanup
+4. `0159` records the completed checked-signature and skolemisation follow-on work
 5. `0160` owns the final hardening and closure criteria across scheme surfaces,
    Core validation, and checked-signature completion
 
@@ -34,6 +36,9 @@ now split clearly:
 [implementation-status]: #implementation-status
 
 Last updated: 2026-04-14
+
+This proposal is complete and should now be read as a closure record rather
+than as a live roadmap.
 
 ### Completed prerequisites
 
@@ -44,11 +49,11 @@ Last updated: 2026-04-14
 | 0074 base HM signatures | Done | Core builtins are substantially tighter than old `Any` signatures |
 | typed Core/Aether/native groundwork | Done enough | Present in proposal 0123 and current code |
 
-### Remaining phases
+### Completed phases
 
 | Phase | Focus | Status |
 |---|---|---|
-| 0 | Roadmap alignment | This proposal |
+| 0 | Roadmap alignment | Completed by this proposal |
 | 1 | Source-level class semantics completion | Complete |
 | 2 | HM `Any` elimination | Complete |
 | 3 | Strict mode becomes semantic | Complete |
@@ -70,24 +75,26 @@ That implementation gap has now been closed:
 - runtime boundary lowering no longer reintroduces `Any`
 - module/interface strictness is part of semantic/cache identity
 
-The remaining distinction is architectural:
+The remaining distinction after closure is architectural and proof-oriented:
 
 1. **Static typing is now semantic truth in the maintained front-end pipeline**
    - strict typing is enforced during inference and validation
    - `Any` is no longer a source-language or HM/runtime escape hatch
 
 2. **Downstream representation cleanup is no longer part of this roadmap**
-   - the remaining architectural work moved into `0157` + `0158`
+   - the architectural split moved into `0157`
+   - the maintained-path semantic-`Dynamic` cleanup was completed by `0158`
    - that work is about semantic-vs-runtime-representation separation, not source-level gradual typing
 
 Downstream execution of that representation cleanup is now tracked by
-[0158_core_semantic_types_and_backend_rep_split_execution.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0158_core_semantic_types_and_backend_rep_split_execution.md:1),
+[0158_core_semantic_types_and_backend_rep_split_execution.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/implemented/0158_core_semantic_types_and_backend_rep_split_execution.md:1),
 with [0157_explicit_core_types_and_runtime_representation_split.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/0157_explicit_core_types_and_runtime_representation_split.md:1)
 as the architectural rationale.
 
-3. **Proposal state is stale**
-   - the code has moved further than the old text
-   - the roadmap must distinguish completed static-typing work from future backend representation tightening
+3. **The remaining closure work is no longer static-typing completion**
+   - `0159` completed the checked-signature/skolemisation follow-on
+   - `0160` now owns proof-bar and proposal-stack coherence
+   - those items harden the story without reopening the claim that Flux is already statically typed
 
 ### Corrected critical path
 
@@ -117,30 +124,32 @@ These items were previously on the static-typing critical path but are already d
 - **typed Core/Aether/native pipeline work** — largely implemented
   - [0123_full_static_typing.md](/Users/s.gerokostas/Downloads/Github/flux/docs/proposals/implemented/0123_full_static_typing.md:1)
 
-### Still missing
+### Follow-on work outside this completed proposal
 
-Within the scope of this roadmap, nothing remains open.
+Within the scope of this completion record, nothing remains open.
 
 The major follow-on work is now outside this proposal:
 
 - `0155` for Core validation and `core_lint`
-- `0158` for the downstream semantic-`Dynamic` cleanup that has now been implemented
-- `0159` for inference-completeness follow-on work around checked signatures
+- `0158` for the downstream semantic-`Dynamic` cleanup that is now implemented
+- `0159` for the checked-signature/skolemisation work that is now implemented
 - `0160` for the final static-typing hardening closure and scheme-surface
   normalization criteria
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
-Compiler contributors should think of this proposal as the plan to make static typing **true by construction**, not merely **enforced at the edges**.
+Compiler contributors should think of this proposal as the record of how static
+typing became **true by construction**, not merely **enforced at the edges**.
 
-After this roadmap is complete:
+After this proposal's work landed:
 
 - strict typing should no longer be “HM inference plus cleanup”
 - `Any` should not silently mask unresolved typing inside maintained compiler paths
 - the stdlib should type-check under the same strict rules as user code
 - Core/Aether/backend work should rely on a truly static upstream contract
-- backend `Dynamic` should be understood as representation, not as a source-language type escape hatch
+- backend/runtime representation should be understood separately from
+  source-language type semantics; that cleanup was completed in `0158`
 
 The key implementation rule that closed this roadmap was:
 
@@ -454,9 +463,8 @@ This phase is complete.
 
 ### Gap A — downstream semantic `Dynamic` cleanup
 
-This was the major downstream caveat at the time this roadmap was closed.
-
-It is now historical:
+This was the major downstream caveat at the time this roadmap was first
+written. It is now historical:
 
 - `0157` explained the semantic-vs-representation split
 - `0158` executed the maintained-path cleanup
@@ -469,12 +477,13 @@ It is now historical:
 
 These are no longer hidden graduality inside the maintained runtime-lowering path, but they remain unsupported features outside the scope of this roadmap.
 
-### Gap C — docs and proposal state were behind implementation reality
+### Gap C — docs and proposal state lagged implementation reality
 
 - `0123` required Phase 0 correction and now points remaining work here
 - older roadmap text described live `Any` fallback zones that have since been removed
 
-The roadmap must align the proposal corpus with the actual compiler.
+This completion record exists to align the proposal corpus with the actual
+compiler.
 
 ## Recommended implementation order
 [recommended-implementation-order]: #recommended-implementation-order
@@ -487,10 +496,14 @@ Recommended order:
 2. Phase 3 made strictness semantic during inference and validation.
 3. Phases 4 and 5 removed stdlib/module carve-outs and runtime-lowering fallback behavior.
 
-Future work should now be tracked separately from this completed static-typing roadmap.
+Future work should now be tracked separately from this completed static-typing
+record.
 
 ## Testing plan
 [testing-plan]: #testing-plan
+
+The verification recorded below is historical evidence for the completed
+phases. The live closure bar now belongs to `0160`.
 
 ### Phase 1
 
@@ -564,17 +577,25 @@ That means:
 
 - guide-level docs, examples, and user-facing typing explanations should stop teaching `Any` as a normal escape hatch
 - reintroduction of `Any` as a normal source-language feature would be a regression against this proposal
-- downstream representation cleanup should use `Dynamic` or other backend-specific terminology instead of reviving `Any`
+- downstream representation cleanup should use backend representation terminology
+  rather than reviving `Any`; the maintained semantic-`Dynamic` cleanup is
+  already recorded in `0158`
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Should strict typing become the default immediately, or after a compatibility cycle?
-- Which structural typing features should be considered mandatory for future language work versus explicitly out of scope for static-typing completion?
+This proposal has no unresolved questions within its completed scope.
+
+Questions about later compatibility policy or future structural typing features
+belong to separate proposals, not to static-typing completion.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
 - `0158` already covered the maintained-path semantic-`Dynamic` cleanup.
+- `0159` already covered checked signatures, rigid skolems, and supported
+  polymorphic recursion.
+- `0160` now covers closure-proof coherence across scheme, Core, and
+  checked-signature evidence.
 - A later proposal can further reduce or specialize runtime representation where that materially improves optimization or code generation.
 - A later proposal can narrow the language’s compatibility story around strict mode once the project wants to change defaults.

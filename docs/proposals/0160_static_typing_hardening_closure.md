@@ -17,8 +17,8 @@ This proposal is an umbrella closure proposal. It does **not** replace `0155`
 or `0159`:
 
 - `0155` remains the delivery proposal for `core_lint`
-- `0159` remains the delivery proposal for signature-directed checking and
-  skolemisation
+- `0159` remains the delivery proposal for the now-implemented
+  signature-directed checking and skolemisation work
 - `0160` owns the final hardening and closure criteria across the static-typing
   stack, including the one workstream not cleanly owned elsewhere yet:
   inferred-scheme surface normalization
@@ -27,7 +27,7 @@ The closure target is:
 
 1. stable inferred-scheme and inspection surfaces
 2. maintained Core invariant verification
-3. checked signatures with rigid quantified variables
+3. checked-signature proof closure over the implemented rigid-quantified-variable path
 4. a proposal/test/document stack that states one consistent static-typing story
 
 ## Motivation
@@ -51,9 +51,11 @@ What remains is not a language-model reversal. It is hardening work:
    - Core now carries explicit semantic structure, but the stack still lacks a
      maintained `core_lint`-style invariant verifier
 
-3. **Checked signatures are not complete yet**
-   - annotated bindings still need a true checked path
-   - rigid quantified variables and skolemisation still belong to future work
+3. **Checked-signature closure still needs to be reflected consistently**
+   - `0159` already landed the checked path, rigid quantified variables, and
+     supported polymorphic-recursion support
+   - `0160` still needs to make that landed work part of the explicit closure
+     bar and proposal-stack story
 
 These gaps do not invalidate the claim that Flux is statically typed. They are
 the remaining hardening work needed to make that claim cleaner, more stable,
@@ -74,7 +76,7 @@ It is explicitly **not**:
 It uses nearby proposals as implementation-owning children:
 
 - `0155` owns Core validation work such as `core_lint`
-- `0159` owns signature-directed checking and skolemisation
+- `0159` owns the implemented signature-directed checking and skolemisation work
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -146,25 +148,25 @@ This track is complete when:
 
 ### Track C — Checked signatures and skolemisation
 
-This proposal delegates implementation to `0159`, but treats it as a required
-closure condition for the static-typing hardening story.
+This proposal treats `0159` as an already-met implementation dependency and
+uses it as a required proof category in the static-typing closure story.
 
 Closure requires:
 
-- annotated bindings use a real checked path
-- quantified signature variables become rigid during checking
-- checked-signature mismatch diagnostics are distinct from ordinary inference
-  mismatch
-- explicitly typed recursive groups can justify supported polymorphic recursion
+- annotated bindings continue to use the landed checked path
+- quantified signature variables remain rigid during checking
+- checked-signature mismatch diagnostics remain distinct from ordinary
+  inference mismatch
+- explicitly typed recursive groups continue to justify supported polymorphic
+  recursion
 
 This proposal does not restate `0159` in full. `0159` remains the concrete
-delivery proposal.
+delivery proposal and implementation record.
 
 This track is complete when:
 
-- the `0159` exit criteria are met
-- the inference stack no longer treats explicit signatures as soft annotation
-  constraints only
+- the `0159` exit criteria remain true in maintained builds
+- checked-signature proof suites remain green
 
 ## Phases
 [phases]: #phases
@@ -189,16 +191,18 @@ Exit criteria:
 
 Exit criteria:
 
-- `0159` lands its checked-binding path
-- rigid quantified variables exist during checking
-- checked recursive signatures support the intended polymorphic-recursion cases
+- the implemented `0159` checked-binding path remains the maintained behavior
+- rigid quantified variables continue to exist during checking
+- checked recursive signatures continue to support the intended
+  polymorphic-recursion cases
 
 ### Phase 4 — Closure pass
 
 Exit criteria:
 
 - proposal statuses and cross-links are consistent
-- scheme, Core, and checked-signature proof suites are green
+- scheme, Core, and checked-signature proof suites are explicitly named and
+  green
 - the static-typing proposal stack presents one coherent closure story
 
 ## Public interfaces and internal contracts
@@ -226,6 +230,7 @@ Required coverage categories:
 
 ### Scheme surface
 
+- `tests/type_semantics_matrix_tests.rs`
 - alpha-renaming-stable scheme rendering
 - constrained and effectful scheme formatting
 - module-export/member-scheme stability
@@ -233,6 +238,8 @@ Required coverage categories:
 
 ### Core validation
 
+- `tests/core_type_contract_matrix_tests.rs`
+- `tests/static_typing_contract_tests.rs`
 - invalid binder scope is rejected
 - malformed case/join/handler shapes are rejected
 - valid maintained Core passes `core_lint`
@@ -240,6 +247,8 @@ Required coverage categories:
 
 ### Checked signatures
 
+- the implemented `0159` coverage path in inference/static-type tests
+- the E305 rigid-variable diagnostic snapshot path
 - annotated polymorphic identity and higher-order functions
 - checked-signature mismatch
 - rigid-variable escape
@@ -248,9 +257,12 @@ Required coverage categories:
 
 ### Closure and proof
 
-- semantic typing matrix remains green
-- static-typing contract suite remains green
-- Core contract tests remain green
+- `tests/type_semantics_matrix_tests.rs` remains green as the scheme proof suite
+- `tests/core_type_contract_matrix_tests.rs` and
+  `tests/static_typing_contract_tests.rs` remain green as the Core/static-typing
+  contract suite
+- checked-signature/skolem evidence remains green through the implemented
+  `0159` test path, including the E305 rigid-variable snapshot
 
 ## Relationship to nearby proposals
 [relationship-to-nearby-proposals]: #relationship-to-nearby-proposals
@@ -259,8 +271,7 @@ Required coverage categories:
 - `0155` remains the implementation-owning Core validation proposal
 - `0156` remains complete for maintained front-end static typing
 - `0158` remains the implemented downstream semantic-`Dynamic` cleanup proposal
-- `0159` remains the implementation-owning checked-signature and skolemisation
-  proposal
+- `0159` remains the implemented checked-signature and skolemisation proposal
 
 `0160` is the closure umbrella that ties those pieces into one final
 static-typing hardening story.
@@ -272,7 +283,15 @@ This proposal is complete when:
 
 - inferred-scheme inspection has a canonical semantic rendering contract
 - `0155` lands maintained Core invariant verification
-- `0159` lands checked signatures and rigid quantified variables
+- the implemented `0159` checked-signature and rigid-quantified-variable path
+  remains covered by its proof suite
+- `tests/type_semantics_matrix_tests.rs` remains green as the scheme proof
+  suite
+- `tests/core_type_contract_matrix_tests.rs` and
+  `tests/static_typing_contract_tests.rs` remain green as the Core/static-typing
+  contract suite
+- checked-signature evidence remains green through the implemented `0159`
+  coverage path, including the E305 rigid-variable diagnostic snapshot
 - proof-oriented static-typing suites remain green without normalization
   workarounds leaking into user-facing semantics
 - the proposal corpus clearly presents Flux as already statically typed, with

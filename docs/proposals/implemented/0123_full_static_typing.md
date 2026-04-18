@@ -1,6 +1,6 @@
 - Feature Name: Full Static Typing — From Gradual to Haskell-Like Type Safety
 - Start Date: 2026-03-25
-- Status: Partially Implemented
+- Status: Implemented
 - Last Updated: 2026-04-15
 - Proposal PR:
 - Flux Issue:
@@ -20,12 +20,12 @@ Use these instead:
 - `0156` for maintained front-end static-typing completion
 - `0155` for Core validation follow-on work
 - `0157` and `0158` for the semantic-vs-representation split and downstream cleanup
-- `0159` for signature-directed checking and skolemisation follow-on work
+- `0160` for the final hardening and closure framing across proof surfaces
 
 ## Implementation status
 [implementation-status]: #implementation-status
 
-This proposal is **partially implemented** as a historical umbrella.
+This proposal is **implemented** as a historical umbrella record.
 
 What landed under this broader track:
 
@@ -35,13 +35,14 @@ What landed under this broader track:
 - HKT instance resolution
 - base HM signature tightening
 - the maintained static-typing closure later recorded in `0156`
+- the later hardening and closure follow-through recorded in `0158`, `0159`,
+  and `0160`
 
 What remains open is no longer “finish static typing from scratch”. The open
-areas now live in narrower follow-on proposals:
+areas are hardening and closure work recorded in narrower follow-on proposals:
 
 - `0155` — Core validation / `core_lint`
-- `0158` — downstream semantic-`Dynamic` cleanup
-- `0159` — signature-directed checking, skolemisation, and explicit polymorphic recursion support
+- `0160` — final proof-bar and proposal-stack closure framing
 
 ## Historical phase snapshot
 [historical-phase-snapshot]: #historical-phase-snapshot
@@ -87,7 +88,7 @@ Do **not** use this proposal as the current status source for:
 - downstream semantic-vs-representation cleanup
 - remaining inference-completeness work
 
-Those belong to `0156`, `0157`, `0158`, and `0159`.
+Those belong to `0156`, `0157`, `0158`, `0159`, and `0160`.
 
 ## Historical material
 [historical-material]: #historical-material
