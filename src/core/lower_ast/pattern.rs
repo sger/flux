@@ -115,7 +115,7 @@ impl<'a> super::AstLowerer<'a> {
                 let tmp = crate::syntax::symbol::Symbol::new(5_000_000 + self.fresh);
                 self.fresh += 1;
                 let tmp_binder = self.fresh_binder(tmp);
-                out.push(CoreDef::new(tmp_binder.clone(), rhs, false, span));
+                out.push(CoreDef::new(tmp_binder, rhs, false, span));
                 for (i, field_pat) in fields.into_iter().enumerate() {
                     if let CorePat::Var(binder) = field_pat {
                         out.push(CoreDef::new(

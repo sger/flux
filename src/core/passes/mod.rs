@@ -362,6 +362,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
 /// malformed Core produced by a Core pass cannot silently flow into the
 /// backend. Compare with GHC's `-dcore-lint`, which is opt-in but also fatal
 /// when enabled.
+#[allow(clippy::result_large_err)]
 fn core_lint_stage(
     program: &CoreProgram,
     stage: &'static str,

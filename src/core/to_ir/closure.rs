@@ -186,7 +186,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let fn_block = self.ctx.alloc_block();
         let capture_env: Vec<(CoreBinder, IrVar)> = captures
             .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (b.clone(), v)))
+            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
             .collect();
 
         {
@@ -296,7 +296,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 
         let capture_env: Vec<(CoreBinder, IrVar)> = captures
             .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (b.clone(), v)))
+            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
             .collect();
 
         {
@@ -423,7 +423,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 
         let capture_env: Vec<(CoreBinder, IrVar)> = captures
             .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (b.clone(), v)))
+            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
             .collect();
 
         {
@@ -519,6 +519,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         dest
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_lam_as_closure_aether(
         &mut self,
         forced_name: Option<Identifier>,
@@ -552,7 +553,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let fn_block = self.ctx.alloc_block();
         let capture_env: Vec<(CoreBinder, IrVar)> = captures
             .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (b.clone(), v)))
+            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
             .collect();
 
         {

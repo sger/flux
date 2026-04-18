@@ -637,7 +637,7 @@ mod tests {
     }
 
     fn v<B: std::borrow::Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::bound_var(binder.borrow().clone(), s())
+        CoreExpr::bound_var(*binder.borrow(), s())
     }
 
     fn expect_mask(expr: CoreExpr) -> Option<u64> {

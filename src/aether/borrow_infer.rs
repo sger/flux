@@ -193,7 +193,7 @@ pub fn infer_borrow_modes_with_preloaded(
     for def in &program.defs {
         if let Some((params, _)) = extract_lam(&def.expr) {
             registry.upsert_user_signature(
-                def.binder.clone(),
+                def.binder,
                 BorrowSignature::all(BorrowMode::Owned, params.len(), BorrowProvenance::Inferred),
             );
         }
@@ -228,7 +228,7 @@ pub fn infer_borrow_modes_with_preloaded(
                     .cloned()
                     .unwrap_or_else(|| vec![BorrowMode::Owned; params.len()]);
                 let signature = BorrowSignature::new(params, BorrowProvenance::Inferred);
-                if registry.upsert_user_signature(def.binder.clone(), signature) {
+                if registry.upsert_user_signature(def.binder, signature) {
                     group_changed = true;
                 }
             }

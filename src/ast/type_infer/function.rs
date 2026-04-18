@@ -417,6 +417,7 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Finalize and bind the inferred function scheme in the outer scope.
+    #[allow(clippy::too_many_arguments)]
     fn finalize_and_bind_function_scheme(
         &mut self,
         name: Identifier,

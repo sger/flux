@@ -58,7 +58,7 @@ fn anf_atom(
         let span = expr.span();
         let rep = rep_of_expr(&expr);
         let binder = fresh_anf_binder(next_id, rep);
-        bindings.push((binder.clone(), expr));
+        bindings.push((binder, expr));
         CoreExpr::bound_var(&binder, span)
     }
 }

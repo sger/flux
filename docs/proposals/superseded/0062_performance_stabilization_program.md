@@ -1,8 +1,19 @@
 - Feature Name: Performance Stabilization Program (No New Features)
 - Start Date: 2026-02-28
-- Status: Partially Implemented
-- Proposal PR: 
-- Flux Issue: 
+- Status: Superseded (2026-04-18)
+- Proposal PR:
+- Flux Issue:
+
+## Why superseded
+
+The backend parity axis this proposal was built around — **VM/JIT parity** —
+no longer matches Flux's architecture. The JIT backend was retired; Flux
+ships a bytecode VM and an LLVM native backend, and parity infrastructure
+now targets VM ↔ LLVM (see `src/parity/` and `cargo run -- parity-check`).
+The partial work that shipped under this program (perf gates, regression
+detection) lives in CI and `scripts/`; a future performance program should
+be rewritten against the VM + LLVM backend split rather than patched in
+place.
 
 # Proposal 0062: Performance Stabilization Program (No New Features)
 

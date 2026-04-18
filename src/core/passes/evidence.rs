@@ -61,7 +61,7 @@ fn fresh_identity_binder(next_id: &mut u32) -> CoreBinder {
 fn make_identity_lam(next_id: &mut u32, span: Span) -> CoreExpr {
     let x = fresh_identity_binder(next_id);
     CoreExpr::Lam {
-        params: vec![x.clone()],
+        params: vec![x],
         param_types: Vec::new(),
         result_ty: None,
         body: Box::new(CoreExpr::bound_var(&x, span)),
@@ -88,7 +88,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                     let ev_binder = fresh_binder(next_id, handler.operation);
 
                     // Build the evidence lambda: Lam([resume, params...], body)
-                    let mut lam_params = vec![handler.resume.clone()];
+                    let mut lam_params = vec![handler.resume];
                     lam_params.extend_from_slice(&handler.params);
 
                     let ev_lam = CoreExpr::Lam {
@@ -99,7 +99,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                         span: handler.span,
                     };
 
-                    new_evidence.insert((effect, handler.operation), ev_binder.clone());
+                    new_evidence.insert((effect, handler.operation), ev_binder);
                     ev_bindings.push((ev_binder, ev_lam));
                 }
 
