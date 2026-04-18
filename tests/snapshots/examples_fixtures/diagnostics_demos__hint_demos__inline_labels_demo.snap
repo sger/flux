@@ -1,0 +1,52 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics_demos/hint_demos/inline_labels_demo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/diagnostics_demos/hint_demos/inline_labels_demo.flx:5:14
+  |
+5 | let result = "hello" + 123;
+  |              ^^^^^^^^^^^^^
+  |              ------------- this expression has type `String and Int`
+
+  |              ------------- operator operands are known at compile time
+
+Note:
+  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
+  found type: String and Int
+
+Help:
+  These two types are not compatible.
+  adjust operand types or add explicit conversion
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 2nd argument to `add`.
+
+  examples/diagnostics_demos/hint_demos/inline_labels_demo.flx:9:13
+  |
+8 | fn add(a, b) { a + b }
+  | ---------------------- `add` expects `String` as the 2nd parameter
+9 | add("text", 456);
+  |             ^^^
+  |             --- this argument has type `Int`
+
+Note:
+  expected argument type: String
+  found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+Found 2 errors.
+== stdout ==
+<not executed>
