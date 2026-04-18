@@ -39,14 +39,14 @@ It does **not** require:
 |---|---|---|---|
 | `0.0.5` ✅ | Static typing closure | `0127`, `0155`, `0156`, `0157`, `0158`, `0159`, `0160`, `0150`, `0116` | — |
 | `0.0.6` | Finish partials + named fields | `0152`, `0151`, `0126`, `0135`, `0015` | `0011` |
-| `0.0.7` | Actors, IO effect, macros | `0143` Phase 0, `0099` Part 1, `0040` Phase 1 | `0075` |
+| `0.0.7` | Effect system decomposition | `0161` (Flow.Effects + sealing + optimizer levels), `0040` Phase 1 | `0143` Phase 0 |
 | `0.0.8` | Stdlib and tooling | `0030` polish, `0035`, `0010`, `0083` | `0076` |
-| `0.0.9` | Compiler/runtime perf closure | `0109` Phase 1/3, `0112` Phase 2/3, `0099` Part 3 | `0024` |
+| `0.0.9` | Compiler/runtime perf closure | `0109` Phase 1/3, `0112` Phase 2/3, `0162` Phase 1/2 (evidence passing + monomorphic State/Reader) | `0024` |
 | `0.1.0` | First coherent preview | Consolidate `0.0.5` to `0.0.9` | — |
 | `0.2.0` | Actor concurrency maturity | `0143` remaining phases | — |
 | `0.3.0` | Reuse and ownership hardening | `0068`, `0069` | `0077` |
-| `0.4.0` | Handler runtime maturity | `0072`, `0073` | — |
-| `0.5.0` | Capability-oriented effects | `0075` (if not landed in 0.0.7), `0082` | — |
+| `0.4.0` | Handler runtime unification | `0162` Phase 3 (Koka yield algorithm, VM↔LLVM parity by construction) | — |
+| `0.5.0` | Capability-oriented effects | `0082`, selective handleable lifting per 0161 future-possibilities | — |
 | `0.6.0` | Tooling and developer workflow | `0076`, debug toolkit extensions | `0024`, `0023` if still incomplete |
 | `0.7.0` | Standard library and language polish | finish remaining `0003`/`0030` polish, docs/examples alignment, `0052` | `0082` |
 | `0.8.0` | Pre-RC stabilization | `0062`, VM/LLVM parity sweep, performance and diagnostic freeze | `0041` |

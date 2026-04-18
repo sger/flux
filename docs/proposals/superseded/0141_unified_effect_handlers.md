@@ -1,5 +1,6 @@
 - Feature Name: Unified Effect Handlers — Koka-style Yield Model
 - Start Date: 2026-03-27
+- Status: Superseded (2026-04-18) by [Proposal 0162 — Unified Effect Handler Runtime](../0162_unified_effect_handler_runtime.md) (Phase 3)
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0131 (Aether RC), Proposal 0133 (Unified CorePrimOp)
