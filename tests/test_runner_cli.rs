@@ -990,8 +990,8 @@ fn dump_core_debug_shows_explicit_polymorphism_without_dynamic() {
         text
     );
     assert!(
-        text.contains("letrec id : t") && text.contains("letrec choose : t"),
-        "expected dump-core debug to preserve explicit type-variable residue for local polymorphic defs, output:\n{}",
+        text.contains("letrec id : a") && text.contains("letrec choose : a"),
+        "expected dump-core debug to preserve explicit polymorphism for local defs with canonical variable names, output:\n{}",
         text
     );
     assert!(

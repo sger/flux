@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use flux::{
-    ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program},
+    ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program, render_scheme_canonical},
     bytecode::compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticsAggregator, render_diagnostics},
     syntax::{
@@ -10,8 +10,7 @@ use flux::{
         statement::Statement, type_expr::TypeExpr,
     },
     types::{
-        class_env::ClassEnv, infer_effect_row::InferEffectRow, infer_type::InferType,
-        scheme::Scheme, type_constructor::TypeConstructor,
+        class_env::ClassEnv, scheme::Scheme,
     },
 };
 
@@ -182,178 +181,8 @@ pub fn compile_module_fixture(rel: &str) -> Result<CompiledFixture, Vec<Diagnost
     })
 }
 
-fn alpha_name(index: usize) -> String {
-    let letter = ((index % 26) as u8 + b'a') as char;
-    let suffix = index / 26;
-    if suffix == 0 {
-        letter.to_string()
-    } else {
-        format!("{letter}{suffix}")
-    }
-}
-
-struct SchemeFormatter<'a> {
-    interner: &'a Interner,
-    names: HashMap<u32, String>,
-    next: usize,
-}
-
-impl<'a> SchemeFormatter<'a> {
-    fn new(interner: &'a Interner) -> Self {
-        Self {
-            interner,
-            names: HashMap::new(),
-            next: 0,
-        }
-    }
-
-    fn intern_var_name(&mut self, id: u32) -> String {
-        if let Some(name) = self.names.get(&id) {
-            return name.clone();
-        }
-        let name = alpha_name(self.next);
-        self.next += 1;
-        self.names.insert(id, name.clone());
-        name
-    }
-
-    fn adt_name(&self, sym: flux::syntax::Identifier) -> String {
-        self.interner
-            .try_resolve(sym)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{sym}"))
-    }
-
-    fn effect_name(&self, sym: flux::syntax::Identifier) -> String {
-        self.interner
-            .try_resolve(sym)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{sym}"))
-    }
-
-    fn format_constructor(&self, constructor: &TypeConstructor) -> String {
-        match constructor {
-            TypeConstructor::Adt(sym) => self.adt_name(*sym),
-            other => other.to_string(),
-        }
-    }
-
-    fn format_effects(&mut self, effects: &InferEffectRow) -> String {
-        let mut concrete: Vec<_> = effects
-            .concrete()
-            .iter()
-            .map(|effect| self.effect_name(*effect))
-            .collect();
-        concrete.sort();
-        match effects.tail() {
-            Some(tail) if concrete.is_empty() => format!("|{}", self.intern_var_name(tail)),
-            Some(tail) => format!("{}, |{}", concrete.join(", "), self.intern_var_name(tail)),
-            None => concrete.join(", "),
-        }
-    }
-
-    fn format_type(&mut self, infer_type: &InferType) -> String {
-        match infer_type {
-            InferType::Var(id) => self.intern_var_name(*id),
-            InferType::Con(constructor) => self.format_constructor(constructor),
-            InferType::App(constructor, args) => format!(
-                "{}<{}>",
-                self.format_constructor(constructor),
-                args.iter()
-                    .map(|arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            InferType::Fun(params, ret, effects) => {
-                let params = params
-                    .iter()
-                    .map(|param| self.format_type(param))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let mut rendered = format!("({params}) -> {}", self.format_type(ret));
-                if !effects.concrete().is_empty() || effects.tail().is_some() {
-                    rendered.push_str(" with ");
-                    rendered.push_str(&self.format_effects(effects));
-                }
-                rendered
-            }
-            InferType::Tuple(elements) => format!(
-                "({})",
-                elements
-                    .iter()
-                    .map(|element| self.format_type(element))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            InferType::HktApp(head, args) => format!(
-                "{}<{}>",
-                self.format_type(head),
-                args.iter()
-                    .map(|arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        }
-    }
-
-    fn format_scheme(mut self, scheme: &Scheme) -> String {
-        let mut forall = scheme.forall.clone();
-        forall.extend(scheme.infer_type.free_vars());
-        for constraint in &scheme.constraints {
-            forall.extend(constraint.type_vars.iter().copied());
-        }
-        forall.sort_unstable();
-        forall.dedup();
-
-        let constraints = if scheme.constraints.is_empty() {
-            String::new()
-        } else {
-            let mut rendered = scheme
-                .constraints
-                .iter()
-                .map(|constraint| {
-                    let class_name = self
-                        .interner
-                        .try_resolve(constraint.class_name)
-                        .map(str::to_string)
-                        .unwrap_or_else(|| format!("{}", constraint.class_name));
-                    let args = constraint
-                        .type_vars
-                        .iter()
-                        .map(|var| self.intern_var_name(*var))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{class_name}<{args}>")
-                })
-                .collect::<Vec<_>>();
-            rendered.sort();
-            format!("{} => ", rendered.join(", "))
-        };
-
-        let ty = self.format_type(&scheme.infer_type);
-        if forall.is_empty() {
-            format!("{constraints}{ty}")
-        } else {
-            for var in &forall {
-                self.intern_var_name(*var);
-            }
-            let mut forall_named = forall
-                .iter()
-                .map(|var| (*var, self.intern_var_name(*var)))
-                .collect::<Vec<_>>();
-            forall_named.sort_by(|left, right| left.1.cmp(&right.1));
-            let vars = forall_named
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("forall {vars}. {constraints}{ty}")
-        }
-    }
-}
-
 pub fn normalize_scheme(interner: &Interner, scheme: &Scheme) -> String {
-    SchemeFormatter::new(interner).format_scheme(scheme)
+    render_scheme_canonical(interner, scheme)
 }
 
 pub fn assert_named_schemes(rel: &str, expected: &[(&str, &str)]) {
