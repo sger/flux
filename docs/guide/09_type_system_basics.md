@@ -202,6 +202,39 @@ User-defined generic ADTs use the same syntax (see [Chapter 13](13_match_exhaust
 
 ---
 
+## Static Typing Guarantees
+
+Flux's static-typing story is closed. The language makes the following guarantees about any program the compiler accepts:
+
+### Before execution
+
+- **No unresolved types reach runtime.** Every let binding, function return, and sub-expression either resolves to a concrete type or is rejected with `E430` (expression residue) or `E004` (binding residue). `Any` is not a source-level type.
+- **Annotations are contracts, not hints.** Declared parameter types, return types, and let-binding types are checked against the body. Mismatches are `E300`. Quantified variables in signatures are rigid (skolemized) — solving them with a concrete type raises `E305`.
+- **Numeric ambiguity resolves deterministically.** A binding with only `Num a` obligations (no other constraints, not an explicit bound, not appearing in the public type) defaults to `Int`. This applies at every generalization site, top-level and local.
+- **Type-class method calls monomorphize or dictionary-pass explicitly.** No silent fallback; a missing instance is `E441`. Effect floors on class methods are enforced with `E452`.
+- **Recursive signatures enable polymorphic recursion.** An annotated recursive function can call itself at a polymorphic instantiation; unannotated recursion stays monomorphic.
+- **Effect rows are inferred and checked.** Row-polymorphic effects unify like types; row conflicts raise `E304`, missing effects at call sites raise `E400`.
+
+### At the runtime boundary
+
+- **Typed public APIs check incoming and outgoing values.** Arguments and returns are matched against the declared type, including ADT constructor shape, list/array element types, tuple arities, and function arity + effects.
+- **Closures without stored contracts are rejected at typed function boundaries.** There is no auto-accept for opaque callables.
+- **Module interfaces preserve full runtime contracts.** Cross-module calls get the same shape checks as intra-module ones, including for user-defined ADTs.
+- **Strict mode rejects unresolvable boundary types.** Generic-only public types emit `E425` so the boundary is never silently un-enforced.
+
+### Internally
+
+- **Core IR is validated after every pass.** A `core_lint` verifier checks binder scope, parameter-arity metadata, case/handler shape, and recursive-group invariants. Violations are fatal (`E998`).
+- **Inferred schemes render deterministically.** `forall a, b. Eq<a>, Num<a> => (a, b) -> a` — canonical names, sorted constraints, regardless of inference-internal id allocation. The same formatter drives diagnostics, `--dump-core`, caches, and inspection surfaces.
+
+### What this means for writing Flux
+
+If the compiler accepts your program, you do not need a runtime `typeof` check, a defensive `match` for an unexpected shape, or a cast at a module boundary. The type you see in an annotation or a `--dump-core` rendering is the type the runtime will see.
+
+If you want a guarantee the compiler does not yet give — higher-rank polymorphism without explicit signatures, multi-parameter type classes, record row polymorphism — that is outside the current static-typing closure. Open a proposal rather than reaching for `Any`.
+
+---
+
 ## Next
 
 Continue to [Chapter 10 — Effects and Purity](10_effects_and_purity.md).

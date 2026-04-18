@@ -1,9 +1,12 @@
 - Feature Name: Core IR Parity Simplification
 - Start Date: 2026-04-14
-- Status: Draft
+- Status: Implemented (2026-04-18)
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0102 (Core IR Optimization Roadmap), 0153 (Decouple Aether from Core IR)
+- Closed under: [0160 (Static Typing Hardening Closure)](0160_static_typing_hardening_closure.md)
+- Related implemented work: [0127 (Type Inference Completion Roadmap)](0127_type_inference_ghc_parity.md), [0159 (Signature-Directed Checking and Skolemisation)](0159_signature_directed_checking_and_skolemisation.md)
+- Delivery commits: `9347ac8c` (core_lint introduced), `38259d1c` (E998 promotion + five new passes), `979cfbb3` (parity fixes)
 
 # Proposal 0155: Core IR Parity Simplification
 
