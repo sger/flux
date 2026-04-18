@@ -1,5 +1,6 @@
 - Feature Name: Diagnostic Rendering Improvements
 - Start Date: 2026-03-26
+- Status: Partially Implemented — Phase 1 (line elision with `...` markers in `src/diagnostics/rendering/source.rs`) shipped. Phase 2 (narrow signature labels) and Phase 3 (dedup related notes) open.
 - Proposal PR:
 - Flux Issue:
 

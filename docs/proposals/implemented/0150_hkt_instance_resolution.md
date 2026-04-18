@@ -3,8 +3,7 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145 Steps 1–5 (done), HKT kind system (done)
-- Status: Complete
-- Date: 2026-04-09
+- Status: Implemented (2026-04-09) — `src/types/class_env.rs::match_instance_type_expr`, resolver unit tests + end-to-end IR pipeline tests
 
 ## Summary
 
