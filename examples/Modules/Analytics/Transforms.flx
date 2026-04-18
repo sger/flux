@@ -5,24 +5,25 @@ module Modules.Analytics.Transforms {
     let SCORE_SCALE = 2
     let SHOUT_PREFIX = "["
     let SHOUT_SUFFIX = "]"
+    let c = Circle { label: "circle", radius: 3 }
 
-    fn double(x) {
+    public fn double(x) {
         return x * SCORE_SCALE
     }
 
-    fn curve_by_five(x) {
+    public fn curve_by_five(x) {
         x + Rules.curve_delta()
     }
 
-    fn is_passing(x) {
+    public fn is_passing(x) {
         x >= Rules.passing_score()
     }
 
-    fn sum_step(acc, x) {
+    public fn sum_step(acc, x) {
         acc + x
     }
 
-    fn shout_tag(name) {
+    public fn shout_tag(name) {
         return Str.wrap(name |> upper, SHOUT_PREFIX, SHOUT_SUFFIX)
     }
 }

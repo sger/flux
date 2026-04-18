@@ -114,8 +114,9 @@ impl<'a> InferCtx<'a> {
                 // unification discharge local helper projections like `pair.0`
                 // instead of poisoning the expression with a fallback hole.
                 let arity = std::cmp::max(index + 1, 2);
-                let elements: Vec<InferType> =
-                    (0..arity).map(|_| self.env.alloc_infer_type_var()).collect();
+                let elements: Vec<InferType> = (0..arity)
+                    .map(|_| self.env.alloc_infer_type_var())
+                    .collect();
                 let projected = elements[index].clone();
                 let tuple_shape = InferType::Tuple(elements);
                 self.unify_silent(&object_ty, &tuple_shape);

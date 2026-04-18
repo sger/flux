@@ -1009,8 +1009,8 @@ impl<'a> FnEmitter<'a> {
             LirInstr::IAdd { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Add, *a, *b),
             LirInstr::ISub { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Sub, *a, *b),
             LirInstr::IMul { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Mul, *a, *b),
-            LirInstr::IDiv { dst, a, b } => self.emit_idiv_call(*dst, *a, *b),
-            LirInstr::IRem { dst, a, b } => self.emit_irem_call(*dst, *a, *b),
+            LirInstr::IDiv { dst, a, b, span } => self.emit_idiv_call(*dst, *a, *b, *span),
+            LirInstr::IRem { dst, a, b, span } => self.emit_irem_call(*dst, *a, *b, *span),
 
             LirInstr::ICmp { dst, op, a, b } => {
                 let cmp_op = match op {
@@ -1499,17 +1499,36 @@ impl<'a> FnEmitter<'a> {
 
     /// Emit integer division with a zero-divisor guard.
     /// Tags raw values, calls `flux_rt_div` (which panics on zero), and untags the result.
-    fn emit_idiv_call(&mut self, dst: LirVar, a: LirVar, b: LirVar) {
-        self.emit_checked_int_op(dst, a, b, "flux_rt_div");
+    fn emit_idiv_call(
+        &mut self,
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: crate::diagnostics::position::Span,
+    ) {
+        self.emit_checked_int_op(dst, a, b, span, "flux_rt_div_loc");
     }
 
     /// Emit integer modulo with a zero-divisor guard.
-    fn emit_irem_call(&mut self, dst: LirVar, a: LirVar, b: LirVar) {
-        self.emit_checked_int_op(dst, a, b, "flux_rt_mod");
+    fn emit_irem_call(
+        &mut self,
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: crate::diagnostics::position::Span,
+    ) {
+        self.emit_checked_int_op(dst, a, b, span, "flux_rt_mod_loc");
     }
 
     /// Tag raw integers, call a C runtime function, and untag the result.
-    fn emit_checked_int_op(&mut self, dst: LirVar, a: LirVar, b: LirVar, c_name: &str) {
+    fn emit_checked_int_op(
+        &mut self,
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: crate::diagnostics::position::Span,
+        c_name: &str,
+    ) {
         // Tag: (raw << 1) | 1
         let a_tag = LlvmLocal(format!("dz{}_a_tag", self.next_tmp));
         let a_tag2 = LlvmLocal(format!("dz{}_a_tag2", self.next_tmp));
@@ -1551,6 +1570,11 @@ impl<'a> FnEmitter<'a> {
             vec![
                 (LlvmType::i64(), LlvmOperand::Local(a_tag2)),
                 (LlvmType::i64(), LlvmOperand::Local(b_tag2)),
+                (LlvmType::i64(), self.i64_const(span.start.line as i64)),
+                (
+                    LlvmType::i64(),
+                    self.i64_const((span.start.column + 1) as i64),
+                ),
             ],
             LlvmType::i64(),
         );
@@ -2978,6 +3002,15 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
+        "flux_rt_div_loc" | "flux_rt_mod_loc" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
         "flux_safe_div"
         | "flux_safe_mod"
         | "flux_array_contains"

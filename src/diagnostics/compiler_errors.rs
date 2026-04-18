@@ -987,7 +987,9 @@ pub const NAMED_FIELD_MISSING: ErrorCode = ErrorCode {
     title: "MISSING NAMED FIELD",
     error_type: ErrorType::Compiler,
     message: "Missing field `{}` in `{}` constructor.",
-    hint: Some("Provide every declared field, or add a default using a spread over an existing value."),
+    hint: Some(
+        "Provide every declared field, or add a default using a spread over an existing value.",
+    ),
 };
 
 /// Proposal 0152: a named constructor, pattern, or spread references a field
@@ -1017,7 +1019,9 @@ pub const NAMED_FIELD_NOT_ON_TYPE: ErrorCode = ErrorCode {
     title: "FIELD NOT ON TYPE",
     error_type: ErrorType::Compiler,
     message: "Type `{}` has no field `{}`.",
-    hint: Some("Check the variant's declared fields or use pattern matching to access variant-specific fields."),
+    hint: Some(
+        "Check the variant's declared fields or use pattern matching to access variant-specific fields.",
+    ),
 };
 
 /// Proposal 0152: spread `{ ...base, ... }` used on a value whose type is not

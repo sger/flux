@@ -1139,7 +1139,8 @@ impl Parser {
                                 field_name_span,
                                 "Duplicate Field",
                                 DiagnosticCategory::ParserDeclaration,
-                                "This named-field variant already declares a field with this name.".to_string(),
+                                "This named-field variant already declares a field with this name."
+                                    .to_string(),
                             ));
                         }
                         if !self.expect_peek_context_with_details(

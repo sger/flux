@@ -523,7 +523,11 @@ impl<'a> super::AstLowerer<'a> {
         fields: &[NamedFieldInit],
         span: Span,
     ) -> CoreExpr {
-        let declared = self.ctor_field_names.get(&name).cloned().unwrap_or_default();
+        let declared = self
+            .ctor_field_names
+            .get(&name)
+            .cloned()
+            .unwrap_or_default();
         let mut positional: Vec<Option<CoreExpr>> = (0..declared.len()).map(|_| None).collect();
         for init in fields {
             let Some(index) = declared.iter().position(|n| *n == init.name) else {
@@ -565,7 +569,11 @@ impl<'a> super::AstLowerer<'a> {
                 return CoreExpr::Lit(CoreLit::Int(0), span);
             }
         };
-        let declared = self.ctor_field_names.get(&variant).cloned().unwrap_or_default();
+        let declared = self
+            .ctor_field_names
+            .get(&variant)
+            .cloned()
+            .unwrap_or_default();
 
         // Bind the base to a tmp so it's evaluated exactly once.
         let tmp_name = Identifier::new(0xFFFF_FFF0);
@@ -645,7 +653,11 @@ impl<'a> super::AstLowerer<'a> {
         let mut field_binders: Vec<CoreBinder> = Vec::with_capacity(arity);
         for _ in 0..arity {
             let id = self.alloc_binder_id();
-            field_binders.push(CoreBinder::with_rep(id, Identifier::new(0), FluxRep::BoxedRep));
+            field_binders.push(CoreBinder::with_rep(
+                id,
+                Identifier::new(0),
+                FluxRep::BoxedRep,
+            ));
         }
         let target = &field_binders[target_index];
         let rhs = CoreExpr::bound_var(target, span);
@@ -714,7 +726,11 @@ impl<'a> super::AstLowerer<'a> {
                 let mut binders: Vec<CoreBinder> = Vec::with_capacity(field_names.len());
                 for _ in 0..field_names.len() {
                     let id = self.alloc_binder_id();
-                    binders.push(CoreBinder::with_rep(id, Identifier::new(0), FluxRep::BoxedRep));
+                    binders.push(CoreBinder::with_rep(
+                        id,
+                        Identifier::new(0),
+                        FluxRep::BoxedRep,
+                    ));
                 }
                 let target = binders[target_index].clone();
                 let pat = CorePat::Con {

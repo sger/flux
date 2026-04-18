@@ -1,6 +1,6 @@
 use crate::{
-    compiler::Compiler,
     bytecode::op_code::{OpCode, disassemble},
+    compiler::Compiler,
     diagnostics::render_diagnostics,
     runtime::value::Value,
     syntax::{
@@ -173,8 +173,14 @@ fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
 
     let e430_count = diags.iter().filter(|d| d.code() == Some("E430")).count();
     let e004_count = diags.iter().filter(|d| d.code() == Some("E004")).count();
-    assert_eq!(e430_count, 1, "expected only binding-level E430, got: {diags:?}");
-    assert_eq!(e004_count, 1, "expected unresolved-name E004, got: {diags:?}");
+    assert_eq!(
+        e430_count, 1,
+        "expected only binding-level E430, got: {diags:?}"
+    );
+    assert_eq!(
+        e004_count, 1,
+        "expected unresolved-name E004, got: {diags:?}"
+    );
     assert!(
         !diags.iter().any(|d| {
             d.code() == Some("E430")

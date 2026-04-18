@@ -1,6 +1,7 @@
 use crate::{
-    bytecode::bytecode::Bytecode, vm::VM,
+    bytecode::bytecode::Bytecode,
     runtime::{hamt as rc_hamt, hash_key::HashKey, value::Value},
+    vm::VM,
 };
 
 fn new_vm() -> VM {

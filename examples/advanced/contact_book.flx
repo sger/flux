@@ -1,0 +1,67 @@
+// parity-expected-stdout-begin
+// 3
+// Some("Alice")
+// Some("alice@new.example")
+// Some("Bob")
+// None
+// parity-expected-stdout-end
+
+// Named-field records (proposal 0152) used as the rows of a simple
+// in-memory contact book: array of records, keyed lookup by id, and
+// functional update via spread.
+
+import Flow.Array as Array
+
+data Contact {
+    Contact { id: Int, name: String, email: String }
+}
+
+fn expectSome(opt, msg) {
+    match opt {
+        Some(v) -> v,
+        None -> panic(msg),
+        _ -> panic(msg),
+    }
+}
+
+fn find_by_id(contacts: Array<Contact>, id: Int) -> Option<Contact> {
+    if len(contacts) == 0 {
+        None
+    } else {
+        let first = expectSome(Array.first(contacts), "empty contacts")
+        if first.id == id {
+            Some(first)
+        } else {
+            find_by_id(Array.drop(contacts, 1), id)
+        }
+    }
+}
+
+fn name_at(contacts: Array<Contact>, id: Int) -> Option<String> {
+    match find_by_id(contacts, id) {
+        Some(c) -> Some(c.name),
+        None -> None,
+        _ -> None,
+    }
+}
+
+fn main() with IO {
+    let book = [|
+        Contact { id: 1, name: "Alice", email: "alice@example.com" },
+        Contact { id: 2, name: "Bob",   email: "bob@example.com" },
+        Contact { id: 3, name: "Carol", email: "carol@example.com" }
+    |]
+
+    print(len(book))
+
+    // Lookup by id, then project named fields via dot access.
+    print(name_at(book, 1))
+
+    // Functional update: build a new contact with a changed email.
+    let alice = Contact { id: 1, name: "Alice", email: "alice@example.com" }
+    let alice_updated = { ...alice, email: "alice@new.example" }
+    print(Some(alice_updated.email))
+
+    print(name_at(book, 2))
+    print(name_at(book, 99))
+}

@@ -9,11 +9,7 @@ use super::super::{Compiler, tag_diagnostics};
 
 impl Compiler {
     /// Phase 5: Pattern validation and compile all statements to bytecode.
-    pub(in crate::compiler) fn phase_codegen(
-        &mut self,
-        program: &Program,
-        ir_program: &IrProgram,
-    ) {
+    pub(in crate::compiler) fn phase_codegen(&mut self, program: &Program, ir_program: &IrProgram) {
         let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);

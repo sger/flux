@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use flux::compiler::Compiler;
 use flux::cfg::validate_ir;
+use flux::compiler::Compiler;
 use flux::core::to_ir::lower_core_to_ir;
 use flux::core::{display::CoreDisplayMode, lower_ast::lower_program_ast};
 use flux::diagnostics::render_diagnostics;

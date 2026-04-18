@@ -139,9 +139,10 @@ impl VM {
                     rendered.push_str("\n\n");
                 }
                 rendered.push_str("Stack trace:");
-                for frame in self.frames[..=self.frame_index].iter().rev() {
+                for (index, frame) in self.frames[..=self.frame_index].iter().rev().enumerate() {
                     rendered.push_str("\n  at ");
-                    let (name, location) = self.format_frame(frame);
+                    let is_root_frame = index == self.frame_index;
+                    let (name, location) = self.format_frame(frame, is_root_frame);
                     rendered.push_str(&name);
                     if let Some(loc) = location {
                         rendered.push_str(&format!(" ({})", loc));

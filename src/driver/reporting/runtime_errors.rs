@@ -47,6 +47,34 @@ fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
 }
 
 #[cfg(feature = "llvm")]
+fn split_native_panic_message_and_span(stderr: &str) -> Option<(&str, Option<Span>)> {
+    let message = split_native_panic_message(stderr)?;
+    let Some((base, location)) = message.rsplit_once(" @") else {
+        return Some((message, None));
+    };
+    let Some((line, column)) = location.split_once(':') else {
+        return Some((message, None));
+    };
+    let Ok(line) = line.parse::<usize>() else {
+        return Some((message, None));
+    };
+    let Ok(column_1_based) = column.parse::<usize>() else {
+        return Some((message, None));
+    };
+    if line == 0 || column_1_based == 0 {
+        return Some((message, None));
+    }
+    let column = column_1_based - 1;
+    Some((
+        base,
+        Some(Span::new(
+            Position::new(line, column),
+            Position::new(line, column + 1),
+        )),
+    ))
+}
+
+#[cfg(feature = "llvm")]
 fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFrame]) -> Span {
     let Ok(source) = std::fs::read_to_string(path) else {
         return Span::new(Position::default(), Position::default());
@@ -198,60 +226,10 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
 }
 
 #[cfg(feature = "llvm")]
-pub(crate) fn infer_native_source_frames(path: &str, span: Span) -> Vec<String> {
-    if span.start.line == 0 {
-        return vec!["main".to_string(), "<main>".to_string()];
-    }
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return vec!["main".to_string(), "<main>".to_string()];
-    };
-    let lines: Vec<&str> = source.lines().collect();
-    let mut enclosing_fn = None;
-    for idx in (0..span.start.line.saturating_sub(1)).rev() {
-        let trimmed = lines.get(idx).map(|line| line.trim()).unwrap_or_default();
-        if let Some(rest) = trimmed.strip_prefix("fn ") {
-            let name = rest
-                .split(['(', ' ', '{'])
-                .next()
-                .filter(|s| !s.is_empty())
-                .unwrap_or("main");
-            enclosing_fn = Some(name.to_string());
-            break;
-        }
-    }
-    let top_frame = enclosing_fn.unwrap_or_else(|| "main".to_string());
-    let mut frames = vec![format!(
-        "{} ({}:{}:{})",
-        top_frame,
-        render_display_path(path),
-        span.start.line,
-        span.start.column + 1
-    )];
-    if top_frame != "main" {
-        let call_site = lines
-            .iter()
-            .enumerate()
-            .find(|(_, line)| {
-                let trimmed = line.trim_start();
-                !trimmed.starts_with("fn ") && line.contains(&format!("{top_frame}("))
-            })
-            .map(|(idx, line)| {
-                let col = line.find(&top_frame).unwrap_or(0) + 1;
-                format!("<main> ({}:{}:{})", render_display_path(path), idx + 1, col)
-            })
-            .unwrap_or_else(|| "<main>".to_string());
-        frames.push(call_site);
-    } else {
-        frames.push("<main>".to_string());
-    }
-    frames
-}
-
-#[cfg(feature = "llvm")]
 pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
-    let message = split_native_panic_message(stderr)?;
+    let (message, encoded_span) = split_native_panic_message_and_span(stderr)?;
     let frames = parse_native_trace_frames(stderr);
-    let span = infer_native_runtime_span(path, message, &frames);
+    let span = encoded_span.unwrap_or_else(|| infer_native_runtime_span(path, message, &frames));
     let diag = if message.contains("Cannot call non-function value") {
         let actual = message
             .split("(got ")
@@ -314,7 +292,7 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
         .with_phase(DiagnosticPhase::Runtime)
     };
     let source = std::fs::read_to_string(path).ok();
-    let frames = if !frames.is_empty() {
+    let stack_frames = if !frames.is_empty() {
         frames
             .iter()
             .enumerate()
@@ -335,13 +313,13 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
             })
             .collect()
     } else {
-        infer_native_source_frames(path, span)
+        Vec::new()
     };
     Some(render_runtime_diagnostic(
         &diag,
         path,
         source.as_deref(),
-        &frames,
+        &stack_frames,
     ))
 }
 

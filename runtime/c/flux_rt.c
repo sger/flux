@@ -506,6 +506,35 @@ int64_t flux_rt_div(int64_t a, int64_t b) {
     return flux_tag_int(flux_untag_int(a) / rb);
 }
 
+static void flux_panic_division_by_zero_at(int64_t line, int64_t column) {
+    char buf[64];
+    int len = snprintf(buf, sizeof(buf), "Division by zero @%lld:%lld",
+                       (long long)line, (long long)column);
+    if (len <= 0) {
+        flux_panic(flux_string_new("Division by zero", 16));
+        return;
+    }
+    flux_panic(flux_string_new(buf, (uint32_t)len));
+}
+
+int64_t flux_rt_div_loc(int64_t a, int64_t b, int64_t line, int64_t column) {
+    if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("divide", 6, a, b);
+        }
+        return flux_box_float(flux_unbox_float(a) / flux_unbox_float(b));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("divide", 6, a, b);
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) {
+        flux_panic_division_by_zero_at(line, column);
+        return flux_tag_int(0); /* unreachable */
+    }
+    return flux_tag_int(flux_untag_int(a) / rb);
+}
+
 int64_t flux_rt_mod(int64_t a, int64_t b) {
     if (flux_val_is_float(a)) {
         if (!flux_val_is_float(b)) {
@@ -519,6 +548,24 @@ int64_t flux_rt_mod(int64_t a, int64_t b) {
     int64_t rb = flux_untag_int(b);
     if (rb == 0) {
         flux_panic(flux_string_new("Division by zero", 16));
+        return flux_tag_int(0); /* unreachable */
+    }
+    return flux_tag_int(flux_untag_int(a) % rb);
+}
+
+int64_t flux_rt_mod_loc(int64_t a, int64_t b, int64_t line, int64_t column) {
+    if (flux_val_is_float(a)) {
+        if (!flux_val_is_float(b)) {
+            return flux_invalid_binary_op_error("modulo", 6, a, b);
+        }
+        return flux_box_float(fmod(flux_unbox_float(a), flux_unbox_float(b)));
+    }
+    if (!flux_is_int(a) || !flux_is_int(b)) {
+        return flux_invalid_binary_op_error("modulo", 6, a, b);
+    }
+    int64_t rb = flux_untag_int(b);
+    if (rb == 0) {
+        flux_panic_division_by_zero_at(line, column);
         return flux_tag_int(0); /* unreachable */
     }
     return flux_tag_int(flux_untag_int(a) % rb);

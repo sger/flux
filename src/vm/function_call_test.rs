@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
 use crate::{
-    bytecode::bytecode::Bytecode, vm::VM,
+    bytecode::bytecode::Bytecode,
     runtime::{closure::Closure, compiled_function::CompiledFunction, value::Value},
+    vm::VM,
 };
 
 fn new_vm() -> VM {

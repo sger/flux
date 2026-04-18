@@ -9,9 +9,8 @@
 
 use std::collections::HashMap;
 
-use flux::compiler::Compiler;
-use flux::vm::VM;
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
+use flux::compiler::Compiler;
 use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
     to_ir::lower_core_to_ir,
@@ -20,6 +19,7 @@ use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser};
 use flux::types::infer_type::InferType;
+use flux::vm::VM;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

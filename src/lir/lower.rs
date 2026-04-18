@@ -1471,7 +1471,7 @@ impl<'a> FnLower<'a> {
                 }
             }
 
-            CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
+            CoreExpr::PrimOp { op, args, span } => self.lower_primop(*op, args, *span),
 
             CoreExpr::Lam {
                 params,
@@ -2082,7 +2082,7 @@ impl<'a> FnLower<'a> {
                     self.lower_expr_aether(body)
                 }
             }
-            AetherExpr::PrimOp { op, args, .. } => self.lower_primop_aether(*op, args),
+            AetherExpr::PrimOp { op, args, span } => self.lower_primop_aether(*op, args, *span),
             AetherExpr::Case {
                 scrutinee, alts, ..
             } => self.lower_case_aether(scrutinee, alts),
@@ -3257,25 +3257,40 @@ impl<'a> FnLower<'a> {
 
     // ── PrimOp lowering ──────────────────────────────────────────────
 
-    fn lower_primop(&mut self, op: CorePrimOp, args: &[CoreExpr]) -> LirVar {
+    fn lower_primop(
+        &mut self,
+        op: CorePrimOp,
+        args: &[CoreExpr],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-        self.lower_primop_from_vars(op, arg_vars)
+        self.lower_primop_from_vars(op, arg_vars, span)
     }
 
-    fn lower_primop_aether(&mut self, op: CorePrimOp, args: &[AetherExpr]) -> LirVar {
+    fn lower_primop_aether(
+        &mut self,
+        op: CorePrimOp,
+        args: &[AetherExpr],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
-        self.lower_primop_from_vars(op, arg_vars)
+        self.lower_primop_from_vars(op, arg_vars, span)
     }
 
-    fn lower_primop_from_vars(&mut self, op: CorePrimOp, arg_vars: Vec<LirVar>) -> LirVar {
+    fn lower_primop_from_vars(
+        &mut self,
+        op: CorePrimOp,
+        arg_vars: Vec<LirVar>,
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         match op {
             // Typed integer arithmetic → inline LIR instructions.
             // Untag operands, compute, retag result.
-            CorePrimOp::IAdd => self.lower_int_binop(LirIntOp::Add, &arg_vars),
-            CorePrimOp::ISub => self.lower_int_binop(LirIntOp::Sub, &arg_vars),
-            CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars),
-            CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars),
-            CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars),
+            CorePrimOp::IAdd => self.lower_int_binop(LirIntOp::Add, &arg_vars, span),
+            CorePrimOp::ISub => self.lower_int_binop(LirIntOp::Sub, &arg_vars, span),
+            CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars, span),
+            CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars, span),
+            CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars, span),
 
             // Typed integer comparisons → inline ICmp.
             CorePrimOp::ICmpEq => self.lower_int_cmp(CmpOp::Eq, &arg_vars),
@@ -3421,35 +3436,35 @@ impl<'a> FnLower<'a> {
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Add, &arg_vars)
+                self.lower_int_binop(LirIntOp::Add, &arg_vars, span)
             }
             CorePrimOp::Sub
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Sub, &arg_vars)
+                self.lower_int_binop(LirIntOp::Sub, &arg_vars, span)
             }
             CorePrimOp::Mul
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Mul, &arg_vars)
+                self.lower_int_binop(LirIntOp::Mul, &arg_vars, span)
             }
             CorePrimOp::Div
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Div, &arg_vars)
+                self.lower_int_binop(LirIntOp::Div, &arg_vars, span)
             }
             CorePrimOp::Mod
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Rem, &arg_vars)
+                self.lower_int_binop(LirIntOp::Rem, &arg_vars, span)
             }
 
             // Everything else → C runtime call via PrimCall.
@@ -3466,7 +3481,12 @@ impl<'a> FnLower<'a> {
     }
 
     /// Lower typed integer binary op: untag → compute → retag.
-    fn lower_int_binop(&mut self, int_op: LirIntOp, args: &[LirVar]) -> LirVar {
+    fn lower_int_binop(
+        &mut self,
+        int_op: LirIntOp,
+        args: &[LirVar],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let a_raw = self.fresh_var();
         let b_raw = self.fresh_var();
         self.emit(LirInstr::UntagInt {
@@ -3499,11 +3519,13 @@ impl<'a> FnLower<'a> {
                 dst: result_raw,
                 a: a_raw,
                 b: b_raw,
+                span,
             },
             LirIntOp::Rem => LirInstr::IRem {
                 dst: result_raw,
                 a: a_raw,
                 b: b_raw,
+                span,
             },
         };
         self.emit(instr);
@@ -4784,8 +4806,8 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::IAdd { dst, a, b } => format!("{dst} = iadd {a}, {b}"),
         LirInstr::ISub { dst, a, b } => format!("{dst} = isub {a}, {b}"),
         LirInstr::IMul { dst, a, b } => format!("{dst} = imul {a}, {b}"),
-        LirInstr::IDiv { dst, a, b } => format!("{dst} = idiv {a}, {b}"),
-        LirInstr::IRem { dst, a, b } => format!("{dst} = irem {a}, {b}"),
+        LirInstr::IDiv { dst, a, b, .. } => format!("{dst} = idiv {a}, {b}"),
+        LirInstr::IRem { dst, a, b, .. } => format!("{dst} = irem {a}, {b}"),
         LirInstr::ICmp { dst, op, a, b } => format!("{dst} = icmp {op} {a}, {b}"),
         LirInstr::PrimCall { dst, op, args } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();

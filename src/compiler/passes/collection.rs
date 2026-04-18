@@ -4,10 +4,7 @@ use super::super::{Compiler, pipeline::CollectionResult};
 
 impl Compiler {
     /// Phase 1: Collect definitions and validate program structure.
-    pub(in crate::compiler) fn phase_collection(
-        &mut self,
-        program: &Program,
-    ) -> CollectionResult {
+    pub(in crate::compiler) fn phase_collection(&mut self, program: &Program) -> CollectionResult {
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);

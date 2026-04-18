@@ -76,7 +76,11 @@ impl<'a> InferCtx<'a> {
                 self.bind_constructor_pattern_variables(pattern, fields, &resolved_scrutinee, span)
             }
             Pattern::NamedConstructor {
-                name, fields, rest, span: pat_span, ..
+                name,
+                fields,
+                rest,
+                span: pat_span,
+                ..
             } => self.bind_named_constructor_pattern(
                 *name,
                 fields,

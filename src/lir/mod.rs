@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::core::CorePrimOp;
+use crate::diagnostics::position::Span;
 
 // ── Function identity ──────────────────────────────────────────────────────
 
@@ -138,9 +139,19 @@ pub enum LirInstr {
     /// Integer multiplication on raw (untagged) i64 values.
     IMul { dst: LirVar, a: LirVar, b: LirVar },
     /// Signed integer division on raw i64 values.
-    IDiv { dst: LirVar, a: LirVar, b: LirVar },
+    IDiv {
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: Span,
+    },
     /// Signed integer remainder on raw i64 values.
-    IRem { dst: LirVar, a: LirVar, b: LirVar },
+    IRem {
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: Span,
+    },
     /// Integer comparison on raw i64 values.  Result is 0 or 1.
     ICmp {
         dst: LirVar,

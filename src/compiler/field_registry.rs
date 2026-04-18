@@ -110,10 +110,7 @@ impl FieldRegistry {
     /// Returns the fields common to every variant of `adt` (same name, same
     /// type). Empty slice for ADTs with no named variants or no overlap.
     pub fn common_fields(&self, adt: Symbol) -> &[FieldInfo] {
-        self.common
-            .get(&adt)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.common.get(&adt).map(Vec::as_slice).unwrap_or(&[])
     }
 
     fn compute_common(

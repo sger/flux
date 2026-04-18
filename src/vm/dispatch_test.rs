@@ -1,5 +1,5 @@
 use crate::{
-    bytecode::{bytecode::Bytecode, op_code::OpCode}, vm::VM,
+    bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
         closure::Closure,
         compiled_function::CompiledFunction,
@@ -7,6 +7,7 @@ use crate::{
         frame::Frame,
         value::{AdtFields, AdtValue, Value},
     },
+    vm::VM,
 };
 use std::rc::Rc;
 

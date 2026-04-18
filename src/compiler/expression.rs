@@ -3491,8 +3491,7 @@ impl Compiler {
         }
 
         // Detect tail-resumptive handlers and emit the optimized opcode.
-        let is_direct =
-            crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        let is_direct = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
@@ -3517,8 +3516,7 @@ impl Compiler {
             None
         };
 
-        let is_discard =
-            !is_direct && crate::compiler::tail_resumptive::is_handler_discard(arms);
+        let is_discard = !is_direct && crate::compiler::tail_resumptive::is_handler_discard(arms);
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,

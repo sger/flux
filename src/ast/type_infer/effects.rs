@@ -52,10 +52,7 @@ impl<'a> InferCtx<'a> {
         match result {
             Ok(row) => row,
             Err(err) => {
-                let span = effects
-                    .first()
-                    .map(|e| e.span())
-                    .unwrap_or_default();
+                let span = effects.first().map(|e| e.span()).unwrap_or_default();
                 let first = self.interner.resolve(err.first).to_string();
                 let second = self.interner.resolve(err.second).to_string();
                 let diag = Diagnostic::make_error(
