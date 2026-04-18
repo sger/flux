@@ -1,5 +1,6 @@
 - Feature Name: Total Functions and Safe Arithmetic
 - Start Date: 2026-03-25
+- Status: Partially Implemented — Phase 1 (safe_div / safe_mod returning `Option<Int>`) shipped end-to-end across VM, LLVM, and C runtime; see `tests/safe_arithmetic_tests.rs`, `tests/non_zero_type_tests.rs`. Phase 2 (NonZero type), Phase 3 (operator edition change), Phase 4 (refinement types) open.
 - Proposal PR:
 - Flux Issue:
 

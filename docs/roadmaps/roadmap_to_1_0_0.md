@@ -37,22 +37,22 @@ It does **not** require:
 
 | Version | Theme | Core blockers | Optional / stretch |
 |---|---|---|---|
-| `0.0.5` | Syntax, diagnostics, type/effect closure | `0027`, `0032`, `0057`, `0058`, `0059`, `0060`, `0061`, `0063` | `0037` |
-| `0.0.6` | Stdlib and package workflow | `0030`, `0015`, `0003`, `0029` | `0011` |
-| `0.0.7` | Tests, linter, language identity | `0035`, `0010`, `0025`, `0043` | `0024` |
-| `0.0.8` | Compiler/runtime architecture base | `0044`, `0085`, `0086` | `0023` |
-| `0.0.9` | Aether foundation | `0084`, `0070`, `0067` | — |
+| `0.0.5` ✅ | Static typing closure | `0127`, `0155`, `0156`, `0157`, `0158`, `0159`, `0160`, `0150`, `0116` | — |
+| `0.0.6` | Finish partials + named fields | `0152`, `0151`, `0126`, `0135`, `0015` | `0011` |
+| `0.0.7` | Actors, IO effect, macros | `0143` Phase 0, `0099` Part 1, `0040` Phase 1 | `0075` |
+| `0.0.8` | Stdlib and tooling | `0030` polish, `0035`, `0010`, `0083` | `0076` |
+| `0.0.9` | Compiler/runtime perf closure | `0109` Phase 1/3, `0112` Phase 2/3, `0099` Part 3 | `0024` |
 | `0.1.0` | First coherent preview | Consolidate `0.0.5` to `0.0.9` | — |
-| `0.2.0` | Actor concurrency MVP | `0026` (actor-first interpretation), `0065`, `0066` | — |
-| `0.3.0` | Reuse and ownership | `0068`, `0069` | `0077` |
+| `0.2.0` | Actor concurrency maturity | `0143` remaining phases | — |
+| `0.3.0` | Reuse and ownership hardening | `0068`, `0069` | `0077` |
 | `0.4.0` | Handler runtime maturity | `0072`, `0073` | — |
-| `0.5.0` | Records and capability-oriented effects | `0048`, `0075` | — |
-| `0.6.0` | Tooling and developer workflow | `0076`, `0083` | `0024`, `0023` if still incomplete |
+| `0.5.0` | Capability-oriented effects | `0075` (if not landed in 0.0.7), `0082` | — |
+| `0.6.0` | Tooling and developer workflow | `0076`, debug toolkit extensions | `0024`, `0023` if still incomplete |
 | `0.7.0` | Standard library and language polish | finish remaining `0003`/`0030` polish, docs/examples alignment, `0052` | `0082` |
-| `0.8.0` | Pre-RC stabilization | `0062`, VM/JIT parity sweep, performance and diagnostic freeze | `0041` |
-| `0.9.0` | Release candidate line | compatibility policy, docs freeze, final parity hardening | `0071`, `0038` |
-| `0.9.5` | Conditional FP abstraction layer | `0053` if the design remains minimal and low-risk | — |
-| `1.0.0` | Stable Flux | final stabilization and release promise | macros remain deferred |
+| `0.8.0` | Pre-RC stabilization | `0062`, VM/LLVM parity sweep, performance and diagnostic freeze | `0041` |
+| `0.9.0` | Release candidate line | compatibility policy, docs freeze, final parity hardening | `0038` |
+| `0.9.5` | Conditional FP abstraction layer | any remaining constrained-polymorphism polish | — |
+| `1.0.0` | Stable Flux | final stabilization and release promise | — |
 
 ## Release notes by version
 
