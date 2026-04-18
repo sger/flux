@@ -5,7 +5,27 @@ module Modules.Analytics.Transforms {
     let SCORE_SCALE = 2
     let SHOUT_PREFIX = "["
     let SHOUT_SUFFIX = "]"
-    let c = Circle { label: "circle", radius: 3 }
+
+    data Test {
+        Test { label: String }
+    }
+
+    data Circle {
+        Circle { label: String, radius: Int, test: Test }
+    }
+
+    let test = Test { label: "test" }
+    let circle = Circle { label: "circle", radius: 3, test: test }
+
+    data Contact {
+        Contact { id: Int, name: String, email: String }
+    }
+
+    public fn my_circle() -> Circle {
+        let test = Test { label: "hello world" }
+        let c = Circle { label: "circle", radius: 3, test: test }
+        c
+    }
 
     public fn double(x) {
         return x * SCORE_SCALE

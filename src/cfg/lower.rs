@@ -2484,21 +2484,25 @@ impl<'a> FunctionLoweringContext<'a> {
 pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
     match statement {
         Statement::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Ok(IrTopLevelItem::Let {
+            is_public: *is_public,
             name: *name,
             type_annotation: type_annotation.clone(),
             value: value.clone(),
             span: *span,
         }),
         Statement::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Ok(IrTopLevelItem::LetDestructure {
+            is_public: *is_public,
             pattern: pattern.clone(),
             value: value.clone(),
             span: *span,
@@ -2627,21 +2631,25 @@ pub(crate) fn ir_top_level_item_to_statement(
 ) -> Statement {
     match item {
         IrTopLevelItem::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Statement::Let {
+            is_public: *is_public,
             name: *name,
             type_annotation: type_annotation.clone(),
             value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Statement::LetDestructure {
+            is_public: *is_public,
             pattern: pattern.clone(),
             value: value.clone(),
             span: *span,

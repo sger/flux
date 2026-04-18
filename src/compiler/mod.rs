@@ -889,7 +889,12 @@ pub struct Compiler {
     pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
     pub module_contracts: ModuleContractTable,
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
+    pub module_member_is_value: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
+    pub(super) native_constructor_tags: HashMap<Symbol, i32>,
+    pub(super) next_native_constructor_tag: i32,
+    pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
+    pub(super) preloaded_adt_variants: HashMap<Symbol, Vec<Symbol>>,
     pub(super) adt_contract_specs: HashMap<Symbol, AdtContractSpec>,
     pub(crate) preloaded_imported_globals: HashSet<Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
@@ -1071,7 +1076,12 @@ impl Compiler {
             consumable_local_use_counts: Vec::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
+            module_member_is_value: HashMap::new(),
             module_adt_constructors: HashMap::new(),
+            native_constructor_tags: HashMap::new(),
+            next_native_constructor_tag: 5,
+            preloaded_ctor_field_names: HashMap::new(),
+            preloaded_adt_variants: HashMap::new(),
             adt_contract_specs: HashMap::new(),
             preloaded_imported_globals: HashSet::new(),
             static_type_scopes: vec![HashMap::new()],
@@ -1299,7 +1309,11 @@ impl Compiler {
         use crate::ast::desugar_named_fields::{
             NamedFieldDesugarCtx, collect_named_field_metadata, desugar_named_fields_in_program,
         };
-        let (ctor_field_names, adt_variants) = collect_named_field_metadata(program);
+        let (local_ctor_field_names, local_adt_variants) = collect_named_field_metadata(program);
+        let mut ctor_field_names = self.preloaded_ctor_field_names.clone();
+        ctor_field_names.extend(local_ctor_field_names);
+        let mut adt_variants = self.preloaded_adt_variants.clone();
+        adt_variants.extend(local_adt_variants);
         let mut ctx = NamedFieldDesugarCtx {
             ctor_field_names: &ctor_field_names,
             adt_variants: &adt_variants,
@@ -1359,7 +1373,12 @@ impl Compiler {
         let (
             preloaded_contracts,
             preloaded_visibility,
+            preloaded_member_kinds,
             preloaded_adt_ctors,
+            preloaded_ctor_tags,
+            preloaded_next_ctor_tag,
+            preloaded_ctor_field_names,
+            preloaded_adt_variants,
             preloaded_effect_ops,
             preloaded_effect_sigs,
         ) = match mode {
@@ -1369,11 +1388,21 @@ impl Compiler {
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
+                5,
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
             ),
             LoweringPreparationMode::WithPreloaded => (
                 self.module_contracts.clone(),
                 self.module_function_visibility.clone(),
+                self.module_member_is_value.clone(),
                 self.module_adt_constructors.clone(),
+                self.native_constructor_tags.clone(),
+                self.next_native_constructor_tag,
+                self.preloaded_ctor_field_names.clone(),
+                self.preloaded_adt_variants.clone(),
                 self.effect_ops_registry.clone(),
                 self.effect_op_signatures.clone(),
             ),
@@ -1392,7 +1421,12 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.module_contracts = preloaded_contracts;
         self.module_function_visibility = preloaded_visibility;
+        self.module_member_is_value = preloaded_member_kinds;
         self.module_adt_constructors = preloaded_adt_ctors;
+        self.native_constructor_tags = preloaded_ctor_tags;
+        self.next_native_constructor_tag = preloaded_next_ctor_tag;
+        self.preloaded_ctor_field_names = preloaded_ctor_field_names;
+        self.preloaded_adt_variants = preloaded_adt_variants;
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
         self.effect_ops_registry = preloaded_effect_ops;
@@ -1402,6 +1436,7 @@ impl Compiler {
         if matches!(mode, LoweringPreparationMode::WithPreloaded) {
             self.collect_module_adt_constructors(program);
         }
+        self.collect_native_constructor_tags(program);
         self.collect_module_contracts(program);
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
@@ -1586,6 +1621,14 @@ impl Compiler {
             };
             self.cached_member_schemes
                 .insert((module_name, member), remapped);
+            self.module_member_is_value.insert(
+                (module_name, member),
+                interface
+                    .member_is_value
+                    .get(member_name)
+                    .copied()
+                    .unwrap_or(false),
+            );
         }
         for (member_name, signature) in &interface.borrow_signatures {
             let member = self.interner.intern(member_name);
@@ -1677,8 +1720,13 @@ impl Compiler {
     }
 
     pub fn preload_dependency_program(&mut self, program: &Program) {
+        let (ctor_field_names, adt_variants) =
+            crate::ast::desugar_named_fields::collect_named_field_metadata(program);
+        self.preloaded_ctor_field_names.extend(ctor_field_names);
+        self.preloaded_adt_variants.extend(adt_variants);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
+        self.collect_native_constructor_tags(program);
         self.collect_module_contracts(program);
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
@@ -1746,6 +1794,11 @@ impl Compiler {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: format!("flux_{}_{}", module.replace('.', "_"), member),
                     arity: Self::native_function_arity(scheme),
+                    is_value: self
+                        .module_member_is_value
+                        .get(&(*module_name, *member_name))
+                        .copied()
+                        .unwrap_or(false),
                 }
             });
         }
@@ -1763,6 +1816,11 @@ impl Compiler {
                     crate::lir::lower::ImportedNativeSymbol {
                         symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                         arity: Self::native_function_arity(scheme),
+                        is_value: self
+                            .module_member_is_value
+                            .get(&(*module_name, *member_name))
+                            .copied()
+                            .unwrap_or(false),
                     },
                 );
             }
@@ -1778,6 +1836,7 @@ impl Compiler {
                         .or_insert_with(|| crate::lir::lower::ImportedNativeSymbol {
                             symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                             arity: method.arity,
+                            is_value: false,
                         });
                 }
             }
@@ -1809,6 +1868,11 @@ impl Compiler {
                                 member
                             ),
                             arity: Self::native_function_arity(scheme),
+                            is_value: self
+                                .module_member_is_value
+                                .get(&(*mod_name, *member_name))
+                                .copied()
+                                .unwrap_or(false),
                         },
                     );
                 }
@@ -1830,6 +1894,11 @@ impl Compiler {
                                         member
                                     ),
                                     arity: Self::native_function_arity(scheme),
+                                    is_value: self
+                                        .module_member_is_value
+                                        .get(&(*mod_name, *member_name))
+                                        .copied()
+                                        .unwrap_or(false),
                                 },
                             );
                         }
@@ -1848,6 +1917,7 @@ impl Compiler {
                                         member
                                     ),
                                     arity: method.arity,
+                                    is_value: false,
                                 }
                             });
                         }
@@ -1869,6 +1939,11 @@ impl Compiler {
                                         member
                                     ),
                                     arity: Self::native_function_arity(scheme),
+                                    is_value: self
+                                        .module_member_is_value
+                                        .get(&(*module_name, *member_name))
+                                        .copied()
+                                        .unwrap_or(false),
                                 },
                             );
                         }
@@ -1888,6 +1963,7 @@ impl Compiler {
                                             member
                                         ),
                                         arity: method.arity,
+                                        is_value: false,
                                     }
                                 });
                             }
@@ -1911,6 +1987,7 @@ impl Compiler {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: native_symbol,
                     arity: Self::native_function_arity(scheme),
+                    is_value: false,
                 }
             });
         }
@@ -2095,6 +2172,12 @@ impl Compiler {
         }
     }
 
+    fn collect_native_constructor_tags(&mut self, program: &Program) {
+        for statement in &program.statements {
+            self.collect_native_constructor_tags_from_statement(statement);
+        }
+    }
+
     fn collect_module_adt_constructors_from_statement(
         &mut self,
         statement: &Statement,
@@ -2128,6 +2211,28 @@ impl Compiler {
         }
     }
 
+    fn collect_native_constructor_tags_from_statement(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Data { variants, .. } => {
+                for variant in variants {
+                    self.native_constructor_tags
+                        .entry(variant.name)
+                        .or_insert_with(|| {
+                            let tag = self.next_native_constructor_tag;
+                            self.next_native_constructor_tag += 1;
+                            tag
+                        });
+                }
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_native_constructor_tags_from_statement(nested);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_module_function_visibility_from_statement(
         &mut self,
         statement: &Statement,
@@ -2140,6 +2245,16 @@ impl Compiler {
                 if let Some(module_name) = module_name {
                     self.module_function_visibility
                         .insert((module_name, *name), *is_public);
+                    self.module_member_is_value.insert((module_name, *name), false);
+                }
+            }
+            Statement::Let {
+                is_public, name, ..
+            } => {
+                if let Some(module_name) = module_name {
+                    self.module_function_visibility
+                        .insert((module_name, *name), *is_public);
+                    self.module_member_is_value.insert((module_name, *name), true);
                 }
             }
             Statement::Module { name, body, .. } => {
@@ -4276,11 +4391,17 @@ impl Compiler {
             .file_stem()
             .and_then(|s| s.to_str())
             .map(|s| s.replace(['-', '.', ' '], "_"));
+        let imported_constructor_tags: HashMap<String, i32> = self
+            .native_constructor_tags
+            .iter()
+            .map(|(name, tag)| (self.sym(*name).to_string(), *tag))
+            .collect();
         let lir = crate::lir::lower::lower_aether_program_with_interner_and_externs(
             &aether,
             Some(&self.interner),
             None,
             Some(&extern_symbols),
+            Some(&imported_constructor_tags),
             emit_main,
             entry_qualifier.as_deref(),
         );

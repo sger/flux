@@ -60,7 +60,7 @@ impl Parser {
         let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Import => self.parse_import_statement(),
-            TokenType::Let => self.parse_let_statement(),
+            TokenType::Let => self.parse_let_statement(false),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(false),
@@ -73,6 +73,10 @@ impl Parser {
             TokenType::Public if self.is_peek_token(TokenType::Fn) => {
                 self.next_token(); // fn
                 self.parse_function_statement(true, None)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Let) => {
+                self.next_token(); // let
+                self.parse_let_statement(true)
             }
             // Proposal 0151: `public class` and `public instance` declarations.
             TokenType::Public if self.is_peek_token(TokenType::Class) => {
@@ -512,7 +516,7 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_let_statement(&mut self) -> Option<Statement> {
+    pub(super) fn parse_let_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         if self.is_peek_token(TokenType::LParen) {
@@ -538,6 +542,7 @@ impl Parser {
             }
 
             return Some(Statement::LetDestructure {
+                is_public,
                 pattern,
                 value,
                 span: self.span_from(start),
@@ -591,6 +596,7 @@ impl Parser {
         }
 
         Some(Statement::Let {
+            is_public,
             name,
             type_annotation,
             value,

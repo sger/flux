@@ -75,21 +75,25 @@ pub fn fold_block<F: Folder + ?Sized>(folder: &mut F, block: Block) -> Block {
 pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Statement {
     match stmt {
         Statement::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Statement::Let {
+            is_public,
             name: folder.fold_identifier(name),
             type_annotation,
             value: folder.fold_expr(value),
             span,
         },
         Statement::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Statement::LetDestructure {
+            is_public,
             pattern: folder.fold_pat(pattern),
             value: folder.fold_expr(value),
             span,

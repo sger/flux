@@ -76,6 +76,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             type_annotation: _,
             value,
             span: _,
+            ..
         } => {
             visitor.visit_identifier(name);
             visitor.visit_expr(value);
@@ -84,6 +85,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             pattern,
             value,
             span: _,
+            ..
         } => {
             visitor.visit_pat(pattern);
             visitor.visit_expr(value);

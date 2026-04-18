@@ -438,6 +438,20 @@ impl ToIrCtx {
 
 fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
     match item {
+        CoreTopLevelItem::Let {
+            is_public,
+            name,
+            span,
+        } => IrTopLevelItem::Let {
+            is_public: *is_public,
+            name: *name,
+            type_annotation: None,
+            value: crate::syntax::expression::Expression::None {
+                span: *span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            },
+            span: *span,
+        },
         CoreTopLevelItem::Function {
             is_public,
             name,

@@ -3,8 +3,113 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day03.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 3 has the wrong type.
+
+  examples/aoc/2024/Day03Solver.flx:109:23
+    |
+109 |         where state = fold(indices, (0, true, 0), fn(st, i) {
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+110 |                 let next_idx = st.0
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+111 |                 let enabled = st.1
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+112 |                 let total = st.2
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+113 | 
+    | ^
+114 |                 if i != next_idx {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+115 |                     st
+    | ^^^^^^^^^^^^^^^^^^^^^^
+116 |                 } else {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^
+117 |                     match parse_token_at(memory, i) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+118 |                         Some(hit) -> if hit.0 == 1 {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 |                             (hit.2, true, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+120 |                         } else if hit.0 == 2 {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+121 |                             (hit.2, false, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+122 |                         } else if enabled {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+123 |                             (hit.2, true, total + hit.1)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+124 |                         } else {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+125 |                             (hit.2, false, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+126 |                         },
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+127 |                         _ -> (i + 1, enabled, total),
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+128 |                     }
+    | ^^^^^^^^^^^^^^^^^^^^^
+129 |                 }
+    | ^^^^^^^^^^^^^^^^^
+130 |         })
+    | ^^^^^^^^^^
+
+Note:
+  expected parameter type: (Int, Bool, Int)
+  found parameter type: (_, _)
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 3 to use `(Int, Bool, Int)` consistently.
+
+
+error[E300]: Branch Type Mismatch
+
+The branches of this `if` expression do not agree on a type.
+
+  examples/aoc/2024/Day03Solver.flx:117:21
+    |
+115 |                     st
+    |                     -- `then` branch returns `(_, _)`
+
+    |                     -- this branch established the expected type
+116 |                 } else {
+117 |                     match parse_token_at(memory, i) {
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+118 |                         Some(hit) -> if hit.0 == 1 {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 |                             (hit.2, true, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+120 |                         } else if hit.0 == 2 {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+121 |                             (hit.2, false, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+122 |                         } else if enabled {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+123 |                             (hit.2, true, total + hit.1)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+124 |                         } else {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+125 |                             (hit.2, false, total)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+126 |                         },
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+127 |                         _ -> (i + 1, enabled, total),
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+128 |                     }
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+Note:
+  then branch type: (_, _)
+  else branch type: (Int, Bool, _)
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
+
+Help:
+  Both branches of an `if` must produce the same type.
+
+Found 2 errors.
 == stdout ==
 <not executed>

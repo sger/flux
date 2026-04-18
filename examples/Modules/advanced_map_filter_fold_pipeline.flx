@@ -4,17 +4,24 @@
 
 import Modules.Analytics.Transforms as T
 import Modules.Math as Math
+import Flow.Array as Array
+import Flow.String as Strings
 
 fn main() with IO {
     print("Advanced module pipeline:")
+
+    print(T.my_circle())
+    let circle = T.my_circle()
+    print(circle.label)
+    print(to_string(circle.radius))
 
     let scores = [|18, 24, 35, 41, 50|]
     let names = [|"  alice", "Bob  ", "cHaRlIe"|]
 
     // Use module functions as callbacks
-    let doubled = map(scores, T.double)
-    let passing = filter(doubled, T.is_passing)
-    let total = fold(passing, 0, T.sum_step)
+    let doubled = Array.map(scores, T.double)
+    let passing = Array.filter(doubled, T.is_passing)
+    let total = Array.fold(passing, 0, T.sum_step)
 
     print("Doubled: " + to_string(doubled))
     print("Passing: " + to_string(passing))
@@ -22,16 +29,16 @@ fn main() with IO {
     print("Total x2 (Math.double): " + to_string(Math.double(total)))
 
     // Mix module callbacks and lambdas
-    let curved = map(scores, T.curve_by_five)
-    let curvedPassing = filter(curved, \x -> x >= 40)
-    let curvedAvg = fold(curvedPassing, 0, \(acc, x) -> acc + x) / len(curvedPassing)
+    let curved = Array.map(scores, T.curve_by_five)
+    let curvedPassing = Array.filter(curved, \x -> x >= 40)
+    let curvedAvg = Array.fold(curvedPassing, 0, \(acc, x) -> acc + x) / len(curvedPassing)
 
     print("Curved: " + to_string(curved))
     print("Curved passing: " + to_string(curvedPassing))
     print("Curved average: " + to_string(curvedAvg))
 
-    let cleaned = map(names, \name -> name |> trim |> lower)
-    let tagged = map(cleaned, T.shout_tag)
+    let cleaned = Array.map(names, \name -> name |> trim |> lower)
+    let tagged = Array.map(cleaned, T.shout_tag)
 
-    print("Tagged names: " + to_string(tagged))
+    print("Tagged names: [" + Strings.join(tagged, ", ") + "]")
 }

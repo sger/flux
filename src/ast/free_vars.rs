@@ -155,6 +155,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 pattern,
                 value,
                 span: _,
+                ..
             } => {
                 self.visit_expr(value);
                 self.define_pattern_bindings(pattern);

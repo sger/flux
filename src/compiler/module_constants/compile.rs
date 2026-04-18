@@ -53,13 +53,17 @@ pub fn compile_module_constants(
     for const_name in &analysis.eval_order {
         let (expr, pos) = analysis.expressions.get(const_name).unwrap();
 
-        let const_value = eval_const_expr(expr, &local_constants, interner).map_err(|error| {
-            ConstCompileError::EvalError {
-                const_name: interner.resolve(*const_name).to_string(),
-                position: *pos,
-                error,
+        let const_value = match eval_const_expr(expr, &local_constants, interner) {
+            Ok(value) => value,
+            Err(error) if should_defer_to_runtime(&error) => continue,
+            Err(error) => {
+                return Err(ConstCompileError::EvalError {
+                    const_name: interner.resolve(*const_name).to_string(),
+                    position: *pos,
+                    error,
+                });
             }
-        })?;
+        };
 
         local_constants.insert(*const_name, const_value.clone());
         let qualified_name = interner.intern_join(module_name, *const_name);
@@ -67,4 +71,8 @@ pub fn compile_module_constants(
     }
 
     Ok(module_constants)
+}
+
+fn should_defer_to_runtime(error: &ConstEvalError) -> bool {
+    matches!(error.code, "E040" | "E041" | "E042" | "E048")
 }

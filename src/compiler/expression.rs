@@ -15,6 +15,7 @@ use crate::{
         binding::Binding,
         contracts::{ContractLoweringIssue, FnContract, convert_type_expr_checked},
         effect_rows::{EffectRow, RowConstraint, RowConstraintViolation, solve_row_constraints},
+        hm_expr_typer::HmExprTypeResult,
         symbol_scope::SymbolScope,
     },
     core::{CorePrimOp, PrimEffect},
@@ -974,6 +975,14 @@ impl Compiler {
                 };
                 let module_name = self.resolve_module_name_from_expr(object);
 
+                if module_name.is_none()
+                    && let Some(field_index) = self.try_named_adt_member_index(object, member)
+                {
+                    self.compile_non_tail_expression(object)?;
+                    self.emit(OpCode::OpAdtField, &[field_index]);
+                    return Ok(());
+                }
+
                 if let Some(module_name) = module_name {
                     if let Some(binding_name) = module_binding_name
                         && self
@@ -1817,6 +1826,29 @@ impl Compiler {
             }
             _ => None,
         }
+    }
+
+    fn try_named_adt_member_index(&self, object: &Expression, member: Symbol) -> Option<usize> {
+        use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+
+        let adt_name = match self.hm_expr_type_strict_path(object) {
+            HmExprTypeResult::Known(InferType::Con(TypeConstructor::Adt(name)))
+            | HmExprTypeResult::Known(InferType::App(TypeConstructor::Adt(name), _)) => name,
+            _ => return None,
+        };
+
+        let variants = self.preloaded_adt_variants.get(&adt_name)?;
+        let mut shared_index = None;
+        for variant in variants {
+            let field_names = self.preloaded_ctor_field_names.get(variant)?;
+            let index = field_names.iter().position(|field| *field == member)?;
+            match shared_index {
+                Some(existing) if existing != index => return None,
+                None => shared_index = Some(index),
+                _ => {}
+            }
+        }
+        shared_index
     }
 
     pub(super) fn validate_runtime_expected_type(

@@ -5,6 +5,27 @@ Fixture: examples/aoc/2025/aoc_day12_refactored.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day12_refactored.flx:17:9
+   |
+17 |         fold(chars(s), 0, /(acc, c) -> if c == "#" { acc + 1 } else { acc })
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         -------------------------------------------------------------------- parameter 1 has type `Array<String>`
+
+   |         -------------------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `push`.
@@ -46,6 +67,6 @@ I can't find a value named `push`.
 Hint:
   Define it first: let push = ...;
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>
