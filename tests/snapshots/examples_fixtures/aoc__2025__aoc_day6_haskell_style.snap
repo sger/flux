@@ -5,6 +5,27 @@ Fixture: examples/aoc/2025/aoc_day6_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:55:9
+   |
+55 |         split(trim(line), " ") |> filter(/x -> x != "")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         ----------------------------------------------- parameter 1 has type `Array<String>`
+
+   |         ----------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `push`.
@@ -74,6 +95,27 @@ Hint:
   |
 
 
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day6_haskell_style.flx:122:9
+    |
+122 |         cols |> fold(0, /(acc, col) -> acc + eval_day06a_col(col))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |         ---------------------------------------------------------- parameter 1 has type `Array<_>`
+
+    |         ---------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<_>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `push`.
@@ -125,6 +167,6 @@ I can't find a value named `slice`.
 Hint:
   Define it first: let slice = ...;
 
-Found 9 errors.
+Found 11 errors.
 == stdout ==
 <not executed>

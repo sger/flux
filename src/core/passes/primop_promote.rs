@@ -136,6 +136,7 @@ fn collect_module_paths(
     interner: &Interner,
 ) {
     match item {
+        CoreTopLevelItem::Let { .. } => {}
         CoreTopLevelItem::Function { name, .. } => {
             let func_name = interner.resolve(*name).to_string();
             let qualified = if prefix.is_empty() {

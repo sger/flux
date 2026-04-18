@@ -5,6 +5,30 @@ Fixture: examples/aoc/2025/aoc_day2_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day2_haskell_style.flx:43:9
+   |
+43 |         read_file(path)
+   |         ^^^^^^^^^^^^^^^
+44 |         |> trim
+   | ^^^^^^^^^^^^^^^
+45 |         |> split(",")
+   | ^^^^^^^^^^^^^^^^^^^^^
+46 |         |> filter(/t -> trim(t) != "")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `has_key`.
@@ -16,5 +40,7 @@ I can't find a value named `has_key`.
 
 Hint:
   Define it first: let has_key = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

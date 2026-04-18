@@ -19,6 +19,11 @@ enum TypeShape {
 }
 
 impl<'a> InferCtx<'a> {
+    /// Classify the outermost shape of an inferred type for mismatch reporting.
+    ///
+    /// This supports early diagnostics for obvious top-level conflicts like
+    /// `List<_>` vs `Array<Int>` even when inner type variables are still
+    /// unresolved.
     fn outer_type_shape(ty: &InferType) -> Option<TypeShape> {
         match ty {
             InferType::Con(tc) | InferType::App(tc, _) => Some(TypeShape::Constructor(tc.clone())),

@@ -173,6 +173,48 @@ I can't find a value named `get`.
 Hint:
   Define it first: let get = ...;
 
-Found 13 errors.
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_part2.flx:139:5
+    |
+139 |     fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     ------------------------------------------------------- parameter 1 has type `Array<_>`
+
+    |     ------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<_>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_part2.flx:158:14
+    |
+158 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |              --------------------------------------------------------------- parameter 1 has type `Array<String>`
+
+    |              --------------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+Found 15 errors.
 == stdout ==
 <not executed>

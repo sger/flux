@@ -25,6 +25,27 @@ Help:
   Change `nums` to a `Array<Int>` value or update the annotation.
 
 
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/type_system/typed_let_with_base.flx:29:31
+   |
+29 |     let doubled: Array<Int> = map(nums, /x -> x * 2)
+   |                               ^^^^^^^^^^^^^^^^^^^^^^
+   |                               ---------------------- parameter 1 has type `Array<Int>`
+
+   |                               ---------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<Int>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E300]: Annotation Type Mismatch
 
 The value of `rev` does not match its type annotation.
@@ -83,6 +104,27 @@ Note:
 Help:
   Pass a `List<Int>` value as the 1st argument.
 
-Found 4 errors.
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/type_system/typed_let_with_base.flx:64:31
+   |
+64 |     let lengths: Array<Int> = map(words, /w -> len(w))
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |                               ------------------------ parameter 1 has type `Array<String>`
+
+   |                               ------------------------ this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+Found 6 errors.
 == stdout ==
 <not executed>

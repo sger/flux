@@ -12,13 +12,15 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> Result<IrProgram, Vec<Diagnostic>> {
+        let mut program = program.clone();
+        self.apply_named_field_desugar(&mut program);
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
             Some(&self.class_env)
         };
         let (mut ir_program, fbip_warnings) = match lower_program_to_ir_typed(
-            program,
+            &program,
             &self.hm_expr_types,
             Some(&self.interner),
             self.type_optimize,

@@ -761,6 +761,7 @@ impl<'a> AstLowerer<'a> {
                 pattern,
                 value,
                 span,
+                ..
             } => {
                 let rhs = self.lower_expr(value);
                 let core_pat = self.lower_pattern(pattern);
@@ -784,7 +785,7 @@ impl<'a> AstLowerer<'a> {
 
             // Declarations that don't produce runtime values — skip.
             Statement::Module { body, .. } => {
-                self.lower_functions_in_module(&body.statements, out);
+                self.lower_module_defs(&body.statements, out);
             }
 
             Statement::Import { .. }
@@ -795,9 +796,18 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    fn lower_functions_in_module(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
+    fn lower_module_defs(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
         for stmt in stmts {
             match stmt {
+                Statement::Let {
+                    name, value, span, ..
+                } => {
+                    let result_ty = self.infer_core_type(value.expr_id());
+                    let binder = self.bind_name_with_expr_type(*name, value.expr_id());
+                    let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
+                    def.result_ty = result_ty;
+                    out.push(def);
+                }
                 Statement::Function {
                     name,
                     parameters,
@@ -823,7 +833,7 @@ impl<'a> AstLowerer<'a> {
                     out.push(CoreDef::new(binder, expr, true, *span));
                 }
                 Statement::Module { body, .. } => {
-                    self.lower_functions_in_module(&body.statements, out);
+                    self.lower_module_defs(&body.statements, out);
                 }
                 _ => {}
             }
@@ -832,6 +842,16 @@ impl<'a> AstLowerer<'a> {
 
     fn lower_decl_item(&mut self, stmt: &Statement) -> Option<CoreTopLevelItem> {
         match stmt {
+            Statement::Let {
+                is_public,
+                name,
+                span,
+                ..
+            } => Some(CoreTopLevelItem::Let {
+                is_public: *is_public,
+                name: *name,
+                span: *span,
+            }),
             Statement::Function {
                 is_public,
                 name,
@@ -927,8 +947,7 @@ impl<'a> AstLowerer<'a> {
                 methods: methods.clone(),
                 span: *span,
             }),
-            Statement::Let { .. }
-            | Statement::LetDestructure { .. }
+            Statement::LetDestructure { .. }
             | Statement::Return { .. }
             | Statement::Expression { .. }
             | Statement::Assign { .. } => None,
@@ -1190,6 +1209,7 @@ impl<'a> AstLowerer<'a> {
                 pattern,
                 value,
                 span: s,
+                ..
             } => {
                 // Bind the scrutinee to a tmp var and use Case to extract fields.
                 let rhs = self.lower_expr(value);

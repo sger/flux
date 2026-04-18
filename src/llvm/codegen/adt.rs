@@ -161,6 +161,7 @@ fn collect_items(
                 collect_items(body, metadata, next_tag, interner)?;
             }
             CoreTopLevelItem::Function { .. }
+            | CoreTopLevelItem::Let { .. }
             | CoreTopLevelItem::Import { .. }
             | CoreTopLevelItem::EffectDecl { .. }
             | CoreTopLevelItem::Class { .. }

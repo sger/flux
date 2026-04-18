@@ -3,8 +3,25 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day01.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2024/day01.flx:22:5
+   |
+22 |     split(trim(line), " ")
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+23 |     |> filter(/t -> trim(t) != "")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
 == stdout ==
 <not executed>

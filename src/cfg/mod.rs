@@ -648,12 +648,14 @@ pub struct IrFunction {
 #[derive(Debug, Clone)]
 pub enum IrTopLevelItem {
     Let {
+        is_public: bool,
         name: Identifier,
         type_annotation: Option<TypeExpr>,
         value: Expression,
         span: Span,
     },
     LetDestructure {
+        is_public: bool,
         pattern: Pattern,
         value: Expression,
         span: Span,

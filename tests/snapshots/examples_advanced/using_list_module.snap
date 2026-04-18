@@ -3,8 +3,107 @@ source: tests/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/using_list_module.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Branch Type Mismatch
+
+The branches of this `if` expression do not agree on a type.
+
+  examples/advanced/using_list_module.flx:35:9
+   |
+33 |         None
+   |         ---- `then` branch returns `Option<_>`
+
+   |         ---- this branch established the expected type
+34 |     } else {
+35 |         [start | list_range(start + 1, stop)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         ------------------------------------- the `else` branch has type `List<Int>`
+
+   |         ------------------------------------- this branch conflicts with that type
+
+Note:
+  then branch type: Option<_>
+  else branch type: List<Int>
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
+
+
+error[E300]: Match Arm Type Mismatch
+
+The arms of this `match` expression do not agree on a type.
+
+  examples/advanced/using_list_module.flx:49:18
+   |
+48 |             [h | t] -> [h | list_take(t, n - 1)],
+   |                        ------------------------- first arm returns `List<_>`
+
+   |                        ------------------------- this arm established the expected type
+49 |             _ -> None,
+   |                  ^^^^
+   |                  ---- arm 2 has type `Option<_>`
+
+   |                  ---- arm 2 conflicts with that type
+
+Note:
+  first arm type: List<_>
+  this arm type: Option<_>
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+
+
+error[E300]: Match Arm Type Mismatch
+
+The arms of this `match` expression do not agree on a type.
+
+  examples/advanced/using_list_module.flx:83:18
+   |
+82 |             [hb | tb] -> [[ha, hb] | list_zip(ta, tb)],
+   |                          ----------------------------- first arm returns `List<List<_>>`
+
+   |                          ----------------------------- this arm established the expected type
+83 |             _ -> None,
+   |                  ^^^^
+   |                  ---- arm 2 has type `Option<_>`
+
+   |                  ---- arm 2 conflicts with that type
+
+Note:
+  first arm type: List<List<_>>
+  this arm type: Option<_>
+  the first arm fixes the type expected from the whole `match`
+  this arm produces the competing type
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 3 has the wrong type.
+
+  examples/advanced/using_list_module.flx:159:18
+    |
+159 |     let grades = fold(paired, {}, /(acc, pair) -> Map.set(acc, to_string(first(pair)), grade(last(pair))))
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |                  ----------------------------------------------------------------------------------------- parameter 3 has type `Option<_>`
+
+    |                  ----------------------------------------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: Int
+  found parameter type: Option<_>
+  the conflicting types meet at this expression
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
+
+Found 4 errors.
 == stdout ==
 <not executed>

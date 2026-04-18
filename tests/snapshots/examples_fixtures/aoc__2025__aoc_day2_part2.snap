@@ -3,8 +3,54 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day2_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/Day2Part2.flx:117:9
+    |
+117 |         [parse_range_token(t)
+    |         ^^^^^^^^^^^^^^^^^^^^^
+118 |             | t <- read_file(path)
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 |                 |> trim
+    | ^^^^^^^^^^^^^^^^^^^^^^^
+120 |                 |> split(","),
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+121 |               trim(t) != ""]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 3 has the wrong type.
+
+  examples/aoc/2025/Day2Part2.flx:126:9
+    |
+126 |         ends |> fold(0, /(acc, x) -> if x > acc { x } else { acc })
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |         ----------------------------------------------------------- parameter 3 has type `Int`
+
+    |         ----------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: Option<_>
+  found parameter type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

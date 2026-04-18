@@ -96,6 +96,27 @@ Hint:
   Define it first: let get = ...;
 
 
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_part1.flx:106:14
+    |
+106 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |              --------------------------------------------------------------- parameter 1 has type `Array<String>`
+
+    |              --------------------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<String>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `slice`.
@@ -108,6 +129,48 @@ I can't find a value named `slice`.
 Hint:
   Define it first: let slice = ...;
 
-Found 8 errors.
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_part1.flx:123:14
+    |
+123 | let state1 = fold(top_keys, state0, /(st, k) -> union_key(st, k))
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |              ---------------------------------------------------- parameter 1 has type `Array<_>`
+
+    |              ---------------------------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<_>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/aoc/2025/aoc_day8_part1.flx:128:11
+    |
+128 | let top = Array.sort_by(comps, /x -> 0 - x)
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |           --------------------------------- parameter 1 has type `List<Int>`
+
+    |           --------------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: Array<_>
+  found parameter type: List<Int>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `Array<_>` consistently.
+
+Found 11 errors.
 == stdout ==
 <not executed>
