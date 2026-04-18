@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics_demos/hint_demos/math_module/main.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E011]: Private Member
+
+Cannot access private member `add`.
+
+  examples/diagnostics_demos/hint_demos/math_module/main.flx:12:11
+   |
+12 | let sum = Math.add(x, y);
+   |           ^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+error[E011]: Private Member
+
+Cannot access private member `average`.
+
+  examples/diagnostics_demos/hint_demos/math_module/main.flx:17:11
+   |
+17 | let avg = Math.average(x, y, z);
+   |           ^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 2 errors.
+== stdout ==
+<not executed>

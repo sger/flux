@@ -46,6 +46,21 @@ jobs:
       - name: Parity check (examples/basics, extended)
         run: cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 
+      - name: Parity sweep (--compile, non-error examples)
+        run: |
+          set -euo pipefail
+          # Fail-on-purpose folders (excluded): parser_errors, compiler_errors,
+          # runtime_errors, type_system/failing, diagnostics_demos.
+          for folder in advanced aether aoc benchmarks Debug flow functions \
+                        guide_type_system imports io ModuleGraph Modules \
+                        module_scoped_type_classes namespaces optimizations \
+                        patterns performance primop repros roots \
+                        runtime_boundaries strict_types tail_call tests \
+                        type_inference; do
+            echo "==> parity-check examples/$folder"
+            cargo run -- parity-check "examples/$folder" --compile --ways vm,llvm
+          done
+
   linux:
     name: Build + Upload (linux x86_64)
     runs-on: ubuntu-latest

@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics_demos/errors/module_scope_error.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E025]: Module Scope
+
+Module declaration must be at the top of the file.
+
+  examples/diagnostics_demos/errors/module_scope_error.flx:3:3
+  |
+3 |   module Inner {
+  |   ^^^^^^^^^^^^^^
+4 |     fn value() { 1; }
+  | ^^^^^^^^^^^^^^^^^^^^^
+5 |   }
+  | ^^^
+
+Hint:
+  Move the module declaration before all other statements.
+== stdout ==
+<not executed>
