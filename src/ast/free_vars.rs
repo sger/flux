@@ -82,6 +82,14 @@ impl FreeVarCollector {
                     self.define_pattern_bindings(field);
                 }
             }
+            Pattern::NamedConstructor { fields, .. } => {
+                for field in fields {
+                    match &field.pattern {
+                        Some(sub) => self.define_pattern_bindings(sub),
+                        None => self.define(field.name),
+                    }
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -112,6 +120,14 @@ impl FreeVarCollector {
             } => {
                 for element in elements {
                     Self::collect_pattern_names_into(element, names);
+                }
+            }
+            Pattern::NamedConstructor { fields, .. } => {
+                for field in fields {
+                    match &field.pattern {
+                        Some(sub) => Self::collect_pattern_names_into(sub, names),
+                        None => names.push(field.name),
+                    }
                 }
             }
             Pattern::Wildcard { .. }

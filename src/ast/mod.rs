@@ -1,6 +1,7 @@
 pub mod complexity;
 pub mod constant_fold;
 pub mod desugar;
+pub mod desugar_named_fields;
 pub mod fold;
 pub mod free_vars;
 pub mod rename;

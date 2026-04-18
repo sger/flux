@@ -3,26 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/map_builtins.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/basics/map_builtins.flx:36:43
-   |
-36 |     let person = {"name": "Alice", "age": 30};
-   |                                           ^^
-   |                                           -- this expression has type `Int`
-
-   |                                           -- this type mismatch is reported here
-
-Note:
-  expected type: String
-  found type: Int
-  the conflicting types meet at this expression
-
-Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
+<none>
 == stdout ==
 <not executed>

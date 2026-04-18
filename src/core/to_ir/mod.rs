@@ -838,11 +838,13 @@ mod tests {
                                 args: Vec::new(),
                                 span: Span::default(),
                             }],
+                            field_names: None,
                             span: Span::default(),
                         },
                         crate::syntax::data_variant::DataVariant {
                             name: ctor_none,
                             fields: Vec::new(),
+                            field_names: None,
                             span: Span::default(),
                         },
                     ],

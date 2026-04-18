@@ -85,7 +85,14 @@ impl<'a> InferCtx<'a> {
         {
             self.emit_missing_flow_hm_signature(member, expr.span());
         }
-        self.infer_expression(object);
+        // Named-field dot access (Proposal 0152). If the object's inferred
+        // type is an ADT with named-field variants, try resolving `member`
+        // against those fields. Returns the field type when it is common to
+        // all variants with the same type; otherwise lifts to Option<T>.
+        let object_ty = self.infer_expression(object);
+        if let Some(field_ty) = self.resolve_named_field_access(&object_ty, member, expr.span()) {
+            return field_ty;
+        }
         self.alloc_fallback_var()
     }
 

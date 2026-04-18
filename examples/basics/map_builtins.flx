@@ -1,9 +1,9 @@
 // parity-expected-stdout-begin
 // Some("Alice")
 // None
-// {"age": 30, "email": "alice@example.com", "name": "Alice"}
+// {"age": "30", "email": "alice@example.com", "name": "Alice"}
 // Some("alice@example.com")
-// {"age": 30, "name": "Alice"}
+// {"age": "30", "name": "Alice"}
 // true
 // false
 // true
@@ -15,59 +15,33 @@
 import Flow.Map as Map
 
 fn main() with IO {
-    // Test: Persistent map base functions (HAMT)
-    // Expected output:
-    // Some("Alice")
-    // None
-    // {"name": "Alice", "age": 30, "email": "alice@example.com"}
-    // Some("alice@example.com")
-    // {"name": "Alice", "age": 30}
-    // true
-    // false
-    // true
-    // Immutability check:
-    // Some("Alice")
-    // None
+    // Persistent Map / HAMT demo. Keys and values are String so the type
+    // system can infer `Map<String, String>` without divergence. For
+    // heterogeneous fields, use a named-field data type instead — see
+    // `examples/basics/records.flx` and proposal 0152.
 
-    // =============================================================================
-    // Creating and Accessing Maps
-    // =============================================================================
+    let person = {"name": "Alice", "age": "30"}
 
-    let person = {"name": "Alice", "age": 30};
+    // get returns Some(value) or None.
+    print(Map.get(person, "name"))
+    print(Map.get(person, "email"))
 
-    // get returns Some(value) or None
-    print(Map.get(person, "name"));     // Some("Alice")
-    print(Map.get(person, "email"));    // None
+    // set returns a new map; the original is unchanged.
+    let updated = Map.set(person, "email", "alice@example.com")
+    print(updated)
+    print(Map.get(updated, "email"))
 
-    // =============================================================================
-    // put - Returns a New Map (Original Unchanged)
-    // =============================================================================
+    // delete returns a new map without the key.
+    let smaller = Map.delete(updated, "email")
+    print(smaller)
 
-    // put creates a new map with the key added
-    let updated = Map.set(person, "email", "alice@example.com");
-    print(updated);                       // {name: Alice, age: 30, email: alice@example.com}
-    print(Map.get(updated, "email"));     // Some("alice@example.com")
+    // Type predicates.
+    print(is_map(person))
+    print(is_map([|"a", "b"|]))
+    print(is_map({}))
 
-    // =============================================================================
-    // delete - Returns a New Map Without the Key
-    // =============================================================================
-
-    let smaller = Map.delete(updated, "email");
-    print(smaller);  // {name: Alice, age: 30}
-
-    // =============================================================================
-    // Type Checking
-    // =============================================================================
-
-    print(is_map(person));     // true
-    print(is_map([|1, 2, 3|])); // false
-    print(is_map({}));         // true
-
-    // =============================================================================
-    // Immutability: Original Map is Never Modified
-    // =============================================================================
-
-    print("Immutability check:");
-    print(Map.get(person, "name"));   // Some("Alice") — unchanged
-    print(Map.get(person, "email"));  // None — put didn't mutate original
+    // Original map is unchanged after `set`.
+    print("Immutability check:")
+    print(Map.get(person, "name"))
+    print(Map.get(person, "email"))
 }

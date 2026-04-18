@@ -1,8 +1,9 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, DiagnosticCategory, missing_fn_param_list, missing_function_body_brace,
-        missing_let_assign, orphan_constructor_pattern, position::Span, unexpected_end_keyword,
-        unexpected_token, unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
+        DiagnosticBuilder, DiagnosticCategory, compiler_errors::DATA_MIXED_FIELD_FORMS,
+        diagnostic_for, missing_fn_param_list, missing_function_body_brace, missing_let_assign,
+        orphan_constructor_pattern, position::Span, unexpected_end_keyword, unexpected_token,
+        unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
         data_variant::DataVariant,
@@ -1011,6 +1012,9 @@ impl Parser {
         self.next_token(); // move past '{'
 
         let mut variants = Vec::new();
+        // Tracks the form of the first variant (None = unknown, Some(true) = named,
+        // Some(false) = positional). Used to enforce uniform form (E465).
+        let mut first_variant_named: Option<bool> = None;
 
         while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
             let var_start = self.current_token.position;
@@ -1034,10 +1038,15 @@ impl Parser {
                 .symbol
                 .expect("ident token should have symbol");
 
-            // Optional field types: VariantName(Type1, Type2, ...)
+            // Optional field types:
+            //   Positional: VariantName(Type1, Type2, ...)
+            //   Named:      VariantName { field1: Type1, field2: Type2, ... }
             let mut fields = Vec::new();
+            let mut field_names: Option<Vec<crate::syntax::Identifier>> = None;
+            let this_variant_named;
 
             if self.is_peek_token(TokenType::LParen) {
+                this_variant_named = false;
                 self.next_token(); // advance to '('
                 // Empty parens: Variant() — skip past ')'
                 if !self.consume_if_peek(TokenType::RParen) {
@@ -1087,11 +1096,128 @@ impl Parser {
 
                 // current_token is '(' after consume_if_peek or ')' after the loop;
                 // in both cases we need current to be ')' to leave this block correctly.
+            } else if self.is_peek_token(TokenType::LBrace) {
+                // Named-field variant: VariantName { field: Type, ... }
+                // See proposal 0152.
+                this_variant_named = true;
+                let mut names: Vec<crate::syntax::Identifier> = Vec::new();
+                self.next_token(); // advance to '{'
+                if !self.consume_if_peek(TokenType::RBrace) {
+                    self.next_token(); // move to first field name
+                    loop {
+                        if self.is_current_token(TokenType::RBrace)
+                            || self.is_current_token(TokenType::Eof)
+                        {
+                            break;
+                        }
+                        if self.current_token.token_type != TokenType::Ident {
+                            self.emit_parser_diagnostic(unexpected_token_with_details(
+                                self.current_token.span(),
+                                "Invalid Named Field",
+                                DiagnosticCategory::ParserDeclaration,
+                                format!(
+                                    "I was expecting a field name inside a named-field variant, but I found {}.",
+                                    self.describe_token_type_for_diagnostic(
+                                        self.current_token.token_type
+                                    )
+                                ),
+                            ));
+                            let _ = self.recover_to_matching_delimiter(
+                                TokenType::RBrace,
+                                &[TokenType::Comma],
+                            );
+                            break;
+                        }
+                        let field_name = self
+                            .current_token
+                            .symbol
+                            .expect("ident token should have symbol");
+                        let field_name_span = self.current_token.span();
+                        // Reject duplicate field names within the same variant (E462).
+                        if names.contains(&field_name) {
+                            self.emit_parser_diagnostic(unexpected_token_with_details(
+                                field_name_span,
+                                "Duplicate Field",
+                                DiagnosticCategory::ParserDeclaration,
+                                "This named-field variant already declares a field with this name.".to_string(),
+                            ));
+                        }
+                        if !self.expect_peek_context_with_details(
+                            TokenType::Colon,
+                            "Missing Field Type Annotation",
+                            DiagnosticCategory::ParserSeparator,
+                            "Expected `:` between field name and its type.".to_string(),
+                            "Named-field variants use `field_name: FieldType` pairs.".to_string(),
+                        ) {
+                            let _ = self.recover_to_matching_delimiter(
+                                TokenType::RBrace,
+                                &[TokenType::Comma],
+                            );
+                            break;
+                        }
+                        self.next_token(); // move to start of type
+                        let ty = self.parse_type_expr()?;
+                        names.push(field_name);
+                        fields.push(ty);
+                        self.next_token(); // advance past the type
+                        match self.current_token.token_type {
+                            TokenType::Comma => {
+                                self.next_token(); // move to next field name
+                            }
+                            TokenType::RBrace | TokenType::Eof => break,
+                            _ => {
+                                if !self.push_followup_unless_structural_root(
+                                    variant_checkpoint,
+                                    unexpected_token_with_details(
+                                        self.current_token.span(),
+                                        "Missing Named-Field Separator",
+                                        DiagnosticCategory::ParserSeparator,
+                                        format!(
+                                            "I was expecting `,` or `}}` between named fields, but I found {}.",
+                                            self.describe_token_type_for_diagnostic(
+                                                self.current_token.token_type
+                                            )
+                                        ),
+                                    ),
+                                ) {
+                                    break;
+                                }
+                                let _ = self.recover_to_matching_delimiter(
+                                    TokenType::RBrace,
+                                    &[TokenType::Comma],
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+                field_names = Some(names);
+            } else {
+                // Zero-field variant: VariantName
+                this_variant_named = false;
+            }
+
+            // Enforce uniform form across variants (E465).
+            match first_variant_named {
+                None => first_variant_named = Some(this_variant_named),
+                Some(expected) if expected != this_variant_named => {
+                    let msg = format!(
+                        "Data type `{}` mixes positional and named-field variants.",
+                        self.interner().resolve(name)
+                    );
+                    self.emit_parser_diagnostic(
+                        diagnostic_for(&DATA_MIXED_FIELD_FORMS)
+                            .with_span(self.span_from(var_start))
+                            .with_message(msg),
+                    );
+                }
+                _ => {}
             }
 
             variants.push(DataVariant {
                 name: var_name,
                 fields,
+                field_names,
                 span: self.span_from(var_start),
             });
 
@@ -1289,6 +1415,7 @@ impl Parser {
             variants.push(DataVariant {
                 name: var_name,
                 fields,
+                field_names: None,
                 span: self.span_from(var_start),
             });
 
