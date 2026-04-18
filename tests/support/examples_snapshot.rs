@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use flux::diagnostics::{Diagnostic, DiagnosticsAggregator};
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{
         lexer::Lexer, module_graph::ModuleGraph, parser::Parser, program::Program,
         statement::Statement,

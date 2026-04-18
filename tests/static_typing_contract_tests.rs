@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::cfg::validate_ir;
 use flux::core::to_ir::lower_core_to_ir;
 use flux::core::{display::CoreDisplayMode, lower_ast::lower_program_ast};

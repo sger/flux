@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,

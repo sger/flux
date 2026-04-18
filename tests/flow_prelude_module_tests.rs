@@ -5,8 +5,8 @@
 //! These tests exercise the `build_module_compiler` path where Flow library
 //! interfaces must be explicitly preloaded for each module compiler instance.
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;

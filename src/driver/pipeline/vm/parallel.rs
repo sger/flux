@@ -6,9 +6,9 @@ use std::{
 };
 
 use crate::{
-    bytecode::{
-        bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
-        compiler::module_interface::{
+    bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
+    compiler::{
+        module_interface::{
             build_interface, compute_semantic_config_hash, load_cached_interface,
             load_valid_interface,
         },

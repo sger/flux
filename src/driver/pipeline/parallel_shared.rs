@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    bytecode::compiler::module_interface::{
+    compiler::module_interface::{
         interface_path, module_interface_changed, save_interface,
     },
     diagnostics::{Diagnostic, Severity},
@@ -19,7 +19,7 @@ use crate::{
 
 #[cfg(feature = "llvm")]
 use crate::{
-    bytecode::compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph,
+    compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph,
 };
 
 use crate::driver::{

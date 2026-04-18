@@ -887,7 +887,7 @@ fn aggregator_repeated_parser_compression_can_be_disabled() {
 /// must carry a non-None phase tag so that stage filtering can classify it.
 #[test]
 fn all_compiler_diagnostics_have_phase_tags() {
-    use flux::bytecode::compiler::Compiler;
+    use flux::compiler::Compiler;
     use flux::syntax::{lexer::Lexer, parser::Parser};
 
     // A source with both parse and type errors.

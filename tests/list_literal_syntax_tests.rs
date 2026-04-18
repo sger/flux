@@ -1,5 +1,5 @@
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
+use flux::vm::VM;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use flux::{
     ast::type_infer::{InferProgramConfig, infer_program, render_scheme_canonical},
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::render_diagnostics,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     types::{class_env::ClassEnv, scheme::Scheme},

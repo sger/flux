@@ -8,7 +8,7 @@
 
 use flux::{
     ast::type_infer::constraint::SchemeConstraint,
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{effect_expr::EffectExpr, lexer::Lexer, parser::Parser, type_expr::TypeExpr},
     types::module_interface::{
         ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,

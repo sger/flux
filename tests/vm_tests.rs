@@ -1,9 +1,9 @@
-use flux::bytecode::vm::VM;
+use flux::vm::VM;
 use flux::bytecode::{
     bytecode::Bytecode,
-    compiler::Compiler,
     op_code::{OpCode, make},
 };
+use flux::compiler::Compiler;
 use flux::core::CorePrimOp;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;

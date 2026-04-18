@@ -15,13 +15,11 @@ use super::{
 };
 use crate as flux;
 use flux::{
-    bytecode::{
-        compiler::Compiler,
-        vm::VM,
-        vm::test_runner::{collect_test_functions, print_test_report, run_tests},
-    },
+    compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticPhase},
     syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
+    vm::VM,
+    vm::test_runner::{collect_test_functions, print_test_report, run_tests},
 };
 #[cfg(any(feature = "llvm", test))]
 use flux::{
@@ -481,7 +479,7 @@ fn append_native_test_command_args(
 
 #[cfg(feature = "llvm")]
 fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
-    use flux::bytecode::vm::test_runner::{TestOutcome, TestResult};
+    use flux::vm::test_runner::{TestOutcome, TestResult};
     use std::process::Command;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
