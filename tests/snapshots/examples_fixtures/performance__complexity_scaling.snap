@@ -1,0 +1,135 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/performance/complexity_scaling.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:56:22
+   |
+56 |             let t0 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:58:22
+   |
+58 |             let t1 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:60:22
+   |
+60 |             let t2 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:62:22
+   |
+62 |             let t3 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:64:22
+   |
+64 |             let t4 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:66:22
+   |
+66 |             let t5 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:68:22
+   |
+68 |             let t6 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  examples/performance/complexity_scaling.flx:70:22
+   |
+70 |             let t7 = now_ms()
+   |                      ^^^^^^
+   |                      ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `print` requires effect `IO` in this function signature.
+
+  examples/performance/complexity_scaling.flx:72:13
+   |
+72 |             print(
+   |             ^^^^^
+   |             ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+Found 9 errors.
+== stdout ==
+<not executed>
