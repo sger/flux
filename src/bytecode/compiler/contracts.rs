@@ -23,25 +23,13 @@ pub struct FnContract {
     pub effects: Vec<EffectExpr>,
 }
 
+/// Categorizes why a `TypeExpr` could not be lowered to a `RuntimeType`.
+/// Used directly as the error type of the lowering functions — no wrapping
+/// struct needed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractLoweringIssue {
     GenericParameter,
     UnsupportedBoundaryType,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContractLoweringError {
-    issue: ContractLoweringIssue,
-}
-
-impl ContractLoweringError {
-    pub fn new(issue: ContractLoweringIssue) -> Self {
-        Self { issue }
-    }
-
-    pub fn issue(&self) -> &ContractLoweringIssue {
-        &self.issue
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +78,7 @@ pub fn convert_type_expr_checked(
     interner: &Interner,
     generic_params: &[Identifier],
     adts: &HashMap<Identifier, AdtContractSpec>,
-) -> Result<RuntimeType, ContractLoweringError> {
+) -> Result<RuntimeType, ContractLoweringIssue> {
     let env = ContractLoweringEnv::new(interner, generic_params.iter().copied(), adts);
     let bindings = HashMap::new();
     let mut active_adts = HashSet::new();
@@ -107,7 +95,7 @@ pub fn to_runtime_contract_checked(
     contract: &FnContract,
     interner: &Interner,
     adts: &HashMap<Identifier, AdtContractSpec>,
-) -> Result<Option<FunctionContract>, ContractLoweringError> {
+) -> Result<Option<FunctionContract>, ContractLoweringIssue> {
     let env = ContractLoweringEnv::new(interner, contract.type_params.iter().copied(), adts);
     let bindings = HashMap::new();
     let mut active_adts = HashSet::new();
@@ -151,22 +139,18 @@ fn convert_type_expr_rec(
     env: &ContractLoweringEnv<'_>,
     bindings: &HashMap<Identifier, TypeExpr>,
     active_adts: &mut HashSet<Identifier>,
-) -> Result<RuntimeType, ContractLoweringError> {
+) -> Result<RuntimeType, ContractLoweringIssue> {
     match ty {
         TypeExpr::Named { name, args, .. } => {
             if let Some(bound) = bindings.get(name) {
                 if !args.is_empty() {
-                    return Err(ContractLoweringError::new(
-                        ContractLoweringIssue::UnsupportedBoundaryType,
-                    ));
+                    return Err(ContractLoweringIssue::UnsupportedBoundaryType);
                 }
                 return convert_type_expr_rec(bound, env, bindings, active_adts);
             }
 
             if env.generic_params.contains(name) {
-                return Err(ContractLoweringError::new(
-                    ContractLoweringIssue::GenericParameter,
-                ));
+                return Err(ContractLoweringIssue::GenericParameter);
             }
 
             let name_text = env.interner.resolve(*name);
@@ -218,9 +202,7 @@ fn convert_type_expr_rec(
             ..
         } => {
             if effects.iter().any(|effect| effect.row_var().is_some()) {
-                return Err(ContractLoweringError::new(
-                    ContractLoweringIssue::UnsupportedBoundaryType,
-                ));
+                return Err(ContractLoweringIssue::UnsupportedBoundaryType);
             }
             let params = params
                 .iter()
@@ -248,17 +230,13 @@ fn lower_adt_type(
     env: &ContractLoweringEnv<'_>,
     bindings: &HashMap<Identifier, TypeExpr>,
     active_adts: &mut HashSet<Identifier>,
-) -> Result<RuntimeType, ContractLoweringError> {
+) -> Result<RuntimeType, ContractLoweringIssue> {
     let Some(spec) = env.adts.get(name) else {
-        return Err(ContractLoweringError::new(
-            ContractLoweringIssue::UnsupportedBoundaryType,
-        ));
+        return Err(ContractLoweringIssue::UnsupportedBoundaryType);
     };
 
     if spec.type_params.len() != args.len() || active_adts.contains(name) {
-        return Err(ContractLoweringError::new(
-            ContractLoweringIssue::UnsupportedBoundaryType,
-        ));
+        return Err(ContractLoweringIssue::UnsupportedBoundaryType);
     }
 
     let type_args = args
@@ -287,7 +265,7 @@ fn lower_adt_type(
                 fields,
             })
         })
-        .collect::<Result<Vec<_>, ContractLoweringError>>()?;
+        .collect::<Result<Vec<_>, ContractLoweringIssue>>()?;
     active_adts.remove(name);
 
     Ok(RuntimeType::Adt {
@@ -437,6 +415,6 @@ mod tests {
         let err = convert_type_expr_checked(&ty, &interner, &[t], &HashMap::new())
             .expect_err("generic parameter should be rejected");
 
-        assert_eq!(err.issue(), &ContractLoweringIssue::GenericParameter);
+        assert_eq!(err, ContractLoweringIssue::GenericParameter);
     }
 }

@@ -22,38 +22,45 @@ use super::display::display_infer_type;
 // Static type validation pass
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Inputs for [`validate_static_types`]. Bundled into a single spec struct
+/// so the entry point stays within the repo-wide 6-positional-parameter
+/// ceiling (same pattern as [`super::FnSpec`] and [`super::InferProgramConfig`]).
+///
+/// All fields are borrows held for the duration of one validation pass;
+/// nothing is consumed.
+pub struct StaticTypeValidationCtx<'a> {
+    pub resolved_schemes: &'a HashMap<Identifier, Scheme>,
+    pub resolved_binding_schemes_by_span: &'a HashMap<super::BindingSpanKey, Scheme>,
+    pub expr_types: &'a HashMap<ExprId, InferType>,
+    pub module_member_schemes: &'a HashMap<(Identifier, Identifier), Scheme>,
+    pub fallback_vars: &'a HashSet<TypeVarId>,
+    pub instantiated_expr_vars: &'a HashSet<TypeVarId>,
+    pub existing_diagnostics: &'a [Diagnostic],
+    pub interner: &'a Interner,
+}
+
 /// Post-inference validation for the maintained static-typing contract.
 ///
 /// This is the **authoritative gate** for static typing. It operates on
 /// fully-resolved types (after the final substitution) and checks for
 /// residual unresolved type variables.
 ///
-/// `resolved_schemes` maps each top-level binding name to its resolved
+/// `ctx.resolved_schemes` maps each top-level binding name to its resolved
 /// `Scheme` where `forall` contains only legitimately polymorphic vars
 /// (fallback vars from inference failures are excluded). A binding whose
 /// resolved scheme has `has_unresolved_vars() == true` is flagged.
-pub fn validate_static_types(
-    program: &Program,
-    resolved_schemes: &HashMap<Identifier, Scheme>,
-    resolved_binding_schemes_by_span: &HashMap<super::BindingSpanKey, Scheme>,
-    expr_types: &HashMap<ExprId, InferType>,
-    module_member_schemes: &HashMap<(Identifier, Identifier), Scheme>,
-    fallback_vars: &HashSet<TypeVarId>,
-    instantiated_expr_vars: &HashSet<TypeVarId>,
-    existing_diagnostics: &[Diagnostic],
-    interner: &Interner,
-) -> Vec<Diagnostic> {
+pub fn validate_static_types(program: &Program, ctx: &StaticTypeValidationCtx<'_>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut emitted_exprs = HashSet::new();
     StrictTypeValidator {
-        resolved_schemes,
-        resolved_binding_schemes_by_span,
-        expr_types,
-        module_member_schemes,
-        fallback_vars,
-        instantiated_expr_vars,
-        existing_diagnostics,
-        interner,
+        resolved_schemes: ctx.resolved_schemes,
+        resolved_binding_schemes_by_span: ctx.resolved_binding_schemes_by_span,
+        expr_types: ctx.expr_types,
+        module_member_schemes: ctx.module_member_schemes,
+        fallback_vars: ctx.fallback_vars,
+        instantiated_expr_vars: ctx.instantiated_expr_vars,
+        existing_diagnostics: ctx.existing_diagnostics,
+        interner: ctx.interner,
         diagnostics: &mut diagnostics,
         emitted_exprs: &mut emitted_exprs,
         allowed_generalized_vars: HashSet::new(),
@@ -331,6 +338,21 @@ impl<'a> StrictTypeValidator<'a> {
 
     /// Return whether the inferred type for an expression contains unresolved
     /// type variables.
+    ///
+    /// Three-way predicate. A var is "unresolved" here iff **all** hold:
+    ///
+    /// - `!allowed_generalized_vars.contains(var)` — the var is not a
+    ///   legitimately polymorphic `forall` binder in scope (those are fine).
+    /// - `!instantiated_expr_vars.contains(var)` — the var was not introduced
+    ///   by scheme instantiation at a call site (those are expected to be
+    ///   resolved by downstream unification at the caller's context).
+    /// - `fallback_vars.contains(var)` — the var was allocated as a fallback
+    ///   after an inference failure. Only fallback vars count as real
+    ///   residue; fresh unification vars that happen to remain free are not
+    ///   inherently broken.
+    ///
+    /// This is the load-bearing invariant of the whole pass. If any of the
+    /// three sets shifts, E430 either over-reports or misses real bugs.
     fn expression_has_unresolved_var(&self, expr: &Expression) -> bool {
         let Some(ty) = self.expr_types.get(&expr.expr_id()) else {
             return false;

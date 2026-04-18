@@ -167,6 +167,15 @@ fn run_semantic_core_passes_with_optional_interner(
 
     for round in 0..max_rounds {
         // Measure total program size before this round to detect changes.
+        //
+        // Limitation: `expr_size` counts nodes. A pass that rewrites without
+        // changing node count (e.g. `call_and_case_canonicalize` normalising
+        // the shape of a call without adding or removing subterms) will look
+        // like a no-op to this fixed-point detector and may prevent a later
+        // round from running even when one would still make progress. In
+        // practice every simplification pass today either shrinks the tree
+        // or exposes a reduction that does. If that ever stops being true,
+        // replace this heuristic with a per-pass `changed: bool` flag.
         let size_before: usize = program
             .defs
             .iter()
@@ -346,9 +355,13 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
 
 /// Verify Core IR structural invariants for the entire program.
 ///
-/// Collects lint violations as warnings rather than blocking compilation.
-/// This allows pre-existing Core IR issues to be surfaced without breaking
-/// the build, matching GHC's opt-in `-dcore-lint` approach.
+/// Fatal: any lint violation produces an `E998 CORE_LINT_FAILURE` diagnostic
+/// and aborts compilation. Called after every simplification round and after
+/// normalization; see [`compiler_errors::CORE_LINT_FAILURE`]. The previous
+/// warning-only (`W998`) mode was promoted to an error under Proposal 0155 so
+/// malformed Core produced by a Core pass cannot silently flow into the
+/// backend. Compare with GHC's `-dcore-lint`, which is opt-in but also fatal
+/// when enabled.
 fn core_lint_stage(
     program: &CoreProgram,
     stage: &'static str,

@@ -1,5 +1,7 @@
 use crate::ast::type_infer::constraint::WantedClassConstraint;
-use crate::ast::type_infer::static_type_validation::validate_static_types;
+use crate::ast::type_infer::static_type_validation::{
+    StaticTypeValidationCtx, validate_static_types,
+};
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::program::Program;
 use crate::types::class_solver::solve_class_constraints;
@@ -42,14 +44,16 @@ impl Compiler {
         // resolved scheme still contains unresolved fallback type variables.
         let mut strict_diags = validate_static_types(
             final_program.as_ref(),
-            &resolved_binding_schemes,
-            &hm_final.resolved_binding_schemes_by_span,
-            &self.hm_expr_types,
-            &module_member_schemes,
-            &hm_final.fallback_vars,
-            &instantiated_expr_vars,
-            &hm_diagnostics,
-            &self.interner,
+            &StaticTypeValidationCtx {
+                resolved_schemes: &resolved_binding_schemes,
+                resolved_binding_schemes_by_span: &hm_final.resolved_binding_schemes_by_span,
+                expr_types: &self.hm_expr_types,
+                module_member_schemes: &module_member_schemes,
+                fallback_vars: &hm_final.fallback_vars,
+                instantiated_expr_vars: &instantiated_expr_vars,
+                existing_diagnostics: &hm_diagnostics,
+                interner: &self.interner,
+            },
         );
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
         hm_diagnostics.extend(strict_diags);

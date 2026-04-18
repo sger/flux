@@ -16,6 +16,9 @@ use crate::{
 pub struct FinalizedBindingClassConstraints {
     pub infer_type: InferType,
     pub scheme_constraints: Vec<SchemeConstraint>,
+    /// Substitution produced by numeric defaulting. Callers compose this into
+    /// the inference context's substitution so downstream expressions see the
+    /// defaulted types (see `InferCtx::finalize_binding`).
     pub default_subst: TypeSubst,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -90,6 +93,14 @@ fn build_numeric_default_subst(
     public_vars: &HashSet<TypeVarId>,
     interner: &Interner,
 ) -> TypeSubst {
+    // Pre-intern the `Num` class name once. If it was never interned in this
+    // session no `Num` constraints exist, so every var gets marked `blocked`
+    // (nothing to default) and we still do the work — but an identifier-equality
+    // check per constraint is cheaper than a per-constraint string compare, and
+    // it keeps the extension point clear for future numeric classes (Fractional,
+    // Integral, etc.) where we would intern additional IDs here.
+    let num_id = interner.lookup("Num");
+
     let mut summaries: HashMap<TypeVarId, VarConstraintSummary> = HashMap::new();
 
     for constraint in constraints {
@@ -103,7 +114,7 @@ fn build_numeric_default_subst(
         }
 
         let is_single_num = constraint.type_args.len() == 1
-            && interner.resolve(constraint.class_name) == "Num"
+            && num_id.is_some_and(|id| id == constraint.class_name)
             && matches!(constraint.type_args.first(), Some(InferType::Var(_)));
 
         if is_single_num && constraint.origin != WantedClassConstraintOrigin::ExplicitBound {
