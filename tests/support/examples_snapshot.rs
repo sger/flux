@@ -185,11 +185,7 @@ fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
     program.statements = new_statements;
 }
 
-fn collect_roots(
-    fixture: &Path,
-    workspace_root: &Path,
-    fixture_rel: &str,
-) -> Vec<PathBuf> {
+fn collect_roots(fixture: &Path, workspace_root: &Path, fixture_rel: &str) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if fixture_rel.starts_with("examples/runtime_boundaries/RuntimeBoundaries/") {
         roots.push(workspace_root.join("examples/runtime_boundaries"));

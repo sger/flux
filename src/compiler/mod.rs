@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
 use crate::ast::type_infer::InferProgramConfig;
+use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
 use crate::compiler::effect_rows::EffectRow;
 use crate::compiler::hm_expr_typer::HmExprTypeResult;
-use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
 use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
@@ -26,12 +26,12 @@ use crate::{
     compiler::{
         adt_registry::AdtRegistry,
         binding::Binding,
-        field_registry::FieldRegistry,
         compilation_scope::CompilationScope,
         contracts::{
             AdtConstructorContractSpec, AdtContractSpec, ContractKey, FnContract,
             ModuleContractTable, to_runtime_contract, to_runtime_contract_checked,
         },
+        field_registry::FieldRegistry,
         symbol_table::SymbolTable,
     },
     diagnostics::{
@@ -57,7 +57,6 @@ use crate::{
 
 mod adt_definition;
 mod adt_registry;
-pub(crate) mod field_registry;
 pub mod binding;
 mod builder;
 mod cfg_bytecode;
@@ -67,6 +66,7 @@ mod contracts;
 mod effect_rows;
 mod errors;
 mod expression;
+pub(crate) mod field_registry;
 mod hm_expr_typer;
 pub mod module_constants;
 pub mod module_interface;
@@ -3257,9 +3257,7 @@ impl Compiler {
         contract: Option<FnContract>,
         arguments: &[Expression],
     ) -> HashSet<Symbol> {
-        use crate::compiler::effect_rows::{
-            EffectRow, RowConstraint, solve_row_constraints,
-        };
+        use crate::compiler::effect_rows::{EffectRow, RowConstraint, solve_row_constraints};
 
         let mut effects_as_expr = Vec::new();
         for effect in raw_effects {
@@ -4582,9 +4580,9 @@ impl Compiler {
 
     fn is_expression_level_e430(diag: &Diagnostic) -> bool {
         diag.code() == Some("E430")
-            && diag
-                .message()
-                .is_some_and(|msg| msg.starts_with("Could not determine a concrete type for this expression."))
+            && diag.message().is_some_and(|msg| {
+                msg.starts_with("Could not determine a concrete type for this expression.")
+            })
     }
 
     fn hm_span_strictly_narrower(compiler: &Diagnostic, hm: &Diagnostic) -> bool {

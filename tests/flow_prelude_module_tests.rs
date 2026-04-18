@@ -6,12 +6,12 @@
 //! interfaces must be explicitly preloaded for each module compiler instance.
 
 use flux::compiler::Compiler;
-use flux::vm::VM;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

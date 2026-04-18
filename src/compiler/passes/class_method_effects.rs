@@ -40,10 +40,7 @@ impl Compiler {
     /// Walk the program and fire E452 for each instance method whose
     /// declared effect row is missing a concrete effect listed on the
     /// matching class method.
-    pub(in crate::compiler) fn validate_class_method_effect_floor(
-        &mut self,
-        program: &Program,
-    ) {
+    pub(in crate::compiler) fn validate_class_method_effect_floor(&mut self, program: &Program) {
         self.walk_for_floor(&program.statements);
     }
 

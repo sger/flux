@@ -658,12 +658,14 @@ fn main() -> Unit {
         .statements
         .iter()
         .find_map(|statement| match statement {
-            Statement::Function { body, .. } => body.statements.iter().find_map(|statement| {
-                match statement {
-                    Statement::Let { value, .. } => Some(value),
-                    _ => None,
-                }
-            }),
+            Statement::Function { body, .. } => {
+                body.statements
+                    .iter()
+                    .find_map(|statement| match statement {
+                        Statement::Let { value, .. } => Some(value),
+                        _ => None,
+                    })
+            }
             _ => None,
         })
         .expect("expected let-bound array literal");

@@ -179,7 +179,9 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 desugar_expr(a, ctx);
             }
         }
-        Expression::Handle { expr: inner, arms, .. } => {
+        Expression::Handle {
+            expr: inner, arms, ..
+        } => {
             desugar_expr(inner, ctx);
             for arm in arms {
                 desugar_expr(&mut arm.body, ctx);
@@ -312,7 +314,11 @@ fn rewrite_spread(
         Some(v) => v,
         None => return std::mem::replace(base, placeholder(span)),
     };
-    let declared = ctx.ctor_field_names.get(&variant).cloned().unwrap_or_default();
+    let declared = ctx
+        .ctor_field_names
+        .get(&variant)
+        .cloned()
+        .unwrap_or_default();
     let override_map: HashMap<Identifier, &NamedFieldInit> =
         overrides.iter().map(|o| (o.name, o)).collect();
 
@@ -320,10 +326,7 @@ fn rewrite_spread(
     let binder_names: Vec<Identifier> = declared.clone();
     let pattern_fields: Vec<Pattern> = binder_names
         .iter()
-        .map(|name| Pattern::Identifier {
-            name: *name,
-            span,
-        })
+        .map(|name| Pattern::Identifier { name: *name, span })
         .collect();
 
     let args: Vec<Expression> = declared
@@ -447,10 +450,7 @@ fn try_rewrite_adt_field_access(
     })
 }
 
-fn resolve_spread_variant(
-    base: &Expression,
-    ctx: &NamedFieldDesugarCtx<'_>,
-) -> Option<Identifier> {
+fn resolve_spread_variant(base: &Expression, ctx: &NamedFieldDesugarCtx<'_>) -> Option<Identifier> {
     if let Expression::NamedConstructor { name, .. } = base {
         return Some(*name);
     }
@@ -522,4 +522,3 @@ pub fn collect_named_field_metadata(
     walk(&program.statements, &mut field_names, &mut adt_variants);
     (field_names, adt_variants)
 }
-

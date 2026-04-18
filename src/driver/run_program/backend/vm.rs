@@ -15,9 +15,9 @@ use crate::driver::{
     },
 };
 use flux::{
-    vm::VM,
     diagnostics::Diagnostic,
     syntax::{module_graph::ModuleGraph, program::Program},
+    vm::VM,
 };
 
 /// Builds analytics output for a VM execution path.

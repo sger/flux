@@ -11,7 +11,23 @@ use crate::{
 
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum TypeShape {
+    Constructor(crate::types::type_constructor::TypeConstructor),
+    Function(usize),
+    Tuple(usize),
+}
+
 impl<'a> InferCtx<'a> {
+    fn outer_type_shape(ty: &InferType) -> Option<TypeShape> {
+        match ty {
+            InferType::Con(tc) | InferType::App(tc, _) => Some(TypeShape::Constructor(tc.clone())),
+            InferType::Fun(params, _, _) => Some(TypeShape::Function(params.len())),
+            InferType::Tuple(elems) => Some(TypeShape::Tuple(elems.len())),
+            InferType::Var(_) | InferType::HktApp(_, _) => None,
+        }
+    }
+
     /// Build source labels and explanatory notes for the type origins involved
     /// in a unification failure under the given reporting context.
     fn type_origin_notes_for_context(
@@ -141,7 +157,12 @@ impl<'a> InferCtx<'a> {
         // guard. Allow them through explicitly — they are always actionable.
         let is_rigid = matches!(error.kind, UnifyErrorKind::RigidBind(_));
         if !is_rigid && (!error.expected.is_concrete() || !error.actual.is_concrete()) {
-            return false;
+            let expected_shape = Self::outer_type_shape(&error.expected);
+            let actual_shape = Self::outer_type_shape(&error.actual);
+            if expected_shape.is_none() || actual_shape.is_none() || expected_shape == actual_shape
+            {
+                return false;
+            }
         }
 
         let key = {

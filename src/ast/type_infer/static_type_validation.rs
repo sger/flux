@@ -49,7 +49,10 @@ pub struct StaticTypeValidationCtx<'a> {
 /// `Scheme` where `forall` contains only legitimately polymorphic vars
 /// (fallback vars from inference failures are excluded). A binding whose
 /// resolved scheme has `has_unresolved_vars() == true` is flagged.
-pub fn validate_static_types(program: &Program, ctx: &StaticTypeValidationCtx<'_>) -> Vec<Diagnostic> {
+pub fn validate_static_types(
+    program: &Program,
+    ctx: &StaticTypeValidationCtx<'_>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut emitted_exprs = HashSet::new();
     StrictTypeValidator {
@@ -97,19 +100,15 @@ impl<'a> StrictTypeValidator<'a> {
     fn validate_statement(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Function {
-                name,
-                body,
-                span,
-                ..
+                name, body, span, ..
             } => {
-                self.with_binding_allowance(*span, *name, |validator| validator.validate_block(body));
+                self.with_binding_allowance(*span, *name, |validator| {
+                    validator.validate_block(body)
+                });
                 self.emit_binding_diagnostic(*name, *span);
             }
             Statement::Let {
-                name,
-                value,
-                span,
-                ..
+                name, value, span, ..
             } => {
                 self.with_binding_allowance(*span, *name, |validator| {
                     validator.validate_expression(value)
@@ -209,8 +208,8 @@ impl<'a> StrictTypeValidator<'a> {
             .get(&super::binding_span_key(span))
             .or_else(|| {
                 self.current_module
-            .and_then(|module_name| self.module_member_schemes.get(&(module_name, name)))
-            .or_else(|| self.resolved_schemes.get(&name))
+                    .and_then(|module_name| self.module_member_schemes.get(&(module_name, name)))
+                    .or_else(|| self.resolved_schemes.get(&name))
             })
     }
 

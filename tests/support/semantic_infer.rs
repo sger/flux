@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use flux::{
-    ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program, render_scheme_canonical},
+    ast::type_infer::{
+        InferProgramConfig, InferProgramResult, infer_program, render_scheme_canonical,
+    },
     compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticsAggregator, render_diagnostics},
     syntax::{
         interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
         statement::Statement, type_expr::TypeExpr,
     },
-    types::{
-        class_env::ClassEnv, scheme::Scheme,
-    },
+    types::{class_env::ClassEnv, scheme::Scheme},
 };
 
 pub fn workspace_root() -> &'static Path {

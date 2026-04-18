@@ -1,6 +1,5 @@
 use crate::{
-    bytecode::bytecode::Bytecode, bytecode::op_code::OpCode, vm::VM,
-    runtime::value::Value,
+    bytecode::bytecode::Bytecode, bytecode::op_code::OpCode, runtime::value::Value, vm::VM,
 };
 
 fn new_vm() -> VM {

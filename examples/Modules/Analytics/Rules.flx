@@ -2,11 +2,11 @@ module Modules.Analytics.Rules {
     let PASSING_SCORE = 40
     let CURVE_DELTA = 5
 
-    fn passing_score() {
+    public fn passing_score() {
         PASSING_SCORE
     }
 
-    fn curve_delta() {
+    public fn curve_delta() {
         CURVE_DELTA
     }
 }

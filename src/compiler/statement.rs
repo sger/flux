@@ -983,9 +983,9 @@ impl Compiler {
                     } else if let crate::compiler::hm_expr_typer::HmExprTypeResult::Known(inferred) =
                         self.hm_expr_type_strict_path(value)
                         && let Ok(runtime) = TypeEnv::try_to_runtime(&inferred, &Default::default())
-                        {
-                            self.bind_static_type(name, runtime);
-                        }
+                    {
+                        self.bind_static_type(name, runtime);
+                    }
 
                     // Track aliases of effectful base functions so indirect calls
                     // like `let p = print; p(...)` keep static effect checking.

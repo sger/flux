@@ -301,11 +301,8 @@ mod tests {
             crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::compiler::module_interface::save_interface(
-            &dep_interface_path,
-            &dep_interface,
-        )
-        .expect("save interface");
+        crate::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
+            .expect("save interface");
         let cache_key = hash_bytes(b"native");
         let object_path = cache
             .store(
@@ -341,11 +338,8 @@ mod tests {
             crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::compiler::module_interface::save_interface(
-            &dep_interface_path,
-            &dep_interface,
-        )
-        .expect("save interface");
+        crate::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
+            .expect("save interface");
         let cache_key = hash_bytes(b"native-stale");
         let object_path = cache
             .store(

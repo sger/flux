@@ -450,9 +450,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     loaded_interfaces.insert(node.path.clone(), interface.clone());
                     preloaded_interfaces.insert(node.path.clone());
                     let interface_changed = old_interface.as_ref().is_none_or(|old| {
-                        flux::compiler::module_interface::module_interface_changed(
-                            old, &interface,
-                        )
+                        flux::compiler::module_interface::module_interface_changed(old, &interface)
                     });
                     if request.runtime.verbose && interface_changed {
                         if let Some(old) = old_interface.as_ref() {

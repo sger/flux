@@ -709,7 +709,11 @@ fn resolve_class_constraints(
     class_constraints
         .into_iter()
         .map(|mut c| {
-            c.type_args = c.type_args.iter().map(|t| t.apply_type_subst(subst)).collect();
+            c.type_args = c
+                .type_args
+                .iter()
+                .map(|t| t.apply_type_subst(subst))
+                .collect();
             c
         })
         .collect()
@@ -717,7 +721,12 @@ fn resolve_class_constraints(
 
 /// Convert a statement span into a stable hashable key for binding-scheme lookup.
 pub(crate) fn binding_span_key(span: Span) -> BindingSpanKey {
-    (span.start.line, span.start.column, span.end.line, span.end.column)
+    (
+        span.start.line,
+        span.start.column,
+        span.end.line,
+        span.end.column,
+    )
 }
 
 /// Initialize the class environment and pre-resolve well-known class name

@@ -1,4 +1,3 @@
-use flux::vm::VM;
 use flux::bytecode::{
     bytecode::Bytecode,
     op_code::{OpCode, make},
@@ -10,6 +9,7 @@ use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -153,6 +153,28 @@ outer();"#;
     assert!(
         err.contains(":2:1"),
         "expected 1-based column in stack trace, got:\n{}",
+        err
+    );
+}
+
+#[test]
+fn prelude_list_map_rejects_array_argument_at_compile_time() {
+    let err = run_any_error(
+        r#"
+let scores = [|1, 2, 3|];
+map(scores, fn(x) { x + 1 });
+"#,
+    );
+    assert!(
+        err.contains("E300"),
+        "expected compile-time E300 for Flow.List.map called with Array, got:\n{}",
+        err
+    );
+    assert!(
+        err.contains("List<_>")
+            || err.contains("Array<Int>")
+            || err.contains("wrong type in the 1st argument to `map`"),
+        "expected list-vs-array mismatch details, got:\n{}",
         err
     );
 }

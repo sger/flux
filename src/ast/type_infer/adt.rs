@@ -164,7 +164,8 @@ impl<'a> InferCtx<'a> {
             self.report_positional_with_named_syntax(constructor, fields);
             return self.alloc_fallback_var();
         };
-        let (by_index, structural_error) = self.bucket_named_fields(constructor, fields, &field_names, span);
+        let (by_index, structural_error) =
+            self.bucket_named_fields(constructor, fields, &field_names, span);
         if structural_error {
             return self.alloc_fallback_var();
         }
@@ -221,19 +222,27 @@ impl<'a> InferCtx<'a> {
         let mut structural_error = false;
         for init in fields {
             let Some(index) = field_names.iter().position(|n| *n == init.name) else {
-                self.emit_field_diag(&NAMED_FIELD_UNKNOWN, init.span, format!(
-                    "`{}` has no field named `{}`.",
-                    self.interner.resolve(constructor),
-                    self.interner.resolve(init.name),
-                ));
+                self.emit_field_diag(
+                    &NAMED_FIELD_UNKNOWN,
+                    init.span,
+                    format!(
+                        "`{}` has no field named `{}`.",
+                        self.interner.resolve(constructor),
+                        self.interner.resolve(init.name),
+                    ),
+                );
                 structural_error = true;
                 continue;
             };
             if !seen.insert(init.name) {
-                self.emit_field_diag(&NAMED_FIELD_DUPLICATE, init.span, format!(
-                    "Field `{}` is listed more than once.",
-                    self.interner.resolve(init.name)
-                ));
+                self.emit_field_diag(
+                    &NAMED_FIELD_DUPLICATE,
+                    init.span,
+                    format!(
+                        "Field `{}` is listed more than once.",
+                        self.interner.resolve(init.name)
+                    ),
+                );
                 structural_error = true;
                 continue;
             }
@@ -241,11 +250,15 @@ impl<'a> InferCtx<'a> {
         }
         for (idx, slot) in by_index.iter().enumerate() {
             if slot.is_none() {
-                self.emit_field_diag(&NAMED_FIELD_MISSING, span, format!(
-                    "Missing field `{}` in `{}` constructor.",
-                    self.interner.resolve(field_names[idx]),
-                    self.interner.resolve(constructor),
-                ));
+                self.emit_field_diag(
+                    &NAMED_FIELD_MISSING,
+                    span,
+                    format!(
+                        "Missing field `{}` in `{}` constructor.",
+                        self.interner.resolve(field_names[idx]),
+                        self.interner.resolve(constructor),
+                    ),
+                );
                 structural_error = true;
             }
         }
