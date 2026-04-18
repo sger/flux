@@ -3,8 +3,9 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0145, Proposal 0150
-- Status: Draft (revised)
+- Status: Implemented (2026-04-18) — language feature delivered end-to-end; stdlib migration and hard-deprecation window are follow-ons
 - Date: 2026-04-09
+- Delivery notes: 39 tests passing in [`tests/module_scoped_classes_tests.rs`](../../tests/module_scoped_classes_tests.rs). Phases 1–8 (parsing, ClassId refactor, member collection, orphan rule, visibility enforcement, qualified lookup, dispatch, Core lowering) all shipped. Diagnostics E455 (orphan), E456 (ambiguous short-name constraint), E457 (coverage), E458 live in [`src/diagnostics/compiler_errors.rs`](../../src/diagnostics/compiler_errors.rs). `ClassDef.module_path` + `class_id` identity refactor landed in [`src/types/class_env.rs`](../../src/types/class_env.rs). End-to-end runs: imported public class + downstream public instance executes under both VM and LLVM. Qualified calls via alias (`Foo.method()`) and dotted form both work. Open follow-ons (not blocking closure): stdlib migration of Flow modules to module-scoped classes; hard-deprecation window for global classes; `.flxi` interface-file integration spot-check.
 
 ## Summary
 
