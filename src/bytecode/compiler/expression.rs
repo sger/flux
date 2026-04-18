@@ -1244,10 +1244,14 @@ impl Compiler {
             ) {
                 Ok(runtime) => runtime,
                 Err(err) => {
+                    // Function-typed boundaries defer the shape check to the runtime:
+                    // `callable_contract` inspects the closure's stored `FunctionContract`
+                    // at call time. An unresolvable function type here is therefore not a
+                    // strict-mode failure — skip E425 and let the runtime check handle it.
                     if self.strict_mode
                         && !matches!(expected_ty, TypeExpr::Function { .. })
                         && matches!(
-                            err.issue(),
+                            err,
                             ContractLoweringIssue::GenericParameter
                                 | ContractLoweringIssue::UnsupportedBoundaryType
                         )

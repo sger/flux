@@ -117,6 +117,14 @@ pub struct ModuleInterface {
     /// Exported borrow signatures keyed by unqualified function name.
     pub borrow_signatures: HashMap<String, BorrowSignature>,
     /// Exported runtime contracts keyed by unqualified function name.
+    ///
+    /// Note: the unqualified-name key follows the same convention as `schemes`
+    /// and `borrow_signatures` above. This is sound today because Flux module
+    /// re-exports surface a single canonical binding per name within a module.
+    /// If re-export semantics ever broaden to allow two imports with the same
+    /// leaf name to coexist in one module's public surface, switch to a
+    /// qualified key (e.g. `(origin_module, name)`) here and in the sibling
+    /// maps above.
     #[serde(default)]
     pub runtime_contracts: HashMap<String, FunctionContract>,
     /// Fingerprints of direct imported module interfaces used to compile this module.

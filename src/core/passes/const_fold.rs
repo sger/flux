@@ -3,6 +3,17 @@ use crate::core::{CoreAlt, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp,
 use super::helpers::subst;
 
 /// Fold literal-only Core primops and known branch conditions.
+///
+/// Scope: **compile-time evaluation** of primops whose operands are all
+/// literals (e.g. `3 + 4 → 7`, `not(true) → false`), plus `Case` scrutinees
+/// that reduce to a known constructor or literal.
+///
+/// Companion pass: [`super::algebraic_simplify`] handles the complementary
+/// case where only one operand is a literal — those rewrites use algebraic
+/// identities (`x * 0 → 0`, `x + 0 → x`) and fire without knowing `x`. When
+/// in doubt: if your rewrite computes a concrete result from known inputs,
+/// it belongs here; if it rewrites a symbolic expression through an identity,
+/// it belongs in `algebraic_simplify`.
 pub fn constant_fold(expr: CoreExpr) -> CoreExpr {
     match expr {
         CoreExpr::PrimOp { op, args, span } => {

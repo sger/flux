@@ -1,6 +1,18 @@
 use crate::core::{CoreExpr, CoreLit, CorePrimOp};
 
 /// Apply small backend-neutral algebraic rewrites over Core expressions.
+///
+/// Scope: **identity-driven simplifications** where one operand is a literal
+/// but the other can be an arbitrary subexpression — `x + 0 → x`, `x * 1 → x`,
+/// `x * 0 → 0`, `x mod 1 → 0`, and their float counterparts. These rewrites
+/// hold without evaluating `x`, so they fire in situations `constant_fold`
+/// cannot reach.
+///
+/// Companion pass: [`super::constant_fold`] handles the complementary case
+/// where **every** operand is a literal — that pass computes the result at
+/// compile time. When in doubt: if your rewrite needs both sides known, it
+/// belongs in `constant_fold`; if only the shape of one side matters, it
+/// belongs here.
 pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
     match expr {
         CoreExpr::PrimOp { op, args, span } => {
