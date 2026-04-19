@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics_demos/errors/module_path_mismatch_import.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E018]: Import Not Found
+
+Cannot find module `Modules.Data.List` to import.
+
+  examples/diagnostics_demos/errors/module_path_mismatch_import.flx:1:1
+  |
+1 | import Modules.Data.List
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Data.List.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Data.List` under roots: examples/diagnostics_demos/errors, src, lib (imported from examples/diagnostics_demos/errors/module_path_mismatch_import.flx).
+== stdout ==
+<not executed>

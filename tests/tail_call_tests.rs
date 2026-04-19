@@ -1,10 +1,10 @@
-use flux::bytecode::compiler::Compiler;
 use flux::bytecode::op_code::disassemble;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 
 fn run(input: &str) -> Value {
     let lexer = Lexer::new(input);

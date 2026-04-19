@@ -1,5 +1,16 @@
 use crate::diagnostics::position::Span;
 
+/// Static metadata for a cost centre, set at compile time.
+///
+/// Lives in the format layer because it is emitted by the compiler and
+/// consumed by the VM — runtime profiling state (`CostCentre`,
+/// `CostCentreStackEntry`) stays in `vm::profiling`.
+#[derive(Debug, Clone)]
+pub struct CostCentreInfo {
+    pub name: String,
+    pub module: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EffectSummary {
     Pure,

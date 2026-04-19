@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 module Aoc2024Shared {
     // Safe indexing helper:
     // indexing returns Some(value) or None; default to 0 for AoC numeric paths.

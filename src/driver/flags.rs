@@ -68,7 +68,6 @@ pub struct DriverLanguageFlags {
     pub enable_optimize: bool,
     pub enable_analyze: bool,
     pub strict_mode: bool,
-    pub strict_types: bool,
 }
 
 /// All per-invocation driver options, grouped by concern.

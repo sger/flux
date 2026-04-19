@@ -4,18 +4,18 @@
 
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "llvm")]
-use crate::{
-    llvm::{
-        pipeline::{compile_ir_to_object, ensure_runtime_lib},
-        render_module, target,
-    },
-    lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
-};
 use crate::{
     diagnostics::Diagnostic,
     shared::cache_paths::CacheLayout,
     syntax::{interner::Interner, module_graph::ModuleGraph},
+};
+#[cfg(feature = "llvm")]
+use crate::{
+    lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
+    llvm::{
+        pipeline::{compile_ir_to_object, ensure_runtime_lib},
+        render_module, target,
+    },
 };
 
 #[cfg(feature = "llvm")]
@@ -121,7 +121,6 @@ pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) cache_layout: &'a CacheLayout,
     pub(crate) no_cache: bool,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_types: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
     pub(crate) verbose: bool,

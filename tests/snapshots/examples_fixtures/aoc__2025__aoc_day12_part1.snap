@@ -3,59 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day12_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `sum`.
-
-  examples/aoc/2025/aoc_day12_part1.flx:52:22
-   |
-52 |     let needed = 9 * sum(counts)
-   |                      ^^^
-
-Hint:
-  Define it first: let sum = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day12_part1.flx:58:20
-   |
-58 | let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day12_part1.flx:59:12
-   |
-59 | let fits = [if region_fits(line) { 1 } else { 0 } | line <- region_lines]
-   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `sum`.
-
-  examples/aoc/2025/aoc_day12_part1.flx:60:7
-   |
-60 | print(sum(fits))
-   |       ^^^
-
-Hint:
-  Define it first: let sum = ...;
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

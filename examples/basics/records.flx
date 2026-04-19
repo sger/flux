@@ -1,0 +1,25 @@
+// parity-expected-stdout-begin
+// "Alice"
+// 30
+// "Bob"
+// 31
+// parity-expected-stdout-end
+
+/*
+Named-field data types (proposal 0152): construction, dot access, spread.
+*/
+
+
+data Person { Person { name: String, age: Int } }
+
+// Program entry point.
+fn main() with IO {
+    let alice = Person { name: "Alice", age: 30 }
+    print(alice.name)
+    print(alice.age)
+
+    // Functional update via spread: produce a new value with one field changed.
+    let bob = { ...alice, name: "Bob", age: alice.age + 1 }
+    print(bob.name)
+    print(bob.age)
+}

@@ -5,24 +5,40 @@ Fixture: examples/type_system/failing/201_base_hof_callback_effect_missing_e400.
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E300]: Parameter Type Mismatch
 
-I can't find a value named `map`.
+Parameter 2 has the wrong type.
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:9:5
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
   |
-9 |     map([|1, 2, 3|], f)
-  |     ^^^
+8 |     each([1, 2, 3], noisy_log)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     -------------------------- parameter 2 has type `() -> Unit with IO`
 
-Hint:
-  Define it first: let map = ...;
+  |     -------------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: () -> Unit
+  found parameter type: () -> Unit with IO
+  the conflicting types meet at this expression
 
 Help:
-  Did you mean `map_with_io_callback`?
+  Change parameter 2 to use `() -> Unit` consistently.
 
 
-Note: Downstream Errors Suppressed
+error[E400]: Missing Effect
 
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
+  |
+8 |     each([1, 2, 3], noisy_log)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     -------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1,25 +1,25 @@
-import Flow.Map as Map
-
-// Test: Advanced list processing with map, filter, fold
-// Expected output:
-// === Base map/filter/fold on lists ===
-// [|2, 4, 6, 8, 10|]
-// [|4, 6, 8, 10|]
+// parity-expected-stdout-begin
+// "=== Base map/filter/fold on lists ==="
+// [2, 4, 6, 8, 10]
+// [4, 6, 8, 10]
 // 15
-// === Chained pipeline ===
-// [|8, 32, 72|]
-// === Recursive alternatives ===
-// [|2, 4, 6, 8, 10|]
-// [|6, 8, 10|]
-// === Building maps from lists ===
-// {"bob": 3, "charlie": 7, "alice": 5}
-// === Flatten ===
-// [|1, 2, 3, 4, 5, 6|]
-// === Zip ===
-// [|["a", 1], [|"b", 2|], [|"c", 3|]|]
-// === Take / Drop ===
-// [|1, 2, 3|]
-// [|4, 5|]
+// "=== Chained pipeline ==="
+// [8, 32, 72]
+// "=== Recursive alternatives ==="
+// [2, 4, 6, 8, 10]
+// [6, 8, 10]
+// "=== Building maps from lists ==="
+// {"alice": 5, "bob": 3, "charlie": 7}
+// "=== Flatten ==="
+// [1, 2, 3, 4, 5, 6]
+// "=== Zip ==="
+// [(1, 1), (2, 2), (3, 3)]
+// "=== Take / Drop ==="
+// [1, 2, 3]
+// [4, 5]
+// parity-expected-stdout-end
+
+import Flow.Map as Map
 
 // =============================================================================
 // Part 1: Base map/filter/fold Work Directly on Lists
@@ -68,14 +68,15 @@ fn main() with IO {
     fn list_map(lst, f) {
         match lst {
             [h | t] -> [f(h) | list_map(t, f)],
-            _ -> None,
+            _ -> [],
         }
     }
 
+    // Helper for list filter.
     fn list_filter(lst, pred) {
         match lst {
             [h | t] -> if pred(h) { [h | list_filter(t, pred)] } else { list_filter(t, pred) },
-            _ -> None,
+            _ -> [],
         }
     }
 
@@ -99,6 +100,7 @@ fn main() with IO {
 
     print("=== Flatten ===");
 
+    // Helper for list append.
     fn list_append(a, b) {
         match a {
             [h | t] -> [h | list_append(t, b)],
@@ -106,17 +108,18 @@ fn main() with IO {
         }
     }
 
+    // Helper for flatten.
     fn flatten(lst) {
         match lst {
             [h | t] -> list_append(h, flatten(t)),
-            _ -> None,
+            _ -> [],
         }
     }
 
     let nested = [
-    [1, 2],
-    [3, 4],
-    [5, 6],
+        [1, 2],
+        [3, 4],
+        [5, 6],
     ];
     print(flatten(nested));  // [|1, 2, 3, 4, 5, 6|]
 
@@ -137,29 +140,31 @@ fn main() with IO {
 
     print("=== Take / Drop ===");
 
+    // Helper for take.
     fn take(lst, n) {
         if n <= 0 {
-            None
+            []
         } else {
-        match lst {
-            [h | t] -> [h | take(t, n - 1)],
-            _ -> None,
+            match lst {
+                [h | t] -> [h | take(t, n - 1)],
+                _ -> [],
+            }
         }
     }
-}
 
-fn drop(lst, n) {
-    if n <= 0 {
-        lst
-    } else {
-    match lst {
-        [h | t] -> drop(t, n - 1),
-        _ -> None,
+    // Helper for drop.
+    fn drop(lst, n) {
+        if n <= 0 {
+            lst
+        } else {
+            match lst {
+                [h | t] -> drop(t, n - 1),
+                _ -> [],
+            }
+        }
     }
-}
-}
 
-let items = [1, 2, 3, 4, 5];
-print(take(items, 3));  // [|1, 2, 3|]
-print(drop(items, 3));  // [|4, 5|]
+    let items = [1, 2, 3, 4, 5];
+    print(take(items, 3));  // [|1, 2, 3|]
+    print(drop(items, 3));  // [|4, 5|]
 }

@@ -145,6 +145,24 @@ fn validate_pattern_bindings(
                 validate_pattern_bindings(field, ctx, diagnostics, bindings);
             }
         }
+        Pattern::NamedConstructor { fields, span, .. } => {
+            for field in fields {
+                match &field.pattern {
+                    Some(sub) => validate_pattern_bindings(sub, ctx, diagnostics, bindings),
+                    None => {
+                        // Punning binds a fresh variable with the field name.
+                        if !bindings.insert(field.name) {
+                            diagnostics.push(Diagnostic::make_error(
+                                &DUPLICATE_PATTERN_BINDING,
+                                &[ctx.interner.resolve(field.name)],
+                                ctx.file_path.to_string(),
+                                *span,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

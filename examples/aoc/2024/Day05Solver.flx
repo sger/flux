@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 module Day05Solver {
@@ -6,6 +9,7 @@ module Day05Solver {
         UpdatesPart,
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(xs: Array<Int>, idx: Int) -> Int {
         match xs[idx] {
             Some(v) -> v,
@@ -13,6 +17,7 @@ module Day05Solver {
         }
     }
 
+    // Helper for middle val.
     fn middle_val(xs: Array<Int>) {
         if len(xs) == 0 {
             None
@@ -21,6 +26,7 @@ module Day05Solver {
         }
     }
 
+    // Parse rule.
     fn parse_rule(line: String) -> Either<String, (Int, Int)> {
         if len(parts) != 2 {
             Left("invalid rule: " + line)
@@ -30,6 +36,7 @@ module Day05Solver {
         where parts = split_ints(trim(line), "|")
     }
 
+    // Parse update.
     fn parse_update(line: String) -> Either<String, Array<Int>> {
         if len(pages) == 0 {
             Left("invalid update: " + line)
@@ -39,6 +46,7 @@ module Day05Solver {
         where pages = split_ints(trim(line), ",")
     }
 
+    // Parse sections.
     fn parse_sections(
         lines: List<String>,
         section: Section,
@@ -73,10 +81,12 @@ module Day05Solver {
         parse_sections(to_list(lines), RulesPart, [||], [||])
     }
 
+    // Helper for contains int.
     fn contains_int(xs: Array<Int>, target: Int) -> Bool {
         Array.any(xs, \x -> x == target)
     }
 
+    // Helper for arrays equal at.
     fn arrays_equal_at(xs: Array<Int>, ys: Array<Int>, idx: Int) -> Bool {
         if idx >= len(xs) {
             true
@@ -87,6 +97,7 @@ module Day05Solver {
         }
     }
 
+    // Helper for arrays equal.
     fn arrays_equal(xs: Array<Int>, ys: Array<Int>) -> Bool {
         if len(xs) != len(ys) {
             false
@@ -95,12 +106,14 @@ module Day05Solver {
         }
     }
 
+    // Helper for relevant rules.
     fn relevant_rules(rules: Array<(Int, Int)>, xs: Array<Int>) -> Array<(Int, Int)> {
         Array.filter(rules, \r -> contains_int(xs, r.0) && contains_int(xs, r.1))
     }
 
+    // Helper for indegree.
     fn indegree(rules: Array<(Int, Int)>, remaining: Array<Int>, node: Int) -> Int {
-        fold(
+        Array.fold(
             rules,
             0,
             \(acc, r) -> if r.1 == node && contains_int(remaining, r.0) {
@@ -111,6 +124,7 @@ module Day05Solver {
         )
     }
 
+    // Helper for pick zero indegree.
     fn pick_zero_indegree(remaining: Array<Int>, rules: Array<(Int, Int)>, idx: Int) {
         if idx >= len(remaining) {
             None
@@ -124,10 +138,12 @@ module Day05Solver {
         }
     }
 
+    // Helper for remove value.
     fn remove_value(xs: Array<Int>, target: Int) -> Array<Int> {
         Array.filter(xs, \x -> x != target)
     }
 
+    // Helper for topo sort.
     fn topo_sort(remaining: Array<Int>, rules: Array<(Int, Int)>, acc: Array<Int>) -> Array<Int> {
         if len(remaining) == 0 {
             acc
@@ -139,6 +155,7 @@ module Day05Solver {
         }
     }
 
+    // Helper for sort by rules.
     fn sort_by_rules(rules: Array<(Int, Int)>, xs: Array<Int>) -> Array<Int> {
         topo_sort(xs, relevant_rules(rules, xs), [||])
     }
@@ -146,13 +163,13 @@ module Day05Solver {
     public fn day05a_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
-                pages
-                    |> Array.filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
-                    |> Array.map(\orig -> match middle_val(orig) {
-                        Some(v) -> v,
-                        _ -> 0,
-                    })
-                    |> Array.fold(0, \(acc, x) -> acc + x),
+            pages
+            |> Array.filter(\orig -> arrays_equal(orig, sort_by_rules(rules, orig)))
+            |> Array.map(\orig -> match middle_val(orig) {
+                    Some(v) -> v,
+                    _ -> 0,
+            })
+            |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }
@@ -164,14 +181,14 @@ module Day05Solver {
     public fn day05b_from_lines(lines: Array<String>) -> Int {
         match parse_day05_input(lines) {
             Right((rules, pages)) ->
-                pages
-                    |> Array.map(\orig -> (orig, sort_by_rules(rules, orig)))
-                    |> Array.filter(\pair -> !arrays_equal(pair.0, pair.1))
-                    |> Array.map(\pair -> match middle_val(pair.1) {
-                        Some(v) -> v,
-                        _ -> 0,
-                    })
-                    |> Array.fold(0, \(acc, x) -> acc + x),
+            pages
+            |> Array.map(\orig -> (orig, sort_by_rules(rules, orig)))
+            |> Array.filter(\pair -> !arrays_equal(pair.0, pair.1))
+            |> Array.map(\pair -> match middle_val(pair.1) {
+                    Some(v) -> v,
+                    _ -> 0,
+            })
+            |> Array.fold(0, \(acc, x) -> acc + x),
             Left(_) -> 0,
         }
     }

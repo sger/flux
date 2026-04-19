@@ -34,7 +34,8 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
-    bytecode::{bytecode_cache::hash_bytes, compiler::Compiler},
+    bytecode::bytecode_cache::hash_bytes,
+    compiler::Compiler,
     diagnostics::Diagnostic,
     shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},
@@ -125,11 +126,8 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         request.flags.is_native_backend(),
     )?;
 
-    let strict_hash = hash_bytes(if request.session.strict_mode {
-        b"strict=1"
-    } else {
-        b"strict=0"
-    });
+    let strict_hash =
+        hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
 
@@ -141,7 +139,6 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
     let compile_start = Instant::now();
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
-    compiler.set_strict_types(request.session.strict_types);
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }
@@ -315,6 +312,27 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
             }
 
             compile_modules_for_run(&mut ctx, request);
+
+            // When the native backend will handle execution, it replays module
+            // diagnostics itself and emits them.  Printing warnings here would
+            // cause them to appear twice.  We still need to exit on errors
+            // before handing off to the native pipeline.
+            #[cfg(feature = "llvm")]
+            if should_dispatch_native_backend(request.flags) {
+                let has_errors = ctx
+                    .all_diagnostics
+                    .iter()
+                    .any(|d| d.severity == crate::diagnostics::Severity::Error);
+                if has_errors {
+                    emit_compile_diagnostics_or_exit(&ctx, request);
+                }
+                // Clear frontend diagnostics — native backend collects its own.
+                ctx.all_diagnostics.clear();
+            } else {
+                emit_compile_diagnostics_or_exit(&ctx, request);
+            }
+
+            #[cfg(not(feature = "llvm"))]
             emit_compile_diagnostics_or_exit(&ctx, request);
 
             let merged_program = build_dump_program(&ctx, request.flags);

@@ -1,4 +1,5 @@
-use flux::bytecode::{compiler::Compiler, op_code::disassemble};
+use flux::bytecode::op_code::disassemble;
+use flux::compiler::Compiler;
 use flux::syntax::{lexer::Lexer, parser::Parser};
 use insta::assert_snapshot;
 

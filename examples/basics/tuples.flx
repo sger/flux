@@ -1,3 +1,21 @@
+// parity-expected-stdout-begin
+// (1, 2, 3)
+// (42,)
+// ()
+// 3
+// 1
+// 2
+// 1
+// Some(1)
+// None
+// 3
+// "Tuple"
+// true
+// 6
+// "test"
+// (1, 2, 3)
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Tuples
     // Expected output:

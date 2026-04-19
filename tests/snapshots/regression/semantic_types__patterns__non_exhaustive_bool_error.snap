@@ -1,0 +1,28 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/semantic_types/patterns/non_exhaustive_bool_error.flx
+exit_code: 1
+
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+• 1 error • tests/fixtures/semantic_types/patterns/non_exhaustive_bool_error.flx
+error[E015]: Non-Exhaustive Match
+
+Match is non-exhaustive: missing Bool case(s): true.
+
+  tests/fixtures/semantic_types/patterns/non_exhaustive_bool_error.flx:3:5
+  |
+3 |     match flag {
+  |     ^^^^^^^^^^^^
+4 |         false -> 0,
+  | ^^^^^^^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
+
+Hint:
+  Add missing boolean arms or an unguarded `_ -> ...` catch-all.

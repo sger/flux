@@ -1,15 +1,15 @@
-use flux::bytecode::vm::VM;
 use flux::bytecode::{
     bytecode::Bytecode,
-    compiler::Compiler,
     op_code::{OpCode, make},
 };
+use flux::compiler::Compiler;
 use flux::core::CorePrimOp;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -153,6 +153,28 @@ outer();"#;
     assert!(
         err.contains(":2:1"),
         "expected 1-based column in stack trace, got:\n{}",
+        err
+    );
+}
+
+#[test]
+fn prelude_list_map_rejects_array_argument_at_compile_time() {
+    let err = run_any_error(
+        r#"
+let scores = [|1, 2, 3|];
+map(scores, fn(x) { x + 1 });
+"#,
+    );
+    assert!(
+        err.contains("E300"),
+        "expected compile-time E300 for Flow.List.map called with Array, got:\n{}",
+        err
+    );
+    assert!(
+        err.contains("List<_>")
+            || err.contains("Array<Int>")
+            || err.contains("wrong type in the 1st argument to `map`"),
+        "expected list-vs-array mismatch details, got:\n{}",
         err
     );
 }
@@ -1017,64 +1039,70 @@ fn test_fold_with_lambda() {
 
 #[test]
 fn test_map_type_error_not_array() {
-    // map now operates on cons lists; passing an integer just returns []
-    assert_eq!(run("len(map(42, fn(x) { x }));"), Value::Integer(0));
+    let err = run_any_error("map(42, fn(x) { x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
+    );
 }
 
 #[test]
 fn test_map_type_error_not_function() {
-    // map now operates on cons lists; passing a non-function as callback triggers a runtime error
-    let err = run_error("map([1, 2], 42);");
+    let err = run_any_error("map([1, 2], 42);");
     assert!(
-        err.contains("not a function")
-            || err.contains("wrong number of arguments")
-            || err.contains("Cannot call"),
-        "Expected function call error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback type mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_type_error() {
-    // filter now operates on cons lists; passing an integer just returns []
-    assert_eq!(run("len(filter(42, fn(x) { x }));"), Value::Integer(0));
+    let err = run_any_error("filter(42, fn(x) { x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
+    );
 }
 
 #[test]
 fn test_fold_type_error() {
-    // fold now operates on cons lists; passing an integer just returns the accumulator
-    assert_eq!(
-        run("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });"),
-        Value::Integer(0)
+    let err = run_any_error("import Flow.List as L\nL.fold(42, 0, fn(a, x) { a + x });");
+    assert!(
+        err.contains("E300") && err.contains("Parameter 1"),
+        "Expected compile-time parameter type mismatch, got: {}",
+        err
     );
 }
 
 #[test]
 fn test_map_callback_arity_error_propagates() {
-    let err = run_error("map([1], fn(a, b) { a + b });");
+    let err = run_any_error("map([1], fn(a, b) { a + b });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_callback_arity_error_propagates() {
-    let err = run_error("filter([1], fn(a, b) { a > b });");
+    let err = run_any_error("filter([1], fn(a, b) { a > b });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 2"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_fold_callback_arity_error_propagates() {
-    let err = run_error("fold([1], 0, fn(a) { a });");
+    let err = run_any_error("fold([1], 0, fn(a) { a });");
     assert!(
-        err.contains("wrong number of arguments"),
-        "Expected callback arity error, got: {}",
+        err.contains("E300") && err.contains("Parameter 3"),
+        "Expected compile-time callback arity mismatch, got: {}",
         err
     );
 }
@@ -1358,6 +1386,28 @@ fn test_tuple_does_not_match_option_pattern() {
     assert_eq!(
         run(r#"match (1, 2) { Some(x) -> "option", _ -> "tuple" };"#),
         make_string("tuple")
+    );
+}
+
+#[test]
+fn test_named_field_access_in_concrete_option_match_with_wildcard() {
+    assert_eq!(
+        run(
+            r#"
+data Contact {
+    Contact { name: String }
+}
+
+let contact = Contact { name: "Alice" };
+let value: Option<Contact> = Some(contact);
+match value {
+    Some(c) -> c.name,
+    None -> "missing",
+    _ -> "missing",
+};
+"#
+        ),
+        make_string("Alice")
     );
 }
 

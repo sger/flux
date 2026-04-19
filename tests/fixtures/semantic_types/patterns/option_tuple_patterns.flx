@@ -1,0 +1,17 @@
+fn option_to_int(opt) {
+    match opt {
+        Some(n) -> n,
+        None -> 0,
+    }
+}
+
+fn tuple_sum(pair) {
+    match pair {
+        (a, b) -> a + b,
+    }
+}
+
+fn main() with IO {
+    print(option_to_int(Some(9)))
+    print(tuple_sum((4, 5)))
+}

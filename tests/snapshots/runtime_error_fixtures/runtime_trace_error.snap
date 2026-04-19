@@ -13,18 +13,23 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-[7 of 7] Compiling  runtime_trace_error
-[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/runtime_trace_error.flx
-error[E1009]: Invalid Operation
+error[E300]: Type Mismatch
 
-Cannot add Int and None values.
+I found a type mismatch.
 
   examples/runtime_errors/runtime_trace_error.flx:3:3
   |
 3 |   1 + None;
   |   ^^^^^^^^
+  |   -------- this expression has type `Option<_>`
 
-Stack trace:
-  at boom (examples/runtime_errors/runtime_trace_error.flx:3:3)
-  at <main> (examples/runtime_errors/runtime_trace_error.flx:6:1)
+  |   -------- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: Option<_>
+  the conflicting types meet at this expression
+
+Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.

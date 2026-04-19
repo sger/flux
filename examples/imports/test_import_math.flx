@@ -1,3 +1,4 @@
+// root: examples
 // Run with: cargo run -- --root examples examples/imports/test_import_math.flx
 
 import Modules.Math as Math

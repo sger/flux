@@ -79,7 +79,7 @@ Unification follows standard row-polymorphism rules:
 
 ## 4. Constraint Solver
 
-File: `src/bytecode/compiler/effect_rows.rs`
+File: `src/compiler/effect_rows.rs`
 
 The solver uses a worklist algorithm over four constraint types:
 
@@ -196,7 +196,7 @@ The row variable `e` is instantiated freshly at each call site and unifies with 
 - `src/syntax/parser/statement.rs` — `parse_class_method()` and `parse_instance_method()` call `parse_effect_list()` for the `with` clause
 - `src/syntax/type_class.rs` — `ClassMethod.effects` and `InstanceMethod.effects` AST fields
 - `src/types/class_dispatch.rs` — Phase 1b mangling pass forwards effects to mangled function signatures
-- `src/bytecode/compiler/statement.rs` — E452 walker validates effect floor satisfaction
+- `src/compiler/statement.rs` — E452 walker validates effect floor satisfaction
 - `src/core/lower_ast/mod.rs` — `try_resolve_class_call()` propagates the resolved instance's row to the caller
 
 ---

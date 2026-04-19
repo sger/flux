@@ -6,6 +6,8 @@ use crate::diagnostics::{
 use crate::driver::DiagnosticOutputFormat;
 use crate::{
     aether::borrow_infer::{BorrowMode, BorrowProvenance},
+    ast::type_infer::render_scheme_canonical,
+    syntax::interner::Interner,
     types::scheme::Scheme,
 };
 
@@ -119,12 +121,8 @@ pub(crate) fn progress_line(n: usize, total: usize, action: &str, name: &str) ->
 }
 
 /// Formats a polymorphic scheme for cache and interface inspection output.
-pub(crate) fn format_scheme_for_cli(scheme: &Scheme) -> String {
-    if scheme.forall.is_empty() {
-        scheme.infer_type.to_string()
-    } else {
-        format!("forall {:?}. {}", scheme.forall, scheme.infer_type)
-    }
+pub(crate) fn format_scheme_for_cli(interner: &Interner, scheme: &Scheme) -> String {
+    render_scheme_canonical(interner, scheme)
 }
 
 /// Formats a borrow mode for CLI-facing inspection output.

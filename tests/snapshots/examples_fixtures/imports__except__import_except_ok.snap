@@ -9,9 +9,9 @@ error[E011]: Private Member
 
 Cannot access private member `keep`.
 
-  examples/imports/except/import_except_ok.flx:7:11
+  examples/imports/except/import_except_ok.flx:8:11
   |
-7 |     print(Lib.keep());
+8 |     print(Lib.keep());
   |           ^^^^^^^^
 
 Hint:

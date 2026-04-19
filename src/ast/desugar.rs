@@ -91,19 +91,15 @@ impl OperatorDesugarPass<'_> {
     }
 
     fn is_dynamic_operand(&self, expr: &Expression) -> bool {
-        matches!(
-            self.operand_type(expr),
-            None | Some(InferType::Con(TypeConstructor::Any))
-        )
+        self.operand_type(expr).is_none()
     }
 
     fn is_type_var_operand(&self, expr: &Expression) -> bool {
         matches!(self.operand_type(expr), Some(InferType::Var(_)))
     }
 
-    fn is_concrete_non_any_operand(&self, expr: &Expression) -> bool {
-        self.operand_type(expr)
-            .is_some_and(|ty| ty.is_concrete() && !ty.contains_any())
+    fn is_concrete_operand(&self, expr: &Expression) -> bool {
+        self.operand_type(expr).is_some_and(|ty| ty.is_concrete())
     }
 
     fn concrete_numeric_operands(
@@ -160,12 +156,12 @@ impl OperatorDesugarPass<'_> {
 
     // Decision order matters here:
     // 1. Never rewrite non-overloadable operators.
-    // 2. Preserve infix when either operand is dynamic (`Any` / missing HM type),
+    // 2. Preserve infix when either operand is dynamic (missing HM type),
     //    because downstream runtime semantics still own those cases.
     // 3. Outside an explicit class-constraint context, keep arithmetic,
     //    comparisons, and type-variable operands infix so unconstrained code
     //    does not pick up synthetic class-method calls.
-    // 4. Preserve clearly concrete non-`Any` pairs, then use the narrower
+    // 4. Preserve clearly concrete pairs, then use the narrower
     //    Int/Float/String fast-path checks below to keep primitive lowering for
     //    the operator/type combinations we specialize.
     // 5. Everything else rewrites to the corresponding class method.
@@ -184,10 +180,7 @@ impl OperatorDesugarPass<'_> {
         {
             return true;
         }
-        if operator != "++"
-            && self.is_concrete_non_any_operand(left)
-            && self.is_concrete_non_any_operand(right)
-        {
+        if operator != "++" && self.is_concrete_operand(left) && self.is_concrete_operand(right) {
             return true;
         }
         if !self.in_explicit_constraint_context
@@ -314,19 +307,15 @@ impl OperatorDesugarDetector<'_> {
     }
 
     fn is_dynamic_operand(&self, expr: &Expression) -> bool {
-        matches!(
-            self.operand_type(expr),
-            None | Some(InferType::Con(TypeConstructor::Any))
-        )
+        self.operand_type(expr).is_none()
     }
 
     fn is_type_var_operand(&self, expr: &Expression) -> bool {
         matches!(self.operand_type(expr), Some(InferType::Var(_)))
     }
 
-    fn is_concrete_non_any_operand(&self, expr: &Expression) -> bool {
-        self.operand_type(expr)
-            .is_some_and(|ty| ty.is_concrete() && !ty.contains_any())
+    fn is_concrete_operand(&self, expr: &Expression) -> bool {
+        self.operand_type(expr).is_some_and(|ty| ty.is_concrete())
     }
 
     fn concrete_numeric_operands(
@@ -396,10 +385,7 @@ impl OperatorDesugarDetector<'_> {
         {
             return true;
         }
-        if operator != "++"
-            && self.is_concrete_non_any_operand(left)
-            && self.is_concrete_non_any_operand(right)
-        {
+        if operator != "++" && self.is_concrete_operand(left) && self.is_concrete_operand(right) {
             return true;
         }
         if !self.in_explicit_constraint_context

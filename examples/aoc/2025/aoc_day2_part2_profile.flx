@@ -1,9 +1,21 @@
-// AoC Day 2 Part 2 profiling workload.
-// Runs the solver multiple times to amplify hot paths.
+// parity-expected-stdout-begin
+// "iterations:"
+// 5
+// "checksum:"
+// 350935486575
+// parity-expected-stdout-end
+
+/*
+AoC Day 2 Part 2 profiling workload.
+Runs the solver multiple times to amplify hot paths.
+*/
+
 
 import Day2Part2 as Day2
 
+// Program entry point.
 fn main() with IO, Time {
+    // Repeat the solver and accumulate a checksum.
     fn repeat_solve(n, parsed_ranges, checksum) {
         if n <= 0 {
             checksum
@@ -24,6 +36,6 @@ fn main() with IO, Time {
     print(iterations)
     print("checksum:")
     print(checksum)
-    print("elapsed_ms:")
-    print(t1 - t0)
+    // print("elapsed_ms:")
+    // print(t1 - t0)
 }

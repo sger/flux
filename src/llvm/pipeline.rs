@@ -181,35 +181,46 @@ pub fn compile_ir_to_object(
     if let Some(parent) = obj_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let work_dir = obj_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(std::env::temp_dir);
+    let work_dir = unique_native_work_dir()?;
     let stem = obj_path
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("module");
     let ll_path = work_dir.join(format!("{stem}.ll"));
+    let bc_path = work_dir.join(format!("{stem}.bc"));
 
     emit_llvm_ir(ll_text, &ll_path)?;
 
     // Try single-process clang pipeline first (clang only).
     if let Some(result) = run_clang_compile(&ll_path, obj_path, opt_level) {
-        let _ = fs::remove_file(&ll_path);
+        cleanup_native_work_dir(&work_dir, &[&ll_path]);
         return result;
     }
 
     // Fallback: opt + llc (two subprocesses) for gcc/MSVC or when clang is unavailable.
-    let bc_path = work_dir.join(format!("{stem}.bc"));
     if opt_level > 0 {
         run_opt(&ll_path, &bc_path, opt_level)?;
         run_llc(&bc_path, obj_path, opt_level)?;
     } else {
         run_llc(&ll_path, obj_path, 0)?;
     }
-    let _ = fs::remove_file(&ll_path);
-    let _ = fs::remove_file(&bc_path);
+    cleanup_native_work_dir(&work_dir, &[&ll_path, &bc_path]);
     Ok(())
+}
+
+fn unique_native_work_dir() -> Result<PathBuf, PipelineError> {
+    let build_id = NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed);
+    let dir =
+        std::env::temp_dir().join(format!("flux_llvm_obj_{}_{}", std::process::id(), build_id));
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn cleanup_native_work_dir(work_dir: &Path, staged_files: &[&Path]) {
+    for path in staged_files {
+        let _ = fs::remove_file(path);
+    }
+    let _ = fs::remove_dir(work_dir);
 }
 
 /// Check if `lld` is available for the current toolchain.

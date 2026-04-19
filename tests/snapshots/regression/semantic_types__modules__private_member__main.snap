@@ -1,0 +1,25 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/semantic_types/modules/private_member/main.flx
+exit_code: 1
+
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  IO
+[3 of 8] Compiling  List
+[4 of 8] Compiling  Numeric
+[5 of 8] Compiling  Option
+[6 of 8] Compiling  String
+[7 of 8] Compiling  Math
+• 1 error • tests/fixtures/semantic_types/modules/private_member/main.flx
+error[E011]: Private Member
+
+Cannot access private member `hidden`.
+
+  tests/fixtures/semantic_types/modules/private_member/main.flx:4:5
+  |
+4 |     M.hidden(1)
+  |     ^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.

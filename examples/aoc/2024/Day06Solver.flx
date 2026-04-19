@@ -1,9 +1,12 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 import Flow.Map as Map
 
 module Day06Solver {
     // AoC 2024 Day 6 - Guard Gallivant
-    //
+
     // Performance strategy:
     //   1. Pre-process grid into Array<Array<Int>> (1 = wall, 0 = open)
     //      → eliminates substring allocations in the hot loop
@@ -23,10 +26,12 @@ module Day06Solver {
         JumpNext(Int, Int, Dir),
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -34,6 +39,7 @@ module Day06Solver {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -41,6 +47,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for row at.
     fn row_at(grid, idx) {
         match grid[idx] {
             Some(v) -> v,
@@ -48,6 +55,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for map arr at.
     fn map_arr_at(m, key) {
         match Map.get(m, key) {
             Some(v) -> v,
@@ -55,6 +63,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for insert sorted.
     fn insert_sorted(m, key, value) {
         Map.set(m, key, Array.sort(array_push(map_arr_at(m, key), value)))
     }
@@ -66,6 +75,7 @@ module Day06Solver {
         if ch == "#" { 1 } else { 0 }
     }
 
+    // Helper for line to row.
     fn line_to_row(line, c, acc) {
         if c >= len(line) {
             acc
@@ -74,6 +84,7 @@ module Day06Solver {
         }
     }
 
+    // Build grid.
     fn build_grid(lines) {
         Array.map(lines, \line -> line_to_row(line, 0, [||]))
     }
@@ -90,6 +101,7 @@ module Day06Solver {
         }
     }
 
+    // Find guard row.
     fn find_guard_row(lines, r) {
         if r >= len(lines) {
             (-1, -1)
@@ -111,6 +123,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for turn right.
     fn turn_right(d) {
         match d {
             Up   -> Rgt,
@@ -126,6 +139,7 @@ module Day06Solver {
         int_at(row_at(grid, r), c) == 1
     }
 
+    // Build axes row.
     fn build_axes_row(line, r, c, row_walls, col_walls, guard) {
         if c >= len(line) {
             (row_walls, col_walls, guard)
@@ -143,6 +157,7 @@ module Day06Solver {
         }
     }
 
+    // Build axes.
     fn build_axes(lines, r, row_walls, col_walls, guard) {
         if r >= len(lines) {
             (row_walls, col_walls, guard)
@@ -152,6 +167,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for first gt.
     fn first_gt(xs, target, lo, hi) {
         if lo >= hi {
             lo
@@ -165,6 +181,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for nearest gt or.
     fn nearest_gt_or(xs, target, fallback) {
         let idx = first_gt(xs, target, 0, len(xs))
         if idx >= len(xs) {
@@ -174,6 +191,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for nearest lt or.
     fn nearest_lt_or(xs, target, fallback) {
         let idx = first_gt(xs, target, 0, len(xs)) - 1
         if idx < 0 {
@@ -183,6 +201,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for dir id.
     fn dir_id(d) {
         match d {
             Up -> 0,
@@ -192,10 +211,12 @@ module Day06Solver {
         }
     }
 
+    // Helper for state key.
     fn state_key(cols, r, c, d) {
         (r * cols + c) * 4 + dir_id(d)
     }
 
+    // Helper for jump up hit.
     fn jump_up_hit(col_walls, c, r, obr, obc) {
         let wall = nearest_lt_or(map_arr_at(col_walls, c), r, -1)
         if obc == c {
@@ -209,6 +230,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for jump down hit.
     fn jump_down_hit(col_walls, rows, c, r, obr, obc) {
         let wall = nearest_gt_or(map_arr_at(col_walls, c), r, rows)
         if obc == c {
@@ -222,6 +244,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for jump left hit.
     fn jump_left_hit(row_walls, r, c, obr, obc) {
         let wall = nearest_lt_or(map_arr_at(row_walls, r), c, -1)
         if obr == r {
@@ -235,6 +258,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for jump right hit.
     fn jump_right_hit(row_walls, cols, r, c, obr, obc) {
         let wall = nearest_gt_or(map_arr_at(row_walls, r), c, cols)
         if obr == r {
@@ -248,26 +272,31 @@ module Day06Solver {
         }
     }
 
+    // Helper for jump step up.
     fn jump_step_up(axis, obr, obc, r, c) {
         let hit = jump_up_hit(axis.1, c, r, obr, obc)
         if hit < 0 { JumpExit } else { JumpNext(hit + 1, c, Rgt) }
     }
 
+    // Helper for jump step right.
     fn jump_step_right(axis, cols, obr, obc, r, c) {
         let hit = jump_right_hit(axis.0, cols, r, c, obr, obc)
         if hit >= cols { JumpExit } else { JumpNext(r, hit - 1, Down) }
     }
 
+    // Helper for jump step down.
     fn jump_step_down(axis, rows, obr, obc, r, c) {
         let hit = jump_down_hit(axis.1, rows, c, r, obr, obc)
         if hit >= rows { JumpExit } else { JumpNext(hit - 1, c, Lft) }
     }
 
+    // Helper for jump step left.
     fn jump_step_left(axis, obr, obc, r, c) {
         let hit = jump_left_hit(axis.0, r, c, obr, obc)
         if hit < 0 { JumpExit } else { JumpNext(r, hit + 1, Up) }
     }
 
+    // Helper for jump step.
     fn jump_step(axis, rows, cols, obr, obc, r, c, d) {
         match d {
             Up -> jump_step_up(axis, obr, obc, r, c),
@@ -277,6 +306,7 @@ module Day06Solver {
         }
     }
 
+    // Helper for drive loop jump.
     fn drive_loop_jump(axis, rows, cols, obr, obc, r, c, d, seen) {
         let key = state_key(cols, r, c, d)
         if Map.has(seen, key) {
@@ -326,29 +356,29 @@ module Day06Solver {
             let pos = match candidates[idx] { Some(v) -> v, _ -> 0 }
             count_loops(axis, rows, cols, sr, sc, candidates, idx + 1,
                 acc + check_candidate(axis, rows, cols, sr, sc, pos))
+            }
+        }
+
+        public fn day06a_from_lines(lines: Array<String>) -> Int {
+            let rows = len(lines)
+            let cols = len(line_at(lines, 0))
+            let guard = find_guard_row(lines, 0)
+            let grid = build_grid(lines)
+            let ctx = (grid, rows, cols)
+            let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
+            len(Map.keys(visited))
+        }
+
+        public fn day06b_from_lines(lines: Array<String>) -> Int {
+            let rows = len(lines)
+            let cols = len(line_at(lines, 0))
+            let parsed = build_axes(lines, 0, {}, {}, (-1, -1))
+            let guard = parsed.2
+            let sr = guard.0
+            let sc = guard.1
+            let grid = build_grid(lines)
+            let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
+            let candidates = Map.keys(visited)
+            count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
         }
     }
-
-    public fn day06a_from_lines(lines: Array<String>) -> Int {
-        let rows = len(lines)
-        let cols = len(line_at(lines, 0))
-        let guard = find_guard_row(lines, 0)
-        let grid = build_grid(lines)
-        let ctx = (grid, rows, cols)
-        let visited = walk_collect(ctx, guard.0, guard.1, Up, {})
-        len(Map.keys(visited))
-    }
-
-    public fn day06b_from_lines(lines: Array<String>) -> Int {
-        let rows = len(lines)
-        let cols = len(line_at(lines, 0))
-        let parsed = build_axes(lines, 0, {}, {}, (-1, -1))
-        let guard = parsed.2
-        let sr = guard.0
-        let sc = guard.1
-        let grid = build_grid(lines)
-        let visited = walk_collect((grid, rows, cols), sr, sc, Up, {})
-        let candidates = Map.keys(visited)
-        count_loops((parsed.0, parsed.1), rows, cols, sr, sc, candidates, 0, 0)
-    }
-}

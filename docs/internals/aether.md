@@ -388,7 +388,7 @@ means the first argument is borrowed and the second is owned (ownership
 transfers to the callee).
 
 The Aether report is built from:
-- `src/bytecode/compiler/mod.rs`
+- `src/compiler/mod.rs`
 
 It includes:
 

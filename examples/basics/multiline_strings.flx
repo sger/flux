@@ -1,3 +1,29 @@
+// parity-expected-stdout-begin
+// "    Roses are red,
+//     Violets are blue,
+//     Flux is functional,
+//     And so are you.
+//     "
+// "Hello,
+//     World!
+//     "
+// 4
+// [|"name,age,city", "    Alice,30,London", "    Bob,25,Paris", "    Charlie,35,Berlin"|]
+// 6
+// [|20, 27, 25, 15, 23, 26|]
+// "    Grid: 6 rows x 5 cols
+//     Row sums: [|20, 27, 25, 15, 23, 26|]
+//     Total: 136
+//     "
+// "    Tab:	here
+//     Quote: "quoted"
+//     Backslash: \ done
+//     "
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+// Program entry point.
 fn main() with IO {
     // Multi-line string literals using triple quotes """..."""
 
@@ -27,7 +53,7 @@ fn main() with IO {
 
     let rows =
     split(trim(csv), "\n")
-    |> filter(\line -> trim(line) != "")
+    |> Array.filter(\line -> trim(line) != "")
 
     print(len(rows))
     print(rows)
@@ -42,30 +68,36 @@ fn main() with IO {
     1 3 6 7 9
     """
 
+    // Parse row.
     fn parse_row(line) {
         split(trim(line), " ")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_int(t))
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_int(t))
     }
 
+    // Parse grid.
     fn parse_grid(raw) {
         split(trim(raw), "\n")
-        |> filter(\line -> trim(line) != "")
-        |> map(parse_row)
+        |> Array.filter(\line -> trim(line) != "")
+        |> Array.map(parse_row)
     }
 
     let grid_data = parse_grid(grid)
     print(len(grid_data))
-    print(map(grid_data, sum))
+    print(Array.map(grid_data, Array.sum))
 
     // Interpolation inside multi-line strings
     let rows_count = len(grid_data)
-    let cols_count = len(first(grid_data))
+    let first_row = Array.first(grid_data)
+    let cols_count = match first_row {
+        Some(row) -> len(row),
+        _ -> 0,
+    }
 
     let summary = """
     Grid: #{rows_count} rows x #{cols_count} cols
-    Row sums: #{map(grid_data, sum)}
-    Total: #{sum(map(grid_data, sum))}
+    Row sums: #{Array.map(grid_data, Array.sum)}
+    Total: #{Array.sum(Array.map(grid_data, Array.sum))}
     """
 
     print(summary)

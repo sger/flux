@@ -1,8 +1,19 @@
-// Advent of Code - Day 4 (Haskell-style translation)
-// Inspired by AOC2025.Day04 using Set Point semantics.
-// Uses input file: examples/aoc/2025/aoc_day4.txt
+// parity-expected-stdout-begin
+// 1493
+// 9194
+// parity-expected-stdout-end
 
+/*
+Advent of Code - Day 4 (Haskell-style translation)
+Inspired by AOC2025.Day04 using Set Point semantics.
+Uses input file: examples/aoc/2025/aoc_day4.txt
+*/
+
+import Flow.Map as Map
+
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -10,14 +21,17 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(line, col) {
         substring(line, col, col + 1)
     }
 
+    // Helper for point key.
     fn point_key(pt) {
         to_string(pt.0) + "," + to_string(pt.1)
     }
 
+    // Helper for list len.
     fn list_len(xs) {
         match xs {
             [_ | rest] -> 1 + list_len(rest),
@@ -25,6 +39,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Collect row points.
     fn collect_row_points(lines, row, col, cols, acc) {
         if col >= cols {
             acc
@@ -38,6 +53,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Collect points.
     fn collect_points(lines, row, rows, cols, acc) {
         if row >= rows {
             reverse(acc)
@@ -47,17 +63,20 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for points to set.
     fn points_to_set(points, acc) {
         match points {
-            [pt | rest] -> points_to_set(rest, put(acc, point_key(pt), true)),
+            [pt | rest] -> points_to_set(rest, Map.set(acc, point_key(pt), true)),
             _ -> acc
         }
     }
 
+    // Check whether point.
     fn has_point(point_set, r, c) {
-        has_key(point_set, to_string(r) + "," + to_string(c))
+        Map.has(point_set, to_string(r) + "," + to_string(c))
     }
 
+    // Helper for neighbor count.
     fn neighbor_count(point_set, pt) {
         let r = pt.0
         let c = pt.1
@@ -72,6 +91,7 @@ fn main() with IO, Time {
         n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
     }
 
+    // Helper for reachable points.
     fn reachable_points(points, point_set, acc) {
         match points {
             [pt | rest] -> do {
@@ -85,10 +105,11 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for diff points.
     fn diff_points(points, removed_set, acc) {
         match points {
             [pt | rest] -> do {
-                if has_key(removed_set, point_key(pt)) {
+                if Map.has(removed_set, point_key(pt)) {
                     diff_points(rest, removed_set, acc)
                 } else {
                     diff_points(rest, removed_set, [pt | acc])
@@ -98,11 +119,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY04A.
     fn day04a(points) {
         let point_set = points_to_set(points, {})
         list_len(reachable_points(points, point_set, None))
     }
 
+    // Sum removed layers.
     fn sum_removed_layers(points, acc) {
         if list_len(points) == 0 {
             acc
@@ -120,6 +143,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY04B.
     fn day04b(points) {
         sum_removed_layers(points, 0)
     }
@@ -127,8 +151,8 @@ fn main() with IO, Time {
     let lines = read_lines("examples/aoc/2025/aoc_day4.txt")
     let rows = len(lines)
     let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-    let points = collect_points(lines, 0, rows, cols, None)
+    let all_points = collect_points(lines, 0, rows, cols, None)
 
-    print(day04a(points))
-    print(day04b(points))
+    print(day04a(all_points))
+    print(day04b(all_points))
 }

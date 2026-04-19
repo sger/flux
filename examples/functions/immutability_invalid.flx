@@ -1,3 +1,4 @@
+// expect: compile_error
 // Error demo: direct assignment is not allowed in Flux.
 let a = 5;
 a = 10;

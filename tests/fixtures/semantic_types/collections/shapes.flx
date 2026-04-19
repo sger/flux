@@ -1,0 +1,22 @@
+fn pair(x, y) { (x, y) }
+
+fn list_nums() { [1, 2, 3] }
+
+fn array_nums() { [|1, 2, 3|] }
+
+fn options(flag, x) {
+    if flag { Some(x) } else { None }
+}
+
+fn either_of(flag, left, right) {
+    if flag { Left(left) } else { Right(right) }
+}
+
+fn scores() { { "a": 1, "b": 2 } }
+
+fn main() with IO {
+    print(len(list_nums()))
+    print(len(array_nums()))
+    print(match options(true, 9) { Some(n) -> n, None -> 0 })
+    print(match either_of(true, 4, 5) { Left(n) -> n, Right(n) -> n })
+}

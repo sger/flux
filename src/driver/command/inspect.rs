@@ -4,7 +4,8 @@ use std::fs;
 
 use crate::{
     ast::{collect_free_vars_in_program, find_tail_calls},
-    bytecode::{compiler::Compiler, op_code::disassemble},
+    bytecode::op_code::disassemble,
+    compiler::Compiler,
     driver::{
         command::shared::{
             ParseCommandConfig, emit_parser_diagnostics, parse_program_for_command,
@@ -15,7 +16,9 @@ use crate::{
         support::shared::{DiagnosticRenderRequest, emit_diagnostics},
     },
     runtime::value::Value,
-    syntax::{formatter::format_source, lexer::Lexer, linter::Linter, parser::Parser, program::Program},
+    syntax::{
+        formatter::format_source, lexer::Lexer, linter::Linter, parser::Parser, program::Program,
+    },
 };
 
 /// Lexes and prints the raw token stream for a source file.
@@ -50,7 +53,6 @@ pub fn show_bytecode(flags: &DriverFlags) {
     let interner = parsed.parser.take_interner();
     let mut compiler = Compiler::new_with_interner(path, interner);
     compiler.set_strict_mode(flags.language.strict_mode);
-    compiler.set_strict_types(flags.language.strict_types);
     let compile_result = compiler.compile_with_opts(
         &parsed.program,
         flags.language.enable_optimize,

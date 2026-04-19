@@ -27,7 +27,7 @@ pub(super) fn free_vars_rec(
             let new_params: Vec<_> = params
                 .iter()
                 .filter(|p| bound.insert(p.id))
-                .copied()
+                .cloned()
                 .collect();
             free_vars_rec(body, bound, free);
             for p in new_params {
@@ -81,7 +81,7 @@ pub(super) fn free_vars_rec(
                 let new_binders: Vec<_> = alt_bound
                     .iter()
                     .filter(|b| bound.insert(**b))
-                    .copied()
+                    .cloned()
                     .collect();
                 if let Some(guard) = &alt.guard {
                     free_vars_rec(guard, bound, free);

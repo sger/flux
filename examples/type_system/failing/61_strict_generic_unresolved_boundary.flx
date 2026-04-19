@@ -4,6 +4,5 @@ public fn id<T>(x: T) -> T {
 }
 
 fn main() -> Unit {
-    id(1)
-    None
+    let _ = id(1)
 }
