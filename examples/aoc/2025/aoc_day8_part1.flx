@@ -1,11 +1,20 @@
+// parity-expected-stdout-begin
+// 46398
+// parity-expected-stdout-end
+
 // Advent of Code - Day 8 Part 1 (Playground)
 // Connect the 1000 closest pairs and multiply the sizes of the 3 largest circuits.
 // Performance: prune edges by distance threshold (from the Rust approach).
 // Input: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -58,19 +67,19 @@ fn root(parents, x) {
 }
 
 fn dsu_state(parents, sizes) {
-    let s = put({}, "p", parents)
-    put(s, "sz", sizes)
+    let s = Map.set({}, "p", parents)
+    Map.set(s, "sz", sizes)
 }
 
 fn dsu_parents(state) {
-    match get(state, "p") {
+    match Map.get(state, "p") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn dsu_sizes(state) {
-    match get(state, "sz") {
+    match Map.get(state, "sz") {
         Some(v) -> v,
         _ -> [||]
     }
@@ -103,7 +112,9 @@ fn union_key(state, key) {
 }
 
 let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
-let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+let points = Array.map(
+    Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != ""),
+    \line -> split_ints(line, ","))
 let n = len(points)
 let idxs = range(0, n)
 let max_dist = 188000000
@@ -120,11 +131,15 @@ let top_keys = slice(sorted_keys, 0, 1000)
 let parents0 = to_array(range(0, n))
 let sizes0 = to_array(map(range(0, n), \_ -> 1))
 let state0 = dsu_state(parents0, sizes0)
-let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
+let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
 let parents1 = dsu_parents(state1)
 let sizes1 = dsu_sizes(state1)
-let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
+let comps =
+    to_array(range(0, len(parents1)))
+    |> Array.filter(\i -> int_at(parents1, i) == i)
+    |> Array.map(\i -> int_at(sizes1, i))
 let top = Array.sort_by(comps, \x -> 0 - x)
 print(int_at(top, 0) * int_at(top, 1) * int_at(top, 2))
 }
+//

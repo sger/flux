@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// 7644505810277
+// parity-expected-stdout-end
+
 // Advent of Code - Day 6 Part 1 (Trash Compactor)
 // Parse vertical problems separated by all-space columns.
 // Input: examples/aoc/2025/aoc_day6.txt
@@ -107,3 +111,4 @@ let num_rows = len(lines) - 1
 let width = max_width(lines, 0, 0)
 print(solve_cols(lines, num_rows, width, 0, 0))
 }
+//

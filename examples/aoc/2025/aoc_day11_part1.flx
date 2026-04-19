@@ -1,6 +1,13 @@
+// parity-expected-stdout-begin
+// 733
+// parity-expected-stdout-end
+
 // Advent of Code - Day 11 Part 1
 // Count directed paths from "you" to "out".
 // Input: examples/aoc/2025/aoc_day11.txt
+
+import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -41,19 +48,19 @@ fn main() with IO, Time {
 }
 
 fn result(count, memo) {
-    let r = put({}, "count", count)
-    put(r, "memo", memo)
+    let r = Map.set({}, "count", count)
+    Map.set(r, "memo", memo)
 }
 
 fn result_count(r) {
-    match get(r, "count") {
+    match Map.get(r, "count") {
         Some(v) -> v,
         _ -> 0
     }
 }
 
 fn result_memo(r) {
-    match get(r, "memo") {
+    match Map.get(r, "memo") {
         Some(v) -> v,
         _ -> {}
     }
@@ -67,8 +74,11 @@ fn parse_entry(line) {
 }
 
 fn parse_graph(lines) {
-    let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
-    fold(entries, {}, \(g, e) -> put(g, e.0, e.1))
+    let entries =
+        Array.map(
+            Array.filter(lines, \line -> trim(line) != "" && find_char_from(trim(line), ":", 0) >= 0),
+            \line -> parse_entry(trim(line)))
+    Array.fold(entries, {}, \(g, e) -> Map.set(g, e.0, e.1))
 }
 
 fn sum_children(outs, i, graph, memo, acc) {
@@ -87,17 +97,17 @@ fn dfs_from_outs(node, outs, graph, memo) {
     let r = sum_children(outs, 0, graph, memo, 0)
     let total = result_count(r)
     let memo2 = result_memo(r)
-    let memo3 = put(memo2, node, total)
+    let memo3 = Map.set(memo2, node, total)
     result(total, memo3)
 }
 
 fn result_zero_at(node, memo) {
-    let memo2 = put(memo, node, 0)
+    let memo2 = Map.set(memo, node, 0)
     result(0, memo2)
 }
 
 fn dfs_uncached(node, graph, memo) {
-    match get(graph, node) {
+    match Map.get(graph, node) {
         Some(outs) -> dfs_from_outs(node, outs, graph, memo),
         _ -> result_zero_at(node, memo)
     }
@@ -107,15 +117,16 @@ fn dfs_count(node, graph, memo) {
     if node == "out" {
         result(1, memo)
     } else {
-    match get(memo, node) {
+    match Map.get(memo, node) {
         Some(v) -> result(v, memo),
         _ -> dfs_uncached(node, graph, memo)
     }
 }
 }
 
-let lines = to_list(read_lines("examples/aoc/2025/aoc_day11.txt"))
+let lines = read_lines("examples/aoc/2025/aoc_day11.txt")
 let graph = parse_graph(lines)
 let ans = dfs_count("you", graph, {})
 print(result_count(ans))
 }
+//

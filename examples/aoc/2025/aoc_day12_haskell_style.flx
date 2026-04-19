@@ -1,8 +1,16 @@
+// parity-expected-stdout-begin
+// 422
+// parity-expected-stdout-end
+
 // Advent of Code - Day 12 (Haskell-style translation)
 // Inspired by AOC2025.Day12 day12a.
 // Uses input file: examples/aoc/2025/aoc_day12.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -34,7 +42,7 @@ fn has_char(s, ch) {
 }
 
 fn count_hashes(s) {
-    fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
+    Array.fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
 }
 
 fn parse_block_sizes(lines, idx, in_block, cur_size, acc) {
@@ -82,14 +90,14 @@ fn parse_areas(lines, idx, acc) {
         parse_areas(lines, idx + 1, acc)
     } else {
     if has_char(line, "x") && has_char(line, ":") {
-        let parts = split(line, " ") |> filter(\t -> trim(t) != "")
+        let parts = split(line, " ") |> Array.filter(\t -> trim(t) != "")
         let dims_raw = str_at(parts, 0)
         let dims = substring(dims_raw, 0, len(dims_raw) - 1)
         let bounds = split_ints(dims, "x")
         let counts = parse_area_counts(parts, 1, [||])
         let w = int_at(bounds, 0)
         let h = int_at(bounds, 1)
-        parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
+        parse_areas(lines, idx + 1, array_push(acc, (w, h, counts)))
     } else {
     parse_areas(lines, idx + 1, acc)
 }
@@ -117,12 +125,9 @@ fn count_valid_areas(block_sizes, areas, idx, acc) {
         acc
     } else {
     let area = area_at(areas, idx)
-    let w = int_at(area, 0)
-    let h = int_at(area, 1)
-    let counts = match area[2] {
-        Some(v) -> v,
-        _ -> [||]
-    }
+    let w = area.0
+    let h = area.1
+    let counts = area.2
     let lhs = w * h
     let rhs = weighted_sum(block_sizes, counts, 0, 0)
     let add = if lhs >= rhs { 1 } else { 0 }
@@ -139,3 +144,4 @@ fn day12a(input_lines) {
 let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
 print(day12a(input_lines))
 }
+//

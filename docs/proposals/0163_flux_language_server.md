@@ -12,26 +12,30 @@
 
 Ship a first-party Language Server Protocol implementation (`flux-lsp`) so
 editors — VS Code, Zed, Neovim, JetBrains — get diagnostics, hover types,
-go-to-definition, completion, rename, and inlay hints without each editor
-reimplementing Flux support.
+and go-to-definition without each editor reimplementing Flux support.
 
 The proposal is staged in three phases:
 
 1. **Phase 1 — MVP (diagnostics + hover + goto).** Stateful compiler façade,
    `tower-lsp` stdio transport, spans mapped to LSP ranges. Full recompile
-   per keystroke; acceptable for small projects.
-2. **Phase 2 — Incremental reinference.** Introduce `salsa` (2022) queries
-   over the existing compiler stages so per-keystroke work is bounded by
-   what actually changed.
-3. **Phase 3 — Refactors and workspace features.** Rename-across-modules,
-   extract-function, signature help, inlay hints, workspace-wide symbol
-   search, code actions for common diagnostics (E013 "import missing" →
-   auto-import fix, etc.).
+   per keystroke is acceptable for small projects. Completion, rename, code
+   actions, and inlay hints are explicitly out of scope for this phase.
+2. **Phase 2 — Performance.** Measure MVP latency, then add coarser caching,
+   module-graph reuse, and bounded reinference. Evaluate `salsa` only if
+   simpler invalidation strategies are insufficient.
+3. **Phase 3 — Rich editor features.** Completion, signature help, inlay
+   hints, workspace-wide symbol search, and code actions for common
+   diagnostics. Rename remains deferred until symbol identity is stable enough
+   across modules.
 
 The LSP does **not** duplicate compiler logic. It drives
 `crate::compiler::Compiler` as a long-lived library, pushing diagnostics and
 exposing type-env queries. Every LSP feature maps to data Flux already
 computes.
+
+The concrete Phase 1 deliverable is a **`CompilerSession`** wrapper around
+the existing compiler library. The session owns open documents, module graph
+state, and cached diagnostics/type information for editor queries.
 
 ## Motivation
 [motivation]: #motivation
@@ -99,9 +103,10 @@ file; see:
 - **Goto definition** — jumps across modules using
   `module_interface`-resolved exports. Works for ADT constructors, class
   methods, instances, and dict values.
-- **Completion** — context-aware; after `.` or inside a function body
-  suggests in-scope bindings filtered by expected type where available.
-- **Rename** — local scope in Phase 1; cross-module in Phase 3.
+
+Phase 1 intentionally does **not** promise completion, rename, or code
+actions. Those features depend on stronger symbol identity and incomplete-code
+handling than the initial LSP needs.
 
 ### What the LSP is not
 
@@ -111,6 +116,23 @@ file; see:
   [`syntax::parser::Parser`](../../src/syntax/parser/) and keeps the same
   AST the compiler sees.
 - Not a new IDE. It's a protocol server; editors remain in charge of UI.
+
+### Incomplete code behavior
+
+The LSP must spend most of its life on files that do not currently parse or
+type-check. Phase 1 therefore defines explicit degraded behavior:
+
+- `didChange` on an incomplete file is best-effort; parser recovery may yield a
+  partial AST.
+- Diagnostics should still publish for the current file whenever parsing or
+  module loading can proceed far enough to produce them.
+- Hover and goto-definition may return `None` on broken syntax or unresolved
+  nodes; they must not fabricate stale or guessed answers.
+- A broken current file should not poison unrelated open files. The session may
+  degrade cross-module features for directly affected dependents only.
+
+This keeps the MVP honest about editor reality instead of assuming CLI-style
+well-formed input.
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -122,11 +144,11 @@ existing workspace root):
 
 ```
 crates/flux-lsp/
-├── Cargo.toml             ← depends on `flux` (lib), `tower-lsp`, `salsa` (Phase 2)
+├── Cargo.toml             ← depends on `flux` (lib), `tower-lsp`; Phase 2 may add `salsa`
 ├── src/
 │   ├── main.rs            ← bin: tower-lsp stdio driver
 │   ├── server.rs          ← impl LanguageServer for FluxLsp
-│   ├── db.rs              ← salsa database + input tracking (Phase 2)
+│   ├── db.rs              ← optional incremental query layer (Phase 2, only if needed)
 │   ├── text_store.rs      ← Map<Url, Rope> + dirty-tracking
 │   ├── range.rs           ← Span ↔ lsp_types::Range (UTF-16 aware)
 │   ├── providers/
@@ -134,7 +156,8 @@ crates/flux-lsp/
 │   │   ├── hover.rs       ← Phase 1
 │   │   ├── goto.rs        ← Phase 1
 │   │   ├── completion.rs  ← Phase 3
-│   │   └── rename.rs      ← Phase 3
+│   │   ├── code_actions.rs← Phase 3
+│   │   └── rename.rs      ← Future work / follow-up proposal
 │   └── lib.rs
 └── tests/
     └── integration.rs     ← boot server, drive LSP requests, assert responses
@@ -168,7 +191,7 @@ runs inference and returns the `HashMap<ExprId, InferType>` directly.
 `errors` and `warnings` are already `pub` fields on `Compiler`.
 
 This means Phase 1's compiler-side work is much smaller than initially
-scoped:
+scoped and can stay focused on one boundary object:
 
 1. ~~A `Compiler::compile_non_fatal` variant~~ — **not needed**,
    `compile` is already non-fatal and non-abort.
@@ -176,28 +199,32 @@ scoped:
    `expr_types` is already public via `infer_expr_types_for_program`;
    confirm similar accessors exist for the other two, add them if not.
 3. A **`CompilerSession`** wrapper that owns one `Compiler` and one
-   module graph, and exposes:
+   module graph, and exposes the editor-facing API:
 
 ```rust
 pub struct CompilerSession {
+    open_documents: HashMap<Url, Rope>,
     graph: ModuleGraph,
     compiler: Compiler,
     interfaces: HashMap<ModuleName, ModuleInterface>,
+    diagnostics_by_file: HashMap<Url, Vec<Diagnostic>>,
 }
 
 impl CompilerSession {
-    pub fn update_source(&mut self, uri: Url, text: &str) -> Result<(), Diagnostic>;
+    pub fn open(&mut self, uri: Url, text: String);
+    pub fn change(&mut self, uri: Url, text: String);
+    pub fn close(&mut self, uri: &Url);
+    pub fn rebuild(&mut self, uri: &Url) -> Result<(), Diagnostic>;
     pub fn diagnostics(&self, uri: &Url) -> &[Diagnostic];
     pub fn type_at(&self, uri: &Url, pos: Position) -> Option<&InferType>;
     pub fn definition_of(&self, uri: &Url, pos: Position) -> Option<Span>;
-    pub fn symbol_at(&self, uri: &Url, pos: Position) -> Option<&Symbol>;
 }
 ```
 
-This is the **one real compiler-side addition** Phase 1 needs — a
-session wrapper. Everything else is LSP plumbing. The compiler library
-is already LSP-ready at the boundary: no process exits, no hidden
-global state, all diagnostics flow through `Result`.
+This is the **one real compiler-side addition** Phase 1 needs. Everything
+else is LSP plumbing. The compiler library is already LSP-ready at the
+boundary: no process exits, no hidden global state, all diagnostics flow
+through `Result`.
 
 The few library-level `panic!`s that do exist (in
 [src/core/passes/dict_elaborate.rs](../../src/core/passes/dict_elaborate.rs),
@@ -250,7 +277,22 @@ pub fn definition(session: &CompilerSession, uri: &Url, pos: Position) -> Option
 }
 ```
 
-### Phase 2 — Incremental reinference via salsa
+#### Workspace and root rules
+
+Phase 1 should make conservative workspace guarantees:
+
+- The current open document plus successfully loaded dependencies are the unit
+  of correctness.
+- Standalone files outside a Cargo/project root still work in single-file mode.
+- Multi-root editor workspaces are supported only insofar as each opened file
+  can resolve a valid Flux root set.
+- Unsaved buffer contents override on-disk contents for the active document;
+  dependencies continue to load from disk in Phase 1.
+
+This keeps editor semantics understandable and avoids overcommitting on
+workspace-wide correctness before the session model is proven.
+
+### Phase 2 — Performance and incrementalization
 
 #### Problem
 
@@ -258,9 +300,24 @@ Phase 1 recompiles the full module graph on every `didChange`. For a
 100-module project that's hundreds of ms per keystroke — usable, not
 great.
 
-#### Salsa query surface
+#### Strategy
 
-Make these three compiler boundaries salsa queries:
+Phase 2 should proceed in this order:
+
+1. measure real MVP latency on small and medium Flux projects,
+2. add debounce in the LSP layer,
+3. cache parsed AST/module graph data for unchanged files,
+4. cache module interfaces aggressively,
+5. only then evaluate whether a query system such as `salsa` is justified.
+
+The proposal intentionally does **not** commit Flux to `salsa` up front. The
+compiler should not be reorganized around a query engine until Phase 1 proves
+that simpler invalidation is insufficient.
+
+#### Optional query surface
+
+If coarse caching and interface reuse are still not enough, the natural
+incremental boundaries are:
 
 1. **`parse(file: SourceFile) -> Arc<Program>`**
    Invalidated only when that file's text changes.
@@ -274,22 +331,22 @@ Make these three compiler boundaries salsa queries:
    changes. Interface-only changes (e.g., editing an unrelated module's
    private body) do not invalidate unrelated files.
 
-These are the three natural boundaries. Within each, the existing
-non-incremental pass code runs unchanged — salsa only controls
-"when to rerun."
+These are the three natural boundaries regardless of implementation
+strategy. If Flux adopts a query framework later, it should preserve the
+existing compiler passes inside those boundaries rather than rewriting
+semantic logic around the query engine.
 
-#### Why salsa 2022 and not the older API
+#### If Phase 2 adopts `salsa`
 
-Salsa 2022 is entity-based (closer to how compilers actually think),
-cleaner derive macros, and compatible with async. Rust-analyzer is
-migrating; new projects should skip the legacy API.
+If measured latency shows a need for a query framework, `salsa` remains a
+strong option because it matches compiler-shaped dependency graphs and has
+clear prior art in the Rust tooling ecosystem. The proposal does not
+require it up front.
 
 ### Phase 3 — Refactors and workspace features
 
 Once Phase 2 lands:
 
-- **Rename across modules** — walk `expr_types` + `binding_schemes_by_span`
-  to find all references to a `BinderId`; emit a `WorkspaceEdit`.
 - **Code actions**:
   - `E013 MODULE_NOT_IMPORTED` → offer "Add import `Foo`"
   - `E007 UNKNOWN_VARIABLE` + close spelling match → "Did you mean `Foo`?"
@@ -303,6 +360,9 @@ Once Phase 2 lands:
   keys across the graph.
 - **Document symbols / outline** — top-level `fn`/`let`/`type`/`class`
   declarations from the parsed `Program`.
+- **Rename across modules** — likely worth a follow-up proposal once
+  symbol identity, imports, and shadowing behavior are specified
+  rigorously enough for safe workspace edits.
 
 ## Implementation contract
 
@@ -324,7 +384,11 @@ Once Phase 2 lands:
 
 ### Phase 2 deliverables
 
-- `crates/flux-lsp/src/db.rs` — salsa 2022 database + 3 queries.
+- Measured latency report for the Phase 1 server on small and medium Flux
+  projects.
+- Coarser caching and module/interface reuse for unchanged files.
+- If still needed, an incremental layer in `crates/flux-lsp/src/db.rs`
+  built around the three boundaries above.
 - Benchmarks: `criterion` bench harness measuring p50/p99 latency for
   `didChange` → `publishDiagnostics` on a 50-module synthetic project.
   Target: p50 < 50ms, p99 < 200ms.
@@ -341,8 +405,9 @@ Listed above. Each feature lands as a separate PR.
 - **Compiler API now has two consumers** (CLI + LSP). Refactors in
   `src/compiler/` need to keep the LSP-facing API stable or break both.
 - **Incremental analysis is hard.** Phase 2 is the difference between a
-  toy and a production-quality LSP; salsa is a meaningful new dependency
-  and a new framework to learn.
+  toy and a production-quality LSP; if Flux adopts `salsa` or another
+  query framework, that is a meaningful dependency and a new framework to
+  learn.
 - **VS Code extension requires TypeScript** — small but non-Rust surface
   to maintain.
 
@@ -368,13 +433,14 @@ slow (~seconds per keystroke), wasteful (full recompile), and the output
 format isn't designed for programmatic consumption. We should skip this
 phase entirely.
 
-### Why salsa and not ad-hoc caching
+### Why not commit to `salsa` up front
 
-Ad-hoc caching (hand-written `HashMap<ModuleName, ParsedProgram>`) works
-for 10 modules, breaks down at 100, becomes a correctness nightmare at
-1000. Salsa is the framework that got rust-analyzer past that wall.
-Adopting it in Phase 2 (once the MVP proves value) is far cheaper than
-retrofitting it onto a maturing ad-hoc cache.
+The proposal should not commit Flux to a query framework before Phase 1
+latency is measured. Simpler invalidation may be sufficient for the first
+usable server. If it is not, `salsa` is a credible Phase 2 option because
+it matches compiler dependency graphs and has strong prior art, but it
+should remain an engineering decision informed by data rather than a
+premise of the MVP.
 
 ### Why not ship Phase 3 upfront
 
@@ -457,8 +523,10 @@ Phase 1 (MVP):
 
 Phase 2 (incremental):
 
-- Salsa DB + 3 queries wired; `didChange` for one file invalidates only
-  that file's diagnostics + direct dependents.
+- Coarse caching and interface reuse demonstrably reduce `didChange`
+  latency for one-file edits.
+- If an incremental query layer is added, it invalidates only the
+  edited file's diagnostics plus direct dependents.
 - Bench target met: p50 < 50ms, p99 < 200ms on 50-module synthetic
   workload.
 

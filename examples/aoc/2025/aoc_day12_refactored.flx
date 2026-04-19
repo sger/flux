@@ -1,20 +1,29 @@
+// parity-expected-stdout-begin
+// 422
+// parity-expected-stdout-end
+
 // Advent of Code - Day 12 (refactored: idiomatic Flux, allocation-aware)
 // Refactored from aoc_day12_haskell_style.flx
 // Uses input file: examples/aoc/2025/aoc_day12.txt
 
+import Flow.Array as Array
+
 // Two unified safe-get helpers replace line_at / int_at / str_at / area_at
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+
     fn safe_str(arr, idx) { match arr[idx] { Some(v) -> v, _ -> "" } }
     fn safe_int(arr, idx) { match arr[idx] { Some(v) -> v, _ -> 0  } }
 
     fn char_at(s, idx) { substring(s, idx, idx + 1) }
 
     // has_char: chars()+contains is faster than manual index recursion
-    fn has_char(s, ch) { contains(chars(s), ch) }
+    fn has_char(s, ch) { Array.contains(chars(s), ch) }
 
     // count_hashes: fold over chars is 3x faster than manual index recursion
     fn count_hashes(s) {
-        fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
+        Array.fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
     }
 
     // parse_block_sizes: explicit recursion kept — tuple-state fold allocates
@@ -48,7 +57,7 @@ fn main() with IO, Time {
 
 // parse_area_counts: filter + map pipeline replaces 3-arg index recursion
 fn parse_area_counts(tokens) {
-    tokens |> filter(\t -> trim(t) != "") |> map(\t -> parse_int(t))
+    tokens |> Array.filter(\t -> trim(t) != "") |> Array.map(\t -> parse_int(t))
 }
 
 // parse_areas: fold with simple array acc (no tuple boxing overhead)
@@ -61,13 +70,13 @@ fn parse_areas(lines, idx, acc) {
         parse_areas(lines, idx + 1, acc)
     } else {
     if has_char(line, "x") && has_char(line, ":") {
-        let parts    = split(line, " ") |> filter(\t -> trim(t) != "")
+        let parts    = split(line, " ") |> Array.filter(\t -> trim(t) != "")
         let dims_raw = safe_str(parts, 0)
         let dims     = substring(dims_raw, 0, len(dims_raw) - 1)
         let bounds   = split_ints(dims, "x")
         let counts   = parse_area_counts(slice(parts, 1, len(parts)))
         parse_areas(lines, idx + 1,
-        push(acc, (safe_int(bounds, 0), safe_int(bounds, 1), counts)))
+        array_push(acc, (safe_int(bounds, 0), safe_int(bounds, 1), counts)))
     } else {
     parse_areas(lines, idx + 1, acc)
 }
@@ -87,7 +96,7 @@ fn weighted_sum(block_sizes, counts, idx, acc) {
 
 // count_valid_areas: fold with scalar acc — no tuple boxing, safe to use fold
 fn count_valid_areas(block_sizes, areas) {
-    fold(areas, 0, \(acc, area) -> {
+    Array.fold(areas, 0, \(acc, area) -> {
         let w      = area.0
         let h      = area.1
         let counts = area.2
@@ -104,3 +113,4 @@ fn day12a(input_lines) {
 let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
 print(day12a(input_lines))
 }
+//

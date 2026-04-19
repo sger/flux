@@ -1,8 +1,18 @@
+// parity-expected-stdout-begin
+// 357485433193284
+// parity-expected-stdout-end
+
 // Advent of Code - Day 5 Part 2 (Cafeteria)
 // Count how many ingredient IDs are fresh according to the union of ranges.
 // Input: examples/aoc/2025/aoc_day5.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -30,7 +40,7 @@ fn main() with IO, Time {
         let b = int_at(parts, 1)
         let lo = if a < b { a } else { b }
         let hi = if a < b { b } else { a }
-        push(push([||], lo), hi)
+        array_push(array_push([||], lo), hi)
     }
 
     fn range_start(r) {
@@ -42,7 +52,7 @@ fn main() with IO, Time {
     }
 
     fn make_range(a, b) {
-        push(push([||], a), b)
+        array_push(array_push([||], a), b)
     }
 
     fn find_blank(lines, idx) {
@@ -59,13 +69,13 @@ fn main() with IO, Time {
 
 fn insert_range_rec(sorted, r, i, acc) {
     if i >= len(sorted) {
-        push(acc, r)
+        array_push(acc, r)
     } else {
     let cur = arr_at(sorted, i)
     if range_start(r) < range_start(cur) {
         concat(concat(acc, [|r|]), slice(sorted, i, len(sorted)))
     } else {
-    insert_range_rec(sorted, r, i + 1, push(acc, cur))
+    insert_range_rec(sorted, r, i + 1, array_push(acc, cur))
 }
 }
 }
@@ -109,8 +119,9 @@ count_merged(sorted, idx + 1, a, b, acc + (cur_b - cur_a + 1))
 
 let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
 let sep = find_blank(lines, 0)
-let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
-let ranges = [parse_range_line(line) | line <- range_lines]
+let range_lines = Array.filter(Array.map(Array.slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
+let ranges = Array.map(range_lines, \line -> parse_range_line(line))
 let sorted = sort_ranges(ranges, 0, [||])
 print(count_merged(sorted, 0, -1, -1, 0))
 }
+//

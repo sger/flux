@@ -693,11 +693,12 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
     vec![]
 }
 
-/// Skip benchmark files — they produce non-deterministic timing output.
+/// Skip benchmark/profile files — they produce timing-oriented output and may
+/// intentionally use workloads that are too heavy for parity sweeps.
 fn should_skip_fixture(path: &Path) -> bool {
     path.file_stem()
         .and_then(|s| s.to_str())
-        .is_some_and(|stem| stem.contains("_bench"))
+        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"))
 }
 
 // ── Argument parsing ───────────────────────────────────────────────────────

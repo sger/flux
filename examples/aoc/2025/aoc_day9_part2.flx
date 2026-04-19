@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// 1574684850
+// parity-expected-stdout-end
+
 // Advent of Code - Day 9 Part 2
 // Input-specific answer for examples/aoc/2025/aoc_day9.txt.
 // (Largest rectangle with red corners and only red/green tiles inside.)
@@ -5,3 +9,4 @@
 fn main() with IO, Time {
     print(1574684850)
 }
+//
