@@ -1,6 +1,14 @@
+// parity-expected-stdout-begin
+// 54234399924
+// 70187097315
+// parity-expected-stdout-end
+
 // Advent of Code - Day 2 (Haskell-style translation)
 // Inspired by AOC2025.Day02 day02a/day02b structure.
 // Uses input file: examples/aoc/2025/aoc_day2.txt
+
+import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
     fn digits_count(n) {
@@ -34,8 +42,15 @@ fn main() with IO, Time {
     }
 
     fn parse_range_token(token) {
-        let start = first(split_ints(trim(token), "-"));
-        let end = last(split_ints(trim(token), "-"));
+        let parts = split_ints(trim(token), "-")
+        let start = match Array.first(parts) {
+            Some(v) -> v,
+            _ -> 0
+        };
+        let end = match Array.last(parts) {
+            Some(v) -> v,
+            _ -> 0
+        };
         (start, end)
     }
 
@@ -43,8 +58,8 @@ fn main() with IO, Time {
         read_file(path)
         |> trim
         |> split(",")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_range_token(t))
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_range_token(t))
     }
 
     fn id_in_range(id, range_pair) {
@@ -53,7 +68,7 @@ fn main() with IO, Time {
     }
 
     fn id_in_any_range(id, ranges) {
-        ranges |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+        Array.fold(ranges, false, \(found, r) -> if found { true } else { id_in_range(id, r) })
     }
 
     fn maybe_add_candidate(candidate, ranges, state) {
@@ -61,10 +76,10 @@ fn main() with IO, Time {
         let seen = state.1
 
         if id_in_any_range(candidate, ranges) {
-            if has_key(seen, candidate) {
+            if Map.has(seen, candidate) {
                 state
             } else {
-                (total + candidate, put(seen, candidate, true))
+                (total + candidate, Map.set(seen, candidate, true))
             }
         } else {
             state
@@ -128,3 +143,4 @@ fn main() with IO, Time {
     print(day02a)
     print(day02b)
 }
+//

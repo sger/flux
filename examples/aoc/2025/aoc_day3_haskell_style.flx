@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 17074
+// 169512729575727
+// parity-expected-stdout-end
+
 // Advent of Code - Day 3 (Haskell-style translation)
 // Mirrors the provided StateT/List backtracking approach.
 // Uses input file: examples/aoc/2025/aoc_day3.txt
@@ -87,3 +92,4 @@ fn main() with IO, Time {
     print(day03a)
     print(day03b)
 }
+//

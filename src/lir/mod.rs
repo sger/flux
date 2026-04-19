@@ -361,6 +361,12 @@ pub enum CtorTag {
 pub enum CallKind {
     /// Known top-level function — emit direct call with individual i64 params.
     Direct { func_id: LirFuncId },
+    /// Known nested function with captures — emit a direct call to the
+    /// capture-worker entry using the provided capture values followed by args.
+    DirectClosure {
+        func_id: LirFuncId,
+        captures: Vec<LirVar>,
+    },
     /// Known imported top-level function — emit direct call to an external symbol.
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.

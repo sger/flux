@@ -24,6 +24,12 @@ pub struct ImportedNativeSymbol {
     pub is_value: bool,
 }
 
+#[derive(Debug, Clone)]
+struct KnownClosureTarget {
+    func_id: LirFuncId,
+    captures: Vec<LirVar>,
+}
+
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
 
 /// ADT header: {i32 ctor_tag, i32 field_count}, then i64 fields[].
@@ -644,9 +650,9 @@ pub fn lower_aether_program_with_interner_and_externs(
 /// Promote `Call` terminators to `TailCall` where the continuation block
 /// is a trivial return (the call result flows to `Return` with no work).
 ///
-/// Only promotes `CallKind::Direct` and `CallKind::DirectExtern` — indirect
-/// calls through `flux_call_closure` have a different prototype and must not
-/// be marked as tail calls (causes Bus errors on Apple clang).
+/// Only promotes direct-style calls. Indirect calls through
+/// `flux_call_closure` have a different prototype and must not be marked as
+/// tail calls (causes Bus errors on Apple clang).
 fn promote_tail_calls(program: &mut LirProgram) {
     for func in &mut program.functions {
         let num_blocks = func.blocks.len();
@@ -753,7 +759,9 @@ fn promote_tail_calls(program: &mut LirProgram) {
                     && is_return_tail[cont_idx]
                     && matches!(
                         kind,
-                        CallKind::Direct { .. } | CallKind::DirectExtern { .. }
+                        CallKind::Direct { .. }
+                            | CallKind::DirectClosure { .. }
+                            | CallKind::DirectExtern { .. }
                     )
             } else {
                 false
@@ -810,6 +818,10 @@ struct FnLower<'a> {
     /// no captures (top-level function references).  Used to detect known
     /// calls and emit CallKind::Direct.
     direct_func_vars: HashMap<LirVar, LirFuncId>,
+    /// Maps closure vars produced by MakeClosure to a known nested function id
+    /// and the capture vars baked into that closure. Used to bypass closure
+    /// dispatch for local recursive calls on the native path.
+    direct_closure_vars: HashMap<LirVar, KnownClosureTarget>,
     /// Maps CoreBinderId → LirFuncId for top-level functions.
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     /// Maps CoreBinderId → module-qualified name.
@@ -872,6 +884,7 @@ impl<'a> FnLower<'a> {
             extern_symbols: ctx.extern_symbols,
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
+            direct_closure_vars: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
@@ -1333,6 +1346,16 @@ impl<'a> FnLower<'a> {
 
                         if entry.outer_captures.is_empty() {
                             inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        } else {
+                            inner.direct_closure_vars.insert(
+                                self_var,
+                                KnownClosureTarget {
+                                    func_id: entry.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                },
+                            );
                         }
 
                         // Sibling references via MakeClosure to sibling func_id.
@@ -1347,6 +1370,19 @@ impl<'a> FnLower<'a> {
                                         .collect(),
                                 });
                                 inner.bind(entry_j.binder_id, sibling_var);
+                                if !entry.outer_captures.is_empty() {
+                                    inner.direct_closure_vars.insert(
+                                        sibling_var,
+                                        KnownClosureTarget {
+                                            func_id: entry_j.synthetic_id,
+                                            captures: (0..entry.outer_captures.len())
+                                                .map(|ci| inner.func.capture_vars[ci])
+                                                .collect(),
+                                        },
+                                    );
+                                } else {
+                                    inner.direct_func_vars.insert(sibling_var, entry_j.synthetic_id);
+                                }
                             }
                         }
 
@@ -1383,12 +1419,24 @@ impl<'a> FnLower<'a> {
                     shared_outer_captures.iter().map(|&(_, v)| v).collect();
                 for entry in &entries {
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars.clone();
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: entry.synthetic_id,
-                        captures: outer_capture_vars.clone(),
+                        captures: captures.clone(),
                     });
                     self.bind(entry.binder_id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: entry.synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, entry.synthetic_id);
+                    }
                 }
 
                 self.lower_expr(body)
@@ -1479,6 +1527,16 @@ impl<'a> FnLower<'a> {
                     // so CallKind::Direct would be a convention mismatch.
                     if outer_captures.is_empty() {
                         inner.direct_func_vars.insert(self_var, synthetic_id);
+                    } else {
+                        inner.direct_closure_vars.insert(
+                            self_var,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures: (0..outer_captures.len())
+                                    .map(|i| inner.func.capture_vars[i])
+                                    .collect(),
+                            },
+                        );
                     }
 
                     // Register parameters.
@@ -1507,12 +1565,24 @@ impl<'a> FnLower<'a> {
                     let outer_capture_vars: Vec<LirVar> =
                         outer_captures.iter().map(|&(_, v)| v).collect();
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars;
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: synthetic_id,
-                        captures: outer_capture_vars,
+                        captures: captures.clone(),
                     });
                     self.bind(var.id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, synthetic_id);
+                    }
                     self.lower_expr(body)
                 } else {
                     // Non-lambda letrec (rare): use placeholder approach.
@@ -1999,6 +2069,16 @@ impl<'a> FnLower<'a> {
                         inner.bind(var.id, self_var);
                         if entry.outer_captures.is_empty() {
                             inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        } else {
+                            inner.direct_closure_vars.insert(
+                                self_var,
+                                KnownClosureTarget {
+                                    func_id: entry.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                },
+                            );
                         }
                         for (j, entry_j) in entries.iter().enumerate() {
                             if j != i {
@@ -2011,6 +2091,19 @@ impl<'a> FnLower<'a> {
                                         .collect(),
                                 });
                                 inner.bind(entry_j.binder_id, sibling_var);
+                                if !entry.outer_captures.is_empty() {
+                                    inner.direct_closure_vars.insert(
+                                        sibling_var,
+                                        KnownClosureTarget {
+                                            func_id: entry_j.synthetic_id,
+                                            captures: (0..entry.outer_captures.len())
+                                                .map(|ci| inner.func.capture_vars[ci])
+                                                .collect(),
+                                        },
+                                    );
+                                } else {
+                                    inner.direct_func_vars.insert(sibling_var, entry_j.synthetic_id);
+                                }
                             }
                         }
                         inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
@@ -2034,12 +2127,24 @@ impl<'a> FnLower<'a> {
                     shared_outer_captures.iter().map(|&(_, v)| v).collect();
                 for entry in &entries {
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars.clone();
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: entry.synthetic_id,
-                        captures: outer_capture_vars.clone(),
+                        captures: captures.clone(),
                     });
                     self.bind(entry.binder_id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: entry.synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, entry.synthetic_id);
+                    }
                 }
                 self.lower_expr_aether(body)
             }
@@ -2108,6 +2213,16 @@ impl<'a> FnLower<'a> {
                     inner.bind(var.id, self_var);
                     if outer_captures.is_empty() {
                         inner.direct_func_vars.insert(self_var, synthetic_id);
+                    } else {
+                        inner.direct_closure_vars.insert(
+                            self_var,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures: (0..outer_captures.len())
+                                    .map(|i| inner.func.capture_vars[i])
+                                    .collect(),
+                            },
+                        );
                     }
                     inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
 
@@ -2128,12 +2243,24 @@ impl<'a> FnLower<'a> {
                     let outer_capture_vars: Vec<LirVar> =
                         outer_captures.iter().map(|&(_, v)| v).collect();
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars;
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: synthetic_id,
-                        captures: outer_capture_vars,
+                        captures: captures.clone(),
                     });
                     self.bind(var.id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, synthetic_id);
+                    }
                     self.lower_expr_aether(body)
                 } else {
                     let placeholder = self.fresh_var();
@@ -2792,6 +2919,55 @@ impl<'a> FnLower<'a> {
         }
 
         let func_var = self.lower_expr(func);
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+        if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectClosure {
+                    func_id: target.func_id,
+                    captures: target.captures,
+                },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
                 .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
@@ -2956,6 +3132,51 @@ impl<'a> FnLower<'a> {
         }
 
         let func_var = self.lower_expr_aether(func);
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+        if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectClosure {
+                    func_id: target.func_id,
+                    captures: target.captures,
+                },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
                 .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
@@ -4974,6 +5195,10 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectClosure { func_id, captures } => {
+                    let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
+                    format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
+                }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
@@ -4990,6 +5215,10 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectClosure { func_id, captures } => {
+                    let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
+                    format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
+                }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };

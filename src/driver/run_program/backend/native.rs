@@ -30,6 +30,8 @@ use flux::syntax::{module_graph::ModuleKind, program::Program};
 use flux::{diagnostics::Diagnostic, syntax::module_graph::ModuleGraph};
 #[cfg(feature = "llvm")]
 use std::collections::HashSet;
+#[cfg(all(feature = "llvm", unix))]
+use std::os::unix::process::ExitStatusExt;
 
 #[cfg(feature = "llvm")]
 /// Returns whether the cached native binary can be reused without relinking.
@@ -50,6 +52,35 @@ fn merged_native_program(graph: &ModuleGraph) -> Program {
         program.statements.extend(node.program.statements.clone());
     }
     program
+}
+
+#[cfg(feature = "llvm")]
+/// Formats a native child-process termination when no Flux runtime panic text is available.
+fn native_exit_summary(status: &std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        if let Some(signal) = status.signal() {
+            let (name, reason) = match signal {
+                4 => ("SIGILL", "illegal instruction"),
+                6 => ("SIGABRT", "process aborted"),
+                8 => ("SIGFPE", "arithmetic exception"),
+                9 => ("SIGKILL", "process killed"),
+                11 => ("SIGSEGV", "invalid memory access"),
+                13 => ("SIGPIPE", "broken pipe"),
+                14 => ("SIGALRM", "alarm timer expired"),
+                15 => ("SIGTERM", "termination requested"),
+                _ => ("signal", "native program crashed"),
+            };
+            return format!(
+                "native program terminated by signal {signal} ({name}): {reason}"
+            );
+        }
+    }
+
+    match status.code() {
+        Some(code) => format!("native program exited with status {code}"),
+        None => "native program terminated without an exit code".to_string(),
+    }
 }
 
 #[cfg(feature = "llvm")]
@@ -448,6 +479,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     eprint!("{rendered}");
                 } else if !child_stderr.is_empty() {
                     eprint!("{child_stderr}");
+                } else {
+                    eprintln!("{}", native_exit_summary(&output.status));
                 }
                 if request.runtime.show_stats {
                     let compile_ms =

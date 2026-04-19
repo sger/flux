@@ -1,5 +1,11 @@
+// parity-expected-stdout-begin
+// 17074
+// parity-expected-stdout-end
+
 // Advent of Code - Day 3 Part 1 (Lobby)
 // Input: examples/aoc/2025/aoc_day3.txt
+
+import Flow.Array as Array
 
 fn main() with IO, Time {
     fn max2(a, b) {
@@ -27,7 +33,8 @@ fn max_bank_value(line) {
 }
 
 let lines = read_lines("examples/aoc/2025/aoc_day3.txt")
-let non_empty = [trim(line) | line <- lines, trim(line) != ""]
-let bests = [max_bank_value(line) | line <- non_empty]
-print(sum(bests))
+let non_empty = Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != "")
+let bests = Array.map(non_empty, \line -> max_bank_value(line))
+print(Array.sum(bests))
 }
+//

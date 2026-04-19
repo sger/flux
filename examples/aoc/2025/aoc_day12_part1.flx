@@ -1,8 +1,14 @@
+// parity-expected-stdout-begin
+// 422
+// parity-expected-stdout-end
+
 // Advent of Code - Day 12 Part 1
 // Count regions that can fit the requested presents using the rule:
 //   width * height >= 9 * sum(counts)
 // This mirrors the provided Rust solution logic, implemented in Flux.
 // Input: examples/aoc/2025/aoc_day12.txt
+
+import Flow.Array as Array
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -49,13 +55,17 @@ fn region_fits(line) {
     let h = int_at(dims, 1)
 
     let counts = split_ints(right, " ")
-    let needed = 9 * sum(counts)
+    let needed = 9 * Array.sum(counts)
     let area = w * h
     area >= needed
 }
 
 let lines = read_lines("examples/aoc/2025/aoc_day12.txt")
-let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
-let fits = [if region_fits(line) { 1 } else { 0 } | line <- region_lines]
-print(sum(fits))
+let region_lines =
+    Array.filter(
+        Array.map(lines, \line -> trim(line)),
+        \line -> line != "" && has_char(line, "x") && has_char(line, ":"))
+let fits = Array.map(region_lines, \line -> if region_fits(line) { 1 } else { 0 })
+print(Array.sum(fits))
 }
+//

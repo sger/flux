@@ -1,14 +1,22 @@
+import Flow.Array as Array
+
 module Day2Part2 {
     fn parse_range_token(token) {
         split_ints(trim(token), "-")
     }
 
     fn range_start(parsed_range) {
-        first(parsed_range)
+        match Array.first(parsed_range) {
+            Some(v) -> v,
+            _ -> 0
+        }
     }
 
     fn range_end(parsed_range) {
-        last(parsed_range)
+        match Array.last(parsed_range) {
+            Some(v) -> v,
+            _ -> 0
+        }
     }
 
     fn digits_count(n) {
@@ -65,7 +73,7 @@ module Day2Part2 {
 
     fn id_in_any_range(id, parsed_ranges) {
         parsed_ranges
-            |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+            |> Array.fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
     }
 
     fn sum_repeats_for_seed(seed, base, repeats, max_repeats, max_end, parsed_ranges) {
@@ -94,8 +102,8 @@ module Day2Part2 {
         let max_repeats = max_total_digits / chunk_len
         let base = pow10(chunk_len)
 
-        range(min_seed, max_seed + 1)
-            |> fold(0, \(acc, seed) ->
+        Array.range(min_seed, max_seed + 1)
+            |> Array.fold(0, \(acc, seed) ->
                 if is_primitive_seed(seed, seed_digits) {
                     acc + sum_repeats_for_seed(seed, base, 2, max_repeats, max_end, parsed_ranges)
                 } else {
@@ -114,16 +122,16 @@ module Day2Part2 {
     }
 
     public fn parse_ranges(path) with IO {
-        [parse_range_token(t)
-            | t <- read_file(path)
-                |> trim
-                |> split(","),
-              trim(t) != ""]
+        read_file(path)
+            |> trim
+            |> split(",")
+            |> Array.filter(\t -> trim(t) != "")
+            |> Array.map(\t -> parse_range_token(t))
     }
 
     fn max_end(parsed_ranges) {
-        let ends = [range_end(r) | r <- parsed_ranges]
-        ends |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
+        let ends = Array.map(parsed_ranges, \r -> range_end(r))
+        Array.fold(ends, 0, \(acc, x) -> if x > acc { x } else { acc })
     }
 
     public fn solve_parsed_ranges(parsed_ranges) {

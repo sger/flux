@@ -1,8 +1,19 @@
+// parity-expected-stdout-begin
+// 1642
+// parity-expected-stdout-end
+
 // Advent of Code - Day 7 Part 1 (Laboratories)
 // Simulate downward beams with splitters (^), counting split events.
 // Input: examples/aoc/2025/aoc_day7.txt
 
+import Flow.Array as Array
+import Flow.Map as Map
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -78,19 +89,19 @@ fn find_s(rows, r) {
 }
 
 fn res(next_mask, split_count) {
-    let m = put({}, "next", next_mask)
-    put(m, "split", split_count)
+    let m = Map.set({}, "next", next_mask)
+    Map.set(m, "split", split_count)
 }
 
 fn res_next(x) {
-    match get(x, "next") {
+    match Map.get(x, "next") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn res_split(x) {
-    match get(x, "split") {
+    match Map.get(x, "split") {
         Some(v) -> v,
         _ -> 0
     }
@@ -135,3 +146,4 @@ let scol = int_at(s, 1)
 let start = set1(zeros(grid_w), scol)
 print(simulate(input_lines, srow, grid_w, start, 0))
 }
+//

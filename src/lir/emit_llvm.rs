@@ -117,6 +117,7 @@ pub fn emit_llvm_module_with_options(
             extra_blocks: Vec::new(),
             closure_wrappers_needed: &mut closure_wrappers_needed,
             worker_mode: false,
+            direct_capture_mode: false,
             worker_eligible: &worker_eligible,
         };
         let llvm_func = emitter.emit_function();
@@ -139,10 +140,34 @@ pub fn emit_llvm_module_with_options(
                 extra_blocks: Vec::new(),
                 closure_wrappers_needed: &mut closure_wrappers_needed,
                 worker_mode: true,
+                direct_capture_mode: false,
                 worker_eligible: &worker_eligible,
             };
             let worker_func = emitter.emit_function();
             module.functions.push(worker_func);
+        }
+    }
+
+    for func in &program.functions {
+        if !func.capture_vars.is_empty() && func.qualified_name != "main" {
+            let mut emitter = FnEmitter {
+                program,
+                func,
+                is_main: false,
+                next_tmp: 0,
+                needed_decls: &mut needed_decls,
+                needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
+                needed_closure_entry_decls: &mut needed_closure_entry_decls,
+                string_globals: &mut string_globals,
+                current_instrs: Vec::new(),
+                extra_blocks: Vec::new(),
+                closure_wrappers_needed: &mut closure_wrappers_needed,
+                worker_mode: false,
+                direct_capture_mode: true,
+                worker_eligible: &worker_eligible,
+            };
+            let direct_capture_func = emitter.emit_function();
+            module.functions.push(direct_capture_func);
         }
     }
 
@@ -540,6 +565,7 @@ struct FnEmitter<'a> {
     worker_mode: bool,
     /// Set of LirFuncIds eligible for worker/wrapper splitting.
     worker_eligible: &'a HashSet<LirFuncId>,
+    direct_capture_mode: bool,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -567,6 +593,8 @@ impl<'a> FnEmitter<'a> {
         let sanitized = sanitize_llvm_symbol_fragment(&self.func.qualified_name);
         if self.is_main {
             GlobalId("flux_main".to_string())
+        } else if self.direct_capture_mode {
+            GlobalId(format!("flux_{sanitized}$dc"))
         } else if self.worker_mode {
             GlobalId(format!("flux_{sanitized}$w"))
         } else {
@@ -790,6 +818,30 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Ccc,
                 },
                 params: Vec::new(),
+                attrs: vec!["nounwind".to_string()],
+                blocks,
+            }
+        } else if self.direct_capture_mode {
+            let param_locals: Vec<LlvmLocal> = self
+                .func
+                .capture_vars
+                .iter()
+                .chain(self.func.params.iter())
+                .map(|p| self.var_local(*p))
+                .collect();
+            let param_types: Vec<LlvmType> =
+                param_locals.iter().map(|_| LlvmType::i64()).collect();
+
+            LlvmFunction {
+                linkage: Linkage::Internal,
+                name: self.func_name(),
+                sig: LlvmFunctionSig {
+                    ret: LlvmType::i64(),
+                    params: param_types,
+                    varargs: false,
+                    call_conv: CallConv::Fastcc,
+                },
+                params: param_locals,
                 attrs: vec!["nounwind".to_string()],
                 blocks,
             }
@@ -2200,6 +2252,26 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
+                    CallKind::DirectClosure { func_id, captures } => {
+                        let target = self
+                            .program
+                            .func_by_id(*func_id)
+                            .expect("Direct closure call references unknown LirFuncId");
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
+                        let target_name = format!("flux_{sanitized_target}$dc");
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = captures
+                            .iter()
+                            .chain(args.iter())
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
+                        self.call_fastcc(
+                            Some(self.var_local(*dst)),
+                            &target_name,
+                            call_args,
+                            LlvmType::i64(),
+                        );
+                    }
                     CallKind::DirectExtern { symbol } => {
                         let call_args: Vec<(LlvmType, LlvmOperand)> = args
                             .iter()
@@ -2257,6 +2329,29 @@ impl<'a> FnEmitter<'a> {
                             self.needed_user_fastcc_decls
                                 .insert((target_name.clone(), call_args.len()));
                         }
+                        self.emit(LlvmInstr::Call {
+                            dst: Some(result.clone()),
+                            tail: true,
+                            call_conv: Some(CallConv::Fastcc),
+                            ret_ty: LlvmType::i64(),
+                            callee: LlvmOperand::Global(GlobalId(target_name)),
+                            args: call_args,
+                            attrs: Vec::new(),
+                        });
+                    }
+                    CallKind::DirectClosure { func_id, captures } => {
+                        let target = self
+                            .program
+                            .func_by_id(*func_id)
+                            .expect("Direct closure tail call references unknown LirFuncId");
+                        let sanitized_target =
+                            sanitize_llvm_symbol_fragment(&target.qualified_name);
+                        let target_name = format!("flux_{sanitized_target}$dc");
+                        let call_args: Vec<(LlvmType, LlvmOperand)> = captures
+                            .iter()
+                            .chain(args.iter())
+                            .map(|a| (LlvmType::i64(), self.var(*a)))
+                            .collect();
                         self.emit(LlvmInstr::Call {
                             dst: Some(result.clone()),
                             tail: true,

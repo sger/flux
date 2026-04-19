@@ -1,8 +1,19 @@
+// parity-expected-stdout-begin
+// 7644505810277
+// 12841228084455
+// parity-expected-stdout-end
+
 // Advent of Code - Day 6 (Haskell-style translation)
 // Inspired by AOC2025.Day06 day06a/day06b.
 // Uses input file: examples/aoc/2025/aoc_day6.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -52,11 +63,11 @@ fn main() with IO, Time {
     }
 
     fn split_words_line(line) {
-        split(trim(line), " ") |> filter(\x -> x != "")
+        split(trim(line), " ") |> Array.filter(\x -> x != "")
     }
 
     fn parse_words_lines(lines) {
-        lines |> map(\line -> split_words_line(line))
+        Array.map(lines, \line -> split_words_line(line))
     }
 
     fn max_row_width(rows, idx, best) {
@@ -106,7 +117,7 @@ fn main() with IO, Time {
     }
 
     fn eval_day06a_col(tokens) {
-        let rev = reverse(tokens)
+        let rev = Array.reverse(tokens)
         let op_token = str_at(rev, 0)
         let nums = parse_tokens_to_ints(slice(rev, 1, len(rev)), 0, [||])
         match parse_op(op_token) {
@@ -119,7 +130,7 @@ fn main() with IO, Time {
         let rows = parse_words_lines(lines)
         let width = max_row_width(rows, 0, 0)
         let cols = transpose_token_rows(rows, 0, width, [||])
-        cols |> fold(0, \(acc, col) -> acc + eval_day06a_col(col))
+        Array.fold(cols, 0, \(acc, col) -> acc + eval_day06a_col(col))
     }
 
     fn max_line_width(lines, idx, best) {
@@ -235,10 +246,10 @@ fn main() with IO, Time {
         let width = max_line_width(lines, 0, 0)
         let cols = transpose_lines(lines, 0, width, [||])
         let groups = split_when_blank_cols(cols, 0, [||], [||])
-        groups |> fold(0, \(acc, g) -> acc + eval_day06b_group(g))
+        Array.fold(groups, 0, \(acc, g) -> acc + eval_day06b_group(g))
     }
 
-    let lines = to_list(read_lines("examples/aoc/2025/aoc_day6.txt"))
+    let lines = read_lines("examples/aoc/2025/aoc_day6.txt")
 
     let day06a = solve_day06a(lines)
     let day06b = solve_day06b(lines)
@@ -246,3 +257,4 @@ fn main() with IO, Time {
     print(day06a)
     print(day06b)
 }
+//

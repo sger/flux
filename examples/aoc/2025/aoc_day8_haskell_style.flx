@@ -1,11 +1,21 @@
+// parity-expected-stdout-begin
+// 46398
+// 8141888143
+// parity-expected-stdout-end
+
 // Advent of Code - Day 8 (Haskell-style, JIT-friendly)
 // Keeps day08a/day08b naming while using the pruned-edge approach
 // from existing Flux Day 8 examples for performance.
 // Uses input file: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -66,7 +76,7 @@ fn edge_key(points, i, j) {
 fn maybe_push_edge(points, i, j, max_dist, acc) {
     let d = dist_sq(points, i, j)
     if d < max_dist {
-        push(acc, edge_key(points, i, j))
+        array_push(acc, edge_key(points, i, j))
     } else {
     acc
 }
@@ -78,43 +88,43 @@ fn root(parents, x) {
 }
 
 fn dsu_state(parents, sizes, comps, last_a, last_b) {
-    let s1 = put({}, "p", parents)
-    let s2 = put(s1, "sz", sizes)
-    let s3 = put(s2, "c", comps)
-    let s4 = put(s3, "a", last_a)
-    put(s4, "b", last_b)
+    let s1 = Map.set({}, "p", parents)
+    let s2 = Map.set(s1, "sz", sizes)
+    let s3 = Map.set(s2, "c", comps)
+    let s4 = Map.set(s3, "a", last_a)
+    Map.set(s4, "b", last_b)
 }
 
 fn dsu_parents(state) {
-    match get(state, "p") {
+    match Map.get(state, "p") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn dsu_sizes(state) {
-    match get(state, "sz") {
+    match Map.get(state, "sz") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn dsu_comps(state) {
-    match get(state, "c") {
+    match Map.get(state, "c") {
         Some(v) -> v,
         _ -> 0
     }
 }
 
 fn dsu_last_a(state) {
-    match get(state, "a") {
+    match Map.get(state, "a") {
         Some(v) -> v,
         _ -> -1
     }
 }
 
 fn dsu_last_b(state) {
-    match get(state, "b") {
+    match Map.get(state, "b") {
         Some(v) -> v,
         _ -> -1
     }
@@ -152,7 +162,7 @@ fn root_sizes(parents, sizes, i, acc) {
         acc
     } else {
     if int_at(parents, i) == i {
-        root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
+        root_sizes(parents, sizes, i + 1, array_push(acc, int_at(sizes, i)))
     } else {
     root_sizes(parents, sizes, i + 1, acc)
 }
@@ -172,10 +182,10 @@ fn run_limit(points, limit) {
     let parents0 = to_array(range(0, n))
     let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-    let state1 = fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
+    let state1 = Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
 
-    let out = put({}, "state", state1)
-    put(out, "keys", sorted_keys)
+    let out = Map.set({}, "state", state1)
+    Map.set(out, "keys", sorted_keys)
 }
 
 fn run_day08a(points, max_dist) {
@@ -193,7 +203,7 @@ fn run_day08a(points, max_dist) {
     let parents0 = to_array(range(0, n))
     let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-    let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
+    let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
     let parents1 = dsu_parents(state1)
     let sizes1 = dsu_sizes(state1)
@@ -204,7 +214,7 @@ fn run_day08a(points, max_dist) {
 
 fn solve_day08b(points, limit, max_limit) {
     let run = run_limit(points, limit)
-    let state = get(run, "state")
+    let state = Map.get(run, "state")
     let st = match state {
         Some(v) -> v,
         _ -> dsu_state([||], [||], 0, -1, -1)
@@ -237,3 +247,4 @@ let points = parse_points(lines, 0, [||])
 print(day08a(points))
 print(day08b(points))
 }
+//
