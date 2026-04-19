@@ -2,19 +2,26 @@
 // 47274292756692
 // parity-expected-stdout-end
 
-// Advent of Code - Day 7 Part 2 (Laboratories)
-// Quantum manifold: one particle, timelines split at each splitter (^).
-// Count total completed timelines.
-// Input: examples/aoc/2025/aoc_day7.txt
+/*
+Advent of Code - Day 7 Part 2 (Laboratories)
+Quantum manifold: one particle, timelines split at each splitter (^).
+Count total completed timelines.
+Input: examples/aoc/2025/aoc_day7.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the line at the given index or a default.
     fn line_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -22,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -29,6 +37,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx < 0 || idx >= len(s) {
             " "
@@ -37,12 +46,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for set at.
     fn set_at(arr, idx, value) {
         let left = slice(arr, 0, idx)
         let right = slice(arr, idx + 1, len(arr))
         concat(concat(left, [|value|]), right)
     }
 
+    // Helper for add at.
     fn add_at(arr, idx, delta) {
         if idx < 0 || idx >= len(arr) {
             arr
@@ -51,13 +62,16 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for zeros acc.
     fn zeros_acc(i, n, acc) {
         if i >= n { acc } else { zeros_acc(i + 1, n, push(acc, 0)) }
     }
+    // Helper for zeros.
     fn zeros(n) {
         zeros_acc(0, n, [||])
     }
 
+    // Compute the maximum width.
     fn max_width(lines, i, cur) {
         if i >= len(lines) {
             cur
@@ -67,6 +81,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s in row.
     fn find_s_in_row(s, i) {
         if i >= len(s) {
             -1
@@ -79,6 +94,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s.
     fn find_s(lines, r) {
         if r >= len(lines) {
             (-1, -1)
@@ -92,11 +108,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step res.
     fn step_res(next_counts, finished) {
         let m = Map.set({}, "next", next_counts)
         Map.set(m, "done", finished)
     }
 
+    // Helper for step next.
     fn step_next(x) {
         match Map.get(x, "next") {
             Some(v) -> v,
@@ -104,6 +122,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step done.
     fn step_done(x) {
         match Map.get(x, "done") {
             Some(v) -> v,
@@ -111,6 +130,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process cols.
     fn process_cols(row_txt, col, width, active_counts, next_counts, finished) {
         if col >= width {
             step_res(next_counts, finished)
@@ -136,6 +156,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for simulate.
     fn simulate(lines, row_idx, width, active_counts, finished) {
         if row_idx >= len(lines) {
             finished + Array.sum(active_counts)
@@ -155,4 +176,3 @@ fn main() with IO, Time {
     let start_counts7 = add_at(zeros(width7), scol7, 1)
     print(simulate(input7, srow7, width7, start_counts7, 0))
 }
-//

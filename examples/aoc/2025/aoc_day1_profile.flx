@@ -5,11 +5,15 @@
 // 223600
 // parity-expected-stdout-end
 
-// AoC Day 1 profiling workload.
-// Runs the solver many times in one process to produce richer profiles.
-//
+/*
+AoC Day 1 profiling workload.
+Runs the solver many times in one process to produce richer profiles.
+*/
 
+
+// Program entry point.
 fn main() with IO, Time {
+    // Helper for wrap 100.
     fn wrap_100(value) {
         let reduced = value % 100
         if reduced < 0 {
@@ -19,6 +23,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse one rotation instruction.
     fn parse_rotation(line) {
         let dir = substring(line, 0, 1)
         let distance = parse_int(substring(line, 1, len(line)))
@@ -29,6 +34,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse line.
     fn parse_line(line, rest, acc) {
         let cleaned = trim(line)
         if cleaned == "" {
@@ -38,6 +44,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse all rotation instructions.
     fn parse_rotations(lines, acc) {
         match lines {
             [line | rest] -> parse_line(line, rest, acc),
@@ -45,6 +52,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process step.
     fn process_step(step, rest, pos, hits) {
         let next_pos = wrap_100(pos + step)
         if next_pos == 0 {
@@ -54,6 +62,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Process all remaining steps.
     fn solve_steps(steps, pos, hits) {
         match steps {
             [step | rest] -> process_step(step, rest, pos, hits),
@@ -61,6 +70,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Repeat the solver and accumulate a checksum.
     fn repeat_solve(n, steps, checksum) {
         if n <= 0 {
             checksum

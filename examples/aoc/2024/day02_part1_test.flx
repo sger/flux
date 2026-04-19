@@ -3,6 +3,7 @@
 
 import Day02Solver as Day02
 
+// Helper for sample reports.
 fn sample_reports() {
     Day02.parse_reports([|
             "7 6 4 2 1",
@@ -14,18 +15,22 @@ fn sample_reports() {
     |])
 }
 
+// Helper for test DAY02 part1 sample count is two.
 fn test_day02_part1_sample_count_is_two() {
     assert_eq(Day02.day02a(sample_reports()), 2)
 }
 
+// Helper for test DAY02 part1 sample first report is safe.
 fn test_day02_part1_sample_first_report_is_safe() {
     assert_true(Day02.predicate(Day02.parse_report("7 6 4 2 1")))
 }
 
+// Helper for test DAY02 part1 sample last report is safe.
 fn test_day02_part1_sample_last_report_is_safe() {
     assert_true(Day02.predicate(Day02.parse_report("1 3 6 7 9")))
 }
 
+// Helper for test DAY02 part1 sample middle report is unsafe.
 fn test_day02_part1_sample_middle_report_is_unsafe() {
     assert_false(Day02.predicate(Day02.parse_report("1 3 2 4 5")))
 }

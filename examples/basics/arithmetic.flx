@@ -10,14 +10,11 @@
 // 1
 // parity-expected-stdout-end
 
-// Test: Arithmetic operations
-// Expected output:
-// 3
-// 7
-// 20
-// 5
-// 14
+/*
+Test: Arithmetic operations
+*/
 
+// Program entry point.
 fn main() with IO {
     print(1 + 2);
     print(10 - 3);

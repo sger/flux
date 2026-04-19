@@ -1,3 +1,5 @@
+// root: examples
+
 import Modules.Math as Math
 
 fn main() {

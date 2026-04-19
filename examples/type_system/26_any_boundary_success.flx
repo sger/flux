@@ -1,6 +1,6 @@
-// `Any` usage: value stays dynamic and is consumed by dynamic-friendly code.
+// Generic identity keeps the value type precise across the boundary.
 
-fn identity(x: Any) -> Any {
+fn identity<T>(x: T) -> T {
     x
 }
 

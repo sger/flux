@@ -18,6 +18,7 @@ module Day02Solver {
         |> Array.map(\line -> parse_report(line))
     }
 
+    // Helper for diffs from.
     fn diffs_from(xs, idx, acc) {
         if idx + 1 >= len(xs) {
             acc
@@ -35,6 +36,7 @@ module Day02Solver {
         Array.all(ds, \d -> d >= 1 && d <= 3) || Array.all(ds, \d -> d >= -3 && d <= -1)
     }
 
+    // Helper for prepend to all.
     fn prepend_to_all(x, arrs) {
         Array.map(arrs, \arr -> Array.concat([|x|], arr))
     }

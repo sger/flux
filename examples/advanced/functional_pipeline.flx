@@ -16,9 +16,13 @@
 // "["HELLO", "WORLD", "FLUX"]"
 // parity-expected-stdout-end
 
-// Test: Combining Modules, Pipelines, and Lambdas
-// This example demonstrates idiomatic functional programming in Flux
+/*
+Test: Combining Modules, Pipelines, and Lambdas
+This example demonstrates idiomatic functional programming in Flux
+*/
 
+
+// Program entry point.
 fn main() with IO {
     print("Pipeline with base functions:")
 

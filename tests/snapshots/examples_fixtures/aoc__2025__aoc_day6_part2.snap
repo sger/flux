@@ -3,24 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day6_part2.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `join`.
-
-  examples/aoc/2025/aoc_day6_part2.flx:87:28
-   |
-87 |     let joined = trim(join(digits, ""))
-   |                            ^^^^^^
-   |                            ------ this argument has type `List<String>`
-
-Note:
-  expected argument type: Array<String>
-  found argument type: List<String>
-  the actual argument type is inferred from this expression
-
-Help:
-  Pass a `Array<String>` value as the 1st argument.
+<none>
 == stdout ==
 <not executed>

@@ -9,19 +9,23 @@ module Day03Solver {
         Disable,        // don't()  — disable multiplication
     }
 
+    // Return the character slice at the given index.
     fn char_at(s: String, idx: Int) -> String {
         substring(s, idx, idx + 1)
     }
 
+    // Helper for starts with at.
     fn starts_with_at(s: String, idx: Int, token: String) -> Bool {
         idx + len(token) <= len(s) && substring(s, idx, idx + len(token)) == token
     }
 
+    // Check whether digit.
     fn is_digit(ch: String) -> Bool {
         ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" ||
         ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
     }
 
+    // Helper for take digits 1 to 3.
     fn take_digits_1_to_3(s: String, idx: Int, count: Int, acc: String) -> (String, Int, Int) {
         if idx >= len(s) || count >= 3 {
             (acc, idx, count)

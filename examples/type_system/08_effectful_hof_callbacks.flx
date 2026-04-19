@@ -10,5 +10,9 @@ fn main() with IO, Time {
         }
     }
 
-    each_log(list(10, 20, 30), \(x: Int) -> print("callback=#{x}"))
+    fn callback(x: Int) with IO {
+        print("callback=#{x}")
+    }
+
+    each_log(list(10, 20, 30), callback)
 }

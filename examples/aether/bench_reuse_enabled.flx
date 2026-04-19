@@ -1,9 +1,13 @@
-// Aether plain-Reuse benchmark: reuse-friendly recursive list rebuild.
+/*
+Aether plain-Reuse benchmark: reuse-friendly recursive list rebuild.
+*/
+
 // parity-expected-stdout-begin
 // "enabled: result head = 101"
 // parity-expected-stdout-end
 
 fn build_list(n) {
+    // Continue build recursion.
     fn build_go(i, acc) {
         if i <= 0 { acc }
         else { build_go(i - 1, [i | acc]) }
@@ -20,7 +24,9 @@ fn build_list(n) {
     }
 }
 
+// Helper for bench map.
 fn bench_map(xs, iterations) {
+    // Helper for go.
     fn go(i, current) {
         if i <= 0 { current }
         else { go(i - 1, map_enabled(current, \x -> x + 1)) }
@@ -28,6 +34,7 @@ fn bench_map(xs, iterations) {
     go(iterations, xs)
 }
 
+// Program entry point.
 fn main() with IO {
     let size = 5000
     let iterations = 100

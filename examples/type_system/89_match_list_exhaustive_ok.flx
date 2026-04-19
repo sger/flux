@@ -1,9 +1,9 @@
 // General match exhaustiveness: list domain requires [] and [h | t].
-let xs = [1, 2, 3];
-
-let out = match xs {
-    [] -> 0,
-    [h | t] -> h
-};
-
-out;
+fn main() {
+    let xs = [1, 2, 3]
+    let out = match xs {
+        [] -> 0,
+        [h | t] -> h
+    }
+    out
+}

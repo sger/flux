@@ -3,6 +3,7 @@
 
 import Day04Solver as Day04
 
+// Helper for sample grid.
 fn sample_grid() {
     [|
         "MMMSXXMASM",
@@ -18,6 +19,7 @@ fn sample_grid() {
     |]
 }
 
+// Helper for sample cross grid.
 fn sample_cross_grid() {
     [|
         ".M.S......",
@@ -33,22 +35,27 @@ fn sample_cross_grid() {
     |]
 }
 
+// Helper for test DAY04 part1 prompt sample is 18.
 fn test_day04_part1_prompt_sample_is_18() {
     assert_eq(Day04.day04a_from_lines(sample_grid()), 18)
 }
 
+// Helper for test DAY04 part1 horizontal forward.
 fn test_day04_part1_horizontal_forward() {
     assert_eq(Day04.day04a_from_lines([|"XMAS"|]), 1)
 }
 
+// Helper for test DAY04 part1 horizontal backward counts.
 fn test_day04_part1_horizontal_backward_counts() {
     assert_eq(Day04.day04a_from_lines([|"SAMX"|]), 1)
 }
 
+// Helper for test DAY04 part1 vertical forward.
 fn test_day04_part1_vertical_forward() {
     assert_eq(Day04.day04a_from_lines([|"X", "M", "A", "S"|]), 1)
 }
 
+// Helper for test DAY04 part1 diagonal down right.
 fn test_day04_part1_diagonal_down_right() {
     assert_eq(
         Day04.day04a_from_lines([|
@@ -61,19 +68,23 @@ fn test_day04_part1_diagonal_down_right() {
     )
 }
 
+// Helper for test DAY04 part1 overlapping sequences counted.
 fn test_day04_part1_overlapping_sequences_counted() {
     assert_eq(Day04.day04a_from_lines([|"XMASMAS"|]), 1)
 }
 
+// Helper for test DAY04 part1 empty or too small.
 fn test_day04_part1_empty_or_too_small() {
     assert_eq(Day04.day04a_from_memory(""), 0)
     assert_eq(Day04.day04a_from_lines([|"XM"|]), 0)
 }
 
+// Helper for test DAY04 part2 prompt sample is 9.
 fn test_day04_part2_prompt_sample_is_9() {
     assert_eq(Day04.day04b_from_lines(sample_cross_grid()), 9)
 }
 
+// Helper for test DAY04 part2 single cross.
 fn test_day04_part2_single_cross() {
     assert_eq(
         Day04.day04b_from_lines([|
@@ -85,6 +96,7 @@ fn test_day04_part2_single_cross() {
     )
 }
 
+// Helper for test DAY04 part2 rejects non cross and small.
 fn test_day04_part2_rejects_non_cross_and_small() {
     assert_eq(
         Day04.day04b_from_lines([|

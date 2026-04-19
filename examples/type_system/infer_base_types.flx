@@ -2,33 +2,35 @@
 // lib/Flow/ functions WITHOUT explicit type annotations.
 // Every value here is inferred — no annotations at all.
 
+import Flow.Array as Array
+
 fn main() with IO {
     // Primop return types — all inferred
     let parts = split("hello world foo", " ")
     assert_eq(len(parts), 3)
-    assert_eq(first(parts), Some("hello"))
+    assert_eq(Array.first(parts), Some("hello"))
 
     let trimmed = trim("  hi  ")
     assert_eq(trimmed, "hi")
 
-    let r = range(1, 6)
+    let r = Array.range(1, 6)
     assert_eq(len(r), 5)
-    assert_eq(sum(r), 15)
+    assert_eq(Array.sum(r), 15)
 
     // Flow.List HOFs — polymorphic, inferred
-    let doubled = map(r, \x -> x * 2)
-    assert_eq(sum(doubled), 30)
+    let doubled = Array.map(r, \x -> x * 2)
+    assert_eq(Array.sum(doubled), 30)
 
-    let evens = filter(r, \x -> x % 2 == 0)
+    let evens = Array.filter(r, \x -> x % 2 == 0)
     assert_eq(len(evens), 2)
 
-    let total = fold(r, 0, \(acc, x) -> acc + x)
+    let total = Array.fold(r, 0, \(acc, x) -> acc + x)
     assert_eq(total, 15)
 
     // Nested: inferred through pipeline
     let words = split("one two three four five", " ")
-    let lengths = map(words, \w -> len(w))
-    let long = filter(lengths, \l -> l > 3)
+    let lengths = Array.map(words, \w -> len(w))
+    let long = Array.filter(lengths, \l -> l > 3)
     assert_eq(len(long), 3)
 
     // Flow.Option — inferred
@@ -40,12 +42,12 @@ fn main() with IO {
 
     // Flow.IO — inferred
     let ints = split_ints("10,20,30", ",")
-    assert_eq(sum(ints), 60)
+    assert_eq(Array.sum(ints), 60)
 
     // Verify inference through chaining
-    let result = fold(
-        filter(
-            map(range(1, 11), \x -> x * x),
+    let result = Array.fold(
+        Array.filter(
+            Array.map(Array.range(1, 11), \x -> x * x),
             \x -> x > 20
         ),
         0,

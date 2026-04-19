@@ -1,2 +1,3 @@
+// expect: compile_error
 // Test: Undefined variable error
 c = 10;

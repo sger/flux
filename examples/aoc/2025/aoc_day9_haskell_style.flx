@@ -3,17 +3,21 @@
 // 1574684850
 // parity-expected-stdout-end
 
-// Advent of Code - Day 9 (Haskell-style translation)
-// Inspired by AOC2025.Day09.
-// Uses input file: examples/aoc/2025/aoc_day9.txt
-//
+/*
+Advent of Code - Day 9 (Haskell-style translation)
+Inspired by AOC2025.Day09.
+Uses input file: examples/aoc/2025/aoc_day9.txt
+*/
+
 // Note: day09a is computed directly.
 // day09b currently mirrors existing Flux Day 9 behavior (`aoc_day9_part2.flx`),
 // where the answer is input-specific and emitted as a constant.
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -21,6 +25,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -28,6 +33,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for tuple at.
     fn tuple_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -35,10 +41,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for abs val.
     fn abs_val(v) {
         if v < 0 { 0 - v } else { v }
     }
 
+    // Parse points.
     fn parse_points(lines, idx, acc) {
         if idx >= len(lines) {
             acc
@@ -53,12 +61,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for rect area.
     fn rect_area(p, q) {
         let dx = abs_val(p.0 - q.0) + 1
         let dy = abs_val(p.1 - q.1) + 1
         dx * dy
     }
 
+    // Helper for best with i.
     fn best_with_i(points, i, j, best) {
         if j >= len(points) {
             best
@@ -69,6 +79,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for best all.
     fn best_all(points, i, best) {
         if i >= len(points) {
             best
@@ -78,10 +89,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY09A.
     fn day09a(points) {
         best_all(points, 0, 0)
     }
 
+    // Compute DAY09B.
     fn day09b(points) {
         // Keep parameter for API symmetry with Haskell shape and future upgrade.
         let _ = points
@@ -94,4 +107,3 @@ fn main() with IO, Time {
     print(day09a(points))
     print(day09b(points))
 }
-//

@@ -1068,18 +1068,22 @@ mod tests {
                 MethodSig {
                     name: eq_method,
                     type_params: vec![],
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_type.clone(), a_type.clone()],
                     return_type: bool_type.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     name: neq_method,
                     type_params: vec![],
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_type.clone(), a_type],
                     return_type: bool_type,
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
             ],
             default_methods: vec![neq_method],
@@ -1195,6 +1199,7 @@ mod tests {
             methods: vec![MethodSig {
                 name: eq_method,
                 type_params: vec![],
+                param_names: vec![interner.intern("__x0")],
                 param_types: vec![],
                 return_type: TypeExpr::Named {
                     name: a_sym,
@@ -1203,6 +1208,7 @@ mod tests {
                 },
                 arity: 1,
                 effects: vec![],
+                default_body: None,
             }],
             default_methods: vec![],
             span: s(),

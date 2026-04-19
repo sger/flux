@@ -1,4 +1,7 @@
-// Aether drop-spec recursive regression fixture.
+/*
+Aether drop-spec recursive regression fixture.
+*/
+
 // parity-expected-stdout-begin
 // [1, 1, 2, 2, 3, 3]
 // parity-expected-stdout-end
@@ -10,6 +13,7 @@ fn rec_copy_or_keep(xs, choose) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print(rec_copy_or_keep([1, 2, 3], false))
 }

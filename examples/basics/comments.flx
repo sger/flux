@@ -69,6 +69,7 @@ fn main() with IO {
     * Returns:
     *   The nth Fibonacci number
     */
+    // Helper for fib.
     fn fib(n) {
         if (n <= 1) {
             return n;

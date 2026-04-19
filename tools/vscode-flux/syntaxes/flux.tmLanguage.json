@@ -17,21 +17,42 @@
   "repository": {
     "comments": {
       "patterns": [
+        { "include": "#doc-block-comment" },
+        { "include": "#block-comment" },
+        { "include": "#line-comment" }
+      ]
+    },
+    "doc-block-comment": {
+      "name": "comment.block.documentation.flux",
+      "begin": "/\\*\\*",
+      "end": "\\*/",
+      "patterns": [
+        { "include": "#doc-block-comment-nested" }
+      ]
+    },
+    "doc-block-comment-nested": {
+      "patterns": [
         {
           "name": "comment.block.documentation.flux",
-          "begin": "/\\*\\*",
-          "end": "\\*/"
-        },
-        {
-          "name": "comment.block.flux",
           "begin": "/\\*",
-          "end": "\\*/"
-        },
-        {
-          "name": "comment.line.double-slash.flux",
-          "match": "//.*$"
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#doc-block-comment-nested" }
+          ]
         }
       ]
+    },
+    "block-comment": {
+      "name": "comment.block.flux",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [
+        { "include": "#block-comment" }
+      ]
+    },
+    "line-comment": {
+      "name": "comment.line.double-slash.flux",
+      "match": "//.*$"
     },
     "strings": {
       "patterns": [

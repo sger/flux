@@ -4,7 +4,9 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -12,6 +14,7 @@ fn main() with IO {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -19,10 +22,12 @@ fn main() with IO {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -35,10 +40,12 @@ fn main() with IO {
         }
     }
 
+    // Check whether char.
     fn has_char(s, ch) {
         find_char_from(s, ch, 0) >= 0
     }
 
+    // Check whether one region can fit its requested presents.
     fn region_fits(line) {
         let c = find_char_from(line, ":", 0)
         let left = trim(substring(line, 0, c))
@@ -54,6 +61,7 @@ fn main() with IO {
         area >= needed
     }
 
+    // Compute the Day 12 answer.
     fn day12a(input_lines) {
         let region_lines =
         Array.filter(
@@ -67,4 +75,3 @@ fn main() with IO {
     let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
     print(day12a(input_lines))
 }
-//
