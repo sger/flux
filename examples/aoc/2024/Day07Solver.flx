@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 module Day07Solver {
     // AoC 2024 Day 7 - Bridge Repair
 
@@ -8,11 +11,13 @@ module Day07Solver {
         }
     }
 
+    // Helper for to int.
     fn to_int(s) {
         let arr = parse_ints([|s|])
         safe_get(arr, 0)
     }
 
+    // Parse line.
     fn parse_line(line) {
         let parts = split(line, ": ")
         let target_str = match parts[0] { Some(v) -> v, _ -> "0" }
@@ -23,6 +28,7 @@ module Day07Solver {
         result
     }
 
+    // Helper for can solve a.
     fn can_solve_a(nums, idx, current, target) {
         if idx >= len(nums) {
             current == target
@@ -35,10 +41,12 @@ module Day07Solver {
         }
     }
 
+    // Helper for concat nu ms.
     fn concat_nums(a, b) {
         to_int(to_string(a) + to_string(b))
     }
 
+    // Helper for can solve b.
     fn can_solve_b(nums, idx, current, target) {
         if idx >= len(nums) {
             current == target
@@ -52,6 +60,7 @@ module Day07Solver {
         }
     }
 
+    // Solve the current puzzle state.
     fn solve(lines, idx, acc, checker) {
         if idx >= len(lines) {
             acc

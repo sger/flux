@@ -5,6 +5,7 @@ expression: output
 Program {
     statements: [
         Let {
+            is_public: false,
             name: Symbol(
                 0,
             ),

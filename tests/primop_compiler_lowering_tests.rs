@@ -1,4 +1,5 @@
-use flux::bytecode::{compiler::Compiler, op_code::disassemble};
+use flux::bytecode::op_code::disassemble;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, parser::Parser};

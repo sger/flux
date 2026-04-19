@@ -15,6 +15,5 @@ fn caller() -> Int {
 }
 
 fn main() -> Unit {
-    caller()
-    None
+    let _ = caller()
 }

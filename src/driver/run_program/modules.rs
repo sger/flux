@@ -7,7 +7,7 @@ use crate as flux;
 use crate::driver::{
     backend::Backend,
     frontend::extract_module_name_and_sym,
-    module_compile::{ModuleBuildState, log_interface_diff},
+    module_compile::{ModuleBuildState, effective_module_strictness, log_interface_diff},
     shared::{DriverCacheConfig, DriverCompileConfig, DriverRuntimeConfig, sort_stdlib_first},
     support::shared::{module_display_name, progress_line, short_hash, tag_diagnostics},
 };
@@ -22,7 +22,7 @@ pub(crate) struct CompileModulesRequest<'a> {
     pub(crate) graph: &'a ModuleGraph,
     pub(crate) entry_path: &'a Path,
     pub(crate) failed_modules: &'a HashSet<PathBuf>,
-    pub(crate) compiler: &'a mut flux::bytecode::compiler::Compiler,
+    pub(crate) compiler: &'a mut flux::compiler::Compiler,
     pub(crate) cache: DriverCacheConfig<'a>,
     pub(crate) compile: DriverCompileConfig,
     pub(crate) runtime: DriverRuntimeConfig,
@@ -35,6 +35,11 @@ pub(crate) struct CompileModulesRequest<'a> {
 
 pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
     let entry_canonical = std::fs::canonicalize(request.entry_path).ok();
+    let entry_module_kind = request
+        .graph
+        .entry_node()
+        .map(|node| node.kind)
+        .unwrap_or_default();
     let mut preloaded_interfaces: HashSet<PathBuf> = HashSet::new();
     let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
         HashMap::new();
@@ -108,15 +113,22 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 }
                 continue;
             };
-            let dep_is_flow_library = nodes_by_path
-                .get(&dep.target_path)
-                .is_some_and(|dep_node| dep_node.kind == ModuleKind::FlowStdlib);
-            let dep_semantic_config_hash =
-                flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-                    !dep_is_flow_library && request.compile.strict_mode,
-                    request.compile.enable_optimize,
+            let dep_semantic_config_hash = {
+                let dep_kind = nodes_by_path
+                    .get(&dep.target_path)
+                    .map(|node| node.kind)
+                    .unwrap_or_default();
+                let strict_mode = effective_module_strictness(
+                    dep_kind,
+                    entry_module_kind,
+                    request.compile.strict_mode,
                 );
-            match flux::bytecode::compiler::module_interface::load_valid_interface(
+                flux::compiler::module_interface::compute_semantic_config_hash(
+                    strict_mode,
+                    request.compile.enable_optimize,
+                )
+            };
+            match flux::compiler::module_interface::load_valid_interface(
                 request.cache.cache_layout.root(),
                 &dep.target_path,
                 &dep_source,
@@ -168,22 +180,20 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             .set_file_path(node.path.to_string_lossy().to_string());
         request.compiler.set_current_module_kind(node.kind);
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
-        let is_flow_library = node.kind == ModuleKind::FlowStdlib;
+        let module_strict_mode =
+            effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
+        request.compiler.set_strict_mode(module_strict_mode);
         let module_semantic_config_hash =
-            flux::bytecode::compiler::module_interface::compute_semantic_config_hash(
-                !is_flow_library && request.compile.strict_mode,
+            flux::compiler::module_interface::compute_semantic_config_hash(
+                module_strict_mode,
                 request.compile.enable_optimize,
             );
         let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
         let module_source_hash = hash_bytes(module_source.as_bytes());
-        let module_strict_hash = if is_flow_library {
-            hash_bytes(b"strict=0")
-        } else {
-            request.strict_hash
-        };
+        let module_strict_hash = request.strict_hash;
         let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
         let old_interface = if !request.cache.no_cache {
-            flux::bytecode::compiler::module_interface::load_cached_interface(
+            flux::compiler::module_interface::load_cached_interface(
                 request.cache.cache_layout.root(),
                 &node.path,
             )
@@ -197,7 +207,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 .is_some_and(|state| state.interface_changed)
         });
         let current_interface = if !request.cache.no_cache {
-            match flux::bytecode::compiler::module_interface::load_valid_interface(
+            match flux::compiler::module_interface::load_valid_interface(
                 request.cache.cache_layout.root(),
                 &node.path,
                 &module_source,
@@ -322,24 +332,12 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             eprintln!("module-cache: miss (reason: dependency interface changed)");
         }
         request.compiler.set_strict_require_main(is_entry_module);
-        if is_flow_library {
-            request.compiler.set_strict_mode(false);
-            request.compiler.set_strict_types(false);
-        }
         let module_snapshot = request.compiler.module_cache_snapshot();
         let compile_result = request.compiler.compile_with_opts(
             &node.program,
             request.compile.enable_optimize,
             request.compile.enable_analyze,
         );
-        if is_flow_library {
-            request
-                .compiler
-                .set_strict_mode(request.compile.strict_mode);
-            request
-                .compiler
-                .set_strict_types(request.compile.strict_types);
-        }
         let mut compiler_warnings = request.compiler.take_warnings();
         tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
         for diag in &mut compiler_warnings {
@@ -434,13 +432,15 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                             })
                         })
                         .collect();
-                    let interface = flux::bytecode::compiler::module_interface::build_interface(
+                    let exported_runtime_contracts = request.compiler.exported_runtime_contracts();
+                    let interface = flux::compiler::module_interface::build_interface(
                         &module_name,
                         module_sym,
                         &module_source_hash,
                         &module_semantic_config_hash,
                         core.as_core(),
                         request.compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &request.compiler.module_function_visibility,
                         Some(request.compiler.class_env()),
                         dependency_fingerprints,
@@ -450,13 +450,11 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     loaded_interfaces.insert(node.path.clone(), interface.clone());
                     preloaded_interfaces.insert(node.path.clone());
                     let interface_changed = old_interface.as_ref().is_none_or(|old| {
-                        flux::bytecode::compiler::module_interface::module_interface_changed(
-                            old, &interface,
-                        )
+                        flux::compiler::module_interface::module_interface_changed(old, &interface)
                     });
                     if request.runtime.verbose && interface_changed {
                         if let Some(old) = old_interface.as_ref() {
-                            log_interface_diff(old, &interface);
+                            log_interface_diff(old, &interface, &request.compiler.interner);
                         } else {
                             eprintln!("  interface: new (no previous interface)");
                         }
@@ -476,11 +474,11 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                         },
                     );
                     if !request.cache.no_cache {
-                        let iface_path = flux::bytecode::compiler::module_interface::interface_path(
+                        let iface_path = flux::compiler::module_interface::interface_path(
                             request.cache.cache_layout.root(),
                             &node.path,
                         );
-                        if let Err(e) = flux::bytecode::compiler::module_interface::save_interface(
+                        if let Err(e) = flux::compiler::module_interface::save_interface(
                             &iface_path,
                             &interface,
                         ) {

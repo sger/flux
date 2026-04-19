@@ -1,3 +1,6 @@
+// root: examples
+// expect: compile_error
+
 import Modules.Math;
 
   fn main() {

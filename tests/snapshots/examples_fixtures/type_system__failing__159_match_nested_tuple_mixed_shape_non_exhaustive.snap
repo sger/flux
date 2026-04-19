@@ -18,6 +18,32 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:5:14
+  |
+5 |     let _x = match w {
+  |              ^^^^^^^^^
+6 |         W((1, 2)) -> 1,
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+7 |         W(1) -> 2,
+  | ^^^^^^^^^^^^^^^^^^
+8 |         Z -> 0,
+  | ^^^^^^^^^^^^^^^
+9 |     }
+  | ^^^^^
+
+Note:
+  expected type: (Int, Int)
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+
 error[E083]: Non-Exhaustive ADT Match
 
 Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 are mixed-shape and cannot be proven exhaustive conservatively.
@@ -38,6 +64,6 @@ Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 ar
 Hint:
   Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`).
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

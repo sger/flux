@@ -1,7 +1,8 @@
-  fn my_func() {
+// expect: compile_error
+fn my_func() {
     return 1;
-  }
+}
 
-  fn my_func() {
+fn my_func() {
     return 2;
-  }
+}

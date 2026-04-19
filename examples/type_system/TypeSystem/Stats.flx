@@ -10,7 +10,7 @@ module TypeSystem.Stats {
 
     // ── ADT: letter grade ─────────────────────────────────────────────────
 
-    data Grade {
+    public data Grade {
         GradeA,
         GradeB,
         GradeC,
@@ -18,7 +18,7 @@ module TypeSystem.Stats {
         GradeF,
     }
 
-    fn score_to_grade(score: Int) -> Grade {
+    public fn score_to_grade(score: Int) -> Grade {
         if score >= 90 { GradeA }
         else if score >= 80 { GradeB }
         else if score >= 70 { GradeC }
@@ -26,7 +26,7 @@ module TypeSystem.Stats {
         else { GradeF }
     }
 
-    fn grade_to_string(g: Grade) -> String {
+    public fn grade_to_string(g: Grade) -> String {
         match g {
             GradeA -> "A",
             GradeB -> "B",
@@ -36,7 +36,7 @@ module TypeSystem.Stats {
         }
     }
 
-    fn grade_points(g: Grade) -> Int {
+    public fn grade_points(g: Grade) -> Int {
         match g {
             GradeA -> 4,
             GradeB -> 3,
@@ -46,7 +46,7 @@ module TypeSystem.Stats {
         }
     }
 
-    fn grade_passed(g: Grade) -> Bool {
+    public fn grade_passed(g: Grade) -> Bool {
         match g {
             GradeF -> false,
             _ -> true,
@@ -67,7 +67,7 @@ module TypeSystem.Stats {
     }
 
     // Returns (a_count, b_count, c_count, d_count, f_count) using ADT internally.
-    fn grade_distribution(scores: List<Int>) -> (Int, Int, Int, Int, Int) {
+    public fn grade_distribution(scores: List<Int>) -> (Int, Int, Int, Int, Int) {
         fn tally(xs: List<Int>, a: Int, b: Int, c: Int, d: Int, f: Int) -> (Int, Int, Int, Int, Int) {
             match xs {
                 [h | t] -> match score_to_grade(h) {
@@ -87,11 +87,11 @@ module TypeSystem.Stats {
     //
     // Summary(total, count, mean, max, min)
 
-    data Summary {
+    public data Summary {
         Summary(Int, Int, Int, Int, Int),
     }
 
-    fn summarize(scores: List<Int>) -> Summary {
+    public fn summarize(scores: List<Int>) -> Summary {
         let n = list_len(scores)
         if n == 0 {
             Summary(0, 0, 0, 0, 0)
@@ -101,27 +101,27 @@ module TypeSystem.Stats {
         }
     }
 
-    fn summary_total(s: Summary) -> Int {
+    public fn summary_total(s: Summary) -> Int {
         match s { Summary(v, _, _, _, _) -> v }
     }
 
-    fn summary_count(s: Summary) -> Int {
+    public fn summary_count(s: Summary) -> Int {
         match s { Summary(_, v, _, _, _) -> v }
     }
 
-    fn summary_mean(s: Summary) -> Int {
+    public fn summary_mean(s: Summary) -> Int {
         match s { Summary(_, _, v, _, _) -> v }
     }
 
-    fn summary_max(s: Summary) -> Int {
+    public fn summary_max(s: Summary) -> Int {
         match s { Summary(_, _, _, v, _) -> v }
     }
 
-    fn summary_min(s: Summary) -> Int {
+    public fn summary_min(s: Summary) -> Int {
         match s { Summary(_, _, _, _, v) -> v }
     }
 
-    fn summary_print(s: Summary) with IO {
+    public fn summary_print(s: Summary) with IO {
         print("  Total students : " + to_string(summary_count(s)))
         print("  Total points   : " + to_string(summary_total(s)))
         print("  Class average  : " + to_string(summary_mean(s)))
@@ -138,7 +138,7 @@ module TypeSystem.Stats {
         }
     }
 
-    fn list_len(xs: List<Int>) -> Int {
+    public fn list_len(xs: List<Int>) -> Int {
         match xs {
             [h | t] -> 1 + list_len(t),
             _ -> 0
@@ -170,7 +170,7 @@ module TypeSystem.Stats {
 
     // ── Filtering ────────────────────────────────────────────────────────
 
-    fn keep_above(xs: List<Int>, threshold: Int) -> List<Int> {
+    public fn keep_above(xs: List<Int>, threshold: Int) -> List<Int> {
         match xs {
             [h | t] -> if h > threshold {
                 [h | keep_above(t, threshold)]
@@ -181,7 +181,7 @@ module TypeSystem.Stats {
         }
     }
 
-    fn keep_below(xs: List<Int>, threshold: Int) -> List<Int> {
+    public fn keep_below(xs: List<Int>, threshold: Int) -> List<Int> {
         match xs {
             [h | t] -> if h < threshold {
                 [h | keep_below(t, threshold)]
@@ -194,7 +194,7 @@ module TypeSystem.Stats {
 
     // ── Ranking (insertion sort on (String, Int) pairs) ───────────────────
 
-    fn rank(pairs: List<(String, Int)>) -> List<(String, Int)> {
+    public fn rank(pairs: List<(String, Int)>) -> List<(String, Int)> {
         match pairs {
             [h | t] -> insert_ranked(h, rank(t)),
             _ -> []

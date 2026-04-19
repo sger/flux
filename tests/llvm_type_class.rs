@@ -8,7 +8,7 @@
 
 use flux::{
     ast::type_infer::constraint::SchemeConstraint,
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{effect_expr::EffectExpr, lexer::Lexer, parser::Parser, type_expr::TypeExpr},
     types::module_interface::{
         ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
@@ -287,8 +287,10 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             },
         )]),
         borrow_signatures: std::collections::HashMap::new(),
+        runtime_contracts: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
+        member_is_value: std::collections::HashMap::from([("log".to_string(), false)]),
         public_classes: vec![PublicClassEntry {
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
@@ -332,8 +334,10 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
         interface_fingerprint: "abi".to_string(),
         schemes: std::collections::HashMap::new(),
         borrow_signatures: std::collections::HashMap::new(),
+        runtime_contracts: std::collections::HashMap::new(),
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
+        member_is_value: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
             class_module: "Example.Logger".to_string(),

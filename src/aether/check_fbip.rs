@@ -314,6 +314,7 @@ mod tests {
     };
     use crate::diagnostics::position::Span;
     use crate::syntax::{interner::Interner, statement::FipAnnotation};
+    use std::borrow::Borrow;
 
     use super::check_fbip;
 
@@ -321,9 +322,9 @@ mod tests {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
     }
 
-    fn var(binder: CoreBinder) -> CoreExpr {
+    fn var<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(binder.borrow()),
             span: Span::default(),
         }
     }
@@ -432,7 +433,7 @@ mod tests {
                     binder: caller,
                     expr: CoreExpr::App {
                         func: Box::new(CoreExpr::Var {
-                            var: CoreVarRef::resolved(callee.binder),
+                            var: CoreVarRef::resolved(&callee.binder),
                             span: Span::default(),
                         }),
                         args: vec![var(x)],

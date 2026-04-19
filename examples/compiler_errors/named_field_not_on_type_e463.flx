@@ -1,0 +1,11 @@
+// Dot access using a member that is declared by no variant of the ADT.
+//
+// Expected: E463 Field Not On Type
+//   "Type `Point` has no field `z`."
+
+data Point { Point { x: Int, y: Int } }
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    p.z
+}

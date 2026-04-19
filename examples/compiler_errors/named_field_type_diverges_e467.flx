@@ -1,0 +1,14 @@
+// A shared field name has different declared types across variants.
+//
+// Expected: E467 Divergent Field Types Across Variants
+//   "Field `id` has inconsistent types across variants of `Item`."
+
+data Item {
+    User { id: Int, name: String }
+    Product { id: String, title: String }
+}
+
+fn main() {
+    let u = User { id: 1, name: "Alice" }
+    u.id
+}

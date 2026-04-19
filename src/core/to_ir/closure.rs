@@ -12,6 +12,22 @@ use crate::{
 
 use super::free_vars::{collect_free_vars_core, free_vars_rec};
 
+fn handler_resume_result_type(handler: &CoreHandler) -> Option<crate::core::CoreType> {
+    match handler.resume_ty.as_ref() {
+        Some(crate::core::CoreType::Function(_, ret_ty)) => Some((**ret_ty).clone()),
+        Some(other) => Some(other.clone()),
+        None => None,
+    }
+}
+
+fn aether_handler_resume_result_type(handler: &AetherHandler) -> Option<crate::core::CoreType> {
+    match handler.resume_ty.as_ref() {
+        Some(crate::core::CoreType::Function(_, ret_ty)) => Some((**ret_ty).clone()),
+        Some(other) => Some(other.clone()),
+        None => None,
+    }
+}
+
 fn collect_used_candidate_binders(
     expr: &CoreExpr,
     bound: &mut HashSet<CoreBinderId>,
@@ -32,7 +48,7 @@ fn collect_used_candidate_binders(
             let new_params: Vec<_> = params
                 .iter()
                 .filter(|p| bound.insert(p.id))
-                .copied()
+                .cloned()
                 .collect();
             collect_used_candidate_binders(body, bound, candidates, used);
             for p in new_params {
@@ -85,7 +101,7 @@ fn collect_used_candidate_binders(
                 let new_binders: Vec<_> = alt_bound
                     .iter()
                     .filter(|binder| bound.insert(**binder))
-                    .copied()
+                    .cloned()
                     .collect();
                 if let Some(guard) = &alt.guard {
                     collect_used_candidate_binders(guard, bound, candidates, used);
@@ -204,8 +220,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.params.push(IrParam {
                     name: binder.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: IrType::Tagged,
                 });
+                sub.inferred_param_types.push(None);
             }
 
             let resume_var = sub.ctx.alloc_var();
@@ -215,18 +232,31 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             sub.params.push(IrParam {
                 name: handler.resume.name,
                 var: resume_var,
-                ty: IrType::Any,
+                ty: handler
+                    .resume_ty
+                    .as_ref()
+                    .map(super::core_type_to_ir_type)
+                    .unwrap_or(IrType::Tagged),
             });
-            for &p in &handler.params {
+            sub.inferred_param_types.push(handler.resume_ty.clone());
+            for (i, p) in handler.params.iter().enumerate() {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
                 sub.params.push(IrParam {
                     name: p.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: handler
+                        .param_types
+                        .get(i)
+                        .and_then(|ty| ty.as_ref())
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
                 });
+                sub.inferred_param_types
+                    .push(handler.param_types.get(i).cloned().unwrap_or(None));
             }
+            sub.inferred_return_type = aether_handler_resume_result_type(handler);
 
             let ret = sub.lower_expr_aether(&handler.body);
             sub.finish_return(ret, handler.span);
@@ -301,8 +331,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.params.push(IrParam {
                     name: binder.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: IrType::Tagged,
                 });
+                sub.inferred_param_types.push(None);
             }
             // Resume param first, then operation params.
             let resume_var = sub.ctx.alloc_var();
@@ -312,18 +343,31 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             sub.params.push(IrParam {
                 name: handler.resume.name,
                 var: resume_var,
-                ty: IrType::Any,
+                ty: handler
+                    .resume_ty
+                    .as_ref()
+                    .map(super::core_type_to_ir_type)
+                    .unwrap_or(IrType::Tagged),
             });
-            for &p in &handler.params {
+            sub.inferred_param_types.push(handler.resume_ty.clone());
+            for (i, p) in handler.params.iter().enumerate() {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
                 sub.params.push(IrParam {
                     name: p.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: handler
+                        .param_types
+                        .get(i)
+                        .and_then(|ty| ty.as_ref())
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
                 });
+                sub.inferred_param_types
+                    .push(handler.param_types.get(i).cloned().unwrap_or(None));
             }
+            sub.inferred_return_type = handler_resume_result_type(handler);
 
             let ret = sub.lower_expr(&handler.body);
             sub.finish_return(ret, handler.span);
@@ -344,7 +388,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         recursive_binder: Option<CoreBinderId>,
         expr: &CoreExpr,
     ) -> IrVar {
-        let CoreExpr::Lam { params, body, span } = expr else {
+        let CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } = expr
+        else {
             panic!("lower_lam_as_closure: not a Lam");
         };
 
@@ -407,13 +458,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.params.push(IrParam {
                     name: binder.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: IrType::Tagged,
                 });
+                sub.inferred_param_types.push(None);
             }
             if let (Some(name), Some(binder_id)) = (forced_name, recursive_binder) {
                 let self_capture_vars: Vec<IrVar> = captures
                     .iter()
-                    .filter_map(|binder| sub.env.get(&binder.id).copied())
+                    .filter_map(|binder| sub.env.get(&binder.id).cloned())
                     .collect();
                 let self_var = sub.ctx.alloc_var();
                 sub.emit(IrInstr::Assign {
@@ -424,16 +476,26 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.env.insert(binder_id, self_var);
                 sub.binder_names.insert(binder_id, name);
             }
-            for &p in params {
+            for p in params {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
+                let semantic_idx = sub
+                    .inferred_param_types
+                    .len()
+                    .saturating_sub(capture_env.len());
+                let inferred_ty = param_types.get(semantic_idx).cloned().unwrap_or(None);
                 sub.params.push(IrParam {
                     name: p.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: inferred_ty
+                        .as_ref()
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
                 });
+                sub.inferred_param_types.push(inferred_ty);
             }
+            sub.inferred_return_type = result_ty.clone();
 
             let ret = sub.lower_expr(body);
             sub.finish_return(ret, *span);
@@ -445,7 +507,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 
         let capture_vars: Vec<IrVar> = capture_env
             .iter()
-            .filter_map(|(b, _)| self.env.get(&b.id).copied())
+            .filter_map(|(b, _)| self.env.get(&b.id).cloned())
             .collect();
 
         let dest = self.ctx.alloc_var();
@@ -457,11 +519,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         dest
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_lam_as_closure_aether(
         &mut self,
         forced_name: Option<Identifier>,
         recursive_binder: Option<CoreBinderId>,
         params: &[CoreBinder],
+        param_types: &[Option<crate::core::CoreType>],
+        result_ty: Option<&crate::core::CoreType>,
         body: &AetherExpr,
         span: crate::diagnostics::position::Span,
         expr: &AetherExpr,
@@ -522,13 +587,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.params.push(IrParam {
                     name: binder.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: IrType::Tagged,
                 });
+                sub.inferred_param_types.push(None);
             }
             if let (Some(name), Some(binder_id)) = (forced_name, recursive_binder) {
                 let self_capture_vars: Vec<IrVar> = captures
                     .iter()
-                    .filter_map(|binder| sub.env.get(&binder.id).copied())
+                    .filter_map(|binder| sub.env.get(&binder.id).cloned())
                     .collect();
                 let self_var = sub.ctx.alloc_var();
                 sub.emit(IrInstr::Assign {
@@ -539,16 +605,26 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.env.insert(binder_id, self_var);
                 sub.binder_names.insert(binder_id, name);
             }
-            for &p in params {
+            for p in params {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
+                let semantic_idx = sub
+                    .inferred_param_types
+                    .len()
+                    .saturating_sub(capture_env.len());
+                let inferred_ty = param_types.get(semantic_idx).cloned().unwrap_or(None);
                 sub.params.push(IrParam {
                     name: p.name,
                     var: v,
-                    ty: IrType::Any,
+                    ty: inferred_ty
+                        .as_ref()
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
                 });
+                sub.inferred_param_types.push(inferred_ty);
             }
+            sub.inferred_return_type = result_ty.cloned();
 
             let ret = sub.lower_expr_aether(body);
             sub.finish_return(ret, span);
@@ -560,7 +636,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 
         let capture_vars: Vec<IrVar> = capture_env
             .iter()
-            .filter_map(|(b, _)| self.env.get(&b.id).copied())
+            .filter_map(|(b, _)| self.env.get(&b.id).cloned())
             .collect();
 
         let dest = self.ctx.alloc_var();
@@ -593,7 +669,7 @@ fn collect_used_candidate_binders_aether(
             let new_params: Vec<_> = params
                 .iter()
                 .filter(|p| bound.insert(p.id))
-                .copied()
+                .cloned()
                 .collect();
             collect_used_candidate_binders_aether(body, bound, candidates, used);
             for p in new_params {
@@ -646,7 +722,7 @@ fn collect_used_candidate_binders_aether(
                 let new_binders: Vec<_> = alt_bound
                     .iter()
                     .filter(|binder| bound.insert(**binder))
-                    .copied()
+                    .cloned()
                     .collect();
                 if let Some(guard) = &alt.guard {
                     collect_used_candidate_binders_aether(guard, bound, candidates, used);

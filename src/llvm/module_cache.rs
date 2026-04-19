@@ -6,11 +6,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
     shared::cache_paths,
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v2:closure-entry-wrappers";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {
@@ -84,6 +86,15 @@ impl NativeModuleCacheLoadError {
 
 pub struct NativeModuleCache {
     cache_dir: PathBuf,
+}
+
+pub fn compute_native_cache_key(
+    source_hash: &[u8; 32],
+    semantic_config_hash: &[u8; 32],
+) -> [u8; 32] {
+    let semantic_key = hash_cache_key(source_hash, semantic_config_hash);
+    let abi_hash = hash_bytes(NATIVE_CACHE_ABI_TAG);
+    hash_cache_key(&semantic_key, &abi_hash)
 }
 
 impl NativeModuleCache {
@@ -213,7 +224,7 @@ impl NativeModuleCache {
             .iter()
             .map(|dependency| {
                 let dependency_path = PathBuf::from(&dependency.source_path);
-                match crate::bytecode::compiler::module_interface::load_cached_interface(
+                match crate::compiler::module_interface::load_cached_interface(
                     cache_root,
                     &dependency_path,
                 ) {
@@ -287,14 +298,11 @@ mod tests {
         let source = Path::new("examples/aoc/2024/Day06Solver.flx");
         let dep_path = Path::new("lib/Flow/List.flx");
         let dep_interface_path =
-            crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
+            crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(
-            &dep_interface_path,
-            &dep_interface,
-        )
-        .expect("save interface");
+        crate::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
+            .expect("save interface");
         let cache_key = hash_bytes(b"native");
         let object_path = cache
             .store(
@@ -327,14 +335,11 @@ mod tests {
         let source = Path::new("examples/aoc/2024/Day06Solver.flx");
         let dep_path = Path::new("lib/Flow/List.flx");
         let dep_interface_path =
-            crate::bytecode::compiler::module_interface::interface_path(&cache_root, dep_path);
+            crate::compiler::module_interface::interface_path(&cache_root, dep_path);
         let mut dep_interface = ModuleInterface::new("Flow.List", "deadbeef", "config");
         dep_interface.interface_fingerprint = "feedface".to_string();
-        crate::bytecode::compiler::module_interface::save_interface(
-            &dep_interface_path,
-            &dep_interface,
-        )
-        .expect("save interface");
+        crate::compiler::module_interface::save_interface(&dep_interface_path, &dep_interface)
+            .expect("save interface");
         let cache_key = hash_bytes(b"native-stale");
         let object_path = cache
             .store(

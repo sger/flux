@@ -6,9 +6,7 @@ use std::{
 };
 
 use crate::{
-    bytecode::compiler::module_interface::{
-        interface_path, module_interface_changed, save_interface,
-    },
+    compiler::module_interface::{interface_path, module_interface_changed, save_interface},
     diagnostics::{Diagnostic, Severity},
     syntax::{
         interner::Interner,
@@ -18,9 +16,7 @@ use crate::{
 };
 
 #[cfg(feature = "llvm")]
-use crate::{
-    bytecode::compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph,
-};
+use crate::{compiler::module_interface::load_cached_interface, syntax::module_graph::ModuleGraph};
 
 use crate::driver::{
     module_compile::{ModuleReplayRequest, replay_module_diagnostics},
@@ -105,8 +101,8 @@ pub(crate) struct ParallelReplayRequest<'a> {
     pub(crate) nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
     pub(crate) loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
     pub(crate) base_interner: &'a Interner,
+    pub(crate) entry_module_kind: ModuleKind,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_types: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -118,8 +114,8 @@ pub(crate) fn replay_module_diagnostics_for(request: ParallelReplayRequest<'_>) 
         nodes_by_path: request.nodes_by_path,
         loaded_interfaces: request.loaded_interfaces,
         base_interner: request.base_interner,
+        entry_module_kind: request.entry_module_kind,
         strict_mode: request.strict_mode,
-        strict_types: request.strict_types,
         enable_optimize: request.enable_optimize,
         enable_analyze: request.enable_analyze,
     })

@@ -1,10 +1,29 @@
-// NonZero: type-safe division that can never panic (Proposal 0135 Phase 2).
+// parity-expected-stdout-begin
+// Some(NonZero(5))
+// None
+// "100 / 4 = 25"
+// Some(25)
+// 25
+// 50
+// 0
+// 1
+// "value: 42"
+// -5
+// 3
+// 3
+// parity-expected-stdout-end
+
+/*
+NonZero: type-safe division that can never panic (Proposal 0135 Phase 2).
+*/
+
 //
 // The NonZero type wraps an Int that is guaranteed non-zero by construction.
 // Division by NonZero is total — no runtime check, no Option, no panic.
 
 import Flow.NonZero exposing (..)
 
+// Program entry point.
 fn main() with IO {
     // ── Creating NonZero values ──────────────────────────────────────
     // non_zero is the only way to create a NonZero — it validates at creation time.

@@ -232,8 +232,8 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
     }
 }
 
-/// Generate functions for default class methods that have no explicit
-/// instance implementation. E.g., `neq` with default body `{ !eq(x, y) }`.
+/// Generate top-level functions for default class methods that have no explicit
+/// instance implementation anywhere. E.g., `neq` with default body `{ !eq(x, y) }`.
 fn generate_default_method_functions(
     statements: &[Statement],
     _class_env: &ClassEnv,
@@ -254,7 +254,9 @@ fn generate_default_method_functions(
                     if let Some(ref default_body) = method.default_body {
                         let has_instances = dispatch_table.contains(&(*name, method.name));
                         if !has_instances && reserved_names.insert(method.name) {
-                            // Generate a regular function from the default body.
+                            // Generate a regular top-level function from the
+                            // default body only when there are no instance
+                            // implementations at all for this method.
                             generated.push(Statement::Function {
                                 is_public: false,
                                 fip: None,
@@ -352,19 +354,30 @@ fn generate_from_statements(
                 let resolved_class_name = class_def.name;
                 let class_name_str = interner.resolve(resolved_class_name).to_string();
 
-                for method in methods {
-                    let Some(method_sig) =
-                        class_def.methods.iter().find(|sig| sig.name == method.name)
-                    else {
+                let explicit_methods: HashMap<Identifier, _> =
+                    methods.iter().map(|m| (m.name, m)).collect();
+
+                for method_sig in &class_def.methods {
+                    let explicit_method = explicit_methods.get(&method_sig.name).copied();
+                    let body = if let Some(method) = explicit_method {
+                        method.body.clone()
+                    } else if let Some(default_body) = &method_sig.default_body {
+                        default_body.clone()
+                    } else {
                         continue;
                     };
+
                     // Generate mangled name: __tc_ClassName_TypeName_methodName
-                    let method_name_str = interner.resolve(method.name).to_string();
+                    let method_name_str = interner.resolve(method_sig.name).to_string();
                     let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
                     let mangled_sym = interner.intern(&mangled);
 
                     let mut parameters = context_dict_param_names(context, interner);
-                    parameters.extend(method.params.clone());
+                    let value_parameters = explicit_method
+                        .map(|method| method.params.clone())
+                        .unwrap_or_else(|| method_sig.param_names.clone());
+                    parameters.extend(value_parameters);
+
                     let mut parameter_types: Vec<Option<TypeExpr>> = vec![None; context.len()];
                     parameter_types.extend(
                         method_sig
@@ -390,16 +403,14 @@ fn generate_from_statements(
                         type_args, context, method_sig, interner,
                     );
 
-                    // Create a regular function statement with the mangled name.
                     // Proposal 0151, Phase 4a: forward the instance method's
                     // declared effect row so the synthesized function's
                     // inferred type carries it, and so callers that resolve
                     // through this instance see the row.
-                    let inferred_effects = if method.effects.is_empty() {
-                        method_sig.effects.clone()
-                    } else {
-                        method.effects.clone()
-                    };
+                    let inferred_effects = explicit_method
+                        .filter(|method| !method.effects.is_empty())
+                        .map(|method| method.effects.clone())
+                        .unwrap_or_else(|| method_sig.effects.clone());
 
                     let fn_stmt = Statement::Function {
                         is_public: false,
@@ -410,13 +421,13 @@ fn generate_from_statements(
                         parameter_types,
                         return_type,
                         effects: inferred_effects,
-                        body: method.body.clone(),
+                        body,
                         span: Span::default(),
                     };
                     generated.push(fn_stmt);
 
                     // Record that this (class, method) pair has an instance.
-                    dispatch_table.insert((resolved_class_name, method.name));
+                    dispatch_table.insert((resolved_class_name, method_sig.name));
                 }
             }
             Statement::Module { body, .. } => {

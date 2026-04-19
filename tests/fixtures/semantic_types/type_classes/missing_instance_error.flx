@@ -1,0 +1,11 @@
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn main() {
+    size("flux")
+}

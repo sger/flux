@@ -100,8 +100,12 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     TYPE_UNIFICATION_ERROR,
     OCCURS_CHECK_FAILURE,
     UNDEFINED_TYPE_VAR,
+    INVALID_TYPE_ANNOTATION,
+    INVALID_EFFECT_ROW,
+    RIGID_VAR_ESCAPE,
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
+    CORE_LINT_FAILURE,
     // Type class errors (E440–E449)
     DUPLICATE_CLASS,
     INSTANCE_UNKNOWN_CLASS,
@@ -120,6 +124,16 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     AMBIGUOUS_CLASS_CONSTRAINT,
     EXPOSING_LOCAL_COLLISION,
     IMPORT_NAME_COLLISION_FILE_VS_MODULE,
+    // Named-field data types (Proposal 0152, E460–E468)
+    NAMED_FIELD_MISSING,
+    NAMED_FIELD_UNKNOWN,
+    NAMED_FIELD_DUPLICATE,
+    NAMED_FIELD_NOT_ON_TYPE,
+    SPREAD_NON_NAMED_ADT,
+    DATA_MIXED_FIELD_FORMS,
+    NAMED_FIELD_PUN_UNBOUND,
+    NAMED_FIELD_TYPE_DIVERGES,
+    SPREAD_UNKNOWN_VARIANT,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -180,6 +194,9 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
             Some(DiagnosticCategory::TypeInference)
         }
         "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
+        "E460" | "E461" | "E462" | "E463" | "E464" | "E465" | "E466" | "E467" | "E468" => {
+            Some(DiagnosticCategory::TypeInference)
+        }
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
         | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::syntax::symbol::Symbol;
 
 /// Concrete type constructors (0-argument types or type formers).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TypeConstructor {
     /// Primitive 64-bit signed integer.
     Int,
@@ -21,8 +21,6 @@ pub enum TypeConstructor {
     Unit,
     /// Bottom type (non-returning computations).
     Never,
-    /// The gradual-typing escape: compatible with everything.
-    Any,
     /// `List<T>` type constructor.
     List,
     /// `Array<T>` type constructor.
@@ -54,8 +52,7 @@ impl TypeConstructor {
             | TypeConstructor::Bool
             | TypeConstructor::String
             | TypeConstructor::Unit
-            | TypeConstructor::Never
-            | TypeConstructor::Any => Kind::Type,
+            | TypeConstructor::Never => Kind::Type,
 
             TypeConstructor::List | TypeConstructor::Array | TypeConstructor::Option => {
                 Kind::type1()
@@ -94,7 +91,6 @@ impl fmt::Display for TypeConstructor {
             TypeConstructor::String => write!(f, "String"),
             TypeConstructor::Unit => write!(f, "Unit"),
             TypeConstructor::Never => write!(f, "Never"),
-            TypeConstructor::Any => write!(f, "Any"),
             TypeConstructor::List => write!(f, "List"),
             TypeConstructor::Array => write!(f, "Array"),
             TypeConstructor::Map => write!(f, "Map"),
@@ -118,7 +114,6 @@ mod tests {
         assert_eq!(TypeConstructor::String.to_string(), "String");
         assert_eq!(TypeConstructor::Unit.to_string(), "Unit");
         assert_eq!(TypeConstructor::Never.to_string(), "Never");
-        assert_eq!(TypeConstructor::Any.to_string(), "Any");
         assert_eq!(TypeConstructor::List.to_string(), "List");
         assert_eq!(TypeConstructor::Array.to_string(), "Array");
         assert_eq!(TypeConstructor::Map.to_string(), "Map");

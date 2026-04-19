@@ -1,0 +1,5 @@
+import Math exposing (id, inc)
+
+fn main() with IO {
+    print(inc(id(41)))
+}

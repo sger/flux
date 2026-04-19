@@ -1,0 +1,24 @@
+// Expression-level validation should reject residual inference failure while
+// still allowing legitimate polymorphic subexpressions.
+//
+// This example exercises two shapes that previously risked false positives:
+// - a bare polymorphic identifier use (`f`)
+// - a self-recursive call inside a concrete function (`countdown`)
+
+fn id(x) {
+    x
+}
+
+fn countdown(n) {
+    if n == 0 {
+        0
+    } else {
+        countdown(n - 1)
+    }
+}
+
+fn main() with IO {
+    let f = id
+    print(f(41))
+    print(countdown(42))
+}

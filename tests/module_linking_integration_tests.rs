@@ -5,13 +5,14 @@
 //! These tests caught bugs where the linker skipped rebasing for new opcodes,
 //! causing the VM to index into wrong constants (e.g., adding Int + String).
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
 use flux::diagnostics::{DiagnosticsAggregator, render_diagnostics};
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::module_graph::ModuleGraph;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -80,7 +81,18 @@ fn run_named_module(module_file_name: &str, module_source: &str, entry_source: &
         entry_path.to_string_lossy().to_string(),
         graph_result.interner,
     );
+    let nodes_by_path: HashMap<_, _> = graph_result
+        .graph
+        .topo_order()
+        .iter()
+        .map(|node| (node.path.clone(), (*node).clone()))
+        .collect();
     for node in graph_result.graph.topo_order() {
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
@@ -149,7 +161,18 @@ fn run_two_modules(
         entry_path.to_string_lossy().to_string(),
         graph_result.interner,
     );
+    let nodes_by_path: HashMap<_, _> = graph_result
+        .graph
+        .topo_order()
+        .iter()
+        .map(|node| (node.path.clone(), (*node).clone()))
+        .collect();
     for node in graph_result.graph.topo_order() {
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
@@ -211,6 +234,66 @@ fn constant_add_with_string_constant_base() {
         "next(99);",
     );
     assert_eq!(result, Value::Integer(100));
+}
+
+#[test]
+fn module_value_binding_can_construct_records() {
+    let result = run_module(
+        r#"
+        module Lib {
+            data Circle {
+                Circle { label: String, radius: Int }
+            }
+
+            let unit = Circle { label: "circle", radius: 3 }
+
+            public fn radius() {
+                unit.radius
+            }
+        }
+        "#,
+        r#"radius();"#,
+    );
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn module_value_binding_can_reference_earlier_module_values() {
+    let result = run_module(
+        r#"
+        module Lib {
+            public data Test {
+                Test { label: String }
+            }
+
+            public data Circle {
+                Circle { label: String, radius: Int, test: Test }
+            }
+
+            let test = Test { label: "test" }
+            let circle = Circle { label: "circle", radius: 3, test: test }
+
+            public fn summary() {
+                circle.radius + len(test.label)
+            }
+        }
+        "#,
+        r#"summary();"#,
+    );
+    assert_eq!(result, Value::Integer(7));
+}
+
+#[test]
+fn public_module_value_is_accessible_cross_module() {
+    let result = run_module(
+        r#"
+        module Lib {
+            public let answer = 41 + 1
+        }
+        "#,
+        r#"Lib.answer + 1;"#,
+    );
+    assert_eq!(result, Value::Integer(43));
 }
 
 // ── ADT pattern matching after linking ──────────────────────────────────

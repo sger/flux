@@ -3,42 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/functions/immutability_valid.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E001]: Duplicate Name
-
-Duplicate binding: `counter` is already defined.
-
-  examples/functions/immutability_valid.flx:16:9
-   |
-16 |         let counter = n + 1;
-   |         ^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  examples/functions/immutability_valid.flx:13:5
-   |
-13 |     let counter = 0;
-   |     ^^^^^^^^^^^^^^^^
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/functions/immutability_valid.flx:32:32
-   |
-32 |     let first_doubled = double(first(numbers));
-   |                                ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-Help:
-  Did you mean `first_doubled`?
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

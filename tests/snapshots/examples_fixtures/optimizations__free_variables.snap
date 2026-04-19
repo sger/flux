@@ -30,19 +30,6 @@ I can't find a value named `missing`.
 Hint:
   Define it first: let missing = ...;
 
-
-error[E004]: Undefined Variable
-
-I can't find a value named `unknown`.
-
-  examples/optimizations/free_variables.flx:28:5
-   |
-28 |     unknown + 1;
-   |     ^^^^^^^
-
-Hint:
-  Define it first: let unknown = ...;
-
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

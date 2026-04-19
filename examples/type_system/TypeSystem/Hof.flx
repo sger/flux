@@ -1,9 +1,9 @@
 module TypeSystem.Hof {
-    fn apply_twice(f: (Int) -> Int, x: Int) -> Int {
+    public fn apply_twice(f: (Int) -> Int, x: Int) -> Int {
         f(f(x))
     }
 
-    fn transform_and_sum(xs: List<Int>, f: (Int) -> Int) -> Int {
+    public fn transform_and_sum(xs: List<Int>, f: (Int) -> Int) -> Int {
         match xs {
             [h | t] -> f(h) + transform_and_sum(t, f),
             [] -> 0,
@@ -11,7 +11,7 @@ module TypeSystem.Hof {
         }
     }
 
-    fn log_each(xs: List<Int>) with IO {
+    public fn log_each(xs: List<Int>) with IO {
         match xs {
             [h | t] -> do {
                 print("n=#{h}")

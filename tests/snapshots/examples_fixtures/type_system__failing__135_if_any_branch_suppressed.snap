@@ -5,6 +5,45 @@ Fixture: examples/type_system/failing/135_if_any_branch_suppressed.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E423]: Unknown Type
+
+I can't find a type named `Any`.
+
+  examples/type_system/failing/135_if_any_branch_suppressed.flx:2:20
+  |
+2 | fn any_param_fn(x: Any) -> Int { 0 }
+  |                    ^^^
+  |                    --- unknown type used here
+
+Hint:
+  Use a built-in type, an in-scope type parameter, or a declared ADT.
+
+
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/type_system/failing/135_if_any_branch_suppressed.flx:7:14
+  |
+7 |     let _f = if true { concrete_fn } else { any_param_fn }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |              --------------------------------------------- parameter 1 has type `Any`
+
+  |                        ----------- this branch established the expected type
+
+  |                                             ------------ this branch conflicts with that type
+
+Note:
+  expected parameter type: Int
+  found parameter type: Any
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
+
+Help:
+  Change parameter 1 to use `Int` consistently.
+  Unknown type `Any` — did you mean `Int`?
+
+
 error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
@@ -22,5 +61,7 @@ The `add` function takes 2 arguments, but 1 were provided.
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

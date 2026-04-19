@@ -1,6 +1,6 @@
 # HM Inference in the Flux Compiler
 
-> **Related:** [type_system_effects.md](type_system_effects.md) · [Guide Ch. 9 — Type System Basics](../guide/09_type_system_basics.md)
+> **Related:** [type_system_effects.md](type_system_effects.md) · [signature_directed_checking.md](signature_directed_checking.md) · [Guide Ch. 9 — Type System Basics](../guide/09_type_system_basics.md)
 
 This document explains how Hindley-Milner (HM) inference is wired into Flux compilation today.
 
@@ -14,11 +14,19 @@ HM inference in Flux has two jobs:
 - infer types for unannotated code and report type errors (`E300`/`E301`),
 - provide expression-level type facts used by compiler typed-validation paths.
 
-The implementation is intentionally gradual: unresolved/heterogeneous paths may degrade to `Any` in non-strict contexts.
+The maintained implementation targets a statically typed source model:
+
+- accepted programs are type-checked before execution
+- unresolved semantic residue is preserved explicitly in Core/HM consumers instead of erased to a semantic top type
+- backend generic representations are runtime-representation decisions, not source-language typing semantics
 
 ## Main Entry Points
 
-- HM engine core: `src/ast/type_infer.rs`
+- HM engine core: `src/ast/type_infer/` (split across `mod.rs`,
+  `statement.rs`, `function.rs`, `unification.rs`, `effects.rs`,
+  `constraint.rs`, `solver.rs`, `adt.rs`, `display.rs`,
+  `static_type_validation.rs`, and `expression/`)
+- Bidirectional check mode: `src/ast/type_infer/expression/checked.rs`
 - Type primitives and unification:
   - `src/types/infer_type.rs`
   - `src/types/type_subst.rs`
@@ -26,14 +34,14 @@ The implementation is intentionally gradual: unresolved/heterogeneous paths may 
   - `src/types/type_env.rs`
   - `src/types/unify_error.rs`
 - Compiler integration:
-  - `src/bytecode/compiler/mod.rs`
-  - `src/bytecode/compiler/hm_expr_typer.rs`
-  - `src/bytecode/compiler/statement.rs`
-  - `src/bytecode/compiler/expression.rs`
+  - `src/compiler/mod.rs`
+  - `src/compiler/hm_expr_typer.rs`
+  - `src/compiler/statement.rs`
+  - `src/compiler/expression.rs`
 
 ## Compile Pipeline Placement
 
-Inside `Compiler::compile` (`src/bytecode/compiler/mod.rs`), HM runs after pass-1 function predeclaration and before pass-2 statement codegen.
+Inside `Compiler::compile` (`src/compiler/mod.rs`), HM runs after pass-1 function predeclaration and before pass-2 statement codegen.
 
 High-level order:
 1. Reset per-file compiler state.
@@ -60,24 +68,54 @@ Important invariant:
 
 ## Inference Model (Current)
 
-`src/ast/type_infer.rs` uses an Algorithm-W style structure with recovery:
+`src/ast/type_infer/` uses an Algorithm-W style structure **augmented with
+bidirectional checking** (Proposal 0159):
 
 - Program phase:
-  - prebind top-level functions to fresh vars (enables mutual recursion),
+  - prebind top-level functions: functions with a **complete explicit
+    signature** (all params annotated + return type) get their declared
+    polymorphic scheme via `declared_fn_scheme`; unannotated functions
+    get `Scheme::mono(fresh_var)` as a mutual-recursion slot,
   - infer each statement.
+- Module phase (`infer_module`):
+  - annotation-gated predeclaration — only fully-annotated module members
+    are predeclared. Unannotated helpers are **not** predeclared to avoid
+    the cross-caller polymorphism collapse documented in
+    [proposal_0159_investigation.md](proposal_0159_investigation.md).
 - Let-polymorphism:
   - infer value type,
   - `generalize` over env-free vars,
   - store `Scheme` in `TypeEnv`,
   - instantiate at use sites.
+- Bidirectional checking:
+  - `check_expression(expr, expected)` pushes the expected type into
+    structured sub-expressions (`If`, `Match`, `DoBlock`, `Lambda`,
+    `Tuple`, `ListLiteral`, `ArrayLiteral`, `Hash`, `Cons`, `Some`,
+    `Left`, `Right`). Wired at typed-`let`, annotated function bodies,
+    and call-site arguments (both fixed-arity and higher-order paths).
+  - See [signature_directed_checking.md](signature_directed_checking.md)
+    for the detailed model.
+- Skolemisation:
+  - declared type parameters (`fn f<a>(...)`) are marked as rigid skolems
+    for the duration of body inference via `mark_skolem`,
+  - `unify_core` threads a `skolems: &HashSet<TypeVarId>` parameter and
+    rejects binding a skolem to a non-identical type via
+    `UnifyErrorKind::RigidBind`, surfaced as E305.
 - Unification:
-  - implemented in `src/types/unify_error.rs`,
+  - implemented in `src/types/unify.rs`,
   - supports vars, constructors, apps, tuples, function types,
-  - `Any` unifies with everything,
-  - function unification requires effect-set equality.
+  - function unification requires effect-set equality,
+  - flip rule for `(Var(skol), Var(flex))` so flex binds to skol rather
+    than the illegal reverse.
 - Recovery:
-  - `unify_reporting` emits diagnostics only when both conflicting sides are concrete and non-`Any`,
-  - on failure returns `Any` so inference can continue.
+  - `unify_reporting` emits diagnostics only when both conflicting sides
+    are concrete (with a `RigidBind` bypass so E305 always surfaces),
+  - on failure inference preserves explicit residue instead of
+    manufacturing a semantic top type.
+- Cross-pass ID safety:
+  - `advance_counter_past_preloaded_schemes` bumps the env counter past
+    any TypeVarId used in preloaded schemes so locally-allocated vars
+    cannot collide with IDs baked into cross-module scheme bodies.
 
 ## Expression Precision and Known Fallbacks
 
@@ -87,10 +125,10 @@ Precision that is used downstream by typed validation includes:
 - projection typing for tuple field access and index expressions,
 - module member scheme lookup for typed module members.
 
-Intentional fallback zones (current behavior):
-- branch disagreement (`if`/`match`) joins through `join_types`, which may return `Any`,
-- `MemberAccess` on non-module values falls back to `Any`,
-- unresolved/unsupported effect-operation signatures in `Perform`/`Handle` still degrade to `Any`.
+Intentional residue / diagnostic zones (current behavior):
+- branch disagreement (`if`/`match`) joins through `join_types`, which may preserve unresolved residue,
+- `MemberAccess` on non-module values is rejected by maintained strict typing paths instead of becoming a source-language dynamic type,
+- unresolved/unsupported effect-operation signatures in `Perform`/`Handle` remain diagnostics or explicit residue sites rather than implicit dynamic typing.
 
 ## Worked Example: How Types Are Inferred
 
@@ -138,7 +176,7 @@ fn main() -> Unit {
 6. Compile-time typed checks:
 - HM expression map stores inferred type per expression node.
 - Strict typed-validation paths consume those HM results via `hm_expr_type_strict_path`.
-- If a boundary expression is unresolved (`Any` or free vars) under strict policy, compiler emits `E425`.
+- If a boundary expression is unresolved (free vars or unsupported residue) under strict policy, compiler emits `E425`.
 
 ### Why this matters
 
@@ -157,9 +195,9 @@ In this case, HM infers `id("hi") : String`, typed binding expects `Int`, and co
 
 ## Strict-Path Consumption in Compiler
 
-`src/bytecode/compiler/hm_expr_typer.rs` is the strict consumer for HM expression types:
+`src/compiler/hm_expr_typer.rs` is the strict consumer for HM expression types:
 - `hm_expr_type_strict_path` resolves expression node id and fetches inferred type,
-- resolved means: no free vars and no `Any`,
+- resolved means: no free vars and no unsupported fallback residue,
 - typed checks call `validate_expr_expected_type(_with_policy)`.
 
 If strict mode requires a resolved type and HM has unresolved output, compiler raises:
@@ -172,6 +210,9 @@ This prevents silent runtime-boundary fallback on strict typed boundaries.
 Primary HM-related diagnostics:
 - `E300 TYPE_UNIFICATION_ERROR` (mismatch),
 - `E301 OCCURS_CHECK_FAILURE` (infinite type),
+- `E303 INVALID_TYPE_ANNOTATION` (parameter / return annotation cannot be lowered),
+- `E304 INVALID_EFFECT_ROW` (conflicting row variables in a single effect row),
+- `E305 RIGID_VAR_ESCAPE` (declared type parameter unified with a concrete type inside the function body — Proposal 0159),
 - `E425 STRICT UNRESOLVED BOUNDARY TYPE` (strict boundary cannot be proven from HM result).
 
 Also relevant:
@@ -190,7 +231,7 @@ Main HM tests:
 - `tests/type_inference_tests.rs`
 
 Compiler/HM integration tests:
-- `src/bytecode/compiler/compiler_test.rs`
+- `src/compiler/compiler_test.rs`
 - `tests/compiler_rules_tests.rs`
 
 Parity and fixture coverage:
@@ -229,8 +270,8 @@ Fresh type variables are created by `InferCtx::fresh_var()`. Each call returns a
 3. If both sides are `Con(c1)` and `Con(c2)` with `c1 == c2`, unification succeeds.
 4. If both sides are `App(f1, args1)` and `App(f2, args2)`, recurse on `(f1, f2)` and `zip(args1, args2)`.
 5. If both sides are `Fun(params1, ret1, eff1)` and `Fun(params2, ret2, eff2)`, recurse on each param pair, the return type, and effect sets.
-6. If either side is `Any`, succeed (gradual typing escape).
-7. Otherwise, emit `E300` — but only when both sides are concrete (non-`Any`, no free vars).
+6. Internal compatibility paths may still treat `Any` as a successful unification boundary.
+7. Otherwise, emit `E300` — but only when both sides are concrete (no free vars and no compatibility-only fallback involved).
 
 ### Application
 
@@ -246,26 +287,25 @@ Generalization is conservative in Flux:
 
 ---
 
-## Gradual Typing Integration
+## Compatibility Legacy: `Any`
 
-Flux is **gradually typed**: `Any` is a first-class type that unifies with everything. This makes the type system safe for incremental adoption.
+The HM implementation still contains legacy `Any`-related compatibility behavior, but that is not the intended normal language model.
 
-### Where `Any` enters
+### Where legacy `Any` surfaces still exist
 
 | Source | Description |
 |--------|-------------|
-| Unannotated parameters | When HM can't determine a concrete type (e.g., never used in a typed context) |
-| Heterogeneous `if`/`match` branches | `join_types(t1, t2)` returns `Any` when branches have different concrete types |
-| Unknown module member | `MemberAccess` on non-module values falls back to `Any` |
-| Unresolved `Perform`/`Handle` signatures | Effect operations without resolvable types degrade to `Any` |
+| Internal unification compatibility | Some non-strict paths still treat `Any` as a permissive boundary |
+| Older diagnostics and helper paths | Some displays and boundary helpers still mention `Any` |
+| Compatibility-oriented tests | Some tests intentionally exercise `Any` boundaries to protect old behavior while migration continues |
 
 ### `Any` and error suppression
 
-When either side of a unification is `Any`, the unification succeeds silently. This prevents false positives on partially-typed code. The trade-off: type errors in `Any` regions are not caught statically.
+Where legacy `Any` compatibility is still active, unification may succeed silently. That suppresses some errors, which is why maintained strict paths are being pushed away from these fallback zones.
 
 ### Strict mode and `Any`
 
-`--strict` enables additional checks that catch `Any` leaking into public API positions:
+Strict modes exist precisely because the compiler is moving away from these compatibility surfaces. Relevant diagnostics include:
 - `E423`: `Any` appears in a `public fn` parameter or return type.
 - `E425`: A strict-path HM lookup returned `Any` or unresolved type variables.
 
@@ -296,7 +336,7 @@ When adding a new expression form or statement that needs type-checked behavior:
    - Produce and record an `InferType` for the new node.
    - Emit `E300` via `unify_reporting` for concrete mismatches.
 
-2. **Compiler consumption side** (`src/bytecode/compiler/`):
+2. **Compiler consumption side** (`src/compiler/`):
    - If the construct has an annotated type, call `hm_expr_type_strict_path` to get the HM-inferred type, then `validate_expr_expected_type_with_policy` to check it.
    - Avoid re-deriving the type in the compiler — always consume the `ExprTypeMap` result.
 
@@ -315,5 +355,5 @@ When adding a new expression form or statement that needs type-checked behavior:
 ## Non-Goals / Current Limits
 
 - Not a full redesign of effect-row polymorphism.
-- Gradual typing fallback via `Any` remains intentional in non-strict paths.
-- Runtime boundary type conversion (`TypeEnv::to_runtime`) is intentionally conservative and may map unresolved/unsupported forms to `Any`.
+- Some non-strict and compatibility-oriented paths still retain `Any` legacy behavior.
+- The compatibility wrapper `TypeEnv::to_runtime` may still map unresolved/unsupported forms to `Any`; maintained strict-boundary code should prefer checked lowering paths.

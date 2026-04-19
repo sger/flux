@@ -6,11 +6,13 @@ use std::{
 };
 
 #[cfg(feature = "llvm")]
-use crate::llvm::module_cache::{DependencyStatus, NativeModuleCache, support_object_path};
+use crate::llvm::module_cache::{
+    DependencyStatus, NativeModuleCache, compute_native_cache_key, support_object_path,
+};
 use crate::{
     bytecode::bytecode_cache::module_cache::ModuleDependencyStatus,
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
-    bytecode::compiler::module_interface::{
+    compiler::module_interface::{
         compute_semantic_config_hash, interface_path, load_cached_interface, load_interface,
         load_valid_interface,
     },
@@ -215,6 +217,8 @@ pub(crate) fn show_interface_info_file(path: &str) {
         println!("interface: not found or invalid");
         return;
     };
+    let mut interner = crate::syntax::interner::Interner::new();
+    let remap = interface.build_symbol_remap(&mut interner);
 
     println!("interface file: {}", path);
     println!("module: {}", interface.module_name);
@@ -266,7 +270,7 @@ pub(crate) fn show_interface_info_file(path: &str) {
             interface
                 .schemes
                 .get(&member)
-                .map(format_scheme_for_cli)
+                .map(|scheme| format_scheme_for_cli(&interner, &scheme.remap_symbols(&remap)))
                 .unwrap_or_else(|| "<no scheme>".to_string())
         );
         if let Some(signature) = interface.borrow_signatures.get(&member) {
@@ -430,7 +434,7 @@ fn print_native_cache_summary(
     };
     let source_hash = hash_bytes(source.as_bytes());
     let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
-    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
     let native_cache = NativeModuleCache::new(cache_layout.native_dir());
 
     println!("module: {}", module_path.display());

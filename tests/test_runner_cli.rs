@@ -247,6 +247,39 @@ fn test_mode_flow_list_module_fixture_passes() {
 }
 
 #[test]
+fn test_mode_flow_list_module_fixture_reports_strict_stdlib_diagnostics() {
+    let file = fixture_path("Flow/List_test.flx");
+    let output = run_flux(&[
+        "--strict",
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("tests/flux/Flow/List_test.flx")
+            || text.contains("lib/Flow/List.flx")
+            || text.contains("lib/Flow/Assert.flx"),
+        "expected strict Flow-related module path in output, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("error[E417]")
+            || text.contains("error[E430]")
+            || text.contains("error[E425]"),
+        "expected strict typing diagnostics from stdlib, output:\n{}",
+        text
+    );
+}
+
+#[test]
 fn test_mode_flow_array_module_fixture_passes() {
     let file = fixture_path("Flow/Array_test.flx");
     let output = run_flux(&[
@@ -290,6 +323,39 @@ fn test_mode_flow_array_module_fixture_passes() {
     assert!(
         text.contains("5 tests: 5 passed, 0 failed"),
         "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[test]
+fn test_mode_flow_array_module_fixture_reports_strict_stdlib_diagnostics() {
+    let file = fixture_path("Flow/Array_test.flx");
+    let output = run_flux(&[
+        "--strict",
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        !output.status.success(),
+        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("tests/flux/Flow/Array_test.flx")
+            || text.contains("lib/Flow/Array.flx")
+            || text.contains("lib/Flow/Assert.flx"),
+        "expected strict Flow-related module path in output, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("error[E417]")
+            || text.contains("error[E430]")
+            || text.contains("error[E425]"),
+        "expected strict typing diagnostics from stdlib, output:\n{}",
         text
     );
 }
@@ -792,8 +858,8 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         text
     );
     assert!(
-        text.contains("IAdd(1, 2)"),
-        "expected lowered typed primop in Core dump, output:\n{}",
+        text.contains("Print(3)"),
+        "expected optimized readable Core dump for arithmetic example, output:\n{}",
         text
     );
     assert!(
@@ -907,6 +973,34 @@ fn dump_core_debug_excludes_aether_stats() {
     );
 }
 
+#[test]
+fn dump_core_debug_shows_explicit_polymorphism_without_dynamic() {
+    let file = example_path("aether/polymorphic_core_types.flx");
+    let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected dump-core debug success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("forall "),
+        "expected dump-core debug to render explicit polymorphism, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("letrec id : a") && text.contains("letrec choose : a"),
+        "expected dump-core debug to preserve explicit polymorphism for local defs with canonical variable names, output:\n{}",
+        text
+    );
+    assert!(
+        !text.contains("Dynamic"),
+        "dump-core debug should not regress to semantic Dynamic placeholders, output:\n{}",
+        text
+    );
+}
+
 #[cfg(feature = "llvm")]
 #[test]
 fn test_native_aether_queue_workload_matches_vm_totals() {
@@ -972,6 +1066,65 @@ fn test_native_aether_bench_reuse_enabled_prints_head_value() {
     assert!(
         text.contains("\"enabled: result head = 101\""),
         "expected mapped head output on native backend, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_native_large_list_fold_is_stack_safe() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = write_temp_flux_file(
+        "native_large_list_fold",
+        r#"
+fn main() with IO {
+    let xs = range(1, 100001)
+    let total = fold(xs, 0, \(acc, x) -> acc + x)
+    print(total)
+}
+"#,
+    );
+
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native large list fold to succeed, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("5000050000"),
+        "expected native large list fold result, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_native_aoc_2025_day2_haskell_style_no_longer_crashes() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = example_path("aoc/2025/aoc_day2_haskell_style.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for aoc_day2_haskell_style, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("54234399924\n70187097315")
+            || text.contains("54234399924\r\n70187097315"),
+        "expected native day2 output, output:\n{}",
         text
     );
 }
@@ -1458,10 +1611,13 @@ fn example_effect_row_unresolved_single_e419_196() {
 
 #[test]
 fn example_effect_row_unresolved_multi_e420_197() {
+    // HM now reports E304 (Invalid Effect Row) directly at the annotation
+    // site when a single `with` clause mixes distinct row variables, which
+    // supersedes the downstream E420 this fixture historically produced.
     assert_example_error(
         "examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx",
         &[],
-        "E420",
+        "E304",
     );
 }
 

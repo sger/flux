@@ -1,9 +1,16 @@
+// parity-expected-stdout-begin
+// "len(xs) = 4"
+// "first(xs) = 10"
+// parity-expected-stdout-end
+
 // Phase 3 Flow directives: valid usage
-// - excludes unqualified `print`
-// - still allows qualified `Flow.print`
+// - excludes names from the imported Flow surface
+// - other base names remain available in the same unit
 
 import Flow except [print]
 
-let xs = [10, 20, 30, 40];
-Flow.print("len(xs) = " + to_string(len(xs)));
-Flow.print("first(xs) = " + to_string(first(xs)));
+fn main() with IO {
+    let xs = [10, 20, 30, 40]
+    print("len(xs) = " + to_string(len(xs)))
+    print("first(xs) = " + to_string(first(xs)))
+}

@@ -3,65 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/collections.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/primop/collections.flx:12:11
-   |
-12 |     print(first(lst));
-   |           ^^^^^
-
-Hint:
-  Define it first: let first = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `last`.
-
-  examples/primop/collections.flx:13:11
-   |
-13 |     print(last(lst));
-   |           ^^^^
-
-Hint:
-  Define it first: let last = ...;
-
-Help:
-  Did you mean `lst`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `rest`.
-
-  examples/primop/collections.flx:14:11
-   |
-14 |     print(rest(lst));
-   |           ^^^^
-
-Hint:
-  Define it first: let rest = ...;
-
-Help:
-  Did you mean `lst`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `contains`.
-
-  examples/primop/collections.flx:15:11
-   |
-15 |     print(contains(lst, 2));
-   |           ^^^^^^^^
-
-Hint:
-  Define it first: let contains = ...;
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

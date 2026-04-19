@@ -1,0 +1,13 @@
+// E305: Rigid type variable escape.
+//
+// The declared type parameter `a` is rigid inside the body — it cannot be
+// unified with `Int` just because the body adds `1` to the value. A correct
+// implementation must keep `a` abstract.
+
+fn bad<a>(x: a) -> Int {
+    x + 1
+}
+
+fn main() -> Unit {
+    let _ = bad(1)
+}

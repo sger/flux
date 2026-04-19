@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// "yes"
+// "no"
+// "positive"
+// "equal"
+// None
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: If/else expressions
     // Expected output:
@@ -15,27 +23,27 @@ fn main() with IO {
     if false {
         print("should not print");
     } else {
-    print("no");
-};
+        print("no");
+    };
 
-// With comparison
-let x = 5;
-if x > 0 {
-    print("positive");
-} else {
-print("negative");
-};
+    // With comparison
+    let x = 5;
+    if x > 0 {
+        print("positive");
+    } else {
+        print("negative");
+    };
 
-// Equality check
-let a = 10;
-let b = 10;
-if a == b {
-    print("equal");
-} else {
-print("not equal");
-};
+    // Equality check
+    let a = 10;
+    let b = 10;
+    if a == b {
+        print("equal");
+    } else {
+        print("not equal");
+    };
 
-// If as expression
-let result = if 10 > 5 { 10; } else { 5; };
-print(result);
+    // If as expression
+    let result = if 10 > 5 { 10; } else { 5; };
+    print(result);
 }

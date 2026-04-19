@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 
 use flux::diagnostics::{Diagnostic, DiagnosticsAggregator};
 use flux::{
-    bytecode::compiler::Compiler,
-    syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
+    compiler::Compiler,
+    syntax::{
+        lexer::Lexer, module_graph::ModuleGraph, parser::Parser, program::Program,
+        statement::Statement,
+    },
 };
 
 #[allow(dead_code)]
@@ -125,6 +128,82 @@ pub fn normalize_transcript(text: &str, workspace_root: &Path) -> String {
     normalized
 }
 
+fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
+    const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+        ("Flow.Option", "Option.flx"),
+        ("Flow.List", "List.flx"),
+        ("Flow.String", "String.flx"),
+        ("Flow.Numeric", "Numeric.flx"),
+        ("Flow.IO", "IO.flx"),
+        ("Flow.Assert", "Assert.flx"),
+    ];
+
+    let flow_dir = Path::new("lib").join("Flow");
+    if !flow_dir.exists() {
+        return;
+    }
+
+    let interner = parser.interner();
+    let existing_imports: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|stmt| {
+            if let Statement::Import { name, .. } = stmt {
+                interner.try_resolve(*name).map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut imports = Vec::new();
+    for &(module_name, file_name) in FLOW_PRELUDE_MODULES {
+        if existing_imports.iter().any(|s| s == module_name) {
+            continue;
+        }
+        if !flow_dir.join(file_name).exists() {
+            continue;
+        }
+        imports.push(format!("import {module_name} exposing (..)"));
+    }
+
+    if imports.is_empty() {
+        return;
+    }
+
+    let prelude_source = imports.join("\n");
+    let main_interner = parser.take_interner();
+    let prelude_lexer = Lexer::new_with_interner(&prelude_source, main_interner);
+    let mut prelude_parser = Parser::new(prelude_lexer);
+    let prelude_program = prelude_parser.parse_program();
+
+    let enriched_interner = prelude_parser.take_interner();
+    parser.restore_interner(enriched_interner);
+
+    let mut new_statements = prelude_program.statements;
+    new_statements.append(&mut program.statements);
+    program.statements = new_statements;
+}
+
+fn collect_roots(fixture: &Path, workspace_root: &Path, fixture_rel: &str) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if fixture_rel.starts_with("examples/runtime_boundaries/RuntimeBoundaries/") {
+        roots.push(workspace_root.join("examples/runtime_boundaries"));
+    }
+    if let Some(parent) = fixture.parent() {
+        roots.push(parent.to_path_buf());
+    }
+    let src_root = workspace_root.join("src");
+    if src_root.exists() {
+        roots.push(src_root);
+    }
+    let lib_root = workspace_root.join("lib");
+    if lib_root.exists() {
+        roots.push(lib_root);
+    }
+    roots
+}
+
 #[allow(dead_code)]
 pub fn build_transcript(
     fixture: &Path,
@@ -136,24 +215,14 @@ pub fn build_transcript(
 
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
+    let mut program = parser.parse_program();
 
     let mut diagnostics: Vec<Diagnostic> = std::mem::take(&mut parser.errors);
     let mut compile_status = String::from("ok");
 
     if diagnostics.is_empty() {
-        let mut roots = Vec::new();
-        if let Some(parent) = fixture.parent() {
-            roots.push(parent.to_path_buf());
-        }
-        let lib_root = workspace_root.join("lib");
-        if lib_root.exists() {
-            roots.push(lib_root);
-        }
-        let src_root = workspace_root.join("src");
-        if src_root.exists() {
-            roots.push(src_root);
-        }
+        inject_flow_prelude(&mut program, &mut parser);
+        let roots = collect_roots(fixture, workspace_root, fixture_rel);
 
         let interner = parser.take_interner();
 
@@ -164,7 +233,15 @@ pub fn build_transcript(
             compile_status = String::from("failed (module)");
         } else {
             let mut compiler = Compiler::new_with_interner(fixture_rel, graph_result.interner);
-            for node in graph_result.graph.topo_order() {
+            let mut ordered_nodes = graph_result.graph.topo_order();
+            ordered_nodes.sort_by_key(|node| {
+                if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib {
+                    0
+                } else {
+                    1
+                }
+            });
+            for node in ordered_nodes {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 compiler.set_current_module_kind(node.kind);
                 if let Err(mut diags) = compiler.compile(&node.program) {

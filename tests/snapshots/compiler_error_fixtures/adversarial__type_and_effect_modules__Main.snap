@@ -23,9 +23,6 @@ Note: Module Skipped
 
 I skipped module `examples/compiler_errors/adversarial/type_and_effect_modules/Main.flx` because its dependency `EffectBroken` already has errors.
 
-  examples/compiler_errors/adversarial/type_and_effect_modules/Main.flx:0:1
-  |
-
 
 error[E300]: Annotation Type Mismatch
 

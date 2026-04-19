@@ -3,21 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/105_base_hof_callback_effect_row_ok.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/type_system/105_base_hof_callback_effect_row_ok.flx:4:5
-  |
-4 |     map(xs, f)
-  |     ^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Help:
-  Did you mean `map_passthrough`?
+<none>
 == stdout ==
 <not executed>

@@ -1,10 +1,20 @@
-// Advent of Code - Day 12 Part 1
-// Count regions that can fit the requested presents using the rule:
-//   width * height >= 9 * sum(counts)
-// This mirrors the provided Rust solution logic, implemented in Flux.
-// Input: examples/aoc/2025/aoc_day12.txt
+// parity-expected-stdout-begin
+// 422
+// parity-expected-stdout-end
 
+/*
+Advent of Code - Day 12 Part 1
+Count regions that can fit the requested presents using the rule:
+width * height >= 9 * sum(counts)
+This mirrors the provided Rust solution logic, implemented in Flux.
+Input: examples/aoc/2025/aoc_day12.txt
+*/
+
+import Flow.Array as Array
+
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -12,6 +22,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -19,43 +30,50 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
         } else {
-        if char_at(s, idx) == ch {
-            idx
-        } else {
-        find_char_from(s, ch, idx + 1)
+            if char_at(s, idx) == ch {
+                idx
+            } else {
+                find_char_from(s, ch, idx + 1)
+            }
+        }
     }
-}
-}
 
-fn has_char(s, ch) {
-    find_char_from(s, ch, 0) >= 0
-}
+    // Check whether char.
+    fn has_char(s, ch) {
+        find_char_from(s, ch, 0) >= 0
+    }
 
-fn region_fits(line) {
-    let c = find_char_from(line, ":", 0)
-    let left = trim(substring(line, 0, c))
-    let right = trim(substring(line, c + 1, len(line)))
+    // Check whether one region can fit its requested presents.
+    fn region_fits(line) {
+        let c = find_char_from(line, ":", 0)
+        let left = trim(substring(line, 0, c))
+        let right = trim(substring(line, c + 1, len(line)))
 
-    let dims = split_ints(left, "x")
-    let w = int_at(dims, 0)
-    let h = int_at(dims, 1)
+        let dims = split_ints(left, "x")
+        let w = int_at(dims, 0)
+        let h = int_at(dims, 1)
 
-    let counts = split_ints(right, " ")
-    let needed = 9 * sum(counts)
-    let area = w * h
-    area >= needed
-}
+        let counts = split_ints(right, " ")
+        let needed = 9 * Array.sum(counts)
+        let area = w * h
+        area >= needed
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day12.txt")
-let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
-let fits = [if region_fits(line) { 1 } else { 0 } | line <- region_lines]
-print(sum(fits))
-}
+    let lines = read_lines("examples/aoc/2025/aoc_day12.txt")
+    let region_lines =
+    Array.filter(
+        Array.map(lines, \line -> trim(line)),
+        \line -> line != "" && has_char(line, "x") && has_char(line, ":"))
+        let fits = Array.map(region_lines, \line -> if region_fits(line) { 1 } else { 0 })
+        print(Array.sum(fits))
+    }

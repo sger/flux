@@ -18,7 +18,7 @@
 //!   bits [63:50] = 0x7FFD_  (sign=0, exp=0x7FF, quiet=1, box=1)
 //!   i.e.  0x7FFD_0000_0000_0000
 //!
-//! Any double whose top 14 bits are NOT 0x7FFD is stored as-is (raw f64 bits).
+//! A double whose top 14 bits are NOT 0x7FFD is stored as-is (raw f64 bits).
 //! The canonical IEEE NaN (0x7FF8_0000_0000_0000) is therefore a valid float,
 //! not a NaN-box.
 //!

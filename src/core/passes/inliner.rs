@@ -89,7 +89,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
 // ── Occurrence counting ───────────────────────────────────────────────────────
 
 /// Count the number of free occurrences of `var` in `expr`.
-fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
+pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
     match expr {
         CoreExpr::Var { var: ref_var, .. } => {
             if ref_var.binder == Some(var) {
@@ -192,14 +192,14 @@ fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
 ///
 /// If so, inlining a single-use binding could still duplicate work
 /// (the lambda may execute multiple times).
-fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
+pub(super) fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
         CoreExpr::Lam { params, body, .. } => {
             if params.iter().any(|p| p.id == var) {
                 false // shadowed
             } else {
-                // Any occurrence inside the lambda body counts as "under lambda".
+                // Every occurrence inside the lambda body counts as "under lambda".
                 count_occurrences(var, body) > 0
             }
         }
@@ -256,7 +256,7 @@ fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
     }
 }
 
-fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
+pub(super) fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
         CoreExpr::Lam { params, body, .. } => {
@@ -336,7 +336,7 @@ fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
 
 // ── Pattern helpers ───────────────────────────────────────────────────────────
 
-fn pat_binds_var(pat: &CorePat, var: CoreBinderId) -> bool {
+pub(super) fn pat_binds_var(pat: &CorePat, var: CoreBinderId) -> bool {
     match pat {
         CorePat::Var(binder) => binder.id == var,
         CorePat::Con { fields, .. } => fields.iter().any(|f| pat_binds_var(f, var)),

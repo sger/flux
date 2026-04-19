@@ -8,6 +8,5 @@ fn is_positive(x: Int) -> Bool {
 }
 
 fn main() -> Unit {
-    apply(is_positive, 1)
-    None
+    let _ = apply(is_positive, 1)
 }

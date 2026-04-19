@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: success
+
+fn main() with IO {
+    print(41 + 0)
+    print(0 + 41)
+    print(7 * 1)
+    print(1 * 7)
+    print(9 * 0)
+    print(0 * 9)
+    print(8 - 0)
+    print(12 / 1)
+    print(12 % 1)
+}

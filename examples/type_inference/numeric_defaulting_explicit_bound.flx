@@ -1,0 +1,12 @@
+// Explicit `Num` bounds are preserved and do not default.
+//
+// The `a` in `half<a: Num>` is part of the public signature, so the function
+// remains constrained and still elaborates through dictionary passing.
+
+fn half<a: Num>(x: a, y: a) -> a {
+    x / y
+}
+
+fn main() with IO {
+    print(half(8, 2))
+}

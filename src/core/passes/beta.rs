@@ -13,7 +13,14 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
         CoreExpr::App { func, args, span } => {
             let func = beta_reduce(*func);
             let args: Vec<_> = args.into_iter().map(beta_reduce).collect();
-            if let CoreExpr::Lam { params, body, .. } = func {
+            if let CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } = func
+            {
                 if params.len() == args.len() {
                     // Full application: substitute all params
                     let mut body = *body;
@@ -25,11 +32,18 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     // Partial application: substitute provided args, return Lam with remaining
                     let mut body = *body;
                     let remaining = params[args.len()..].to_vec();
+                    let remaining_param_types = if param_types.len() >= args.len() {
+                        param_types[args.len()..].to_vec()
+                    } else {
+                        Vec::new()
+                    };
                     for (p, a) in params.into_iter().zip(args.into_iter()) {
                         body = subst(body, p.id, &a);
                     }
                     beta_reduce(CoreExpr::Lam {
                         params: remaining,
+                        param_types: remaining_param_types,
+                        result_ty,
                         body: Box::new(body),
                         span,
                     })

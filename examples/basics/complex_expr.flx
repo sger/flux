@@ -1,3 +1,12 @@
+// parity-expected-stdout-begin
+// 25
+// 50
+// 100
+// true
+// false
+// 42
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Complex expressions
     // Expected output:

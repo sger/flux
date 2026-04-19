@@ -8,12 +8,12 @@
 //! modules — that lands in later Phase 1a/1b commits. The minimum guarantee
 //! here is "the validator no longer rejects the source."
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
+use flux::vm::VM;
 
 /// Parse `source` and run it through the bytecode compiler. Returns the list
 /// of diagnostics. The test asserts on the diagnostic codes.

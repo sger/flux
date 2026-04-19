@@ -3,6 +3,5 @@ fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
 }
 
 fn main() -> Unit {
-    unresolved_many(1)
-    None
+    let _ = unresolved_many(1)
 }

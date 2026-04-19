@@ -1,4 +1,23 @@
-// Safe arithmetic: total division and modulo (Proposal 0135)
+// parity-expected-stdout-begin
+// Some(3)
+// None
+// Some(1)
+// None
+// "Average: 25"
+// "Cannot compute average of zero items"
+// 20
+// -1
+// Some(-5)
+// Some(-1)
+// Some(10)
+// None
+// None
+// parity-expected-stdout-end
+
+/*
+Safe arithmetic: total division and modulo (Proposal 0135)
+*/
+
 //
 // safe_div and safe_mod never panic — they return Option:
 //   Some(result) on success, None on division by zero.

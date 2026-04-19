@@ -156,7 +156,7 @@ impl<'a> FnCtx<'a> {
                 .inferred_return_type
                 .as_ref()
                 .map(super::core_type_to_ir_type)
-                .unwrap_or(IrType::Any),
+                .unwrap_or(IrType::Tagged),
             blocks: s.blocks,
             entry,
             origin: s.origin,
@@ -306,8 +306,9 @@ impl<'a> FnCtx<'a> {
             CoreExpr::Case {
                 scrutinee,
                 alts,
+                join_ty,
                 span,
-            } => self.lower_case(scrutinee, alts, *span),
+            } => self.lower_case(scrutinee, alts, join_ty.as_ref(), *span),
 
             CoreExpr::Con { tag, fields, span } => {
                 let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
@@ -434,7 +435,8 @@ impl<'a> FnCtx<'a> {
                     .params
                     .push(crate::cfg::IrBlockParam {
                         var: dest,
-                        ty: IrType::Any,
+                        ty: IrType::Tagged,
+                        inferred_ty: None,
                     });
 
                 // Emit HandleScope in the current block, then terminate with
@@ -486,9 +488,22 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-            AetherExpr::Lam { params, body, span } => {
-                self.lower_lam_as_closure_aether(None, None, params, body, *span, expr)
-            }
+            AetherExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                span,
+            } => self.lower_lam_as_closure_aether(
+                None,
+                None,
+                params,
+                param_types,
+                result_ty.as_ref(),
+                body,
+                *span,
+                expr,
+            ),
             AetherExpr::App { func, args, span } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();
@@ -570,7 +585,13 @@ impl<'a> FnCtx<'a> {
             }
             AetherExpr::LetRec { var, rhs, body, .. } => {
                 let rhs_var = match rhs.as_ref() {
-                    AetherExpr::Lam { params, body, span } => {
+                    AetherExpr::Lam {
+                        params,
+                        param_types,
+                        result_ty,
+                        body,
+                        span,
+                    } => {
                         let placeholder = self.ctx.alloc_var();
                         self.emit(IrInstr::Assign {
                             dest: placeholder,
@@ -582,6 +603,8 @@ impl<'a> FnCtx<'a> {
                                 Some(var.name),
                                 Some(var.id),
                                 params,
+                                param_types,
+                                result_ty.as_ref(),
                                 body,
                                 *span,
                                 rhs.as_ref(),
@@ -615,10 +638,18 @@ impl<'a> FnCtx<'a> {
                 let mut rhs_vars = Vec::with_capacity(bindings.len());
                 for (var, rhs) in bindings {
                     let rhs_var = match rhs.as_ref() {
-                        AetherExpr::Lam { params, body, span } => self.lower_lam_as_closure_aether(
+                        AetherExpr::Lam {
+                            params,
+                            param_types,
+                            result_ty,
+                            body,
+                            span,
+                        } => self.lower_lam_as_closure_aether(
                             Some(var.name),
                             Some(var.id),
                             params,
+                            param_types,
+                            result_ty.as_ref(),
                             body,
                             *span,
                             rhs.as_ref(),
@@ -641,8 +672,9 @@ impl<'a> FnCtx<'a> {
             AetherExpr::Case {
                 scrutinee,
                 alts,
+                join_ty,
                 span,
-            } => self.lower_case_aether(scrutinee, alts, *span),
+            } => self.lower_case_aether(scrutinee, alts, join_ty.as_ref(), *span),
             AetherExpr::Con { tag, fields, span } => {
                 let field_vars: Vec<IrVar> =
                     fields.iter().map(|f| self.lower_expr_aether(f)).collect();
@@ -766,7 +798,8 @@ impl<'a> FnCtx<'a> {
                     .params
                     .push(crate::cfg::IrBlockParam {
                         var: dest,
-                        ty: IrType::Any,
+                        ty: IrType::Tagged,
+                        inferred_ty: None,
                     });
                 let meta = IrMetadata::from_span(*span);
                 self.emit(IrInstr::HandleScope {
@@ -918,7 +951,8 @@ impl<'a> FnCtx<'a> {
                     .params
                     .push(crate::cfg::IrBlockParam {
                         var: result_var,
-                        ty: IrType::Any,
+                        ty: IrType::Tagged,
+                        inferred_ty: None,
                     });
 
                 self.set_terminator(IrTerminator::Branch {

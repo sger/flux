@@ -1,8 +1,26 @@
-// Advent of Code - Day 6 (Haskell-style translation)
-// Inspired by AOC2025.Day06 day06a/day06b.
-// Uses input file: examples/aoc/2025/aoc_day6.txt
+// parity-expected-stdout-begin
+// 7644505810277
+// 12841228084455
+// parity-expected-stdout-end
 
+/*
+Advent of Code - Day 6 (Haskell-style translation)
+Inspired by AOC2025.Day06 day06a/day06b.
+Uses input file: examples/aoc/2025/aoc_day6.txt
+*/
+
+import Flow.Array as Array
+
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
+    fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
+    fn concat(left, right) { Array.concat(left, right) }
+
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -10,6 +28,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arr at.
     fn arr_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -17,6 +36,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the string at the given index or a default.
     fn str_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -24,6 +44,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -31,6 +52,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx >= len(s) {
             " "
@@ -39,6 +61,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse op.
     fn parse_op(op) {
         if op == "*" {
             Some("*")
@@ -51,14 +74,17 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for split words line.
     fn split_words_line(line) {
-        split(trim(line), " ") |> filter(\x -> x != "")
+        split(trim(line), " ") |> Array.filter(\x -> x != "")
     }
 
+    // Parse words lines.
     fn parse_words_lines(lines) {
-        lines |> map(\line -> split_words_line(line))
+        Array.map(lines, \line -> split_words_line(line))
     }
 
+    // Compute the maximum row width.
     fn max_row_width(rows, idx, best) {
         if idx >= len(rows) {
             best
@@ -68,6 +94,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Collect token col.
     fn collect_token_col(rows, col, row_idx, acc) {
         if row_idx >= len(rows) {
             acc
@@ -80,6 +107,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for transpose token rows.
     fn transpose_token_rows(rows, col, width, acc) {
         if col >= width {
             acc
@@ -89,6 +117,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse tokens to ints.
     fn parse_tokens_to_ints(tokens, idx, acc) {
         if idx >= len(tokens) {
             acc
@@ -97,16 +126,19 @@ fn main() with IO, Time {
         }
     }
 
+    // Sum ints.
     fn sum_ints(xs, idx, acc) {
         if idx >= len(xs) { acc } else { sum_ints(xs, idx + 1, acc + int_at(xs, idx)) }
     }
 
+    // Helper for prod ints.
     fn prod_ints(xs, idx, acc) {
         if idx >= len(xs) { acc } else { prod_ints(xs, idx + 1, acc * int_at(xs, idx)) }
     }
 
+    // Helper for eval DAY06A col.
     fn eval_day06a_col(tokens) {
-        let rev = reverse(tokens)
+        let rev = Array.reverse(tokens)
         let op_token = str_at(rev, 0)
         let nums = parse_tokens_to_ints(slice(rev, 1, len(rev)), 0, [||])
         match parse_op(op_token) {
@@ -115,13 +147,15 @@ fn main() with IO, Time {
         }
     }
 
+    // Solve DAY06A.
     fn solve_day06a(lines) {
         let rows = parse_words_lines(lines)
         let width = max_row_width(rows, 0, 0)
         let cols = transpose_token_rows(rows, 0, width, [||])
-        cols |> fold(0, \(acc, col) -> acc + eval_day06a_col(col))
+        Array.fold(cols, 0, \(acc, col) -> acc + eval_day06a_col(col))
     }
 
+    // Compute the maximum line width.
     fn max_line_width(lines, idx, best) {
         if idx >= len(lines) {
             best
@@ -131,6 +165,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Collect char col.
     fn collect_char_col(lines, col, row, acc) {
         if row >= len(lines) {
             acc
@@ -139,6 +174,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for transpose lines.
     fn transpose_lines(lines, col, width, acc) {
         if col >= width {
             acc
@@ -148,6 +184,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for all spaces.
     fn all_spaces(s, idx) {
         if idx >= len(s) {
             true
@@ -160,6 +197,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for split when blank cols.
     fn split_when_blank_cols(cols, idx, current, acc) {
         if idx >= len(cols) {
             if len(current) == 0 {
@@ -181,14 +219,17 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for last char.
     fn last_char(s) {
         if len(s) == 0 { "" } else { substring(s, len(s) - 1, len(s)) }
     }
 
+    // Helper for init str.
     fn init_str(s) {
         if len(s) == 0 { "" } else { substring(s, 0, len(s) - 1) }
     }
 
+    // Helper for compact non space.
     fn compact_non_space(s, idx, acc) {
         if idx >= len(s) {
             acc
@@ -202,11 +243,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Read compact int.
     fn read_compact_int(s) {
         let compacted = trim(compact_non_space(s, 0, ""))
         if compacted == "" { 0 } else { parse_int(compacted) }
     }
 
+    // Read compact ints.
     fn read_compact_ints(cols, idx, acc) {
         if idx >= len(cols) {
             acc
@@ -215,6 +258,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for eval DAY06B group.
     fn eval_day06b_group(group_cols) {
         if len(group_cols) == 0 {
             0
@@ -231,14 +275,15 @@ fn main() with IO, Time {
         }
     }
 
+    // Solve DAY06B.
     fn solve_day06b(lines) {
         let width = max_line_width(lines, 0, 0)
         let cols = transpose_lines(lines, 0, width, [||])
         let groups = split_when_blank_cols(cols, 0, [||], [||])
-        groups |> fold(0, \(acc, g) -> acc + eval_day06b_group(g))
+        Array.fold(groups, 0, \(acc, g) -> acc + eval_day06b_group(g))
     }
 
-    let lines = to_list(read_lines("examples/aoc/2025/aoc_day6.txt"))
+    let lines = read_lines("examples/aoc/2025/aoc_day6.txt")
 
     let day06a = solve_day06a(lines)
     let day06b = solve_day06b(lines)

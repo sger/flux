@@ -1,0 +1,51 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics_demos/errors/match_guards_error_path.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E413]: Top-Level Effect
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  examples/diagnostics_demos/errors/match_guards_error_path.flx:6:1
+  |
+6 | print("Run one of the dedicated match-guard error examples in this folder.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+error[E414]: Missing Main Function
+
+Effectful program is missing `fn main` root effect handler.
+
+  examples/diagnostics_demos/errors/match_guards_error_path.flx:6:1
+  |
+6 | print("Run one of the dedicated match-guard error examples in this folder.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------------------------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/diagnostics_demos/errors/match_guards_error_path.flx:6:1
+  |
+6 | print("Run one of the dedicated match-guard error examples in this folder.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 3 errors.
+== stdout ==
+<not executed>

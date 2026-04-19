@@ -1,0 +1,11 @@
+// Numeric defaulting applies at local `let` generalization sites too.
+//
+// The nested binding here finalizes as `Int`. This is the "all
+// generalization sites" part of the policy rather than top-level-only
+// defaulting.
+
+fn main() with IO {
+    let temp = 40 + 2
+    let result = temp
+    print(result)
+}

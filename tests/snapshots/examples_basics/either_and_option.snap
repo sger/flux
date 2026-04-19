@@ -3,18 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/either_and_option.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/basics/either_and_option.flx:11:12
-   |
-11 |         if first(arr) == target {
-   |            ^^^^^
-
-Hint:
-  Define it first: let first = ...;
+<none>
 == stdout ==
 <not executed>

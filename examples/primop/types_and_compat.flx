@@ -1,3 +1,18 @@
+// parity-expected-stdout-begin
+// "== PrimOps: types + compat =="
+// "Array"
+// "Map"
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// "[|10, 20, 30|]"
+// parity-expected-stdout-end
+
 fn main() with IO {
     print("== PrimOps: types + compat ==");
     let arr = [|10, 20, 30|];

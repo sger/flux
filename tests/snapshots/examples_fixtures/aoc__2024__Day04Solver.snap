@@ -3,49 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day04Solver.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `count`.
-
-  examples/aoc/2024/Day04Solver.flx:34:9
-   |
-34 |         count([
-   |         ^^^^^
-
-Hint:
-  Define it first: let count = ...;
-
-Help:
-  Did you mean `c`?
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `filter`.
-
-  examples/aoc/2024/Day04Solver.flx:88:16
-   |
-88 |             |> filter(/s -> s != "")
-   |                ^^^^^^
-
-Hint:
-  Define it first: let filter = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `filter`.
-
-  examples/aoc/2024/Day04Solver.flx:143:16
-    |
-143 |             |> filter(/s -> s != "")
-    |                ^^^^^^
-
-Hint:
-  Define it first: let filter = ...;
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>
