@@ -3,14 +3,18 @@
 // 290219757077250
 // parity-expected-stdout-end
 
-// Advent of Code - Day 11 (Haskell-style translation)
-// Inspired by AOC2025.Day11 day11a/day11b.
-// Uses input file: examples/aoc/2025/aoc_day11.txt
+/*
+Advent of Code - Day 11 (Haskell-style translation)
+Inspired by AOC2025.Day11 day11a/day11b.
+Uses input file: examples/aoc/2025/aoc_day11.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -18,6 +22,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the string at the given index or a default.
     fn str_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -25,6 +30,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -37,6 +43,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse graph.
     fn parse_graph(lines, idx, g) {
         if idx >= len(lines) {
             g
@@ -61,6 +68,7 @@ fn main() with IO, Time {
         (r.0, Map.set(r.1, key, r.0))
     }
 
+    // Sum children.
     fn sum_children(outs, i, graph, memo, end_node, acc) {
         if i >= len(outs) {
             (acc, memo)
@@ -70,6 +78,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for paths to uncached.
     fn paths_to_uncached(node, graph, memo, end_node) {
         match Map.get(graph, node) {
             Some(outs) -> add_to_cache(sum_children(outs, 0, graph, memo, end_node, 0), node),
@@ -77,6 +86,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for paths to.
     fn paths_to(node, graph, memo, end_node) {
         if node == end_node {
             (1, memo)
@@ -88,22 +98,27 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY11A.
     fn day11a(graph) {
         paths_to("you", graph, {}, "out").0
     }
 
+    // Helper for bool i.
     fn bool_i(v) {
         if v { 1 } else { 0 }
     }
 
+    // Helper for state mask.
     fn state_mask(seen_dac, seen_fft) {
         bool_i(seen_dac) + (2 * bool_i(seen_fft))
     }
 
+    // Helper for state key.
     fn state_key(node, mask) {
         join([|node, "#", to_string(mask)|], "")
     }
 
+    // Sum children2.
     fn sum_children2(outs, i, seen_dac, seen_fft, graph, memo, acc) {
         if i >= len(outs) {
             (acc, memo)
@@ -113,6 +128,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for paths2 uncached.
     fn paths2_uncached(node, key, seen_dac, seen_fft, graph, memo) {
         match Map.get(graph, node) {
             Some(outs) -> add_to_cache(sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0), key),
@@ -120,6 +136,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for paths to2.
     fn paths_to2(node, seen_dac0, seen_fft0, graph, memo) {
         let sd   = seen_dac0 || node == "dac"
         let sf   = seen_fft0 || node == "fft"
@@ -135,6 +152,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY11B.
     fn day11b(graph) {
         paths_to2("svr", false, false, graph, {}).0
     }
@@ -145,4 +163,3 @@ fn main() with IO, Time {
     print(day11a(graph))
     print(day11b(graph))
 }
-//

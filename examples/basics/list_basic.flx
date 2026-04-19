@@ -104,5 +104,4 @@ fn main() with IO {
     print(xs_list)
 
     print(is_list(my_new_list2))  // false
-
 }

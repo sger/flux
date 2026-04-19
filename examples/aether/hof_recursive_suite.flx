@@ -1,8 +1,11 @@
-// Aether higher-order recursion regression fixture.
-// This fixture currently demonstrates:
-// - plain Reuse on a higher-order recursive list rebuild
-// - borrowed-only higher-order recursive traversal without rebuild
-// - one intentionally conservative @fip warning on an option wrapper rebuild
+/*
+Aether higher-order recursion regression fixture.
+This fixture currently demonstrates:
+- plain Reuse on a higher-order recursive list rebuild
+- borrowed-only higher-order recursive traversal without rebuild
+- one intentionally conservative @fip warning on an option wrapper rebuild
+*/
+
 // parity-expected-stdout-begin
 // [2, 3, 4]
 // 3
@@ -16,6 +19,7 @@
     }
 }
 
+// Count if.
 fn count_if(xs, f) {
     match xs {
         [h | t] -> if f(h) { 1 + count_if(t, f) } else { count_if(t, f) },
@@ -23,6 +27,7 @@ fn count_if(xs, f) {
     }
 }
 
+// Helper for option chain.
 @fip fn option_chain(opt, f) {
     match opt {
         Some(x) -> Some(f(x)),
@@ -30,6 +35,7 @@ fn count_if(xs, f) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print(map_reuse([1, 2, 3], \x -> x + 1))
     print(count_if([1, 2, 3, 4, 5, 6], \x -> x % 2 == 0))

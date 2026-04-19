@@ -21,6 +21,7 @@ fn main() with IO {
     print(a * 2.0);
     print(1.0 + 2.5);
 
+    // Helper for add floats.
     fn add_floats(a, b) {
         return a + b;
     }

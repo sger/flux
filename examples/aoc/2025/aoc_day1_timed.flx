@@ -3,10 +3,14 @@
 // 1118
 // parity-expected-stdout-end
 
-// Advent of Code - Day 1 (timed)
-// Uses input file: examples/aoc/2025/aoc_day1.txt
+/*
+Advent of Code - Day 1 (timed)
+Uses input file: examples/aoc/2025/aoc_day1.txt
+*/
 
+// Program entry point.
 fn main() with IO, Time {
+    // Helper for wrap 100.
     fn wrap_100(value) {
         let reduced = value % 100
         if reduced < 0 {
@@ -16,6 +20,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse one rotation instruction.
     fn parse_rotation(line) {
         let dir = substring(line, 0, 1)
         let distance = parse_int(substring(line, 1, len(line)))
@@ -26,6 +31,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse line.
     fn parse_line(line, rest, acc) {
         let cleaned = trim(line)
         if cleaned == "" {
@@ -35,6 +41,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse all rotation instructions.
     fn parse_rotations(lines, acc) {
         match lines {
             [line | rest] -> parse_line(line, rest, acc),
@@ -42,6 +49,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process step.
     fn process_step(step, rest, pos, hits) {
         let next_pos = wrap_100(pos + step)
         if next_pos == 0 {
@@ -51,6 +59,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Process all remaining steps.
     fn solve_steps(steps, pos, hits) {
         match steps {
             [step | rest] -> process_step(step, rest, pos, hits),
@@ -58,6 +67,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Run DAY1.
     fn run_day1() {
         let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
         let steps = parse_rotations(lines, None)
@@ -73,4 +83,3 @@ fn main() with IO, Time {
     // print("elapsed (ms):")
     // print(t1 - t0)
 }
-//

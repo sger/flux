@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  examples/imports/test_import_math_qualified.flx:4:1
+  examples/imports/test_import_math_qualified.flx:5:1
   |
-4 | import Modules.Math
+5 | import Modules.Math
   | ^
 
 Hint:

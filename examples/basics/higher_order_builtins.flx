@@ -29,6 +29,7 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Higher-order base functions: any, all, find, sort_by, zip, flatten, count
 

@@ -14,6 +14,7 @@
 
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO {
     // Persistent Map / HAMT demo. Keys and values are String so the type
     // system can infer `Map<String, String>` without divergence. For

@@ -13,6 +13,7 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Test: Lambda shorthand syntax
     // Expected output:
@@ -78,6 +79,7 @@ fn main() with IO {
         }
     }
 
+    // Return the wrapped value or panic with the provided message.
     fn expectSome(value) {
         match value {
             Some(v) -> v,

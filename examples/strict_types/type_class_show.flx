@@ -1,20 +1,8 @@
-// Show type class — user-defined string conversion.
-// Demonstrates class declaration, instance implementation, and validation.
-//
-// Note: The generated dispatch function for `show` has a known type
-// inference issue with Bool/String branch unification. This will be
-// resolved when dictionary passing replaces runtime dispatch (Step 5).
-// For now, we test that the class/instance parse and validate correctly.
-
-class Show<a> {
-    fn show(x: a) -> String
-}
-
 instance Show<Int> {
     fn show(x) { to_string(x) }
 }
 
-// Direct call to the mangled instance function works:
+// Direct class-method call should dispatch through the registered instance.
 fn main() with IO {
-    print(42)
+    print(show(42))
 }

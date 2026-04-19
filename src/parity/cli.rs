@@ -103,6 +103,7 @@ pub fn run_parity_check(args: &[String]) {
             &default_ways
         });
         let fixture_meta = parse_fixture_meta(file);
+        let extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
         let effective_ways = if config.ways.is_some() {
             ways
         } else if config.compile_first {
@@ -118,7 +119,7 @@ pub fn run_parity_check(args: &[String]) {
                 ways: effective_ways,
                 vm_binary: &config.vm_binary,
                 llvm_binary: &config.llvm_binary,
-                extra_args: &config.extra_args,
+                extra_args: &extra_args,
                 timeout: config.timeout,
                 capture_core: config.capture_core,
                 capture_aether: config.capture_aether,
@@ -580,6 +581,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
     let mut all_ok = true;
     for file in files {
         let meta = parse_fixture_meta(file);
+        let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
         let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
         for (way, label) in [(Way::Vm, "vm"), (Way::Llvm, "llvm")] {
             let outcome = compile_fixture(
@@ -587,7 +589,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 &config.llvm_binary,
                 file,
                 way,
-                &config.extra_args,
+                &extra_args,
                 config.timeout,
             );
             if expects_failure {
@@ -666,6 +668,13 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
         eprintln!("[parity] --compile: stopping; fixtures above failed to compile");
     }
     all_ok
+}
+
+fn merged_fixture_args(global_args: &[String], fixture_args: &[String]) -> Vec<String> {
+    let mut merged = Vec::with_capacity(global_args.len() + fixture_args.len());
+    merged.extend_from_slice(global_args);
+    merged.extend_from_slice(fixture_args);
+    merged
 }
 
 fn collect_fixtures(path: &Path) -> Vec<PathBuf> {

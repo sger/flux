@@ -193,6 +193,9 @@ fn imported_class_def_from_entry(
                 .iter()
                 .map(|tp| remap_identifier(*tp, remap))
                 .collect(),
+            param_names: (0..method.param_types.len())
+                .map(|idx| interner.intern(&format!("__x{idx}")))
+                .collect(),
             param_types: method
                 .param_types
                 .iter()
@@ -205,6 +208,7 @@ fn imported_class_def_from_entry(
                 .iter()
                 .map(|effect| remap_effect_expr(effect, remap))
                 .collect(),
+            default_body: None,
         })
         .collect::<Vec<_>>();
 
@@ -504,10 +508,12 @@ fn preload_imported_instance_schemes(
         let specialized_method = crate::types::class_env::MethodSig {
             name: method.name,
             type_params: method.type_params.clone(),
+            param_names: method.param_names.clone(),
             param_types: specialized_param_types,
             return_type: specialized_return_type,
             arity: method.arity,
             effects,
+            default_body: method.default_body.clone(),
         };
         out.insert(
             mangled_sym,

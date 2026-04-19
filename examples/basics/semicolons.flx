@@ -117,6 +117,7 @@ fn main() with IO {
 
     // ---- Nested functions ----
     fn outer(x) {
+        // Helper for inner.
         fn inner(y) {
             x + y               // OPTIONAL semicolon (last)
         }

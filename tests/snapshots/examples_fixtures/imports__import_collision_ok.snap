@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  examples/imports/import_collision_ok.flx:1:1
+  examples/imports/import_collision_ok.flx:3:1
   |
-1 | import Modules.Math as Math
+3 | import Modules.Math as Math
   | ^
 
 Hint:

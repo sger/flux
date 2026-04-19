@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/flow/base_unknown_except_error.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E012]: Unknown Module Member
+
+Module `Flow` has no member named `not_real`.
+
+  examples/flow/base_unknown_except_error.flx:7:11
+  |
+7 |     print(Flow.not_real())
+  |           ^^^^^^^^^^^^^
+
+Hint:
+  Check the module's public members or import the correct module.
 == stdout ==
 <not executed>

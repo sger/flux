@@ -2,18 +2,25 @@
 // 1642
 // parity-expected-stdout-end
 
-// Advent of Code - Day 7 Part 1 (Laboratories)
-// Simulate downward beams with splitters (^), counting split events.
-// Input: examples/aoc/2025/aoc_day7.txt
+/*
+Advent of Code - Day 7 Part 1 (Laboratories)
+Simulate downward beams with splitters (^), counting split events.
+Input: examples/aoc/2025/aoc_day7.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -21,6 +28,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -28,6 +36,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx < 0 || idx >= len(s) {
             " "
@@ -36,12 +45,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for set at.
     fn set_at(arr, idx, value) {
         let left = slice(arr, 0, idx)
         let right = slice(arr, idx + 1, len(arr))
         concat(concat(left, [|value|]), right)
     }
 
+    // Compute the maximum width.
     fn max_width(lines, idx, cur) {
         if idx >= len(lines) {
             cur
@@ -51,10 +62,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for zeros.
     fn zeros(width) {
         to_array(map(range(0, width), \_ -> 0))
     }
 
+    // Helper for set1.
     fn set1(mask, col) {
         if col < 0 || col >= len(mask) {
             mask
@@ -63,6 +76,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s in row.
     fn find_s_in_row(s, idx) {
         if idx >= len(s) {
             -1
@@ -75,6 +89,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s.
     fn find_s(rows, r) {
         if r >= len(rows) {
             [|-1, -1|]
@@ -88,11 +103,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for res.
     fn res(next_mask, split_count) {
         let m = Map.set({}, "next", next_mask)
         Map.set(m, "split", split_count)
     }
 
+    // Helper for res next.
     fn res_next(x) {
         match Map.get(x, "next") {
             Some(v) -> v,
@@ -100,6 +117,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for res split.
     fn res_split(x) {
         match Map.get(x, "split") {
             Some(v) -> v,
@@ -107,6 +125,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process cols.
     fn process_cols(row_s, col, width, active, next_mask, split_count) {
         if col >= width {
             res(next_mask, split_count)
@@ -127,6 +146,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for simulate.
     fn simulate(rows, row_idx, width, active, split_count) {
         if row_idx >= len(rows) {
             split_count
@@ -146,4 +166,3 @@ fn main() with IO, Time {
     let start = set1(zeros(grid_w), scol)
     print(simulate(input_lines, srow, grid_w, start, 0))
 }
-//

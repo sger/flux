@@ -4,10 +4,12 @@
 import Flow.Array as Array
 
 module Day04Solver {
+    // Return the character slice at the given index.
     fn char_at(s: String, idx: Int) -> String {
         substring(s, idx, idx + 1)
     }
 
+    // Return the line at the given index or a default.
     fn line_at(lines: Array<String>, idx: Int) -> String {
         match lines[idx] {
             Some(v) -> v,
@@ -15,10 +17,12 @@ module Day04Solver {
         }
     }
 
+    // Helper for in bounds.
     fn in_bounds(r: Int, c: Int, rows: Int, cols: Int) -> Bool {
         r >= 0 && c >= 0 && r < rows && c < cols
     }
 
+    // Helper for matches word.
     fn matches_word(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int, dr: Int, dc: Int, idx: Int) -> Bool {
         if idx == 4 {
             true
@@ -34,6 +38,7 @@ module Day04Solver {
         }
     }
 
+    // Count dirs.
     fn count_dirs(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int) -> Int {
         // 8 directions: horizontal, vertical, diagonals, and reverse counterparts.
         Array.count([|
@@ -48,6 +53,7 @@ module Day04Solver {
             |], \d -> matches_word(lines, rows, cols, r, c, d.0, d.1, 0))
         }
 
+        // Count from cell.
         fn count_from_cell(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int) -> Int {
             if char_at(line_at(lines, r), c) == "X" {
                 count_dirs(lines, rows, cols, r, c)
@@ -56,6 +62,7 @@ module Day04Solver {
             }
         }
 
+        // Helper for scan row.
         fn scan_row(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int, acc: Int) -> Int {
             if c >= cols {
                 acc
@@ -64,6 +71,7 @@ module Day04Solver {
             }
         }
 
+        // Helper for scan grid.
         fn scan_grid(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
             if r >= rows {
                 acc
@@ -94,10 +102,12 @@ module Day04Solver {
             day04a_from_lines(lines)
         }
 
+        // Check whether mas pair.
         fn is_mas_pair(a: String, b: String) -> Bool {
             (a == "M" && b == "S") || (a == "S" && b == "M")
         }
 
+        // Check whether x mas at.
         fn is_x_mas_at(lines: Array<String>, r: Int, c: Int) -> Bool {
             if char_at(line_at(lines, r), c) != "A" {
                 false
@@ -110,6 +120,7 @@ module Day04Solver {
             }
         }
 
+        // Helper for scan row x mas.
         fn scan_row_x_mas(lines: Array<String>, cols: Int, r: Int, c: Int, acc: Int) -> Int {
             if c >= cols - 1 {
                 acc
@@ -119,6 +130,7 @@ module Day04Solver {
             }
         }
 
+        // Helper for scan grid x mas.
         fn scan_grid_x_mas(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
             if r >= rows - 1 {
                 acc

@@ -1,5 +1,8 @@
-// Aether borrow-call regression fixture.
-// Used by --dump-core / --dump-aether snapshot tests and backend parity.
+/*
+Aether borrow-call regression fixture.
+Used by --dump-core / --dump-aether snapshot tests and backend parity.
+*/
+
 // parity-expected-stdout-begin
 // 6
 // 42
@@ -9,14 +12,17 @@ fn my_len(xs) {
     len(xs)
 }
 
+// Helper for len twice.
 fn len_twice(xs) {
     my_len(xs) + my_len(xs)
 }
 
+// Helper for borrow then return.
 fn borrow_then_return(xs, y) {
     if len(xs) > 0 { y } else { y }
 }
 
+// Program entry point.
 fn main() with IO {
     let xs = [1, 2, 3]
     print(len_twice(xs))

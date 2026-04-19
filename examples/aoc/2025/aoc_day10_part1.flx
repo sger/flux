@@ -2,20 +2,28 @@
 // 390
 // parity-expected-stdout-end
 
-// Advent of Code - Day 10 Part 1 (Factory)
-// Input: examples/aoc/2025/aoc_day10.txt
+/*
+Advent of Code - Day 10 Part 1 (Factory)
+Input: examples/aoc/2025/aoc_day10.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Helper for min2.
     fn min2(a, b) {
         if a < b { a } else { b }
     }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -23,6 +31,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -30,6 +39,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for button at.
     fn button_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -37,10 +47,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -53,12 +65,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for set at.
     fn set_at(arr, idx, value) {
         let left = slice(arr, 0, idx)
         let right = slice(arr, idx + 1, len(arr))
         concat(concat(left, [|value|]), right)
     }
 
+    // Parse pattern bits.
     fn parse_pattern_bits(inner, idx, acc) {
         if idx >= len(inner) {
             acc
@@ -68,6 +82,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse target.
     fn parse_target(line) {
         let lb = find_char_from(line, "[", 0)
         let rb = find_char_from(line, "]", lb + 1)
@@ -75,6 +90,7 @@ fn main() with IO, Time {
         parse_pattern_bits(inner, 0, [||])
     }
 
+    // Parse button.
     fn parse_button(inner) {
         let t = trim(inner)
         if t == "" {
@@ -84,6 +100,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse buttons rec.
     fn parse_buttons_rec(line, idx, stop, acc) {
         if idx >= stop {
             acc
@@ -99,12 +116,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse buttons.
     fn parse_buttons(line) {
         let open_curly = find_char_from(line, "{", 0)
         let stop = if open_curly < 0 { len(line) } else { open_curly }
         parse_buttons_rec(line, 0, stop, [||])
     }
 
+    // Helper for zeros.
     fn zeros(n, idx, acc) {
         if idx >= n {
             acc
@@ -113,6 +132,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arrays equal.
     fn arrays_equal(a, b, idx) {
         if idx >= len(a) {
             true
@@ -125,6 +145,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for toggle button.
     fn toggle_button(state, button, bidx) {
         if bidx >= len(button) {
             state
@@ -137,6 +158,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for dfs min.
     fn dfs_min(target, buttons, idx, state, presses, best) {
         if presses >= best {
             best
@@ -160,6 +182,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for machine min presses.
     fn machine_min_presses(line) {
         let target = parse_target(line)
         let buttons = parse_buttons(line)
@@ -173,4 +196,3 @@ fn main() with IO, Time {
     let presses = Array.map(machine_lines, \line -> machine_min_presses(line))
     print(Array.sum(presses))
 }
-//

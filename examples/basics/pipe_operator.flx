@@ -13,7 +13,9 @@ fn main() with IO {
 
     // Helper functions for testing
     fn double(x) { x * 2 }
+    // Helper for add.
     fn add(x, y) { x + y }
+    // Helper for triple.
     fn triple(x) { x * 3 }
 
     // Basic pipe: value |> function

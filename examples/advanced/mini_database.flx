@@ -14,6 +14,7 @@ import Flow.Array as Array
 // Records are named-field ADTs: proposal 0152.
 data Record { Record { id: Int, name: String, age: Int } }
 
+// Return the wrapped value or panic with the provided message.
 fn expectSome(opt, message) {
     match opt {
         Some(v) -> v,
@@ -22,6 +23,7 @@ fn expectSome(opt, message) {
     }
 }
 
+// Helper for findById.
 fn findById(records, id) {
     if len(records) == 0 {
         None
@@ -35,6 +37,7 @@ fn findById(records, id) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let db = [|
         Record { id: 1, name: "Alice", age: 30 },

@@ -1,3 +1,5 @@
+// expect: compile_error
+//
 // This example is intentionally rejected.
 // `Any` is not a valid source-language type annotation in Flux.
 // Expected: E423

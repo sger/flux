@@ -2,15 +2,20 @@
 // 422
 // parity-expected-stdout-end
 
-// Advent of Code - Day 12 (Haskell-style translation)
-// Inspired by AOC2025.Day12 day12a.
-// Uses input file: examples/aoc/2025/aoc_day12.txt
+/*
+Advent of Code - Day 12 (Haskell-style translation)
+Inspired by AOC2025.Day12 day12a.
+Uses input file: examples/aoc/2025/aoc_day12.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -18,6 +23,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -25,6 +31,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -37,14 +44,17 @@ fn main() with IO, Time {
         }
     }
 
+    // Check whether char.
     fn has_char(s, ch) {
         find_char_from(s, ch, 0) >= 0
     }
 
+    // Count hashes.
     fn count_hashes(s) {
         Array.fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
     }
 
+    // Parse the present shape sizes from the input.
     fn parse_block_sizes(lines, idx, in_block, cur_size, acc) {
         if idx >= len(lines) {
             if in_block { push(acc, cur_size) } else { acc }
@@ -61,6 +71,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse the present counts for one area.
     fn parse_area_counts(tokens, idx, acc) {
         if idx >= len(tokens) {
             acc
@@ -74,6 +85,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the string at the given index or a default.
     fn str_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -81,6 +93,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse the tree area descriptions from the input.
     fn parse_areas(lines, idx, acc) {
         if idx >= len(lines) {
             acc
@@ -105,6 +118,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute the weighted total for one area request.
     fn weighted_sum(block_sizes, counts, idx, acc) {
         if idx >= len(block_sizes) || idx >= len(counts) {
             acc
@@ -113,6 +127,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the area record at the given index or a default.
     fn area_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -120,6 +135,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count areas that can fit the requested presents.
     fn count_valid_areas(block_sizes, areas, idx, acc) {
         if idx >= len(areas) {
             acc
@@ -135,6 +151,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute the Day 12 answer.
     fn day12a(input_lines) {
         let block_sizes = parse_block_sizes(input_lines, 0, false, 0, [||])
         let areas = parse_areas(input_lines, 0, [||])
@@ -144,4 +161,3 @@ fn main() with IO, Time {
     let input_lines = read_lines("examples/aoc/2025/aoc_day12.txt")
     print(day12a(input_lines))
 }
-//

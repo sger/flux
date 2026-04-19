@@ -6,9 +6,12 @@
 // None
 // parity-expected-stdout-end
 
-// Named-field records (proposal 0152) used as the rows of a simple
-// in-memory contact book: array of records, keyed lookup by id, and
-// functional update via spread.
+/*
+Named-field records (proposal 0152) used as the rows of a simple
+in-memory contact book: array of records, keyed lookup by id, and
+functional update via spread.
+*/
+
 
 import Flow.Array as Array
 
@@ -16,6 +19,7 @@ data Contact {
     Contact { id: Int, name: String, email: String }
 }
 
+// Return the wrapped value or panic with the provided message.
 fn expectSome(opt, msg) {
     match opt {
         Some(v) -> v,
@@ -24,6 +28,7 @@ fn expectSome(opt, msg) {
     }
 }
 
+// Find a contact by id.
 fn find_by_id(contacts: Array<Contact>, id: Int) -> Option<Contact> {
     if len(contacts) == 0 {
         None
@@ -37,6 +42,7 @@ fn find_by_id(contacts: Array<Contact>, id: Int) -> Option<Contact> {
     }
 }
 
+// Look up a contact name by id.
 fn name_at(contacts: Array<Contact>, id: Int) -> Option<String> {
     match find_by_id(contacts, id) {
         Some(c) -> Some(c.name),
@@ -45,6 +51,7 @@ fn name_at(contacts: Array<Contact>, id: Int) -> Option<String> {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let book = [|
         Contact { id: 1, name: "Alice", email: "alice@example.com" },

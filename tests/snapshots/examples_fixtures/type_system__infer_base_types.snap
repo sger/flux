@@ -3,47 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/infer_base_types.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Parameter Type Mismatch
-
-Parameter 1 has the wrong type.
-
-  examples/type_system/infer_base_types.flx:30:19
-   |
-30 |     let lengths = map(words, /w -> len(w))
-   |                   ^^^^^^^^^^^^^^^^^^^^^^^^
-   |                   ------------------------ parameter 1 has type `Array<String>`
-
-   |                   ------------------------ this type mismatch is reported here
-
-Note:
-  expected parameter type: List<_>
-  found parameter type: Array<String>
-  the conflicting types meet at this expression
-
-Help:
-  Change parameter 1 to use `List<_>` consistently.
-
-
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `sum`.
-
-  examples/type_system/infer_base_types.flx:43:19
-   |
-43 |     assert_eq(sum(ints), 60)
-   |                   ^^^^
-   |                   ---- this argument has type `Array<Int>`
-
-Note:
-  expected argument type: List<Int>
-  found argument type: Array<Int>
-  the actual argument type is inferred from this expression
-
-Help:
-  Pass a `List<Int>` value as the 1st argument.
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

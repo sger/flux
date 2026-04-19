@@ -1,6 +1,9 @@
-// Aether Memory Model Verification
-// Run with: cargo run -- --dump-aether examples/aether/verify_aether.flx
-// Execute: cargo run -- examples/aether/verify_aether.flx
+/*
+Aether Memory Model Verification
+Run with: cargo run -- --dump-aether examples/aether/verify_aether.flx
+Execute: cargo run -- examples/aether/verify_aether.flx
+*/
+
 //
 // Exercises current Aether optimizations: dup/drop, drop spec, reuse, and borrowed params.
 // FBIP annotations remain intentionally conservative in higher-order map cases.
@@ -33,6 +36,7 @@
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 
+// Helper for set black.
 fn set_black(t) {
     match t {
         Node(_, left, key, right) -> Node(Black, left, key, right),
@@ -64,6 +68,7 @@ fn my_sum(xs) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let result = my_map([1, 2, 3], \x -> x * 2)
     print(result)

@@ -2,16 +2,22 @@
 // 737
 // parity-expected-stdout-end
 
-// Advent of Code - Day 5 Part 1 (Cafeteria)
-// Count how many available ingredient IDs are fresh.
-// Input: examples/aoc/2025/aoc_day5.txt
+/*
+Advent of Code - Day 5 Part 1 (Cafeteria)
+Count how many available ingredient IDs are fresh.
+Input: examples/aoc/2025/aoc_day5.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -19,6 +25,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -26,6 +33,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arr at.
     fn arr_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -33,6 +41,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse range line.
     fn parse_range_line(line) {
         let parts = split_ints(trim(line), "-")
         let a = int_at(parts, 0)
@@ -40,14 +49,17 @@ fn main() with IO, Time {
         push(push([||], a), b)
     }
 
+    // Helper for range start.
     fn range_start(r) {
         int_at(r, 0)
     }
 
+    // Helper for range end.
     fn range_end(r) {
         int_at(r, 1)
     }
 
+    // Find blank.
     fn find_blank(lines, idx) {
         if idx >= len(lines) {
             len(lines)
@@ -60,6 +72,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Check whether an id falls inside any range.
     fn id_in_any_range(id, ranges, ridx) {
         if ridx >= len(ranges) {
             false
@@ -75,6 +88,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count fresh.
     fn count_fresh(ids, ranges, idx, acc) {
         if idx >= len(ids) {
             acc
@@ -93,4 +107,3 @@ fn main() with IO, Time {
     let ids = Array.map(id_lines, \line -> parse_int(line))
     print(count_fresh(ids, ranges, 0, 0))
 }
-//

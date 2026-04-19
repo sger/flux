@@ -10,7 +10,10 @@
 // "Failed: 1"
 // parity-expected-stdout-end
 
-// Student Grade Analyzer (self-contained)
+/*
+Student Grade Analyzer (self-contained)
+*/
+
 
 import Flow.Map as Map
 
@@ -18,15 +21,18 @@ type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
 type Student = Student(String, List<Float>)
 type Summary = Summary(Float, Grade, Bool)
 
+// Helper for make student.
 fn make_student(name, scores) {
     Student(name, scores)
 }
 
+// Helper for average.
 fn average(scores) {
     let (total, count) = fold(scores, (0.0, 0.0), \(acc, x) -> (acc.0 + x, acc.1 + 1.0))
     total / count
 }
 
+// Helper for letter grade.
 fn letter_grade(avg) {
     if avg >= 90.0 { return GradeA }
     if avg >= 80.0 { return GradeB }
@@ -35,6 +41,7 @@ fn letter_grade(avg) {
     GradeF
 }
 
+// Helper for grade label.
 fn grade_label(grade) {
     match grade {
         GradeA -> "A",
@@ -46,6 +53,7 @@ fn grade_label(grade) {
     }
 }
 
+// Helper for summarize.
 fn summarize(student) {
     let scores = match student {
         Student(_, values) -> values,
@@ -56,44 +64,50 @@ fn summarize(student) {
     Summary(avg, grade, passed)
 }
 
+// Helper for student name.
 fn student_name(student) {
     match student {
         Student(name, _) -> name,
     }
 }
 
+// Helper for analyze.
 fn analyze(students) {
     fold(students, {}, \(acc, s) ->
         Map.set(acc, student_name(s), summarize(s))
     )
 }
 
+// Count passed.
 fn count_passed(results) {
     len(filter(to_list(Map.values(results)), \r ->
-        match r {
-            Summary(_, _, passed) -> passed,
-        }
+            match r {
+                Summary(_, _, passed) -> passed,
+            }
     ))
 }
 
+// Count failed.
 fn count_failed(results) {
     len(filter(to_list(Map.values(results)), \r ->
-        match r {
-            Summary(_, _, passed) -> !passed,
-        }
+            match r {
+                Summary(_, _, passed) -> !passed,
+            }
     ))
 }
 
+// Format result line.
 fn format_result_line(name, r) {
     match r {
         Summary(avg, grade, passed) ->
-            name
-            + ": avg=" + to_string(avg)
-            + ", grade=" + grade_label(grade)
-            + ", passed=" + to_string(passed),
+        name
+        + ": avg=" + to_string(avg)
+        + ", grade=" + grade_label(grade)
+        + ", passed=" + to_string(passed),
     }
 }
 
+// Helper for show.
 fn show(results, name) with IO {
     let maybe_result = results[name]
     match maybe_result {
@@ -102,6 +116,7 @@ fn show(results, name) with IO {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let students = [
         make_student("Alice", [92.0, 88.0, 95.0, 91.0]),

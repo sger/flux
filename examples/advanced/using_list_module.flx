@@ -24,10 +24,14 @@
 // {"1": "A", "2": "B", "3": "A"}
 // parity-expected-stdout-end
 
-// Test: Persistent lists with helper functions
+/*
+Test: Persistent lists with helper functions
+*/
+
 
 import Flow.Map as Map
 
+// Helper for list range.
 fn list_range(start, stop) {
     if start > stop {
         []
@@ -36,10 +40,12 @@ fn list_range(start, stop) {
     }
 }
 
+// Helper for list sum.
 fn list_sum(lst) {
     fold(lst, 0, \(acc, x) -> acc + x)
 }
 
+// Helper for list take.
 fn list_take(lst, n) {
     if n <= 0 {
         []
@@ -51,6 +57,7 @@ fn list_take(lst, n) {
     }
 }
 
+// Helper for list drop.
 fn list_drop(lst, n) {
     if n <= 0 {
         lst
@@ -62,6 +69,7 @@ fn list_drop(lst, n) {
     }
 }
 
+// Helper for list append.
 fn list_append(a, b) {
     match a {
         [h | t] -> [h | list_append(t, b)],
@@ -69,6 +77,7 @@ fn list_append(a, b) {
     }
 }
 
+// Helper for list flatten.
 fn list_flatten(lst) {
     match lst {
         [h | t] -> list_append(h, list_flatten(t)),
@@ -76,6 +85,7 @@ fn list_flatten(lst) {
     }
 }
 
+// Helper for list zip.
 fn list_zip(a, b) {
     match a {
         [ha | ta] -> match b {
@@ -86,6 +96,7 @@ fn list_zip(a, b) {
     }
 }
 
+// Helper for list any.
 fn list_any(lst, pred) {
     match lst {
         [h | t] -> if pred(h) { true } else { list_any(t, pred) },
@@ -93,6 +104,7 @@ fn list_any(lst, pred) {
     }
 }
 
+// Helper for list all.
 fn list_all(lst, pred) {
     match lst {
         [h | t] -> if pred(h) { list_all(t, pred) } else { false },
@@ -100,6 +112,7 @@ fn list_all(lst, pred) {
     }
 }
 
+// Helper for grade.
 fn grade(score) {
     if score >= 90 {
         "A"
@@ -112,6 +125,7 @@ fn grade(score) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print("=== Range and basic operations ===")
 
@@ -157,11 +171,11 @@ fn main() with IO {
 
     print("=== Combining with maps ===")
     let grades = fold(paired, {}, \(acc, pair) -> match pair {
-        [a | rest] -> match rest {
-            [b | _] -> Map.set(acc, to_string(a), grade(b)),
+            [a | rest] -> match rest {
+                [b | _] -> Map.set(acc, to_string(a), grade(b)),
+                _ -> acc,
+            },
             _ -> acc,
-        },
-        _ -> acc,
     })
     print(grades)
 }
