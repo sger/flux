@@ -134,6 +134,21 @@ fn assert_cli_snapshot(rel: &str, args: &[&str], mode: &str) {
     });
 }
 
+fn assert_cli_snapshot_named(rel: &str, snapshot_rel: &str, args: &[&str], mode: &str) {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path(rel);
+    let mut cmd = args.to_vec();
+    cmd.push(file.to_str().unwrap());
+    let transcript = run_flux(&cmd);
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(snapshot_name(snapshot_rel, mode), transcript);
+    });
+}
+
 fn assert_trace_snapshot(rel: &str, args: &[&str], mode: &str) {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let file = example_path(rel);
@@ -362,7 +377,8 @@ fn snapshot_drop_spec_recursive_dump_core_debug() {
 
 #[test]
 fn snapshot_fbip_failure_dump_aether() {
-    assert_cli_snapshot(
+    assert_cli_snapshot_named(
+        "compiler_errors/fbip_fail_nonfip_call.flx",
         "aether/fbip_fail_nonfip_call.flx",
         &["--dump-aether"],
         "dump_aether",

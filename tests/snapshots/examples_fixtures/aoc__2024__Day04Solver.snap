@@ -3,25 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day04Solver.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Parameter Type Mismatch
-
-Parameter 1 has the wrong type.
-
-  examples/aoc/2024/Day04Solver.flx:89:13
-   |
-89 |             split(memory, "/n")
-   |             ^^^^^^^^^^^^^^^^^^^
-90 |             |> map(/s -> trim(s))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Note:
-  expected parameter type: List<_>
-  found parameter type: Array<String>
-  the conflicting types meet at this expression
-
-Help:
-  Change parameter 1 to use `List<_>` consistently.
+<none>
 == stdout ==
 <not executed>
