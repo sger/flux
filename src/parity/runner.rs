@@ -3,7 +3,7 @@
 //! Each way invokes a pre-built flux binary with the appropriate flags
 //! and captures stdout, stderr, and exit code.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -46,11 +46,15 @@ pub fn compile_fixture(
     extra_args: &[String],
     timeout: Duration,
 ) -> CompileOutcome {
+    let compile_timeout = std::cmp::max(timeout, Duration::from_secs(DEFAULT_TIMEOUT_SECS * 4));
+    let cache_dir = parity_cache_dir(file, way.base_way());
     // Clear cache before each fixture to avoid cross-fixture contamination
     // (native caches share `target/flux/native/` and can produce incompatible
     // exports across fixtures with different module usage shapes).
-    clear_cache_files(file, extra_args);
+    clear_cache_files(file, extra_args, &cache_dir);
     let (bin, mut args) = build_way_args(vm_binary, llvm_binary, way.base_way());
+    args.push("--cache-dir".to_string());
+    args.push(cache_dir.to_string_lossy().into_owned());
     // Do NOT pass --no-cache: we want cache artifacts populated.
     args.push(file.to_string_lossy().into_owned());
     args.extend_from_slice(extra_args);
@@ -63,7 +67,7 @@ pub fn compile_fixture(
         };
     }
 
-    match spawn_with_timeout(bin, &args, timeout) {
+    match spawn_with_timeout(bin, &args, compile_timeout) {
         SpawnResult::Completed {
             exit_code, stderr, ..
         } => CompileOutcome {
@@ -74,7 +78,7 @@ pub fn compile_fixture(
         SpawnResult::Timeout => CompileOutcome {
             success: false,
             exit_code: -1,
-            stderr: format!("timed out after {}s", timeout.as_secs()),
+            stderr: format!("timed out after {}s", compile_timeout.as_secs()),
         },
         SpawnResult::SpawnError(err) => CompileOutcome {
             success: false,
@@ -104,10 +108,13 @@ pub fn run_way(
         return run_cached_way(vm_binary, llvm_binary, file, way, extra_args, timeout);
     }
 
+    let cache_dir = parity_cache_dir(file, way.base_way());
     let (binary, mut args) = build_way_args(vm_binary, llvm_binary, way);
 
     // Always disable cache for fresh parity checks
     args.push("--no-cache".to_string());
+    args.push("--cache-dir".to_string());
+    args.push(cache_dir.to_string_lossy().into_owned());
     args.push(file.to_string_lossy().into_owned());
     args.extend_from_slice(extra_args);
 
@@ -116,7 +123,7 @@ pub fn run_way(
     }
 
     // Clear stale bytecode cache
-    clear_cache_files(file, extra_args);
+    clear_cache_files(file, extra_args, &cache_dir);
 
     execute_and_collect(binary, &args, way, timeout)
 }
@@ -131,6 +138,7 @@ fn run_cached_way(
     timeout: Duration,
 ) -> RunResult {
     let base_way = way.base_way();
+    let cache_dir = parity_cache_dir(file, base_way);
     let (binary, mut warm_args) = build_way_args(vm_binary, llvm_binary, base_way);
 
     if !binary.exists() {
@@ -138,25 +146,29 @@ fn run_cached_way(
     }
 
     // Step 1: Clear all cache files
-    clear_cache_files(file, extra_args);
+    clear_cache_files(file, extra_args, &cache_dir);
 
     // Step 2: Warming run (with cache enabled, so it writes cache files)
+    warm_args.push("--cache-dir".to_string());
+    warm_args.push(cache_dir.to_string_lossy().into_owned());
     warm_args.push(file.to_string_lossy().into_owned());
     warm_args.extend_from_slice(extra_args);
     let _ = spawn_with_timeout(binary, &warm_args, timeout);
 
     // Step 3: Observe cache files created by the warming run
-    let cache_after_warm = observe_cache_files(file, extra_args);
+    let cache_after_warm = observe_cache_files(file, extra_args, &cache_dir);
 
     // Step 4: Cached run (with cache enabled, so it reads cache files)
     let (_, mut cached_args) = build_way_args(vm_binary, llvm_binary, base_way);
+    cached_args.push("--cache-dir".to_string());
+    cached_args.push(cache_dir.to_string_lossy().into_owned());
     cached_args.push(file.to_string_lossy().into_owned());
     cached_args.extend_from_slice(extra_args);
 
     let mut result = execute_and_collect(binary, &cached_args, way, timeout);
 
     // Step 5: Observe cache files after the cached run
-    let cache_after_cached = observe_cache_files(file, extra_args);
+    let cache_after_cached = observe_cache_files(file, extra_args, &cache_dir);
 
     // Merge observations: warming creates, cached run should find them
     let mut observations = Vec::new();
@@ -178,7 +190,7 @@ fn run_cached_way(
     result.cache_observations = observations;
 
     // Step 6: Clean up cache files
-    clear_cache_files(file, extra_args);
+    clear_cache_files(file, extra_args, &cache_dir);
 
     result
 }
@@ -262,8 +274,8 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
 // ── Cache file management ──────────────────────────────────────────────────
 
 /// Clear all known cache files for a fixture.
-fn clear_cache_files(file: &Path, extra_args: &[String]) {
-    let layout = cache_paths::resolve_cache_layout(file, None);
+fn clear_cache_files(file: &Path, extra_args: &[String], cache_dir: &Path) {
+    let layout = cache_paths::resolve_cache_layout(file, Some(cache_dir));
     for dir in [
         layout.interfaces_dir(),
         layout.vm_dir(),
@@ -287,10 +299,10 @@ fn clear_cache_files(file: &Path, extra_args: &[String]) {
 }
 
 /// Observe which cache files exist for a fixture.
-fn observe_cache_files(file: &Path, extra_args: &[String]) -> Vec<CacheObservation> {
+fn observe_cache_files(file: &Path, extra_args: &[String], cache_dir: &Path) -> Vec<CacheObservation> {
     let mut obs = Vec::new();
     let (bytecode_key, _, _) = cache_keys_for_fixture(file, extra_args);
-    let layout = cache_paths::resolve_cache_layout(file, None);
+    let layout = cache_paths::resolve_cache_layout(file, Some(cache_dir));
     let bytecode_cache = BytecodeCache::new(layout.root());
 
     let fxc = bytecode_cache.cache_path(file, &bytecode_key);
@@ -324,6 +336,20 @@ fn observe_cache_files(file: &Path, extra_args: &[String]) -> Vec<CacheObservati
 
     obs.sort_by(|left, right| left.path.cmp(&right.path));
     obs
+}
+
+fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
+    let project_root = cache_paths::find_project_root(file)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let backend = match way {
+        Way::Vm | Way::VmCached | Way::VmStrict => "vm",
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => "llvm",
+    };
+    project_root
+        .join("target")
+        .join("parity-cache")
+        .join(backend)
+        .join(cache_paths::artifact_stem(file))
 }
 
 fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8; 32], [u8; 32]) {
