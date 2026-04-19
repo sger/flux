@@ -5,32 +5,54 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#strings" },
+    { "include": "#annotations" },
+    { "include": "#operators" },
     { "include": "#numbers" },
-    { "include": "#type-annotations" },
     { "include": "#keywords" },
     { "include": "#constants" },
+    { "include": "#type-annotations" },
     { "include": "#identifiers" },
-    { "include": "#operators" },
     { "include": "#punctuation" }
   ],
   "repository": {
     "comments": {
       "patterns": [
+        { "include": "#doc-block-comment" },
+        { "include": "#block-comment" },
+        { "include": "#line-comment" }
+      ]
+    },
+    "doc-block-comment": {
+      "name": "comment.block.documentation.flux",
+      "begin": "/\\*\\*",
+      "end": "\\*/",
+      "patterns": [
+        { "include": "#doc-block-comment-nested" }
+      ]
+    },
+    "doc-block-comment-nested": {
+      "patterns": [
         {
           "name": "comment.block.documentation.flux",
-          "begin": "/\\*\\*",
-          "end": "\\*/"
-        },
-        {
-          "name": "comment.block.flux",
           "begin": "/\\*",
-          "end": "\\*/"
-        },
-        {
-          "name": "comment.line.double-slash.flux",
-          "match": "//.*$"
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#doc-block-comment-nested" }
+          ]
         }
       ]
+    },
+    "block-comment": {
+      "name": "comment.block.flux",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [
+        { "include": "#block-comment" }
+      ]
+    },
+    "line-comment": {
+      "name": "comment.line.double-slash.flux",
+      "match": "//.*$"
     },
     "strings": {
       "patterns": [
@@ -58,6 +80,15 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "comment": "Annotation: @fip, @fbip, @inline — same scope as types (IO, etc.)",
+          "name": "entity.name.type.flux",
+          "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
         }
       ]
     },
@@ -164,8 +195,23 @@
           }
         },
         {
+          "comment": "Qualified module call: Module.func(",
+          "match": "\\b([A-Z][A-Za-z0-9_]*)\\.([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.type.flux" },
+            "2": { "name": "entity.name.function.call.flux" }
+          }
+        },
+        {
           "comment": "Function call: name(",
           "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.flux" }
+          }
+        },
+        {
+          "comment": "Function reference after pipe: |> func (no parens)",
+          "match": "(?<=\\|>)\\s*([a-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "entity.name.function.call.flux" }
           }
@@ -174,6 +220,11 @@
           "comment": "Type / constructor name (uppercase start)",
           "name": "entity.name.type.flux",
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "comment": "Wildcard pattern",
+          "name": "variable.language.wildcard.flux",
+          "match": "\\b_\\b"
         },
         {
           "comment": "Regular variable / parameter",
@@ -185,66 +236,29 @@
     "operators": {
       "patterns": [
         {
-          "comment": "Arrow operators",
-          "name": "keyword.operator.arrow.flux",
-          "match": "->|<-"
-        },
-        {
-          "comment": "Pipe operators",
+          "comment": "Pipe operator: |>",
           "name": "keyword.operator.pipe.flux",
           "match": "\\|>"
         },
         {
-          "comment": "Comparison operators",
+          "comment": "Arrow: -> <-",
+          "name": "keyword.operator.arrow.flux",
+          "match": "->|<-"
+        },
+        {
+          "comment": "Comparison: == != <= >=",
           "name": "keyword.operator.comparison.flux",
           "match": "==|!=|<=|>="
         },
         {
-          "comment": "Logical operators",
+          "comment": "Logical OR: ||",
           "name": "keyword.operator.logical.flux",
-          "match": "&&|\\|\\|"
+          "match": "\\|\\|"
         },
         {
-          "comment": "Arithmetic and other operators",
-          "name": "keyword.operator.flux",
-          "match": "=|\\+|-|\\*|/|%|!|<|>"
-        },
-        {
-          "comment": "Dot accessor",
-          "name": "keyword.operator.accessor.flux",
-          "match": "\\."
-        }
-      ]
-    },
-    "punctuation": {
-      "patterns": [
-        {
-          "name": "punctuation.separator.flux",
-          "match": "[,;:]"
-        },
-        {
-          "name": "punctuation.section.braces.begin.flux",
-          "match": "\\{"
-        },
-        {
-          "name": "punctuation.section.braces.end.flux",
-          "match": "\\}"
-        },
-        {
-          "name": "punctuation.section.parens.begin.flux",
-          "match": "\\("
-        },
-        {
-          "name": "punctuation.section.parens.end.flux",
-          "match": "\\)"
-        },
-        {
-          "name": "punctuation.section.brackets.begin.flux",
-          "match": "\\["
-        },
-        {
-          "name": "punctuation.section.brackets.end.flux",
-          "match": "\\]"
+          "comment": "Logical AND: &&",
+          "name": "keyword.operator.logical.flux",
+          "match": "&&"
         },
         {
           "comment": "Lambda backslash",
@@ -252,14 +266,82 @@
           "match": "\\\\"
         },
         {
+          "comment": "Cons operator: | (not followed by > or |)",
+          "name": "keyword.operator.cons.flux",
+          "match": "\\|(?![|>])"
+        },
+        {
+          "comment": "Assignment: = (not ==, !=, <=, >=, =>)",
+          "name": "keyword.operator.assignment.flux",
+          "match": "(?<![=!<>])=(?![=>])"
+        },
+        {
+          "comment": "Math: + * / %",
+          "name": "keyword.operator.math.flux",
+          "match": "[+*%]"
+        },
+        {
+          "comment": "Minus (not part of ->)",
+          "name": "keyword.operator.math.flux",
+          "match": "-(?!>)"
+        },
+        {
+          "comment": "Division (not comment //)",
+          "name": "keyword.operator.math.flux",
+          "match": "/(?!/)"
+        },
+        {
+          "comment": "Not: ! (not !=)",
+          "name": "keyword.operator.logical.flux",
+          "match": "!(?!=)"
+        },
+        {
+          "comment": "Less-than (not <- or <=)",
+          "name": "keyword.operator.comparison.flux",
+          "match": "<(?![-=])"
+        },
+        {
+          "comment": "Greater-than (not >=; previous char not - or =)",
+          "name": "keyword.operator.comparison.flux",
+          "match": "(?<![-=])>(?!=)"
+        },
+        {
+          "comment": "Dot accessor",
+          "name": "keyword.operator.access.dot.flux",
+          "match": "\\."
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.comma.flux",
+          "match": ","
+        },
+        {
+          "name": "punctuation.semi.flux",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.colon.flux",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.brackets.curly.flux",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.brackets.round.flux",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.brackets.square.flux",
+          "match": "[\\[\\]]"
+        },
+        {
           "comment": "Hash for interpolation / records",
           "name": "punctuation.definition.hash.flux",
           "match": "#"
-        },
-        {
-          "comment": "Cons operator in patterns",
-          "name": "keyword.operator.cons.flux",
-          "match": "\\|(?!>|\\|)"
         }
       ]
     }

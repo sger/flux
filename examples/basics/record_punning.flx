@@ -1,0 +1,32 @@
+// parity-expected-stdout-begin
+// "Alice"
+// 30
+// "Bob"
+// 31
+// parity-expected-stdout-end
+
+/*
+Field punning in construction and spread (proposal 0152).
+When a local variable has the same name as a field, `{ x }` is shorthand
+for `{ x: x }`.
+*/
+
+
+data Person { Person { name: String, age: Int } }
+
+// Program entry point.
+fn main() with IO {
+    let name = "Alice"
+    let age = 30
+
+    // Construction with pure punning — no `: value` needed.
+    let alice = Person { name, age }
+    print(alice.name)
+    print(alice.age)
+
+    // Spread with punned override.
+    let name2 = "Bob"
+    let bob = { ...alice, name: name2, age: alice.age + 1 }
+    print(bob.name)
+    print(bob.age)
+}

@@ -8,7 +8,7 @@ use std::{
 };
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
     lir::{emit_llvm::emit_llvm_ir, lower::lower_program_with_interner},
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},

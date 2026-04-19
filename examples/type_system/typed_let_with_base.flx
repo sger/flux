@@ -2,6 +2,8 @@
 // Covers: primop types, Flow module types, cross-module inference,
 // and polymorphic function return types.
 
+import Flow.Array as Array
+
 fn main() with IO {
     // === Primop return types ===
     let parts: Array<String> = split("hello world foo", " ")
@@ -23,28 +25,28 @@ fn main() with IO {
     assert_eq(replaced, "hello flux")
 
     // === Flow.List function return types ===
-    let nums: Array<Int> = range(1, 6)
+    let nums: Array<Int> = Array.range(1, 6)
     assert_eq(len(nums), 5)
 
-    let doubled: Array<Int> = map(nums, \x -> x * 2)
-    assert_eq(first(doubled), Some(2))
+    let doubled: Array<Int> = Array.map(nums, \x -> x * 2)
+    assert_eq(Array.first(doubled), Some(2))
 
-    let evens: Array<Int> = filter(nums, \x -> x % 2 == 0)
+    let evens: Array<Int> = Array.filter(nums, \x -> x % 2 == 0)
     assert_eq(len(evens), 2)
 
-    let total: Int = fold(nums, 0, \(acc, x) -> acc + x)
+    let total: Int = Array.fold(nums, 0, \(acc, x) -> acc + x)
     assert_eq(total, 15)
 
-    let found: Bool = any(nums, \x -> x == 3)
+    let found: Bool = Array.any(nums, \x -> x == 3)
     assert_true(found)
 
-    let all_pos: Bool = all(nums, \x -> x > 0)
+    let all_pos: Bool = Array.all(nums, \x -> x > 0)
     assert_true(all_pos)
 
-    let rev: Array<Int> = reverse(nums)
-    assert_eq(first(rev), Some(5))
+    let rev: Array<Int> = Array.reverse(nums)
+    assert_eq(Array.first(rev), Some(5))
 
-    let zipped: Array<(Int, Int)> = zip(nums, doubled)
+    let zipped: Array<(Int, Int)> = Array.zip(nums, doubled)
     assert_eq(len(zipped), 5)
 
     // === Flow.Option functions ===
@@ -57,12 +59,12 @@ fn main() with IO {
     // === Flow.IO functions ===
     let ints: Array<Int> = split_ints("1,2,3", ",")
     assert_eq(len(ints), 3)
-    assert_eq(sum(ints), 6)
+    assert_eq(Array.sum(ints), 6)
 
     // === Chained pipeline with types ===
     let words: Array<String> = split("the quick brown fox jumps", " ")
-    let lengths: Array<Int> = map(words, \w -> len(w))
-    let long_count: Int = fold(lengths, 0, \(acc, l) -> if l > 3 { acc + 1 } else { acc })
+    let lengths: Array<Int> = Array.map(words, \w -> len(w))
+    let long_count: Int = Array.fold(lengths, 0, \(acc, l) -> if l > 3 { acc + 1 } else { acc })
     assert_eq(long_count, 3)
 
     print("All typed let with Flow assertions passed!")

@@ -25,8 +25,8 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 - Added stack headroom growth helper.
 - Used on closure entry/tail-call/invoke call-frame setup.
 - Files:
-  - `src/bytecode/vm/mod.rs`
-  - `src/bytecode/vm/function_call.rs`
+  - `src/vm/mod.rs`
+  - `src/vm/function_call.rs`
 
 ### 3) Value churn reduction
 
@@ -38,10 +38,10 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 - Replaced many consume-only opcode `pop+push` flows with in-place top-of-stack updates.
 - Added `Rc::try_unwrap` fast paths for unwrap ops (`Some/Left/Right`).
 - Files:
-  - `src/bytecode/vm/mod.rs`
-  - `src/bytecode/vm/binary_ops.rs`
-  - `src/bytecode/vm/comparison_ops.rs`
-  - `src/bytecode/vm/dispatch.rs`
+  - `src/vm/mod.rs`
+  - `src/vm/binary_ops.rs`
+  - `src/vm/comparison_ops.rs`
+  - `src/vm/dispatch.rs`
 
 ### 4) Dispatch hot-loop tightening
 
@@ -50,9 +50,9 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 - Moved rare/error formatting logic into cold helpers.
 - Added `push()` fast path with cold overflow slow path.
 - Files:
-  - `src/bytecode/vm/mod.rs`
-  - `src/bytecode/vm/dispatch.rs`
-  - `src/bytecode/vm/dispatch_test.rs`
+  - `src/vm/mod.rs`
+  - `src/vm/dispatch.rs`
+  - `src/vm/dispatch_test.rs`
 
 ### 5) Call overhead reduction (`execute_call`)
 
@@ -60,8 +60,8 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 - Added reusable tail-call argument scratch buffer.
 - Added base fixed-arity extraction fast path (0/1/2/3), preserving generic fallback behavior.
 - Files:
-  - `src/bytecode/vm/mod.rs`
-  - `src/bytecode/vm/function_call.rs`
+  - `src/vm/mod.rs`
+  - `src/vm/function_call.rs`
 
 ## Verification
 

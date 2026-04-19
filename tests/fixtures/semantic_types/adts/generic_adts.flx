@@ -1,0 +1,23 @@
+type Box<T> = Box(T)
+type Result<T, E> = Ok(T) | Err(E)
+
+fn wrap(x) { Box(x) }
+
+fn unwrap_or_zero(result) {
+    match result {
+        Ok(n) -> n,
+        Err(_) -> 0,
+    }
+}
+
+fn nested(result) {
+    match result {
+        Ok(Box(n)) -> n,
+        Err(_) -> 0,
+    }
+}
+
+fn main() with IO {
+    print(unwrap_or_zero(Ok(7)))
+    print(nested(Ok(Box(9))))
+}

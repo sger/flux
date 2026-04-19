@@ -28,24 +28,37 @@ impl<'a> super::AstLowerer<'a> {
         &mut self,
         arm: &HandleArm,
         effect: crate::syntax::Identifier,
+        handle_result_ty: Option<crate::core::CoreType>,
     ) -> CoreHandler {
         // Look up op signature: (effect, operation) → (param_types, return_type)
         let op_sig = self
             .effect_op_sigs
             .and_then(|sigs| sigs.get(&(effect, arm.operation_name)));
 
-        let params = if let Some((param_tys, _ret_ty)) = op_sig {
+        let (params, param_types) = if let Some((param_tys, _ret_ty)) = op_sig {
             if param_tys.len() == arm.params.len() {
-                arm.params
+                let params: Vec<_> = arm
+                    .params
                     .iter()
                     .zip(param_tys.iter())
                     .map(|(&p, ty)| self.bind_name_with_type(p, ty))
-                    .collect()
+                    .collect();
+                let param_types = param_tys
+                    .iter()
+                    .map(crate::core::CoreType::try_from_infer)
+                    .collect();
+                (params, param_types)
             } else {
-                arm.params.iter().map(|&p| self.bind_name(p)).collect()
+                (
+                    arm.params.iter().map(|&p| self.bind_name(p)).collect(),
+                    Vec::new(),
+                )
             }
         } else {
-            arm.params.iter().map(|&p| self.bind_name(p)).collect()
+            (
+                arm.params.iter().map(|&p| self.bind_name(p)).collect(),
+                Vec::new(),
+            )
         };
 
         // Resume is always a closure (boxed).
@@ -54,11 +67,27 @@ impl<'a> super::AstLowerer<'a> {
             self.next_binder_id += 1;
             super::super::CoreBinder::with_rep(id, arm.resume_param, FluxRep::BoxedRep)
         };
+        let resume_ty = op_sig.and_then(|(_param_tys, ret_ty)| {
+            crate::core::CoreType::try_from_infer(ret_ty).map(|op_ret_ty| {
+                crate::core::CoreType::Function(
+                    vec![op_ret_ty],
+                    Box::new(
+                        handle_result_ty
+                            .clone()
+                            .unwrap_or(crate::core::CoreType::Abstract(
+                                crate::core::CoreAbstractType::Named(arm.resume_param, Vec::new()),
+                            )),
+                    ),
+                )
+            })
+        });
 
         CoreHandler {
             operation: arm.operation_name,
             params,
+            param_types,
             resume,
+            resume_ty,
             body: self.lower_expr(&arm.body),
             span: arm.span,
         }
@@ -92,7 +121,7 @@ impl<'a> super::AstLowerer<'a> {
                         out.push(CoreDef::new(
                             binder,
                             CoreExpr::TupleField {
-                                object: Box::new(CoreExpr::bound_var(tmp_binder, span)),
+                                object: Box::new(CoreExpr::bound_var(&tmp_binder, span)),
                                 index: i,
                                 span,
                             },
@@ -234,6 +263,28 @@ impl<'a> super::AstLowerer<'a> {
                         .iter()
                         .map(|p| self.lower_pattern_typed(p, None))
                         .collect(),
+                }
+            }
+            Pattern::NamedConstructor { name, fields, .. } => {
+                // Proposal 0152: reorder named fields into declaration order
+                // and emit as a positional constructor pattern. Unknown or
+                // duplicate fields have already been diagnosed in HM; we
+                // recover with wildcards for any missing slot.
+                let declared = self.ctor_field_names.get(name).cloned().unwrap_or_default();
+                let mut positional: Vec<CorePat> =
+                    (0..declared.len()).map(|_| CorePat::Wildcard).collect();
+                for field in fields {
+                    if let Some(index) = declared.iter().position(|n| *n == field.name) {
+                        let sub = match &field.pattern {
+                            Some(p) => self.lower_pattern_typed(p, None),
+                            None => CorePat::Var(self.bind_name(field.name)),
+                        };
+                        positional[index] = sub;
+                    }
+                }
+                CorePat::Con {
+                    tag: CoreTag::Named(*name),
+                    fields: positional,
                 }
             }
         }

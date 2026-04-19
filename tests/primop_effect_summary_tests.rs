@@ -1,4 +1,5 @@
-use flux::bytecode::{compiler::Compiler, debug_info::EffectSummary};
+use flux::bytecode::debug_info::EffectSummary;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, parser::Parser};

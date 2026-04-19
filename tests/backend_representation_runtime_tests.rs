@@ -137,6 +137,7 @@ fn tuple_does_not_match_option_pattern_on_native() {
 fn representation_fixtures_hold_vm_native_parity() {
     for fixture in [
         "backend_repr_array_not_list.flx",
+        "backend_repr_option_named_field_access.flx",
         "backend_repr_tuple_not_option.flx",
         "backend_repr_list_match_ok.flx",
         "backend_repr_array_api_ok.flx",

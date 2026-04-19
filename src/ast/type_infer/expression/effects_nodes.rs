@@ -1,8 +1,15 @@
-use crate::syntax::expression::HandleArm;
+use crate::{
+    diagnostics::position::Span,
+    syntax::{
+        Identifier,
+        expression::{Expression, HandleArm},
+    },
+    types::{infer_type::InferType, scheme::Scheme},
+};
 
-use super::*;
+use super::super::{InferCtx, ReportContext};
 
-impl<'a> InferCtx<'a> {
+impl InferCtx<'_> {
     /// Infer `perform` expression nodes.
     pub(super) fn infer_perform_expression(
         &mut self,
@@ -11,7 +18,7 @@ impl<'a> InferCtx<'a> {
         args: &[Expression],
         span: Span,
     ) -> InferType {
-        let arg_tys: Vec<InferType> = args.iter().map(|arg| self.infer_expression(arg)).collect();
+        let arg_tys: Vec<InferType> = args.iter().map(|a| self.infer_expression(a)).collect();
         if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(effect, operation) {
             if arg_tys.len() == param_tys.len() {
                 for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
@@ -19,10 +26,10 @@ impl<'a> InferCtx<'a> {
                 }
                 ret_ty.apply_type_subst(&self.subst)
             } else {
-                InferType::Con(TypeConstructor::Any)
+                self.alloc_fallback_var()
             }
         } else {
-            InferType::Con(TypeConstructor::Any)
+            self.alloc_fallback_var()
         }
     }
 
@@ -35,7 +42,7 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let handled_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(expr));
         let mut arm_result: Option<InferType> = None;
-        for arm in arms {
+        for (arm_index, arm) in arms.iter().enumerate() {
             self.env.enter_scope();
             if let Some((param_tys, _ret_ty)) =
                 self.effect_op_signature_types(effect, arm.operation_name)
@@ -47,12 +54,21 @@ impl<'a> InferCtx<'a> {
             let body_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(&arm.body));
             self.env.leave_scope();
             arm_result = Some(match arm_result {
-                Some(prev) => self.join_types(&prev, &body_ty),
+                Some(prev) => self.unify_with_context(
+                    &prev,
+                    &body_ty,
+                    arm.body.span(),
+                    ReportContext::MatchArm {
+                        first_span: arms[0].body.span(),
+                        arm_span: arm.body.span(),
+                        arm_index: arm_index + 1,
+                    },
+                ),
                 None => body_ty,
             });
         }
 
-        let arm_ty = arm_result.unwrap_or(InferType::Con(TypeConstructor::Any));
-        self.join_types(&handled_ty, &arm_ty)
+        let arm_ty = arm_result.unwrap_or_else(|| self.alloc_fallback_var());
+        self.unify_with_context(&handled_ty, &arm_ty, expr.span(), ReportContext::Plain)
     }
 }

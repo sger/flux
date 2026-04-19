@@ -185,6 +185,18 @@ impl Lexer {
             return self.read_doc_block_comment();
         }
 
+        // Three-byte: spread `...`
+        if b0 == b'.' && b1 == Some(b'.') && b2 == Some(b'.') {
+            self.reader.advance_ascii_bytes(3);
+            return Token::new_static_with_end(
+                TokenType::DotDotDot,
+                "...",
+                line,
+                column,
+                self.cursor_position(),
+            );
+        }
+
         // Two-byte operator dispatch table.
         if let Some(token) = self.two_byte_token(b0, b1, line, column) {
             return token;

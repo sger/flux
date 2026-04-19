@@ -1,6 +1,6 @@
 mod diagnostics_env;
 
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType,
     position::{Position, Span},

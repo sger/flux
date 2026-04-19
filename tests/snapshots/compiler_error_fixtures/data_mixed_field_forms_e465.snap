@@ -1,0 +1,20 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/data_mixed_field_forms_e465.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E465]: Mixed Positional And Named Variants
+
+Data type `Shape` mixes positional and named-field variants.
+
+  examples/compiler_errors/data_mixed_field_forms_e465.flx:8:5
+  |
+8 |     Rect { width: Float, height: Float }
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Note:
+  while parsing data declaration `Shape`
+== stdout ==
+<not executed>

@@ -59,7 +59,7 @@ fn anf_atom(
         let rep = rep_of_expr(&expr);
         let binder = fresh_anf_binder(next_id, rep);
         bindings.push((binder, expr));
-        CoreExpr::bound_var(binder, span)
+        CoreExpr::bound_var(&binder, span)
     }
 }
 
@@ -201,8 +201,16 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
         // Lambda — normalize body only (params stay as-is).
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(anf_expr(*body, next_id)),
             span,
         },
@@ -270,6 +278,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let mut bindings = Vec::new();
@@ -286,6 +295,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             let case = CoreExpr::Case {
                 scrutinee: Box::new(scrutinee),
                 alts,
+                join_ty,
                 span,
             };
             wrap_lets(bindings, case, span)

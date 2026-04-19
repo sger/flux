@@ -6,23 +6,23 @@ use std::{
 };
 
 use crate::{
-    bytecode::{
-        bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
-        compiler::module_interface::{
+    bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
+    compiler::{
+        module_interface::{
             build_interface, compute_semantic_config_hash, load_cached_interface,
             load_valid_interface,
         },
         module_linker::{LinkedVmProgram, VmAssemblyContext},
     },
     diagnostics::{Diagnostic, quality::module_skipped_note, render_display_path},
-    syntax::module_graph::{ModuleKind, ModuleNode},
+    syntax::module_graph::ModuleNode,
     types::module_interface::ModuleInterface,
 };
 use rayon::prelude::*;
 
 use crate::driver::{
     frontend::extract_module_name_and_sym,
-    module_compile::{ModuleBuildState, build_module_compiler},
+    module_compile::{ModuleBuildState, build_module_compiler, effective_module_strictness},
     pipeline::parallel_shared::{
         ParallelReplayRequest, collect_dependency_fingerprints, dependency_changed_paths,
         emit_progress, filter_non_error_diagnostics, interfaces_changed, partition_module_batches,
@@ -78,19 +78,16 @@ fn compile_parallel_module(
 ) -> ParallelModuleResult {
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(
-        node.kind != ModuleKind::FlowStdlib && request.compile.strict_mode,
-        request.compile.enable_optimize,
-    );
-    let strict_hash = if node.kind == ModuleKind::FlowStdlib {
-        hash_bytes(b"strict=0")
-    } else {
-        hash_bytes(if request.compile.strict_mode {
-            b"strict=1"
-        } else {
-            b"strict=0"
-        })
-    };
+    let entry_module_kind = request
+        .graph
+        .entry_node()
+        .map(|node| node.kind)
+        .unwrap_or_default();
+    let strict_mode =
+        effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
+    let semantic_config_hash =
+        compute_semantic_config_hash(strict_mode, request.compile.enable_optimize);
+    let strict_hash = hash_bytes(format!("strict={}\n", u8::from(strict_mode)).as_bytes());
     let cache_key = hash_cache_key(&source_hash, &strict_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
     let old_interface = if !request.cache.no_cache {
@@ -162,8 +159,8 @@ fn compile_parallel_module(
         nodes_by_path,
         loaded_interfaces,
         request.graph_interner,
+        entry_module_kind,
         request.compile.strict_mode,
-        request.compile.strict_types,
         is_entry,
     );
     let compile_result = compiler.compile_with_opts(
@@ -191,6 +188,7 @@ fn compile_parallel_module(
     }
 
     let dependency_fingerprints = collect_dependency_fingerprints(&node.imports, loaded_interfaces);
+    let exported_runtime_contracts = compiler.exported_runtime_contracts();
 
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
@@ -205,6 +203,7 @@ fn compile_parallel_module(
                         &semantic_config_hash,
                         core.as_core(),
                         compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &compiler.module_function_visibility,
                         Some(compiler.class_env()),
                         dependency_fingerprints,
@@ -400,13 +399,18 @@ fn replay_warnings_if_needed(
     if result.needs_serial_warning_replay
         && let Some(node) = nodes_by_path.get(&result.path)
     {
+        let entry_module_kind = request
+            .graph
+            .entry_node()
+            .map(|node| node.kind)
+            .unwrap_or_default();
         let replayed = replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
             loaded_interfaces: &build_state.loaded_interfaces,
             base_interner: request.graph_interner,
+            entry_module_kind,
             strict_mode: request.compile.strict_mode,
-            strict_types: request.compile.strict_types,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
         });
@@ -422,13 +426,18 @@ fn replay_errors(
     all_diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(node) = nodes_by_path.get(&result.path) {
+        let entry_module_kind = request
+            .graph
+            .entry_node()
+            .map(|node| node.kind)
+            .unwrap_or_default();
         all_diagnostics.extend(replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
             loaded_interfaces: &build_state.loaded_interfaces,
             base_interner: request.graph_interner,
+            entry_module_kind,
             strict_mode: request.compile.strict_mode,
-            strict_types: request.compile.strict_types,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
         }));

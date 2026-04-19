@@ -1,3 +1,16 @@
+// parity-expected-stdout-begin
+// "hello world"
+// "flux is awesome"
+// "abc"
+// [|"hello", "world"|]
+// [|"hello", "world"|]
+// [|"hello"|]
+// "HELLO WORLD"
+// "hello world"
+// [|"H", "E", "L", "L", "O", " ", "w", "o", "r", "l", "d"|]
+// "HELLO"
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: String operations
     // Expected output:

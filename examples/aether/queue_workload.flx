@@ -1,15 +1,25 @@
-// Aether queue workload fixture.
-// This is a runnable pair-of-lists queue workload used to measure Aether
-// behavior on wrapper-style list updates without claiming any unsupported
-// optimization beyond what the regression tests assert.
-// Run:   cargo run -- examples/aether/queue_workload.flx
-// JIT:   cargo run -- --jit examples/aether/queue_workload.flx
-// LLVM:  cargo run -- --llvm examples/aether/queue_workload.flx
-// Stats: cargo run -- --dump-aether examples/aether/queue_workload.flx
+/*
+Aether queue workload fixture.
+This is a runnable pair-of-lists queue workload used to measure Aether
+behavior on wrapper-style list updates without claiming any unsupported
+optimization beyond what the regression tests assert.
+Run:   cargo run -- examples/aether/queue_workload.flx
+JIT:   cargo run -- --jit examples/aether/queue_workload.flx
+LLVM:  cargo run -- --llvm examples/aether/queue_workload.flx
+Stats: cargo run -- --dump-aether examples/aether/queue_workload.flx
+*/
+
+// parity-expected-stdout-begin
+// "Queue workload"
+// "=============="
+// "rotated total = 3502500"
+// "drained total = 2001000"
+// parity-expected-stdout-end
 
 type Queue<T> = Queue(List<T>, List<T>)
 type Pop<T> = EmptyQ | Popped(T, Queue<T>)
 
+// Helper for rev append.
 fn rev_append(xs, acc) {
     match xs {
         [h | t] -> rev_append(t, [h | acc]),
@@ -17,6 +27,7 @@ fn rev_append(xs, acc) {
     }
 }
 
+// Helper for normalize.
 fn normalize(q) {
     match q {
         Queue([], back) -> Queue(rev_append(back, []), []),
@@ -24,12 +35,14 @@ fn normalize(q) {
     }
 }
 
+// Append one value to an array.
 fn push(q, value) {
     match q {
         Queue(front, back) -> Queue(front, [value | back]),
     }
 }
 
+// Helper for pop.
 fn pop(q) {
     match normalize(q) {
         Queue([h | t], back) -> Popped(h, Queue(t, back)),
@@ -37,7 +50,9 @@ fn pop(q) {
     }
 }
 
+// Build queue.
 fn build_queue(n) {
+    // Helper for go.
     fn go(i, q) {
         if i <= 0 { q }
         else { go(i - 1, push(q, i)) }
@@ -45,6 +60,7 @@ fn build_queue(n) {
     go(n, Queue([], []))
 }
 
+// Helper for rotate sum.
 fn rotate_sum(q, rounds, total) {
     if rounds <= 0 { total }
     else {
@@ -55,6 +71,7 @@ fn rotate_sum(q, rounds, total) {
     }
 }
 
+// Helper for drain sum.
 fn drain_sum(q, total) {
     match pop(q) {
         Popped(value, rest) -> drain_sum(rest, total + value),
@@ -62,6 +79,7 @@ fn drain_sum(q, total) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let size = 2000
     let work_rounds = 3000

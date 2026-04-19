@@ -1,7 +1,16 @@
-// Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
-// Uses input file: examples/aoc/2024/day01.txt
+// parity-expected-stdout-begin
+// 2264607
+// 19457120
+// parity-expected-stdout-end
+
+/*
+Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
+Uses input file: examples/aoc/2024/day01.txt
+*/
 
 import Aoc2024Shared as Shared
+import Flow.Array as Array
+import Flow.Map as Map
 
 // Parse one line like "3   4" into a tuple (3, 4).
 // Steps:
@@ -13,30 +22,27 @@ import Aoc2024Shared as Shared
 fn parse_pair(line) {
     (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
     where nums =
-        split(trim(line), " ")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_int(t))
+    split(trim(line), " ")
+    |> Array.filter(\t -> trim(t) != "")
+    |> Array.map(\t -> parse_int(t))
 }
-
 // Parse whole input into an array of tuples: [(left, right), ...].
 fn parse_pairs(lines: Array<String>) {
     lines
-    |> map(\s -> trim(s))
-    |> filter(\s -> s != "")
-    |> map(\s -> parse_pair(s))
+    |> Array.map(\s -> trim(s))
+    |> Array.filter(\s -> s != "")
+    |> Array.map(\s -> parse_pair(s))
 }
-
 // Part A:
 // - split tuples into two columns
 // - sort both columns
 // - sum absolute pairwise differences
 fn day01a(day_pairs_a) {
-    zip(left, right)
-    |> fold(0, \(acc, p) -> acc + abs(p.0 - p.1))
-    where left  = day_pairs_a |> map(\p -> p.0) |> sort_by(\x -> x)
-    where right = day_pairs_a |> map(\p -> p.1) |> sort_by(\x -> x)
+    Array.zip(left, right)
+    |> Array.fold(0, \(acc, p) -> acc + abs(p.0 - p.1))
+    where left  = day_pairs_a |> Array.map(\p -> p.0) |> Array.sort_by(\x -> x)
+    where right = day_pairs_a |> Array.map(\p -> p.1) |> Array.sort_by(\x -> x)
 }
-
 // Part B:
 // - keep left column
 // - build a frequency map for right column in one pass
@@ -44,18 +50,17 @@ fn day01a(day_pairs_a) {
 // Note: this avoids O(n^2) repeated `count(right, \y -> y == x)` scans.
 fn day01b(day_pairs_b) {
     left
-    |> fold(0, \(acc, x) -> {
-        acc + x * match get(right_freqs, x) { Some(c) -> c, _ -> 0 }
+    |> Array.fold(0, \(acc, x) -> {
+            acc + x * match Map.get(right_freqs, x) { Some(c) -> c, _ -> 0 }
     })
-    where left  = day_pairs_b |> map(\p -> p.0)
+    where left  = day_pairs_b |> Array.map(\p -> p.0)
     where right_freqs = day_pairs_b
-        |> map(\p -> p.1)
-        |> fold({}, \(m, x) -> match get(m, x) {
-            Some(c) -> put(m, x, c + 1),
-            _ -> put(m, x, 1),
-        })
+    |> Array.map(\p -> p.1)
+    |> Array.fold({}, \(m, x) -> match Map.get(m, x) {
+            Some(c) -> Map.set(m, x, c + 1),
+            _ -> Map.set(m, x, 1),
+    })
 }
-
 // Program entry: parse once, then print both answers.
 fn main() with IO {
     let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs

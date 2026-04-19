@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::core::{
     lower_ast::lower_program_ast,
     passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
@@ -29,8 +29,7 @@ fn parse_and_infer(
     );
     let interner = parser.take_interner();
 
-    let mut compiler =
-        flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner.clone());
+    let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner.clone());
     let types = compiler.infer_expr_types_for_program(&program);
     (program, types, interner)
 }
@@ -45,9 +44,9 @@ fn run(src: &str) -> Value {
         parser.errors
     );
     let interner = parser.take_interner();
-    let mut compiler = flux::bytecode::compiler::Compiler::new_with_interner("<test>", interner);
+    let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("compile ok");
-    let mut vm = flux::bytecode::vm::VM::new(compiler.bytecode());
+    let mut vm = flux::vm::VM::new(compiler.bytecode());
     vm.run().expect("vm run ok");
     vm.last_popped_stack_elem().clone()
 }
@@ -810,7 +809,7 @@ fn fbip_clean_fixture_keeps_annotations_provable() {
 
 #[test]
 fn fbip_failure_fixture_stays_non_provable() {
-    let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx")
+    let src = std::fs::read_to_string("examples/compiler_errors/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);

@@ -1,3 +1,15 @@
+// parity-expected-stdout-begin
+// 1
+// 1
+// 0
+// 1.5
+// 3
+// 2
+// 0
+// 1
+// 0
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Modulo operator (%)
     // Expected output:

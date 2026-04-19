@@ -1,41 +1,50 @@
-// Test: Using Functional Patterns with Pipelines and Lambdas
-// Expected output:
-// Using functional helper functions:
-// Doubled: [|2, 4, 6, 8, 10|]
-// Evens: [|2, 4|]
-// Sum: 15
-// Composing with lambdas:
-// Triple then add 1: 16
-// Applied 4 times: 80
-// Pipeline with functions:
-// HELLO
-// WORLD
-// FLUX
+/*
+Test: Using Functional Patterns with Pipelines and Lambdas
+*/
 
+// parity-expected-stdout-begin
+// "Using functional helper functions:"
+// "Doubled: [|2, 4, 6, 8, 10|]"
+// "Evens: [|2, 4|]"
+// "Sum: 15"
+// "Composing with lambdas:"
+// "Triple then add 1: 16"
+// "Applied 4 times: 80"
+// "Pipeline with functions:"
+// "HELLO"
+// "WORLD"
+// "FLUX"
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+// Helper for compose.
 fn compose(f, g) {
     \x -> f(g(x))
 }
 
+// Helper for applyN.
 fn applyN(f, n, x) {
     if n <= 0 {
         x
     } else {
-    applyN(f, n - 1, f(x))
-}
+        applyN(f, n - 1, f(x))
+    }
 }
 
+// Program entry point.
 fn main() with IO {
     print("Using functional helper functions:")
 
     let nums = [|1, 2, 3, 4, 5|]
 
-    let doubled = map(nums, \x -> x * 2)
+    let doubled = Array.map(nums, \x -> x * 2)
     print("Doubled: " + to_string(doubled))
 
-    let evens = filter(nums, \x -> x % 2 == 0)
+    let evens = Array.filter(nums, \x -> x % 2 == 0)
     print("Evens: " + to_string(evens))
 
-    let total = fold(nums, 0, \(acc, x) -> acc + x)
+    let total = Array.fold(nums, 0, \(acc, x) -> acc + x)
     print("Sum: " + to_string(total))
 
     print("Composing with lambdas:")
@@ -53,8 +62,8 @@ fn main() with IO {
     print("Pipeline with functions:")
 
     let words = [|"hello", "world", "flux"|]
-    let uppercased = map(words, \w -> w |> upper)
-    print(first(uppercased))
-    print(first(rest(uppercased)))
-    print(first(rest(rest(uppercased))))
+    let uppercased = Array.map(words, \w -> w |> upper)
+    print(unwrap(Array.first(uppercased)))
+    print(unwrap(Array.first(Array.drop(uppercased, 1))))
+    print(unwrap(Array.first(Array.drop(uppercased, 2))))
 }

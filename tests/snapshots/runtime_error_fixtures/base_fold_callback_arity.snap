@@ -13,7 +13,28 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-• 1 error • examples/runtime_errors/base_fold_callback_arity.flx
+• 2 errors • examples/runtime_errors/base_fold_callback_arity.flx
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/runtime_errors/base_fold_callback_arity.flx:2:19
+  |
+2 |     let ignored = fold(#[1], 0, len)
+  |                   ^^^^^^^^^^^^^^^^^^
+  |                   ------------------ parameter 1 has type `Array<Int>`
+
+  |                   ------------------ this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<Int>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `len`.
@@ -25,3 +46,5 @@ I can't find a value named `len`.
 
 Hint:
   Define it first: let len = ...;
+
+Found 2 errors.

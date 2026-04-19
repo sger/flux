@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     aether::borrow_infer::BorrowSignature,
+    runtime::function_contract::FunctionContract,
     syntax::{
         Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
         type_expr::TypeExpr,
@@ -115,6 +116,24 @@ pub struct ModuleInterface {
     pub schemes: HashMap<String, Scheme>,
     /// Exported borrow signatures keyed by unqualified function name.
     pub borrow_signatures: HashMap<String, BorrowSignature>,
+    /// Exported runtime contracts keyed by unqualified function name.
+    ///
+    /// Note: the unqualified-name key follows the same convention as `schemes`
+    /// and `borrow_signatures` above. This is sound today because Flux module
+    /// re-exports surface a single canonical binding per name within a module.
+    /// If re-export semantics ever broaden to allow two imports with the same
+    /// leaf name to coexist in one module's public surface, switch to a
+    /// qualified key (e.g. `(origin_module, name)`) here and in the sibling
+    /// maps above.
+    #[serde(default)]
+    pub runtime_contracts: HashMap<String, FunctionContract>,
+    /// Exported member kind keyed by unqualified member name.
+    ///
+    /// `true` means the member is a value binding (`public let`), `false`
+    /// means it is a function. This lets the native backend distinguish
+    /// imported zero-arg functions from imported exported values.
+    #[serde(default)]
+    pub member_is_value: HashMap<String, bool>,
     /// Fingerprints of direct imported module interfaces used to compile this module.
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
     /// Portable symbol table: maps serialized Symbol u32 IDs to their string names.
@@ -203,6 +222,8 @@ impl ModuleInterface {
             interface_fingerprint: String::new(),
             schemes: HashMap::new(),
             borrow_signatures: HashMap::new(),
+            runtime_contracts: HashMap::new(),
+            member_is_value: HashMap::new(),
             dependency_fingerprints: Vec::new(),
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
@@ -290,7 +311,7 @@ mod tests {
 
     #[test]
     fn symbol_table_defaults_empty_for_old_format() {
-        // Simulates loading an old .flxi without the symbol_table field
+        // Simulates loading an old .flxi without the symbol_table/member_is_value fields
         let json = r#"{
             "module_name": "Old",
             "source_hash": "abc",
@@ -304,6 +325,7 @@ mod tests {
         }"#;
         let decoded: ModuleInterface = serde_json::from_str(json).expect("deserialize old format");
         assert!(decoded.symbol_table.is_empty());
+        assert!(decoded.member_is_value.is_empty());
     }
 
     #[test]
@@ -338,6 +360,10 @@ mod tests {
                 BorrowProvenance::Imported,
             ),
         );
+        interface.member_is_value.insert("map".to_string(), false);
+        interface
+            .member_is_value
+            .insert("answer".to_string(), true);
         interface.interface_fingerprint = "f00d".to_string();
         interface
             .dependency_fingerprints

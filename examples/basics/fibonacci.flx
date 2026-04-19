@@ -1,3 +1,14 @@
+// parity-expected-stdout-begin
+// 0
+// 1
+// 1
+// 2
+// 3
+// 5
+// 8
+// 55
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Recursion - Fibonacci
     // Expected output:
@@ -20,6 +31,7 @@ fn main() with IO {
     print(fib(10))
 }
 
+// Helper for fib.
 fn fib(n) {
     if n < 2 {
         n
@@ -28,6 +40,6 @@ fn fib(n) {
     }
 }
 
+// Helper for test.
 fn test() {
-    
 }

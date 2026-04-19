@@ -1,0 +1,17 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/spread_unknown_variant_e468.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E468]: Spread With Unknown Variant
+
+Cannot spread `Item` because its variant is not statically known.
+
+  examples/compiler_errors/spread_unknown_variant_e468.flx:13:5
+   |
+13 |     { ...it, id: 99 }
+   |     ^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

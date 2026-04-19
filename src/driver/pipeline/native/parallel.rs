@@ -6,14 +6,16 @@ use std::{
 };
 
 use crate::{
-    bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
-    bytecode::compiler::module_interface::{
+    bytecode::bytecode_cache::hash_bytes,
+    compiler::module_interface::{
         build_interface, compute_semantic_config_hash, load_cached_interface,
     },
-    llvm::{
-        module_cache::NativeModuleCache, pipeline::compile_ir_to_object, render_module, target,
-    },
     diagnostics::{Diagnostic, DiagnosticPhase},
+    llvm::{
+        module_cache::{NativeModuleCache, compute_native_cache_key},
+        pipeline::compile_ir_to_object,
+        render_module, target,
+    },
     shared::cache_paths::{self, CacheLayout},
     syntax::{
         interner::Interner,
@@ -27,7 +29,8 @@ use super::{NativeParallelCompileRequest, native_temp_dir};
 use crate::driver::{
     frontend::extract_module_name_and_sym,
     module_compile::{
-        build_module_compiler, program_has_user_adt_declarations, tag_module_diagnostics,
+        build_module_compiler, effective_module_strictness, program_has_user_adt_declarations,
+        tag_module_diagnostics,
     },
     pipeline::parallel_shared::{
         ParallelReplayRequest, collect_dependency_fingerprints, dependency_changed_paths,
@@ -50,8 +53,8 @@ struct NativeParallelModuleResult {
     miss_reason: Option<String>,
 }
 
-fn native_cache_hit_is_usable(interface_present: bool, module_kind: ModuleKind) -> bool {
-    interface_present || module_kind != ModuleKind::FlowStdlib
+fn native_cache_hit_is_usable(interface_present: bool, _module_kind: ModuleKind) -> bool {
+    interface_present
 }
 
 fn native_miss_reason(
@@ -72,13 +75,13 @@ fn native_miss_reason(
 struct NativeModuleCompileRequest<'a> {
     node: &'a ModuleNode,
     is_entry_module: bool,
+    entry_module_kind: ModuleKind,
     nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
     loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
     cache_layout: &'a CacheLayout,
     no_cache: bool,
     force_rebuild: bool,
     strict_mode: bool,
-    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     base_interner: &'a Interner,
@@ -89,14 +92,12 @@ fn compile_parallel_native_module(
     request: NativeModuleCompileRequest<'_>,
 ) -> NativeParallelModuleResult {
     let node = request.node;
-    let is_flow_library = node.kind == ModuleKind::FlowStdlib;
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(
-        !is_flow_library && request.strict_mode,
-        request.enable_optimize,
-    );
-    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let strict_mode =
+        effective_module_strictness(node.kind, request.entry_module_kind, request.strict_mode);
+    let semantic_config_hash = compute_semantic_config_hash(strict_mode, request.enable_optimize);
+    let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
 
     let native_miss_reason = if !request.no_cache && !request.force_rebuild {
         let native_cache = NativeModuleCache::new(request.cache_layout.native_dir());
@@ -133,15 +134,11 @@ fn compile_parallel_native_module(
         request.nodes_by_path,
         request.loaded_interfaces,
         request.base_interner,
+        request.entry_module_kind,
         request.strict_mode,
-        request.strict_types,
         false,
     );
     compiler.set_file_path(node.path.to_string_lossy().to_string());
-    if is_flow_library {
-        compiler.set_strict_mode(false);
-        compiler.set_strict_types(false);
-    }
 
     let compile_result = compiler.compile_with_opts(
         &node.program,
@@ -246,6 +243,7 @@ fn compile_parallel_native_module(
         };
     }
 
+    let exported_runtime_contracts = compiler.exported_runtime_contracts();
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
             compiler
@@ -259,6 +257,7 @@ fn compile_parallel_native_module(
                         &semantic_config_hash,
                         core.as_core(),
                         compiler.cached_member_schemes(),
+                        &exported_runtime_contracts,
                         &compiler.module_function_visibility,
                         Some(compiler.class_env()),
                         dependency_fingerprints,
@@ -353,8 +352,8 @@ struct NativeResultContext<'a> {
     no_cache: bool,
     verbose: bool,
     base_interner: &'a Interner,
+    entry_module_kind: ModuleKind,
     strict_mode: bool,
-    strict_types: bool,
     enable_optimize: bool,
     enable_analyze: bool,
     all_diagnostics: &'a mut Vec<Diagnostic>,
@@ -371,8 +370,8 @@ fn handle_native_result(
         no_cache,
         verbose,
         base_interner,
+        entry_module_kind,
         strict_mode,
-        strict_types,
         enable_optimize,
         enable_analyze,
         all_diagnostics,
@@ -384,8 +383,8 @@ fn handle_native_result(
                 loaded_interfaces: &build_state.loaded_interfaces,
                 nodes_by_path,
                 base_interner,
+                entry_module_kind,
                 strict_mode,
-                strict_types,
                 enable_optimize,
                 enable_analyze,
             }));
@@ -406,8 +405,8 @@ fn handle_native_result(
             loaded_interfaces: &build_state.loaded_interfaces,
             nodes_by_path,
             base_interner,
+            entry_module_kind,
             strict_mode,
-            strict_types,
             enable_optimize,
             enable_analyze,
         });
@@ -447,7 +446,6 @@ pub(crate) fn compile_native_modules_parallel(
         cache_layout,
         no_cache,
         strict_mode,
-        strict_types,
         enable_optimize,
         enable_analyze,
         verbose,
@@ -457,6 +455,7 @@ pub(crate) fn compile_native_modules_parallel(
         .entry_node()
         .map(|node| node.path.clone())
         .ok_or_else(|| "native module graph is missing an entry node".to_string())?;
+    let entry_module_kind = graph.entry_node().map(|node| node.kind).unwrap_or_default();
     let nodes_by_path: HashMap<PathBuf, ModuleNode> = graph
         .topo_order()
         .into_iter()
@@ -491,13 +490,13 @@ pub(crate) fn compile_native_modules_parallel(
                     compile_parallel_native_module(NativeModuleCompileRequest {
                         node,
                         is_entry_module: node.path == entry_path,
+                        entry_module_kind,
                         nodes_by_path: &nodes_by_path,
                         loaded_interfaces: &build_state.loaded_interfaces,
                         cache_layout,
                         no_cache,
                         force_rebuild: force_rebuild_paths.contains(&node.path),
                         strict_mode,
-                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         base_interner,
@@ -525,8 +524,8 @@ pub(crate) fn compile_native_modules_parallel(
                         no_cache,
                         verbose,
                         base_interner,
+                        entry_module_kind,
                         strict_mode,
-                        strict_types,
                         enable_optimize,
                         enable_analyze,
                         all_diagnostics,
@@ -546,10 +545,11 @@ mod tests {
     use crate::syntax::module_graph::ModuleKind;
 
     #[test]
-    fn native_cache_hit_rules_depend_on_module_kind() {
+    fn native_cache_hit_requires_interface_for_every_module() {
         assert!(native_cache_hit_is_usable(true, ModuleKind::FlowStdlib));
         assert!(!native_cache_hit_is_usable(false, ModuleKind::FlowStdlib));
-        assert!(native_cache_hit_is_usable(false, ModuleKind::User));
+        assert!(native_cache_hit_is_usable(true, ModuleKind::User));
+        assert!(!native_cache_hit_is_usable(false, ModuleKind::User));
     }
 
     #[test]

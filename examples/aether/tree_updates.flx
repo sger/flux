@@ -1,13 +1,26 @@
-// Aether tree/ADT workload fixture.
-// This fixture currently demonstrates:
-// - masked named-ADT reuse on field-preserving updates
-// - zero-mask named-ADT reuse on exact rebuilds
-// - plain named-ADT reuse on wider rewrites
-// - asymmetric DropSpecialized behavior on branch-sensitive updates
+/*
+Aether tree/ADT workload fixture.
+This fixture currently demonstrates:
+- masked named-ADT reuse on field-preserving updates
+- zero-mask named-ADT reuse on exact rebuilds
+- plain named-ADT reuse on wider rewrites
+- asymmetric DropSpecialized behavior on branch-sensitive updates
+*/
+
+// parity-expected-stdout-begin
+// "Tree workload"
+// "============="
+// Node(Black, Leaf, 5, Leaf)
+// Node(Black, Leaf, 9, Leaf)
+// Node(Black, Leaf, 0, Leaf)
+// Node(Red, Leaf, 5, Leaf)
+// Node(Black, Leaf, 0, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 
+// Helper for set black.
 fn set_black(t) {
     match t {
         Node(_, left, key, right) -> Node(Black, left, key, right),
@@ -15,6 +28,7 @@ fn set_black(t) {
     }
 }
 
+// Helper for rebuild same.
 fn rebuild_same(t) {
     match t {
         Node(color, left, key, right) -> Node(color, left, key, right),
@@ -22,6 +36,7 @@ fn rebuild_same(t) {
     }
 }
 
+// Helper for rewrite many.
 fn rewrite_many(t) {
     match t {
         Node(_, left, _, _) -> Node(Black, left, 0, left),
@@ -29,16 +44,19 @@ fn rewrite_many(t) {
     }
 }
 
+// Helper for keep or dup left.
 fn keep_or_dup_left(t, keep) {
     match t {
         Node(color, left, key, right) ->
-            if keep { Node(color, left, key, right) }
-            else { Node(color, left, key, left) },
+        if keep { Node(color, left, key, right) }
+        else { Node(color, left, key, left) },
         _ -> t,
     }
 }
 
+// Helper for churn tree.
 fn churn_tree(t, iterations) {
+    // Helper for go.
     fn go(i, current) {
         if i <= 0 { current }
         else {
@@ -52,6 +70,7 @@ fn churn_tree(t, iterations) {
     go(iterations, t)
 }
 
+// Program entry point.
 fn main() with IO {
     let tree = Node(Red, Leaf, 5, Leaf)
     let updated = churn_tree(tree, 500)

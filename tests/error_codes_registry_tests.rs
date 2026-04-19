@@ -493,6 +493,7 @@ fn runtime_and_orchestration_diagnostics_have_explicit_categories() {
             .message()
             .is_some_and(|m| m.contains("dependency `BrokenDep` already has errors"))
     );
+    assert_eq!(skipped.span(), None);
 
     let suppressed = downstream_errors_suppressed_note("main.flx", 2, 1);
     assert_eq!(

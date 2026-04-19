@@ -7,7 +7,7 @@ use std::{
 
 use crate as flux;
 use crate::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticPhase},
     syntax::{
         interner::Interner,
@@ -71,18 +71,18 @@ pub(crate) fn build_module_compiler(
     nodes_by_path: &HashMap<PathBuf, ModuleNode>,
     loaded_interfaces: &HashMap<PathBuf, ModuleInterface>,
     base_interner: &Interner,
+    entry_module_kind: ModuleKind,
     strict_mode: bool,
-    strict_types: bool,
     is_entry_module: bool,
 ) -> Compiler {
+    let strict_mode = effective_module_strictness(node.kind, entry_module_kind, strict_mode);
     let mut compiler = Compiler::new_with_interner(
         node.path.to_string_lossy().to_string(),
         base_interner.clone(),
     );
     compiler.set_current_module_kind(node.kind);
     compiler.set_strict_require_main(is_entry_module);
-    compiler.set_strict_mode(node.kind != ModuleKind::FlowStdlib && strict_mode);
-    compiler.set_strict_types(node.kind != ModuleKind::FlowStdlib && strict_types);
+    compiler.set_strict_mode(strict_mode);
     for dep in &node.imports {
         if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
             compiler.preload_module_interface(interface);
@@ -109,11 +109,19 @@ pub(crate) fn build_module_compiler(
             }
         }
     }
-    if node.kind == ModuleKind::FlowStdlib {
-        compiler.set_strict_mode(false);
-        compiler.set_strict_types(false);
-    }
     compiler
+}
+
+pub(crate) fn effective_module_strictness(
+    module_kind: ModuleKind,
+    entry_module_kind: ModuleKind,
+    strict_mode: bool,
+) -> bool {
+    if module_kind == ModuleKind::FlowStdlib && entry_module_kind != ModuleKind::FlowStdlib {
+        false
+    } else {
+        strict_mode
+    }
 }
 
 /// Grouped inputs for replaying module diagnostics through a fresh compiler instance.
@@ -122,8 +130,8 @@ pub(crate) struct ModuleReplayRequest<'a> {
     pub(crate) nodes_by_path: &'a HashMap<PathBuf, ModuleNode>,
     pub(crate) loaded_interfaces: &'a HashMap<PathBuf, ModuleInterface>,
     pub(crate) base_interner: &'a Interner,
+    pub(crate) entry_module_kind: ModuleKind,
     pub(crate) strict_mode: bool,
-    pub(crate) strict_types: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
 }
@@ -135,8 +143,8 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
         request.nodes_by_path,
         request.loaded_interfaces,
         request.base_interner,
+        request.entry_module_kind,
         request.strict_mode,
-        request.strict_types,
         false,
     );
     let compile_result = compiler.compile_with_opts(
@@ -160,13 +168,14 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
 pub(crate) fn log_interface_diff(
     old: &flux::types::module_interface::ModuleInterface,
     new: &flux::types::module_interface::ModuleInterface,
+    interner: &crate::syntax::interner::Interner,
 ) {
     for name in new.schemes.keys() {
         if !old.schemes.contains_key(name) {
             eprintln!(
                 "  + public {}: {}",
                 name,
-                format_scheme_for_cli(&new.schemes[name])
+                format_scheme_for_cli(interner, &new.schemes[name])
             );
         }
     }
@@ -182,8 +191,8 @@ pub(crate) fn log_interface_diff(
             eprintln!(
                 "  ~ public {}: {} -> {}",
                 name,
-                format_scheme_for_cli(old_scheme),
-                format_scheme_for_cli(new_scheme)
+                format_scheme_for_cli(interner, old_scheme),
+                format_scheme_for_cli(interner, new_scheme)
             );
         }
     }
@@ -191,10 +200,13 @@ pub(crate) fn log_interface_diff(
 
 #[cfg(test)]
 mod tests {
-    use super::program_has_user_adt_declarations;
+    use super::{effective_module_strictness, program_has_user_adt_declarations};
     use crate::{
         diagnostics::position::Span,
-        syntax::{Identifier, block::Block, program::Program, statement::Statement, symbol::Symbol},
+        syntax::{
+            Identifier, block::Block, module_graph::ModuleKind, program::Program,
+            statement::Statement, symbol::Symbol,
+        },
     };
 
     fn sentinel() -> Identifier {
@@ -247,5 +259,21 @@ mod tests {
         let program = Program::new();
 
         assert!(!program_has_user_adt_declarations(&program));
+    }
+
+    #[test]
+    fn user_entry_disables_strictness_for_flow_stdlib_dependencies() {
+        let strictness =
+            effective_module_strictness(ModuleKind::FlowStdlib, ModuleKind::User, true);
+
+        assert!(!strictness);
+    }
+
+    #[test]
+    fn flow_entry_preserves_strictness_for_flow_stdlib_modules() {
+        let strictness =
+            effective_module_strictness(ModuleKind::FlowStdlib, ModuleKind::FlowStdlib, true);
+
+        assert!(strictness);
     }
 }

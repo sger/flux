@@ -13,6 +13,7 @@ mod tests {
         let program = Program {
             statements: vec![Statement::Let {
                 name: x,
+                is_public: false,
                 type_annotation: None,
                 value: Expression::Integer {
                     value: 5,

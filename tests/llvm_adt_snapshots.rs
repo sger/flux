@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
-    llvm::render_module,
     lir,
+    llvm::render_module,
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
 };

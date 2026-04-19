@@ -1,0 +1,10 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+
+let items = [|
+    "a",
+    "b",
+    "c",
+|]

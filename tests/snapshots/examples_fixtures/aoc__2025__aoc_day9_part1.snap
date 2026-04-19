@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day9_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day9_part1.flx:52:14
-   |
-52 | let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
+<none>
 == stdout ==
 <not executed>

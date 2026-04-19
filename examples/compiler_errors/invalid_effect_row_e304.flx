@@ -1,0 +1,13 @@
+// E304: Invalid effect row.
+//
+// A single `with ...` clause must use at most one row variable. Here `|e`
+// and `|f` are two distinct row tails inside the same effect row, so the
+// annotation cannot be interpreted.
+
+fn confused<e, f>() with IO |e |f {
+    None
+}
+
+fn main() -> Unit {
+    None
+}

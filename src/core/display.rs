@@ -584,50 +584,222 @@ fn format_rep(rep: super::FluxRep) -> &'static str {
     }
 }
 
-fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
+fn alpha_name(index: usize) -> String {
+    let letter = ((index % 26) as u8 + b'a') as char;
+    let suffix = index / 26;
+    if suffix == 0 {
+        letter.to_string()
+    } else {
+        format!("{letter}{suffix}")
+    }
+}
+
+fn collect_core_bound_var_order(
+    ty: &super::CoreType,
+    bound: &[crate::types::TypeVarId],
+    order: &mut Vec<crate::types::TypeVarId>,
+) {
     use super::CoreType;
     match ty {
-        CoreType::Int => "Int".to_string(),
-        CoreType::Float => "Float".to_string(),
-        CoreType::Bool => "Bool".to_string(),
-        CoreType::String => "String".to_string(),
-        CoreType::Unit => "Unit".to_string(),
-        CoreType::Never => "Never".to_string(),
-        CoreType::Any => "Any".to_string(),
-        CoreType::List(elem) => format!("List<{}>", format_core_type(elem, interner)),
-        CoreType::Array(elem) => format!("Array<{}>", format_core_type(elem, interner)),
-        CoreType::Option(elem) => format!("Option<{}>", format_core_type(elem, interner)),
-        CoreType::Either(l, r) => format!(
-            "Either<{}, {}>",
-            format_core_type(l, interner),
-            format_core_type(r, interner)
-        ),
-        CoreType::Map(k, v) => format!(
-            "Map<{}, {}>",
-            format_core_type(k, interner),
-            format_core_type(v, interner)
-        ),
+        CoreType::Var(var) => {
+            if bound.contains(var) && !order.contains(var) {
+                order.push(*var);
+            }
+        }
+        CoreType::Forall(_, body) => collect_core_bound_var_order(body, bound, order),
+        CoreType::List(elem) | CoreType::Array(elem) | CoreType::Option(elem) => {
+            collect_core_bound_var_order(elem, bound, order)
+        }
+        CoreType::Either(left, right) | CoreType::Map(left, right) => {
+            collect_core_bound_var_order(left, bound, order);
+            collect_core_bound_var_order(right, bound, order);
+        }
         CoreType::Tuple(elems) => {
-            let parts: Vec<_> = elems
-                .iter()
-                .map(|e| format_core_type(e, interner))
-                .collect();
-            format!("({})", parts.join(", "))
+            for elem in elems {
+                collect_core_bound_var_order(elem, bound, order);
+            }
         }
         CoreType::Function(params, ret) => {
-            let parts: Vec<_> = params
-                .iter()
-                .map(|p| format_core_type(p, interner))
-                .collect();
-            format!(
-                "({}) -> {}",
-                parts.join(", "),
-                format_core_type(ret, interner)
-            )
+            for param in params {
+                collect_core_bound_var_order(param, bound, order);
+            }
+            collect_core_bound_var_order(ret, bound, order);
         }
-        CoreType::Adt(name) => interner
-            .try_resolve(*name)
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("Adt#{}", name.as_u32())),
+        CoreType::Adt(_, args) => {
+            for arg in args {
+                collect_core_bound_var_order(arg, bound, order);
+            }
+        }
+        CoreType::Abstract(super::CoreAbstractType::Named(_, args)) => {
+            for arg in args {
+                collect_core_bound_var_order(arg, bound, order);
+            }
+        }
+        CoreType::Int
+        | CoreType::Float
+        | CoreType::Bool
+        | CoreType::String
+        | CoreType::Unit
+        | CoreType::Never
+        | CoreType::Abstract(_) => {}
+    }
+}
+
+fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
+    use super::{CoreAbstractType, CoreType};
+    use std::collections::HashMap;
+    fn go(
+        ty: &CoreType,
+        interner: &Interner,
+        names: &mut HashMap<crate::types::TypeVarId, String>,
+        next: &mut usize,
+    ) -> String {
+        match ty {
+            CoreType::Int => "Int".to_string(),
+            CoreType::Float => "Float".to_string(),
+            CoreType::Bool => "Bool".to_string(),
+            CoreType::String => "String".to_string(),
+            CoreType::Unit => "Unit".to_string(),
+            CoreType::Never => "Never".to_string(),
+            CoreType::Var(var) => names
+                .entry(*var)
+                .or_insert_with(|| {
+                    let name = alpha_name(*next);
+                    *next += 1;
+                    name
+                })
+                .clone(),
+            CoreType::Forall(vars, body) => {
+                let mut ordered = Vec::new();
+                collect_core_bound_var_order(body, vars, &mut ordered);
+                for var in vars {
+                    if !ordered.contains(var) {
+                        ordered.push(*var);
+                    }
+                }
+                let mut inserted = Vec::new();
+                for var in &ordered {
+                    if !names.contains_key(var) {
+                        let name = alpha_name(*next);
+                        *next += 1;
+                        names.insert(*var, name);
+                        inserted.push(*var);
+                    }
+                }
+                let vars = ordered
+                    .iter()
+                    .map(|var| names.get(var).cloned().unwrap())
+                    .collect::<Vec<_>>();
+                let rendered = format!(
+                    "forall {}. {}",
+                    vars.join(", "),
+                    go(body, interner, names, next)
+                );
+                for var in inserted {
+                    names.remove(&var);
+                }
+                rendered
+            }
+            CoreType::Abstract(CoreAbstractType::ConstructorHead(tc)) => format!("{tc:?}"),
+            CoreType::Abstract(CoreAbstractType::HigherKindedApp) => "Abstract<HKT>".to_string(),
+            CoreType::Abstract(CoreAbstractType::UnsupportedApp(tc)) => {
+                format!("Abstract<{tc:?}>")
+            }
+            CoreType::Abstract(CoreAbstractType::Named(name, args)) => {
+                let name = interner
+                    .try_resolve(*name)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("Abstract#{}", name.as_u32()));
+                if args.is_empty() {
+                    name
+                } else {
+                    let rendered = args
+                        .iter()
+                        .map(|arg| go(arg, interner, names, next))
+                        .collect::<Vec<_>>();
+                    format!("{name}<{}>", rendered.join(", "))
+                }
+            }
+            CoreType::List(elem) => format!("List<{}>", go(elem, interner, names, next)),
+            CoreType::Array(elem) => format!("Array<{}>", go(elem, interner, names, next)),
+            CoreType::Option(elem) => format!("Option<{}>", go(elem, interner, names, next)),
+            CoreType::Either(l, r) => format!(
+                "Either<{}, {}>",
+                go(l, interner, names, next),
+                go(r, interner, names, next)
+            ),
+            CoreType::Map(k, v) => format!(
+                "Map<{}, {}>",
+                go(k, interner, names, next),
+                go(v, interner, names, next)
+            ),
+            CoreType::Tuple(elems) => {
+                let parts: Vec<_> = elems.iter().map(|e| go(e, interner, names, next)).collect();
+                format!("({})", parts.join(", "))
+            }
+            CoreType::Function(params, ret) => {
+                let parts: Vec<_> = params
+                    .iter()
+                    .map(|p| go(p, interner, names, next))
+                    .collect();
+                format!(
+                    "({}) -> {}",
+                    parts.join(", "),
+                    go(ret, interner, names, next)
+                )
+            }
+            CoreType::Adt(name, args) => {
+                let name = interner
+                    .try_resolve(*name)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("Adt#{}", name.as_u32()));
+                if args.is_empty() {
+                    name
+                } else {
+                    let rendered = args
+                        .iter()
+                        .map(|arg| go(arg, interner, names, next))
+                        .collect::<Vec<_>>();
+                    format!("{name}<{}>", rendered.join(", "))
+                }
+            }
+        }
+    }
+
+    let mut names = HashMap::new();
+    let mut next = 0;
+    go(ty, interner, &mut names, &mut next)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        core::{CoreAbstractType, CoreType},
+        syntax::interner::Interner,
+    };
+
+    use super::format_core_type;
+
+    #[test]
+    fn format_core_type_renders_explicit_semantic_forms() {
+        let mut interner = Interner::new();
+        let result = interner.intern("Result");
+        let elem = interner.intern("a");
+
+        let ty = CoreType::Forall(
+            vec![3],
+            Box::new(CoreType::Function(
+                vec![
+                    CoreType::Adt(result, vec![CoreType::Var(3), CoreType::Int]),
+                    CoreType::Abstract(CoreAbstractType::Named(elem, vec![])),
+                ],
+                Box::new(CoreType::Var(3)),
+            )),
+        );
+
+        assert_eq!(
+            format_core_type(&ty, &interner),
+            "forall a. (Result<a, Int>, a) -> a"
+        );
     }
 }

@@ -1,3 +1,24 @@
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
+// [2, 3, 4, 5, 6, 7, 8, 9, 10]
+// 1
+// [2, 3]
+// [0, 1, 2, 3]
+// true
+// false
+// 3
+// [3, 2, 1]
+// true
+// false
+// [|1, 2, 3|]
+// [20, 30, 40]
+// [|1|]
+// [1]
+// [100, 200, 300]
+// false
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Persistent lists (cons cells)
     // Expected output:
@@ -83,5 +104,4 @@ fn main() with IO {
     print(xs_list)
 
     print(is_list(my_new_list2))  // false
-
 }

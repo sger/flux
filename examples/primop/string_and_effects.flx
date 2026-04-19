@@ -1,3 +1,14 @@
+// parity-expected-stdout-begin
+// "== PrimOps: strings + effects =="
+// 10
+// "hello world"
+// "hello"
+// "flux"
+// "clock_now captured"
+// true
+// true
+// parity-expected-stdout-end
+
 fn main() with IO, Time {
     println("== PrimOps: strings + effects ==");
 

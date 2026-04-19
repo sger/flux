@@ -3,59 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/flow/all_phase3.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E012]: Unknown Module Member
-
-Module `Flow` has no member named `print`.
-
-  examples/flow/all_phase3.flx:5:1
-  |
-5 | Flow.print("== Flow directives smoke ==");
-  | ^^^^^^^^^^
-
-Hint:
-  Check the module's public members or import the correct module.
-
-
-error[E012]: Unknown Module Member
-
-Module `Flow` has no member named `print`.
-
-  examples/flow/all_phase3.flx:6:1
-  |
-6 | Flow.print("length([1,2,3]) = " + to_string(length([1, 2, 3])));
-  | ^^^^^^^^^^
-
-Hint:
-  Check the module's public members or import the correct module.
-
-
-error[E012]: Unknown Module Member
-
-Module `Flow` has no member named `print`.
-
-  examples/flow/all_phase3.flx:12:3
-   |
-12 |   Flow.print("local len(xs) = " + to_string(len(xs)));
-   |   ^^^^^^^^^^
-
-Hint:
-  Check the module's public members or import the correct module.
-
-
-error[E012]: Unknown Module Member
-
-Module `Flow` has no member named `print`.
-
-  examples/flow/all_phase3.flx:13:3
-   |
-13 |   Flow.print("Flow.len(xs) = " + to_string(Flow.len(xs)));
-   |   ^^^^^^^^^^
-
-Hint:
-  Check the module's public members or import the correct module.
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

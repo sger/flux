@@ -3,33 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day4_part2.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `push`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:63:42
-   |
-63 |     step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
-   |                                          ^^^^
-
-Hint:
-  Define it first: let push = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day4_part2.flx:79:13
-   |
-79 | let lines = [line | line <- raw_lines, line != ""]
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

@@ -9,19 +9,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:9:6
+  examples/aether/verify_aether.flx:20:6
    |
- 9 | @fip fn my_map(xs, f) {
+20 | @fip fn my_map(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^
-10 |     match xs {
+21 |     match xs {
    | ^^^^^^^^^^^^^^
-11 |         [h | t] -> [f(h) | my_map(t, f)],
+22 |         [h | t] -> [f(h) | my_map(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-12 |         _ -> [],
+23 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-13 |     }
+24 |     }
    | ^^^^^
-14 | }
+25 | }
    | ^
 
 
@@ -32,19 +32,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:17:6
+  examples/aether/verify_aether.flx:28:6
    |
-17 | @fip fn option_map(opt, f) {
+28 | @fip fn option_map(opt, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^
-18 |     match opt {
+29 |     match opt {
    | ^^^^^^^^^^^^^^^
-19 |         Some(x) -> Some(f(x)),
+30 |         Some(x) -> Some(f(x)),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-20 |         _ -> None,
+31 |         _ -> None,
    | ^^^^^^^^^^^^^^^^^^
-21 |     }
+32 |     }
    | ^^^^^
-22 | }
+33 | }
    | ^
 
 Found 2 warnings.

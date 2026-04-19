@@ -61,7 +61,7 @@ impl CoreBinder {
 }
 
 impl CoreVarRef {
-    pub fn resolved(binder: CoreBinder) -> Self {
+    pub fn resolved(binder: &CoreBinder) -> Self {
         Self {
             name: binder.name,
             binder: Some(binder.id),
@@ -77,9 +77,17 @@ impl CoreVarRef {
 
 /// Core-level type representation.
 ///
-/// Simplified from `InferType` — no unification variables, no quantifiers.
-/// Populated during AST→Core lowering from HM inference results.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Simplified from `InferType`, but capable of preserving semantic residue that
+/// reaches Core instead of erasing it to a fake dynamic type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CoreAbstractType {
+    ConstructorHead(crate::types::type_constructor::TypeConstructor),
+    HigherKindedApp,
+    UnsupportedApp(crate::types::type_constructor::TypeConstructor),
+    Named(Identifier, Vec<CoreType>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CoreType {
     Int,
     Float,
@@ -94,20 +102,19 @@ pub enum CoreType {
     Option(Box<CoreType>),
     Either(Box<CoreType>, Box<CoreType>),
     Map(Box<CoreType>, Box<CoreType>),
-    Adt(Identifier),
-    /// Type variable or unresolved type.
-    Any,
+    Adt(Identifier, Vec<CoreType>),
+    Var(crate::types::TypeVarId),
+    Forall(Vec<crate::types::TypeVarId>, Box<CoreType>),
+    Abstract(CoreAbstractType),
 }
 
 impl CoreType {
-    /// Convert an HM-inferred `InferType` into a `CoreType`.
-    ///
-    /// Unification variables and `Any` both map to `CoreType::Any`.
-    /// Effect rows on function types are erased (not relevant at Core level).
-    pub fn from_infer(ty: &crate::types::infer_type::InferType) -> Self {
+    /// Convert an HM-inferred `InferType` into a `CoreType` without
+    /// manufacturing a semantic fallback.
+    pub fn try_from_infer(ty: &crate::types::infer_type::InferType) -> Option<Self> {
         use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
-        match ty {
-            InferType::Var(_) => CoreType::Any,
+        Some(match ty {
+            InferType::Var(var) => CoreType::Var(*var),
             InferType::Con(tc) => match tc {
                 TypeConstructor::Int => CoreType::Int,
                 TypeConstructor::Float => CoreType::Float,
@@ -115,20 +122,20 @@ impl CoreType {
                 TypeConstructor::String => CoreType::String,
                 TypeConstructor::Unit => CoreType::Unit,
                 TypeConstructor::Never => CoreType::Never,
-                TypeConstructor::Any => CoreType::Any,
-                TypeConstructor::List => CoreType::List(Box::new(CoreType::Any)),
-                TypeConstructor::Array => CoreType::Array(Box::new(CoreType::Any)),
-                TypeConstructor::Option => CoreType::Option(Box::new(CoreType::Any)),
-                TypeConstructor::Either => {
-                    CoreType::Either(Box::new(CoreType::Any), Box::new(CoreType::Any))
+                TypeConstructor::List
+                | TypeConstructor::Array
+                | TypeConstructor::Option
+                | TypeConstructor::Either
+                | TypeConstructor::Map => {
+                    CoreType::Abstract(CoreAbstractType::ConstructorHead(tc.clone()))
                 }
-                TypeConstructor::Map => {
-                    CoreType::Map(Box::new(CoreType::Any), Box::new(CoreType::Any))
-                }
-                TypeConstructor::Adt(sym) => CoreType::Adt(*sym),
+                TypeConstructor::Adt(sym) => CoreType::Adt(*sym, Vec::new()),
             },
             InferType::App(tc, args) => {
-                let core_args: Vec<CoreType> = args.iter().map(CoreType::from_infer).collect();
+                let core_args: Vec<CoreType> = args
+                    .iter()
+                    .map(CoreType::try_from_infer)
+                    .collect::<Option<_>>()?;
                 match tc {
                     TypeConstructor::List if core_args.len() == 1 => {
                         CoreType::List(Box::new(core_args.into_iter().next().unwrap()))
@@ -147,19 +154,101 @@ impl CoreType {
                         let mut it = core_args.into_iter();
                         CoreType::Map(Box::new(it.next().unwrap()), Box::new(it.next().unwrap()))
                     }
-                    TypeConstructor::Adt(sym) => CoreType::Adt(*sym),
-                    _ => CoreType::Any,
+                    TypeConstructor::Adt(sym) => CoreType::Adt(*sym, core_args),
+                    _ => CoreType::Abstract(CoreAbstractType::UnsupportedApp(tc.clone())),
                 }
             }
             InferType::Fun(params, ret, _effects) => {
-                let param_tys = params.iter().map(CoreType::from_infer).collect();
-                let ret_ty = CoreType::from_infer(ret);
-                CoreType::Function(param_tys, Box::new(ret_ty))
+                let param_tys: Vec<CoreType> = params
+                    .iter()
+                    .map(CoreType::try_from_infer)
+                    .collect::<Option<_>>()?;
+                let ret_ty = CoreType::try_from_infer(ret)?;
+                let free_vars: std::collections::BTreeSet<_> = param_tys
+                    .iter()
+                    .chain(std::iter::once(&ret_ty))
+                    .flat_map(CoreType::free_type_vars)
+                    .collect();
+                let body = CoreType::Function(param_tys, Box::new(ret_ty));
+                if free_vars.is_empty() {
+                    body
+                } else {
+                    CoreType::Forall(free_vars.into_iter().collect(), Box::new(body))
+                }
             }
-            InferType::Tuple(elems) => {
-                CoreType::Tuple(elems.iter().map(CoreType::from_infer).collect())
+            InferType::Tuple(elems) => CoreType::Tuple(
+                elems
+                    .iter()
+                    .map(CoreType::try_from_infer)
+                    .collect::<Option<_>>()?,
+            ),
+            InferType::HktApp(_, _) => CoreType::Abstract(CoreAbstractType::HigherKindedApp),
+        })
+    }
+
+    /// Convert an HM-inferred `InferType` into a `CoreType`.
+    pub fn from_infer(ty: &crate::types::infer_type::InferType) -> Self {
+        Self::try_from_infer(ty).expect("CoreType::try_from_infer is total")
+    }
+
+    pub fn free_type_vars(&self) -> Vec<crate::types::TypeVarId> {
+        let mut vars = std::collections::BTreeSet::new();
+        self.collect_free_type_vars(&mut vars);
+        vars.into_iter().collect()
+    }
+
+    fn collect_free_type_vars(
+        &self,
+        out: &mut std::collections::BTreeSet<crate::types::TypeVarId>,
+    ) {
+        match self {
+            CoreType::Var(var) => {
+                out.insert(*var);
             }
-            InferType::HktApp(_, _) => CoreType::Any,
+            CoreType::Forall(bound, body) => {
+                let mut nested = std::collections::BTreeSet::new();
+                body.collect_free_type_vars(&mut nested);
+                for var in nested {
+                    if !bound.contains(&var) {
+                        out.insert(var);
+                    }
+                }
+            }
+            CoreType::List(elem) | CoreType::Array(elem) | CoreType::Option(elem) => {
+                elem.collect_free_type_vars(out)
+            }
+            CoreType::Either(left, right) | CoreType::Map(left, right) => {
+                left.collect_free_type_vars(out);
+                right.collect_free_type_vars(out);
+            }
+            CoreType::Tuple(elems) => {
+                for elem in elems {
+                    elem.collect_free_type_vars(out);
+                }
+            }
+            CoreType::Function(params, ret) => {
+                for param in params {
+                    param.collect_free_type_vars(out);
+                }
+                ret.collect_free_type_vars(out);
+            }
+            CoreType::Adt(_, args) => {
+                for arg in args {
+                    arg.collect_free_type_vars(out);
+                }
+            }
+            CoreType::Int
+            | CoreType::Float
+            | CoreType::Bool
+            | CoreType::String
+            | CoreType::Unit
+            | CoreType::Never => {}
+            CoreType::Abstract(CoreAbstractType::Named(_, args)) => {
+                for arg in args {
+                    arg.collect_free_type_vars(out);
+                }
+            }
+            CoreType::Abstract(_) => {}
         }
     }
 }
@@ -207,14 +296,16 @@ impl FluxRep {
             | CoreType::Option(_)
             | CoreType::Either(_, _)
             | CoreType::Map(_, _)
-            | CoreType::Adt(_) => FluxRep::BoxedRep,
-            CoreType::Any => FluxRep::TaggedRep,
+            | CoreType::Adt(_, _) => FluxRep::BoxedRep,
+            CoreType::Var(_) | CoreType::Forall(_, _) | CoreType::Abstract(_) => FluxRep::TaggedRep,
         }
     }
 
     /// Derive the runtime representation from an HM `InferType`.
     pub fn from_infer_type(ty: &crate::types::infer_type::InferType) -> Self {
-        FluxRep::from_core_type(&CoreType::from_infer(ty))
+        CoreType::try_from_infer(ty)
+            .map(|ty| FluxRep::from_core_type(&ty))
+            .unwrap_or(FluxRep::TaggedRep)
     }
 
     /// Whether this rep is unboxed (no NaN-boxing overhead).
@@ -738,7 +829,9 @@ pub enum CorePat {
 pub struct CoreHandler {
     pub operation: Identifier,
     pub params: Vec<CoreBinder>,
+    pub param_types: Vec<Option<CoreType>>,
     pub resume: CoreBinder,
+    pub resume_ty: Option<CoreType>,
     pub body: CoreExpr,
     pub span: Span,
 }
@@ -758,6 +851,8 @@ pub enum CoreExpr {
     Lit(CoreLit, Span),
     Lam {
         params: Vec<CoreBinder>,
+        param_types: Vec<Option<CoreType>>,
+        result_ty: Option<CoreType>,
         body: Box<CoreExpr>,
         span: Span,
     },
@@ -789,6 +884,7 @@ pub enum CoreExpr {
     Case {
         scrutinee: Box<CoreExpr>,
         alts: Vec<CoreAlt>,
+        join_ty: Option<CoreType>,
         span: Span,
     },
     Con {
@@ -855,6 +951,11 @@ pub struct CoreDef {
 
 #[derive(Debug, Clone)]
 pub enum CoreTopLevelItem {
+    Let {
+        is_public: bool,
+        name: Identifier,
+        span: Span,
+    },
     Function {
         is_public: bool,
         name: Identifier,
@@ -913,7 +1014,7 @@ pub struct CoreProgram {
 // ── CoreExpr helpers ──────────────────────────────────────────────────────────
 
 impl CoreExpr {
-    pub fn bound_var(binder: CoreBinder, span: Span) -> CoreExpr {
+    pub fn bound_var(binder: &CoreBinder, span: Span) -> CoreExpr {
         CoreExpr::Var {
             var: CoreVarRef::resolved(binder),
             span,
@@ -959,11 +1060,23 @@ impl CoreExpr {
     }
 
     pub fn lambda(params: Vec<CoreBinder>, body: CoreExpr, span: Span) -> CoreExpr {
+        Self::lambda_typed(params, Vec::new(), None, body, span)
+    }
+
+    pub fn lambda_typed(
+        params: Vec<CoreBinder>,
+        param_types: Vec<Option<CoreType>>,
+        result_ty: Option<CoreType>,
+        body: CoreExpr,
+        span: Span,
+    ) -> CoreExpr {
         if params.is_empty() {
             body
         } else {
             CoreExpr::Lam {
                 params,
+                param_types,
+                result_ty,
                 body: Box::new(body),
                 span,
             }
@@ -1027,6 +1140,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::syntax::{lexer::Lexer, parser::Parser};
+    use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
     #[test]
     fn core_facade_lowers_typed_program() {
@@ -1065,5 +1179,65 @@ fn main() { inc(41) }
         let ir = super::to_ir::lower_core_to_ir(&core);
 
         assert!(!ir.functions.is_empty(), "expected backend IR functions");
+    }
+
+    #[test]
+    fn try_from_infer_preserves_unresolved_vars() {
+        assert_eq!(
+            super::CoreType::try_from_infer(&InferType::Var(0)),
+            Some(super::CoreType::Var(0))
+        );
+    }
+
+    #[test]
+    fn try_from_infer_preserves_concrete_map_shape() {
+        let inferred = InferType::App(
+            TypeConstructor::Map,
+            vec![
+                InferType::Con(TypeConstructor::String),
+                InferType::Con(TypeConstructor::Int),
+            ],
+        );
+        assert_eq!(
+            super::CoreType::try_from_infer(&inferred),
+            Some(super::CoreType::Map(
+                Box::new(super::CoreType::String),
+                Box::new(super::CoreType::Int),
+            ))
+        );
+    }
+
+    #[test]
+    fn try_from_infer_preserves_parameterized_adt_shape() {
+        let inferred = InferType::App(
+            TypeConstructor::Adt(crate::syntax::symbol::Symbol::new(7)),
+            vec![InferType::Con(TypeConstructor::Int), InferType::Var(3)],
+        );
+        assert_eq!(
+            super::CoreType::try_from_infer(&inferred),
+            Some(super::CoreType::Adt(
+                crate::syntax::symbol::Symbol::new(7),
+                vec![super::CoreType::Int, super::CoreType::Var(3)]
+            ))
+        );
+    }
+
+    #[test]
+    fn try_from_infer_wraps_polymorphic_function_in_forall() {
+        let inferred = InferType::Fun(
+            vec![InferType::Var(1)],
+            Box::new(InferType::Var(1)),
+            crate::types::infer_effect_row::InferEffectRow::closed_empty(),
+        );
+        assert_eq!(
+            super::CoreType::try_from_infer(&inferred),
+            Some(super::CoreType::Forall(
+                vec![1],
+                Box::new(super::CoreType::Function(
+                    vec![super::CoreType::Var(1)],
+                    Box::new(super::CoreType::Var(1))
+                ))
+            ))
+        );
     }
 }

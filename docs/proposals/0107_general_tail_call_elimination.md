@@ -1,9 +1,17 @@
 - Feature Name: General Tail-Call Elimination (Mutual Recursion and CPS)
 - Start Date: 2026-03-18
-- Status: Draft
+- Status: Partially Implemented — direct tail calls (incl. mutual recursion) and LLVM `tail call fastcc` promotion landed; indirect closure tail calls on LLVM remain open
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0016 (self-recursive tail calls), 0104 (Flux Core IR)
+- Delivery notes:
+  - **Phase 1 (VM general `OpTailCall`)** ✅ — `OpTailCall = 44` + `OpTailCall1` superinstruction in [`src/bytecode/op_code.rs`](../../src/bytecode/op_code.rs); frame-replacement logic in [`src/bytecode/vm/function_call.rs::execute_tail_call`](../../src/bytecode/vm/function_call.rs).
+  - **Phase 2 (Core IR / compiler tail-position tracking)** ✅ — `in_tail_position` propagation in [`src/cfg/lower.rs`](../../src/cfg/lower.rs) and [`src/bytecode/compiler/statement.rs`](../../src/bytecode/compiler/statement.rs); CLI `analyze-tail-calls` command.
+  - **Phase 3 (Cranelift JIT)** — N/A; Cranelift JIT retired, superseded by [0116 LLVM text-IR backend](implemented/0116_llvm_text_ir_backend.md).
+  - **Phase 4 (LLVM `tail call fastcc`)** ✅ for direct calls — [`src/lir/lower.rs::promote_tail_calls`](../../src/lir/lower.rs); snapshot verification in [`src/llvm/ir/ppr.rs`](../../src/llvm/ir/ppr.rs).
+  - **Mutual recursion** ✅ — [`tests/flux/mutual_recursion.flx`](../../tests/flux/mutual_recursion.flx) covers 2-way, 3-way, captured variables, accumulators.
+  - **CPS via effect handlers** ✅ — tail-resumptive fast path lives in [`src/core/passes/evidence.rs`](../../src/core/passes/evidence.rs); further work tracked under [0162](0162_unified_effect_handler_runtime.md).
+- Remaining: **indirect closure tail calls on LLVM** — [`src/lir/lower.rs::promote_tail_calls`](../../src/lir/lower.rs) intentionally excludes `flux_call_closure` dispatch because the indirect calling convention triggers bus errors on Apple clang. Fix requires calling-convention work to allow indirect tail calls across Linux/macOS/Windows toolchains. Tracked for v0.0.9 alongside other perf-closure items (0109/0112).
 
 # Proposal 0107: General Tail-Call Elimination
 

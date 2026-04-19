@@ -1,14 +1,9 @@
 // E400: Base HOF callback effect requirement must be available in ambient context.
 
-fn noisy_inc(n: Int) -> Int with IO {
+fn noisy_log(n: Int) -> Unit with IO {
     print("tick")
-    n + 1
-}
-
-fn map_with_io_callback(f: (Int) -> Int with IO) -> Array<Int> with IO {
-    map([|1, 2, 3|], f)
 }
 
 fn main() with Time {
-    let _ = map_with_io_callback(noisy_inc)
+    each([1, 2, 3], noisy_log)
 }

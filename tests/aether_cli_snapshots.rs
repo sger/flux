@@ -134,6 +134,21 @@ fn assert_cli_snapshot(rel: &str, args: &[&str], mode: &str) {
     });
 }
 
+fn assert_cli_snapshot_named(rel: &str, snapshot_rel: &str, args: &[&str], mode: &str) {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path(rel);
+    let mut cmd = args.to_vec();
+    cmd.push(file.to_str().unwrap());
+    let transcript = run_flux(&cmd);
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(snapshot_name(snapshot_rel, mode), transcript);
+    });
+}
+
 fn assert_trace_snapshot(rel: &str, args: &[&str], mode: &str) {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let file = example_path(rel);
@@ -298,6 +313,33 @@ fn snapshot_class_borrow_calls_dump_core() {
 }
 
 #[test]
+fn snapshot_polymorphic_core_types_dump_core_debug() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let file = example_path("aether/polymorphic_core_types.flx");
+    let transcript = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let focused = transcript
+        .lines()
+        .filter(|line| {
+            line.starts_with("letrec __tc_Eqish_Int_same :")
+                || line.starts_with("letrec __tc_Eq_Int_eq : forall ")
+                || line.starts_with("letrec id : a")
+                || line.starts_with("letrec choose : a")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::with_settings!({
+        snapshot_path => "snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(
+            "aether__aether__polymorphic_core_types__dump_core_debug",
+            focused
+        );
+    });
+}
+
+#[test]
 fn snapshot_class_borrow_calls_dump_aether() {
     assert_cli_snapshot(
         "aether/class_borrow_calls.flx",
@@ -335,7 +377,8 @@ fn snapshot_drop_spec_recursive_dump_core_debug() {
 
 #[test]
 fn snapshot_fbip_failure_dump_aether() {
-    assert_cli_snapshot(
+    assert_cli_snapshot_named(
+        "compiler_errors/fbip_fail_nonfip_call.flx",
         "aether/fbip_fail_nonfip_call.flx",
         &["--dump-aether"],
         "dump_aether",

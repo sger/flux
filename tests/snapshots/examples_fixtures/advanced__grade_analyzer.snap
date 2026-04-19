@@ -3,72 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/grade_analyzer.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/advanced/grade_analyzer.flx:10:26
-   |
-10 |     let (total, count) = fold(scores, (0.0, 0.0), /(acc, x) -> (acc.0 + x, acc.1 + 1.0))
-   |                          ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `total`.
-
-  examples/advanced/grade_analyzer.flx:11:5
-   |
-11 |     total / count
-   |     ^^^^^
-
-Hint:
-  Define it first: let total = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/advanced/grade_analyzer.flx:49:5
-   |
-49 |     fold(students, {}, /(acc, s) ->
-   |     ^^^^
-
-Hint:
-  Define it first: let fold = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `filter`.
-
-  examples/advanced/grade_analyzer.flx:58:9
-   |
-58 |     len(filter(values(results), /r -> r["passed"] == Some(true)))
-   |         ^^^^^^
-
-Hint:
-  Define it first: let filter = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `filter`.
-
-  examples/advanced/grade_analyzer.flx:62:9
-   |
-62 |     len(filter(values(results), /r -> r["passed"] == Some(false)))
-   |         ^^^^^^
-
-Hint:
-  Define it first: let filter = ...;
-
-Found 5 errors.
+<none>
 == stdout ==
 <not executed>

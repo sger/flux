@@ -1,5 +1,5 @@
-use flux::bytecode::compiler::Compiler;
 use flux::bytecode::op_code::disassemble;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
@@ -54,7 +54,7 @@ fn run(input: &str) -> Value {
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
     let bytecode = compiler.bytecode().clone();
-    let mut vm = flux::bytecode::vm::VM::new(bytecode);
+    let mut vm = flux::vm::VM::new(bytecode);
     vm.run().expect("VM error");
     vm.last_popped_stack_elem()
 }

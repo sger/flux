@@ -9,13 +9,13 @@ error[E419]: Unresolved Effect Row
 
 I cannot resolve the effect variable `e` introduced by this call.
 
-  examples/compiler_errors/row_effects/unresolved_row_subtract_single_e419.flx:6:5
+  examples/compiler_errors/row_effects/unresolved_row_subtract_single_e419.flx:6:13
   |
-6 |     unresolved(1)
-  |     ^^^^^^^^^^
-  |     ---------- this call leaves an effect variable unconstrained
+6 |     let _ = unresolved(1)
+  |             ^^^^^^^^^^
+  |             ---------- this call leaves an effect variable unconstrained
 
-  |     ---------- this call to `unresolved` creates the effect obligation
+  |             ---------- this call to `unresolved` creates the effect obligation
 
 Note:
   unresolved effect variable: e

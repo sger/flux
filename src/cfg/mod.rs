@@ -271,7 +271,7 @@ id_type!(EffectId);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IrType {
-    Any,
+    Tagged,
     Int,
     Float,
     Bool,
@@ -284,6 +284,29 @@ pub enum IrType {
     Function(usize),
     Unit,
     Never,
+}
+
+impl IrType {
+    pub fn from_core_type(core_type: &CoreType) -> Self {
+        match core_type {
+            CoreType::Int => Self::Int,
+            CoreType::Float => Self::Float,
+            CoreType::Bool => Self::Bool,
+            CoreType::String => Self::String,
+            CoreType::Unit => Self::Unit,
+            CoreType::Never => Self::Never,
+            CoreType::List(_) => Self::List,
+            CoreType::Array(_) => Self::Array,
+            CoreType::Map(_, _) => Self::Hash,
+            CoreType::Tuple(elems) => Self::Tuple(elems.len()),
+            CoreType::Function(params, _) => Self::Function(params.len()),
+            _ => Self::Tagged,
+        }
+    }
+
+    pub fn is_generic_rep(&self) -> bool {
+        matches!(self, Self::Tagged)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -576,6 +599,7 @@ pub enum IrTerminator {
 pub struct IrBlockParam {
     pub var: IrVar,
     pub ty: IrType,
+    pub inferred_ty: Option<CoreType>,
 }
 
 #[derive(Debug, Clone)]
@@ -624,12 +648,14 @@ pub struct IrFunction {
 #[derive(Debug, Clone)]
 pub enum IrTopLevelItem {
     Let {
+        is_public: bool,
         name: Identifier,
         type_annotation: Option<TypeExpr>,
         value: Expression,
         span: Span,
     },
     LetDestructure {
+        is_public: bool,
         pattern: Pattern,
         value: Expression,
         span: Span,

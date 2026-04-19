@@ -1,4 +1,7 @@
 use super::*;
+use crate::ast::type_infer::expression::patterns::PatternFamily;
+use crate::diagnostics::{DiagnosticCategory, compiler_errors::EMPTY_MATCH, diagnostic_for};
+use crate::types::type_constructor::TypeConstructor;
 
 impl<'a> InferCtx<'a> {
     /// Infer `if` expressions, constraining condition to `Bool` and joining branch results.
@@ -36,14 +39,38 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_match_expression(&mut self, input: MatchInferInput<'_>) -> InferType {
         let scrutinee_ty = self.infer_expression(input.scrutinee);
         if input.arms.is_empty() {
-            return InferType::Con(TypeConstructor::Any);
+            self.errors.push(
+                diagnostic_for(&EMPTY_MATCH)
+                    .with_file(self.file_path.clone())
+                    .with_span(input.span)
+                    .with_category(DiagnosticCategory::TypeInference),
+            );
+            return self.alloc_fallback_var();
         }
-        let propagated_scrutinee = self.propagate_match_scrutinee_constraint(&scrutinee_ty, &input);
-        let (first_ty, first_span) =
-            self.infer_first_match_arm(input.arms, &propagated_scrutinee, input.span);
+        let shared_family = self.shared_pattern_family(input.arms);
+        let has_nonconstraining_arm = self.match_has_nonconstraining_arm(input.arms);
+        let isolate_arm_scrutinees =
+            self.should_isolate_match_arm_scrutinees(
+                input.arms,
+                &scrutinee_ty,
+                shared_family.as_ref(),
+            );
+        let propagated_scrutinee = self.propagate_match_scrutinee_constraint(
+            &scrutinee_ty,
+            &shared_family,
+            has_nonconstraining_arm,
+            &input,
+        );
+        let (first_ty, first_span) = self.infer_first_match_arm(
+            input.arms,
+            &propagated_scrutinee,
+            isolate_arm_scrutinees,
+            input.span,
+        );
         let (result_ty, arm_types) = self.infer_remaining_match_arms(
             input.arms,
             &propagated_scrutinee,
+            isolate_arm_scrutinees,
             input.span,
             &first_ty,
             first_span,
@@ -56,9 +83,15 @@ impl<'a> InferCtx<'a> {
     fn propagate_match_scrutinee_constraint(
         &mut self,
         scrutinee_ty: &InferType,
+        shared_family: &Option<PatternFamily>,
+        has_nonconstraining_arm: bool,
         input: &MatchInferInput<'_>,
     ) -> InferType {
-        self.shared_pattern_family(input.arms)
+        if has_nonconstraining_arm {
+            return scrutinee_ty.clone();
+        }
+        shared_family
+            .as_ref()
             .and_then(|family| self.expected_type_for_pattern_family(&family))
             .map(|expected| self.unify_reporting(scrutinee_ty, &expected, input.span))
             .unwrap_or_else(|| scrutinee_ty.clone())
@@ -69,10 +102,12 @@ impl<'a> InferCtx<'a> {
         &mut self,
         arms: &[MatchArm],
         scrutinee_ty: &InferType,
+        isolate_arm_scrutinees: bool,
         span: Span,
     ) -> (InferType, Span) {
         self.env.enter_scope();
-        self.bind_pattern_variables(&arms[0].pattern, scrutinee_ty, span);
+        let arm_scrutinee = self.arm_pattern_scrutinee_ty(scrutinee_ty, isolate_arm_scrutinees);
+        self.bind_pattern_variables(&arms[0].pattern, &arm_scrutinee, span);
         if let Some(guard) = &arms[0].guard {
             self.infer_expression(guard);
         }
@@ -87,6 +122,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         arms: &[MatchArm],
         scrutinee_ty: &InferType,
+        isolate_arm_scrutinees: bool,
         span: Span,
         first_ty: &InferType,
         first_span: Span,
@@ -95,7 +131,8 @@ impl<'a> InferCtx<'a> {
         let mut arm_types: Vec<(InferType, Span, usize)> = vec![(first_ty.clone(), first_span, 1)];
         for (i, arm) in arms.iter().skip(1).enumerate() {
             self.env.enter_scope();
-            self.bind_pattern_variables(&arm.pattern, scrutinee_ty, span);
+            let arm_scrutinee = self.arm_pattern_scrutinee_ty(scrutinee_ty, isolate_arm_scrutinees);
+            self.bind_pattern_variables(&arm.pattern, &arm_scrutinee, span);
             if let Some(guard) = &arm.guard {
                 self.infer_expression(guard);
             }
@@ -116,18 +153,91 @@ impl<'a> InferCtx<'a> {
         (result_ty, arm_types)
     }
 
+    /// Choose the scrutinee type that pattern binding should see for one arm.
+    ///
+    /// When match arms mix incompatible built-in constructor families, each
+    /// arm receives a fresh fallback scrutinee so constructors like `Some` and
+    /// `Left` do not accidentally constrain one another through the original
+    /// scrutinee slot. Mixed concrete ADT families keep the shared scrutinee so
+    /// incompatible user-defined constructors still report a mismatch.
+    fn arm_pattern_scrutinee_ty(
+        &mut self,
+        scrutinee_ty: &InferType,
+        isolate_arm_scrutinees: bool,
+    ) -> InferType {
+        if isolate_arm_scrutinees {
+            self.alloc_fallback_var()
+        } else {
+            scrutinee_ty.clone()
+        }
+    }
+
+    /// Decide whether mixed match arms should bind against isolated scrutinee variables.
+    fn should_isolate_match_arm_scrutinees(
+        &self,
+        arms: &[MatchArm],
+        scrutinee_ty: &InferType,
+        shared_family: Option<&PatternFamily>,
+    ) -> bool {
+        let has_nonconstraining_arm = self.match_has_nonconstraining_arm(arms);
+        if has_nonconstraining_arm {
+            if let Some(family) = shared_family
+                && self.concrete_scrutinee_matches_family(scrutinee_ty, family)
+            {
+                return false;
+            }
+            return arms
+                .iter()
+                .any(|arm| !matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining));
+        }
+        if shared_family.is_some() {
+            return false;
+        }
+        let constraining_families: Vec<PatternFamily> = arms
+            .iter()
+            .map(|arm| self.pattern_family(&arm.pattern))
+            .filter(|family| !matches!(family, PatternFamily::NonConstraining))
+            .collect();
+        !constraining_families.is_empty()
+            && !constraining_families
+                .iter()
+                .all(|family| matches!(family, PatternFamily::Adt(_)))
+    }
+
+    /// Return true when a fully resolved scrutinee already matches the shared pattern family.
+    fn concrete_scrutinee_matches_family(&self, scrutinee_ty: &InferType, family: &PatternFamily) -> bool {
+        if !scrutinee_ty.free_vars().is_empty() {
+            return false;
+        }
+        match (scrutinee_ty, family) {
+            (InferType::App(TypeConstructor::Option, args), PatternFamily::Option) => args.len() == 1,
+            (InferType::App(TypeConstructor::Either, args), PatternFamily::Either) => args.len() == 2,
+            (InferType::App(TypeConstructor::List, args), PatternFamily::List) => args.len() == 1,
+            (InferType::Tuple(elements), PatternFamily::Tuple(arity)) => elements.len() == *arity,
+            (InferType::Con(TypeConstructor::Adt(name)), PatternFamily::Adt(expected)) => name == expected,
+            (InferType::App(TypeConstructor::Adt(name), _), PatternFamily::Adt(expected)) => name == expected,
+            _ => false,
+        }
+    }
+
+    /// Return whether a match includes any arm that does not constrain the scrutinee family.
+    fn match_has_nonconstraining_arm(&self, arms: &[MatchArm]) -> bool {
+        arms.iter()
+            .any(|arm| matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining))
+    }
+
     /// Emit additional conflicts between concrete match arms when first arm is unresolved.
     fn infer_match_concrete_pivot_conflicts(
         &mut self,
         first_ty: &InferType,
         arm_types: &[(InferType, Span, usize)],
     ) {
-        if Self::is_concrete_non_any(first_ty) {
+        if Self::is_fully_concrete(first_ty) {
             return;
         }
         let pivot = arm_types
             .iter()
-            .find(|(ty, _, _)| Self::is_concrete_non_any(ty))
+            .find(|(ty, _, _)| Self::is_fully_concrete(ty))
             .cloned();
         let Some((pivot_ty, pivot_span, pivot_index)) = pivot else {
             return;
@@ -136,7 +246,7 @@ impl<'a> InferCtx<'a> {
             if *arm_index == pivot_index {
                 continue;
             }
-            if Self::is_concrete_non_any(arm_ty) {
+            if Self::is_fully_concrete(arm_ty) {
                 let _ = self.unify_with_context(
                     &pivot_ty,
                     arm_ty,

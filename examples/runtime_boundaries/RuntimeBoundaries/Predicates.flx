@@ -1,0 +1,9 @@
+module RuntimeBoundaries.Predicates {
+    fn is_even(n: Int) -> Bool {
+        n % 2 == 0
+    }
+
+    public fn exported_predicate() -> (Int) -> Bool {
+        is_even
+    }
+}

@@ -1,11 +1,11 @@
-  fn main() {
+fn main() {
     let x = 1;
 
     let f = fn() {
-      let x = 2;
-      return x;
+        let y = 2;
+        return y;
     };
 
     print(f());
     print(x);
-  }
+}

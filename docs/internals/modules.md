@@ -90,7 +90,7 @@ Multiple module declarations are rejected with `E023 MULTIPLE MODULES`.
 
 ### Inside a Module Body
 
-The module body validator (`src/bytecode/compiler/statement.rs`) whitelists exactly six statement kinds:
+The module body validator (`src/compiler/statement.rs`) whitelists exactly six statement kinds:
 
 | Statement | Description | Since |
 |-----------|-------------|-------|

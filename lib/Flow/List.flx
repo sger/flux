@@ -110,7 +110,7 @@ module Flow.List {
         match xs {
             [h | t] -> do {
                 f(h)
-                each(t, f)
+                Flow.List.each(t, f)
             },
             _ -> ()
         }
@@ -256,8 +256,11 @@ module Flow.List {
     // range: return type annotation conflicts with cons literal inference —
     // the [start | range(...)] cons is inferred as Array. Leave untyped.
     public fn range(start, stop) {
-        if start >= stop { [] }
-        else { [start | range(start + 1, stop)] }
+        fn range_go(current, acc) {
+            if current >= stop { reverse(acc) }
+            else { range_go(current + 1, [current | acc]) }
+        }
+        range_go(start, [])
     }
 
     public fn reverse<a>(xs: List<a>) -> List<a> {

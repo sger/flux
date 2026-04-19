@@ -9,10 +9,10 @@ error[E003]: Outer Assignment
 
 Cannot assign to variable `x` from outer scope.
 
-  examples/functions/closure_outer_assign_error.flx:5:7
+  examples/functions/closure_outer_assign_error.flx:6:9
   |
-5 |       x = 2;
-  |       ^^^^^^
+6 |         x = 2;
+  |         ^^^^^^
 
 Hint:
   Variables captured by closures cannot be reassigned. Return the updated value from the function or bind it to a new name.

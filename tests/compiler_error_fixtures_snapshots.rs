@@ -6,7 +6,7 @@ mod examples_snapshot;
 use std::{collections::HashSet, fs, path::Path};
 
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     diagnostics::{Diagnostic, DiagnosticsAggregator, quality::module_skipped_note},
     syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
