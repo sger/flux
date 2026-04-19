@@ -52,45 +52,45 @@ fn main() with IO, Time {
         if idx >= len(lines) {
             len(lines)
         } else {
-        if trim(line_at(lines, idx)) == "" {
-            idx
-        } else {
-        find_blank(lines, idx + 1)
+            if trim(line_at(lines, idx)) == "" {
+                idx
+            } else {
+                find_blank(lines, idx + 1)
+            }
+        }
     }
-}
-}
 
-fn id_in_any_range(id, ranges, ridx) {
-    if ridx >= len(ranges) {
-        false
-    } else {
-    let r = arr_at(ranges, ridx)
-    let a = range_start(r)
-    let b = range_end(r)
-    if id >= a && id <= b {
-        true
-    } else {
-    id_in_any_range(id, ranges, ridx + 1)
-}
-}
-}
+    fn id_in_any_range(id, ranges, ridx) {
+        if ridx >= len(ranges) {
+            false
+        } else {
+            let r = arr_at(ranges, ridx)
+            let a = range_start(r)
+            let b = range_end(r)
+            if id >= a && id <= b {
+                true
+            } else {
+                id_in_any_range(id, ranges, ridx + 1)
+            }
+        }
+    }
 
-fn count_fresh(ids, ranges, idx, acc) {
-    if idx >= len(ids) {
-        acc
-    } else {
-    let id = int_at(ids, idx)
-    let add = if id_in_any_range(id, ranges, 0) { 1 } else { 0 }
-    count_fresh(ids, ranges, idx + 1, acc + add)
-}
-}
+    fn count_fresh(ids, ranges, idx, acc) {
+        if idx >= len(ids) {
+            acc
+        } else {
+            let id = int_at(ids, idx)
+            let add = if id_in_any_range(id, ranges, 0) { 1 } else { 0 }
+            count_fresh(ids, ranges, idx + 1, acc + add)
+        }
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
-let sep = find_blank(lines, 0)
-let range_lines = Array.filter(Array.map(slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
-let ranges = Array.map(range_lines, \line -> parse_range_line(line))
-let id_lines = Array.filter(Array.map(slice(lines, sep + 1, len(lines)), \line -> trim(line)), \line -> line != "")
-let ids = Array.map(id_lines, \line -> parse_int(line))
-print(count_fresh(ids, ranges, 0, 0))
+    let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
+    let sep = find_blank(lines, 0)
+    let range_lines = Array.filter(Array.map(slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
+    let ranges = Array.map(range_lines, \line -> parse_range_line(line))
+    let id_lines = Array.filter(Array.map(slice(lines, sep + 1, len(lines)), \line -> trim(line)), \line -> line != "")
+    let ids = Array.map(id_lines, \line -> parse_int(line))
+    print(count_fresh(ids, ranges, 0, 0))
 }
 //
