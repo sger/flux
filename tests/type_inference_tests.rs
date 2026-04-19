@@ -813,6 +813,30 @@ fn main() -> Unit {
 }
 
 #[test]
+fn infer_match_concrete_option_with_wildcard_preserves_scrutinee_type() {
+    let source = r#"
+data Contact {
+    Contact { name: String }
+}
+
+fn main() -> Unit {
+    let value: Option<Contact> = Some(Contact { name: "Alice" })
+    let _name = match value {
+        Some(c) -> c.name,
+        None -> "missing",
+        _ -> "missing",
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for concrete Option match with wildcard fallback, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
 fn infer_unannotated_self_recursive_function_refines_return_type_on_second_pass() {
     let source = r#"
 fn countdown(n) {

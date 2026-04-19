@@ -1390,6 +1390,28 @@ fn test_tuple_does_not_match_option_pattern() {
 }
 
 #[test]
+fn test_named_field_access_in_concrete_option_match_with_wildcard() {
+    assert_eq!(
+        run(
+            r#"
+data Contact {
+    Contact { name: String }
+}
+
+let contact = Contact { name: "Alice" };
+let value: Option<Contact> = Some(contact);
+match value {
+    Some(c) -> c.name,
+    None -> "missing",
+    _ -> "missing",
+};
+"#
+        ),
+        make_string("Alice")
+    );
+}
+
+#[test]
 fn test_list_constructor() {
     assert_eq!(run("first(list(10, 20, 30));"), Value::Integer(10));
     assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
