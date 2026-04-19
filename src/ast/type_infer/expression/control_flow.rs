@@ -1,6 +1,7 @@
 use super::*;
 use crate::ast::type_infer::expression::patterns::PatternFamily;
 use crate::diagnostics::{DiagnosticCategory, compiler_errors::EMPTY_MATCH, diagnostic_for};
+use crate::types::type_constructor::TypeConstructor;
 
 impl<'a> InferCtx<'a> {
     /// Infer `if` expressions, constraining condition to `Bool` and joining branch results.
@@ -49,7 +50,11 @@ impl<'a> InferCtx<'a> {
         let shared_family = self.shared_pattern_family(input.arms);
         let has_nonconstraining_arm = self.match_has_nonconstraining_arm(input.arms);
         let isolate_arm_scrutinees =
-            self.should_isolate_match_arm_scrutinees(input.arms, shared_family.as_ref());
+            self.should_isolate_match_arm_scrutinees(
+                input.arms,
+                &scrutinee_ty,
+                shared_family.as_ref(),
+            );
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(
             &scrutinee_ty,
             &shared_family,
@@ -171,10 +176,16 @@ impl<'a> InferCtx<'a> {
     fn should_isolate_match_arm_scrutinees(
         &self,
         arms: &[MatchArm],
+        scrutinee_ty: &InferType,
         shared_family: Option<&PatternFamily>,
     ) -> bool {
         let has_nonconstraining_arm = self.match_has_nonconstraining_arm(arms);
         if has_nonconstraining_arm {
+            if let Some(family) = shared_family
+                && self.concrete_scrutinee_matches_family(scrutinee_ty, family)
+            {
+                return false;
+            }
             return arms
                 .iter()
                 .any(|arm| !matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining));
@@ -191,6 +202,22 @@ impl<'a> InferCtx<'a> {
             && !constraining_families
                 .iter()
                 .all(|family| matches!(family, PatternFamily::Adt(_)))
+    }
+
+    /// Return true when a fully resolved scrutinee already matches the shared pattern family.
+    fn concrete_scrutinee_matches_family(&self, scrutinee_ty: &InferType, family: &PatternFamily) -> bool {
+        if !scrutinee_ty.free_vars().is_empty() {
+            return false;
+        }
+        match (scrutinee_ty, family) {
+            (InferType::App(TypeConstructor::Option, args), PatternFamily::Option) => args.len() == 1,
+            (InferType::App(TypeConstructor::Either, args), PatternFamily::Either) => args.len() == 2,
+            (InferType::App(TypeConstructor::List, args), PatternFamily::List) => args.len() == 1,
+            (InferType::Tuple(elements), PatternFamily::Tuple(arity)) => elements.len() == *arity,
+            (InferType::Con(TypeConstructor::Adt(name)), PatternFamily::Adt(expected)) => name == expected,
+            (InferType::App(TypeConstructor::Adt(name), _), PatternFamily::Adt(expected)) => name == expected,
+            _ => false,
+        }
     }
 
     /// Return whether a match includes any arm that does not constrain the scrutinee family.

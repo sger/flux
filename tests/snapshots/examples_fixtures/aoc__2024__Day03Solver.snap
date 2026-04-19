@@ -103,7 +103,7 @@ The branches of this `if` expression do not agree on a type.
 
 Note:
   then branch type: (_, _)
-  else branch type: (Int, Bool, _)
+  else branch type: (Int, Bool, Int)
   the `then` branch fixes the type expected from the whole `if`
   the `else` branch produces the competing type
 

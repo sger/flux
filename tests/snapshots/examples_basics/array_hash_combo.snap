@@ -3,59 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_hash_combo.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E430]: Any Type Inferred
-
-Could not determine a concrete type for this expression. Expression: `u.name`. Inferred type: `_`.
-
-  examples/basics/array_hash_combo.flx:27:25
-   |
-27 |         Some(u) -> Some(u.name),
-   |                         ^^^^^^
-
-Hint:
-  Add a type annotation or rewrite this expression so its type is fully determined.
-
-
-error[E430]: Any Type Inferred
-
-Could not determine a concrete type for this expression. Expression: `u.name`. Inferred type: `_`.
-
-  examples/basics/array_hash_combo.flx:32:25
-   |
-32 |         Some(u) -> Some(u.name),
-   |                         ^^^^^^
-
-Hint:
-  Add a type annotation or rewrite this expression so its type is fully determined.
-
-
-error[E430]: Any Type Inferred
-
-Could not determine a concrete type for this expression. Expression: `u.age`. Inferred type: `_`.
-
-  examples/basics/array_hash_combo.flx:37:25
-   |
-37 |         Some(u) -> Some(u.age),
-   |                         ^^^^^
-
-Hint:
-  Add a type annotation or rewrite this expression so its type is fully determined.
-
-
-error[E430]: Any Type Inferred
-
-Could not determine a concrete type for this expression. Expression: `u.age`. Inferred type: `_`.
-
-  examples/basics/array_hash_combo.flx:42:25
-   |
-42 |         Some(u) -> Some(u.age),
-   |                         ^^^^^
-
-Hint:
-  Add a type annotation or rewrite this expression so its type is fully determined.
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

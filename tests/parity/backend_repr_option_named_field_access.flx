@@ -1,0 +1,13 @@
+data Contact {
+    Contact { name: String }
+}
+
+fn main() with IO {
+    let value: Option<Contact> = Some(Contact { name: "Alice" })
+    let result = match value {
+        Some(c) -> c.name,
+        None -> "missing",
+        _ -> "missing",
+    }
+    print(result)
+}

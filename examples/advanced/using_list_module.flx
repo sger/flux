@@ -30,7 +30,7 @@ import Flow.Map as Map
 
 fn list_range(start, stop) {
     if start > stop {
-        None
+        []
     } else {
         [start | list_range(start + 1, stop)]
     }
@@ -42,11 +42,11 @@ fn list_sum(lst) {
 
 fn list_take(lst, n) {
     if n <= 0 {
-        None
+        []
     } else {
         match lst {
             [h | t] -> [h | list_take(t, n - 1)],
-            _ -> None,
+            _ -> [],
         }
     }
 }
@@ -57,7 +57,7 @@ fn list_drop(lst, n) {
     } else {
         match lst {
             [h | t] -> list_drop(t, n - 1),
-            _ -> None,
+            _ -> [],
         }
     }
 }
@@ -72,7 +72,7 @@ fn list_append(a, b) {
 fn list_flatten(lst) {
     match lst {
         [h | t] -> list_append(h, list_flatten(t)),
-        _ -> None,
+        _ -> [],
     }
 }
 
@@ -80,9 +80,9 @@ fn list_zip(a, b) {
     match a {
         [ha | ta] -> match b {
             [hb | tb] -> [[ha, hb] | list_zip(ta, tb)],
-            _ -> None,
+            _ -> [],
         },
-        _ -> None,
+        _ -> [],
     }
 }
 
@@ -156,6 +156,12 @@ fn main() with IO {
     print(list_flatten(groups))
 
     print("=== Combining with maps ===")
-    let grades = fold(paired, {}, \(acc, pair) -> Map.set(acc, to_string(first(pair)), grade(last(pair))))
+    let grades = fold(paired, {}, \(acc, pair) -> match pair {
+        [a | rest] -> match rest {
+            [b | _] -> Map.set(acc, to_string(a), grade(b)),
+            _ -> acc,
+        },
+        _ -> acc,
+    })
     print(grades)
 }
