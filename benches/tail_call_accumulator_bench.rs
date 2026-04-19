@@ -1,8 +1,9 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use flux::bytecode::vm::VM;
-use flux::bytecode::{bytecode::Bytecode, compiler::Compiler};
+use flux::bytecode::bytecode::Bytecode;
+use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
 use flux::syntax::{lexer::Lexer, parser::Parser};
+use flux::vm::VM;
 
 struct Scenario {
     name: &'static str,

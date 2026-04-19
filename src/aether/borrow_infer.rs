@@ -56,7 +56,7 @@ impl BorrowSignature {
     }
 
     pub fn is_borrowed(&self, param_index: usize) -> bool {
-        self.params.get(param_index).copied() == Some(BorrowMode::Borrowed)
+        self.params.get(param_index).cloned() == Some(BorrowMode::Borrowed)
     }
 }
 
@@ -210,7 +210,7 @@ pub fn infer_borrow_modes_with_preloaded(
     for _round in 0..MAX_BORROW_INFERENCE_ROUNDS {
         let mut changed_any = false;
         for group in &recursive_groups {
-            let group_set: HashSet<_> = group.iter().copied().collect();
+            let group_set: HashSet<_> = group.iter().cloned().collect();
             let constraints =
                 infer_group_constraints(group, &defs_by_binder, &registry, &group_set);
             let solved = solve_group_modes(group, &constraints);
@@ -350,7 +350,7 @@ fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
         stack.push(v);
         on_stack.insert(v);
 
-        for w in adjacency.get(&v).into_iter().flatten().copied() {
+        for w in adjacency.get(&v).into_iter().flatten().cloned() {
             if !indices.contains_key(&w) {
                 strongconnect(
                     w, adjacency, index, stack, on_stack, indices, lowlinks, components,
@@ -514,7 +514,7 @@ fn solve_group_modes(
                         solved
                             .get(callee)
                             .and_then(|callee_modes| callee_modes.get(*arg_index))
-                            .copied()
+                            .cloned()
                             .unwrap_or(BorrowMode::Owned)
                             == BorrowMode::Owned
                     }) {
@@ -655,7 +655,7 @@ fn collect_call_param_constraints(
         }
 
         let borrowed = if let Some(modes) = explicit_modes {
-            modes.get(index).copied() == Some(BorrowMode::Borrowed)
+            modes.get(index).cloned() == Some(BorrowMode::Borrowed)
         } else if let CoreExpr::Var {
             var: callee_var, ..
         } = func
@@ -778,6 +778,7 @@ mod tests {
     use crate::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreProgram, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
+    use std::borrow::Borrow;
 
     fn span() -> Span {
         Span::default()
@@ -787,9 +788,9 @@ mod tests {
         CoreBinder::new(CoreBinderId(id), name)
     }
 
-    fn var_ref(binder: CoreBinder) -> CoreExpr {
+    fn var_ref<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(binder.borrow()),
             span: span(),
         }
     }
@@ -831,6 +832,7 @@ mod tests {
             CoreExpr::Case {
                 scrutinee: Box::new(var_ref(x)),
                 alts: Vec::new(),
+                join_ty: None,
                 span: span(),
             },
             false,
@@ -944,6 +946,7 @@ mod tests {
                         span: span(),
                     },
                 ],
+                join_ty: None,
                 span: span(),
             },
             true,
@@ -1010,6 +1013,7 @@ mod tests {
                         span: span(),
                     },
                 ],
+                join_ty: None,
                 span: span(),
             },
             true,
@@ -1084,6 +1088,7 @@ mod tests {
                         span: span(),
                     },
                 ],
+                join_ty: None,
                 span: span(),
             },
             true,
@@ -1133,6 +1138,7 @@ mod tests {
                         span: span(),
                     },
                 ],
+                join_ty: None,
                 span: span(),
             },
             true,
@@ -1174,6 +1180,8 @@ mod tests {
                 var: thunk,
                 rhs: Box::new(CoreExpr::Lam {
                     params: vec![],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::App {
                         func: Box::new(ext_var(len)),
                         args: vec![var_ref(xs)],
@@ -1216,6 +1224,8 @@ mod tests {
             vec![xs],
             CoreExpr::Lam {
                 params: vec![],
+                param_types: vec![],
+                result_ty: None,
                 body: Box::new(var_ref(xs)),
                 span: span(),
             },
@@ -1393,6 +1403,8 @@ mod tests {
                 fn_binder,
                 CoreExpr::Lam {
                     params: vec![x],
+                    param_types: vec![],
+                    result_ty: None,
                     body: Box::new(CoreExpr::App {
                         func: Box::new(CoreExpr::MemberAccess {
                             object: Box::new(CoreExpr::Var {

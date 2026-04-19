@@ -87,7 +87,7 @@ impl Lowerer {
             context.lower_statement(stmt, false)?;
         }
         let ret = context.ensure_return_var();
-        context.finish(IrType::Any, ret);
+        context.finish(IrType::Tagged, ret);
 
         let top_level_statements = self.top_level_statements.clone();
         self.lower_functions_in_statements(&top_level_statements)?;
@@ -123,13 +123,13 @@ impl Lowerer {
                         function_context.params.push(IrParam {
                             name: *param,
                             var,
-                            ty: IrType::Any,
+                            ty: IrType::Tagged,
                         });
                     }
                     function_context.lower_block(body)?;
                     let ret = function_context.ensure_return_var();
                     function_context.finish_with_metadata(
-                        IrType::Any,
+                        IrType::Tagged,
                         ret,
                         IrMetadata {
                             span: Some(*span),
@@ -793,6 +793,12 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
+            Expression::NamedConstructor { .. } | Expression::Spread { .. } => {
+                unreachable!(
+                    "named-field expression must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
         }
     }
 
@@ -956,6 +962,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1137,6 +1144,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1338,6 +1346,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1505,6 +1514,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1672,6 +1682,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -1770,6 +1781,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -2121,6 +2133,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     self.emit_pattern_test(field_var, field, fail_block, *ctor_span)?;
                 }
             }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
             Pattern::Literal {
                 expression: _,
                 span: lit_span,
@@ -2306,6 +2324,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     self.emit_pattern_bindings(field_var, field, span)?;
                 }
             }
+            Pattern::NamedConstructor { .. } => {
+                unreachable!(
+                    "named-field pattern must be desugared during type inference \
+                     (proposal 0152 Phase 3)"
+                );
+            }
         }
         Ok(())
     }
@@ -2382,6 +2406,7 @@ impl<'a> FunctionLoweringContext<'a> {
             params: vec![IrBlockParam {
                 var: result_var,
                 ty: result_ty,
+                inferred_ty: None,
             }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
@@ -2410,7 +2435,7 @@ impl<'a> FunctionLoweringContext<'a> {
             nested.params.push(IrParam {
                 name: *capture,
                 var,
-                ty: IrType::Any,
+                ty: IrType::Tagged,
             });
         }
         for param in parameters {
@@ -2419,13 +2444,13 @@ impl<'a> FunctionLoweringContext<'a> {
             nested.params.push(IrParam {
                 name: *param,
                 var,
-                ty: IrType::Any,
+                ty: IrType::Tagged,
             });
         }
         nested.lower_block(body)?;
         let ret = nested.ensure_return_var();
         nested.finish_with_metadata(
-            IrType::Any,
+            IrType::Tagged,
             ret,
             IrMetadata::empty(),
             vec![None; parameters.len()],
@@ -2459,21 +2484,25 @@ impl<'a> FunctionLoweringContext<'a> {
 pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
     match statement {
         Statement::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Ok(IrTopLevelItem::Let {
+            is_public: *is_public,
             name: *name,
             type_annotation: type_annotation.clone(),
             value: value.clone(),
             span: *span,
         }),
         Statement::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Ok(IrTopLevelItem::LetDestructure {
+            is_public: *is_public,
             pattern: pattern.clone(),
             value: value.clone(),
             span: *span,
@@ -2602,21 +2631,25 @@ pub(crate) fn ir_top_level_item_to_statement(
 ) -> Statement {
     match item {
         IrTopLevelItem::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Statement::Let {
+            is_public: *is_public,
             name: *name,
             type_annotation: type_annotation.clone(),
             value: value.clone(),
             span: *span,
         },
         IrTopLevelItem::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Statement::LetDestructure {
+            is_public: *is_public,
             pattern: pattern.clone(),
             value: value.clone(),
             span: *span,
@@ -2784,7 +2817,7 @@ fn infer_type_to_ir(infer_type: Option<&InferType>) -> IrType {
         Some(InferType::Con(TypeConstructor::Bool)) => IrType::Bool,
         Some(InferType::Con(TypeConstructor::String)) => IrType::String,
         Some(InferType::Con(TypeConstructor::Unit)) => IrType::Unit,
-        _ => IrType::Any,
+        _ => IrType::Tagged,
     }
 }
 
@@ -3046,8 +3079,8 @@ fn unsupported_lowering(span: crate::diagnostics::position::Span, message: &str)
 #[cfg(test)]
 mod tests {
     use crate::{
-        bytecode::compiler::Compiler,
         cfg::validate_ir,
+        compiler::Compiler,
         syntax::{lexer::Lexer, parser::Parser},
     };
 

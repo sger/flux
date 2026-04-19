@@ -1,20 +1,18 @@
-// Default method test.
-// The Eq class provides a default implementation for `neq`.
-// The instance only needs to implement `eq` — `neq` is inherited.
+// Custom class default method test.
+// The instance provides only `eq`, and `neq` uses the class default body.
 
-class Eq<a> {
+class LocalEq<a> {
     fn eq(x: a, y: a) -> Bool
     fn neq(x: a, y: a) -> Bool { !eq(x, y) }
 }
 
-instance Eq<Int> {
+instance LocalEq<Int> {
     fn eq(x, y) { x == y }
 }
 
 fn main() with IO {
     print(eq(1, 1))
     print(eq(1, 2))
-    // neq uses the default implementation from the class
     print(neq(1, 1))
     print(neq(1, 2))
 }

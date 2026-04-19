@@ -23,5 +23,28 @@ Note:
 
 Help:
   Change `x` to a `Int` value or update the annotation.
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/type_system/failing/132_let_initializer_span_precision.flx:2:28
+  |
+2 |     let x: Int = if true { "hello" } else { "world" }
+  |                            ^^^^^^^
+  |                            ------- this expression has type `String`
+
+  |                            ------- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: String
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+Found 2 errors.
 == stdout ==
 <not executed>

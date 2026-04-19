@@ -1,10 +1,21 @@
+// parity-expected-stdout-begin
+// 10
+// 30
+// 8
+// 42
+// 10
+// 7
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Pipe operator |>
     // The pipe operator passes the left value as the first argument to the right function
 
     // Helper functions for testing
     fn double(x) { x * 2 }
+    // Helper for add.
     fn add(x, y) { x + y }
+    // Helper for triple.
     fn triple(x) { x * 3 }
 
     // Basic pipe: value |> function

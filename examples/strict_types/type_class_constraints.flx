@@ -11,24 +11,16 @@
 //   eq(42, 42)   → Eq<Int> (class method call)
 //   add(10, 20)  → Num<Int> (class method call)
 
-class Eq<a> {
-    fn eq(x: a, y: a) -> Bool
-}
-
-class Num<a> {
-    fn add(x: a, y: a) -> a
-    fn sub(x: a, y: a) -> a
-    fn mul(x: a, y: a) -> a
-}
-
 instance Eq<Int> {
     fn eq(x, y) { x == y }
+    fn neq(x, y) { x != y }
 }
 
 instance Num<Int> {
     fn add(x, y) { x + y }
     fn sub(x, y) { x - y }
     fn mul(x, y) { x * y }
+    fn div(x, y) { x / y }
 }
 
 fn main() with IO {
@@ -44,4 +36,5 @@ fn main() with IO {
     print(add(10, 20))
     print(sub(100, 42))
     print(mul(3, 7))
+    print(div(84, 2))
 }

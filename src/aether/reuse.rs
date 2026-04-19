@@ -153,8 +153,16 @@ fn rewrite_with_ctx(
             )),
             span,
         },
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(rewrite_with_ctx(*body, None, None, None)),
             span,
         },
@@ -193,6 +201,7 @@ fn rewrite_with_ctx(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(rewrite_with_ctx(*scrutinee, None, None, None)),
@@ -215,6 +224,7 @@ fn rewrite_with_ctx(
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
@@ -433,6 +443,7 @@ fn insert_reuse_in_unique(
         CoreExpr::Case {
             scrutinee: case_scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(rewrite_with_pat_ctx(*case_scrutinee, None, None)),
@@ -444,6 +455,7 @@ fn insert_reuse_in_unique(
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
         // No compatible Con found — return body unchanged, recurse normally

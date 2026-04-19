@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Day06Solver as Day06
 
 // The example grid from the AoC 2024 Day 6 problem description
@@ -35,6 +38,7 @@ fn test_day06_part_a_straight_exit() {
     assert_eq(Day06.day06a_from_lines(grid), 2)
 }
 
+// Helper for test DAY06 part b no loop possible.
 fn test_day06_part_b_no_loop_possible() {
     let grid = [|
         "..",

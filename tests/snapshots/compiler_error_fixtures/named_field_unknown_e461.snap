@@ -1,0 +1,17 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/named_field_unknown_e461.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E461]: Unknown Named Field
+
+`Point` has no field named `z`.
+
+  examples/compiler_errors/named_field_unknown_e461.flx:9:33
+  |
+9 |     let p = Point { x: 1, y: 2, z: 3 }
+  |                                 ^^^^
+== stdout ==
+<not executed>

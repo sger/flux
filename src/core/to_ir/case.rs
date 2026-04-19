@@ -15,6 +15,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         &mut self,
         scrutinee: &crate::aether::AetherExpr,
         alts: &[AetherAlt],
+        join_ty: Option<&crate::core::CoreType>,
         span: Span,
     ) -> IrVar {
         let scrut_var = self.lower_expr_aether(scrutinee);
@@ -25,7 +26,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let result_var = self.ctx.alloc_var();
         self.blocks[join_idx].params.push(IrBlockParam {
             var: result_var,
-            ty: IrType::Any,
+            ty: join_ty
+                .map(super::core_type_to_ir_type)
+                .unwrap_or(IrType::Tagged),
+            inferred_ty: join_ty.cloned(),
         });
         let join_block_id = self.blocks[join_idx].id;
 
@@ -99,6 +103,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         &mut self,
         scrutinee: &CoreExpr,
         alts: &[CoreAlt],
+        join_ty: Option<&crate::core::CoreType>,
         span: Span,
     ) -> IrVar {
         let scrut_var = self.lower_expr(scrutinee);
@@ -110,7 +115,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let result_var = self.ctx.alloc_var();
         self.blocks[join_idx].params.push(IrBlockParam {
             var: result_var,
-            ty: IrType::Any,
+            ty: join_ty
+                .map(super::core_type_to_ir_type)
+                .unwrap_or(IrType::Tagged),
+            inferred_ty: join_ty.cloned(),
         });
         let join_block_id = self.blocks[join_idx].id;
 

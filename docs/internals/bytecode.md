@@ -1,12 +1,17 @@
 # Bytecode
 
-> Source: `src/bytecode/`
+> Source: `src/bytecode/` (format) + `src/compiler/` (producer) + `src/vm/` (consumer)
 
-The Flux bytecode compiler translates the AST to a compact stack-based instruction set. Compiled programs can be cached as `.fxc` files.
+The Flux bytecode is produced by `src/compiler/` and executed by `src/vm/`.
+`src/bytecode/` itself is a narrow leaf module containing only the format:
+`Bytecode`, `OpCode`, `FunctionDebugInfo`, `EmittedInstruction`, and the
+`.fxc` cache. Compile-time infrastructure (symbol tables, bindings, module
+linker, class dispatch) lives in `src/compiler/`; stack dispatch and
+runtime profiling live in `src/vm/`.
 
 ## Instruction Set (100 opcodes)
 
-> **Note:** The opcode table below documents a representative subset. Not all 100 opcodes are listed here; see `src/bytecode/opcodes.rs` for the complete enumeration.
+> **Note:** The opcode table below documents a representative subset. Not all 100 opcodes are listed here; see `src/bytecode/op_code.rs` for the complete enumeration.
 
 ### Constants and Literals
 

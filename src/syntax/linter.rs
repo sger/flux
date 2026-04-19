@@ -206,6 +206,16 @@ impl<'a> Linter<'a> {
                     self.extract_pattern_bindings(field);
                 }
             }
+            Pattern::NamedConstructor { fields, .. } => {
+                for field in fields {
+                    match &field.pattern {
+                        Some(sub) => self.extract_pattern_bindings(sub),
+                        None => {
+                            self.define_binding(field.name, Position::default(), BindingKind::Let);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -313,6 +323,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 pattern,
                 value,
                 span: _,
+                ..
             } => {
                 self.visit_expr(value);
                 self.extract_pattern_bindings(pattern);

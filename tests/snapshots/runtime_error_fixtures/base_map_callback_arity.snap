@@ -3,7 +3,7 @@ source: tests/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/base_map_callback_arity.flx
 == vm ==
-status: 0
+status: 1
 stdout:
 <empty>
 stderr:
@@ -13,18 +13,23 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-[7 of 7] Compiling  base_map_callback_arity
-[cfg→vm] Running via CFG → bytecode VM backend...
-== jit ==
-status: 0
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  base_map_callback_arity
-[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/runtime_errors/base_map_callback_arity.flx
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/runtime_errors/base_map_callback_arity.flx:2:19
+  |
+2 |     let ignored = map(#[1], concat)
+  |                   ^^^^^^^^^^^^^^^^^
+  |                   ----------------- parameter 1 has type `Array<Int>`
+
+  |                   ----------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: List<_>
+  found parameter type: Array<Int>
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `List<_>` consistently.

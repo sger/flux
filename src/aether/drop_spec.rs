@@ -42,6 +42,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee = Box::new(transform(*scrutinee));
@@ -59,10 +60,10 @@ fn transform(expr: CoreExpr) -> CoreExpr {
                     alt.guard = alt.guard.map(transform);
 
                     // Try drop specialization on this alt's RHS
-                    if let Some(binder) = scrut_binder {
+                    if let Some(binder) = &scrut_binder {
                         let field_binders = pat_binders(&alt.pat);
                         if !field_binders.is_empty() {
-                            alt.rhs = try_specialize(binder, &field_binders, alt.rhs, span);
+                            alt.rhs = try_specialize(*binder, &field_binders, alt.rhs, span);
                         }
                     }
 
@@ -73,6 +74,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             CoreExpr::Case {
                 scrutinee,
                 alts,
+                join_ty,
                 span,
             }
         }
@@ -112,8 +114,16 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             body: Box::new(transform(*body)),
             span,
         },
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(transform(*body)),
             span,
         },
@@ -250,7 +260,7 @@ fn try_specialize(
     }
 
     CoreExpr::DropSpecialized {
-        scrutinee: CoreVarRef::resolved(candidate.scrutinee),
+        scrutinee: CoreVarRef::resolved(&candidate.scrutinee),
         unique_body: Box::new(unique_body),
         shared_body: Box::new(shared_body),
         span,
@@ -586,8 +596,16 @@ fn rewrite_mode(
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             span: *span,
         },
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
             params: params.clone(),
+            param_types: param_types.clone(),
+            result_ty: result_ty.clone(),
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             span: *span,
         },
@@ -616,6 +634,7 @@ fn rewrite_mode(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: scrutinee.clone(),
@@ -628,6 +647,7 @@ fn rewrite_mode(
                     span: alt.span,
                 })
                 .collect(),
+            join_ty: join_ty.clone(),
             span: *span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
@@ -677,7 +697,9 @@ fn rewrite_mode(
                 .map(|handler| AetherHandler {
                     operation: handler.operation,
                     params: handler.params.clone(),
+                    param_types: handler.param_types.clone(),
                     resume: handler.resume,
+                    resume_ty: handler.resume_ty.clone(),
                     body: rewrite_mode(&handler.body, mode, scrutinee_id, duped_fields),
                     span: handler.span,
                 })
@@ -754,6 +776,7 @@ mod tests {
     use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
+    use std::borrow::Borrow;
 
     use super::{DropSpecFailureReason, specialize_drops};
 
@@ -761,9 +784,9 @@ mod tests {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
     }
 
-    fn var(binder: CoreBinder) -> CoreExpr {
+    fn var<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::Var {
-            var: crate::core::CoreVarRef::resolved(binder),
+            var: crate::core::CoreVarRef::resolved(binder.borrow()),
             span: Span::default(),
         }
     }
@@ -866,9 +889,9 @@ mod tests {
                     var: tmp,
                     rhs: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                     body: Box::new(CoreExpr::Dup {
-                        var: crate::core::CoreVarRef::resolved(h),
+                        var: crate::core::CoreVarRef::resolved(&h),
                         body: Box::new(CoreExpr::Drop {
-                            var: crate::core::CoreVarRef::resolved(xs),
+                            var: crate::core::CoreVarRef::resolved(&xs),
                             body: Box::new(CoreExpr::Con {
                                 tag: CoreTag::Cons,
                                 fields: vec![var(h), var(t)],
@@ -882,6 +905,7 @@ mod tests {
                 },
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -913,12 +937,12 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Drop {
-                    var: crate::core::CoreVarRef::resolved(xs),
+                    var: crate::core::CoreVarRef::resolved(&xs),
                     body: Box::new(CoreExpr::Con {
                         tag: CoreTag::Cons,
                         fields: vec![
                             CoreExpr::Dup {
-                                var: crate::core::CoreVarRef::resolved(h),
+                                var: crate::core::CoreVarRef::resolved(&h),
                                 body: Box::new(var(h)),
                                 span: Span::default(),
                             },
@@ -930,6 +954,7 @@ mod tests {
                 },
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -950,7 +975,7 @@ mod tests {
         let t = binder(&mut interner, 4, "t");
 
         let rhs = CoreExpr::Drop {
-            var: crate::core::CoreVarRef::resolved(xs),
+            var: crate::core::CoreVarRef::resolved(&xs),
             body: Box::new(CoreExpr::Case {
                 scrutinee: Box::new(var(keep)),
                 alts: vec![
@@ -971,7 +996,7 @@ mod tests {
                             tag: CoreTag::Cons,
                             fields: vec![
                                 CoreExpr::Dup {
-                                    var: crate::core::CoreVarRef::resolved(h),
+                                    var: crate::core::CoreVarRef::resolved(&h),
                                     body: Box::new(var(h)),
                                     span: Span::default(),
                                 },
@@ -982,6 +1007,7 @@ mod tests {
                         span: Span::default(),
                     },
                 ],
+                join_ty: None,
                 span: Span::default(),
             }),
             span: Span::default(),
@@ -997,6 +1023,7 @@ mod tests {
                 rhs,
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -1023,9 +1050,9 @@ mod tests {
                     pat: CorePat::Lit(CoreLit::Bool(true)),
                     guard: None,
                     rhs: CoreExpr::Dup {
-                        var: crate::core::CoreVarRef::resolved(h),
+                        var: crate::core::CoreVarRef::resolved(&h),
                         body: Box::new(CoreExpr::Drop {
-                            var: crate::core::CoreVarRef::resolved(xs),
+                            var: crate::core::CoreVarRef::resolved(&xs),
                             body: Box::new(CoreExpr::Con {
                                 tag: CoreTag::Cons,
                                 fields: vec![var(h), var(t)],
@@ -1048,6 +1075,7 @@ mod tests {
                     span: Span::default(),
                 },
             ],
+            join_ty: None,
             span: Span::default(),
         };
         let expr = CoreExpr::Case {
@@ -1061,6 +1089,7 @@ mod tests {
                 rhs,
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -1106,7 +1135,7 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Drop {
-                    var: crate::core::CoreVarRef::resolved(xs),
+                    var: crate::core::CoreVarRef::resolved(&xs),
                     body: Box::new(CoreExpr::Let {
                         var: tmp,
                         rhs: Box::new(CoreExpr::Con {
@@ -1118,7 +1147,7 @@ mod tests {
                             tag: CoreTag::Cons,
                             fields: vec![
                                 CoreExpr::Dup {
-                                    var: crate::core::CoreVarRef::resolved(h),
+                                    var: crate::core::CoreVarRef::resolved(&h),
                                     body: Box::new(var(h)),
                                     span: Span::default(),
                                 },
@@ -1132,6 +1161,7 @@ mod tests {
                 },
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -1166,9 +1196,9 @@ mod tests {
                             pat: CorePat::Lit(CoreLit::Bool(true)),
                             guard: None,
                             rhs: CoreExpr::Dup {
-                                var: crate::core::CoreVarRef::resolved(h),
+                                var: crate::core::CoreVarRef::resolved(&h),
                                 body: Box::new(CoreExpr::Drop {
-                                    var: crate::core::CoreVarRef::resolved(xs),
+                                    var: crate::core::CoreVarRef::resolved(&xs),
                                     body: Box::new(CoreExpr::Con {
                                         tag: CoreTag::Cons,
                                         fields: vec![var(h), var(t)],
@@ -1184,9 +1214,9 @@ mod tests {
                             pat: CorePat::Wildcard,
                             guard: None,
                             rhs: CoreExpr::Dup {
-                                var: crate::core::CoreVarRef::resolved(t),
+                                var: crate::core::CoreVarRef::resolved(&t),
                                 body: Box::new(CoreExpr::Drop {
-                                    var: crate::core::CoreVarRef::resolved(xs),
+                                    var: crate::core::CoreVarRef::resolved(&xs),
                                     body: Box::new(CoreExpr::Con {
                                         tag: CoreTag::Cons,
                                         fields: vec![var(h), var(t)],
@@ -1199,10 +1229,12 @@ mod tests {
                             span: Span::default(),
                         },
                     ],
+                    join_ty: None,
                     span: Span::default(),
                 },
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 
@@ -1249,7 +1281,7 @@ mod tests {
         let t = binder(&mut interner, 3, "t");
 
         let rhs = CoreExpr::Drop {
-            var: crate::core::CoreVarRef::resolved(xs),
+            var: crate::core::CoreVarRef::resolved(&xs),
             body: Box::new(CoreExpr::Perform {
                 effect: interner.intern("IO"),
                 operation: interner.intern("print"),
@@ -1278,7 +1310,7 @@ mod tests {
         let t = binder(&mut interner, 3, "t");
 
         let rhs = CoreExpr::Drop {
-            var: crate::core::CoreVarRef::resolved(xs),
+            var: crate::core::CoreVarRef::resolved(&xs),
             body: Box::new(CoreExpr::Con {
                 tag: CoreTag::Cons,
                 fields: vec![var(xs), var(t)],
@@ -1307,9 +1339,9 @@ mod tests {
         let f = binder(&mut interner, 4, "f");
 
         let rhs = CoreExpr::Dup {
-            var: crate::core::CoreVarRef::resolved(f),
+            var: crate::core::CoreVarRef::resolved(&f),
             body: Box::new(CoreExpr::Drop {
-                var: crate::core::CoreVarRef::resolved(xs),
+                var: crate::core::CoreVarRef::resolved(&xs),
                 body: Box::new(CoreExpr::Con {
                     tag: CoreTag::Cons,
                     fields: vec![var(h), var(t)],
@@ -1334,14 +1366,14 @@ mod tests {
         let t = binder(&mut interner, 3, "t");
 
         let rhs = CoreExpr::Drop {
-            var: crate::core::CoreVarRef::resolved(xs),
+            var: crate::core::CoreVarRef::resolved(&xs),
             body: Box::new(CoreExpr::Drop {
-                var: crate::core::CoreVarRef::resolved(xs),
+                var: crate::core::CoreVarRef::resolved(&xs),
                 body: Box::new(CoreExpr::Con {
                     tag: CoreTag::Cons,
                     fields: vec![
                         CoreExpr::Dup {
-                            var: crate::core::CoreVarRef::resolved(h),
+                            var: crate::core::CoreVarRef::resolved(&h),
                             body: Box::new(var(h)),
                             span: Span::default(),
                         },
@@ -1382,14 +1414,14 @@ mod tests {
                 },
                 guard: None,
                 rhs: CoreExpr::Dup {
-                    var: crate::core::CoreVarRef::resolved(f),
+                    var: crate::core::CoreVarRef::resolved(&f),
                     body: Box::new(CoreExpr::Drop {
-                        var: crate::core::CoreVarRef::resolved(xs),
+                        var: crate::core::CoreVarRef::resolved(&xs),
                         body: Box::new(CoreExpr::Con {
                             tag: CoreTag::Cons,
                             fields: vec![
                                 CoreExpr::Dup {
-                                    var: crate::core::CoreVarRef::resolved(h),
+                                    var: crate::core::CoreVarRef::resolved(&h),
                                     body: Box::new(var(h)),
                                     span: Span::default(),
                                 },
@@ -1403,6 +1435,7 @@ mod tests {
                 },
                 span: Span::default(),
             }],
+            join_ty: None,
             span: Span::default(),
         };
 

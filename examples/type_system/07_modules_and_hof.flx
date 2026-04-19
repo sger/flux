@@ -1,8 +1,10 @@
 import TypeSystem.Hof as Hof
 
-let nums: List<Int> = list(1, 2, 3, 4)
-let doubled_sum: Int = Hof.transform_and_sum(nums, \(x: Int) -> x * 2)
+fn main() with IO {
+    let nums: List<Int> = list(1, 2, 3, 4)
+    let doubled_sum: Int = Hof.transform_and_sum(nums, \(x: Int) -> x * 2)
 
-print("module_doubled_sum=#{doubled_sum}")
-print(Hof.apply_twice(\(x: Int) -> x + 1, 10))
-Hof.log_each(list(5, 6))
+    print("module_doubled_sum=#{doubled_sum}")
+    print(Hof.apply_twice(\(x: Int) -> x + 1, 10))
+    Hof.log_each(list(5, 6))
+}

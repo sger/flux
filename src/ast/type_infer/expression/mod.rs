@@ -2,15 +2,40 @@ use super::*;
 
 mod access;
 mod calls;
+mod checked;
 mod collections;
 mod control_flow;
 mod effects_nodes;
 mod lambda;
-mod literals;
+mod named_fields;
 mod operators;
 mod patterns;
 
 impl<'a> InferCtx<'a> {
+    /// Infer an identifier use, instantiating its scheme or reporting a strict-mode hole.
+    fn infer_identifier_expression(&mut self, expr: &Expression, name: Identifier) -> InferType {
+        if let Some(scheme) = self.env.lookup(name).cloned() {
+            let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+            let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+            for &fresh in &fresh_vars {
+                self.env.record_var_level(fresh);
+            }
+            self.record_instantiated_expr_vars(fresh_vars);
+            self.emit_scheme_constraints(&constraints, expr.span());
+            return ty;
+        }
+
+        if self.known_flow_names.contains(&name) {
+            self.emit_missing_flow_hm_signature(name, expr.span());
+        }
+        self.alloc_fallback_var()
+    }
+
+    /// Handle future or unsupported expression variants.
+    fn infer_unsupported_expression(&mut self, _expr: &Expression) -> InferType {
+        self.alloc_fallback_var()
+    }
+
     /// Infer an expression and record its resolved HM type under a stable node id.
     ///
     /// Uses a single flat match over all expression variants — each variant is
@@ -46,21 +71,7 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Either, vec![left, inner])
             }
             // Identifiers
-            Expression::Identifier { name, .. } => {
-                if let Some(scheme) = self.env.lookup(*name).cloned() {
-                    let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
-                    for &fresh in mapping.values() {
-                        self.env.record_var_level(fresh);
-                    }
-                    self.emit_scheme_constraints(&constraints, expr.span());
-                    ty
-                } else {
-                    if self.known_flow_names.contains(name) {
-                        self.emit_missing_flow_hm_signature(*name, expr.span());
-                    }
-                    InferType::Con(TypeConstructor::Any)
-                }
-            }
+            Expression::Identifier { name, .. } => self.infer_identifier_expression(expr, *name),
             // Operators
             Expression::Prefix { right, .. } => self.infer_expression(right),
             Expression::Infix {
@@ -150,9 +161,19 @@ impl<'a> InferCtx<'a> {
             Expression::Handle {
                 expr, effect, arms, ..
             } => self.infer_handle_expression(expr, *effect, arms),
+            // Named-field construction & spread (Proposal 0152)
+            Expression::NamedConstructor {
+                name, fields, span, ..
+            } => self.infer_named_constructor_call(*name, fields, *span),
+            Expression::Spread {
+                base,
+                overrides,
+                span,
+                ..
+            } => self.infer_spread_expression(base, overrides, *span),
             // Fallback guards against future Expression variants
             #[allow(unreachable_patterns)]
-            _ => InferType::Con(TypeConstructor::Any),
+            _ => self.infer_unsupported_expression(expr),
         };
 
         let resolved = inferred.apply_type_subst(&self.subst);

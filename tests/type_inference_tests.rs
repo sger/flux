@@ -31,10 +31,6 @@ fn bool_() -> InferType {
     InferType::Con(TypeConstructor::Bool)
 }
 
-fn any() -> InferType {
-    InferType::Con(TypeConstructor::Any)
-}
-
 fn var(v: u32) -> InferType {
     InferType::Var(v)
 }
@@ -110,6 +106,7 @@ fn infer_program_from_source(
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names: HashSet::new(),
@@ -350,18 +347,17 @@ let x: Result<Int, String> = Ok(1)
 }
 
 #[test]
-fn infer_adt_constructor_call_generic_mismatch_silent_in_hm() {
-    // HM uses `unify_propagate` (silent) for let annotation mismatches —
-    // the compiler's boundary checker is the authoritative reporter.
-    // Verify HM does NOT emit E300 for this constraint.
+fn infer_adt_constructor_call_generic_mismatch_emits_e300_in_hm() {
+    // HM is now authoritative for typed-let annotation mismatches and emits
+    // E300 directly; the bytecode compiler's boundary check is a fallback.
     let source = r#"
 type Result<T, E> = Ok(T) | Err(E)
 let x: Result<Int, String> = Ok("oops")
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        !has_diagnostic_code(&result, "E300"),
-        "HM should not emit E300 for let annotation mismatches (compiler handles it), got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "HM should emit E300 for let annotation mismatches, got: {:#?}",
         result.diagnostics
     );
 }
@@ -499,27 +495,7 @@ fn main() -> Unit {
             &result,
             "The branches of this `if` expression do not agree on a type."
         ),
-        "did not expect contextual if-branch mismatch diagnostic when one branch is Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
-fn infer_if_with_nested_any_branch_type_does_not_emit_contextual_e300() {
-    let source = r#"
-fn concrete_fn(x: Int) -> Int { x }
-fn any_param_fn(x: Any) -> Int { 0 }
-fn main() -> Unit {
-    let _f = if true { concrete_fn } else { any_param_fn }
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "The branches of this `if` expression do not agree on a type."
-        ),
-        "did not expect contextual if-branch mismatch diagnostic when one branch contains nested Any, got: {:#?}",
+        "did not expect contextual if-branch mismatch diagnostic when one branch is unresolved, got: {:#?}",
         result.diagnostics
     );
 }
@@ -642,30 +618,7 @@ fn main() -> Unit {
             &result,
             "The arms of this `match` expression do not agree on a type."
         ),
-        "did not expect contextual match-arm mismatch diagnostic when one arm is Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
-fn infer_match_with_nested_any_arm_type_does_not_emit_contextual_e300() {
-    let source = r#"
-fn concrete_fn(x: Int) -> Int { x }
-fn any_param_fn(x: Any) -> Int { 0 }
-fn main() -> Unit {
-    let _f = match true {
-        true -> concrete_fn,
-        false -> any_param_fn,
-    }
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "The arms of this `match` expression do not agree on a type."
-        ),
-        "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
+        "did not expect contextual match-arm mismatch diagnostic when one arm is unresolved, got: {:#?}",
         result.diagnostics
     );
 }
@@ -683,6 +636,54 @@ fn main() -> Unit {
         "expected E300 for concrete heterogeneous array literal, got: {:#?}",
         result.diagnostics
     );
+}
+
+#[test]
+fn infer_array_literal_with_equivalent_generic_map_elements_stays_concrete() {
+    let source = r##"
+import Flow.Map as Map
+
+fn main() -> Unit {
+    let _xs = [|Map.set({}, "x", 1), Map.set(Map.set({}, "y", 2), "z", 3)|]
+}
+"##;
+    let (result, program) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E430"),
+        "did not expect E430 for equivalent generic map elements, got: {:#?}",
+        result.diagnostics
+    );
+
+    let let_value = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            Statement::Function { body, .. } => {
+                body.statements
+                    .iter()
+                    .find_map(|statement| match statement {
+                        Statement::Let { value, .. } => Some(value),
+                        _ => None,
+                    })
+            }
+            _ => None,
+        })
+        .expect("expected let-bound array literal");
+    let ty = result
+        .expr_types
+        .get(&let_value.expr_id())
+        .expect("expected inferred type for array literal");
+    match ty {
+        InferType::App(TypeConstructor::Array, elems) if elems.len() == 1 => match &elems[0] {
+            InferType::Var(var) => assert!(
+                !result.fallback_vars.contains(var),
+                "array element type should stay flexible, not fallback-poisoned: {:#?}",
+                ty
+            ),
+            other => panic!("expected flexible array element type, got {other:#?}"),
+        },
+        other => panic!("expected Array<_> type for array literal, got {other:#?}"),
+    }
 }
 
 #[test]
@@ -802,11 +803,35 @@ fn main() -> Unit {
         B1(w) -> w,
     }
 }
+    "#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected concrete mismatch diagnostics for mixed-ADT-family unresolved match, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_concrete_option_with_wildcard_preserves_scrutinee_type() {
+    let source = r#"
+data Contact {
+    Contact { name: String }
+}
+
+fn main() -> Unit {
+    let value: Option<Contact> = Some(Contact { name: "Alice" })
+    let _name = match value {
+        Some(c) -> c.name,
+        None -> "missing",
+        _ -> "missing",
+    }
+}
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
         result.diagnostics.is_empty(),
-        "expected no diagnostics for mixed-ADT-family propagation guard, got: {:#?}",
+        "expected no diagnostics for concrete Option match with wildcard fallback, got: {:#?}",
         result.diagnostics
     );
 }
@@ -862,9 +887,10 @@ fn main() -> Unit {
         int(),
         "expected refined recursive call type to be Int, got: {inferred_call_ty:?}"
     );
+    // Annotation `String` conflicts with refined `Int`; HM now reports E300.
     assert!(
-        result.diagnostics.is_empty(),
-        "expected no HM diagnostics in infer_program path, got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for annotation mismatch, got: {:#?}",
         result.diagnostics
     );
 }
@@ -936,9 +962,10 @@ fn main() -> Unit {
         int(),
         "expected refined recursive call type to stay Int, got: {inferred_call_ty:?}"
     );
+    // Annotation `String` conflicts with refined `Int`; HM now reports E300.
     assert!(
-        result.diagnostics.is_empty(),
-        "expected no HM diagnostics in infer_program path, got: {:#?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for annotation mismatch, got: {:#?}",
         result.diagnostics
     );
 }
@@ -1378,12 +1405,10 @@ fn unify_tuple_length_mismatch() {
 }
 
 #[test]
-fn unify_any_with_int() {
-    // Any is compatible with everything (gradual typing)
-    assert!(unify(&any(), &int()).is_ok());
-    assert!(unify(&int(), &any()).is_ok());
-    assert!(unify(&any(), &list(string())).is_ok());
-    assert!(unify(&any(), &var(42)).is_ok());
+fn unify_var_with_concrete_and_composite_types() {
+    assert!(unify(&var(42), &int()).is_ok());
+    assert!(unify(&int(), &var(42)).is_ok());
+    assert!(unify(&var(7), &list(string())).is_ok());
 }
 
 #[test]
@@ -1587,49 +1612,46 @@ fn type_env_free_vars() {
 }
 
 #[test]
-fn type_env_to_runtime_primitives() {
+fn type_env_try_to_runtime_primitives() {
     use flux::runtime::runtime_type::RuntimeType;
     assert_eq!(
-        TypeEnv::to_runtime(&int(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&int(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Int
     );
     assert_eq!(
-        TypeEnv::to_runtime(&float(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&float(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Float
     );
     assert_eq!(
-        TypeEnv::to_runtime(&string(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&string(), &TypeSubst::empty()).unwrap(),
         RuntimeType::String
     );
     assert_eq!(
-        TypeEnv::to_runtime(&bool_(), &TypeSubst::empty()),
+        TypeEnv::try_to_runtime(&bool_(), &TypeSubst::empty()).unwrap(),
         RuntimeType::Bool
     );
     assert_eq!(
-        TypeEnv::to_runtime(&any(), &TypeSubst::empty()),
-        RuntimeType::Any
-    );
-    // Unresolved var → Any
-    assert_eq!(
-        TypeEnv::to_runtime(&var(0), &TypeSubst::empty()),
-        RuntimeType::Any
+        TypeEnv::try_to_runtime(&var(0), &TypeSubst::empty())
+            .expect_err("unresolved vars should not lower as a concrete runtime type")
+            .issue(),
+        &flux::types::type_env::RuntimeTypeLoweringIssue::UnresolvedTypeVariable
     );
 }
 
 #[test]
-fn type_env_to_runtime_option() {
+fn type_env_try_to_runtime_option() {
     use flux::runtime::runtime_type::RuntimeType;
-    let rt = TypeEnv::to_runtime(&option(int()), &TypeSubst::empty());
+    let rt = TypeEnv::try_to_runtime(&option(int()), &TypeSubst::empty()).unwrap();
     assert_eq!(rt, RuntimeType::Option(Box::new(RuntimeType::Int)));
 }
 
 #[test]
-fn type_env_to_runtime_resolves_var() {
+fn type_env_try_to_runtime_resolves_var() {
     use flux::runtime::runtime_type::RuntimeType;
     let mut subst = TypeSubst::empty();
     subst.insert(0, int());
     // var(0) with substitution {0 → Int} → Int
-    let rt = TypeEnv::to_runtime(&var(0), &subst);
+    let rt = TypeEnv::try_to_runtime(&var(0), &subst).unwrap();
     assert_eq!(rt, RuntimeType::Int);
 }
 
@@ -1738,23 +1760,6 @@ fn main() -> Unit {
 }
 
 #[test]
-fn infer_call_with_nested_any_param_does_not_emit_contextual_callarg_e300() {
-    let source = r#"
-fn accepts_any_param_fn(f: (Any) -> Int) -> Int { f(0) }
-fn concrete_fn(x: Int) -> Int { x }
-fn main() -> Unit {
-    let _x = accepts_any_param_fn(concrete_fn)
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to"),
-        "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
-        result.diagnostics
-    );
-}
-
-#[test]
 fn base_missing_hm_metadata_emits_e426() {
     let source = r#"
 fn id(x: Int) -> Int { x }
@@ -1780,6 +1785,7 @@ fn main() -> Unit {
         &interner,
         InferProgramConfig {
             file_path: Some("<test>".into()),
+
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_flow_names,
@@ -1791,6 +1797,268 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_code(&result, "E426"),
         "expected E426 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Hash literal homogeneity (collections.rs:infer_hash_literal_expression) ──
+
+#[test]
+fn infer_hash_literal_homogeneous_values_ok() {
+    let source = r#"
+let m = {"a": 1, "b": 2}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for homogeneous hash literal: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_hash_literal_heterogeneous_values_emits_e300() {
+    // Second pair's value is Float while the first established Int;
+    // unification of subsequent value types must flag the mismatch.
+    let source = r#"
+let m = {"a": 1, "b": 2.5}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for heterogeneous hash values, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_hash_literal_heterogeneous_keys_emits_e300() {
+    let source = r#"
+let m = {"a": 1, 2: 2}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for heterogeneous hash keys, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Let-binding annotation enforcement (statement.rs:check_let_annotation) ──
+
+#[test]
+fn infer_let_annotation_array_element_mismatch_emits_e300() {
+    let source = r#"
+let xs: Array<Int> = [|0.1, 0.2|]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Array<Int> annotation vs Array<Float> value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_list_element_mismatch_emits_e300() {
+    let source = r#"
+let xs: List<Int> = [1.5, 2.5]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for List<Int> annotation vs List<Float> value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_primitive_mismatch_emits_e300() {
+    let source = r#"
+let x: Int = "hello"
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Int annotation vs String value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_matching_type_ok() {
+    let source = r#"
+let x: Int = 42
+let xs: List<Int> = [1, 2, 3]
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for matching annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_empty_list_stays_polymorphic() {
+    // An empty list literal has type List<'a>; the annotation should
+    // instantiate 'a without raising a mismatch.
+    let source = r#"
+let xs: List<Int> = []
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for empty list annotated List<Int>: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_match_expression_mismatch_emits_e300() {
+    // Regression: prior to HM-authoritative annotation checking, a match
+    // whose arms unified to Int was silently accepted as String.
+    let source = r#"
+fn main() -> Unit {
+    let x: String = match Some(1) {
+        Some(v) -> v,
+        None -> 0,
+    }
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for String annotation vs Int match value, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Return annotation enforcement (function.rs:check_return_annotation) ──
+
+#[test]
+fn infer_return_annotation_primitive_mismatch_emits_e300() {
+    let source = r#"
+fn f() -> Int { "hello" }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for Int return vs String body, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_collection_mismatch_emits_e300() {
+    let source = r#"
+fn f() -> List<Int> { [1.5, 2.5] }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for List<Int> return vs List<Float> body, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_matching_ok() {
+    let source = r#"
+fn f() -> Int { 42 }
+fn g() -> List<Int> { [1, 2, 3] }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for matching return annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_return_annotation_polymorphic_body_skipped() {
+    // When the body type contains free variables, skip the E300 check so
+    // that generic/forward-reference cases don't fire false positives;
+    // downstream compiler boundary checks remain the fallback.
+    let source = r#"
+fn ident<a>(x: a) -> a { x }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 for polymorphic identity function: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Parameter annotation lowering (function.rs:infer_and_bind_parameter_types) ──
+// Note: `convert_type_expr_rec` treats unknown named types as ADT stubs rather
+// than returning `None`, so E303 currently only fires for cases the parser
+// can't produce (e.g. multiple distinct row variables on the same row). The
+// happy path — well-formed annotations — must not emit E303.
+
+#[test]
+fn infer_param_annotation_well_formed_no_e303() {
+    let source = r#"
+fn f(x: Int, y: List<Int>) -> Int { x }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E303"),
+        "unexpected E303 for well-formed parameter annotations: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_param_annotation_unknown_name_treated_as_adt_no_e303() {
+    // Unknown bare type names (e.g. `Widget`) are lowered as ADT stubs by
+    // `convert_type_expr_rec`, so they don't trip E303. They surface later
+    // as unification failures or unresolved-reference errors instead.
+    let source = r#"
+fn f(x: Widget) -> Int { 0 }
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E303"),
+        "unknown type names should not trigger E303 (they become ADT stubs), got: {:#?}",
+        result.diagnostics
+    );
+}
+
+// ── Effect row annotation (effects.rs:infer_effect_row) ──
+
+#[test]
+fn infer_effect_row_multiple_row_vars_emits_e304() {
+    // Mixing two distinct row variables in one `with` clause is
+    // semantically ambiguous — HM now reports E304 at the annotation site
+    // instead of silently defaulting to a closed empty row.
+    let source = r#"
+fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E304"),
+        "expected E304 for distinct row variables in the same row, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_effect_row_single_row_var_ok() {
+    let source = r#"
+fn f(x: Int) -> Int with |e - IO {
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E304"),
+        "unexpected E304 for single-row-var annotation: {:#?}",
         result.diagnostics
     );
 }

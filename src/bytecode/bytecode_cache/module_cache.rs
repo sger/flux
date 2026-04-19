@@ -5,7 +5,6 @@ use std::{
 };
 
 use crate::{
-    bytecode::compiler::module_interface,
     bytecode::{
         bytecode_cache::cache_serialization::{
             read_function_debug_info, read_object, read_string, read_u32,
@@ -16,14 +15,15 @@ use crate::{
         },
         debug_info::FunctionDebugInfo,
     },
-    cache_paths,
+    compiler::module_interface,
     diagnostics::position::Span,
     runtime::value::Value,
+    shared::cache_paths,
     types::module_interface::DependencyMissReason,
 };
 
 const MAGIC: &[u8; 4] = b"FXMC";
-const FORMAT_VERSION: u16 = crate::cache_paths::CACHE_EPOCH;
+const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCacheLoadError {
@@ -403,11 +403,11 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::{
-        bytecode::compiler::module_interface,
         bytecode::{
             bytecode_cache::{hash_bytes, hash_cache_key},
             debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
         },
+        compiler::module_interface,
         diagnostics::position::{Position, Span},
         runtime::{
             handler_descriptor::HandlerDescriptor, perform_descriptor::PerformDescriptor,

@@ -1,34 +1,46 @@
+mod algebraic;
 /// Core IR optimization passes.
 ///
 /// These passes operate on `CoreExpr` / `CoreProgram` before backend lowering.
 /// Passes run after `lower_ast::lower_program_ast` produces a `CoreProgram`.
 mod anf;
 mod beta;
+mod canonicalize;
 mod case_of_case;
 mod cokc;
+mod const_fold;
 mod dead_let;
 pub mod dict_elaborate;
+mod disciplined_inline;
 mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+pub mod lint;
 mod primop_promote;
+mod specialize;
 mod tail_resumptive;
 
+pub use algebraic::algebraic_simplify;
 pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;
+pub use canonicalize::call_and_case_canonicalize;
 pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
+pub use const_fold::constant_fold;
 pub use dead_let::elim_dead_let;
 pub use dict_elaborate::elaborate_dictionaries;
+pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
+pub use specialize::specialize_known_shapes;
 
 use crate::core::{CoreExpr, CoreLit, CoreProgram};
+use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
-    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType,
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
 };
 use crate::syntax::interner::Interner;
 use crate::types::{class_env::ClassEnv, type_env::TypeEnv};
@@ -155,6 +167,15 @@ fn run_semantic_core_passes_with_optional_interner(
 
     for round in 0..max_rounds {
         // Measure total program size before this round to detect changes.
+        //
+        // Limitation: `expr_size` counts nodes. A pass that rewrites without
+        // changing node count (e.g. `call_and_case_canonicalize` normalising
+        // the shape of a call without adding or removing subterms) will look
+        // like a no-op to this fixed-point detector and may prevent a later
+        // round from running even when one would still make progress. In
+        // practice every simplification pass today either shrinks the tree
+        // or exposes a reduction that does. If that ever stops being true,
+        // replace this heuristic with a per-pass `changed: bool` flag.
         let size_before: usize = program
             .defs
             .iter()
@@ -169,12 +190,25 @@ fn run_semantic_core_passes_with_optional_interner(
             verify_aether_contract_stage(def, &e, "case_of_case")?;
             let e = case_of_known_constructor(e);
             verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
+            let e = call_and_case_canonicalize(e);
+            verify_aether_contract_stage(def, &e, "call_and_case_canonicalize")?;
+            let e = specialize_known_shapes(e);
+            verify_aether_contract_stage(def, &e, "specialize_known_shapes")?;
+            let e = algebraic_simplify(e);
+            verify_aether_contract_stage(def, &e, "algebraic_simplify")?;
+            let e = constant_fold(e);
+            verify_aether_contract_stage(def, &e, "constant_fold")?;
+            let e = disciplined_inline(e);
+            verify_aether_contract_stage(def, &e, "disciplined_inline")?;
             let e = inline_lets(e);
             verify_aether_contract_stage(def, &e, "inline_lets")?;
             let e = elim_dead_let(e);
             verify_aether_contract_stage(def, &e, "elim_dead_let")?;
             def.expr = e;
         }
+
+        // Verify Core invariants after each simplification round.
+        core_lint_stage(program, "simplification", interner)?;
 
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
@@ -199,6 +233,9 @@ fn run_semantic_core_passes_with_optional_interner(
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
     }
+
+    // Verify Core invariants after normalization.
+    core_lint_stage(program, "normalization", interner)?;
 
     Ok(warnings)
 }
@@ -314,6 +351,46 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             collect_max_binder_id(object, max);
         }
     }
+}
+
+/// Verify Core IR structural invariants for the entire program.
+///
+/// Fatal: any lint violation produces an `E998 CORE_LINT_FAILURE` diagnostic
+/// and aborts compilation. Called after every simplification round and after
+/// normalization; see [`compiler_errors::CORE_LINT_FAILURE`]. The previous
+/// warning-only (`W998`) mode was promoted to an error under Proposal 0155 so
+/// malformed Core produced by a Core pass cannot silently flow into the
+/// backend. Compare with GHC's `-dcore-lint`, which is opt-in but also fatal
+/// when enabled.
+#[allow(clippy::result_large_err)]
+fn core_lint_stage(
+    program: &CoreProgram,
+    stage: &'static str,
+    interner: Option<&Interner>,
+) -> Result<(), Diagnostic> {
+    if let Err(errors) = lint::lint_core_program(program) {
+        let detail = errors
+            .iter()
+            .map(|e| {
+                let def = e
+                    .def_name
+                    .map(|n| {
+                        let resolved = interner.and_then(|i| i.try_resolve(n)).unwrap_or("?");
+                        format!(" in `{resolved}`")
+                    })
+                    .unwrap_or_default();
+                format!("  [{:?}]{def} {}", e.kind, e.message)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(diagnostic_for(&CORE_LINT_FAILURE)
+            .with_message(format!(
+                "Core IR has {} structural violation(s) after `{stage}`:\n{detail}",
+                errors.len()
+            ))
+            .with_phase(DiagnosticPhase::Validation));
+    }
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]

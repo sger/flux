@@ -15,7 +15,7 @@ Parity validation ensures both backends produce the same observable behavior. It
 
 ```bash
 CARGO_TARGET_DIR=target/parity_vm cargo build
-CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm
+CARGO_TARGET_DIR=target/parity_native cargo build --features llvm
 ```
 
 This creates two separate flux binaries — one with only the VM backend, one with the native LLVM backend.
@@ -124,8 +124,8 @@ When a mismatch is found, the runner classifies it to help localize the bug:
 |---|---|---|
 | `core_mismatch` | Core IR differs across ways | `src/core/`, `src/ast/` — frontend bug |
 | `aether_mismatch` | Aether ownership differs | `src/aether/` — Perceus insertion bug |
-| `representation_mismatch` | Backend runtime-family contract differs | VM: `src/bytecode/`; LLVM: `src/lir/`, `src/core_to_llvm/` |
-| `stdout differs` / `exit_kind` | Backend execution diverges | VM: `src/cfg/`, `src/bytecode/`; LLVM: `src/lir/`, `src/core_to_llvm/` |
+| `representation_mismatch` | Backend runtime-family contract differs | VM: `src/bytecode/`; LLVM: `src/lir/`, `src/llvm/` |
+| `stdout differs` / `exit_kind` | Backend execution diverges | VM: `src/cfg/`, `src/bytecode/`; LLVM: `src/lir/`, `src/llvm/` |
 | `cache_mismatch` | Fresh vs cached run differ | Cache logic in `src/bytecode/`, `.fxc`/`.flxi` files |
 | `strict_mode_mismatch` | Strict mode changes behavior beyond diagnostics | Strict-mode checks in the compiler |
 

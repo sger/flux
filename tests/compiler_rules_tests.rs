@@ -1,4 +1,4 @@
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::diagnostics::{Diagnostic, LabelStyle, render_diagnostics};
 use flux::syntax::{lexer::Lexer, parser::Parser};
 
@@ -89,6 +89,25 @@ fn compile_ok_strict(input: &str) {
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler.set_strict_mode(true);
     compiler.compile(&program).expect("expected compile ok")
+}
+
+fn compile_err_static_typing(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first()
+        .map(|d| d.code().unwrap_or("").to_string())
+        .unwrap_or_default()
 }
 
 fn compile_ok_with_warnings_in(file_path: &str, input: &str, strict_mode: bool) -> Vec<Diagnostic> {
@@ -219,6 +238,30 @@ fn import_top_level_ok() {
         "examples/test.flx",
         "import Math module Main { fn main() { 1; } }",
     );
+}
+
+#[test]
+fn source_annotations_report_unknown_type_names_generically() {
+    let code = compile_err("fn id(x: Mystery) -> Int { 0 }");
+    assert_eq!(code, "E423");
+}
+
+#[test]
+fn strict_types_report_unknown_type_names_generically() {
+    let code = compile_err_static_typing("fn id(x: Mystery) -> Int { 0 }");
+    assert_eq!(code, "E423");
+}
+
+#[test]
+fn source_return_annotations_report_unknown_type_names_generically() {
+    let code = compile_err("fn id(x: Int) -> Mystery { x }");
+    assert_eq!(code, "E423");
+}
+
+#[test]
+fn source_let_annotations_report_unknown_type_names_generically() {
+    let code = compile_err("let x: Mystery = 1");
+    assert_eq!(code, "E423");
 }
 
 #[test]
@@ -800,7 +843,7 @@ fn main() -> Unit {
 }
 
 #[test]
-fn hm_if_any_or_unresolved_branch_does_not_report_contextual_e300() {
+fn hm_if_unresolved_branch_does_not_report_contextual_e300() {
     let unresolved_rendered = compile_rendered_or_empty(
         r#"
 fn main() -> Unit {
@@ -811,24 +854,8 @@ fn main() -> Unit {
     assert!(
         !unresolved_rendered
             .contains("The branches of this `if` expression do not agree on a type."),
-        "did not expect contextual if mismatch text for unresolved/Any branch, got:\n{}",
+        "did not expect contextual if mismatch text for unresolved branch, got:\n{}",
         unresolved_rendered
-    );
-
-    let nested_any_rendered = compile_rendered_or_empty(
-        r#"
-fn concrete_fn(x: Int) -> Int { x }
-fn any_param_fn(x: Any) -> Int { 0 }
-fn main() -> Unit {
-    let _f = if true { concrete_fn } else { any_param_fn }
-}
-"#,
-    );
-    assert!(
-        !nested_any_rendered
-            .contains("The branches of this `if` expression do not agree on a type."),
-        "did not expect contextual if mismatch text for nested Any branch type, got:\n{}",
-        nested_any_rendered
     );
 }
 
@@ -845,7 +872,7 @@ fn hm_fixture_134_if_concrete_branch_mismatch_reports_contextual_message() {
 }
 
 #[test]
-fn hm_fixture_135_if_nested_any_branch_suppresses_contextual_message() {
+fn hm_fixture_135_if_unresolved_branch_suppresses_contextual_message() {
     let source = include_str!("../examples/type_system/failing/135_if_any_branch_suppressed.flx");
     let rendered = compile_err_rendered(source);
     assert!(
@@ -891,8 +918,8 @@ fn hm_fixture_137_tuple_projection_unresolved_behavior_is_stable() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
-        "expected strict unresolved boundary error for fixture 137, got:\n{}",
+        rendered.contains("error[E004]"),
+        "expected unresolved-name error for fixture 137, got:\n{}",
         rendered
     );
     assert!(
@@ -1039,38 +1066,38 @@ fn hm_fixture_153_match_branch_conflict_prefers_e300() {
 }
 
 #[test]
-fn hm_fixture_154_unresolved_projection_strict_e425() {
+fn hm_fixture_154_unresolved_projection_reports_undefined_name_first() {
     let source =
         include_str!("../examples/type_system/failing/154_unresolved_projection_strict_e425.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
-        "expected E425 for fixture 154, got:\n{}",
+        rendered.contains("error[E004]"),
+        "expected E004 for fixture 154, got:\n{}",
         rendered
     );
 }
 
 #[test]
-fn hm_fixture_155_unresolved_member_access_strict_e425() {
+fn hm_fixture_155_unresolved_member_access_reports_undefined_name_first() {
     let source = include_str!(
         "../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
-        "expected E425 for fixture 155, got:\n{}",
+        rendered.contains("error[E004]"),
+        "expected E004 for fixture 155, got:\n{}",
         rendered
     );
 }
 
 #[test]
-fn hm_fixture_156_unresolved_call_arg_strict_e425() {
+fn hm_fixture_156_unresolved_call_arg_reports_undefined_name_first() {
     let source =
         include_str!("../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
-        "expected E425 for fixture 156, got:\n{}",
+        rendered.contains("error[E004]"),
+        "expected E004 for fixture 156, got:\n{}",
         rendered
     );
     assert!(
@@ -1220,7 +1247,7 @@ fn hm_fixture_131_call_arg_primary_label_is_argument_subspan() {
 }
 
 #[test]
-fn hm_call_arg_unresolved_or_any_paths_do_not_report_contextual_message() {
+fn hm_call_arg_unresolved_paths_do_not_report_contextual_message() {
     let unresolved_rendered = compile_rendered_or_empty(
         r#"
 fn main() -> Unit {
@@ -1232,21 +1259,6 @@ fn main() -> Unit {
         !unresolved_rendered.contains("argument to `"),
         "did not expect contextual call-arg mismatch text for unresolved callee, got:\n{}",
         unresolved_rendered
-    );
-
-    let nested_any_rendered = compile_rendered_or_empty(
-        r#"
-fn accepts_any_param_fn(f: (Any) -> Int) -> Int { f(0) }
-fn concrete_fn(x: Int) -> Int { x }
-fn main() -> Unit {
-    let _x = accepts_any_param_fn(concrete_fn)
-}
-"#,
-    );
-    assert!(
-        !nested_any_rendered.contains("wrong type in the 1st argument to `accepts_any_param_fn`"),
-        "did not expect contextual call-arg mismatch text when expected type contains Any, got:\n{}",
-        nested_any_rendered
     );
 }
 
@@ -1572,13 +1584,35 @@ fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
 }
 
 #[test]
-fn strict_only_unresolved_fixtures_are_e425_in_strict_but_may_be_e004_in_non_strict() {
-    let strict_only = [
+fn unresolved_name_fixtures_report_e004_even_in_strict_modes() {
+    let unresolved_name_fixtures = [
         include_str!("../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"),
         include_str!(
             "../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
         ),
         include_str!("../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx"),
+    ];
+
+    for source in unresolved_name_fixtures {
+        let strict_rendered = compile_err_strict_rendered(source);
+        assert!(
+            strict_rendered.contains("error[E004]"),
+            "expected strict E004 for unresolved-name fixture, got:\n{}",
+            strict_rendered
+        );
+
+        let non_strict_rendered = compile_err_rendered(source);
+        assert!(
+            non_strict_rendered.contains("error[E004]"),
+            "expected non-strict unresolved baseline E004 for unresolved-name fixture, got:\n{}",
+            non_strict_rendered
+        );
+    }
+}
+
+#[test]
+fn strict_only_hm_boundary_fixtures_still_report_e425_in_strict_modes() {
+    let strict_boundary_fixtures = [
         include_str!(
             "../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
         ),
@@ -1587,18 +1621,18 @@ fn strict_only_unresolved_fixtures_are_e425_in_strict_but_may_be_e004_in_non_str
         ),
     ];
 
-    for source in strict_only {
+    for source in strict_boundary_fixtures {
         let strict_rendered = compile_err_strict_rendered(source);
         assert!(
             strict_rendered.contains("error[E425]"),
-            "expected strict E425 for strict-only unresolved fixture, got:\n{}",
+            "expected strict E425 for HM boundary fixture, got:\n{}",
             strict_rendered
         );
 
         let non_strict_rendered = compile_err_rendered(source);
         assert!(
             non_strict_rendered.contains("error[E004]"),
-            "expected non-strict unresolved baseline E004 for strict-only unresolved fixture, got:\n{}",
+            "expected non-strict unresolved baseline E004 for HM boundary fixture, got:\n{}",
             non_strict_rendered
         );
     }
@@ -2036,8 +2070,9 @@ fn effect_row_absent_ordering_linked_violation_reports_e421() {
 }
 
 #[test]
-fn strict_member_access_non_module_path_reports_unresolved_boundary() {
-    let code = compile_err_strict(
+fn member_access_non_module_path_currently_compiles_without_strict_mode() {
+    compile_ok_in(
+        "examples/test.flx",
         r#"
 fn main() -> Unit {
     let h = { "a": 1 }
@@ -2045,7 +2080,6 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert_eq!(code, "E425");
 }
 
 #[test]

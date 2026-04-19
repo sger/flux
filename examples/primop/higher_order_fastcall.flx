@@ -1,3 +1,16 @@
+// parity-expected-stdout-begin
+// "== OpCallBase fastcall candidates =="
+// [|2, 4, 6, 8, 10|]
+// [|6, 8, 10|]
+// 24
+// [|1, 11, 2, 12, 3, 13, 4, 14, 5, 15|]
+// true
+// true
+// Some(3)
+// 2
+// [|1, 2, 3, 4, 5|]
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn main() with IO {

@@ -1,71 +1,99 @@
-// Advent of Code - Day 2 Part 1 (Gift Shop)
-// Uses input file: examples/aoc/2025/aoc_day2.txt
+// parity-expected-stdout-begin
+// 54234399924
+// parity-expected-stdout-end
 
+/*
+Advent of Code - Day 2 Part 1 (Gift Shop)
+Uses input file: examples/aoc/2025/aoc_day2.txt
+*/
+
+import Flow.Array as Array
+
+// Program entry point.
 fn main() with IO, Time {
-    fn parse_range_token(token) {
-        split_ints(trim(token), "-")
-    }
-
-    fn range_start(parsed_range) {
-        first(parsed_range)
-    }
-
-    fn range_end(parsed_range) {
-        last(parsed_range)
-    }
-
+    // Count decimal digits in a number.
     fn digits_count(n) {
         if n < 10 {
             1
         } else {
-        1 + digits_count(n / 10)
+            1 + digits_count(n / 10)
+        }
     }
-}
 
-fn pow10(exp) {
-    if exp <= 0 {
-        1
-    } else {
-    10 * pow10(exp - 1)
-}
-}
+    // Compute a power of ten.
+    fn pow10(exp) {
+        if exp <= 0 {
+            1
+        } else {
+            10 * pow10(exp - 1)
+        }
+    }
 
-fn invalid_from_seed(seed) {
-    let seed_digits = digits_count(seed)
-    let base = pow10(seed_digits)
-    seed * (base + 1)
-}
+    // Repeat a chunk value to build a candidate number.
+    fn repeat_value(seed, base, times_left, acc) {
+        if times_left <= 0 {
+            acc
+        } else {
+            repeat_value(seed, base, times_left - 1, acc * base + seed)
+        }
+    }
 
-fn seed_limit_for_max_id(max_id) {
-    let max_digits = digits_count(max_id)
-    let seed_digits = (max_digits + 1) / 2
-    pow10(seed_digits)
-}
+    // Repeat a value a fixed number of times.
+    fn rep_digits(times, value) {
+        let base = pow10(digits_count(value))
+        repeat_value(value, base, times - 1, value)
+    }
 
-fn id_in_range(id, parsed_range) {
-    let bounds = (range_start(parsed_range), range_end(parsed_range))
-    id >= bounds.0 && id <= bounds.1
-}
+    // Parse one numeric range token.
+    fn parse_range_token(token) {
+        let parts = split_ints(trim(token), "-")
+        let start = match Array.first(parts) {
+            Some(v) -> v,
+            _ -> 0
+        };
+        let end = match Array.last(parts) {
+            Some(v) -> v,
+            _ -> 0
+        };
+        (start, end)
+    }
 
-let range_tokens = read_file("examples/aoc/2025/aoc_day2.txt")
-|> trim
-|> split(",")
-|> filter(\t -> trim(t) != "")
+    // Parse all range records from the input file.
+    fn parse_ranges(path) with IO {
+        read_file(path)
+        |> trim
+        |> split(",")
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_range_token(t))
+    }
 
-let parsed_ranges = [parse_range_token(t) | t <- range_tokens]
+    // Check whether an id falls inside one range.
+    fn id_in_range(id, range_pair) {
+        let (start, end) = range_pair
+        id >= start && id <= end
+    }
 
-let max_end = parsed_ranges
-|> map(\r -> range_end(r))
-|> fold(0, \(acc, x) -> if x > acc { x } else { acc })
+    // Check whether an id falls inside any range.
+    fn id_in_any_range(id, ranges) {
+        Array.fold(ranges, false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+    }
 
-let invalid_candidates = range(1, seed_limit_for_max_id(max_end))
-|> map(\seed -> invalid_from_seed(seed))
+    // Solve part1.
+    fn solve_part1(ranges) {
+        range(1, 100000)
+        |> fold(0, \(acc, seed) ->
+            do {
+                let candidate = rep_digits(2, seed)
+                if id_in_any_range(candidate, ranges) {
+                    acc + candidate
+                } else {
+                    acc
+                }
+            }
+        )
+    }
 
-let in_any_range = \id ->
-parsed_ranges
-|> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
-
-let total = invalid_candidates |> filter(in_any_range) |> sum
-
-print(total)
+    let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")
+    let total = solve_part1(ranges)
+    print(total)
 }

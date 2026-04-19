@@ -59,6 +59,10 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         (&result.verdict, filter),
         (Verdict::Pass, DisplayFilter::FailOnly)
             | (Verdict::Mismatch { .. }, DisplayFilter::PassOnly)
+            | (
+                Verdict::ExpectedOutputMismatch { .. },
+                DisplayFilter::PassOnly
+            )
             | (Verdict::Skip { .. }, DisplayFilter::PassOnly)
     );
     if dominated {
@@ -96,6 +100,21 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
             }
             print_cache_summary(result);
         }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            println!("{} {name}", red("EXPECTED_OUTPUT_MISMATCH"));
+            println!(
+                "  {} backends agree, but the output disagrees with the fixture expected output",
+                cyan("diagnosis:")
+            );
+            println!("  {}", cyan("expected stdout differs:"));
+            print_inline_diff(
+                "expected".to_string(),
+                expected,
+                "actual".to_string(),
+                actual,
+            );
+            print_cache_summary(result);
+        }
     }
     println!();
 }
@@ -107,6 +126,29 @@ pub fn print_debug_first_failure(result: &ParityResult) {
         Verdict::Skip { reason } => {
             println!("{} {}", cyan("debug:"), result.file.display());
             println!("  {} {reason}", cyan("skip_reason:"));
+        }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            println!("{} {}", cyan("debug:"), result.file.display());
+            println!(
+                "  {} backends agree, but the output disagrees with the fixture expected output",
+                cyan("diagnosis:")
+            );
+            println!("  {}", cyan("expected stdout differs:"));
+            print_inline_diff(
+                "expected".to_string(),
+                expected,
+                "actual".to_string(),
+                actual,
+            );
+            for run in &result.results {
+                println!(
+                    "  {} {} exit={} code={}",
+                    cyan("way:"),
+                    run.way,
+                    run.exit_kind,
+                    run.exit_code
+                );
+            }
         }
         Verdict::Mismatch { details } => {
             println!("{} {}", cyan("debug:"), result.file.display());
@@ -267,51 +309,10 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     None
 }
 
-fn print_cache_summary(result: &ParityResult) {
-    for run in &result.results {
-        if run.cache_observations.is_empty() {
-            continue;
-        }
-        println!("  {} {}", cyan("cache:"), run.way);
-        let created = run
-            .cache_observations
-            .iter()
-            .filter(|obs| obs.state == super::CacheFileState::Created)
-            .count();
-        let existed = run
-            .cache_observations
-            .iter()
-            .filter(|obs| obs.state == super::CacheFileState::Existed)
-            .count();
-        println!(
-            "    created={created} reused={existed} artifacts={}",
-            run.cache_observations.len()
-        );
-        for obs in &run.cache_observations {
-            println!(
-                "    - {} [{}] {}",
-                obs.kind,
-                state_label(obs.state),
-                obs.path.display()
-            );
-        }
-        if run.way == Way::LlvmCached && created > 0 && existed > 0 {
-            println!(
-                "    note: native artifact boundary working; cached output matched with artifact reuse observed"
-            );
-        } else if run.way == Way::LlvmCached && existed > 0 {
-            println!(
-                "    note: native cached way matched output; full module skipping is not required in this phase"
-            );
-        }
-    }
-}
-
-fn state_label(state: super::CacheFileState) -> &'static str {
-    match state {
-        super::CacheFileState::Created => "created",
-        super::CacheFileState::Existed => "reused",
-    }
+fn print_cache_summary(_result: &ParityResult) {
+    // Per-artifact cache listings are suppressed for readability. The cache
+    // state is still observed internally (and available to mismatch diagnostics
+    // via ParityResult.results[*].cache_observations) but not logged inline.
 }
 
 /// Build a copy-pasteable `cargo run` command for a given way.
@@ -319,13 +320,13 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
     match way {
         Way::Vm => format!("cargo run -- {file} --no-cache"),
         Way::Llvm => {
-            format!("cargo run --features core_to_llvm -- {file} --native --no-cache")
+            format!("cargo run --features llvm -- {file} --native --no-cache")
         }
         Way::VmCached => format!("cargo run -- {file}"),
-        Way::LlvmCached => format!("cargo run --features core_to_llvm -- {file} --native"),
+        Way::LlvmCached => format!("cargo run --features llvm -- {file} --native"),
         Way::VmStrict => format!("cargo run -- {file} --strict --no-cache"),
         Way::LlvmStrict => {
-            format!("cargo run --features core_to_llvm -- {file} --native --strict --no-cache")
+            format!("cargo run --features llvm -- {file} --native --strict --no-cache")
         }
     }
 }
@@ -645,7 +646,7 @@ fn next_commands(result: &ParityResult, symbols: &[String]) -> Vec<String> {
     {
         commands.push(format!("cargo run -- --dump-cfg {}", result.file.display()));
         commands.push(format!(
-            "cargo run --features core_to_llvm -- --dump-lir {} --native",
+            "cargo run --features llvm -- --dump-lir {} --native",
             result.file.display()
         ));
     }
@@ -717,6 +718,10 @@ pub fn print_summary(results: &[ParityResult]) {
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::Mismatch { .. }))
         .count();
+    let expected_output_mismatch = results
+        .iter()
+        .filter(|r| matches!(r.verdict, Verdict::ExpectedOutputMismatch { .. }))
+        .count();
     let skip = results
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
@@ -727,9 +732,13 @@ pub fn print_summary(results: &[ParityResult]) {
     println!("Total:    {total}");
     println!("Pass:     {}", green(&pass.to_string()));
     println!("Mismatch: {}", red(&mismatch.to_string()));
+    println!(
+        "ExpectedMismatch: {}",
+        red(&expected_output_mismatch.to_string())
+    );
     println!("Skip:     {}", yellow(&skip.to_string()));
 
-    if mismatch == 0 && pass > 0 {
+    if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {
         println!();
         println!("{}", green("All compiled examples match!"));
     }

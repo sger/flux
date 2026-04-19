@@ -1,0 +1,12 @@
+// Omitting a required named field in a constructor call.
+//
+// Expected: E460 Missing Named Field
+//   "Missing field `y` in `Point` constructor."
+//   Hint: provide every declared field, or spread an existing value.
+
+data Point { Point { x: Int, y: Int } }
+
+fn main() {
+    let p = Point { x: 1 }
+    p
+}

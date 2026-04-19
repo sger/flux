@@ -1,3 +1,6 @@
+// root: examples
+// expect: compile_error
+
 import Modules.Data.MyFile as myfile
 
 print(Modules.Data.MyFile.value());

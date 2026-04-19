@@ -1,22 +1,27 @@
 # Chapter 9 — Type System Basics
 
-> Examples: [`examples/guide_type_system/01_typed_let_and_fn.flx`](../../examples/guide_type_system/01_typed_let_and_fn.flx), [`02_annotations_vs_inference.flx`](../../examples/guide_type_system/02_annotations_vs_inference.flx), [`03_pure_function_boundaries.flx`](../../examples/guide_type_system/03_pure_function_boundaries.flx)
+> Examples: [`examples/guide_type_system/01_typed_let_and_fn.flx`](../../examples/guide_type_system/01_typed_let_and_fn.flx), [`02_annotations_vs_inference.flx`](../../examples/guide_type_system/02_annotations_vs_inference.flx), [`03_pure_function_boundaries.flx`](../../examples/guide_type_system/03_pure_function_boundaries.flx), [`13_any_is_rejected.flx`](../../examples/guide_type_system/13_any_is_rejected.flx)
 
 ## Learning Goals
 
 - Read and write typed `let` bindings and function signatures.
 - Understand what Hindley-Milner inference does and when it kicks in.
-- Understand `Any` as the gradual fallback type.
 - Recognize compile-time type mismatches (`E300`) and when they occur.
 
 ## Overview
 
-Flux has a **gradual type system**: type annotations are optional, and unannotated code participates in Hindley-Milner (HM) inference. The key properties are:
+Flux uses Hindley-Milner (HM) type inference: type annotations are optional, and unannotated code is inferred where possible. The key properties are:
 
 - **Annotated paths** — if you write a type, it is statically validated. Mismatches are compile-time errors (`E300`).
 - **Inferred paths** — HM fills types for unannotated local expressions. The compiler reports concrete mismatches without false positives.
-- **`Any` as escape hatch** — when inference can't determine a concrete type (heterogeneous branches, unresolvable generics), the type degrades to `Any`. `Any` unifies with everything, suppressing errors.
-- **Gradual adoption** — you can type some functions and leave others untyped. The two coexist safely.
+- **Strict typing direction** — the maintained language direction is that ordinary source programs should resolve to concrete static types rather than relying on fallback typing.
+- **Incremental adoption** — you can still add annotations gradually, but the long-term model is static typing, not `Any` as a normal escape hatch.
+
+Flux is a statically typed language:
+
+- accepted programs are type-checked before execution
+- source-language typing is decided in HM/Core, not deferred to backend runtime representation
+- backend generic values such as tagged runtime values are representation details, not dynamic source typing
 
 ---
 
@@ -36,10 +41,6 @@ Flux has a **gradual type system**: type annotations are optional, and unannotat
 | `Map<K, V>` | HAMT persistent hash map | `{"a": 1}` |
 | `(A, B)` | Tuple (any arity) | `(1, "hi")` |
 | `A -> B` | Function type | `\x -> x + 1` |
-| `Any` | Gradual type — unifies with everything | — |
-
----
-
 ## Typed `let` Bindings
 
 ```flux
@@ -88,7 +89,7 @@ HM inference runs between PASS 1 (predeclaration) and PASS 2 (code generation). 
 
 1. Assign fresh type variables to unannotated parameters and `let` bindings.
 2. Propagate constraints from how values are used.
-3. Unify constrained variables — if two types conflict, emit `E300` only when both sides are concrete (non-`Any`).
+3. Unify constrained variables — if two concrete types conflict, emit `E300`.
 4. Generalize unconstrained variables into polymorphic `Scheme`s for `let`-bound functions.
 5. Instantiate `Scheme`s fresh at each use site (the identity function can be used at both `Int` and `String` in the same scope).
 
@@ -108,30 +109,36 @@ fn main() -> Unit {
 
 ---
 
-## The `Any` Type
+## `Any` and Legacy Surfaces
 
-`Any` is the gradual escape hatch. When inference cannot determine a concrete type, the value is treated as `Any`.
+`Any` still exists in some internal and compatibility-oriented parts of the repo, but it is not part of the intended normal source-language model.
 
-`Any` unifies with everything, which means:
-- No error is emitted when `Any` meets a concrete type.
-- Typed checks are bypassed for that expression.
+For ordinary Flux code, the goal is:
 
-`Any` occurs naturally in:
-- Unannotated heterogeneous `if`/`match` branches.
-- Calls to functions whose result type can't be resolved.
-- Runtime values that arrive from dynamic dispatch.
+- expressions resolve to concrete static types
+- mismatches are reported as compile-time diagnostics
+- user-facing docs and examples do not treat `Any` as the normal typing story
 
-```flux
-// This is fine — the branch types are String and Int,
-// but without a typed let, the result is Any
-let x = if true { "hello" } else { 42 }
-```
+If you encounter `Any` in diagnostics, internals docs, or older examples, treat it as legacy or migration residue rather than the recommended way to write Flux.
+
+If you try to use `Any` as a source annotation, Flux rejects it:
 
 ```flux
-// This fails — typed let expects Int, but branch is Any → Int mismatch
-let y: Int = if true { "hello" } else { 42 }
-// E300: type mismatch
+fn bad(x: Any) -> Int {
+    x
+}
 ```
+
+Run:
+
+```bash
+cargo run -- --no-cache examples/guide_type_system/13_any_is_rejected.flx
+```
+
+Expected result:
+
+- compile failure with `E423`
+- `Any` is treated as an invalid source annotation, not as a dynamic top type
 
 ---
 
@@ -192,6 +199,39 @@ User-defined generic ADTs use the same syntax (see [Chapter 13](13_match_exhaust
 | Annotated return type doesn't match function body | `E300` | Align return annotation with body |
 | Calling a typed function with wrong argument type | `E300` | Fix argument type at call site |
 | Infinite recursive type detected | `E301` | Break the cycle with an explicit ADT |
+
+---
+
+## Static Typing Guarantees
+
+Flux's static-typing story is closed. The language makes the following guarantees about any program the compiler accepts:
+
+### Before execution
+
+- **No unresolved types reach runtime.** Every let binding, function return, and sub-expression either resolves to a concrete type or is rejected with `E430` (expression residue) or `E004` (binding residue). `Any` is not a source-level type.
+- **Annotations are contracts, not hints.** Declared parameter types, return types, and let-binding types are checked against the body. Mismatches are `E300`. Quantified variables in signatures are rigid (skolemized) — solving them with a concrete type raises `E305`.
+- **Numeric ambiguity resolves deterministically.** A binding with only `Num a` obligations (no other constraints, not an explicit bound, not appearing in the public type) defaults to `Int`. This applies at every generalization site, top-level and local.
+- **Type-class method calls monomorphize or dictionary-pass explicitly.** No silent fallback; a missing instance is `E441`. Effect floors on class methods are enforced with `E452`.
+- **Recursive signatures enable polymorphic recursion.** An annotated recursive function can call itself at a polymorphic instantiation; unannotated recursion stays monomorphic.
+- **Effect rows are inferred and checked.** Row-polymorphic effects unify like types; row conflicts raise `E304`, missing effects at call sites raise `E400`.
+
+### At the runtime boundary
+
+- **Typed public APIs check incoming and outgoing values.** Arguments and returns are matched against the declared type, including ADT constructor shape, list/array element types, tuple arities, and function arity + effects.
+- **Closures without stored contracts are rejected at typed function boundaries.** There is no auto-accept for opaque callables.
+- **Module interfaces preserve full runtime contracts.** Cross-module calls get the same shape checks as intra-module ones, including for user-defined ADTs.
+- **Strict mode rejects unresolvable boundary types.** Generic-only public types emit `E425` so the boundary is never silently un-enforced.
+
+### Internally
+
+- **Core IR is validated after every pass.** A `core_lint` verifier checks binder scope, parameter-arity metadata, case/handler shape, and recursive-group invariants. Violations are fatal (`E998`).
+- **Inferred schemes render deterministically.** `forall a, b. Eq<a>, Num<a> => (a, b) -> a` — canonical names, sorted constraints, regardless of inference-internal id allocation. The same formatter drives diagnostics, `--dump-core`, caches, and inspection surfaces.
+
+### What this means for writing Flux
+
+If the compiler accepts your program, you do not need a runtime `typeof` check, a defensive `match` for an unexpected shape, or a cast at a module boundary. The type you see in an annotation or a `--dump-core` rendering is the type the runtime will see.
+
+If you want a guarantee the compiler does not yet give — higher-rank polymorphism without explicit signatures, multi-parameter type classes, record row polymorphism — that is outside the current static-typing closure. Open a proposal rather than reaching for `Any`.
 
 ---
 

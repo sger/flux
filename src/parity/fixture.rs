@@ -27,8 +27,12 @@ pub struct FixtureMeta {
     pub ways: Vec<Way>,
     /// Expected outcome (defaults to `Success`).
     pub expect: Expect,
+    /// Extra CLI args forwarded only for this fixture.
+    pub extra_args: Vec<String>,
     /// One-line description of the bug shape.
     pub bug: Option<String>,
+    /// Optional expected normalized stdout block.
+    pub expected_stdout: Option<String>,
 }
 
 impl Default for FixtureMeta {
@@ -36,7 +40,9 @@ impl Default for FixtureMeta {
         Self {
             ways: vec![Way::Vm, Way::Llvm],
             expect: Expect::Success,
+            extra_args: Vec::new(),
             bug: None,
+            expected_stdout: None,
         }
     }
 }
@@ -51,19 +57,49 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
     };
 
     let mut meta = FixtureMeta::default();
+    let mut collecting_expected_stdout = false;
+    let mut expected_stdout_lines: Vec<String> = Vec::new();
+
+    let mut in_header = true;
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Stop at the first non-comment, non-empty line
         if !trimmed.is_empty() && !trimmed.starts_with("//") {
-            break;
+            in_header = false;
         }
 
         let Some(comment) = trimmed.strip_prefix("//") else {
             continue;
         };
-        let comment = comment.trim();
+        let comment_trimmed = comment.trim();
+
+        if collecting_expected_stdout {
+            if comment_trimmed == "parity-expected-stdout-end"
+                || comment_trimmed == "parity-oracle-stdout-end"
+            {
+                collecting_expected_stdout = false;
+                meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
+                expected_stdout_lines.clear();
+                continue;
+            }
+            // Preserve internal whitespace for multi-line strings in expected
+            // stdout. We only strip the `// ` prefix (one leading space), not
+            // the rest of the content.
+            let content_line = comment.strip_prefix(' ').unwrap_or(comment).to_string();
+            expected_stdout_lines.push(content_line);
+            continue;
+        }
+        let comment = comment_trimmed;
+
+        if comment == "parity-expected-stdout-begin" || comment == "parity-oracle-stdout-begin" {
+            collecting_expected_stdout = true;
+            continue;
+        }
+
+        if !in_header {
+            continue;
+        }
 
         if let Some(value) = comment.strip_prefix("parity:") {
             let value = value.trim();
@@ -82,9 +118,19 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
                 "runtime_error" => Expect::RuntimeError,
                 _ => Expect::Success,
             };
+        } else if let Some(value) = comment.strip_prefix("root:") {
+            let value = value.trim();
+            if !value.is_empty() {
+                meta.extra_args.push("--root".to_string());
+                meta.extra_args.push(value.to_string());
+            }
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
         }
+    }
+
+    if collecting_expected_stdout {
+        meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
     }
 
     meta
@@ -104,15 +150,21 @@ mod tests {
         writeln!(f, "// parity: vm, llvm").unwrap();
         writeln!(f, "// expect: runtime_error").unwrap();
         writeln!(f, "// bug: division by zero differs across backends").unwrap();
+        writeln!(f, "// parity-expected-stdout-begin").unwrap();
+        writeln!(f, "// line 1").unwrap();
+        writeln!(f, "// line 2").unwrap();
+        writeln!(f, "// parity-expected-stdout-end").unwrap();
         writeln!(f, "fn main() {{ }}").unwrap();
 
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::RuntimeError);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
         assert_eq!(
             meta.bug.as_deref(),
             Some("division by zero differs across backends")
         );
+        assert_eq!(meta.expected_stdout.as_deref(), Some("line 1\nline 2"));
 
         let _ = std::fs::remove_file(&path);
     }
@@ -128,7 +180,46 @@ mod tests {
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::Success);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
         assert!(meta.bug.is_none());
+        assert!(meta.expected_stdout.is_none());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_expected_stdout_block_outside_header() {
+        let dir = std::env::temp_dir().join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_expected_stdout_after_code.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "fn main() {{").unwrap();
+        writeln!(f, "    print(1)").unwrap();
+        writeln!(f, "}}").unwrap();
+        writeln!(f, "// parity-expected-stdout-begin").unwrap();
+        writeln!(f, "// 1").unwrap();
+        writeln!(f, "// parity-expected-stdout-end").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        assert_eq!(meta.expected_stdout.as_deref(), Some("1"));
+        assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
+        assert_eq!(meta.expect, Expect::Success);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_fixture_root_into_extra_args() {
+        let dir = std::env::temp_dir().join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_root_meta.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "// root: examples").unwrap();
+        writeln!(f, "fn main() {{ }}").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        assert_eq!(meta.extra_args, vec!["--root", "examples"]);
 
         let _ = std::fs::remove_file(&path);
     }

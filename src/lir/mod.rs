@@ -12,7 +12,7 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
-#[cfg(feature = "core_to_llvm")]
+#[cfg(feature = "llvm")]
 pub mod emit_llvm;
 pub mod lower;
 
@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::core::CorePrimOp;
+use crate::diagnostics::position::Span;
 
 // ── Function identity ──────────────────────────────────────────────────────
 
@@ -138,9 +139,19 @@ pub enum LirInstr {
     /// Integer multiplication on raw (untagged) i64 values.
     IMul { dst: LirVar, a: LirVar, b: LirVar },
     /// Signed integer division on raw i64 values.
-    IDiv { dst: LirVar, a: LirVar, b: LirVar },
+    IDiv {
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: Span,
+    },
     /// Signed integer remainder on raw i64 values.
-    IRem { dst: LirVar, a: LirVar, b: LirVar },
+    IRem {
+        dst: LirVar,
+        a: LirVar,
+        b: LirVar,
+        span: Span,
+    },
     /// Integer comparison on raw i64 values.  Result is 0 or 1.
     ICmp {
         dst: LirVar,
@@ -350,6 +361,12 @@ pub enum CtorTag {
 pub enum CallKind {
     /// Known top-level function — emit direct call with individual i64 params.
     Direct { func_id: LirFuncId },
+    /// Known nested function with captures — emit a direct call to the
+    /// capture-worker entry using the provided capture values followed by args.
+    DirectClosure {
+        func_id: LirFuncId,
+        captures: Vec<LirVar>,
+    },
     /// Known imported top-level function — emit direct call to an external symbol.
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.

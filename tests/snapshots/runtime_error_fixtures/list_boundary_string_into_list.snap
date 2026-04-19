@@ -38,39 +38,3 @@ Note:
 
 Help:
   Pass a `List<Int>` value as the 1st argument.
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  Numeric
-[5 of 8] Compiling  Option
-[6 of 8] Compiling  String
-[7 of 8] Compiling  BoundaryUnknown
-• 1 error • examples/runtime_errors/list_boundary_string_into_list.flx
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `sum_list`.
-
-  examples/runtime_errors/list_boundary_string_into_list.flx:8:10
-  |
-3 | fn sum_list(xs: List<Int>) -> Int {
-4 |     fold(xs, 0, /(acc: Int, x: Int) -> acc + x)
-5 | }
-6 |
-7 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
-8 | sum_list(dynamic)
-  |          ^^^^^^^
-  |          ------- this argument has type `String`
-
-Note:
-  expected argument type: List<Int>
-  found argument type: String
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Pass a `List<Int>` value as the 1st argument.

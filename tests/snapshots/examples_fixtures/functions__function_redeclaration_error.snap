@@ -9,26 +9,26 @@ error[E001]: Duplicate Name
 
 Duplicate binding: `my_func` is already defined.
 
-  examples/functions/function_redeclaration_error.flx:5:3
+  examples/functions/function_redeclaration_error.flx:6:1
   |
-5 |   fn my_func() {
-  |   ^^^^^^^^^^^^^^
-6 |     return 2;
+6 | fn my_func() {
+  | ^^^^^^^^^^^^^^
+7 |     return 2;
   | ^^^^^^^^^^^^^
-7 |   }
-  | ^^^
+8 | }
+  | ^
 
 Hint:
   Use a different name or remove the previous definition.
 
    = note: first defined here
-  examples/functions/function_redeclaration_error.flx:1:3
+  examples/functions/function_redeclaration_error.flx:2:1
   |
-1 |   fn my_func() {
-  |   ^^^^^^^^^^^^^^
-2 |     return 1;
+2 | fn my_func() {
+  | ^^^^^^^^^^^^^^
+3 |     return 1;
   | ^^^^^^^^^^^^^
-3 |   }
-  | ^^^
+4 | }
+  | ^
 == stdout ==
 <not executed>

@@ -20,7 +20,7 @@ impl<'a> InferCtx<'a> {
                 self.env.alloc_type_var_id(),
             )
         } else {
-            Self::infer_effect_row(input.effects, &mut row_var_env, &mut self.env.counter)
+            self.infer_effect_row(input.effects, &mut row_var_env)
         };
 
         let declared_effect_row = ambient_effect_row.clone();
@@ -31,6 +31,8 @@ impl<'a> InferCtx<'a> {
             &mut row_var_env,
             input.return_type,
             &body_ty,
+            None,
+            input.body,
         );
 
         let final_param_tys: Vec<InferType> = param_tys

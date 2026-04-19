@@ -1,14 +1,21 @@
-// Phase 3 Flow qualification under shadowing
-// Bare `len` resolves to local binding; `Flow.len` resolves to Flow.
+// parity-expected-stdout-begin
+// 999
+// 1
+// parity-expected-stdout-end
+
+// Phase 3 Flow shadowing under exclusion
+// Bare `len` resolves to the local binding after excluding Flow's `len`.
+
+import Flow except [len]
 
 fn demo() with IO {
-  let len = fn(x) { 999 }
-  let xs = [1, 2, 3]
+    let len = fn(x) { 999 }
+    let xs = [1, 2, 3]
 
-  print(len(xs))
-  print(Flow.len(xs))
+    print(len(xs))
+    print(first(xs))
 }
 
 fn main() with IO {
-  demo()
+    demo()
 }

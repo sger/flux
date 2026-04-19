@@ -23,7 +23,7 @@ use crate::{
 pub enum InferType {
     /// Unification variable. Resolved via `Subst`.
     Var(TypeVarId),
-    /// Concrete nullary type: `Int`, `String`, `Any`, …
+    /// Concrete nullary type: `Int`, `String`, …
     Con(TypeConstructor),
     /// Type application: `List<T>`, `Map<K, V>`, `Option<T>`, `Adt<T>`.
     App(TypeConstructor, Vec<InferType>),
@@ -254,11 +254,6 @@ impl InferType {
         }
     }
 
-    /// `Any` is the gradual escape hatch.
-    pub fn is_any(&self) -> bool {
-        matches!(self, InferType::Con(TypeConstructor::Any))
-    }
-
     /// Extract parameter types from a function type.
     /// Returns an empty slice for non-function types.
     pub fn param_types(&self) -> &[InferType] {
@@ -268,19 +263,26 @@ impl InferType {
         }
     }
 
-    /// Returns `true` if this type contains `Any` at any nesting depth.
-    pub fn contains_any(&self) -> bool {
+    /// Returns `true` if this type contains any `Var` node whose ID is NOT
+    /// in the provided `bound_vars` set.
+    ///
+    /// This distinguishes legitimately polymorphic variables (quantified in a
+    /// scheme's `forall`) from unresolved inference fallback variables.
+    pub fn contains_unresolved_var(&self, bound_vars: &HashSet<TypeVarId>) -> bool {
         match self {
-            InferType::Con(TypeConstructor::Any) => true,
+            InferType::Var(v) => !bound_vars.contains(v),
+            InferType::Con(_) => false,
             InferType::App(_, args) | InferType::Tuple(args) => {
-                args.iter().any(InferType::contains_any)
+                args.iter().any(|a| a.contains_unresolved_var(bound_vars))
             }
-            InferType::Fun(params, ret, _) => {
-                params.iter().any(InferType::contains_any) || ret.contains_any()
+            InferType::Fun(params, ret, effects) => {
+                params.iter().any(|p| p.contains_unresolved_var(bound_vars))
+                    || ret.contains_unresolved_var(bound_vars)
+                    || effects.tail().is_some_and(|t| !bound_vars.contains(&t))
             }
-            InferType::Var(_) | InferType::Con(_) => false,
             InferType::HktApp(head, args) => {
-                head.contains_any() || args.iter().any(InferType::contains_any)
+                head.contains_unresolved_var(bound_vars)
+                    || args.iter().any(|a| a.contains_unresolved_var(bound_vars))
             }
         }
     }
@@ -414,11 +416,9 @@ mod tests {
     }
 
     #[test]
-    fn concrete_and_any_checks() {
+    fn concrete_checks() {
         let concrete = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Bool)]);
         assert!(concrete.is_concrete());
-        assert!(!concrete.is_any());
-        assert!(!concrete.contains_any());
 
         let not_concrete = InferType::Fun(
             vec![infer_var(0)],
@@ -426,41 +426,90 @@ mod tests {
             InferEffectRow::closed_empty(),
         );
         assert!(!not_concrete.is_concrete());
-        assert!(!not_concrete.contains_any());
-
-        let any = InferType::Con(TypeConstructor::Any);
-        assert!(any.is_any());
-        assert!(any.is_concrete());
-        assert!(any.contains_any());
     }
 
     #[test]
-    fn contains_any_checks_nested_types() {
-        let nested_any_app = InferType::App(
-            TypeConstructor::List,
-            vec![InferType::Con(TypeConstructor::Any)],
+    fn contains_unresolved_var_bound_var_returns_false() {
+        let ty = infer_var(0);
+        let bound = HashSet::from([0]);
+        assert!(!ty.contains_unresolved_var(&bound));
+    }
+
+    #[test]
+    fn contains_unresolved_var_unbound_var_returns_true() {
+        let ty = infer_var(0);
+        let bound = HashSet::new();
+        assert!(ty.contains_unresolved_var(&bound));
+    }
+
+    #[test]
+    fn contains_unresolved_var_wrong_bound_returns_true() {
+        let ty = infer_var(0);
+        let bound = HashSet::from([1]);
+        assert!(ty.contains_unresolved_var(&bound));
+    }
+
+    #[test]
+    fn contains_unresolved_var_concrete_always_false() {
+        let ty = int();
+        assert!(!ty.contains_unresolved_var(&HashSet::new()));
+
+        let list_ty = InferType::App(TypeConstructor::List, vec![int()]);
+        assert!(!list_ty.contains_unresolved_var(&HashSet::new()));
+
+        let tuple_ty = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::String)]);
+        assert!(!tuple_ty.contains_unresolved_var(&HashSet::new()));
+    }
+
+    #[test]
+    fn contains_unresolved_var_mixed_bound_unbound() {
+        // Fun([Var(0)], Var(1)) with bound {0} → true (var 1 unresolved)
+        let ty = InferType::Fun(
+            vec![infer_var(0)],
+            Box::new(infer_var(1)),
+            InferEffectRow::closed_empty(),
         );
-        assert!(nested_any_app.contains_any());
+        let bound = HashSet::from([0]);
+        assert!(ty.contains_unresolved_var(&bound));
+    }
 
-        let nested_any_tuple = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Any)]);
-        assert!(nested_any_tuple.contains_any());
+    #[test]
+    fn contains_unresolved_var_all_bound_returns_false() {
+        let ty = InferType::Fun(
+            vec![infer_var(0)],
+            Box::new(infer_var(1)),
+            InferEffectRow::closed_empty(),
+        );
+        let bound = HashSet::from([0, 1]);
+        assert!(!ty.contains_unresolved_var(&bound));
+    }
 
-        let nested_any_fun = InferType::Fun(
-            vec![InferType::Con(TypeConstructor::Any)],
+    #[test]
+    fn contains_unresolved_var_nested_types() {
+        let ty = InferType::App(TypeConstructor::List, vec![infer_var(2)]);
+        assert!(ty.contains_unresolved_var(&HashSet::new()));
+        assert!(!ty.contains_unresolved_var(&HashSet::from([2])));
+    }
+
+    #[test]
+    fn contains_unresolved_var_effect_tail() {
+        let ty = InferType::Fun(
+            vec![],
             Box::new(int()),
-            InferEffectRow::closed_empty(),
+            InferEffectRow::open_from_symbols(std::iter::empty(), 3),
         );
-        assert!(nested_any_fun.contains_any());
+        // Tail var 3 is unbound
+        assert!(ty.contains_unresolved_var(&HashSet::new()));
+        // Tail var 3 is bound
+        assert!(!ty.contains_unresolved_var(&HashSet::from([3])));
+    }
 
-        let nested_any_fun_ret = InferType::Fun(
-            vec![int()],
-            Box::new(InferType::App(
-                TypeConstructor::Option,
-                vec![InferType::Con(TypeConstructor::Any)],
-            )),
-            InferEffectRow::closed_empty(),
-        );
-        assert!(nested_any_fun_ret.contains_any());
+    #[test]
+    fn contains_unresolved_var_hkt_app() {
+        let ty = InferType::HktApp(Box::new(infer_var(0)), vec![infer_var(1)]);
+        assert!(ty.contains_unresolved_var(&HashSet::new()));
+        assert!(ty.contains_unresolved_var(&HashSet::from([0])));
+        assert!(!ty.contains_unresolved_var(&HashSet::from([0, 1])));
     }
 
     #[test]

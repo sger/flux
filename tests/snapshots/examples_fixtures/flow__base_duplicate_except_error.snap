@@ -9,10 +9,10 @@ error[E012]: Unknown Module Member
 
 Module `Flow` has no member named `print`.
 
-  examples/flow/base_duplicate_except_error.flx:4:1
-  |
-4 | Flow.print("unreachable");
-  | ^^^^^^^^^^
+  examples/flow/base_duplicate_except_error.flx:10:5
+   |
+10 |     Flow.print("unreachable")
+   |     ^^^^^^^^^^
 
 Hint:
   Check the module's public members or import the correct module.

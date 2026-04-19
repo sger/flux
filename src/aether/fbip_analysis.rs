@@ -978,6 +978,7 @@ mod tests {
     };
     use crate::diagnostics::position::Span;
     use crate::syntax::{interner::Interner, statement::FipAnnotation};
+    use std::borrow::Borrow;
 
     use super::{
         FbipCallKind, FbipCallOutcome, FbipFailureReason, FbipOutcome, analyze_program,
@@ -988,9 +989,9 @@ mod tests {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
     }
 
-    fn var(binder: CoreBinder) -> CoreExpr {
+    fn var<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(binder.borrow()),
             span: Span::default(),
         }
     }
@@ -1087,7 +1088,7 @@ mod tests {
             1,
             "f",
             AetherExpr::Reuse {
-                token: CoreVarRef::resolved(xs),
+                token: CoreVarRef::resolved(&xs),
                 tag: CoreTag::Cons,
                 fields: vec![
                     AetherExpr::bound_var(h, Span::default()),
@@ -1136,6 +1137,7 @@ mod tests {
                             span: Span::default(),
                         },
                     ],
+                    join_ty: None,
                     span: Span::default(),
                 },
                 Some(FipAnnotation::Fbip),
@@ -1182,7 +1184,7 @@ mod tests {
             1,
             "callee",
             AetherExpr::Reuse {
-                token: CoreVarRef::resolved(token),
+                token: CoreVarRef::resolved(&token),
                 tag: CoreTag::Some,
                 fields: vec![AetherExpr::bound_var(field, Span::default())],
                 field_mask: None,
@@ -1196,7 +1198,7 @@ mod tests {
             binder: caller_binder,
             expr: CoreExpr::App {
                 func: Box::new(CoreExpr::Var {
-                    var: CoreVarRef::resolved(callee.binder),
+                    var: CoreVarRef::resolved(&callee.binder),
                     span: Span::default(),
                 }),
                 args: vec![var(field)],
@@ -1249,7 +1251,7 @@ mod tests {
             binder: caller_binder,
             expr: CoreExpr::App {
                 func: Box::new(CoreExpr::Var {
-                    var: CoreVarRef::resolved(callee.binder),
+                    var: CoreVarRef::resolved(&callee.binder),
                     span: Span::default(),
                 }),
                 args: vec![var(x)],
@@ -1281,7 +1283,7 @@ mod tests {
             1,
             "callee",
             AetherExpr::Reuse {
-                token: CoreVarRef::resolved(token),
+                token: CoreVarRef::resolved(&token),
                 tag: CoreTag::Some,
                 fields: vec![AetherExpr::bound_var(field, Span::default())],
                 field_mask: None,
@@ -1295,7 +1297,7 @@ mod tests {
             binder: caller_binder,
             expr: CoreExpr::App {
                 func: Box::new(CoreExpr::Var {
-                    var: CoreVarRef::resolved(callee.binder),
+                    var: CoreVarRef::resolved(&callee.binder),
                     span: Span::default(),
                 }),
                 args: vec![var(field)],
@@ -1469,7 +1471,7 @@ mod tests {
             1,
             "callee",
             AetherExpr::Reuse {
-                token: CoreVarRef::resolved(x),
+                token: CoreVarRef::resolved(&x),
                 tag: CoreTag::Some,
                 fields: vec![AetherExpr::bound_var(x, Span::default())],
                 field_mask: None,
@@ -1511,9 +1513,9 @@ mod tests {
             1,
             "ds",
             AetherExpr::DropSpecialized {
-                scrutinee: CoreVarRef::resolved(token),
+                scrutinee: CoreVarRef::resolved(&token),
                 unique_body: Box::new(AetherExpr::Reuse {
-                    token: CoreVarRef::resolved(token),
+                    token: CoreVarRef::resolved(&token),
                     tag: CoreTag::Some,
                     fields: vec![AetherExpr::bound_var(x, Span::default())],
                     field_mask: None,
@@ -1599,7 +1601,7 @@ mod tests {
             4,
             "dropped_rebuild",
             AetherExpr::Drop {
-                var: CoreVarRef::resolved(token),
+                var: CoreVarRef::resolved(&token),
                 body: Box::new(AetherExpr::Con {
                     tag: CoreTag::Some,
                     fields: vec![AetherExpr::bound_var(x, Span::default())],

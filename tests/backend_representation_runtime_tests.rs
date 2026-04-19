@@ -4,9 +4,21 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn unique_run_dir(fixture: &str) -> std::path::PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let stem = Path::new(fixture)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("fixture");
+    let pid = std::process::id();
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("flux_native_{stem}_{pid}_{counter}"))
 }
 
 fn run_vm(fixture: &str) -> String {
@@ -25,9 +37,21 @@ fn run_vm(fixture: &str) -> String {
 
 fn run_native(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let run_dir = unique_run_dir(fixture);
+    let _ = std::fs::create_dir_all(&run_dir);
+    let output_path = run_dir.join("program");
+    let cache_dir = run_dir.join("cache");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args([
+            path.to_str().unwrap(),
+            "--native",
+            "--no-cache",
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+            "--cache-dir",
+            cache_dir.to_string_lossy().as_ref(),
+        ])
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
@@ -40,9 +64,21 @@ fn run_native(fixture: &str) -> (String, bool) {
 
 fn run_native_full(fixture: &str) -> (String, String, bool) {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let run_dir = unique_run_dir(fixture);
+    let _ = std::fs::create_dir_all(&run_dir);
+    let output_path = run_dir.join("program");
+    let cache_dir = run_dir.join("cache");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args([
+            path.to_str().unwrap(),
+            "--native",
+            "--no-cache",
+            "-o",
+            output_path.to_string_lossy().as_ref(),
+            "--cache-dir",
+            cache_dir.to_string_lossy().as_ref(),
+        ])
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
@@ -101,6 +137,7 @@ fn tuple_does_not_match_option_pattern_on_native() {
 fn representation_fixtures_hold_vm_native_parity() {
     for fixture in [
         "backend_repr_array_not_list.flx",
+        "backend_repr_option_named_field_access.flx",
         "backend_repr_tuple_not_option.flx",
         "backend_repr_list_match_ok.flx",
         "backend_repr_array_api_ok.flx",

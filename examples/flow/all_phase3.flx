@@ -1,16 +1,24 @@
+// parity-expected-stdout-begin
+// "== Flow directives smoke =="
+// "length([1,2,3]) = 3"
+// "local len(xs) = 123"
+// "first(xs) = 10"
+// parity-expected-stdout-end
+
 // Aggregated Phase 3 Flow smoke example (valid path only)
 
 import Flow except [print]
 
-Flow.print("== Flow directives smoke ==");
-Flow.print("length([1,2,3]) = " + to_string(length([1, 2, 3])));
+fn shadow_demo() with IO {
+    let len = fn(x) { 123 }
+    let xs = [10, 20, 30, 40]
 
-fn shadow_demo() {
-  let len = fn(x) { 123 };
-  let xs = [10, 20, 30, 40];
-
-  Flow.print("local len(xs) = " + to_string(len(xs)));
-  Flow.print("Flow.len(xs) = " + to_string(Flow.len(xs)));
+    print("local len(xs) = " + to_string(len(xs)))
+    print("first(xs) = " + to_string(first(xs)))
 }
 
-shadow_demo();
+fn main() with IO {
+    print("== Flow directives smoke ==")
+    print("length([1,2,3]) = " + to_string(length([1, 2, 3])))
+    shadow_demo()
+}

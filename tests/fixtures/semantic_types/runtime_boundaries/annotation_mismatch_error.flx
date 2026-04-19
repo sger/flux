@@ -1,0 +1,5 @@
+fn inc(x: Int) -> Int { x + 1 }
+
+fn main() {
+    inc("oops")
+}

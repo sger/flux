@@ -40,7 +40,7 @@ Release-critical track for v0.0.4 is:
 
 Truth sources for this baseline:
 
-- Compiler paths in `src/bytecode/compiler/mod.rs` and `src/bytecode/compiler/expression.rs`.
+- Compiler paths in `src/compiler/mod.rs` and `src/compiler/expression.rs`.
 - Type core in `src/types/*`.
 - Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
 - Roadmap orchestration/sequencing in:
@@ -56,11 +56,11 @@ Truth sources for this baseline:
 
 Primary anchors:
 
-- `src/bytecode/compiler/mod.rs`:
+- `src/compiler/mod.rs`:
   - `compile`
   - `infer_unannotated_function_effects`
   - `validate_strict_mode`
-- `src/bytecode/compiler/expression.rs`:
+- `src/compiler/expression.rs`:
   - call-site effect validation and row constraints.
 
 ### 2.2 Purity-by-default and ambient effects
@@ -71,11 +71,11 @@ Primary anchors:
 
 Primary anchors:
 
-- `src/bytecode/compiler/expression.rs`:
+- `src/compiler/expression.rs`:
   - `ensure_base_call_effect_available`
   - `required_effect_for_base_name`
   - `track_effect_alias_for_binding` (alias-aware checks like `let p = print`).
-- `src/bytecode/compiler/mod.rs`:
+- `src/compiler/mod.rs`:
   - `is_effect_available_name`
   - `is_effect_available_symbol`.
 
@@ -95,10 +95,10 @@ Primary anchors:
 
 Primary anchors:
 
-- `src/bytecode/compiler/expression.rs`:
+- `src/compiler/expression.rs`:
   - `compile_perform`
   - `compile_handle`
-- `src/bytecode/compiler/mod.rs`:
+- `src/compiler/mod.rs`:
   - `with_handled_effect`.
 
 ### 2.6 Effect rows on type class methods (Proposal 0151, Phase 4)
@@ -113,7 +113,7 @@ Primary anchors:
   - `ClassMethod.effects`, `InstanceMethod.effects`
 - `src/types/class_dispatch.rs`:
   - Phase 1b mangling pass forwards effects to mangled function signatures
-- `src/bytecode/compiler/statement.rs`:
+- `src/compiler/statement.rs`:
   - E452 walker validates effect floor satisfaction
 - `src/core/lower_ast/mod.rs`:
   - `try_resolve_class_call()` propagates resolved instance's row to caller
@@ -143,7 +143,7 @@ See `docs/internals/effect_row_system.md` §7 for the full reference.
 
 Primary anchors:
 
-- `src/bytecode/compiler/mod.rs`:
+- `src/compiler/mod.rs`:
   - `validate_main_entrypoint`
   - `validate_top_level_effectful_code`
   - `validate_main_root_effect_discharge`.
@@ -174,7 +174,7 @@ Primary anchors:
 
 ### 3.2 Row constraint solver — completed (0042 + 0049)
 
-Effect polymorphism is solved in `src/bytecode/compiler/effect_rows.rs`:
+Effect polymorphism is solved in `src/compiler/effect_rows.rs`:
 
 - **`Eq`** — row equality; links vars, binds atoms bidirectionally.
 - **`Subset`** — set inclusion; emits `E422` for closed rows that don't satisfy the subset.
@@ -185,8 +185,8 @@ Solver features: worklist algorithm, variable linking, deferred `Absent` evaluat
 
 Primary anchors:
 
-- `src/bytecode/compiler/effect_rows.rs` — `solve_row_constraints()`, `EffectRow`, constraint types
-- `src/bytecode/compiler/expression.rs` — `collect_effect_row_constraints`, `infer_argument_function_effect_row`
+- `src/compiler/effect_rows.rs` — `solve_row_constraints()`, `EffectRow`, constraint types
+- `src/compiler/expression.rs` — `collect_effect_row_constraints`, `infer_argument_function_effect_row`
 
 ### 3.3 Surface forms in use
 
@@ -213,7 +213,7 @@ See `docs/internals/effect_row_system.md` for the full constraint solver referen
 
 ## 4. Compiler Pipeline Mapping (Type/Effects)
 
-Current order in `Compiler::compile` (`src/bytecode/compiler/mod.rs`):
+Current order in `Compiler::compile` (`src/compiler/mod.rs`):
 
 1. Reset per-file state.
 2. Process base directives/import context.
@@ -294,7 +294,7 @@ Each subfile uses `use super::*;` to access `InferCtx` and shared types across `
 - **Let-polymorphism** — `generalize` is called only when the binding has explicit `<T>` parameters or is a top-level `let`. Unannotated local `let` bindings remain monomorphic.
 - **Recovery** — unification failures return `Any` so inference continues without cascading errors.
 
-### Compiler Integration (`src/bytecode/compiler/`)
+### Compiler Integration (`src/compiler/`)
 
 | File | Responsibility |
 |------|---------------|
@@ -334,7 +334,7 @@ Each subfile uses `use super::*;` to access `InferCtx` and shared types across `
                    │ infer_program
                    ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Compiler (Compiler::compile, hm_expr_typer, contracts)     │  bytecode/compiler/
+│  Compiler (Compiler::compile, hm_expr_typer, contracts)     │  compiler/
 │  — validates annotated boundaries against HM output         │
 └──────────────────┬──────────────────────────────────────────┘
                    │ contracts.rs: TypeExpr → RuntimeType

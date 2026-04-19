@@ -15,14 +15,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use super::fixture::parse_fixture_meta;
+use super::fixture::{Expect, parse_fixture_meta};
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
     print_summary,
 };
 use super::runner::{
     DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_cfg, capture_dump_core,
-    capture_dump_lir, capture_dump_repr, is_native_skip, run_way,
+    capture_dump_lir, capture_dump_repr, compile_fixture, is_native_skip, run_way,
 };
 use super::{
     BackendId, DebugArtifacts, ExitKind, MismatchDetail, ParityResult, SurfaceKind, Verdict, Way,
@@ -69,7 +69,7 @@ pub fn run_parity_check(args: &[String]) {
     if !config.llvm_binary.exists() {
         eprintln!(
             "Error: LLVM binary not found at {}\n\
-             Build with: CARGO_TARGET_DIR=target/parity_native cargo build --features core_to_llvm",
+             Build with: CARGO_TARGET_DIR=target/parity_native cargo build --features llvm",
             config.llvm_binary.display()
         );
         std::process::exit(1);
@@ -84,8 +84,15 @@ pub fn run_parity_check(args: &[String]) {
         std::process::exit(1);
     }
 
+    // `--compile` pre-pass: compile every fixture (populating caches) before
+    // starting the parity loop. Bail on the first compilation failure.
+    if config.compile_first && !run_compile_phase(&files, &config) {
+        std::process::exit(1);
+    }
+
     // Run parity checks
     let default_ways = vec![Way::Vm, Way::Llvm];
+    let compile_ways = vec![Way::VmCached, Way::LlvmCached];
     let mut results = Vec::new();
     let mut saved_first_failure = false;
 
@@ -96,8 +103,12 @@ pub fn run_parity_check(args: &[String]) {
             &default_ways
         });
         let fixture_meta = parse_fixture_meta(file);
+        let extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
         let effective_ways = if config.ways.is_some() {
             ways
+        } else if config.compile_first {
+            // --compile: run against warmed caches instead of fresh ways.
+            &compile_ways
         } else {
             &fixture_meta.ways
         };
@@ -108,7 +119,7 @@ pub fn run_parity_check(args: &[String]) {
                 ways: effective_ways,
                 vm_binary: &config.vm_binary,
                 llvm_binary: &config.llvm_binary,
-                extra_args: &config.extra_args,
+                extra_args: &extra_args,
                 timeout: config.timeout,
                 capture_core: config.capture_core,
                 capture_aether: config.capture_aether,
@@ -117,6 +128,8 @@ pub fn run_parity_check(args: &[String]) {
                 capture_lir: config.capture_lir,
                 compare_surfaces_only: config.compare_surfaces_only,
                 explain: config.explain,
+                expected_stdout: fixture_meta.expected_stdout.as_deref(),
+                expect: fixture_meta.expect,
             },
         );
         print_result(&parity_result, config.display_filter, config.explain);
@@ -144,9 +157,12 @@ pub fn run_parity_check(args: &[String]) {
     print_summary(&results);
 
     // Exit with appropriate code
-    let has_mismatch = results
-        .iter()
-        .any(|r| matches!(r.verdict, Verdict::Mismatch { .. }));
+    let has_mismatch = results.iter().any(|r| {
+        matches!(
+            r.verdict,
+            Verdict::Mismatch { .. } | Verdict::ExpectedOutputMismatch { .. }
+        )
+    });
     let has_pass = results.iter().any(|r| matches!(r.verdict, Verdict::Pass));
 
     if has_mismatch || !has_pass {
@@ -167,6 +183,10 @@ struct CheckOpts<'a> {
     capture_lir: bool,
     compare_surfaces_only: bool,
     explain: bool,
+    expected_stdout: Option<&'a str>,
+    /// Declared fixture expectation: `success`, `compile_error`, or
+    /// `runtime_error`. Controls stdout-comparison semantics.
+    expect: Expect,
 }
 
 /// Run all requested ways on a single file and compare.
@@ -287,10 +307,48 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         }
     }
 
-    let verdict = if details.is_empty() {
-        Verdict::Pass
-    } else {
+    let verdict = if !details.is_empty() {
         Verdict::Mismatch { details }
+    } else if matches!(opts.expect, Expect::CompileError | Expect::RuntimeError) {
+        // Fixture declares it should fail. Require all runs to exit non-zero
+        // and skip the expected_stdout comparison — stderr carries the real
+        // signal for error fixtures and is too volatile to pin to a block.
+        let all_failed = !run_results.is_empty() && run_results.iter().all(|r| r.exit_code != 0);
+        if all_failed {
+            Verdict::Pass
+        } else {
+            Verdict::ExpectedOutputMismatch {
+                expected: format!(
+                    "{} (all backends should exit non-zero)",
+                    match opts.expect {
+                        Expect::CompileError => "compile_error",
+                        Expect::RuntimeError => "runtime_error",
+                        Expect::Success => "success",
+                    }
+                ),
+                actual: run_results
+                    .iter()
+                    .map(|r| format!("{}: exit={}", r.way, r.exit_code))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            }
+        }
+    } else if let Some(expected_stdout) = opts.expected_stdout {
+        let expected = expected_stdout.trim();
+        let actual = run_results
+            .first()
+            .map(|run| run.normalized_stdout.trim().to_string())
+            .unwrap_or_default();
+        if actual != expected {
+            Verdict::ExpectedOutputMismatch {
+                expected: expected.to_string(),
+                actual,
+            }
+        } else {
+            Verdict::Pass
+        }
+    } else {
+        Verdict::Pass
     };
 
     ParityResult {
@@ -511,6 +569,114 @@ fn collect_mismatch_details(
 
 // ── Fixture collection ─────────────────────────────────────────────────────
 
+/// `--compile` phase: compile every fixture via both backends, populating
+/// their caches. Returns true if all fixtures compiled successfully; false if
+/// any failed (reported inline). Callers should abort the parity phase on
+/// false.
+fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
+    eprintln!(
+        "[parity] --compile: compiling {} fixture(s) with VM and LLVM backends",
+        files.len()
+    );
+    let mut all_ok = true;
+    for file in files {
+        let meta = parse_fixture_meta(file);
+        let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
+        let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
+        for (way, label) in [(Way::Vm, "vm"), (Way::Llvm, "llvm")] {
+            let outcome = compile_fixture(
+                &config.vm_binary,
+                &config.llvm_binary,
+                file,
+                way,
+                &extra_args,
+                config.timeout,
+            );
+            if expects_failure {
+                // Fixture is declared to fail; a failing compile is EXPECTED.
+                if outcome.success {
+                    eprintln!(
+                        "\x1b[0;31mCOMPILE UNEXPECTED OK\x1b[0m {} ({}) — fixture declares `expect: {}` but compiled successfully",
+                        file.display(),
+                        label,
+                        match meta.expect {
+                            Expect::CompileError => "compile_error",
+                            Expect::RuntimeError => "runtime_error",
+                            Expect::Success => "success",
+                        }
+                    );
+                    all_ok = false;
+                } else {
+                    eprintln!(
+                        "\x1b[0;33mCOMPILE EXPECTED FAIL\x1b[0m {} ({}) — matches `expect: {}`",
+                        file.display(),
+                        label,
+                        match meta.expect {
+                            Expect::CompileError => "compile_error",
+                            Expect::RuntimeError => "runtime_error",
+                            Expect::Success => "success",
+                        }
+                    );
+                }
+                continue;
+            }
+            if outcome.success {
+                eprintln!(
+                    "\x1b[0;32mCOMPILE OK\x1b[0m   {} ({})",
+                    file.display(),
+                    label
+                );
+                continue;
+            }
+            // Distinguish native-unsupported (skip-able) from real compile failure.
+            let is_llvm_skip = matches!(way, Way::Llvm)
+                && (outcome.stderr.contains("llvm compilation failed")
+                    || outcome.stderr.contains("unsupported CoreToLlvm"));
+            if is_llvm_skip {
+                eprintln!(
+                    "\x1b[0;33mCOMPILE SKIP\x1b[0m {} ({}) — native unsupported",
+                    file.display(),
+                    label
+                );
+                continue;
+            }
+            eprintln!(
+                "\x1b[0;31mCOMPILE FAIL\x1b[0m {} ({}) exit={}",
+                file.display(),
+                label,
+                outcome.exit_code
+            );
+            if !outcome.stderr.trim().is_empty() {
+                // Show only the last ~15 lines of stderr for focused errors.
+                let tail: Vec<&str> = outcome
+                    .stderr
+                    .lines()
+                    .rev()
+                    .take(15)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                for line in tail {
+                    eprintln!("  {line}");
+                }
+            }
+            all_ok = false;
+        }
+    }
+    if !all_ok {
+        eprintln!("[parity] --compile: stopping; fixtures above failed to compile");
+    }
+    all_ok
+}
+
+fn merged_fixture_args(global_args: &[String], fixture_args: &[String]) -> Vec<String> {
+    let mut merged = Vec::with_capacity(global_args.len() + fixture_args.len());
+    merged.extend_from_slice(global_args);
+    merged.extend_from_slice(fixture_args);
+    merged
+}
+
 fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
     if path.is_file() {
         if path.extension().and_then(|e| e.to_str()) == Some("flx") {
@@ -536,11 +702,12 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
     vec![]
 }
 
-/// Skip benchmark files — they produce non-deterministic timing output.
+/// Skip benchmark/profile files — they produce timing-oriented output and may
+/// intentionally use workloads that are too heavy for parity sweeps.
 fn should_skip_fixture(path: &Path) -> bool {
     path.file_stem()
         .and_then(|s| s.to_str())
-        .is_some_and(|stem| stem.contains("_bench"))
+        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"))
 }
 
 // ── Argument parsing ───────────────────────────────────────────────────────
@@ -575,6 +742,10 @@ struct Config {
     rebuild: bool,
     debug_first_failure: bool,
     save_debug_dir: Option<PathBuf>,
+    /// When true, compile all fixtures first (populating caches) and stop on
+    /// any compilation failure. Then run the parity phase against cached
+    /// artifacts (using cached ways instead of fresh `--no-cache` ways).
+    compile_first: bool,
 }
 
 #[derive(Debug)]
@@ -603,6 +774,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut rebuild = false;
     let mut debug_first_failure = false;
     let mut save_debug_dir: Option<PathBuf> = None;
+    let mut compile_first = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -671,6 +843,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             }
             "--rebuild" => {
                 rebuild = true;
+            }
+            "--compile" => {
+                compile_first = true;
             }
             "--debug-first-failure" => {
                 debug_first_failure = true;
@@ -774,6 +949,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         rebuild,
         debug_first_failure,
         save_debug_dir,
+        compile_first,
     })
 }
 
@@ -794,6 +970,8 @@ Options:
   --capture-lir          Capture --dump-lir for LLVM ways
   --explain              Run parity, then explain the mismatch with shared/backend IR captures
   --rebuild              Force rebuild of parity VM/native binaries before running checks
+  --compile              Two-phase run: compile all fixtures first (stop on compile failure),
+                         then parity against cached artifacts (faster than fresh-compile per run)
   --debug-first-failure  Stop after the first non-pass result and print extra debug detail
   --save-debug-dir <p>   Save the first non-pass result's artifacts under <p>
   --vm-binary <path>     Path to VM binary (default: {})
@@ -899,7 +1077,7 @@ fn run_cargo_build(target_dir: &Path, enable_llvm: bool) {
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
     if enable_llvm {
-        cmd.args(["--features", "core_to_llvm"]);
+        cmd.args(["--features", "llvm"]);
     }
     cmd.env("CARGO_TARGET_DIR", target_dir);
 
@@ -1185,6 +1363,14 @@ fn build_diagnosis_txt(result: &ParityResult) -> String {
             out.push_str("skip\n");
             out.push_str(&format!("reason: {reason}\n"));
         }
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            out.push_str("expected_output_mismatch\n");
+            out.push_str(
+                "diagnosis: backends agree, but the output disagrees with the fixture expected output\n",
+            );
+            out.push_str(&format!("expected:\n{expected}\n"));
+            out.push_str(&format!("actual:\n{actual}\n"));
+        }
         Verdict::Mismatch { details } => {
             out.push_str("mismatch\n");
             if let Some(summary) = diagnose_mismatch(details) {
@@ -1211,6 +1397,20 @@ fn build_metadata_json(result: &ParityResult) -> String {
         verdict_label(&result.verdict)
     ));
     match &result.verdict {
+        Verdict::ExpectedOutputMismatch { expected, actual } => {
+            out.push_str(
+                "  \"diagnosis\": \"backends agree, but the output disagrees with the fixture expected output\",\n",
+            );
+            out.push_str(&format!(
+                "  \"expected_stdout\": \"{}\",\n",
+                json_escape(expected)
+            ));
+            out.push_str(&format!(
+                "  \"actual_stdout\": \"{}\",\n",
+                json_escape(actual)
+            ));
+            out.push_str("  \"mismatch_details\": [],\n");
+        }
         Verdict::Mismatch { details } => {
             match diagnose_mismatch(details) {
                 Some(summary) => {
@@ -1341,6 +1541,7 @@ fn verdict_label(verdict: &Verdict) -> &'static str {
     match verdict {
         Verdict::Pass => "pass",
         Verdict::Mismatch { .. } => "mismatch",
+        Verdict::ExpectedOutputMismatch { .. } => "expected_output_mismatch",
         Verdict::Skip { .. } => "skip",
     }
 }

@@ -9,7 +9,6 @@ use crate::{
         TypeVarId,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        type_constructor::TypeConstructor,
         type_subst::TypeSubst,
         unify_error::{UnifyError, UnifyErrorDetail},
     },
@@ -18,15 +17,16 @@ use crate::{
 /// Unify two types, returning the minimal substitution that makes them equal.
 ///
 /// The substitution must be applied to both types to obtain the unified form.
-/// `Any` is compatible with everything (gradual typing escape).
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
+    let empty: HashSet<TypeVarId> = HashSet::new();
     unify_core(
         t1,
         t2,
         &TypeSubst::empty(),
         Span::default(),
         &mut fresh_row_var,
+        &empty,
     )
 }
 
@@ -37,7 +37,15 @@ pub fn unify_with_span(
     span: Span,
 ) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
-    unify_core(t1, t2, &TypeSubst::empty(), span, &mut fresh_row_var)
+    let empty: HashSet<TypeVarId> = HashSet::new();
+    unify_core(
+        t1,
+        t2,
+        &TypeSubst::empty(),
+        span,
+        &mut fresh_row_var,
+        &empty,
+    )
 }
 
 /// Follow variable chains in a substitution to resolve the head constructor.
@@ -93,30 +101,34 @@ pub fn unify_core(
     ctx_subst: &TypeSubst,
     span: Span,
     fresh_row_var: &mut u32,
+    skolems: &HashSet<TypeVarId>,
 ) -> Result<TypeSubst, UnifyError> {
     let expected_head = resolve_head(expected, ctx_subst);
     let actual_head = resolve_head(actual, ctx_subst);
 
     match (expected_head, actual_head) {
-        // Any is compatible with everything (gradual typing)
-        (InferType::Con(TypeConstructor::Any), _) | (_, InferType::Con(TypeConstructor::Any)) => {
-            Ok(TypeSubst::empty())
-        }
-
         // Identical types unify trivially
         (InferType::Con(c1), InferType::Con(c2)) if c1 == c2 => Ok(TypeSubst::empty()),
 
+        // Two variables: if the expected side is a skolem and the actual side
+        // is flexible, flip so the flexible one binds to the skolem instead
+        // of the (illegal) reverse. Otherwise fall through to the default
+        // var-on-left rule.
+        (InferType::Var(v), InferType::Var(w)) if skolems.contains(v) && !skolems.contains(w) => {
+            bind_var_with_ctx(*w, &InferType::Var(*v), ctx_subst, span, skolems)
+        }
+
         // Type variable on the left
-        (InferType::Var(v), t) => bind_var_with_ctx(*v, t, ctx_subst, span),
+        (InferType::Var(v), t) => bind_var_with_ctx(*v, t, ctx_subst, span, skolems),
 
         // Type variable on the right
-        (t, InferType::Var(v)) => bind_var_with_ctx(*v, t, ctx_subst, span),
+        (t, InferType::Var(v)) => bind_var_with_ctx(*v, t, ctx_subst, span, skolems),
 
         // Two type applications: same constructor, same arity
         (InferType::App(c1, args1), InferType::App(c2, args2))
             if c1 == c2 && args1.len() == args2.len() =>
         {
-            unify_many(args1, args2, ctx_subst, span, fresh_row_var)
+            unify_many(args1, args2, ctx_subst, span, fresh_row_var, skolems)
         }
 
         // Function types: same arity
@@ -133,6 +145,7 @@ pub fn unify_core(
                 ctx_subst,
                 span,
                 fresh_row_var,
+                skolems,
             )
         }
 
@@ -149,14 +162,14 @@ pub fn unify_core(
 
         // Tuple types: same length
         (InferType::Tuple(elems1), InferType::Tuple(elems2)) if elems1.len() == elems2.len() => {
-            unify_many(elems1, elems2, ctx_subst, span, fresh_row_var)
+            unify_many(elems1, elems2, ctx_subst, span, fresh_row_var, skolems)
         }
 
         // HKT application: unify heads and args pairwise
         (InferType::HktApp(h1, args1), InferType::HktApp(h2, args2))
             if args1.len() == args2.len() =>
         {
-            let head_subst = unify_core(h1, h2, ctx_subst, span, fresh_row_var)?;
+            let head_subst = unify_core(h1, h2, ctx_subst, span, fresh_row_var, skolems)?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
             let applied_args1: Vec<InferType> = args1
@@ -173,6 +186,7 @@ pub fn unify_core(
                 &combined,
                 span,
                 fresh_row_var,
+                skolems,
             )?;
             result = result.compose(&args_subst);
             Ok(result)
@@ -189,6 +203,7 @@ pub fn unify_core(
                 ctx_subst,
                 span,
                 fresh_row_var,
+                skolems,
             )?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
@@ -206,6 +221,7 @@ pub fn unify_core(
                 &combined,
                 span,
                 fresh_row_var,
+                skolems,
             )?;
             result = result.compose(&args_subst);
             Ok(result)
@@ -228,6 +244,7 @@ fn unify_many(
     ctx_subst: &TypeSubst,
     span: Span,
     fresh_row_var: &mut u32,
+    skolems: &HashSet<TypeVarId>,
 ) -> Result<TypeSubst, UnifyError> {
     debug_assert_eq!(ts1.len(), ts2.len());
     let mut local_subst = TypeSubst::empty();
@@ -237,7 +254,7 @@ fn unify_many(
         // ctx_subst is handled lazily via resolve_head in the recursive call.
         let t1_sub = t1.apply_type_subst(&local_subst);
         let t2_sub = t2.apply_type_subst(&local_subst);
-        let s = unify_core(&t1_sub, &t2_sub, ctx_subst, span, fresh_row_var)?;
+        let s = unify_core(&t1_sub, &t2_sub, ctx_subst, span, fresh_row_var, skolems)?;
         local_subst = local_subst.compose(&s);
     }
     Ok(local_subst)
@@ -257,6 +274,7 @@ fn unify_fun_types(
     ctx_subst: &TypeSubst,
     span: Span,
     fresh_row_var: &mut u32,
+    skolems: &HashSet<TypeVarId>,
 ) -> Result<TypeSubst, UnifyError> {
     let mut subst = TypeSubst::empty();
     let row_subst = unify_effect_rows(effects1, effects2, span, fresh_row_var, ctx_subst, &subst)?;
@@ -265,20 +283,29 @@ fn unify_fun_types(
     for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
         let p1_sub = p1.apply_type_subst(&subst);
         let p2_sub = p2.apply_type_subst(&subst);
-        let s = unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var).map_err(|e| {
-            UnifyError::mismatch(
-                e.expected,
-                e.actual,
-                e.span,
-                UnifyErrorDetail::FunParamMismatch { index },
-            )
-        })?;
+        let s =
+            unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var, skolems).map_err(|e| {
+                UnifyError::mismatch(
+                    e.expected,
+                    e.actual,
+                    e.span,
+                    UnifyErrorDetail::FunParamMismatch { index },
+                )
+            })?;
         subst = subst.compose(&s);
     }
 
     let ret1_sub = ret1.apply_type_subst(&subst);
     let ret2_sub = ret2.apply_type_subst(&subst);
-    let s2 = unify_core(&ret1_sub, &ret2_sub, ctx_subst, span, fresh_row_var).map_err(|e| {
+    let s2 = unify_core(
+        &ret1_sub,
+        &ret2_sub,
+        ctx_subst,
+        span,
+        fresh_row_var,
+        skolems,
+    )
+    .map_err(|e| {
         UnifyError::mismatch(
             e.expected,
             e.actual,
@@ -462,18 +489,34 @@ fn unify_row_var(
     Ok(subst)
 }
 
-/// Bind a type variable to a type, checking for infinite types.
+/// Bind a type variable to a type, checking for infinite types and rigid
+/// (skolem) variables (Proposal 0159).
 fn bind_var_with_ctx(
     v: TypeVarId,
     ty: &InferType,
     ctx_subst: &TypeSubst,
     span: Span,
+    skolems: &HashSet<TypeVarId>,
 ) -> Result<TypeSubst, UnifyError> {
     // Trivial: v is already the same variable
     if let InferType::Var(w) = ty
         && *w == v
     {
         return Ok(TypeSubst::empty());
+    }
+
+    // Rigid-variable rejection: a skolem cannot be bound to anything other
+    // than itself. A skolem may still resolve to itself transitively through
+    // the substitution (e.g. a flexible var was previously bound to this
+    // skolem) — accept that case silently before rejecting anything else.
+    if skolems.contains(&v) {
+        if let InferType::Var(w) = resolve_head(ty, ctx_subst)
+            && *w == v
+        {
+            return Ok(TypeSubst::empty());
+        }
+        let ty_resolved = ty.apply_type_subst(ctx_subst);
+        return Err(UnifyError::rigid_bind(v, ty_resolved, span));
     }
 
     // Occurs check: v must not appear free in ty (resolving through ctx_subst)
@@ -557,11 +600,10 @@ mod tests {
     }
 
     #[test]
-    fn unify_any_is_compatible_with_everything() {
-        let any = InferType::Con(TypeConstructor::Any);
+    fn unify_tuple_and_scalar_mismatch() {
         let tuple = InferType::Tuple(vec![int(), bool_t()]);
-        let subst = unify(&any, &tuple).expect("Any should unify with every type");
-        assert!(subst.is_empty());
+        let err = unify(&int(), &tuple).expect_err("mismatched concrete types should fail");
+        assert_eq!(err.kind, UnifyErrorKind::Mismatch)
     }
 
     #[test]

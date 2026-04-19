@@ -40,6 +40,8 @@ Adt(Symbol)
 
 `Adt(Symbol)` stores an interned symbol ID, not a resolved string. Its `Display` impl renders as `$<id>` (e.g. `$7`) because `Symbol::Display` renders the raw interned ID — this is intentional for diagnostic/debug output, not user-facing type names.
 
+`Any` still exists in the internal type model for legacy and compatibility reasons, but it is not intended as a normal user-facing source-language type.
+
 No logic lives here; the type is a pure data enum.
 
 ---
@@ -66,9 +68,12 @@ Key methods:
 | `free_type_vars()` | O(n) | Type vars only — used to distinguish from row vars in `Scheme::instantiate` |
 | `apply_type_subst(subst)` | O(n) | Recursive walk; cycle-safe via `seen_vars` stack |
 | `is_concrete()` | O(n), early-exit | Short-circuit via `contains_var()` — no `HashSet` allocation |
-| `contains_any()` | O(n), early-exit | Returns `true` if `Any` appears at any depth |
+| `contains_any()` | O(n), early-exit | Returns `true` if legacy/internal `Any` residue appears at any depth |
 
-`is_concrete` and `contains_any` both use short-circuit recursive walks to exit on first match, avoiding full traversal of large concrete types.
+`is_concrete` and `contains_any` both use short-circuit recursive walks to exit
+on first match, avoiding full traversal of large concrete types. `contains_any`
+is legacy/internal compatibility machinery, not a maintained user-facing proof
+or policy surface for Flux's current static-typing claim.
 
 `InferType` is distinct from:
 - `TypeExpr` — the surface-syntax annotation AST in `src/syntax/`

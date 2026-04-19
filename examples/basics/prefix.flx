@@ -1,3 +1,12 @@
+// parity-expected-stdout-begin
+// -5
+// -10
+// 5
+// false
+// true
+// true
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Prefix operators
     // Expected output:

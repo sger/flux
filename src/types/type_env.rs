@@ -10,6 +10,29 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeTypeLoweringIssue {
+    UnresolvedTypeVariable,
+    OpenFunctionEffects,
+    UnsupportedNominalType,
+    UnsupportedHigherKindedType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTypeLoweringError {
+    issue: RuntimeTypeLoweringIssue,
+}
+
+impl RuntimeTypeLoweringError {
+    fn new(issue: RuntimeTypeLoweringIssue) -> Self {
+        Self { issue }
+    }
+
+    pub fn issue(&self) -> &RuntimeTypeLoweringIssue {
+        &self.issue
+    }
+}
+
 /// Scoped type environment mapping identifiers to their type schemes.
 ///
 /// Uses a shadow-stack design for O(1) lookup: each name maps to a stack of
@@ -95,6 +118,13 @@ impl TypeEnv {
     /// Look up a name O(1) via shadow stack top.
     pub fn lookup(&self, name: Identifier) -> Option<&Scheme> {
         self.bindings.get(&name)?.last().map(|e| &e.scheme)
+    }
+
+    /// Iterate over all currently visible bindings (top of each shadow stack).
+    pub fn visible_bindings(&self) -> impl Iterator<Item = (Identifier, &Scheme)> {
+        self.bindings
+            .iter()
+            .filter_map(|(name, entries)| entries.last().map(|e| (*name, &e.scheme)))
     }
 
     /// Look up a name's definition span O(1) via shadow stack top.
@@ -219,7 +249,6 @@ impl TypeEnv {
                     "String" => TypeConstructor::String,
                     "Unit" | "None" => TypeConstructor::Unit,
                     "Never" => TypeConstructor::Never,
-                    "Any" => TypeConstructor::Any,
                     "List" => TypeConstructor::List,
                     "Array" => TypeConstructor::Array,
                     "Map" => TypeConstructor::Map,
@@ -300,9 +329,10 @@ impl TypeEnv {
     }
 
     /// Convert a `RuntimeType` (VM boundary type) to `InferType`.
-    pub fn infer_type_from_runtime(runtime_type: &RuntimeType) -> InferType {
-        match runtime_type {
-            RuntimeType::Any => InferType::Con(TypeConstructor::Any),
+    pub fn try_infer_type_from_runtime(
+        runtime_type: &RuntimeType,
+    ) -> Result<InferType, RuntimeTypeLoweringError> {
+        Ok(match runtime_type {
             RuntimeType::Int => InferType::Con(TypeConstructor::Int),
             RuntimeType::Float => InferType::Con(TypeConstructor::Float),
             RuntimeType::Bool => InferType::Con(TypeConstructor::Bool),
@@ -310,94 +340,150 @@ impl TypeEnv {
             RuntimeType::Unit => InferType::Con(TypeConstructor::Unit),
             RuntimeType::Option(inner) => InferType::App(
                 TypeConstructor::Option,
-                vec![Self::infer_type_from_runtime(inner)],
+                vec![Self::try_infer_type_from_runtime(inner)?],
             ),
             RuntimeType::List(inner) => InferType::App(
                 TypeConstructor::List,
-                vec![Self::infer_type_from_runtime(inner)],
+                vec![Self::try_infer_type_from_runtime(inner)?],
             ),
             RuntimeType::Either(left, right) => InferType::App(
                 TypeConstructor::Either,
                 vec![
-                    Self::infer_type_from_runtime(left),
-                    Self::infer_type_from_runtime(right),
+                    Self::try_infer_type_from_runtime(left)?,
+                    Self::try_infer_type_from_runtime(right)?,
                 ],
             ),
             RuntimeType::Array(inner) => InferType::App(
                 TypeConstructor::Array,
-                vec![Self::infer_type_from_runtime(inner)],
+                vec![Self::try_infer_type_from_runtime(inner)?],
             ),
             RuntimeType::Map(k, v) => InferType::App(
                 TypeConstructor::Map,
                 vec![
-                    Self::infer_type_from_runtime(k),
-                    Self::infer_type_from_runtime(v),
+                    Self::try_infer_type_from_runtime(k)?,
+                    Self::try_infer_type_from_runtime(v)?,
                 ],
             ),
-            RuntimeType::Tuple(elems) => {
-                InferType::Tuple(elems.iter().map(Self::infer_type_from_runtime).collect())
-            }
+            RuntimeType::Tuple(elems) => InferType::Tuple(
+                elems
+                    .iter()
+                    .map(Self::try_infer_type_from_runtime)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
             RuntimeType::Function {
                 params,
                 ret,
                 effects,
             } => InferType::Fun(
-                params.iter().map(Self::infer_type_from_runtime).collect(),
-                Box::new(Self::infer_type_from_runtime(ret)),
+                params
+                    .iter()
+                    .map(Self::try_infer_type_from_runtime)
+                    .collect::<Result<Vec<_>, _>>()?,
+                Box::new(Self::try_infer_type_from_runtime(ret)?),
                 InferEffectRow::closed_from_symbols(effects.iter().copied()),
             ),
-        }
+            RuntimeType::Adt {
+                name, type_args, ..
+            } => {
+                if type_args.is_empty() {
+                    InferType::Con(TypeConstructor::Adt(*name))
+                } else {
+                    InferType::App(
+                        TypeConstructor::Adt(*name),
+                        type_args
+                            .iter()
+                            .map(Self::try_infer_type_from_runtime)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
+                }
+            }
+        })
     }
 
     /// Convert a concrete `Ty` back to `RuntimeType` for the VM boundary check system.
     ///
-    /// Returns `RuntimeType::Any` for type variables (unresolved / gradual).
-    pub fn to_runtime(infer_type: &InferType, type_subst: &TypeSubst) -> RuntimeType {
+    /// The checked form preserves every representable runtime type and
+    /// distinguishes unresolved variables, open function
+    /// effects, and currently unsupported nominal/HKT shapes.
+    pub fn try_to_runtime(
+        infer_type: &InferType,
+        type_subst: &TypeSubst,
+    ) -> Result<RuntimeType, RuntimeTypeLoweringError> {
         let resolved = infer_type.apply_type_subst(type_subst);
 
         match &resolved {
             InferType::Con(c) => match c {
-                TypeConstructor::Int => RuntimeType::Int,
-                TypeConstructor::Float => RuntimeType::Float,
-                TypeConstructor::Bool => RuntimeType::Bool,
-                TypeConstructor::String => RuntimeType::String,
-                TypeConstructor::Unit | TypeConstructor::Never => RuntimeType::Unit,
-                TypeConstructor::Any
-                | TypeConstructor::List
+                TypeConstructor::Int => Ok(RuntimeType::Int),
+                TypeConstructor::Float => Ok(RuntimeType::Float),
+                TypeConstructor::Bool => Ok(RuntimeType::Bool),
+                TypeConstructor::String => Ok(RuntimeType::String),
+                TypeConstructor::Unit | TypeConstructor::Never => Ok(RuntimeType::Unit),
+                TypeConstructor::List
                 | TypeConstructor::Array
                 | TypeConstructor::Map
                 | TypeConstructor::Option
                 | TypeConstructor::Either
-                | TypeConstructor::Adt(_) => RuntimeType::Any,
+                | TypeConstructor::Adt(_) => Err(RuntimeTypeLoweringError::new(
+                    RuntimeTypeLoweringIssue::UnsupportedNominalType,
+                )),
             },
             InferType::App(con, args) => match con {
-                TypeConstructor::Option if args.len() == 1 => {
-                    RuntimeType::Option(Box::new(Self::to_runtime(&args[0], type_subst)))
-                }
-                TypeConstructor::List if args.len() == 1 => {
-                    RuntimeType::List(Box::new(Self::to_runtime(&args[0], type_subst)))
-                }
-                TypeConstructor::Either if args.len() == 2 => RuntimeType::Either(
-                    Box::new(Self::to_runtime(&args[0], type_subst)),
-                    Box::new(Self::to_runtime(&args[1], type_subst)),
-                ),
-                TypeConstructor::Array if args.len() == 1 => {
-                    RuntimeType::Array(Box::new(Self::to_runtime(&args[0], type_subst)))
-                }
-                TypeConstructor::Map if args.len() == 2 => RuntimeType::Map(
-                    Box::new(Self::to_runtime(&args[0], type_subst)),
-                    Box::new(Self::to_runtime(&args[1], type_subst)),
-                ),
-                _ => RuntimeType::Any,
+                TypeConstructor::Option if args.len() == 1 => Ok(RuntimeType::Option(Box::new(
+                    Self::try_to_runtime(&args[0], type_subst)?,
+                ))),
+                TypeConstructor::List if args.len() == 1 => Ok(RuntimeType::List(Box::new(
+                    Self::try_to_runtime(&args[0], type_subst)?,
+                ))),
+                TypeConstructor::Either if args.len() == 2 => Ok(RuntimeType::Either(
+                    Box::new(Self::try_to_runtime(&args[0], type_subst)?),
+                    Box::new(Self::try_to_runtime(&args[1], type_subst)?),
+                )),
+                TypeConstructor::Array if args.len() == 1 => Ok(RuntimeType::Array(Box::new(
+                    Self::try_to_runtime(&args[0], type_subst)?,
+                ))),
+                TypeConstructor::Map if args.len() == 2 => Ok(RuntimeType::Map(
+                    Box::new(Self::try_to_runtime(&args[0], type_subst)?),
+                    Box::new(Self::try_to_runtime(&args[1], type_subst)?),
+                )),
+                _ => Err(RuntimeTypeLoweringError::new(
+                    RuntimeTypeLoweringIssue::UnsupportedNominalType,
+                )),
             },
-            InferType::Tuple(elems) => RuntimeType::Tuple(
+            InferType::Tuple(elems) => Ok(RuntimeType::Tuple(
                 elems
                     .iter()
-                    .map(|e| Self::to_runtime(e, type_subst))
-                    .collect(),
-            ),
-            // Functions, unresolved vars, and HKT applications become Any in the runtime
-            InferType::Fun(..) | InferType::Var(_) | InferType::HktApp(..) => RuntimeType::Any,
+                    .map(|e| Self::try_to_runtime(e, type_subst))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            InferType::Fun(params, ret, effects) => {
+                let resolved_effects = effects.apply_row_subst(type_subst);
+                if resolved_effects.tail().is_some() {
+                    return Err(RuntimeTypeLoweringError::new(
+                        RuntimeTypeLoweringIssue::OpenFunctionEffects,
+                    ));
+                }
+                let mut effect_set = resolved_effects
+                    .concrete()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                effect_set.sort_by_key(|sym| sym.as_u32());
+                effect_set.dedup();
+                Ok(RuntimeType::Function {
+                    params: params
+                        .iter()
+                        .map(|param| Self::try_to_runtime(param, type_subst))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    ret: Box::new(Self::try_to_runtime(ret, type_subst)?),
+                    effects: effect_set,
+                })
+            }
+            InferType::Var(_) => Err(RuntimeTypeLoweringError::new(
+                RuntimeTypeLoweringIssue::UnresolvedTypeVariable,
+            )),
+            InferType::HktApp(..) => Err(RuntimeTypeLoweringError::new(
+                RuntimeTypeLoweringIssue::UnsupportedHigherKindedType,
+            )),
         }
     }
 }
@@ -418,7 +504,8 @@ mod tests {
         syntax::{interner::Interner, type_expr::TypeExpr},
         types::{
             infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
-            type_constructor::TypeConstructor, type_subst::TypeSubst,
+            type_constructor::TypeConstructor, type_env::RuntimeTypeLoweringIssue,
+            type_subst::TypeSubst,
         },
     };
 
@@ -591,17 +678,87 @@ mod tests {
 
     #[test]
     fn infer_type_runtime_round_trip_for_collections() {
-        let inferred = TypeEnv::infer_type_from_runtime(&RuntimeType::Map(
+        let inferred = TypeEnv::try_infer_type_from_runtime(&RuntimeType::Map(
             Box::new(RuntimeType::String),
             Box::new(RuntimeType::Array(Box::new(RuntimeType::Int))),
-        ));
-        let runtime = TypeEnv::to_runtime(&inferred, &TypeSubst::empty());
+        ))
+        .expect("runtime type should convert back to infer type");
+        let runtime = TypeEnv::try_to_runtime(&inferred, &TypeSubst::empty())
+            .expect("collection runtime lowering should succeed");
 
         assert_eq!(
             runtime,
             RuntimeType::Map(
                 Box::new(RuntimeType::String),
                 Box::new(RuntimeType::Array(Box::new(RuntimeType::Int)))
+            )
+        );
+    }
+
+    #[test]
+    fn try_to_runtime_lowers_closed_function_types() {
+        let ty = InferType::Fun(
+            vec![InferType::Con(TypeConstructor::Int)],
+            Box::new(InferType::Con(TypeConstructor::Bool)),
+            InferEffectRow::closed_empty(),
+        );
+
+        let runtime = TypeEnv::try_to_runtime(&ty, &TypeSubst::empty()).expect("function lowers");
+
+        assert_eq!(
+            runtime,
+            RuntimeType::Function {
+                params: vec![RuntimeType::Int],
+                ret: Box::new(RuntimeType::Bool),
+                effects: vec![]
+            }
+        )
+    }
+
+    #[test]
+    fn try_to_runtime_rejects_open_function_effect_rows() {
+        let ty = InferType::Fun(
+            vec![InferType::Con(TypeConstructor::Int)],
+            Box::new(InferType::Con(TypeConstructor::Bool)),
+            InferEffectRow::open_from_symbols([], 42),
+        );
+
+        let err =
+            TypeEnv::try_to_runtime(&ty, &TypeSubst::empty()).expect_err("open row should fail");
+
+        assert_eq!(err.issue(), &RuntimeTypeLoweringIssue::OpenFunctionEffects);
+    }
+
+    #[test]
+    fn try_to_runtime_rejects_hkt_apps() {
+        let ty = InferType::HktApp(
+            Box::new(InferType::Var(0)),
+            vec![InferType::Con(TypeConstructor::Int)],
+        );
+
+        let err = TypeEnv::try_to_runtime(&ty, &TypeSubst::empty()).expect_err("hkt should fail");
+
+        assert_eq!(
+            err.issue(),
+            &RuntimeTypeLoweringIssue::UnsupportedHigherKindedType
+        );
+    }
+
+    #[test]
+    fn try_infer_type_from_runtime_accepts_function() {
+        let inferred = TypeEnv::try_infer_type_from_runtime(&RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        })
+        .expect("runtime function type should convert back into infer type");
+
+        assert_eq!(
+            inferred,
+            InferType::Fun(
+                vec![InferType::Con(TypeConstructor::Int)],
+                Box::new(InferType::Con(TypeConstructor::Bool)),
+                InferEffectRow::closed_empty(),
             )
         );
     }

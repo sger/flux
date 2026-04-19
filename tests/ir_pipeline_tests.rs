@@ -9,9 +9,8 @@
 
 use std::collections::HashMap;
 
-use flux::bytecode::compiler::Compiler;
-use flux::bytecode::vm::VM;
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
+use flux::compiler::Compiler;
 use flux::core::{
     CoreExpr, CorePrimOp, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
     to_ir::lower_core_to_ir,
@@ -20,6 +19,7 @@ use flux::diagnostics::render_diagnostics;
 use flux::runtime::value::Value;
 use flux::syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser};
 use flux::types::infer_type::InferType;
+use flux::vm::VM;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -167,7 +167,7 @@ my_eq([1], [1]);
 fn hkt_functor_list_dispatches_at_runtime() {
     let value = run(r#"
 class Functor<f> {
-    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
 instance Functor<List> {
@@ -193,7 +193,7 @@ fn hkt_functor_list_dump_core_uses_mangled_dispatch_call() {
     let core = dump_core(
         r#"
 class Functor<f> {
-    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
 instance Functor<List> {
@@ -606,12 +606,12 @@ fn main() { access(42) }
     );
 }
 
-// ── Test 11: Any type boundary ──────────────────────────────────────────────
+// ── Test 11: Explicit typed identity ────────────────────────────────────────
 
 #[test]
-fn pipeline_any_type_accepts_int() {
+fn pipeline_typed_identity_accepts_int() {
     let src = r#"
-fn identity(x: Any) -> Any { x }
+fn identity(x: Int) -> Int { x }
 fn main() { identity(42) }
 "#;
     assert_eq!(run(src), Value::Integer(42));

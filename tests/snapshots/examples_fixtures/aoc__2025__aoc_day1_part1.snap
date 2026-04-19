@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day1_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day1_part1.flx:39:13
-   |
-39 | let steps = [parse_rotation(trim(line)) | line <- lines, trim(line) != ""]
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let map = ...;
+<none>
 == stdout ==
 <not executed>
