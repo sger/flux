@@ -9,10 +9,10 @@ error[E012]: Unknown Module Member
 
 Module `Flow` has no member named `len`.
 
-  examples/flow/base_alias_error.flx:7:11
-  |
-7 |     print(Core.len([1, 2, 3]))
-  |           ^^^^^^^^
+  examples/flow/base_alias_error.flx:10:11
+   |
+10 |     print(Core.len([1, 2, 3]))
+   |           ^^^^^^^^
 
 Hint:
   Check the module's public members or import the correct module.
