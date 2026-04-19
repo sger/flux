@@ -387,7 +387,7 @@ pub fn module_skipped_note(
     skipped_module: impl Into<String>,
     dependency_name: impl Into<String>,
 ) -> Diagnostic {
-    Diagnostic::make_note(
+    let mut diagnostic = Diagnostic::make_note(
         "MODULE SKIPPED",
         format!(
             "I skipped module `{}` because its dependency `{}` already has errors.",
@@ -399,7 +399,9 @@ pub fn module_skipped_note(
     )
     .with_display_title("Module Skipped")
     .with_category(DiagnosticCategory::Orchestration)
-    .with_phase(DiagnosticPhase::Validation)
+    .with_phase(DiagnosticPhase::Validation);
+    diagnostic.span = None;
+    diagnostic
 }
 
 /// Build a note summarizing diagnostics suppressed by stage filtering.

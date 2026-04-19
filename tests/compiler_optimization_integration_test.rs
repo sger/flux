@@ -1,5 +1,5 @@
 use flux::{
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{lexer::Lexer, parser::Parser},
 };
 

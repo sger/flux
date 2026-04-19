@@ -1,3 +1,39 @@
+// parity-expected-stdout-begin
+// "Int"
+// "Float"
+// "String"
+// "Bool"
+// "Array"
+// "Map"
+// "None"
+// "Some"
+// true
+// false
+// false
+// true
+// false
+// true
+// false
+// true
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// "Practical examples:"
+// Some(3)
+// "type: String"
+// "type: String"
+// "type: String"
+// Right(25)
+// Right(30)
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Type Checking base functions
     // Expected output:
@@ -95,27 +131,27 @@ fn main() with IO {
         if is_int(a) && is_int(b) {
             Some(a + b)
         } else {
-        None
+            None
+        }
     }
-}
-print(safeAdd(1, 2));         // Some(3)
+    print(safeAdd(1, 2));         // Some(3)
 
-// Example 2: Type-based dispatch
-fn describe(value) {
-    "type: " + type_of(value)
-}
-print(describe("42"));        // "type: String"
-print(describe("hello"));     // "type: String"
-print(describe("array"));     // "type: String"
+    // Example 2: Type-based dispatch
+    fn describe(value) {
+        "type: " + type_of(value)
+    }
+    print(describe("42"));        // "type: String"
+    print(describe("hello"));     // "type: String"
+    print(describe("array"));     // "type: String"
 
-// Example 3: Validate function arguments
-fn requireInt(name, value) {
-    if !is_int(value) {
-        Left(name + " must be an integer, got " + type_of(value))
-    } else {
-    Right(value)
-}
-}
-print(requireInt("age", 25));      // Right(25)
-print(requireInt("age", 30));      // Right(30)
+    // Example 3: Validate function arguments
+    fn requireInt(name, value) {
+        if !is_int(value) {
+            Left(name + " must be an integer, got " + type_of(value))
+        } else {
+            Right(value)
+        }
+    }
+    print(requireInt("age", 25));      // Right(25)
+    print(requireInt("age", 30));      // Right(30)
 }

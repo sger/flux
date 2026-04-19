@@ -1,6 +1,5 @@
 ---
 source: tests/compiler_error_fixtures_snapshots.rs
-assertion_line: 141
 ---
 Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx
 == compile ==
@@ -28,9 +27,6 @@ Help:
 Note: Module Skipped
 
 I skipped module `examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx` because its dependency `CollectionsConfusion` already has errors.
-
-  examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx:0:1
-  |
 
 
 error[E011]: Private Member

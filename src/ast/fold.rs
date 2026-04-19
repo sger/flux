@@ -75,21 +75,25 @@ pub fn fold_block<F: Folder + ?Sized>(folder: &mut F, block: Block) -> Block {
 pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Statement {
     match stmt {
         Statement::Let {
+            is_public,
             name,
             type_annotation,
             value,
             span,
         } => Statement::Let {
+            is_public,
             name: folder.fold_identifier(name),
             type_annotation,
             value: folder.fold_expr(value),
             span,
         },
         Statement::LetDestructure {
+            is_public,
             pattern,
             value,
             span,
         } => Statement::LetDestructure {
+            is_public,
             pattern: folder.fold_pat(pattern),
             value: folder.fold_expr(value),
             span,
@@ -444,6 +448,42 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             span,
             id,
         },
+        Expression::NamedConstructor {
+            name,
+            fields,
+            span,
+            id,
+        } => Expression::NamedConstructor {
+            name: folder.fold_identifier(name),
+            fields: fields
+                .into_iter()
+                .map(|f| crate::syntax::expression::NamedFieldInit {
+                    name: f.name,
+                    value: f.value.map(|v| Box::new(folder.fold_expr(*v))),
+                    span: f.span,
+                })
+                .collect(),
+            span,
+            id,
+        },
+        Expression::Spread {
+            base,
+            overrides,
+            span,
+            id,
+        } => Expression::Spread {
+            base: Box::new(folder.fold_expr(*base)),
+            overrides: overrides
+                .into_iter()
+                .map(|f| crate::syntax::expression::NamedFieldInit {
+                    name: f.name,
+                    value: f.value.map(|v| Box::new(folder.fold_expr(*v))),
+                    span: f.span,
+                })
+                .collect(),
+            span,
+            id,
+        },
     }
 }
 
@@ -484,6 +524,24 @@ pub fn fold_pat<F: Folder + ?Sized>(folder: &mut F, pat: Pattern) -> Pattern {
         Pattern::Constructor { name, fields, span } => Pattern::Constructor {
             name,
             fields: fields.into_iter().map(|p| folder.fold_pat(p)).collect(),
+            span,
+        },
+        Pattern::NamedConstructor {
+            name,
+            fields,
+            rest,
+            span,
+        } => Pattern::NamedConstructor {
+            name,
+            fields: fields
+                .into_iter()
+                .map(|f| crate::syntax::expression::NamedFieldPattern {
+                    name: f.name,
+                    pattern: f.pattern.map(|p| folder.fold_pat(p)),
+                    span: f.span,
+                })
+                .collect(),
+            rest,
             span,
         },
     }

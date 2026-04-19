@@ -1,11 +1,19 @@
-// Maintained Aether forwarding/wrapper fixture.
-// Transformed-Core assertions cover:
-// - a fresh outer `Pair2` wrapper with one inner forwarded-child `Reuse`
-// - a near-miss twin that stays fresh because two wrapper fields compete for
-//   the same forwarded child token
+/*
+Maintained Aether forwarding/wrapper fixture.
+Transformed-Core assertions cover:
+- a fresh outer `Pair2` wrapper with one inner forwarded-child `Reuse`
+- a near-miss twin that stays fresh because two wrapper fields compete for
+the same forwarded child token
+*/
+
+// parity-expected-stdout-begin
+// Pair2([1, 10, 20], [2, 3])
+// Pair2([1, 10, 20], [1, 10, 20])
+// parity-expected-stdout-end
 
 type Pair2<T> = Pair2(T, T)
 
+// Helper for forwarded child.
 fn forwarded_child(xs, acc) {
     match xs {
         [y | ys] -> Pair2([y | acc], ys),
@@ -13,6 +21,7 @@ fn forwarded_child(xs, acc) {
     }
 }
 
+// Helper for forwarded child near miss.
 fn forwarded_child_near_miss(xs, acc) {
     match xs {
         [y | ys] -> Pair2([y | acc], [y | acc]),
@@ -20,6 +29,7 @@ fn forwarded_child_near_miss(xs, acc) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let xs = [1, 2, 3]
     let acc = [10, 20]

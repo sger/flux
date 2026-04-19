@@ -1,4 +1,7 @@
 use super::*;
+use crate::diagnostics::{
+    DiagnosticCategory, compiler_errors::UNKNOWN_INFIX_OPERATOR, diagnostic_for,
+};
 
 impl<'a> InferCtx<'a> {
     /// Infer infix operators with gradual fallback semantics.
@@ -19,7 +22,16 @@ impl<'a> InferCtx<'a> {
             "&&" | "||" => self.infer_bool_operator(&left_ty, &right_ty, span),
             "++" => self.infer_semigroup_operator(&left_ty, &right_ty, span),
             "|>" => right_ty,
-            _ => InferType::Con(TypeConstructor::Any),
+            _ => {
+                self.errors.push(
+                    diagnostic_for(&UNKNOWN_INFIX_OPERATOR)
+                        .with_file(self.file_path.clone())
+                        .with_span(span)
+                        .with_message(format!("Unknown infix operator: `{op}`."))
+                        .with_category(DiagnosticCategory::TypeInference),
+                );
+                self.alloc_fallback_var()
+            }
         }
     }
 
@@ -122,12 +134,10 @@ impl<'a> InferCtx<'a> {
                 substituted
             }
             InferType::Con(TypeConstructor::String) => substituted,
-            // Unresolved variable: preserve it — let call-site unification resolve.
-            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
+                self.alloc_fallback_var()
             }
         }
     }
@@ -146,13 +156,11 @@ impl<'a> InferCtx<'a> {
             InferType::Con(TypeConstructor::Int) | InferType::Con(TypeConstructor::Float) => {
                 substituted
             }
-            // Unresolved variable: preserve it — let call-site unification resolve.
             InferType::Var(_) => substituted,
-            InferType::Con(TypeConstructor::Any) => InferType::Con(TypeConstructor::Any),
             other => {
                 let expected_numeric = InferType::Con(TypeConstructor::Int);
                 self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
+                self.alloc_fallback_var()
             }
         }
     }

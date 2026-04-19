@@ -13,44 +13,24 @@ stderr:
 [4 of 7] Compiling  Numeric
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
-[7 of 7] Compiling  indirect_call_not_callable
-[cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/indirect_call_not_callable.flx
-error[E1001]: Not A Function
+error[E300]: Argument Type Mismatch
 
-Cannot call non-function value (got Int).
+I found the wrong type in the 1st argument to `f`.
 
   examples/runtime_errors/indirect_call_not_callable.flx:3:19
   |
 3 |     let ignored = f(2)
   |                   ^^^^
+  |                   ---- this argument has type `(Int) -> _ with |?9714`
 
-Stack trace:
-  at main (examples/runtime_errors/indirect_call_not_callable.flx:3:19)
-  at <main>
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  indirect_call_not_callable
-[cfg→vm] Running via CFG → bytecode VM backend...
-• 1 error • examples/runtime_errors/indirect_call_not_callable.flx
-error[E1001]: Not A Function
+  |                   ---- this call argument produces the conflicting type
 
-Cannot call non-function value (got Int).
+Note:
+  expected argument type: Int
+  found argument type: (Int) -> _ with |?9714
+  the actual argument type is inferred from this expression
+  the actual argument type is inferred from this expression
 
-  examples/runtime_errors/indirect_call_not_callable.flx:3:19
-  |
-3 |     let ignored = f(2)
-  |                   ^^^^
-
-Stack trace:
-  at main (examples/runtime_errors/indirect_call_not_callable.flx:3:19)
-  at <main>
+Help:
+  Pass a `Int` value as the 1st argument.

@@ -1,3 +1,5 @@
+// root: examples/imports/except
+
 module Lib {
   fn keep() {
     42;

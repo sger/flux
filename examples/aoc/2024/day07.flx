@@ -1,8 +1,16 @@
-// Advent of Code 2024 - Day 7: Bridge Repair
-// Uses input file: examples/aoc/2024/day07.txt
+// parity-expected-stdout-begin
+// "Part A: 1260333054159"
+// "Part B: 162042343638683"
+// parity-expected-stdout-end
+
+/*
+Advent of Code 2024 - Day 7: Bridge Repair
+Uses input file: examples/aoc/2024/day07.txt
+*/
 
 import Day07Solver as Day07
 
+// Program entry point.
 fn main() with IO {
     let lines: Array<String> = read_lines("examples/aoc/2024/day07.txt")
     print("Part A: " + to_string(Day07.day07a(lines)))

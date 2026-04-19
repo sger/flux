@@ -1,3 +1,48 @@
+// parity-expected-stdout-begin
+// "=== Semicolon Demonstration ==="
+// ""
+// "1. Top-level statements (no semicolons needed):"
+// "   x + y = 52"
+// ""
+// "2. Same line (also parses):"
+// "   a=1 b=2 c=3"
+// ""
+// "3. Functions:"
+// ""
+// "   add(5, 3) = 8"
+// "   calculate(5) = 35"
+// "   get_max(10, 20) = 20"
+// "   check_positive(5) = positive"
+// "   check_positive(-5) = not positive"
+// "   outer(5) = 15"
+// ""
+// "4. Style comparison:"
+// ""
+// "   Style A: Flux v0.0.3"
+// ""
+// "   Style B: Language 2026"
+// ""
+// "=== Summary ==="
+// ""
+// "Semicolons OPTIONAL:"
+// "  ✓ Top-level statements on separate lines"
+// "  ✓ Top-level call/let statements"
+// "  ✓ Statements inside function bodies"
+// ""
+// "Semicolons ALSO VALID:"
+// "  ✓ Multiple statements on same line"
+// "  ✓ Function body statements"
+// "  ✓ Return statements"
+// ""
+// "Parser Note:"
+// "  Newlines are not separate tokens"
+// "  Parser progress separates statements"
+// ""
+// "Recommendation:"
+// "  Pick one style and stay consistent"
+// "  Use semicolons when they improve readability"
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Semicolon Rules in Flux
     // =========================
@@ -72,6 +117,7 @@ fn main() with IO {
 
     // ---- Nested functions ----
     fn outer(x) {
+        // Helper for inner.
         fn inner(y) {
             x + y               // OPTIONAL semicolon (last)
         }

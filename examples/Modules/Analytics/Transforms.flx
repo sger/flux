@@ -6,23 +6,44 @@ module Modules.Analytics.Transforms {
     let SHOUT_PREFIX = "["
     let SHOUT_SUFFIX = "]"
 
-    fn double(x) {
+    data Test {
+        Test { label: String }
+    }
+
+    data Circle {
+        Circle { label: String, radius: Int, test: Test }
+    }
+
+    let test = Test { label: "test" }
+    let circle = Circle { label: "circle", radius: 3, test: test }
+
+    data Contact {
+        Contact { id: Int, name: String, email: String }
+    }
+
+    public fn my_circle() -> Circle {
+        let test = Test { label: "hello world" }
+        let c = Circle { label: "circle", radius: 3, test: test }
+        c
+    }
+
+    public fn double(x) {
         return x * SCORE_SCALE
     }
 
-    fn curve_by_five(x) {
+    public fn curve_by_five(x) {
         x + Rules.curve_delta()
     }
 
-    fn is_passing(x) {
+    public fn is_passing(x) {
         x >= Rules.passing_score()
     }
 
-    fn sum_step(acc, x) {
+    public fn sum_step(acc, x) {
         acc + x
     }
 
-    fn shout_tag(name) {
+    public fn shout_tag(name) {
         return Str.wrap(name |> upper, SHOUT_PREFIX, SHOUT_SUFFIX)
     }
 }

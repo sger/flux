@@ -1,0 +1,18 @@
+// Spread on a multi-variant ADT where the concrete variant is not known
+// at the spread site.
+//
+// Expected: E468 Spread With Unknown Variant
+//   "Cannot spread `Item` because its variant is not statically known."
+
+data Item {
+    User { id: Int, name: String }
+    Product { id: Int, title: String }
+}
+
+fn bump_id(it: Item) -> Item {
+    { ...it, id: 99 }
+}
+
+fn main() {
+    bump_id(User { id: 1, name: "Alice" })
+}

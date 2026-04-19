@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
-        Identifier, effect_expr::EffectExpr, interner::Interner, statement::Statement,
-        type_class::ClassConstraint, type_expr::TypeExpr,
+        Identifier, block::Block, effect_expr::EffectExpr, interner::Interner,
+        statement::Statement, type_class::ClassConstraint, type_expr::TypeExpr,
     },
     types::{
         class_id::{ClassId, ModulePath},
@@ -86,6 +86,8 @@ pub struct MethodSig {
     pub name: Identifier,
     /// Per-method type parameters (e.g., `<a, b>` on `fn fmap<a, b>`).
     pub type_params: Vec<Identifier>,
+    /// Value-parameter names in source order.
+    pub param_names: Vec<Identifier>,
     /// Value-parameter types in source order.
     ///
     /// Invariant: this should contain one entry per value parameter, while
@@ -97,6 +99,8 @@ pub struct MethodSig {
     /// Acts as a *floor*: implementing instances must declare a row that
     /// is a superset of this one (validated by the E452 walker).
     pub effects: Vec<EffectExpr>,
+    /// Optional default method body from the class declaration.
+    pub default_body: Option<Block>,
 }
 
 /// An instance definition collected from an `instance` declaration.
@@ -581,10 +585,12 @@ impl ClassEnv {
                         .map(|m| MethodSig {
                             name: m.name,
                             type_params: m.type_params.clone(),
+                            param_names: m.params.clone(),
                             param_types: m.param_types.clone(),
                             return_type: m.return_type.clone(),
                             arity: m.params.len(),
                             effects: m.effects.clone(),
+                            default_body: m.default_body.clone(),
                         })
                         .collect();
 
@@ -1401,18 +1407,22 @@ impl ClassEnv {
                 MethodSig {
                     type_params: vec![],
                     name: eq_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: neq_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
             ],
         );
@@ -1425,42 +1435,52 @@ impl ClassEnv {
                 MethodSig {
                     type_params: vec![],
                     name: compare_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: int_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: lt_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: lte_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: gt_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: gte_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: bool_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
             ],
         );
@@ -1473,34 +1493,42 @@ impl ClassEnv {
                 MethodSig {
                     type_params: vec![],
                     name: add_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: sub_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: mul_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
                 MethodSig {
                     type_params: vec![],
                     name: div_method,
+                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                     param_types: vec![a_ty.clone(), a_ty.clone()],
                     return_type: a_ty.clone(),
                     arity: 2,
                     effects: vec![],
+                    default_body: None,
                 },
             ],
         );
@@ -1512,10 +1540,12 @@ impl ClassEnv {
             vec![MethodSig {
                 type_params: vec![],
                 name: show_method,
+                param_names: vec![interner.intern("__x0")],
                 param_types: vec![a_ty.clone()],
                 return_type: string_ty,
                 arity: 1,
                 effects: vec![],
+                default_body: None,
             }],
         );
 
@@ -1526,10 +1556,12 @@ impl ClassEnv {
             vec![MethodSig {
                 type_params: vec![],
                 name: append_method,
+                param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
                 param_types: vec![a_ty.clone(), a_ty],
                 return_type: builtin_type(a_param),
                 arity: 2,
                 effects: vec![],
+                default_body: None,
             }],
         );
 

@@ -1,0 +1,17 @@
+// Typed function boundaries still accept callables that carry contracts.
+// Named functions already do.
+// parity-expected-stdout-begin
+// "true"
+// parity-expected-stdout-end
+
+fn is_even(n: Int) -> Bool {
+    n % 2 == 0
+}
+
+public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
+    f(x)
+}
+
+fn main() with IO {
+    print(to_string(apply(is_even, 4)))
+}

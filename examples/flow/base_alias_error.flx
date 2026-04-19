@@ -1,4 +1,11 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
+// expect: compile_error
 // Expected compile error E078: invalid Flow aliasing
 
 import Flow as Core
-print(1);
+
+fn main() with IO {
+    print(Core.len([1, 2, 3]))
+}

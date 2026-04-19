@@ -5,7 +5,7 @@
 //! fingerprint changed).
 
 use flux::{
-    bytecode::compiler::{Compiler, module_interface},
+    compiler::{Compiler, module_interface},
     syntax::{lexer::Lexer, parser::Parser},
     types::module_interface::ModuleInterface,
 };
@@ -27,6 +27,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
     let core = compiler
         .lower_aether_report_program(&program, false)
         .expect("Core lowering should succeed");
+    let exported_runtime_contracts = compiler.exported_runtime_contracts();
 
     module_interface::build_interface(
         "Test",
@@ -35,6 +36,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         &config_hash,
         core.as_core(),
         compiler.cached_member_schemes(),
+        &exported_runtime_contracts,
         &compiler.module_function_visibility,
         Some(compiler.class_env()),
         Vec::new(),

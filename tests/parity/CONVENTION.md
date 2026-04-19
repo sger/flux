@@ -95,7 +95,7 @@ cargo run -- parity-check path/to/failing.flx --capture-aether
 At this point Core and Aether are identical — the bug is in the backend:
 
 - **VM path:** `src/cfg/`, `src/bytecode/`, `src/runtime/vm/`
-- **LLVM path:** `src/lir/`, `src/core_to_llvm/`, `src/runtime/c/`
+- **LLVM path:** `src/lir/`, `src/llvm/`, `src/runtime/c/`
 
 Useful flags:
 ```bash

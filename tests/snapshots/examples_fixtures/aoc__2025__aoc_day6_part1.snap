@@ -3,39 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day6_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `map`.
-
-  examples/aoc/2025/aoc_day6_part1.flx:83:18
-   |
-83 |     let values = [
-   |                  ^
-84 |     parse_int(trim(slice_padded(line_at(lines, row), start, stop)))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-85 |     | row <- range(0, num_rows)
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-86 |     ]
-   | ^^^^^
-
-Hint:
-  Define it first: let map = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `product`.
-
-  examples/aoc/2025/aoc_day6_part1.flx:88:9
-   |
-88 |         product(values)
-   |         ^^^^^^^
-
-Hint:
-  Define it first: let product = ...;
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

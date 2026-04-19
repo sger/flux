@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aether/bench_reuse_enabled.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `first`.
-
-  examples/aether/bench_reuse_enabled.flx:37:37
-   |
-37 |     print("enabled: result head = #{first(mapped)}")
-   |                                     ^^^^^
-
-Hint:
-  Define it first: let first = ...;
+<none>
 == stdout ==
 <not executed>

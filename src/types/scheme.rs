@@ -156,6 +156,13 @@ impl Scheme {
             .copied()
             .collect()
     }
+
+    /// Returns `true` if the scheme body contains type variables not
+    /// quantified by `forall` — i.e., truly unresolved inference variables.
+    pub fn has_unresolved_vars(&self) -> bool {
+        let bound: HashSet<TypeVarId> = self.forall.iter().copied().collect();
+        self.infer_type.contains_unresolved_var(&bound)
+    }
 }
 
 /// Generalize a type over all type variables that are free in `ty` but not
@@ -378,5 +385,53 @@ mod tests {
             InferEffectRow::closed_empty(),
         );
         assert_eq!(remapped.infer_type, expected_type);
+    }
+
+    #[test]
+    fn has_unresolved_vars_fully_quantified() {
+        let scheme = Scheme {
+            forall: vec![0, 1],
+            constraints: vec![],
+            infer_type: InferType::Fun(
+                vec![infer_var(0)],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty(),
+            ),
+        };
+        assert!(!scheme.has_unresolved_vars());
+    }
+
+    #[test]
+    fn has_unresolved_vars_partially_quantified() {
+        let scheme = Scheme {
+            forall: vec![0],
+            constraints: vec![],
+            infer_type: InferType::Fun(
+                vec![infer_var(0)],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty(),
+            ),
+        };
+        assert!(scheme.has_unresolved_vars());
+    }
+
+    #[test]
+    fn has_unresolved_vars_mono_concrete() {
+        let scheme = Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: int(),
+        };
+        assert!(!scheme.has_unresolved_vars());
+    }
+
+    #[test]
+    fn has_unresolved_vars_mono_with_var() {
+        let scheme = Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: infer_var(0),
+        };
+        assert!(scheme.has_unresolved_vars());
     }
 }

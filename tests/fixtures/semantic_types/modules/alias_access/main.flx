@@ -1,0 +1,5 @@
+import Math as M
+
+fn main() with IO {
+    print(M.twice(21))
+}

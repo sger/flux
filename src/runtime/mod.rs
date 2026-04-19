@@ -12,7 +12,7 @@
 //! - Closures may capture values, but captured values must not reference the
 //!   capturing closure.
 //!
-//! Any future cyclic data feature must use cycle-aware memory management.
+//! Future cyclic data features must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
 pub mod closure;

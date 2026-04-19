@@ -2,7 +2,7 @@
 // Demonstrates HKT type parameters where f has kind Type -> Type.
 
 class Functor<f> {
-    fn fmap<a, b>(x: f<a>, func: (a) -> b): f<b>
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
 instance Functor<List> {

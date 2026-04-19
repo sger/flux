@@ -11,7 +11,28 @@ use crate::{
 
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum TypeShape {
+    Constructor(crate::types::type_constructor::TypeConstructor),
+    Function(usize),
+    Tuple(usize),
+}
+
 impl<'a> InferCtx<'a> {
+    /// Classify the outermost shape of an inferred type for mismatch reporting.
+    ///
+    /// This supports early diagnostics for obvious top-level conflicts like
+    /// `List<_>` vs `Array<Int>` even when inner type variables are still
+    /// unresolved.
+    fn outer_type_shape(ty: &InferType) -> Option<TypeShape> {
+        match ty {
+            InferType::Con(tc) | InferType::App(tc, _) => Some(TypeShape::Constructor(tc.clone())),
+            InferType::Fun(params, _, _) => Some(TypeShape::Function(params.len())),
+            InferType::Tuple(elems) => Some(TypeShape::Tuple(elems.len())),
+            InferType::Var(_) | InferType::HktApp(_, _) => None,
+        }
+    }
+
     /// Build source labels and explanatory notes for the type origins involved
     /// in a unification failure under the given reporting context.
     fn type_origin_notes_for_context(
@@ -66,21 +87,6 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Join two types by attempting unification.
-    ///
-    /// When unification succeeds, the substitution is extended and the unified
-    /// type is returned — this propagates constraints through type variables
-    /// (e.g. `?a` joining with `Int` constrains `?a = Int`).
-    ///
-    /// On failure, falls back to `Any` without emitting diagnostics. Callers
-    /// that need diagnostics should use `unify_with_context` directly.
-    pub(super) fn join_types(&mut self, t1: &InferType, t2: &InferType) -> InferType {
-        match self.try_unify_and_compose_subst(t1, t2, Span::default()) {
-            Ok(unified) => unified,
-            Err(_) => InferType::Con(TypeConstructor::Any),
-        }
-    }
-
     /// Unify `t1` with `t2` silently — update the substitution for type
     /// propagation but never emit a diagnostic on failure.
     ///
@@ -91,7 +97,14 @@ impl<'a> InferCtx<'a> {
     pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         // Lazy substitution: pass &self.subst into unification for on-demand
         // variable resolution instead of pre-resolving both types upfront.
-        match unify_core(t1, t2, &self.subst, Span::default(), &mut self.env.counter) {
+        match unify_core(
+            t1,
+            t2,
+            &self.subst,
+            Span::default(),
+            &mut self.env.counter,
+            &self.skolem_vars,
+        ) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
                 t1.apply_type_subst(&self.subst)
@@ -127,22 +140,34 @@ impl<'a> InferCtx<'a> {
         t2: &InferType,
         span: Span,
     ) -> Result<InferType, UnifyError> {
-        let solved = unify_core(t1, t2, &self.subst, span, &mut self.env.counter)?;
+        let solved = unify_core(
+            t1,
+            t2,
+            &self.subst,
+            span,
+            &mut self.env.counter,
+            &self.skolem_vars,
+        )?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
         Ok(t1.apply_type_subst(&self.subst))
     }
 
     /// Return whether a unification error should be emitted as a diagnostic.
     ///
-    /// Checks concrete-and-non-Any guard, then deduplicates by (expected, actual)
+    /// Checks the concrete/non-fallback guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
-        if !error.expected.is_concrete()
-            || !error.actual.is_concrete()
-            || error.expected.contains_any()
-            || error.actual.contains_any()
-        {
-            return false;
+        // RigidBind errors report a skolem escape; the skolem appears as
+        // `InferType::Var(_)` on the expected side, which fails the concrete
+        // guard. Allow them through explicitly — they are always actionable.
+        let is_rigid = matches!(error.kind, UnifyErrorKind::RigidBind(_));
+        if !is_rigid && (!error.expected.is_concrete() || !error.actual.is_concrete()) {
+            let expected_shape = Self::outer_type_shape(&error.expected);
+            let actual_shape = Self::outer_type_shape(&error.actual);
+            if expected_shape.is_none() || actual_shape.is_none() || expected_shape == actual_shape
+            {
+                return false;
+            }
         }
 
         let key = {
@@ -201,6 +226,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
             UnifyErrorKind::Mismatch => {
                 let exp_str = self.display_type(&error.expected);
                 let act_str = self.display_type(&error.actual);
@@ -232,6 +258,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -259,6 +286,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -293,6 +321,7 @@ impl<'a> InferCtx<'a> {
                 let ty_str = self.display_type(&error.actual);
                 occurs_check_failure(file, span, &v_str, &ty_str)
             }
+            UnifyErrorKind::RigidBind(v) => self.build_rigid_bind_diagnostic(*v, error, span),
         }
     }
 
@@ -328,6 +357,30 @@ impl<'a> InferCtx<'a> {
         with_type_origin_notes(diag, self.type_origin_notes_for_context(context, span))
     }
 
+    /// Build a rigid-variable-escape (E305) diagnostic, using the declared
+    /// skolem source name when known so the user sees the type parameter
+    /// they wrote rather than a synthetic slot identifier.
+    fn build_rigid_bind_diagnostic(
+        &self,
+        v: TypeVarId,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        let name = self
+            .skolem_names
+            .get(&v)
+            .map(|id| self.interner.resolve(*id).to_string())
+            .unwrap_or_else(|| format!("t{v}"));
+        let bound = self.display_type(&error.actual);
+        crate::diagnostics::diagnostic_for(&crate::diagnostics::compiler_errors::RIGID_VAR_ESCAPE)
+            .with_file(self.file_path.clone())
+            .with_span(span)
+            .with_message(format!(
+                "Rigid type variable `{name}` cannot be unified with `{bound}`."
+            ))
+            .with_primary_label(span, format!("forces `{name}` to become `{bound}`"))
+    }
+
     /// Append type-name typo suggestion hints onto an existing diagnostic.
     ///
     /// Side effects:
@@ -350,7 +403,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// Behavior:
     /// - Performs row-aware unification.
-    /// - Emits contextual diagnostics only when both sides are concrete and non-`Any`.
+    /// - Emits contextual diagnostics only when both sides are concrete and non-fallback.
     ///
     /// Side effects:
     /// - Mutates `self.subst` on success.
@@ -380,14 +433,14 @@ impl<'a> InferCtx<'a> {
                     self.append_type_name_suggestions(&mut diagnostic, &error);
                     self.errors.push(diagnostic);
                 }
-                // R13: recover with the expected type (t1) instead of Any when
-                // t1 is concrete, so downstream inference sees useful type info
-                // rather than a black hole. Only use Any as last resort.
+                // R13: recover with the expected type (t1) when it is already
+                // concrete so downstream inference keeps useful information
+                // instead of collapsing through a legacy dynamic sink.
                 let t1_resolved = t1.apply_type_subst(&self.subst);
-                if t1_resolved.is_concrete() && !t1_resolved.contains_any() {
+                if t1_resolved.is_concrete() {
                     t1_resolved
                 } else {
-                    InferType::Con(TypeConstructor::Any)
+                    self.alloc_fallback_var()
                 }
             }
         }
@@ -396,8 +449,8 @@ impl<'a> InferCtx<'a> {
     /// Unify `t1` with `t2`, composing the result into `self.subst`.
     ///
     /// On success, returns the resolved first type.
-    /// On failure, emits a diagnostic and returns `Any` so that inference can
-    /// continue without cascading errors.
+    /// On failure, emits a diagnostic and returns a fresh inference variable so
+    /// inference can continue without reintroducing gradual fallback semantics.
     pub(super) fn unify_reporting(
         &mut self,
         t1: &InferType,

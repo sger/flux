@@ -1,4 +1,11 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
+// expect: compile_error
 // Expected compile error E079: duplicate Flow exclusion
 
 import Flow except [print, print]
-Flow.print("unreachable");
+
+fn main() with IO {
+    Flow.print("unreachable")
+}

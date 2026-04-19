@@ -1,3 +1,5 @@
+// root: examples/imports/except
+// expect: compile_error
 // Run with:
 // cargo run -- --root examples/imports/except examples/imports/except/import_except_error.flx
 // Expected: E012 UNKNOWN MODULE MEMBER for `Lib.drop`.

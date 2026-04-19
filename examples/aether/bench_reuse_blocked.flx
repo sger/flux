@@ -1,11 +1,14 @@
-// Aether plain-Reuse benchmark control: recursive list rebuild with an
-// explicit token-touching precompute let that should keep plain Reuse disabled.
-// Run:   cargo run --release -- examples/aether/bench_reuse_blocked.flx
-// JIT:   cargo run --release --features 'jit llvm' -- --jit examples/aether/bench_reuse_blocked.flx
-// LLVM:  cargo run --release --features 'jit llvm' -- --llvm examples/aether/bench_reuse_blocked.flx
-// Stats: cargo run --release -- --dump-aether examples/aether/bench_reuse_blocked.flx
+/*
+Aether plain-Reuse benchmark control: recursive list rebuild with an
+explicit token-touching precompute let that should keep plain Reuse disabled.
+*/
+
+// parity-expected-stdout-begin
+// "blocked: result head = 101"
+// parity-expected-stdout-end
 
 fn build_list(n) {
+    // Continue build recursion.
     fn build_go(i, acc) {
         if i <= 0 { acc }
         else { build_go(i - 1, [i | acc]) }
@@ -19,6 +22,7 @@ fn touch_token(token, value) {
     value
 }
 
+// Helper for map blocked.
 @fip fn map_blocked(xs, f) {
     match xs {
         [h | t] -> [touch_token(xs, f(h)) | map_blocked(t, f)],
@@ -26,7 +30,9 @@ fn touch_token(token, value) {
     }
 }
 
+// Helper for bench map.
 fn bench_map(xs, iterations) {
+    // Helper for go.
     fn go(i, current) {
         if i <= 0 { current }
         else { go(i - 1, map_blocked(current, \x -> x + 1)) }
@@ -34,6 +40,7 @@ fn bench_map(xs, iterations) {
     go(iterations, xs)
 }
 
+// Program entry point.
 fn main() with IO {
     let size = 5000
     let iterations = 100

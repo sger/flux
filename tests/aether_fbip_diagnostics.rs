@@ -1,4 +1,4 @@
-use flux::bytecode::compiler::Compiler;
+use flux::compiler::Compiler;
 use flux::diagnostics::Diagnostic;
 use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
 use std::path::Path;
@@ -77,7 +77,7 @@ fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
 
 #[test]
 fn fip_warning_reports_fresh_allocation_cause() {
-    let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx")
+    let src = std::fs::read_to_string("examples/compiler_errors/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist")
         .replace("@fbip fn bounded(f, x) {", "@fip fn bounded(f, x) {");
     let warnings = compile_ok_with_warnings(&src);
@@ -89,7 +89,7 @@ fn fip_warning_reports_fresh_allocation_cause() {
 
 #[test]
 fn fbip_failure_is_hard_error() {
-    let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx")
+    let src = std::fs::read_to_string("examples/compiler_errors/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist");
     let diagnostics = compile_err_diagnostics(&src);
     assert!(diagnostics.iter().any(|d| {

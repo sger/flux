@@ -1,0 +1,749 @@
+---
+source: tests/llvm_adt_snapshots.rs
+expression: render_module(&module)
+---
+source_filename = "flux_lir"
+
+%FluxAdt = type {i32, i32, [0 x i64]}
+
+%FluxTuple = type {i8, i8, i8, i8, i32, [0 x i64]}
+
+%FluxClosure = type {ptr, i32, i32, i32, i32, [0 x i64]}
+
+@flux.ptrtag.none = private constant i64 0
+
+@flux.ptrtag.false = private constant i64 2
+
+@flux.ptrtag.true = private constant i64 4
+
+@flux.ptrtag.empty_list = private constant i64 6
+
+@flux.ptrtag.uninit = private constant i64 8
+
+@flux.ptrtag.yield_sentinel = private constant i64 10
+
+@flux_arena_hp = external global ptr
+
+@flux_arena_limit = external global ptr
+
+@flux_idiv.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
+
+@flux_imod.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
+
+@flux_ctor_name.0 = private constant [5 x i8] [i8 87, i8 114, i8 97, i8 112, i8 0]
+
+@flux_ctor_name.1 = private constant [6 x i8] [i8 69, i8 109, i8 112, i8 116, i8 121, i8 0]
+
+declare ccc void @flux_dup(i64) nounwind
+
+declare ccc void @flux_drop(i64) nounwind
+
+declare ccc void @flux_gc_free(ptr) nounwind
+
+declare ccc ptr @flux_gc_alloc(i32) nounwind
+
+declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
+
+declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
+
+declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
+
+declare ccc void @flux_panic(i64) nounwind
+
+declare ccc i64 @flux_string_new(ptr, i32) nounwind
+
+declare ccc i64 @flux_box_float_rt(double) nounwind
+
+declare ccc double @flux_unbox_float_rt(i64) nounwind
+
+define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
+entry:
+  %shifted = shl i64 %raw, 1
+  %tagged = or i64 %shifted, 1
+  ret i64 %tagged
+}
+
+define internal fastcc i64 @flux_untag_int(i64 %val) alwaysinline {
+entry:
+  %raw = ashr i64 %val, 1
+  ret i64 %raw
+}
+
+define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline {
+entry:
+  %bit0 = and i64 %val, 1
+  %not_int = icmp eq i64 %bit0, 0
+  %above_sentinel = icmp sge i64 %val, 12
+  %result = and i1 %not_int, %above_sentinel
+  ret i1 %result
+}
+
+define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %not_ptr
+not_ptr:
+  ret ptr null
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %unique = icmp eq i32 %rc, 1
+  br i1 %unique, label %reuse, label %fresh
+reuse:
+  ret ptr %ptr
+fresh:
+  call ccc void @flux_drop(i64 %val)
+  %new_mem = call fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 0, i32 0)
+  ret ptr %new_mem
+}
+
+define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %not_unique
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %is_one = icmp eq i32 %rc, 1
+  ret i1 %is_one
+not_unique:
+  ret i1 0
+}
+
+define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_tag, label %not_thunk
+check_tag:
+  %ptr = inttoptr i64 %val to ptr
+  %obj_tag_ptr = getelementptr i8, ptr %ptr, i64 -3
+  %obj_tag = load i8, ptr %obj_tag_ptr, align 1
+  %is_thunk_tag = icmp eq i8 %obj_tag, 249
+  ret i1 %is_thunk_tag
+not_thunk:
+  ret i1 0
+}
+
+define internal fastcc i64 @flux_tag_thunk(ptr %ptr) alwaysinline {
+entry:
+  %tagged = ptrtoint ptr %ptr to i64
+  ret i64 %tagged
+}
+
+define internal fastcc ptr @flux_untag_thunk_ptr(i64 %val) alwaysinline {
+entry:
+  %ptr = inttoptr i64 %val to ptr
+  ret ptr %ptr
+}
+
+define internal fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag) alwaysinline {
+entry:
+  %aligned = add i32 %size, 7
+  %masked = and i32 %aligned, -8
+  %total_i32 = add i32 %masked, 8
+  %total = zext i32 %total_i32 to i64
+  %hp = load ptr, ptr @flux_arena_hp, align 8
+  %new_hp = getelementptr i8, ptr %hp, i64 %total
+  %lim = load ptr, ptr @flux_arena_limit, align 8
+  %ok = icmp ule ptr %new_hp, %lim
+  br i1 %ok, label %fast, label %slow
+fast:
+  store ptr %new_hp, ptr @flux_arena_hp, align 8
+  store i32 1, ptr %hp, align 4
+  %scan8 = trunc i32 %scan to i8
+  %sf_ptr = getelementptr i8, ptr %hp, i64 4
+  store i8 %scan8, ptr %sf_ptr, align 1
+  %tag8 = trunc i32 %tag to i8
+  %ot_ptr = getelementptr i8, ptr %hp, i64 5
+  store i8 %tag8, ptr %ot_ptr, align 1
+  %res_ptr = getelementptr i8, ptr %hp, i64 6
+  store i16 0, ptr %res_ptr, align 2
+  %payload = getelementptr i8, ptr %hp, i64 8
+  %aligned64 = zext i32 %masked to i64
+  call ccc void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 0)
+  ret ptr %payload
+slow:
+  %slow_ptr = call ccc ptr @flux_bump_alloc_slow(i32 %size, i32 %scan, i32 %tag)
+  ret ptr %slow_ptr
+}
+
+define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = add i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_isub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = sub i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_imul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %result_raw = mul i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_idiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %is_zero = icmp eq i64 %b_raw, 0
+  br i1 %is_zero, label %panic, label %safe
+panic:
+  %msg = call ccc i64 @flux_string_new(ptr @flux_idiv.div_zero_msg, i32 16)
+  call ccc void @flux_panic(i64 %msg)
+  unreachable
+safe:
+  %result_raw = sdiv i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
+  %is_zero = icmp eq i64 %b_raw, 0
+  br i1 %is_zero, label %panic, label %safe
+panic:
+  %msg = call ccc i64 @flux_string_new(ptr @flux_imod.div_zero_msg, i32 16)
+  call ccc void @flux_panic(i64 %msg)
+  unreachable
+safe:
+  %result_raw = srem i64 %a_raw, %b_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline {
+entry:
+  %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
+  %neg = sub i64 0, %a_raw
+  %result = call fastcc i64 @flux_tag_int(i64 %neg)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
+  %result_f = fadd double %a_f, %b_f
+  %result = call ccc i64 @flux_box_float_rt(double %result_f)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
+  %result_f = fsub double %a_f, %b_f
+  %result = call ccc i64 @flux_box_float_rt(double %result_f)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
+  %result_f = fmul double %a_f, %b_f
+  %result = call ccc i64 @flux_box_float_rt(double %result_f)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
+  %result_f = fdiv double %a_f, %b_f
+  %result = call ccc i64 @flux_box_float_rt(double %result_f)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fmod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
+  %result_f = frem double %a_f, %b_f
+  %result = call ccc i64 @flux_box_float_rt(double %result_f)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline {
+entry:
+  %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
+  %neg = fsub double 0.0, %a_f
+  %result = call ccc i64 @flux_box_float_rt(double %neg)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_not(i64 %a) alwaysinline {
+entry:
+  %is_false = icmp eq i64 %a, 2
+  %is_none = icmp eq i64 %a, 0
+  %is_empty = icmp eq i64 %a, 6
+  %is_uninit = icmp eq i64 %a, 8
+  %f1 = or i1 %is_false, %is_none
+  %f2 = or i1 %is_empty, %is_uninit
+  %is_falsy = or i1 %f1, %f2
+  %result = select i1 %is_falsy, i64 4, i64 2
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 4
+  %b_is_true = icmp eq i64 %b, 4
+  %combined = and i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 4, i64 2
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline {
+entry:
+  %a_is_true = icmp eq i64 %a, 4
+  %b_is_true = icmp eq i64 %b, 4
+  %combined = or i1 %a_is_true, %b_is_true
+  %result = select i1 %combined, i64 4, i64 2
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_add(i64 %a, i64 %b) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_iadd(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fadd(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_sub(i64 %a, i64 %b) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_isub(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fsub(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_mul(i64 %a, i64 %b) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_imul(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fmul(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_div(i64 %a, i64 %b) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_idiv(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fdiv(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_mod(i64 %a, i64 %b) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_imod(i64 %a, i64 %b)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fmod(i64 %a, i64 %b)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_neg(i64 %a) alwaysinline {
+entry:
+  %is_int = trunc i64 %a to i1
+  br i1 %is_int, label %do_int, label %do_float
+do_int:
+  %int_result = call fastcc i64 @flux_ineg(i64 %a)
+  ret i64 %int_result
+do_float:
+  %float_result = call fastcc i64 @flux_fneg(i64 %a)
+  ret i64 %float_result
+}
+
+define internal fastcc i64 @flux_make_adt(ptr %fields, i32 %field_count, i32 %ctor_tag) alwaysinline {
+entry:
+  %payload.bytes = mul i32 %field_count, 8
+  %alloc.bytes = add i32 %payload.bytes, 8
+  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %field_count, i32 242)
+  %tag.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 0
+  store i32 %ctor_tag, ptr %tag.ptr, align 4
+  %field_count.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 1
+  store i32 %field_count, ptr %field_count.ptr, align 4
+  %payload.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 2, i32 0
+  call fastcc void @flux_copy_i64s(ptr %payload.ptr, ptr %fields, i32 %field_count)
+  %boxed = call fastcc i64 @flux_tag_boxed_ptr(ptr %mem)
+  ret i64 %boxed
+}
+
+define internal fastcc i64 @flux_make_cons(i64 %head, i64 %tail) alwaysinline {
+entry:
+  %fields = alloca i64, i32 2, align 8
+  %head.ptr = getelementptr inbounds i64, ptr %fields, i32 0
+  store i64 %head, ptr %head.ptr, align 8
+  %tail.ptr = getelementptr inbounds i64, ptr %fields, i32 1
+  store i64 %tail, ptr %tail.ptr, align 8
+  %boxed = call fastcc i64 @flux_make_adt(ptr %fields, i32 2, i32 4)
+  ret i64 %boxed
+}
+
+define internal fastcc i64 @flux_make_tuple(ptr %fields, i32 %arity) alwaysinline {
+entry:
+  %payload.bytes = mul i32 %arity, 8
+  %alloc.bytes = add i32 %payload.bytes, 8
+  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %arity, i32 243)
+  %tag.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 0
+  store i8 243, ptr %tag.ptr, align 1
+  %arity.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 4
+  store i32 %arity, ptr %arity.ptr, align 4
+  %payload.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 5, i32 0
+  call fastcc void @flux_copy_i64s(ptr %payload.ptr, ptr %fields, i32 %arity)
+  %boxed = call fastcc i64 @flux_tag_boxed_ptr(ptr %mem)
+  ret i64 %boxed
+}
+
+define internal fastcc i32 @flux_tuple_len(i64 %value) alwaysinline {
+entry:
+  %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
+  %arity.ptr = getelementptr inbounds %FluxTuple, ptr %ptr, i32 0, i32 4
+  %arity = load i32, ptr %arity.ptr, align 4
+  ret i32 %arity
+}
+
+define fastcc void @flux_copy_i64s(ptr %dst, ptr %src, i32 %count) {
+entry:
+  %empty = icmp eq i32 %count, 0
+  br i1 %empty, label %done, label %loop
+loop:
+  %idx = phi i32 [ 0, %entry ], [ %idx.next, %loop ]
+  %src.slot = getelementptr inbounds i64, ptr %src, i32 %idx
+  %value = load i64, ptr %src.slot, align 8
+  %dst.slot = getelementptr inbounds i64, ptr %dst, i32 %idx
+  store i64 %value, ptr %dst.slot, align 8
+  %idx.next = add i32 %idx, 1
+  %keep = icmp slt i32 %idx.next, %count
+  br i1 %keep, label %loop, label %done
+done:
+  ret void
+}
+
+define fastcc void @flux_retain_i64s(ptr %src, i32 %count) {
+entry:
+  %empty = icmp eq i32 %count, 0
+  br i1 %empty, label %done, label %loop
+loop:
+  %idx = phi i32 [ 0, %entry ], [ %idx.next, %loop ]
+  %src.slot = getelementptr inbounds i64, ptr %src, i32 %idx
+  %value = load i64, ptr %src.slot, align 8
+  call ccc void @flux_dup(i64 %value) nounwind
+  %idx.next = add i32 %idx, 1
+  %keep = icmp slt i32 %idx.next, %count
+  br i1 %keep, label %loop, label %done
+done:
+  ret void
+}
+
+define internal fastcc i64 @flux_tag_boxed_ptr(ptr %ptr) alwaysinline {
+entry:
+  %tagged = ptrtoint ptr %ptr to i64
+  ret i64 %tagged
+}
+
+define internal fastcc ptr @flux_untag_boxed_ptr(i64 %value) alwaysinline {
+entry:
+  %ptr = inttoptr i64 %value to ptr
+  ret ptr %ptr
+}
+
+define internal fastcc i64 @flux_make_closure(ptr %fn_ptr, i32 %remaining_arity, ptr %capture_values, i32 %capture_count, ptr %applied_values, i32 %applied_count) alwaysinline {
+entry:
+  %payload_count = add i32 %capture_count, %applied_count
+  %payload_bytes = mul i32 %payload_count, 8
+  %size = add i32 %payload_bytes, 24
+  %mem = call ccc ptr @flux_gc_alloc_header(i32 %size, i32 %payload_count, i32 245)
+  %fn_ptr.slot = getelementptr inbounds %FluxClosure, ptr %mem, i32 0, i32 0
+  store ptr %fn_ptr, ptr %fn_ptr.slot, align 8
+  %remaining.slot = getelementptr inbounds %FluxClosure, ptr %mem, i32 0, i32 1
+  store i32 %remaining_arity, ptr %remaining.slot, align 4
+  %capture.slot = getelementptr inbounds %FluxClosure, ptr %mem, i32 0, i32 2
+  store i32 %capture_count, ptr %capture.slot, align 4
+  %applied.slot = getelementptr inbounds %FluxClosure, ptr %mem, i32 0, i32 3
+  store i32 %applied_count, ptr %applied.slot, align 4
+  %payload = getelementptr inbounds %FluxClosure, ptr %mem, i32 0, i32 5, i32 0
+  call fastcc void @flux_copy_i64s(ptr %payload, ptr %capture_values, i32 %capture_count)
+  call fastcc void @flux_retain_i64s(ptr %payload, i32 %capture_count)
+  %applied.dst = getelementptr inbounds i64, ptr %payload, i32 %capture_count
+  call fastcc void @flux_copy_i64s(ptr %applied.dst, ptr %applied_values, i32 %applied_count)
+  call fastcc void @flux_retain_i64s(ptr %applied.dst, i32 %applied_count)
+  %tagged = call fastcc i64 @flux_tag_boxed_ptr(ptr %mem)
+  ret i64 %tagged
+}
+
+define internal fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs) alwaysinline {
+entry:
+  %closure = call fastcc ptr @flux_untag_boxed_ptr(i64 %closure_value)
+  %fn_ptr.slot = getelementptr inbounds %FluxClosure, ptr %closure, i32 0, i32 0
+  %fn_ptr = load ptr, ptr %fn_ptr.slot, align 8
+  %remaining.slot = getelementptr inbounds %FluxClosure, ptr %closure, i32 0, i32 1
+  %remaining_arity = load i32, ptr %remaining.slot, align 4
+  %capture.slot = getelementptr inbounds %FluxClosure, ptr %closure, i32 0, i32 2
+  %capture_count = load i32, ptr %capture.slot, align 4
+  %applied.slot = getelementptr inbounds %FluxClosure, ptr %closure, i32 0, i32 3
+  %applied_count = load i32, ptr %applied.slot, align 4
+  %payload = getelementptr inbounds %FluxClosure, ptr %closure, i32 0, i32 5, i32 0
+  %is_exact = icmp eq i32 %nargs, %remaining_arity
+  %is_under = icmp slt i32 %nargs, %remaining_arity
+  br i1 %is_exact, label %exact, label %non_exact
+non_exact:
+  br i1 %is_under, label %under, label %over
+exact:
+  %exact.result = call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %nargs)
+  ret i64 %exact.result
+under:
+  %existing.applied = getelementptr inbounds i64, ptr %payload, i32 %capture_count
+  %new.applied.count = add i32 %applied_count, %nargs
+  %new.applied = alloca i64, i32 %new.applied.count, align 8
+  call fastcc void @flux_copy_i64s(ptr %new.applied, ptr %existing.applied, i32 %applied_count)
+  %new.applied.tail = getelementptr inbounds i64, ptr %new.applied, i32 %applied_count
+  call fastcc void @flux_copy_i64s(ptr %new.applied.tail, ptr %args, i32 %nargs)
+  %new.remaining = sub i32 %remaining_arity, %nargs
+  %under.result = call fastcc i64 @flux_make_closure(ptr %fn_ptr, i32 %new.remaining, ptr %payload, i32 %capture_count, ptr %new.applied, i32 %new.applied.count)
+  ret i64 %under.result
+over:
+  %over.first = call ccc i64 %fn_ptr(i64 %closure_value, ptr %args, i32 %remaining_arity)
+  %leftover.count = sub i32 %nargs, %remaining_arity
+  %leftover.args = getelementptr inbounds i64, ptr %args, i32 %remaining_arity
+  %over.result = tail call fastcc i64 @flux_call_closure(i64 %over.first, ptr %leftover.args, i32 %leftover.count)
+  ret i64 %over.result
+}
+
+define ccc i64 @flux_call_closure_c(i64 %closure_value, ptr %args, i32 %nargs) {
+entry:
+  %result = call fastcc i64 @flux_call_closure(i64 %closure_value, ptr %args, i32 %nargs)
+  ret i64 %result
+}
+
+define fastcc i64 @flux_fold(i64 %v0) nounwind {
+bb0:
+  switch i64 %v0, label %match.boxed.1 [
+    i64 6, label %bb2
+  ]
+match.extract.3.2:
+  %ext.ptr.3 = inttoptr i64 %v0 to ptr
+  %ext.payload.3 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.3, i32 0, i32 2, i32 0
+  %ext.3.0 = getelementptr inbounds i64, ptr %ext.payload.3, i32 0
+  %v2 = load i64, ptr %ext.3.0, align 8
+  call ccc void @flux_dup(i64 %v2)
+  %ext.3.1 = getelementptr inbounds i64, ptr %ext.payload.3, i32 1
+  %v3 = load i64, ptr %ext.3.1, align 8
+  call ccc void @flux_dup(i64 %v3)
+  br label %bb3
+match.adt.3:
+  %match.adtptr.4 = inttoptr i64 %v0 to ptr
+  %match.adttagptr.5 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.4, i32 0, i32 0
+  %t0 = load i32, ptr %match.adttagptr.5, align 4
+  switch i32 %t0, label %bb4 [
+    i32 4, label %match.extract.3.2
+  ]
+match.boxed.1:
+  %match.ptr.6 = inttoptr i64 %v0 to ptr
+  %match.otptr.7 = getelementptr i8, ptr %match.ptr.6, i32 -3
+  %match.ot.8 = load i8, ptr %match.otptr.7, align 1
+  %match.isadt.9 = icmp eq i8 %match.ot.8, 242
+  br i1 %match.isadt.9, label %match.adt.3, label %bb4
+bb1:
+  %v1 = phi i64 [ %v4, %bb2 ], [ %v10, %bb5 ]
+  ret i64 %v1
+bb2:
+  %v4 = add i64 1, 0
+  br label %bb1
+bb3:
+  %v6 = add i64 0, 0
+  %v5 = call fastcc i64 @flux_fold(i64 %v3)
+  br label %bb5
+bb4:
+  unreachable
+bb5:
+  %v7 = ashr i64 %v2, 1
+  %v8 = ashr i64 %v5, 1
+  %v9 = add i64 %v7, %v8
+  %t10 = shl i64 %v9, 1
+  %v10 = or i64 %t10, 1
+  br label %bb1
+}
+
+define ccc i64 @flux_main() nounwind {
+bb0:
+  %v0 = add i64 3, 0
+  %v1 = add i64 5, 0
+  %t0 = call fastcc i64 @flux_make_cons(i64 %v1, i64 6)
+  %t1 = call fastcc i64 @flux_make_cons(i64 %v0, i64 %t0)
+  %v2 = add i64 %t1, 0
+  %v4 = add i64 0, 0
+  %v3 = call fastcc i64 @flux_fold(i64 %v2)
+  br label %bb1
+bb1:
+  %v5 = add i64 7, 0
+  %t2 = alloca [1 x i64], align 8
+  %t3 = getelementptr inbounds i64, ptr %t2, i32 0
+  store i64 %v5, ptr %t3, align 8
+  %v6 = call fastcc i64 @flux_make_adt(ptr %t2, i32 1, i32 5)
+  %t4 = alloca [2 x i64], align 8
+  %t5 = getelementptr inbounds i64, ptr %t4, i32 0
+  store i64 %v3, ptr %t5, align 8
+  %t6 = getelementptr inbounds i64, ptr %t4, i32 1
+  store i64 %v6, ptr %t6, align 8
+  %v7 = call fastcc i64 @flux_make_tuple(ptr %t4, i32 2)
+  %t7 = inttoptr i64 %v7 to ptr
+  %t8 = getelementptr inbounds %FluxTuple, ptr %t7, i32 0, i32 5, i32 0
+  %t9 = getelementptr inbounds i64, ptr %t8, i32 0
+  %v9 = load i64, ptr %t9, align 8
+  %t10 = inttoptr i64 %v7 to ptr
+  %t11 = getelementptr inbounds %FluxTuple, ptr %t10, i32 0, i32 5, i32 0
+  %t12 = getelementptr inbounds i64, ptr %t11, i32 1
+  %v10 = load i64, ptr %t12, align 8
+  br label %bb5
+bb2:
+  %v8 = phi i64 [ %v19, %bb3 ], [ %v24, %bb7 ]
+  ret i64 %v8
+bb3:
+  %t13 = inttoptr i64 %v7 to ptr
+  %t14 = getelementptr inbounds %FluxTuple, ptr %t13, i32 0, i32 5, i32 0
+  %t15 = getelementptr inbounds i64, ptr %t14, i32 0
+  %v12 = load i64, ptr %t15, align 8
+  %t16 = inttoptr i64 %v7 to ptr
+  %t17 = getelementptr inbounds %FluxTuple, ptr %t16, i32 0, i32 5, i32 0
+  %t18 = getelementptr inbounds i64, ptr %t17, i32 1
+  %v13 = load i64, ptr %t18, align 8
+  %v14 = add i64 %v13, 0
+  %t19 = inttoptr i64 %v14 to ptr
+  %t20 = getelementptr inbounds i8, ptr %t19, i32 8
+  %v15 = load i64, ptr %t20, align 8
+  %v16 = ashr i64 %v12, 1
+  %v17 = ashr i64 %v15, 1
+  %v18 = add i64 %v16, %v17
+  %t21 = shl i64 %v18, 1
+  %v19 = or i64 %t21, 1
+  br label %bb2
+bb4:
+  %t22 = inttoptr i64 %v7 to ptr
+  %t23 = getelementptr inbounds %FluxTuple, ptr %t22, i32 0, i32 5, i32 0
+  %t24 = getelementptr inbounds i64, ptr %t23, i32 0
+  %v20 = load i64, ptr %t24, align 8
+  %t25 = inttoptr i64 %v7 to ptr
+  %t26 = getelementptr inbounds %FluxTuple, ptr %t25, i32 0, i32 5, i32 0
+  %t27 = getelementptr inbounds i64, ptr %t26, i32 1
+  %v21 = load i64, ptr %t27, align 8
+  br label %bb9
+bb5:
+  %match.ptrck.38 = icmp ule i64 12, %v10
+  br i1 %match.ptrck.38, label %match.boxed.29, label %bb4
+match.extract.6.30:
+  %ext.ptr.6 = inttoptr i64 %v10 to ptr
+  %ext.payload.6 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.6, i32 0, i32 2, i32 0
+  %ext.6.0 = getelementptr inbounds i64, ptr %ext.payload.6, i32 0
+  %v11 = load i64, ptr %ext.6.0, align 8
+  call ccc void @flux_dup(i64 %v11)
+  br label %bb6
+match.adt.31:
+  %match.adtptr.32 = inttoptr i64 %v10 to ptr
+  %match.adttagptr.33 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.32, i32 0, i32 0
+  %t28 = load i32, ptr %match.adttagptr.33, align 4
+  switch i32 %t28, label %bb4 [
+    i32 5, label %match.extract.6.30
+  ]
+match.boxed.29:
+  %match.ptr.34 = inttoptr i64 %v10 to ptr
+  %match.otptr.35 = getelementptr i8, ptr %match.ptr.34, i32 -3
+  %match.ot.36 = load i8, ptr %match.otptr.35, align 1
+  %match.isadt.37 = icmp eq i8 %match.ot.36, 242
+  br i1 %match.isadt.37, label %match.adt.31, label %bb4
+bb6:
+  br label %bb3
+bb7:
+  %t39 = inttoptr i64 %v7 to ptr
+  %t40 = getelementptr inbounds %FluxTuple, ptr %t39, i32 0, i32 5, i32 0
+  %t41 = getelementptr inbounds i64, ptr %t40, i32 0
+  %v22 = load i64, ptr %t41, align 8
+  %t42 = inttoptr i64 %v7 to ptr
+  %t43 = getelementptr inbounds %FluxTuple, ptr %t42, i32 0, i32 5, i32 0
+  %t44 = getelementptr inbounds i64, ptr %t43, i32 1
+  %v23 = load i64, ptr %t44, align 8
+  %v24 = add i64 1, 0
+  br label %bb2
+bb8:
+  unreachable
+bb9:
+  %match.ptrck.54 = icmp ule i64 12, %v21
+  br i1 %match.ptrck.54, label %match.boxed.46, label %bb8
+match.adt.47:
+  %match.adtptr.48 = inttoptr i64 %v21 to ptr
+  %match.adttagptr.49 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.48, i32 0, i32 0
+  %t45 = load i32, ptr %match.adttagptr.49, align 4
+  switch i32 %t45, label %bb8 [
+    i32 6, label %bb10
+  ]
+match.boxed.46:
+  %match.ptr.50 = inttoptr i64 %v21 to ptr
+  %match.otptr.51 = getelementptr i8, ptr %match.ptr.50, i32 -3
+  %match.ot.52 = load i8, ptr %match.otptr.51, align 1
+  %match.isadt.53 = icmp eq i8 %match.ot.52, 242
+  br i1 %match.isadt.53, label %match.adt.47, label %bb8
+bb10:
+  br label %bb7
+}
+
+define ccc i64 @flux_fold.closure_entry(i64 %closure_raw, ptr %args_ptr, i32 %nargs) nounwind {
+entry:
+  %arg.0.ptr = getelementptr inbounds i64, ptr %args_ptr, i32 0
+  %arg.0 = load i64, ptr %arg.0.ptr, align 8
+  %result = call fastcc i64 @flux_fold(i64 %arg.0)
+  ret i64 %result
+}
+
+define ccc ptr @flux_user_ctor_name(i32 %ctor_tag) nounwind {
+ctor_name.entry:
+  switch i32 %ctor_tag, label %ctor_name.default [
+    i32 5, label %ctor_name.case.0
+    i32 6, label %ctor_name.case.1
+  ]
+ctor_name.case.0:
+  %ctor_name.ptr.0 = getelementptr inbounds [5 x i8], ptr @flux_ctor_name.0, i32 0, i32 0
+  ret ptr %ctor_name.ptr.0
+ctor_name.case.1:
+  %ctor_name.ptr.1 = getelementptr inbounds [6 x i8], ptr @flux_ctor_name.1, i32 0, i32 0
+  ret ptr %ctor_name.ptr.1
+ctor_name.default:
+  ret ptr null
+}

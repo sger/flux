@@ -451,6 +451,8 @@ fn set_expr_span(expr: &mut Expression, span: Span) {
         | Expression::Cons { span: s, .. }
         | Expression::InterpolatedString { span: s, .. }
         | Expression::Perform { span: s, .. }
-        | Expression::Handle { span: s, .. } => *s = span,
+        | Expression::Handle { span: s, .. }
+        | Expression::NamedConstructor { span: s, .. }
+        | Expression::Spread { span: s, .. } => *s = span,
     }
 }

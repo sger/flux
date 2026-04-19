@@ -1,0 +1,3 @@
+module Math {
+    public fn twice(x) { x * 2 }
+}

@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day05_part1_test.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `fold`.
-
-  examples/aoc/2024/Day05Solver.flx:103:9
-    |
-103 |         fold(
-    |         ^^^^
-
-Hint:
-  Define it first: let fold = ...;
+<none>
 == stdout ==
 <not executed>

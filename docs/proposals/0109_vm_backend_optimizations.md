@@ -1,6 +1,6 @@
 - Feature Name: VM Backend Optimizations
 - Start Date: 2026-03-19
-- Status: Not Implemented
+- Status: Partially Implemented — Phase 4 (NaN-boxing, `src/runtime/nanbox.rs`) shipped; partial Phase 2 (8 fused superinstructions in `src/bytecode/compiler/mod.rs`). Phases 1 (computed goto) and 3 (lazy compilation) open.
 - Proposal PR:
 - Flux Issue:
 

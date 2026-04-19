@@ -9,9 +9,9 @@ error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
-  examples/imports/import_collision_error.flx:3:5
+  examples/imports/import_collision_error.flx:6:5
   |
-3 |     import Modules.Math
+6 |     import Modules.Math
   |     ^^^^^^^^^^^^^^^^^^^
 
 Hint:

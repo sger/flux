@@ -1,0 +1,17 @@
+class Eqish<a> {
+    fn same(x: a, y: a) -> Bool
+    fn different(x: a, y: a) -> Bool { !same(x, y) }
+}
+
+instance Eqish<Int> {
+    fn same(x, y) { x == y }
+}
+
+fn pair_same(x, y) { same(x, y) }
+
+fn pair_different(x, y) { different(x, y) }
+
+fn main() with IO {
+    print(pair_same(3, 3))
+    print(pair_different(3, 4))
+}

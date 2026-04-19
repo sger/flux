@@ -1,0 +1,7 @@
+---
+source: tests/aether_cli_snapshots.rs
+---
+letrec __tc_Eqish_Int_same : Int =
+letrec __tc_Eq_Int_eq : forall a. (a, a) -> Bool =
+letrec id : a =
+letrec choose : a =

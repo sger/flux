@@ -1,8 +1,27 @@
-// Advent of Code - Day 7 (Haskell-style translation)
-// Inspired by AOC2025.Day07 day07a/day07b.
-// Uses input file: examples/aoc/2025/aoc_day7.txt
+// parity-expected-stdout-begin
+// 1642
+// 47274292756692
+// parity-expected-stdout-end
 
+/*
+Advent of Code - Day 7 (Haskell-style translation)
+Inspired by AOC2025.Day07 day07a/day07b.
+Uses input file: examples/aoc/2025/aoc_day7.txt
+*/
+
+import Flow.Array as Array
+import Flow.Map as Map
+
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
+    fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
+    fn concat(left, right) { Array.concat(left, right) }
+
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -10,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -17,203 +37,223 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx < 0 || idx >= len(s) {
             " "
         } else {
-        substring(s, idx, idx + 1)
+            substring(s, idx, idx + 1)
+        }
     }
-}
 
-fn set_at(arr, idx, value) {
-    let left = slice(arr, 0, idx)
-    let right = slice(arr, idx + 1, len(arr))
-    concat(concat(left, [|value|]), right)
-}
-
-fn add_at(arr, idx, delta) {
-    if idx < 0 || idx >= len(arr) {
-        arr
-    } else {
-    set_at(arr, idx, int_at(arr, idx) + delta)
-}
-}
-
-fn zeros(n, i, acc) {
-    if i >= n {
-        acc
-    } else {
-    zeros(n, i + 1, push(acc, 0))
-}
-}
-
-fn max_width(lines, i, cur) {
-    if i >= len(lines) {
-        cur
-    } else {
-    let w = len(line_at(lines, i))
-    max_width(lines, i + 1, if w > cur { w } else { cur })
-}
-}
-
-fn find_s_in_row(s, i) {
-    if i >= len(s) {
-        -1
-    } else {
-    if substring(s, i, i + 1) == "S" {
-        i
-    } else {
-    find_s_in_row(s, i + 1)
-}
-}
-}
-
-fn find_s(lines, r) {
-    if r >= len(lines) {
-        (-1, -1)
-    } else {
-    let c = find_s_in_row(line_at(lines, r), 0)
-    if c >= 0 {
-        (r, c)
-    } else {
-    find_s(lines, r + 1)
-}
-}
-}
-
-fn sum_arr(arr, i, acc) {
-    if i >= len(arr) {
-        acc
-    } else {
-    sum_arr(arr, i + 1, acc + int_at(arr, i))
-}
-}
-
-fn step_a_res(next_mask, split_count) {
-    let m = put({}, "next", next_mask)
-    put(m, "split", split_count)
-}
-
-fn step_a_next(x) {
-    match get(x, "next") {
-        Some(v) -> v,
-        _ -> [||]
+    // Helper for set at.
+    fn set_at(arr, idx, value) {
+        let left = slice(arr, 0, idx)
+        let right = slice(arr, idx + 1, len(arr))
+        concat(concat(left, [|value|]), right)
     }
-}
 
-fn step_a_split(x) {
-    match get(x, "split") {
-        Some(v) -> v,
-        _ -> 0
+    // Helper for add at.
+    fn add_at(arr, idx, delta) {
+        if idx < 0 || idx >= len(arr) {
+            arr
+        } else {
+            set_at(arr, idx, int_at(arr, idx) + delta)
+        }
     }
-}
 
-fn process_cols_a(row_txt, col, width, active, next_mask, split_count) {
-    if col >= width {
-        step_a_res(next_mask, split_count)
-    } else {
-    if int_at(active, col) == 0 {
-        process_cols_a(row_txt, col + 1, width, active, next_mask, split_count)
-    } else {
-    let ch = char_at_pad(row_txt, col)
-    if ch == "^" {
-        let n1 = if col - 1 >= 0 { set_at(next_mask, col - 1, 1) } else { next_mask }
-        let n2 = if col + 1 < width { set_at(n1, col + 1, 1) } else { n1 }
-        process_cols_a(row_txt, col + 1, width, active, n2, split_count + 1)
-    } else {
-    let stay = set_at(next_mask, col, 1)
-    process_cols_a(row_txt, col + 1, width, active, stay, split_count)
-}
-}
-}
-}
-
-fn simulate_a(lines, row_idx, width, active, split_count) {
-    if row_idx >= len(lines) {
-        split_count
-    } else {
-    let row_txt = line_at(lines, row_idx)
-    let next0 = zeros(width, 0, [||])
-    let r = process_cols_a(row_txt, 0, width, active, next0, split_count)
-    simulate_a(lines, row_idx + 1, width, step_a_next(r), step_a_split(r))
-}
-}
-
-fn step_b_res(next_counts, finished) {
-    let m = put({}, "next", next_counts)
-    put(m, "done", finished)
-}
-
-fn step_b_next(x) {
-    match get(x, "next") {
-        Some(v) -> v,
-        _ -> [||]
+    // Helper for zeros.
+    fn zeros(n, i, acc) {
+        if i >= n {
+            acc
+        } else {
+            zeros(n, i + 1, push(acc, 0))
+        }
     }
-}
 
-fn step_b_done(x) {
-    match get(x, "done") {
-        Some(v) -> v,
-        _ -> 0
+    // Compute the maximum width.
+    fn max_width(lines, i, cur) {
+        if i >= len(lines) {
+            cur
+        } else {
+            let w = len(line_at(lines, i))
+            max_width(lines, i + 1, if w > cur { w } else { cur })
+        }
     }
-}
 
-fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
-    if col >= width {
-        step_b_res(next_counts, finished)
-    } else {
-    let cnt = int_at(active_counts, col)
-    if cnt == 0 {
-        process_cols_b(row_txt, col + 1, width, active_counts, next_counts, finished)
-    } else {
-    let ch = char_at_pad(row_txt, col)
-    if ch == "^" {
-        let left_in = if col - 1 >= 0 { cnt } else { 0 }
-        let right_in = if col + 1 < width { cnt } else { 0 }
-        let out_left = if col - 1 < 0 { cnt } else { 0 }
-        let out_right = if col + 1 >= width { cnt } else { 0 }
-        let n1 = add_at(next_counts, col - 1, left_in)
-        let n2 = add_at(n1, col + 1, right_in)
-        process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
-    } else {
-    let stay = add_at(next_counts, col, cnt)
-    process_cols_b(row_txt, col + 1, width, active_counts, stay, finished)
-}
-}
-}
-}
+    // Find s in row.
+    fn find_s_in_row(s, i) {
+        if i >= len(s) {
+            -1
+        } else {
+            if substring(s, i, i + 1) == "S" {
+                i
+            } else {
+                find_s_in_row(s, i + 1)
+            }
+        }
+    }
 
-fn simulate_b(lines, row_idx, width, active_counts, finished) {
-    if row_idx >= len(lines) {
-        finished + sum_arr(active_counts, 0, 0)
-    } else {
-    let row_txt = line_at(lines, row_idx)
-    let next0 = zeros(width, 0, [||])
-    let r = process_cols_b(row_txt, 0, width, active_counts, next0, finished)
-    simulate_b(lines, row_idx + 1, width, step_b_next(r), step_b_done(r))
-}
-}
+    // Find s.
+    fn find_s(lines, r) {
+        if r >= len(lines) {
+            (-1, -1)
+        } else {
+            let c = find_s_in_row(line_at(lines, r), 0)
+            if c >= 0 {
+                (r, c)
+            } else {
+                find_s(lines, r + 1)
+            }
+        }
+    }
 
-fn day07a(lines) {
-    let width = max_width(lines, 0, 0)
-    let start = find_s(lines, 0)
-    let srow = start.0
-    let scol = start.1
-    let start_mask = set_at(zeros(width, 0, [||]), scol, 1)
-    simulate_a(lines, srow, width, start_mask, 0)
-}
+    // Sum arr.
+    fn sum_arr(arr, i, acc) {
+        if i >= len(arr) {
+            acc
+        } else {
+            sum_arr(arr, i + 1, acc + int_at(arr, i))
+        }
+    }
 
-fn day07b(lines) {
-    let width = max_width(lines, 0, 0)
-    let start = find_s(lines, 0)
-    let srow = start.0
-    let scol = start.1
-    let start_counts = add_at(zeros(width, 0, [||]), scol, 1)
-    simulate_b(lines, srow, width, start_counts, 0)
-}
+    // Helper for step a res.
+    fn step_a_res(next_mask, split_count) {
+        let m = Map.set({}, "next", next_mask)
+        Map.set(m, "split", split_count)
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day7.txt")
+    // Helper for step a next.
+    fn step_a_next(x) {
+        match Map.get(x, "next") {
+            Some(v) -> v,
+            _ -> [||]
+        }
+    }
 
-print(day07a(lines))
-print(day07b(lines))
+    // Helper for step a split.
+    fn step_a_split(x) {
+        match Map.get(x, "split") {
+            Some(v) -> v,
+            _ -> 0
+        }
+    }
+
+    // Helper for process cols a.
+    fn process_cols_a(row_txt, col, width, active, next_mask, split_count) {
+        if col >= width {
+            step_a_res(next_mask, split_count)
+        } else {
+            if int_at(active, col) == 0 {
+                process_cols_a(row_txt, col + 1, width, active, next_mask, split_count)
+            } else {
+                let ch = char_at_pad(row_txt, col)
+                if ch == "^" {
+                    let n1 = if col - 1 >= 0 { set_at(next_mask, col - 1, 1) } else { next_mask }
+                    let n2 = if col + 1 < width { set_at(n1, col + 1, 1) } else { n1 }
+                    process_cols_a(row_txt, col + 1, width, active, n2, split_count + 1)
+                } else {
+                    let stay = set_at(next_mask, col, 1)
+                    process_cols_a(row_txt, col + 1, width, active, stay, split_count)
+                }
+            }
+        }
+    }
+
+    // Helper for simulate a.
+    fn simulate_a(lines, row_idx, width, active, split_count) {
+        if row_idx >= len(lines) {
+            split_count
+        } else {
+            let row_txt = line_at(lines, row_idx)
+            let next0 = zeros(width, 0, [||])
+            let r = process_cols_a(row_txt, 0, width, active, next0, split_count)
+            simulate_a(lines, row_idx + 1, width, step_a_next(r), step_a_split(r))
+        }
+    }
+
+    // Helper for step b res.
+    fn step_b_res(next_counts, finished) {
+        let m = Map.set({}, "next", next_counts)
+        Map.set(m, "done", finished)
+    }
+
+    // Helper for step b next.
+    fn step_b_next(x) {
+        match Map.get(x, "next") {
+            Some(v) -> v,
+            _ -> [||]
+        }
+    }
+
+    // Helper for step b done.
+    fn step_b_done(x) {
+        match Map.get(x, "done") {
+            Some(v) -> v,
+            _ -> 0
+        }
+    }
+
+    // Helper for process cols b.
+    fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
+        if col >= width {
+            step_b_res(next_counts, finished)
+        } else {
+            let cnt = int_at(active_counts, col)
+            if cnt == 0 {
+                process_cols_b(row_txt, col + 1, width, active_counts, next_counts, finished)
+            } else {
+                let ch = char_at_pad(row_txt, col)
+                if ch == "^" {
+                    let left_in = if col - 1 >= 0 { cnt } else { 0 }
+                    let right_in = if col + 1 < width { cnt } else { 0 }
+                    let out_left = if col - 1 < 0 { cnt } else { 0 }
+                    let out_right = if col + 1 >= width { cnt } else { 0 }
+                    let n1 = add_at(next_counts, col - 1, left_in)
+                    let n2 = add_at(n1, col + 1, right_in)
+                    process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
+                } else {
+                    let stay = add_at(next_counts, col, cnt)
+                    process_cols_b(row_txt, col + 1, width, active_counts, stay, finished)
+                }
+            }
+        }
+    }
+
+    // Helper for simulate b.
+    fn simulate_b(lines, row_idx, width, active_counts, finished) {
+        if row_idx >= len(lines) {
+            finished + sum_arr(active_counts, 0, 0)
+        } else {
+            let row_txt = line_at(lines, row_idx)
+            let next0 = zeros(width, 0, [||])
+            let r = process_cols_b(row_txt, 0, width, active_counts, next0, finished)
+            simulate_b(lines, row_idx + 1, width, step_b_next(r), step_b_done(r))
+        }
+    }
+
+    // Compute DAY07A.
+    fn day07a(lines) {
+        let width = max_width(lines, 0, 0)
+        let start = find_s(lines, 0)
+        let srow = start.0
+        let scol = start.1
+        let start_mask = set_at(zeros(width, 0, [||]), scol, 1)
+        simulate_a(lines, srow, width, start_mask, 0)
+    }
+
+    // Compute DAY07B.
+    fn day07b(lines) {
+        let width = max_width(lines, 0, 0)
+        let start = find_s(lines, 0)
+        let srow = start.0
+        let scol = start.1
+        let start_counts = add_at(zeros(width, 0, [||]), scol, 1)
+        simulate_b(lines, srow, width, start_counts, 0)
+    }
+
+    let lines = read_lines("examples/aoc/2025/aoc_day7.txt")
+
+    print(day07a(lines))
+    print(day07b(lines))
 }

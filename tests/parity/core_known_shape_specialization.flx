@@ -1,0 +1,13 @@
+// parity: vm, llvm
+// expect: success
+
+fn wrap_some(x) {
+    Some(x)
+}
+
+fn main() with IO {
+    match wrap_some(42) {
+        Some(value) -> print(value)
+        None -> print(0)
+    }
+}

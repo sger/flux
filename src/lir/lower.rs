@@ -10,8 +10,8 @@ use std::collections::HashSet;
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
-    CoreAlt, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp,
-    CoreProgram, CoreTag, CoreTopLevelItem,
+    CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
+    CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem, CoreType, FluxRep,
 };
 use crate::lir::*;
 use crate::syntax::Identifier;
@@ -21,6 +21,13 @@ use crate::syntax::interner::Interner;
 pub struct ImportedNativeSymbol {
     pub symbol: String,
     pub arity: usize,
+    pub is_value: bool,
+}
+
+#[derive(Debug, Clone)]
+struct KnownClosureTarget {
+    func_id: LirFuncId,
+    captures: Vec<LirVar>,
 }
 
 // ── Object layout constants (match runtime/c/flux_rt.h) ──────────────────────
@@ -33,7 +40,7 @@ const ADT_HEADER_SIZE: i32 = 8;
 #[allow(dead_code)]
 const TUPLE_PAYLOAD_OFFSET: i32 = 8;
 
-/// Constructor tag IDs (must match core_to_llvm/codegen/adt.rs and runtime).
+/// Constructor tag IDs (must match llvm/codegen/adt.rs and runtime).
 const SOME_TAG_ID: i64 = 1;
 const LEFT_TAG_ID: i64 = 2;
 const RIGHT_TAG_ID: i64 = 3;
@@ -68,6 +75,73 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     }
 }
 
+fn peel_function_type(ty: &CoreType) -> Option<(&[CoreType], &CoreType)> {
+    match ty {
+        CoreType::Function(params, ret) => Some((params.as_slice(), ret.as_ref())),
+        CoreType::Forall(_, body) => peel_function_type(body),
+        _ => None,
+    }
+}
+
+fn rep_from_semantic_type(ty: Option<&CoreType>) -> FluxRep {
+    ty.map(FluxRep::from_core_type)
+        .unwrap_or(FluxRep::TaggedRep)
+}
+
+fn rep_for_typed_binder(binder: &CoreBinder, ty: Option<&CoreType>) -> FluxRep {
+    ty.map(FluxRep::from_core_type).unwrap_or(binder.rep)
+}
+
+fn result_rep_for_def_expr(expr: &CoreExpr, def_result_ty: Option<&CoreType>) -> FluxRep {
+    match expr {
+        CoreExpr::Lam {
+            result_ty: Some(result_ty),
+            ..
+        } => FluxRep::from_core_type(result_ty),
+        _ => match def_result_ty {
+            Some(def_result_ty) => peel_function_type(def_result_ty)
+                .map(|(_, ret_ty)| FluxRep::from_core_type(ret_ty))
+                .unwrap_or_else(|| FluxRep::from_core_type(def_result_ty)),
+            None => FluxRep::TaggedRep,
+        },
+    }
+}
+
+fn result_rep_for_aether_def_expr(expr: &AetherExpr, def_result_ty: Option<&CoreType>) -> FluxRep {
+    match expr {
+        AetherExpr::Lam {
+            result_ty: Some(result_ty),
+            ..
+        } => FluxRep::from_core_type(result_ty),
+        _ => match def_result_ty {
+            Some(def_result_ty) => peel_function_type(def_result_ty)
+                .map(|(_, ret_ty)| FluxRep::from_core_type(ret_ty))
+                .unwrap_or_else(|| FluxRep::from_core_type(def_result_ty)),
+            None => FluxRep::TaggedRep,
+        },
+    }
+}
+
+fn lambda_result_rep(result_ty: Option<&CoreType>) -> FluxRep {
+    rep_from_semantic_type(result_ty)
+}
+
+fn handler_resume_result_rep(handler: &CoreHandler) -> FluxRep {
+    match handler.resume_ty.as_ref() {
+        Some(CoreType::Function(_, ret_ty)) => FluxRep::from_core_type(ret_ty),
+        Some(other) => FluxRep::from_core_type(other),
+        None => FluxRep::TaggedRep,
+    }
+}
+
+fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
+    match handler.resume_ty.as_ref() {
+        Some(CoreType::Function(_, ret_ty)) => FluxRep::from_core_type(ret_ty),
+        Some(other) => FluxRep::from_core_type(other),
+        None => FluxRep::TaggedRep,
+    }
+}
+
 // ── Qualified name resolution ────────────────────────────────────────────────
 
 /// Walk the `CoreTopLevelItem` tree to build a module-qualified name for each
@@ -89,6 +163,21 @@ fn collect_module_paths(
     entry_qualifier: Option<&str>,
 ) {
     match item {
+        CoreTopLevelItem::Let { name, span, .. } => {
+            let value_name = interner
+                .map(|i| i.resolve(*name).to_string())
+                .unwrap_or_else(|| format!("sym_{}", name.as_u32()));
+            let qualified = if !prefix.is_empty() {
+                let mut parts = prefix.to_vec();
+                parts.push(value_name);
+                parts.join("_")
+            } else if let Some(qual) = entry_qualifier {
+                format!("{qual}_{value_name}")
+            } else {
+                value_name
+            };
+            out.push((*name, qualified.replace('.', "_"), *span));
+        }
         CoreTopLevelItem::Function { name, span, .. } => {
             let func_name = interner
                 .map(|i| i.resolve(*name).to_string())
@@ -254,6 +343,7 @@ fn collect_ctor_tags_inner(
             CoreTopLevelItem::Module { body, .. } => {
                 collect_ctor_tags_inner(body, tags, next_tag, interner);
             }
+            CoreTopLevelItem::Let { .. } => {}
             _ => {}
         }
     }
@@ -281,7 +371,7 @@ pub fn lower_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
+    lower_program_with_interner_and_externs(program, interner, globals_map, None, None, true, None)
 }
 
 pub fn lower_aether_program_with_interner(
@@ -289,7 +379,15 @@ pub fn lower_aether_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_aether_program_with_interner_and_externs(program, interner, globals_map, None, true, None)
+    lower_aether_program_with_interner_and_externs(
+        program,
+        interner,
+        globals_map,
+        None,
+        None,
+        true,
+        None,
+    )
 }
 
 /// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
@@ -299,6 +397,7 @@ pub fn lower_program_with_interner_and_externs(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
     extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
@@ -313,6 +412,11 @@ pub fn lower_program_with_interner_and_externs(
         &mut lir.constructor_tags,
         interner,
     );
+    if let Some(imported) = imported_constructor_tags {
+        for (name, tag) in imported {
+            lir.constructor_tags.entry(name.clone()).or_insert(*tag);
+        }
+    }
 
     // Find the main def — it could be at any position in defs[].
     let main_idx = if emit_main {
@@ -431,6 +535,7 @@ pub fn lower_aether_program_with_interner_and_externs(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
     extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
@@ -439,6 +544,11 @@ pub fn lower_aether_program_with_interner_and_externs(
 
     let qualified_names = build_qualified_names(core, interner, entry_qualifier);
     collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+    if let Some(imported) = imported_constructor_tags {
+        for (name, tag) in imported {
+            lir.constructor_tags.entry(name.clone()).or_insert(*tag);
+        }
+    }
 
     let main_idx = if emit_main {
         if let Some(interner) = interner {
@@ -548,9 +658,9 @@ pub fn lower_aether_program_with_interner_and_externs(
 /// Promote `Call` terminators to `TailCall` where the continuation block
 /// is a trivial return (the call result flows to `Return` with no work).
 ///
-/// Only promotes `CallKind::Direct` and `CallKind::DirectExtern` — indirect
-/// calls through `flux_call_closure` have a different prototype and must not
-/// be marked as tail calls (causes Bus errors on Apple clang).
+/// Only promotes direct-style calls. Indirect calls through
+/// `flux_call_closure` have a different prototype and must not be marked as
+/// tail calls (causes Bus errors on Apple clang).
 fn promote_tail_calls(program: &mut LirProgram) {
     for func in &mut program.functions {
         let num_blocks = func.blocks.len();
@@ -657,7 +767,9 @@ fn promote_tail_calls(program: &mut LirProgram) {
                     && is_return_tail[cont_idx]
                     && matches!(
                         kind,
-                        CallKind::Direct { .. } | CallKind::DirectExtern { .. }
+                        CallKind::Direct { .. }
+                            | CallKind::DirectClosure { .. }
+                            | CallKind::DirectExtern { .. }
                     )
             } else {
                 false
@@ -714,6 +826,10 @@ struct FnLower<'a> {
     /// no captures (top-level function references).  Used to detect known
     /// calls and emit CallKind::Direct.
     direct_func_vars: HashMap<LirVar, LirFuncId>,
+    /// Maps closure vars produced by MakeClosure to a known nested function id
+    /// and the capture vars baked into that closure. Used to bypass closure
+    /// dispatch for local recursive calls on the native path.
+    direct_closure_vars: HashMap<LirVar, KnownClosureTarget>,
     /// Maps CoreBinderId → LirFuncId for top-level functions.
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     /// Maps CoreBinderId → module-qualified name.
@@ -776,6 +892,7 @@ impl<'a> FnLower<'a> {
             extern_symbols: ctx.extern_symbols,
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
+            direct_closure_vars: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
@@ -802,6 +919,29 @@ impl<'a> FnLower<'a> {
     fn resolve_external_symbol(&self, source_name: &str) -> Option<ImportedNativeSymbol> {
         self.extern_symbols
             .and_then(|symbols| symbols.get(source_name).cloned())
+    }
+
+    fn emit_extern_value_getter(&mut self, symbol: String) -> LirVar {
+        let cont_idx = self.new_block();
+        let cont_id = BlockId(cont_idx as u32);
+        let result = self.fresh_var();
+        self.func.blocks[cont_idx].params.push(result);
+
+        let dummy = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: dummy,
+            value: LirConst::None,
+        });
+        self.set_terminator(LirTerminator::Call {
+            dst: result,
+            func: dummy,
+            args: Vec::new(),
+            cont: cont_id,
+            kind: CallKind::DirectExtern { symbol },
+            yield_cont: None,
+        });
+        self.switch_to_block(cont_idx);
+        result
     }
 
     /// In merged native mode, duplicate bare names from different modules can
@@ -1018,6 +1158,11 @@ impl<'a> FnLower<'a> {
                     // Check if this unbound name is a known ADT constructor
                     // (zero-field constructors like Dir.Up appear as unbound Vars).
                     let name = self.resolve_name(var.name);
+                    if let Some(extern_symbol) = self.resolve_external_symbol(&name)
+                        && extern_symbol.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_symbol.symbol);
+                    }
                     if let Some(&ctor_tag) = self.program.constructor_tags.get(&name) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeCtor {
@@ -1124,7 +1269,7 @@ impl<'a> FnLower<'a> {
                 // Phase 1: Pre-assign synthetic func IDs and placeholder functions.
                 let mut temp_program = std::mem::take(&mut *self.program);
 
-                for (var, _) in bindings {
+                for (var, rhs) in bindings {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
@@ -1139,7 +1284,12 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: match rhs.as_ref() {
+                            CoreExpr::Lam { result_ty, .. } => {
+                                lambda_result_rep(result_ty.as_ref())
+                            }
+                            _ => FluxRep::TaggedRep,
+                        },
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     entries.push(GroupEntry {
@@ -1154,6 +1304,8 @@ impl<'a> FnLower<'a> {
                 for (i, (var, rhs)) in bindings.iter().enumerate() {
                     if let CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: lam_body,
                         ..
                     } = rhs.as_ref()
@@ -1202,6 +1354,16 @@ impl<'a> FnLower<'a> {
 
                         if entry.outer_captures.is_empty() {
                             inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        } else {
+                            inner.direct_closure_vars.insert(
+                                self_var,
+                                KnownClosureTarget {
+                                    func_id: entry.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                },
+                            );
                         }
 
                         // Sibling references via MakeClosure to sibling func_id.
@@ -1216,15 +1378,35 @@ impl<'a> FnLower<'a> {
                                         .collect(),
                                 });
                                 inner.bind(entry_j.binder_id, sibling_var);
+                                if !entry.outer_captures.is_empty() {
+                                    inner.direct_closure_vars.insert(
+                                        sibling_var,
+                                        KnownClosureTarget {
+                                            func_id: entry_j.synthetic_id,
+                                            captures: (0..entry.outer_captures.len())
+                                                .map(|ci| inner.func.capture_vars[ci])
+                                                .collect(),
+                                        },
+                                    );
+                                } else {
+                                    inner
+                                        .direct_func_vars
+                                        .insert(sibling_var, entry_j.synthetic_id);
+                                }
                             }
                         }
 
                         // Register parameters.
-                        for param in params {
+                        inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                        for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
                             inner.bind(param.id, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(param.rep);
+                            inner.func.param_reps.push(rep_for_typed_binder(
+                                param,
+                                param_types.get(index).and_then(|ty| ty.as_ref()),
+                            ));
                         }
 
                         // Lower the body.
@@ -1247,12 +1429,24 @@ impl<'a> FnLower<'a> {
                     shared_outer_captures.iter().map(|&(_, v)| v).collect();
                 for entry in &entries {
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars.clone();
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: entry.synthetic_id,
-                        captures: outer_capture_vars.clone(),
+                        captures: captures.clone(),
                     });
                     self.bind(entry.binder_id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: entry.synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, entry.synthetic_id);
+                    }
                 }
 
                 self.lower_expr(body)
@@ -1265,6 +1459,8 @@ impl<'a> FnLower<'a> {
                 // 3. The inner lambda sees itself via its own function index
                 if let CoreExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: lam_body,
                     ..
                 } = rhs.as_ref()
@@ -1294,7 +1490,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
 
@@ -1341,14 +1537,29 @@ impl<'a> FnLower<'a> {
                     // so CallKind::Direct would be a convention mismatch.
                     if outer_captures.is_empty() {
                         inner.direct_func_vars.insert(self_var, synthetic_id);
+                    } else {
+                        inner.direct_closure_vars.insert(
+                            self_var,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures: (0..outer_captures.len())
+                                    .map(|i| inner.func.capture_vars[i])
+                                    .collect(),
+                            },
+                        );
                     }
 
                     // Register parameters.
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
 
                     // Lower the body.
@@ -1364,12 +1575,24 @@ impl<'a> FnLower<'a> {
                     let outer_capture_vars: Vec<LirVar> =
                         outer_captures.iter().map(|&(_, v)| v).collect();
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars;
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: synthetic_id,
-                        captures: outer_capture_vars,
+                        captures: captures.clone(),
                     });
                     self.bind(var.id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, synthetic_id);
+                    }
                     self.lower_expr(body)
                 } else {
                     // Non-lambda letrec (rare): use placeholder approach.
@@ -1385,9 +1608,15 @@ impl<'a> FnLower<'a> {
                 }
             }
 
-            CoreExpr::PrimOp { op, args, .. } => self.lower_primop(*op, args),
+            CoreExpr::PrimOp { op, args, span } => self.lower_primop(*op, args, *span),
 
-            CoreExpr::Lam { params, body, .. } => {
+            CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } => {
                 // Always create a nested LirFunction for lambdas.
                 // Even non-capturing lambdas need to be callable via OpCall.
                 let free = collect_free_vars(expr);
@@ -1431,11 +1660,16 @@ impl<'a> FnLower<'a> {
                     }
 
                     // Register parameters.
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
 
                     // Lower the body in the inner context.
@@ -1568,7 +1802,11 @@ impl<'a> FnLower<'a> {
                     let object_name = self.resolve_name(var.name);
                     let member_name = self.resolve_name(*member);
                     let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
+                        && extern_fn.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
@@ -1579,7 +1817,11 @@ impl<'a> FnLower<'a> {
                     }
                 }
                 let member_name = self.resolve_name(*member);
-                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
+                    && extern_fn.is_value
+                {
+                    return self.emit_extern_value_getter(extern_fn.symbol);
+                } else if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
@@ -1652,7 +1894,13 @@ impl<'a> FnLower<'a> {
                 };
                 self.lower_expr(&core)
             }
-            AetherExpr::Lam { params, body, .. } => {
+            AetherExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                ..
+            } => {
                 let free = crate::aether::free_vars::collect_free_vars_aether(expr);
                 let outer_captures: Vec<(CoreBinderId, LirVar)> = free
                     .iter()
@@ -1686,11 +1934,16 @@ impl<'a> FnLower<'a> {
                         inner.func.capture_vars.push(inner_var);
                         inner.bind(binder_id, inner_var);
                     }
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
                     let result = inner.lower_expr_aether(body);
                     inner.set_terminator(LirTerminator::Return(result));
@@ -1749,7 +2002,7 @@ impl<'a> FnLower<'a> {
                     .collect();
 
                 let mut temp_program = std::mem::take(&mut *self.program);
-                for (var, _) in bindings {
+                for (var, rhs) in bindings {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
@@ -1764,7 +2017,12 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: match rhs.as_ref() {
+                            AetherExpr::Lam { result_ty, .. } => {
+                                lambda_result_rep(result_ty.as_ref())
+                            }
+                            _ => FluxRep::TaggedRep,
+                        },
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     entries.push(GroupEntry {
@@ -1777,6 +2035,8 @@ impl<'a> FnLower<'a> {
                 for (i, (var, rhs)) in bindings.iter().enumerate() {
                     if let AetherExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: lam_body,
                         ..
                     } = rhs.as_ref()
@@ -1819,6 +2079,16 @@ impl<'a> FnLower<'a> {
                         inner.bind(var.id, self_var);
                         if entry.outer_captures.is_empty() {
                             inner.direct_func_vars.insert(self_var, entry.synthetic_id);
+                        } else {
+                            inner.direct_closure_vars.insert(
+                                self_var,
+                                KnownClosureTarget {
+                                    func_id: entry.synthetic_id,
+                                    captures: (0..entry.outer_captures.len())
+                                        .map(|ci| inner.func.capture_vars[ci])
+                                        .collect(),
+                                },
+                            );
                         }
                         for (j, entry_j) in entries.iter().enumerate() {
                             if j != i {
@@ -1831,13 +2101,33 @@ impl<'a> FnLower<'a> {
                                         .collect(),
                                 });
                                 inner.bind(entry_j.binder_id, sibling_var);
+                                if !entry.outer_captures.is_empty() {
+                                    inner.direct_closure_vars.insert(
+                                        sibling_var,
+                                        KnownClosureTarget {
+                                            func_id: entry_j.synthetic_id,
+                                            captures: (0..entry.outer_captures.len())
+                                                .map(|ci| inner.func.capture_vars[ci])
+                                                .collect(),
+                                        },
+                                    );
+                                } else {
+                                    inner
+                                        .direct_func_vars
+                                        .insert(sibling_var, entry_j.synthetic_id);
+                                }
                             }
                         }
-                        for param in params {
+                        inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                        for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
                             inner.bind(param.id, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(param.rep);
+                            inner.func.param_reps.push(rep_for_typed_binder(
+                                param,
+                                param_types.get(index).and_then(|ty| ty.as_ref()),
+                            ));
                         }
                         let result = inner.lower_expr_aether(lam_body);
                         inner.set_terminator(LirTerminator::Return(result));
@@ -1849,18 +2139,32 @@ impl<'a> FnLower<'a> {
                     shared_outer_captures.iter().map(|&(_, v)| v).collect();
                 for entry in &entries {
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars.clone();
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: entry.synthetic_id,
-                        captures: outer_capture_vars.clone(),
+                        captures: captures.clone(),
                     });
                     self.bind(entry.binder_id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: entry.synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, entry.synthetic_id);
+                    }
                 }
                 self.lower_expr_aether(body)
             }
             AetherExpr::LetRec { var, rhs, body, .. } => {
                 if let AetherExpr::Lam {
                     params,
+                    param_types,
+                    result_ty,
                     body: lam_body,
                     ..
                 } = rhs.as_ref()
@@ -1885,7 +2189,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
-                        result_rep: crate::core::FluxRep::TaggedRep,
+                        result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
                     let func_name = format!("letrec_{}", func_idx);
@@ -1921,12 +2225,27 @@ impl<'a> FnLower<'a> {
                     inner.bind(var.id, self_var);
                     if outer_captures.is_empty() {
                         inner.direct_func_vars.insert(self_var, synthetic_id);
+                    } else {
+                        inner.direct_closure_vars.insert(
+                            self_var,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures: (0..outer_captures.len())
+                                    .map(|i| inner.func.capture_vars[i])
+                                    .collect(),
+                            },
+                        );
                     }
-                    for param in params {
+                    inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
+
+                    for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
                         inner.bind(param.id, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(param.rep);
+                        inner.func.param_reps.push(rep_for_typed_binder(
+                            param,
+                            param_types.get(index).and_then(|ty| ty.as_ref()),
+                        ));
                     }
                     let result = inner.lower_expr_aether(lam_body);
                     inner.set_terminator(LirTerminator::Return(result));
@@ -1936,12 +2255,24 @@ impl<'a> FnLower<'a> {
                     let outer_capture_vars: Vec<LirVar> =
                         outer_captures.iter().map(|&(_, v)| v).collect();
                     let dst = self.fresh_var();
+                    let captures = outer_capture_vars;
                     self.emit(LirInstr::MakeClosure {
                         dst,
                         func_id: synthetic_id,
-                        captures: outer_capture_vars,
+                        captures: captures.clone(),
                     });
                     self.bind(var.id, dst);
+                    if !captures.is_empty() {
+                        self.direct_closure_vars.insert(
+                            dst,
+                            KnownClosureTarget {
+                                func_id: synthetic_id,
+                                captures,
+                            },
+                        );
+                    } else {
+                        self.direct_func_vars.insert(dst, synthetic_id);
+                    }
                     self.lower_expr_aether(body)
                 } else {
                     let placeholder = self.fresh_var();
@@ -1955,7 +2286,7 @@ impl<'a> FnLower<'a> {
                     self.lower_expr_aether(body)
                 }
             }
-            AetherExpr::PrimOp { op, args, .. } => self.lower_primop_aether(*op, args),
+            AetherExpr::PrimOp { op, args, span } => self.lower_primop_aether(*op, args, *span),
             AetherExpr::Case {
                 scrutinee, alts, ..
             } => self.lower_case_aether(scrutinee, alts),
@@ -2047,7 +2378,11 @@ impl<'a> FnLower<'a> {
                     let object_name = self.resolve_name(var.name);
                     let member_name = self.resolve_name(*member);
                     let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
+                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
+                        && extern_fn.is_value
+                    {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
@@ -2059,7 +2394,11 @@ impl<'a> FnLower<'a> {
                 }
 
                 let member_name = self.resolve_name(*member);
-                if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
+                if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
+                    && extern_fn.is_value
+                {
+                    return self.emit_extern_value_getter(extern_fn.symbol);
+                } else if let Some(extern_fn) = self.resolve_external_symbol(&member_name) {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
@@ -2592,6 +2931,55 @@ impl<'a> FnLower<'a> {
         }
 
         let func_var = self.lower_expr(func);
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+        if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectClosure {
+                    func_id: target.func_id,
+                    captures: target.captures,
+                },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
                 .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
@@ -2756,6 +3144,51 @@ impl<'a> FnLower<'a> {
         }
 
         let func_var = self.lower_expr_aether(func);
+        if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::Direct { func_id },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+        if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectClosure {
+                    func_id: target.func_id,
+                    captures: target.captures,
+                },
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
                 .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
@@ -2857,12 +3290,21 @@ impl<'a> FnLower<'a> {
         let resume_var = inner.fresh_var();
         inner.bind(handler.resume.id, resume_var);
         inner.func.params.push(resume_var);
+        inner
+            .func
+            .param_reps
+            .push(rep_from_semantic_type(handler.resume_ty.as_ref()));
 
-        for p in &handler.params {
+        for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
             inner.bind(p.id, pv);
             inner.func.params.push(pv);
+            inner.func.param_reps.push(rep_from_semantic_type(
+                handler.param_types.get(index).and_then(|ty| ty.as_ref()),
+            ));
         }
+
+        inner.func.result_rep = handler_resume_result_rep(handler);
 
         // Lower handler body.
         let result = inner.lower_expr(&handler.body);
@@ -2932,12 +3374,21 @@ impl<'a> FnLower<'a> {
         let resume_var = inner.fresh_var();
         inner.bind(handler.resume.id, resume_var);
         inner.func.params.push(resume_var);
+        inner
+            .func
+            .param_reps
+            .push(rep_from_semantic_type(handler.resume_ty.as_ref()));
 
-        for p in &handler.params {
+        for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
             inner.bind(p.id, pv);
             inner.func.params.push(pv);
+            inner.func.param_reps.push(rep_from_semantic_type(
+                handler.param_types.get(index).and_then(|ty| ty.as_ref()),
+            ));
         }
+
+        inner.func.result_rep = aether_handler_resume_result_rep(handler);
 
         let result = inner.lower_expr_aether(&handler.body);
         inner.set_terminator(LirTerminator::Return(result));
@@ -3112,25 +3563,40 @@ impl<'a> FnLower<'a> {
 
     // ── PrimOp lowering ──────────────────────────────────────────────
 
-    fn lower_primop(&mut self, op: CorePrimOp, args: &[CoreExpr]) -> LirVar {
+    fn lower_primop(
+        &mut self,
+        op: CorePrimOp,
+        args: &[CoreExpr],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-        self.lower_primop_from_vars(op, arg_vars)
+        self.lower_primop_from_vars(op, arg_vars, span)
     }
 
-    fn lower_primop_aether(&mut self, op: CorePrimOp, args: &[AetherExpr]) -> LirVar {
+    fn lower_primop_aether(
+        &mut self,
+        op: CorePrimOp,
+        args: &[AetherExpr],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
-        self.lower_primop_from_vars(op, arg_vars)
+        self.lower_primop_from_vars(op, arg_vars, span)
     }
 
-    fn lower_primop_from_vars(&mut self, op: CorePrimOp, arg_vars: Vec<LirVar>) -> LirVar {
+    fn lower_primop_from_vars(
+        &mut self,
+        op: CorePrimOp,
+        arg_vars: Vec<LirVar>,
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         match op {
             // Typed integer arithmetic → inline LIR instructions.
             // Untag operands, compute, retag result.
-            CorePrimOp::IAdd => self.lower_int_binop(LirIntOp::Add, &arg_vars),
-            CorePrimOp::ISub => self.lower_int_binop(LirIntOp::Sub, &arg_vars),
-            CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars),
-            CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars),
-            CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars),
+            CorePrimOp::IAdd => self.lower_int_binop(LirIntOp::Add, &arg_vars, span),
+            CorePrimOp::ISub => self.lower_int_binop(LirIntOp::Sub, &arg_vars, span),
+            CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars, span),
+            CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars, span),
+            CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars, span),
 
             // Typed integer comparisons → inline ICmp.
             CorePrimOp::ICmpEq => self.lower_int_cmp(CmpOp::Eq, &arg_vars),
@@ -3276,35 +3742,35 @@ impl<'a> FnLower<'a> {
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Add, &arg_vars)
+                self.lower_int_binop(LirIntOp::Add, &arg_vars, span)
             }
             CorePrimOp::Sub
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Sub, &arg_vars)
+                self.lower_int_binop(LirIntOp::Sub, &arg_vars, span)
             }
             CorePrimOp::Mul
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Mul, &arg_vars)
+                self.lower_int_binop(LirIntOp::Mul, &arg_vars, span)
             }
             CorePrimOp::Div
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Div, &arg_vars)
+                self.lower_int_binop(LirIntOp::Div, &arg_vars, span)
             }
             CorePrimOp::Mod
                 if arg_vars.len() == 2
                     && self.int_vars.contains(&arg_vars[0])
                     && self.int_vars.contains(&arg_vars[1]) =>
             {
-                self.lower_int_binop(LirIntOp::Rem, &arg_vars)
+                self.lower_int_binop(LirIntOp::Rem, &arg_vars, span)
             }
 
             // Everything else → C runtime call via PrimCall.
@@ -3321,7 +3787,12 @@ impl<'a> FnLower<'a> {
     }
 
     /// Lower typed integer binary op: untag → compute → retag.
-    fn lower_int_binop(&mut self, int_op: LirIntOp, args: &[LirVar]) -> LirVar {
+    fn lower_int_binop(
+        &mut self,
+        int_op: LirIntOp,
+        args: &[LirVar],
+        span: crate::diagnostics::position::Span,
+    ) -> LirVar {
         let a_raw = self.fresh_var();
         let b_raw = self.fresh_var();
         self.emit(LirInstr::UntagInt {
@@ -3354,11 +3825,13 @@ impl<'a> FnLower<'a> {
                 dst: result_raw,
                 a: a_raw,
                 b: b_raw,
+                span,
             },
             LirIntOp::Rem => LirInstr::IRem {
                 dst: result_raw,
                 a: a_raw,
                 b: b_raw,
+                span,
             },
         };
         self.emit(instr);
@@ -4345,20 +4818,24 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     // created when functions escape as values.
 
     // Set result representation from HM-inferred return type.
-    ctx.func.result_rep = def
-        .result_ty
-        .as_ref()
-        .map(crate::core::FluxRep::from_core_type)
-        .unwrap_or(crate::core::FluxRep::TaggedRep);
+    ctx.func.result_rep = result_rep_for_def_expr(&def.expr, def.result_ty.as_ref());
 
     // If the def is a lambda, register its parameters.
     let body = match &def.expr {
-        CoreExpr::Lam { params, body, .. } => {
-            for param in params {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            body,
+            ..
+        } => {
+            for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(param.rep);
+                ctx.func.param_reps.push(rep_for_typed_binder(
+                    param,
+                    param_types.get(index).and_then(|ty| ty.as_ref()),
+                ));
             }
             body.as_ref()
         }
@@ -4397,19 +4874,23 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
         },
     );
 
-    ctx.func.result_rep = def
-        .result_ty
-        .as_ref()
-        .map(crate::core::FluxRep::from_core_type)
-        .unwrap_or(crate::core::FluxRep::TaggedRep);
+    ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
     let body = match &def.expr {
-        AetherExpr::Lam { params, body, .. } => {
-            for param in params {
+        AetherExpr::Lam {
+            params,
+            param_types,
+            body,
+            ..
+        } => {
+            for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
                 ctx.bind(param.id, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(param.rep);
+                ctx.func.param_reps.push(rep_for_typed_binder(
+                    param,
+                    param_types.get(index).and_then(|ty| ty.as_ref()),
+                ));
             }
             body.as_ref()
         }
@@ -4631,8 +5112,8 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::IAdd { dst, a, b } => format!("{dst} = iadd {a}, {b}"),
         LirInstr::ISub { dst, a, b } => format!("{dst} = isub {a}, {b}"),
         LirInstr::IMul { dst, a, b } => format!("{dst} = imul {a}, {b}"),
-        LirInstr::IDiv { dst, a, b } => format!("{dst} = idiv {a}, {b}"),
-        LirInstr::IRem { dst, a, b } => format!("{dst} = irem {a}, {b}"),
+        LirInstr::IDiv { dst, a, b, .. } => format!("{dst} = idiv {a}, {b}"),
+        LirInstr::IRem { dst, a, b, .. } => format!("{dst} = irem {a}, {b}"),
         LirInstr::ICmp { dst, op, a, b } => format!("{dst} = icmp {op} {a}, {b}"),
         LirInstr::PrimCall { dst, op, args } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
@@ -4726,6 +5207,10 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectClosure { func_id, captures } => {
+                    let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
+                    format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
+                }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
@@ -4742,6 +5227,10 @@ fn display_terminator(term: &LirTerminator) -> String {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
                 CallKind::Direct { func_id } => format!(" [direct {}]", func_id),
+                CallKind::DirectClosure { func_id, captures } => {
+                    let caps: Vec<String> = captures.iter().map(|v| format!("{v}")).collect();
+                    format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
+                }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
@@ -4950,10 +5439,14 @@ fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderI
 
 #[cfg(test)]
 mod tests {
-    use super::{build_qualified_names, lir_symbol_name_for_def};
+    use super::{
+        build_qualified_names, lir_symbol_name_for_def, result_rep_for_aether_def_expr,
+        result_rep_for_def_expr,
+    };
+    use crate::aether::AetherExpr;
     use crate::core::{
         CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreTopLevelItem,
-        FluxRep,
+        CoreType, FluxRep,
     };
     use crate::diagnostics::position::{Position, Span};
     use crate::syntax::Identifier;
@@ -5015,6 +5508,63 @@ mod tests {
         assert_eq!(
             lir_symbol_name_for_def(CoreBinderId(2), true, &qualified, "def_2"),
             "expr_2"
+        );
+    }
+
+    #[test]
+    fn top_level_core_function_result_rep_uses_function_return_type() {
+        let span = Span::new(Position::new(1, 1), Position::new(1, 1));
+        let binder = mk_binder(1, Identifier::new(1));
+        let expr = CoreExpr::Lam {
+            params: vec![binder],
+            param_types: vec![Some(CoreType::Int)],
+            result_ty: None,
+            body: Box::new(CoreExpr::Var {
+                var: crate::core::CoreVarRef::resolved(&binder),
+                span,
+            }),
+            span,
+        };
+
+        assert_eq!(
+            result_rep_for_def_expr(
+                &expr,
+                Some(&CoreType::Function(
+                    vec![CoreType::Int],
+                    Box::new(CoreType::Int)
+                ))
+            ),
+            FluxRep::IntRep
+        );
+    }
+
+    #[test]
+    fn top_level_aether_function_result_rep_peels_forall_function_return() {
+        let span = Span::new(Position::new(1, 1), Position::new(1, 1));
+        let binder = mk_binder(1, Identifier::new(1));
+        let expr = AetherExpr::Lam {
+            params: vec![binder],
+            param_types: vec![Some(CoreType::Var(7))],
+            result_ty: None,
+            body: Box::new(AetherExpr::Var {
+                var: crate::core::CoreVarRef::resolved(&binder),
+                span,
+            }),
+            span,
+        };
+
+        assert_eq!(
+            result_rep_for_aether_def_expr(
+                &expr,
+                Some(&CoreType::Forall(
+                    vec![7],
+                    Box::new(CoreType::Function(
+                        vec![CoreType::Var(7)],
+                        Box::new(CoreType::Bool)
+                    ))
+                ))
+            ),
+            FluxRep::BoolRep
         );
     }
 }

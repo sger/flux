@@ -1,5 +1,10 @@
-// Day 6 - Benchmark Part A vs Part B separately
-// Run: cargo run --features jit -- examples/aoc/2024/day06_bench.flx --jit --stats
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
+/*
+Day 6 - Benchmark Part A vs Part B separately
+Run: cargo run --features jit -- examples/aoc/2024/day06_bench.flx --jit --stats
+*/
 
 import Day06Solver as Day06
 

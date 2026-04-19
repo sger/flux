@@ -5,23 +5,22 @@ Fixture: examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E420]: Unresolved Effect Row
+error[E304]: Invalid Effect Row
 
-I cannot determine which effects this call should carry because these effect variables stay ambiguous: e, t.
+Cannot interpret this effect row: `e` and `t` are distinct row variables in the same row.
 
-  examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx:6:5
+  examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx:1:41
   |
-6 |     unresolved_many(1)
-  |     ^^^^^^^^^^^^^^^
-  |     --------------- this call leaves multiple effect variables ambiguous
+1 | fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
+  |                                         ^^^^^^
+  |                                         ------ conflicting row variables in this effect row
 
-  |     --------------- this call to `unresolved_many` creates the effect obligation
+Hint:
+  Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`).
 
-Note:
-  ambiguous effect variables: e, t
-  constraint source: effect-row checking for `unresolved_many`
 
-Help:
-  Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 == stdout ==
 <not executed>

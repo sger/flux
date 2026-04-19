@@ -98,8 +98,16 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             body: Box::new(fuse(*body)),
             span,
         },
-        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+        CoreExpr::Lam {
             params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
             body: Box::new(fuse(*body)),
             span,
         },
@@ -122,6 +130,7 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => CoreExpr::Case {
             scrutinee: Box::new(fuse(*scrutinee)),
@@ -133,6 +142,7 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
                     alt
                 })
                 .collect(),
+            join_ty,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
@@ -399,14 +409,15 @@ mod tests {
     use crate::core::{CoreBinder, CoreBinderId, CoreLit, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
+    use std::borrow::Borrow;
 
     fn binder(interner: &mut Interner, raw: u32, name: &str) -> CoreBinder {
         CoreBinder::new(CoreBinderId(raw), interner.intern(name))
     }
 
-    fn var_expr(binder: CoreBinder) -> CoreExpr {
+    fn var_expr<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
+            var: CoreVarRef::resolved(binder.borrow()),
             span: Span::default(),
         }
     }
@@ -496,12 +507,12 @@ mod tests {
         let tmp = binder(&mut interner, 2, "tmp");
 
         let expr = CoreExpr::Dup {
-            var: CoreVarRef::resolved(h),
+            var: CoreVarRef::resolved(&h),
             body: Box::new(CoreExpr::Let {
                 var: tmp,
                 rhs: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                 body: Box::new(CoreExpr::Drop {
-                    var: CoreVarRef::resolved(h),
+                    var: CoreVarRef::resolved(&h),
                     body: Box::new(var_expr(tmp)),
                     span: Span::default(),
                 }),
@@ -528,12 +539,12 @@ mod tests {
         let tmp = binder(&mut interner, 2, "tmp");
 
         let expr = CoreExpr::Dup {
-            var: CoreVarRef::resolved(h),
+            var: CoreVarRef::resolved(&h),
             body: Box::new(CoreExpr::Let {
                 var: tmp,
                 rhs: Box::new(var_expr(h)),
                 body: Box::new(CoreExpr::Drop {
-                    var: CoreVarRef::resolved(h),
+                    var: CoreVarRef::resolved(&h),
                     body: Box::new(var_expr(tmp)),
                     span: Span::default(),
                 }),

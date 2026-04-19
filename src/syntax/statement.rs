@@ -50,12 +50,14 @@ pub enum FipAnnotation {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let {
+        is_public: bool,
         name: Identifier,
         type_annotation: Option<TypeExpr>,
         value: Expression,
         span: Span,
     },
     LetDestructure {
+        is_public: bool,
         pattern: Pattern,
         value: Expression,
         span: Span,
@@ -219,19 +221,27 @@ impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Statement::Let {
+                is_public,
                 name,
                 type_annotation,
                 value,
                 ..
             } => {
+                let prefix = if *is_public { "public " } else { "" };
                 if let Some(ta) = type_annotation {
-                    write!(f, "let {}: {} = {};", name, ta, value)
+                    write!(f, "{}let {}: {} = {};", prefix, name, ta, value)
                 } else {
-                    write!(f, "let {} = {};", name, value)
+                    write!(f, "{}let {} = {};", prefix, name, value)
                 }
             }
-            Statement::LetDestructure { pattern, value, .. } => {
-                write!(f, "let {} = {};", pattern, value)
+            Statement::LetDestructure {
+                is_public,
+                pattern,
+                value,
+                ..
+            } => {
+                let prefix = if *is_public { "public " } else { "" };
+                write!(f, "{}let {} = {};", prefix, pattern, value)
             }
             Statement::Return { value: Some(v), .. } => {
                 write!(f, "return {};", v)

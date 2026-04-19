@@ -18,7 +18,7 @@
 //!   bits [63:50] = 0x7FFD_  (sign=0, exp=0x7FF, quiet=1, box=1)
 //!   i.e.  0x7FFD_0000_0000_0000
 //!
-//! Any double whose top 14 bits are NOT 0x7FFD is stored as-is (raw f64 bits).
+//! A double whose top 14 bits are NOT 0x7FFD is stored as-is (raw f64 bits).
 //! The canonical IEEE NaN (0x7FF8_0000_0000_0000) is therefore a valid float,
 //! not a NaN-box.
 //!
@@ -105,7 +105,7 @@ mod inner {
         /// `Value::EmptyList`.
         EmptyList = 0x4,
         // 0x5 was BaseFunction (removed). Tag value reserved.
-        /// Trampoline thunk for mutual tail-call optimization (core_to_llvm only).
+        /// Trampoline thunk for mutual tail-call optimization (llvm only).
         /// Payload holds a heap pointer (>> 3) to `{i8 fn_index, i8[3] _pad, i32 nargs, i64 args[]}`.
         Thunk = 0x6,
         /// Heap-allocated `Rc<Value>` for any Value variant not encoded inline.
@@ -355,7 +355,7 @@ mod inner {
                 NanTag::Uninit => Value::Uninit,
                 NanTag::EmptyList => Value::EmptyList,
                 NanTag::Thunk => {
-                    // Thunks are core_to_llvm-only trampoline values. They should
+                    // Thunks are llvm-only trampoline values. They should
                     // never appear in the VM. Treat as None if encountered.
                     Value::None
                 }

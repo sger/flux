@@ -1,8 +1,15 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
 module Day04Solver {
+    // Return the character slice at the given index.
     fn char_at(s: String, idx: Int) -> String {
         substring(s, idx, idx + 1)
     }
 
+    // Return the line at the given index or a default.
     fn line_at(lines: Array<String>, idx: Int) -> String {
         match lines[idx] {
             Some(v) -> v,
@@ -10,10 +17,12 @@ module Day04Solver {
         }
     }
 
+    // Helper for in bounds.
     fn in_bounds(r: Int, c: Int, rows: Int, cols: Int) -> Bool {
         r >= 0 && c >= 0 && r < rows && c < cols
     }
 
+    // Helper for matches word.
     fn matches_word(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int, dr: Int, dc: Int, idx: Int) -> Bool {
         if idx == 4 {
             true
@@ -29,118 +38,126 @@ module Day04Solver {
         }
     }
 
+    // Count dirs.
     fn count_dirs(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int) -> Int {
         // 8 directions: horizontal, vertical, diagonals, and reverse counterparts.
-        count([
-            (0, 1),
-            (0, -1),
-            (1, 0),
-            (-1, 0),
-            (1, 1),
-            (1, -1),
-            (-1, 1),
-            (-1, -1),
-        ], \d -> matches_word(lines, rows, cols, r, c, d.0, d.1, 0))
-    }
-
-    fn count_from_cell(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int) -> Int {
-        if char_at(line_at(lines, r), c) == "X" {
-            count_dirs(lines, rows, cols, r, c)
-        } else {
-            0
+        Array.count([|
+                (0, 1),
+                (0, -1),
+                (1, 0),
+                (-1, 0),
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1),
+            |], \d -> matches_word(lines, rows, cols, r, c, d.0, d.1, 0))
         }
-    }
 
-    fn scan_row(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int, acc: Int) -> Int {
-        if c >= cols {
-            acc
-        } else {
-            scan_row(lines, rows, cols, r, c + 1, acc + count_from_cell(lines, rows, cols, r, c))
-        }
-    }
-
-    fn scan_grid(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
-        if r >= rows {
-            acc
-        } else {
-            scan_grid(lines, rows, cols, r + 1, acc + scan_row(lines, rows, cols, r, 0, 0))
-        }
-    }
-
-    public fn day04a_from_lines(lines: Array<String>) -> Int {
-        if len(lines) == 0 {
-            0
-        } else {
-            let rows = len(lines)
-            let cols = len(line_at(lines, 0))
-            if cols == 0 || rows == 0 {
-                0
+        // Count from cell.
+        fn count_from_cell(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int) -> Int {
+            if char_at(line_at(lines, r), c) == "X" {
+                count_dirs(lines, rows, cols, r, c)
             } else {
-                scan_grid(lines, rows, cols, 0, 0)
+                0
             }
         }
-    }
 
-    public fn day04a_from_memory(memory: String) -> Int {
-        let lines =
-            split(memory, "\n")
-            |> map(\s -> trim(s))
-            |> filter(\s -> s != "")
-        day04a_from_lines(lines)
-    }
-
-    fn is_mas_pair(a: String, b: String) -> Bool {
-        (a == "M" && b == "S") || (a == "S" && b == "M")
-    }
-
-    fn is_x_mas_at(lines: Array<String>, r: Int, c: Int) -> Bool {
-        if char_at(line_at(lines, r), c) != "A" {
-            false
-        } else {
-            let tl = char_at(line_at(lines, r - 1), c - 1)
-            let tr = char_at(line_at(lines, r - 1), c + 1)
-            let bl = char_at(line_at(lines, r + 1), c - 1)
-            let br = char_at(line_at(lines, r + 1), c + 1)
-            is_mas_pair(tl, br) && is_mas_pair(tr, bl)
-        }
-    }
-
-    fn scan_row_x_mas(lines: Array<String>, cols: Int, r: Int, c: Int, acc: Int) -> Int {
-        if c >= cols - 1 {
-            acc
-        } else {
-            let add = if is_x_mas_at(lines, r, c) { 1 } else { 0 }
-            scan_row_x_mas(lines, cols, r, c + 1, acc + add)
-        }
-    }
-
-    fn scan_grid_x_mas(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
-        if r >= rows - 1 {
-            acc
-        } else {
-            scan_grid_x_mas(lines, rows, cols, r + 1, acc + scan_row_x_mas(lines, cols, r, 1, 0))
-        }
-    }
-
-    public fn day04b_from_lines(lines: Array<String>) -> Int {
-        if len(lines) < 3 {
-            0
-        } else {
-            let rows = len(lines)
-            let cols = len(line_at(lines, 0))
-            if cols < 3 {
-                0
+        // Helper for scan row.
+        fn scan_row(lines: Array<String>, rows: Int, cols: Int, r: Int, c: Int, acc: Int) -> Int {
+            if c >= cols {
+                acc
             } else {
-                scan_grid_x_mas(lines, rows, cols, 1, 0)
+                scan_row(lines, rows, cols, r, c + 1, acc + count_from_cell(lines, rows, cols, r, c))
             }
         }
-    }
 
-    public fn day04b_from_memory(memory: String) -> Int {
-        let lines =
+        // Helper for scan grid.
+        fn scan_grid(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
+            if r >= rows {
+                acc
+            } else {
+                scan_grid(lines, rows, cols, r + 1, acc + scan_row(lines, rows, cols, r, 0, 0))
+            }
+        }
+
+        public fn day04a_from_lines(lines: Array<String>) -> Int {
+            if len(lines) == 0 {
+                0
+            } else {
+                let rows = len(lines)
+                let cols = len(line_at(lines, 0))
+                if cols == 0 || rows == 0 {
+                    0
+                } else {
+                    scan_grid(lines, rows, cols, 0, 0)
+                }
+            }
+        }
+
+        public fn day04a_from_memory(memory: String) -> Int {
+            let lines =
             split(memory, "\n")
-            |> map(\s -> trim(s))
-            |> filter(\s -> s != "")
-        day04b_from_lines(lines)
+            |> Array.map(\s -> trim(s))
+            |> Array.filter(\s -> s != "")
+            day04a_from_lines(lines)
+        }
+
+        // Check whether mas pair.
+        fn is_mas_pair(a: String, b: String) -> Bool {
+            (a == "M" && b == "S") || (a == "S" && b == "M")
+        }
+
+        // Check whether x mas at.
+        fn is_x_mas_at(lines: Array<String>, r: Int, c: Int) -> Bool {
+            if char_at(line_at(lines, r), c) != "A" {
+                false
+            } else {
+                let tl = char_at(line_at(lines, r - 1), c - 1)
+                let tr = char_at(line_at(lines, r - 1), c + 1)
+                let bl = char_at(line_at(lines, r + 1), c - 1)
+                let br = char_at(line_at(lines, r + 1), c + 1)
+                is_mas_pair(tl, br) && is_mas_pair(tr, bl)
+            }
+        }
+
+        // Helper for scan row x mas.
+        fn scan_row_x_mas(lines: Array<String>, cols: Int, r: Int, c: Int, acc: Int) -> Int {
+            if c >= cols - 1 {
+                acc
+            } else {
+                let add = if is_x_mas_at(lines, r, c) { 1 } else { 0 }
+                scan_row_x_mas(lines, cols, r, c + 1, acc + add)
+            }
+        }
+
+        // Helper for scan grid x mas.
+        fn scan_grid_x_mas(lines: Array<String>, rows: Int, cols: Int, r: Int, acc: Int) -> Int {
+            if r >= rows - 1 {
+                acc
+            } else {
+                scan_grid_x_mas(lines, rows, cols, r + 1, acc + scan_row_x_mas(lines, cols, r, 1, 0))
+            }
+        }
+
+        public fn day04b_from_lines(lines: Array<String>) -> Int {
+            if len(lines) < 3 {
+                0
+            } else {
+                let rows = len(lines)
+                let cols = len(line_at(lines, 0))
+                if cols < 3 {
+                    0
+                } else {
+                    scan_grid_x_mas(lines, rows, cols, 1, 0)
+                }
+            }
+        }
+
+        public fn day04b_from_memory(memory: String) -> Int {
+            let lines =
+            split(memory, "\n")
+            |> Array.map(\s -> trim(s))
+            |> Array.filter(\s -> s != "")
+            day04b_from_lines(lines)
+        }
     }
-}

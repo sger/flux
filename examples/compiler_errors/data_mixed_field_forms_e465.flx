@@ -1,0 +1,13 @@
+// A `data` type that mixes positional and named-field variants.
+//
+// Expected: E465 Mixed Positional And Named Variants
+//   "Data type `Shape` mixes positional and named-field variants."
+
+data Shape {
+    Circle(Float)
+    Rect { width: Float, height: Float }
+}
+
+fn main() {
+    42
+}
