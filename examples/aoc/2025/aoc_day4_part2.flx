@@ -1,7 +1,15 @@
+// parity-expected-stdout-begin
+// 9194
+// parity-expected-stdout-end
+
 // Advent of Code - Day 4 Part 2 (Printing Department)
 // Input: examples/aoc/2025/aoc_day4.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -76,8 +84,9 @@ fn remove_until_stable(lines, rows, cols, removed_acc) {
 }
 
 let raw_lines = read_lines("examples/aoc/2025/aoc_day4.txt")
-let lines = [line | line <- raw_lines, line != ""]
+let lines = Array.filter(raw_lines, \line -> line != "")
 let rows = len(lines)
 let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
 print(remove_until_stable(lines, rows, cols, 0))
 }
+//

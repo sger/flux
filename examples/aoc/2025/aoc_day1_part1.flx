@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// 1118
+// parity-expected-stdout-end
+
 // Advent of Code - Day 1 (Secret Entrance)
 // Uses input file: examples/aoc/2025/aoc_day1.txt
 
@@ -40,3 +44,4 @@ let steps = [parse_rotation(trim(line)) | line <- lines, trim(line) != ""]
 let password = solve_steps(steps, (50, 0))
 print(password)
 }
+//

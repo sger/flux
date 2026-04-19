@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 1118
+// 6289
+// parity-expected-stdout-end
+
 // Advent of Code - Day 1 (Haskell-style translation)
 // Inspired by mapAccumL/scanl approach from the provided Haskell solution.
 // Uses input file: examples/aoc/2025/aoc_day1.txt
@@ -104,3 +109,4 @@ fn main() with IO, Time {
     print(part_a)
     print(part_b)
 }
+//

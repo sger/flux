@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 4750176210
+// 1574684850
+// parity-expected-stdout-end
+
 // Advent of Code - Day 9 (Haskell-style translation)
 // Inspired by AOC2025.Day09.
 // Uses input file: examples/aoc/2025/aoc_day9.txt
@@ -5,6 +10,8 @@
 // Note: day09a is computed directly.
 // day09b currently mirrors existing Flux Day 9 behavior (`aoc_day9_part2.flx`),
 // where the answer is input-specific and emitted as a constant.
+
+import Flow.Array as Array
 
 fn main() with IO, Time {
     fn line_at(arr, idx) {
@@ -41,7 +48,7 @@ fn main() with IO, Time {
             parse_points(lines, idx + 1, acc)
         } else {
         let nums = split_ints(s, ",")
-        parse_points(lines, idx + 1, push(acc, (int_at(nums, 0), int_at(nums, 1))))
+        parse_points(lines, idx + 1, array_push(acc, (int_at(nums, 0), int_at(nums, 1))))
     }
 }
 }
@@ -87,3 +94,4 @@ let points = parse_points(lines, 0, [||])
 print(day09a(points))
 print(day09b(points))
 }
+//

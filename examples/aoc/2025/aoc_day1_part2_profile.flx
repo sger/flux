@@ -1,5 +1,13 @@
+// parity-expected-stdout-begin
+// "iterations:"
+// 200
+// "checksum:"
+// 1257800
+// parity-expected-stdout-end
+
 // AoC Day 1 Part 2 profiling workload.
 // Runs the solver many times in one process to produce richer profiles.
+//
 
 fn main() with IO, Time {
     fn wrap_100(value) {

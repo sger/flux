@@ -1,6 +1,14 @@
+// parity-expected-stdout-begin
+// 733
+// 290219757077250
+// parity-expected-stdout-end
+
 // Advent of Code - Day 11 (Haskell-style translation)
 // Inspired by AOC2025.Day11 day11a/day11b.
 // Uses input file: examples/aoc/2025/aoc_day11.txt
+
+import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -40,7 +48,7 @@ fn parse_graph(lines, idx, g) {
 } else {
 let name = trim(substring(line, 0, c))
 let outs = split(trim(substring(line, c + 1, len(line))), " ")
-parse_graph(lines, idx + 1, put(g, name, outs))
+parse_graph(lines, idx + 1, Map.set(g, name, outs))
 }
 where line = trim(line_at(lines, idx))
 where c    = find_char_from(line, ":", 0)
@@ -50,7 +58,7 @@ where c    = find_char_from(line, ":", 0)
 // (count, memo) tuple replaces the result/result_count/result_memo helpers.
 // add_to_cache: shared by both paths_to_uncached and paths2_uncached.
 fn add_to_cache(r, key) {
-    (r.0, put(r.1, key, r.0))
+    (r.0, Map.set(r.1, key, r.0))
 }
 
 fn sum_children(outs, i, graph, memo, end_node, acc) {
@@ -63,9 +71,9 @@ fn sum_children(outs, i, graph, memo, end_node, acc) {
 }
 
 fn paths_to_uncached(node, graph, memo, end_node) {
-    match get(graph, node) {
+    match Map.get(graph, node) {
         Some(outs) -> add_to_cache(sum_children(outs, 0, graph, memo, end_node, 0), node),
-        _ -> (0, put(memo, node, 0)),
+        _ -> (0, Map.set(memo, node, 0)),
     }
 }
 
@@ -73,7 +81,7 @@ fn paths_to(node, graph, memo, end_node) {
     if node == end_node {
         (1, memo)
     } else {
-    match get(memo, node) {
+    match Map.get(memo, node) {
         Some(v) -> (v, memo),
         _ -> paths_to_uncached(node, graph, memo, end_node)
     }
@@ -106,9 +114,9 @@ fn sum_children2(outs, i, seen_dac, seen_fft, graph, memo, acc) {
 }
 
 fn paths2_uncached(node, key, seen_dac, seen_fft, graph, memo) {
-    match get(graph, node) {
+    match Map.get(graph, node) {
         Some(outs) -> add_to_cache(sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0), key),
-        _ -> (0, put(memo, key, 0)),
+        _ -> (0, Map.set(memo, key, 0)),
     }
 }
 
@@ -120,7 +128,7 @@ fn paths_to2(node, seen_dac0, seen_fft0, graph, memo) {
     if node == "out" {
         (if sd && sf { 1 } else { 0 }, memo)
     } else {
-    match get(memo, key) {
+    match Map.get(memo, key) {
         Some(v) -> (v, memo),
         _ -> paths2_uncached(node, key, sd, sf, graph, memo)
     }
@@ -137,3 +145,4 @@ let graph = parse_graph(lines, 0, {})
 print(day11a(graph))
 print(day11b(graph))
 }
+//

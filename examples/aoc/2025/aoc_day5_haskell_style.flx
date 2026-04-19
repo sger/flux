@@ -1,8 +1,19 @@
+// parity-expected-stdout-begin
+// 737
+// 357485433193284
+// parity-expected-stdout-end
+
 // Advent of Code - Day 5 (Haskell-style translation)
 // Inspired by AOC2025.Day05 day05a/day05b.
 // Uses input file: examples/aoc/2025/aoc_day5.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -51,7 +62,7 @@ fn parse_ranges(lines, idx, stop, acc) {
     if line == "" {
         parse_ranges(lines, idx + 1, stop, acc)
     } else {
-    parse_ranges(lines, idx + 1, stop, push(acc, parse_range_line(line)))
+    parse_ranges(lines, idx + 1, stop, array_push(acc, parse_range_line(line)))
 }
 }
 }
@@ -64,7 +75,7 @@ fn parse_values(lines, idx, acc) {
     if line == "" {
         parse_values(lines, idx + 1, acc)
     } else {
-    parse_values(lines, idx + 1, push(acc, parse_int(line)))
+    parse_values(lines, idx + 1, array_push(acc, parse_int(line)))
 }
 }
 }
@@ -102,13 +113,13 @@ fn count_members(xs, ranges, idx, acc) {
 
 fn insert_sorted_ranges(sorted, r, idx, acc) {
     if idx >= len(sorted) {
-        push(acc, r)
+        array_push(acc, r)
     } else {
     let cur = tuple_at(sorted, idx)
     if r.0 < cur.0 {
         concat(concat(acc, [|r|]), slice(sorted, idx, len(sorted)))
     } else {
-    insert_sorted_ranges(sorted, r, idx + 1, push(acc, cur))
+    insert_sorted_ranges(sorted, r, idx + 1, array_push(acc, cur))
 }
 }
 }
@@ -160,3 +171,4 @@ let ranges = parsed.0
 print(day05a(parsed))
 print(day05b(ranges))
 }
+//

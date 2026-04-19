@@ -1070,6 +1070,65 @@ fn test_native_aether_bench_reuse_enabled_prints_head_value() {
     );
 }
 
+#[cfg(feature = "llvm")]
+#[test]
+fn test_native_large_list_fold_is_stack_safe() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = write_temp_flux_file(
+        "native_large_list_fold",
+        r#"
+fn main() with IO {
+    let xs = range(1, 100001)
+    let total = fold(xs, 0, \(acc, x) -> acc + x)
+    print(total)
+}
+"#,
+    );
+
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native large list fold to succeed, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("5000050000"),
+        "expected native large list fold result, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_native_aoc_2025_day2_haskell_style_no_longer_crashes() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+
+    let file = example_path("aoc/2025/aoc_day2_haskell_style.flx");
+    let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected native success for aoc_day2_haskell_style, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("54234399924\n70187097315")
+            || text.contains("54234399924\r\n70187097315"),
+        "expected native day2 output, output:\n{}",
+        text
+    );
+}
+
 #[test]
 fn test_aether_bench_reuse_blocked_prints_head_value() {
     let file = example_path("aether/bench_reuse_blocked.flx");

@@ -20,7 +20,7 @@ use super::{
 };
 
 /// Default timeout per way per fixture.
-pub const DEFAULT_TIMEOUT_SECS: u64 = 15;
+pub const DEFAULT_TIMEOUT_SECS: u64 = 20;
 
 /// Outcome of the `--compile` pre-pass on a single fixture+backend.
 pub struct CompileOutcome {

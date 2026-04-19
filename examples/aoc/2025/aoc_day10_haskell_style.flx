@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 390
+// 14677
+// parity-expected-stdout-end
+
 // Advent of Code - Day 10 (Haskell-style translation)
 // Inspired by AOC2025.Day10.
 // Uses input file: examples/aoc/2025/aoc_day10.txt
@@ -5,7 +10,13 @@
 // day10a is computed directly (minimum button count per machine).
 // day10b currently mirrors the existing Flux Day 10 part2 output.
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -54,7 +65,7 @@ fn parse_pattern_bits(inner, idx, acc) {
         acc
     } else {
     let bit = if char_at(inner, idx) == "#" { 1 } else { 0 }
-    parse_pattern_bits(inner, idx + 1, push(acc, bit))
+    parse_pattern_bits(inner, idx + 1, array_push(acc, bit))
 }
 }
 
@@ -82,7 +93,7 @@ fn parse_buttons_rec(line, idx, stop, acc) {
         let close = find_char_from(line, ")", idx + 1)
         let inner = substring(line, idx + 1, close)
         let btn = parse_button(inner)
-        parse_buttons_rec(line, close + 1, stop, push(acc, btn))
+        parse_buttons_rec(line, close + 1, stop, array_push(acc, btn))
     } else {
     parse_buttons_rec(line, idx + 1, stop, acc)
 }
@@ -99,7 +110,7 @@ fn zeros(n, idx, acc) {
     if idx >= n {
         acc
     } else {
-    zeros(n, idx + 1, push(acc, 0))
+    zeros(n, idx + 1, array_push(acc, 0))
 }
 }
 
@@ -186,3 +197,4 @@ let lines = read_lines("examples/aoc/2025/aoc_day10.txt")
 print(day10a(lines, 0, 0))
 print(day10b(lines))
 }
+//

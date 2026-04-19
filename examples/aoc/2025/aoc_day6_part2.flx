@@ -1,7 +1,13 @@
+// parity-expected-stdout-begin
+// 12841228084455
+// parity-expected-stdout-end
+
 // Advent of Code - Day 6 Part 2 (Trash Compactor)
 // Each problem is read right-to-left by columns.
 // In each column, digits are read top-to-bottom to form one number.
 // Input: examples/aoc/2025/aoc_day6.txt
+
+import Flow.Array as Array
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -79,11 +85,10 @@ fn slice_padded(s, start, stop) {
 }
 
 fn col_value(lines, num_rows, col, empty_default) {
-    let digits = [
-    char_at_pad(line_at(lines, row), col)
-    | row <- range(0, num_rows),
-    char_at_pad(line_at(lines, row), col) != " "
-    ]
+    let digits =
+        to_array(range(0, num_rows))
+        |> Array.map(\row -> char_at_pad(line_at(lines, row), col))
+        |> Array.filter(\ch -> ch != " ")
     let joined = trim(join(digits, ""))
     if joined == "" { empty_default } else { parse_int(joined) }
 }
@@ -91,13 +96,13 @@ fn col_value(lines, num_rows, col, empty_default) {
 fn eval_problem(lines, num_rows, start, stop) {
     let op_line = line_at(lines, num_rows)
     let op = trim(slice_padded(op_line, start, stop))
-    let cols = range(start, stop)
+    let cols = to_array(range(start, stop))
     if op == "*" {
-        let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
-        product(factors)
+        let factors = Array.map(cols, \col -> col_value(lines, num_rows, col, 1))
+        Array.product(factors)
     } else {
-    let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
-    sum(terms)
+    let terms = Array.map(cols, \col -> col_value(lines, num_rows, col, 0))
+    Array.sum(terms)
 }
 }
 
@@ -117,3 +122,4 @@ let num_rows = len(lines) - 1
 let width = max_width(lines, 0, 0)
 print(solve_cols(lines, num_rows, width, 0, 0))
 }
+//

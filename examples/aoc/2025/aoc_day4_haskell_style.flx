@@ -1,6 +1,13 @@
+// parity-expected-stdout-begin
+// 1493
+// 9194
+// parity-expected-stdout-end
+
 // Advent of Code - Day 4 (Haskell-style translation)
 // Inspired by AOC2025.Day04 using Set Point semantics.
 // Uses input file: examples/aoc/2025/aoc_day4.txt
+
+import Flow.Map as Map
 
 fn main() with IO, Time {
     fn line_at(lines, idx) {
@@ -49,13 +56,13 @@ fn main() with IO, Time {
 
     fn points_to_set(points, acc) {
         match points {
-            [pt | rest] -> points_to_set(rest, put(acc, point_key(pt), true)),
+            [pt | rest] -> points_to_set(rest, Map.set(acc, point_key(pt), true)),
             _ -> acc
         }
     }
 
     fn has_point(point_set, r, c) {
-        has_key(point_set, to_string(r) + "," + to_string(c))
+        Map.has(point_set, to_string(r) + "," + to_string(c))
     }
 
     fn neighbor_count(point_set, pt) {
@@ -88,7 +95,7 @@ fn main() with IO, Time {
     fn diff_points(points, removed_set, acc) {
         match points {
             [pt | rest] -> do {
-                if has_key(removed_set, point_key(pt)) {
+                if Map.has(removed_set, point_key(pt)) {
                     diff_points(rest, removed_set, acc)
                 } else {
                     diff_points(rest, removed_set, [pt | acc])
@@ -127,8 +134,9 @@ fn main() with IO, Time {
     let lines = read_lines("examples/aoc/2025/aoc_day4.txt")
     let rows = len(lines)
     let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-    let points = collect_points(lines, 0, rows, cols, None)
+    let all_points = collect_points(lines, 0, rows, cols, None)
 
-    print(day04a(points))
-    print(day04b(points))
+    print(day04a(all_points))
+    print(day04b(all_points))
 }
+//

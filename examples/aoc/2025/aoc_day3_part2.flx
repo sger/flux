@@ -1,5 +1,11 @@
+// parity-expected-stdout-begin
+// 169512729575727
+// parity-expected-stdout-end
+
 // Advent of Code - Day 3 Part 2 (Lobby)
 // Input: examples/aoc/2025/aoc_day3.txt
+
+import Flow.Array as Array
 
 fn main() with IO, Time {
     fn digit_at(line, idx) {
@@ -38,7 +44,8 @@ fn bank_value_k12(line) {
 }
 
 let lines = read_lines("examples/aoc/2025/aoc_day3.txt")
-let non_empty = [trim(line) | line <- lines, trim(line) != ""]
-let bank_values = [bank_value_k12(line) | line <- non_empty]
-print(sum(bank_values))
+let non_empty = Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != "")
+let bank_values = Array.map(non_empty, \line -> bank_value_k12(line))
+print(Array.sum(bank_values))
 }
+//

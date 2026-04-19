@@ -57,12 +57,13 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
     let mut collecting_expected_stdout = false;
     let mut expected_stdout_lines: Vec<String> = Vec::new();
 
+    let mut in_header = true;
+
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Stop at the first non-comment, non-empty line
         if !trimmed.is_empty() && !trimmed.starts_with("//") {
-            break;
+            in_header = false;
         }
 
         let Some(comment) = trimmed.strip_prefix("//") else {
@@ -88,6 +89,15 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
         }
         let comment = comment_trimmed;
 
+        if comment == "parity-expected-stdout-begin" || comment == "parity-oracle-stdout-begin" {
+            collecting_expected_stdout = true;
+            continue;
+        }
+
+        if !in_header {
+            continue;
+        }
+
         if let Some(value) = comment.strip_prefix("parity:") {
             let value = value.trim();
             let ways: Vec<Way> = value
@@ -107,10 +117,6 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             };
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
-        } else if comment == "parity-expected-stdout-begin"
-            || comment == "parity-oracle-stdout-begin"
-        {
-            collecting_expected_stdout = true;
         }
     }
 
@@ -166,6 +172,27 @@ mod tests {
         assert_eq!(meta.expect, Expect::Success);
         assert!(meta.bug.is_none());
         assert!(meta.expected_stdout.is_none());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_expected_stdout_block_outside_header() {
+        let dir = std::env::temp_dir().join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_expected_stdout_after_code.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "fn main() {{").unwrap();
+        writeln!(f, "    print(1)").unwrap();
+        writeln!(f, "}}").unwrap();
+        writeln!(f, "// parity-expected-stdout-begin").unwrap();
+        writeln!(f, "// 1").unwrap();
+        writeln!(f, "// parity-expected-stdout-end").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        assert_eq!(meta.expected_stdout.as_deref(), Some("1"));
+        assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
+        assert_eq!(meta.expect, Expect::Success);
 
         let _ = std::fs::remove_file(&path);
     }

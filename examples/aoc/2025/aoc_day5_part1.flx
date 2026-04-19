@@ -1,8 +1,17 @@
+// parity-expected-stdout-begin
+// 737
+// parity-expected-stdout-end
+
 // Advent of Code - Day 5 Part 1 (Cafeteria)
 // Count how many available ingredient IDs are fresh.
 // Input: examples/aoc/2025/aoc_day5.txt
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -78,9 +87,10 @@ fn count_fresh(ids, ranges, idx, acc) {
 
 let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
 let sep = find_blank(lines, 0)
-let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
-let ranges = [parse_range_line(line) | line <- range_lines]
-let id_lines = [trim(line) | line <- slice(lines, sep + 1, len(lines)), trim(line) != ""]
-let ids = [parse_int(line) | line <- id_lines]
+let range_lines = Array.filter(Array.map(slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
+let ranges = Array.map(range_lines, \line -> parse_range_line(line))
+let id_lines = Array.filter(Array.map(slice(lines, sep + 1, len(lines)), \line -> trim(line)), \line -> line != "")
+let ids = Array.map(id_lines, \line -> parse_int(line))
 print(count_fresh(ids, ranges, 0, 0))
 }
+//

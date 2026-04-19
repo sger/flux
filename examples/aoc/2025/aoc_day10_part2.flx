@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// 14677
+// parity-expected-stdout-end
+
 // ============================================================================
 // Advent of Code - Day 10 Part 2 (Factory)
 // ============================================================================
@@ -77,6 +81,7 @@
 // Input: examples/aoc/2025/aoc_day10.txt
 // ============================================================================
 
+import Flow.Array as Array
 
 // ============================================================================
 // Section 1 — Array helpers
@@ -88,6 +93,10 @@
 
 // Get a string element from an array (used for lines of the input file).
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -175,7 +184,7 @@ fn parse_buttons_rec(line, idx, stop, acc) {
         let close = find_char_from(line, ")", idx + 1)
         let inner = substring(line, idx + 1, close)
         let btn = parse_button(inner)
-        parse_buttons_rec(line, close + 1, stop, push(acc, btn))
+        parse_buttons_rec(line, close + 1, stop, array_push(acc, btn))
     } else {
     parse_buttons_rec(line, idx + 1, stop, acc)
 }
@@ -288,7 +297,7 @@ fn row_gcd(row, i, g) {
 // Divide every element of `row` by `d`.
 fn div_row(row, d, i, acc) {
     if i >= len(row) { acc }
-    else { div_row(row, d, i + 1, push(acc, int_at(row, i) / d)) }
+    else { div_row(row, d, i + 1, array_push(acc, int_at(row, i) / d)) }
 }
 
 // Divide all elements of `row` by their GCD to keep numbers small.
@@ -304,7 +313,7 @@ fn normalize_row(row) {
 // after elimination.
 fn negate_row(row, i, acc) {
     if i >= len(row) { acc }
-    else { negate_row(row, i + 1, push(acc, 0 - int_at(row, i))) }
+    else { negate_row(row, i + 1, array_push(acc, 0 - int_at(row, i))) }
 }
 
 // Linear combination of two rows:
@@ -320,7 +329,7 @@ fn combine_rows(a, fa, b, fb, i, acc) {
     if i >= len(a) { acc }
     else {
         let v = int_at(a, i) * fa - int_at(b, i) * fb
-        combine_rows(a, fa, b, fb, i + 1, push(acc, v))
+        combine_rows(a, fa, b, fb, i + 1, array_push(acc, v))
     }
 }
 
@@ -340,10 +349,10 @@ fn combine_rows(a, fa, b, fb, i, acc) {
 // Iterates over button columns 0..nbtn-1, then appends the target value.
 fn build_row(buttons, target, pos, col, nbtn, acc) {
     if col >= nbtn {
-        push(acc, int_at(target, pos))
+        array_push(acc, int_at(target, pos))
     } else {
     let v = if btn_covers(button_at(buttons, col), pos, 0) { 1 } else { 0 }
-    build_row(buttons, target, pos, col + 1, nbtn, push(acc, v))
+    build_row(buttons, target, pos, col + 1, nbtn, array_push(acc, v))
 }
 }
 
@@ -352,7 +361,7 @@ fn build_matrix(buttons, target, pos, npos, nbtn, acc) {
     if pos >= npos { acc }
     else {
         let row = build_row(buttons, target, pos, 0, nbtn, [||])
-        build_matrix(buttons, target, pos + 1, npos, nbtn, push(acc, row))
+        build_matrix(buttons, target, pos + 1, npos, nbtn, array_push(acc, row))
     }
 }
 
@@ -442,7 +451,7 @@ fn ge_step(mat, nrows, nbtn, cur_row, cur_col, pivot_cols) {
     } else {
     let mat2 = swap_rows(mat, cur_row, pr)
     let mat3 = eliminate_col(mat2, cur_row, cur_col, 0, nrows)
-    ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, push(pivot_cols, cur_col))
+    ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, array_push(pivot_cols, cur_col))
 }
 }
 }
@@ -494,7 +503,7 @@ fn get_free_cols(nbtn, pivot_cols, col, acc) {
         if is_pivot_col(pivot_cols, col, 0) {
             get_free_cols(nbtn, pivot_cols, col + 1, acc)
         } else {
-        get_free_cols(nbtn, pivot_cols, col + 1, push(acc, col))
+        get_free_cols(nbtn, pivot_cols, col + 1, array_push(acc, col))
     }
 }
 }
@@ -698,7 +707,7 @@ fn iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v, max_v
             // Every larger v only increases the sum — prune the rest.
             best
         } else {
-        let new_vals = push(free_vals, v)
+        let new_vals = array_push(free_vals, v)
         let sub = search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx + 1, new_vals, best, mt)
         let new_best = if sub < best { sub } else { best }
         iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v + 1, max_v, new_best, mt)
@@ -749,7 +758,8 @@ fn machine_min_presses(line) {
 // ============================================================================
 
 let lines = read_lines("examples/aoc/2025/aoc_day10.txt")
-let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
-let presses = [machine_min_presses(line) | line <- machine_lines]
-print(sum(presses))
+let machine_lines = Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != "")
+let presses = Array.map(machine_lines, \line -> machine_min_presses(line))
+print(Array.sum(presses))
 }
+//

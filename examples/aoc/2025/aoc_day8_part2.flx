@@ -1,11 +1,20 @@
+// parity-expected-stdout-begin
+// 8141888143
+// parity-expected-stdout-end
+
 // Advent of Code - Day 8 Part 2 (Playground)
 // Keep connecting closest unconnected pairs until everything is one circuit.
 // Return X[a] * X[b] for the last successful union edge.
 // Input: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
+import Flow.Map as Map
 
 fn main() with IO, Time {
+    fn push(arr, value) { array_push(arr, value) }
+    fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    fn concat(left, right) { Array.concat(left, right) }
+
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -54,43 +63,43 @@ fn root(parents, x) {
 }
 
 fn dsu_state(parents, sizes, comps, last_a, last_b) {
-    let s1 = put({}, "p", parents)
-    let s2 = put(s1, "sz", sizes)
-    let s3 = put(s2, "c", comps)
-    let s4 = put(s3, "a", last_a)
-    put(s4, "b", last_b)
+    let s1 = Map.set({}, "p", parents)
+    let s2 = Map.set(s1, "sz", sizes)
+    let s3 = Map.set(s2, "c", comps)
+    let s4 = Map.set(s3, "a", last_a)
+    Map.set(s4, "b", last_b)
 }
 
 fn dsu_parents(state) {
-    match get(state, "p") {
+    match Map.get(state, "p") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn dsu_sizes(state) {
-    match get(state, "sz") {
+    match Map.get(state, "sz") {
         Some(v) -> v,
         _ -> [||]
     }
 }
 
 fn dsu_comps(state) {
-    match get(state, "c") {
+    match Map.get(state, "c") {
         Some(v) -> v,
         _ -> 0
     }
 }
 
 fn dsu_last_a(state) {
-    match get(state, "a") {
+    match Map.get(state, "a") {
         Some(v) -> v,
         _ -> -1
     }
 }
 
 fn dsu_last_b(state) {
-    match get(state, "b") {
+    match Map.get(state, "b") {
         Some(v) -> v,
         _ -> -1
     }
@@ -136,7 +145,7 @@ fn run_limit(points, limit) {
     let parents0 = to_array(range(0, n))
     let sizes0 = to_array(map(range(0, n), \_ -> 1))
     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-    fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
+    Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
 }
 
 fn solve_limit(points, limit, max_limit) {
@@ -155,6 +164,9 @@ fn solve_limit(points, limit, max_limit) {
 }
 
 let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
-let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+let points = Array.map(
+    Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != ""),
+    \line -> split_ints(line, ","))
 print(solve_limit(points, 188000000, 40000000000))
 }
+//
