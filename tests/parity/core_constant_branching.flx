@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+
+fn main() with IO {
+    if true {
+        print(1)
+    } else {
+        print(0)
+    }
+
+    match 3 {
+        3 -> print(33)
+        _ -> print(44)
+    }
+}

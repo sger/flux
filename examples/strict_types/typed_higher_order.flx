@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// Typed higher-order functions — passes --strict-types.
+// Typed higher-order functions — passes the default static-typing checks.
 
 fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
 fn compose(f: (Int) -> Int, g: (Int) -> Int, x: Int) -> Int { f(g(x)) }

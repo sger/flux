@@ -1342,6 +1342,7 @@ impl Parser {
 
             let clause_end = self.current_token.end_position;
             bindings.push(Statement::Let {
+                is_public: false,
                 name,
                 type_annotation: None,
                 value,

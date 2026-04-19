@@ -1,17 +1,17 @@
 let answer: Int = 42
-let label: String = "The answer
-let point (Int, Int) = (10, 20)
+let label: String = "The answer"
+let point: (Int, Int) = (10, 20)
 
-fn add(a: Int, b: In) -> Int {
+fn add(a: Int, b: Int) -> Int {
     a + b
 }
 
 fn distance_tag(p: (Int, Int)) -> String {
     let (x, y) = p
-    "Point(#{}, #{y})"
+    "Point(#{x}, #{y})"
 }
 
-fn main() with I {
+fn main() with IO {
     print("#{label}: #{add(answer, 8)}")
     print(distance_tag(point))
-
+}

@@ -101,3 +101,28 @@ fn snapshot_format_lambda() {
     let output = format_source(input);
     assert_snapshot!(output);
 }
+
+#[test]
+fn snapshot_format_multiline_list() {
+    let input = r#"
+let students = [
+make_student("Alice", [92.0, 88.0]),
+make_student("Bob", [78.0, 82.0]),
+]
+"#;
+    let output = format_source(input);
+    assert_snapshot!(output);
+}
+
+#[test]
+fn snapshot_format_multiline_array() {
+    let input = r#"
+let items = [|
+"a",
+"b",
+"c",
+|]
+"#;
+    let output = format_source(input);
+    assert_snapshot!(output);
+}

@@ -1,6 +1,6 @@
 use flux::{
     ast::constant_fold,
-    bytecode::compiler::Compiler,
+    compiler::Compiler,
     syntax::{lexer::Lexer, parser::Parser},
 };
 

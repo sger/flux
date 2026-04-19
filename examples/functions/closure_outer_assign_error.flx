@@ -1,9 +1,10 @@
-  fn main() {
+// expect: compile_error
+fn main() {
     let x = 1;
 
     let f = fn() {
-      x = 2;
+        x = 2;
     };
 
     f();
-  }
+}

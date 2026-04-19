@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// true
+// false
+// true
+// true
+// false
+// true
+// false
+// false
+// true
+// true
+// false
+// parity-expected-stdout-end
+
 fn main() with IO {
     // Test: Comparison operators
     // Expected output:

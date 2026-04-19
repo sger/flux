@@ -1,3 +1,21 @@
+// parity-expected-stdout-begin
+// "== PrimOps: arithmetic + comparison =="
+// 30
+// 17
+// 42
+// 7
+// 2
+// 3.75
+// 3.5
+// 9
+// 4.5
+// true
+// true
+// true
+// true
+// true
+// parity-expected-stdout-end
+
 fn main() with IO {
     print("== PrimOps: arithmetic + comparison ==");
 

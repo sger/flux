@@ -1,0 +1,17 @@
+effect Counter {
+    bump: Int -> Int
+}
+
+fn twice(n) with Counter {
+    perform Counter.bump(n) + perform Counter.bump(n)
+}
+
+fn run_twice(n) {
+    twice(n) handle Counter {
+        bump(resume, x) -> resume(x + 1)
+    }
+}
+
+fn main() with IO {
+    print(run_twice(2))
+}

@@ -1,37 +1,30 @@
 // End-to-end type class dispatch test.
-// Verifies that class declarations + instance methods compile
+// Verifies that built-in class instances compile
 // and dispatch correctly through the VM pipeline.
-
-class Show<a> {
-    fn show(x: a) -> String
-}
 
 instance Show<Int> {
     fn show(x) { to_string(x) }
 }
 
-class Num<a> {
-    fn add(x: a, y: a) -> a
-    fn mul(x: a, y: a) -> a
-}
-
 instance Num<Int> {
     fn add(x, y) { x + y }
+    fn sub(x, y) { x - y }
     fn mul(x, y) { x * y }
-}
-
-class Eq<a> {
-    fn eq(x: a, y: a) -> Bool
+    fn div(x, y) { x / y }
 }
 
 instance Eq<Int> {
     fn eq(x, y) { x == y }
+    fn neq(x, y) { x != y }
 }
 
 fn main() with IO {
     print(show(42))
     print(add(10, 20))
     print(mul(3, 7))
+    print(div(84, 2))
     print(eq(1, 1))
     print(eq(1, 2))
+    print(neq(1, 1))
+    print(neq(1, 2))
 }

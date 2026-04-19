@@ -1,8 +1,15 @@
-// Advent of Code - Day 2 Part 2 (Gift Shop)
-// Uses input file: examples/aoc/2025/aoc_day2.txt
+// parity-expected-stdout-begin
+// 70187097315
+// parity-expected-stdout-end
+
+/*
+Advent of Code - Day 2 Part 2 (Gift Shop)
+Uses input file: examples/aoc/2025/aoc_day2.txt
+*/
 
 import Day2Part2 as Day2
 
+// Program entry point.
 fn main() with IO, Time {
     print(Day2.solve_file("examples/aoc/2025/aoc_day2.txt"))
 }

@@ -116,6 +116,28 @@ pub enum Pattern {
         /// Source span covering the full constructor pattern.
         span: Span,
     },
+    /// Named-field constructor pattern: `Point { x, y: inner }` (proposal 0152).
+    ///
+    /// `rest` is `true` when the pattern ends with `..`, allowing the
+    /// unmentioned fields to be skipped.
+    NamedConstructor {
+        name: Identifier,
+        fields: Vec<NamedFieldPattern>,
+        rest: bool,
+        span: Span,
+    },
+}
+
+/// One field in a named-field pattern.
+///
+/// `pattern: None` encodes pattern punning — `Point { x }` binds a fresh
+/// variable `x` to the `x` field. `pattern: Some(p)` is the explicit form
+/// `Point { x: p }`.
+#[derive(Debug, Clone)]
+pub struct NamedFieldPattern {
+    pub name: Identifier,
+    pub pattern: Option<Pattern>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -310,6 +332,32 @@ pub enum Expression {
         span: Span,
         id: ExprId,
     },
+    /// `Variant { field: value, ... }` — named-field constructor call (proposal 0152).
+    NamedConstructor {
+        name: Identifier,
+        fields: Vec<NamedFieldInit>,
+        span: Span,
+        id: ExprId,
+    },
+    /// `{ ...base, field: value, ... }` — functional update spread (proposal 0152).
+    Spread {
+        base: Box<Expression>,
+        overrides: Vec<NamedFieldInit>,
+        span: Span,
+        id: ExprId,
+    },
+}
+
+/// One field in a named-field constructor or spread override.
+///
+/// `value: None` encodes field punning — `Point { x }` is shorthand for
+/// `Point { x: x }` and must be resolved against an in-scope variable named
+/// `x` during type inference.
+#[derive(Debug, Clone)]
+pub struct NamedFieldInit {
+    pub name: Identifier,
+    pub value: Option<Box<Expression>>,
+    pub span: Span,
 }
 
 impl fmt::Display for Expression {
@@ -494,6 +542,31 @@ impl fmt::Display for Expression {
                 }
                 write!(f, " }}")
             }
+            Expression::NamedConstructor { name, fields, .. } => {
+                write!(f, "{} {{", name)?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    match &field.value {
+                        Some(v) => write!(f, " {}: {}", field.name, v)?,
+                        None => write!(f, " {}", field.name)?,
+                    }
+                }
+                write!(f, " }}")
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                write!(f, "{{ ...{}", base)?;
+                for field in overrides {
+                    match &field.value {
+                        Some(v) => write!(f, ", {}: {}", field.name, v)?,
+                        None => write!(f, ", {}", field.name)?,
+                    }
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -529,7 +602,9 @@ impl Expression {
             | Expression::Right { id, .. }
             | Expression::Cons { id, .. }
             | Expression::Perform { id, .. }
-            | Expression::Handle { id, .. } => *id,
+            | Expression::Handle { id, .. }
+            | Expression::NamedConstructor { id, .. }
+            | Expression::Spread { id, .. } => *id,
         }
     }
 
@@ -563,6 +638,8 @@ impl Expression {
             Expression::Cons { span, .. } => *span,
             Expression::Perform { span, .. } => *span,
             Expression::Handle { span, .. } => *span,
+            Expression::NamedConstructor { span, .. } => *span,
+            Expression::Spread { span, .. } => *span,
         }
     }
 }
@@ -801,6 +878,41 @@ impl Expression {
                 out.push_str(" }");
                 out
             }
+            Expression::NamedConstructor { name, fields, .. } => {
+                let mut out = format!("{} {{", interner.resolve(*name));
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    match &field.value {
+                        Some(v) => out.push_str(&format!(
+                            " {}: {}",
+                            interner.resolve(field.name),
+                            v.display_with(interner)
+                        )),
+                        None => out.push_str(&format!(" {}", interner.resolve(field.name))),
+                    }
+                }
+                out.push_str(" }");
+                out
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                let mut out = format!("{{ ...{}", base.display_with(interner));
+                for field in overrides {
+                    match &field.value {
+                        Some(v) => out.push_str(&format!(
+                            ", {}: {}",
+                            interner.resolve(field.name),
+                            v.display_with(interner)
+                        )),
+                        None => out.push_str(&format!(", {}", interner.resolve(field.name))),
+                    }
+                }
+                out.push_str(" }");
+                out
+            }
         }
     }
 }
@@ -847,6 +959,23 @@ impl Pattern {
                     format!("{}({})", interner.resolve(*name), fs.join(", "))
                 }
             }
+            Pattern::NamedConstructor {
+                name, fields, rest, ..
+            } => {
+                let mut parts: Vec<String> = fields
+                    .iter()
+                    .map(|f| match &f.pattern {
+                        Some(p) => {
+                            format!("{}: {}", interner.resolve(f.name), p.display_with(interner))
+                        }
+                        None => interner.resolve(f.name).to_string(),
+                    })
+                    .collect();
+                if *rest {
+                    parts.push("..".to_string());
+                }
+                format!("{} {{ {} }}", interner.resolve(*name), parts.join(", "))
+            }
         }
     }
 }
@@ -879,6 +1008,21 @@ impl fmt::Display for Pattern {
                     write!(f, "{}({})", name, fs.join(", "))
                 }
             }
+            Pattern::NamedConstructor {
+                name, fields, rest, ..
+            } => {
+                let mut parts: Vec<String> = fields
+                    .iter()
+                    .map(|fld| match &fld.pattern {
+                        Some(p) => format!("{}: {}", fld.name, p),
+                        None => format!("{}", fld.name),
+                    })
+                    .collect();
+                if *rest {
+                    parts.push("..".to_string());
+                }
+                write!(f, "{} {{ {} }}", name, parts.join(", "))
+            }
         }
     }
 }
@@ -894,7 +1038,8 @@ impl Pattern {
             | Pattern::Left { span, .. }
             | Pattern::Right { span, .. }
             | Pattern::Tuple { span, .. }
-            | Pattern::Constructor { span, .. } => *span,
+            | Pattern::Constructor { span, .. }
+            | Pattern::NamedConstructor { span, .. } => *span,
             Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }

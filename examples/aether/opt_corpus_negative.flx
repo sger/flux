@@ -1,19 +1,30 @@
-// Canonical Aether negative optimization corpus.
-// This maintained fixture records intentionally conservative shapes:
-// - token-touching precompute keeps plain `Reuse` disabled
-// - borrowed-only traversal stays non-reusing
-// - fresh rebuild remains fresh when no exact reuse proof exists
-// - forwarding near-miss stays fresh when two wrapper fields compete for the
-//   same child token
+/*
+Canonical Aether negative optimization corpus.
+This maintained fixture records intentionally conservative shapes:
+- token-touching precompute keeps plain `Reuse` disabled
+- borrowed-only traversal stays non-reusing
+- fresh rebuild remains fresh when no exact reuse proof exists
+- forwarding near-miss stays fresh when two wrapper fields compete for the
+same child token
+*/
+
+// parity-expected-stdout-begin
+// [1, 2, 3]
+// 3
+// Node(Black, Leaf, 0, Leaf)
+// Pair2([1, 10, 20], [1, 10, 20])
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 type Pair2<T> = Pair2(T, T)
 
+// Helper for touch token.
 fn touch_token(token, value) {
     value
 }
 
+// Helper for blocked list.
 fn blocked_list(xs) {
     match xs {
         [h | t] -> [touch_token(xs, h) | t],
@@ -21,6 +32,7 @@ fn blocked_list(xs) {
     }
 }
 
+// Helper for borrowed len.
 fn borrowed_len(xs) {
     match xs {
         [_ | t] -> 1 + borrowed_len(t),
@@ -28,6 +40,7 @@ fn borrowed_len(xs) {
     }
 }
 
+// Helper for fresh tree.
 fn fresh_tree(t) {
     match t {
         Node(_, left, _, right) -> Node(Black, left, 0, right),
@@ -35,6 +48,7 @@ fn fresh_tree(t) {
     }
 }
 
+// Helper for forwarded child near miss.
 fn forwarded_child_near_miss(xs, acc) {
     match xs {
         [y | ys] -> Pair2([y | acc], [y | acc]),
@@ -42,6 +56,7 @@ fn forwarded_child_near_miss(xs, acc) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let xs = [1, 2, 3]
     let tree = Node(Red, Leaf, 5, Leaf)

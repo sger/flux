@@ -1,3 +1,5 @@
+// expect: compile_error
+//
 let b = true
 
 match b {

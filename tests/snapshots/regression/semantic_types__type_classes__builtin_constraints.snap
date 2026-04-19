@@ -1,0 +1,16 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/semantic_types/type_classes/builtin_constraints.flx
+exit_code: 0
+
+true
+42
+[1 of 7] Compiling  Assert
+[2 of 7] Compiling  IO
+[3 of 7] Compiling  List
+[4 of 7] Compiling  Numeric
+[5 of 7] Compiling  Option
+[6 of 7] Compiling  String
+[7 of 7] Compiling  builtin_constraints
+[cfg→vm] Running via CFG → bytecode VM backend...

@@ -111,7 +111,7 @@ Maintained RC backends lower from `AetherProgram`:
 
 - native path:
   - `src/lir/lower.rs`
-  - `src/core_to_llvm/`
+  - `src/llvm/`
 
 This means backend lowering must not:
 - look for Aether nodes in `CoreExpr`

@@ -1,3 +1,18 @@
+// parity-expected-stdout-begin
+// "== PrimOps: maps =="
+// true
+// true
+// Some("flux")
+// [|"name", "year"|]
+// true
+// true
+// {"name": "flux"}
+// {"lang": "en", "name": "flux", "year": 2026}
+// true
+// Some("flux")
+// Some("dsl")
+// parity-expected-stdout-end
+
 import Flow.Map as Map
 import Flow.Array as Array
 

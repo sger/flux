@@ -21,19 +21,31 @@ Source
   -> core/          (canonical semantic IR)
   -> aether/        (backend-only ownership/reuse lowering product)
 
+Compiler infrastructure (format-neutral, used by both backends):
+  -> compiler/      (pipeline, bindings, symbol tables, module linker)
+
 Production backend path:
   -> cfg/           (backend-neutral CFG IR)
-  -> bytecode/      (VM compiler + VM runtime)
+  -> bytecode/      (narrow bytecode format: OpCode, Bytecode, cache)
+  -> vm/            (stack-based VM)
 
 Native backend path:
   -> lir/           (native-only low-level IR)
-  -> core_to_llvm/  (LLVM IR + native compilation pipeline)
+  -> llvm/          (LLVM IR + native compilation pipeline)
+```
+
+Dependency DAG between the three split modules:
+
+```text
+compiler/ ──produces──▶ bytecode/ ◀──consumes── vm/
+                            ▲
+llvm/ ──consumes CFG/Core from compiler/ (no bytecode/ edge)
 ```
 
 The key boundaries are:
 
 ```text
-AST -> Core -> Aether -> cfg -> bytecode/VM
+AST -> Core -> Aether -> cfg -> compiler -> bytecode -> VM
 AST -> Core -> Aether -> lir -> LLVM/native
 ```
 
@@ -46,11 +58,11 @@ There are three high-value orchestration entrypoints in the current codebase:
 | Entry point | Path | Responsibility |
 |---|---|---|
 | CLI orchestration | `src/main.rs` | Parse flags, load modules, select VM vs native path, emit dumps |
-| VM compiler driver | `src/bytecode/compiler/pipeline.rs` | Run the staged compiler pipeline ending in bytecode |
+| VM compiler driver | `src/compiler/pipeline.rs` | Run the staged compiler pipeline ending in bytecode |
 | Semantic backend lowering | `src/cfg/mod.rs` | Build Core, run Core+Aether, lower to CFG IR |
 
 For the native backend, the CLI calls native-specific helpers on
-`bytecode::compiler::Compiler`, especially:
+`compiler::Compiler`, especially:
 - `infer_expr_types_for_program`
 - `dump_lir`
 - `lower_to_lir_llvm_module`
@@ -61,6 +73,10 @@ For the native backend, the CLI calls native-specific helpers on
 - `src/core/` is the only semantic IR.
 - `src/cfg/` is the backend IR for the VM-oriented production pipeline.
 - `src/lir/` is a separate native backend IR used only for the LLVM/native path.
+- `src/compiler/`, `src/bytecode/`, and `src/vm/` are three separate top-level
+  modules with a one-way DAG: `compiler/` produces `bytecode/`, `vm/` consumes
+  `bytecode/`, and `llvm/` never touches `bytecode/`. `bytecode/` is a narrow
+  leaf (format + cache) and must not gain compile-time or execution logic.
 - `structured_ir` is retired and should not be reintroduced into production paths.
 - Aether is not a second semantic IR. It is a backend-only lowering product
   derived from Core for maintained RC backends.
@@ -75,9 +91,11 @@ For the native backend, the CLI calls native-specific helpers on
 | Semantic IR | `src/core/` | Core IR, AST lowering, Core passes, Core->CFG lowering support |
 | Ownership pass | `src/aether/` | Borrow inference, dup/drop insertion, reuse, drop specialization, FBIP checks |
 | Production backend IR | `src/cfg/` | CFG IR plus CFG passes and validation |
-| VM compiler/runtime | `src/bytecode/` | Bytecode compiler, cache, opcodes, VM |
+| Compiler infrastructure | `src/compiler/` | Compiler pipeline, bindings, symbol tables, module linker, class dispatch — format-neutral, consumed by both backends |
+| Bytecode format | `src/bytecode/` | Bytecode struct, opcodes, debug info, `.fxc` cache — narrow leaf module |
+| VM backend | `src/vm/` | Stack-based VM: dispatch, primops, profiling, test runner |
 | Native backend IR | `src/lir/` | Low-level native IR and LLVM emission bridge |
-| LLVM backend | `src/core_to_llvm/` | LLVM IR model, rendering, codegen prelude, binary pipeline |
+| LLVM backend | `src/llvm/` | LLVM IR model, rendering, codegen prelude, binary pipeline |
 | Runtime | `src/runtime/` | Shared runtime values and helpers |
 | Shared IDs | `src/shared_ir/` | Shared identifier/plumbing types for backend layers |
 | Diagnostics | `src/diagnostics/` | Error/warning model and rendering |
@@ -99,6 +117,7 @@ Primary frontend components:
 
 Flux still uses AST-level helper passes before Core lowering in a few places:
 - `desugar`
+- `desugar_named_fields` — proposal 0152 named-field rewriter (see below)
 - `constant_fold_with_interner`
 - `rename`
 - `collect_free_vars_in_program`
@@ -126,6 +145,31 @@ families:
 - Core lowering uses it for type-directed Core construction
 - the VM path carries it into `cfg::IrProgram`
 - the native path reuses it before Core -> LIR lowering
+
+### 3a. Named-field registries (proposal 0152)
+
+Collection phase populates two structures alongside the existing ADT
+machinery:
+
+- `compiler::adt_registry::AdtRegistry` — constructor arity + `FluxRep`s.
+- `compiler::field_registry::FieldRegistry` — per-variant named-field
+  layout (`variant → Vec<FieldInfo>`), a per-ADT common-field view (fields
+  whose name and type appear in every variant), and a list of divergent
+  shared names for E467 reporting.
+
+Both registries are read-only after Phase 1. HM inference extends
+`AdtConstructorTypeInfo` with `field_names: Option<Vec<Identifier>>` and
+consults it to reorder named-constructor arguments, resolve dot access,
+and type-check spreads and named patterns.
+
+After HM, `ast::desugar_named_fields::desugar_named_fields_in_program`
+rewrites every `Expression::NamedConstructor`, `Expression::Spread`, and
+`Pattern::NamedConstructor` into its classic positional form (named
+constructors become `Call(Ident, ...)`, spread becomes a
+`Match(base, [Variant(...) -> Variant(...)])`, and field-dot access
+becomes a `Match(obj, [Variant(...) -> field_binder])`). Downstream
+stages — Core lowering, Aether RC, CFG, LLVM — see only positional AST
+nodes, so proposal 0152 required zero changes below the AST.
 
 ## Canonical Semantic Pipeline
 
@@ -233,7 +277,7 @@ control-flow cleanup and low-level optimization on the VM path.
 
 ### Bytecode compiler
 
-`src/bytecode/compiler/` owns the VM compilation pipeline. The main staged flow
+`src/compiler/` owns the VM compilation pipeline. The main staged flow
 is:
 
 ```text
@@ -246,7 +290,7 @@ collection
 ```
 
 The pass driver lives in:
-- `src/bytecode/compiler/pipeline.rs`
+- `src/compiler/pipeline.rs`
 
 The concrete driver is `Compiler::run_pipeline()`.
 
@@ -278,7 +322,7 @@ finalization even though CFG IR is the production backend IR boundary.
 
 ### VM runtime
 
-`src/bytecode/vm/` executes the bytecode with a stack-based VM.
+`src/vm/` executes the bytecode with a stack-based VM.
 
 Associated pieces:
 - bytecode cache: `src/bytecode/bytecode_cache/`
@@ -287,7 +331,7 @@ Associated pieces:
 
 ## Native Backend Path: Core -> LIR -> LLVM -> Native
 
-This path is selected by `--native` / `--core-to-llvm`.
+This path is selected by `--native` / `--native`.
 
 Unlike the VM path, the native path does not go through `cfg::IrProgram`.
 
@@ -323,7 +367,7 @@ CFG instead.
 ### LLVM IR generation
 
 `Compiler::lower_to_lir_llvm_module()` in
-`src/bytecode/compiler/mod.rs` performs:
+`src/compiler/mod.rs` performs:
 
 ```text
 Program
@@ -333,28 +377,28 @@ Program
   -> LLVM module emission
 ```
 
-Then `src/core_to_llvm/` provides:
+Then `src/llvm/` provides:
 - LLVM IR data model
 - textual rendering
 - runtime/helper prelude generation
 - object/binary compilation pipeline
 
 Important pieces:
-- `src/core_to_llvm/ir/`
-- `src/core_to_llvm/codegen/`
-- `src/core_to_llvm/pipeline.rs`
+- `src/llvm/ir/`
+- `src/llvm/codegen/`
+- `src/llvm/pipeline.rs`
 
 The LLVM backend in this repo is split in two layers:
 - `lir/emit_llvm.rs` translates LIR to the internal LLVM module model
-- `core_to_llvm/` owns the LLVM IR model, rendering, prelude/runtime helpers,
+- `llvm/` owns the LLVM IR model, rendering, prelude/runtime helpers,
   target data, and the external compile/link pipeline
 
 ### Native compilation pipeline
 
 `src/main.rs` uses:
 - `Compiler::lower_to_lir_llvm_module()`
-- `core_to_llvm::render_module()`
-- `core_to_llvm::pipeline::{compile_and_run, compile_to_binary}`
+- `llvm::render_module()`
+- `llvm::pipeline::{compile_and_run, compile_to_binary}`
 
 to emit LLVM IR text, build binaries, or run the produced native executable.
 
@@ -435,13 +479,13 @@ When debugging semantics, `--dump-core` is the first canonical surface.
 When orienting inside the compiler, the fastest route is:
 
 1. `src/main.rs`
-2. `src/bytecode/compiler/pipeline.rs`
+2. `src/compiler/pipeline.rs`
 3. `src/cfg/mod.rs`
 4. `src/core/lower_ast/mod.rs`
 5. `src/core/passes/mod.rs`
 6. `src/aether/`
 7. `src/lir/lower.rs`
-8. `src/core_to_llvm/pipeline.rs`
+8. `src/llvm/pipeline.rs`
 
 ## Practical Mental Model
 

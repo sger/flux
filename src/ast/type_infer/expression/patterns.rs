@@ -1,4 +1,9 @@
-use crate::syntax::expression::Pattern;
+use crate::{
+    diagnostics::compiler_errors::{
+        NAMED_FIELD_DUPLICATE, NAMED_FIELD_MISSING, NAMED_FIELD_UNKNOWN,
+    },
+    syntax::expression::{NamedFieldPattern, Pattern},
+};
 
 use super::*;
 
@@ -70,6 +75,19 @@ impl<'a> InferCtx<'a> {
             Pattern::Constructor { fields, .. } => {
                 self.bind_constructor_pattern_variables(pattern, fields, &resolved_scrutinee, span)
             }
+            Pattern::NamedConstructor {
+                name,
+                fields,
+                rest,
+                span: pat_span,
+                ..
+            } => self.bind_named_constructor_pattern(
+                *name,
+                fields,
+                *rest,
+                &resolved_scrutinee,
+                *pat_span,
+            ),
         }
     }
 
@@ -180,7 +198,7 @@ impl<'a> InferCtx<'a> {
             return;
         }
 
-        if Self::is_concrete_non_any(resolved_scrutinee) {
+        if Self::is_fully_concrete(resolved_scrutinee) {
             let expected = self.display_type(&tuple_shape.apply_type_subst(&self.subst));
             let actual = self.display_type(resolved_scrutinee);
             self.errors.push(type_unification_error(
@@ -191,7 +209,7 @@ impl<'a> InferCtx<'a> {
             ));
         }
         for elem in elements {
-            let fallback = self.env.alloc_infer_type_var();
+            let fallback = self.alloc_fallback_var();
             self.bind_pattern_variables(elem, &fallback, span);
         }
     }
@@ -214,13 +232,143 @@ impl<'a> InferCtx<'a> {
                 }
             } else {
                 for field in fields {
-                    self.bind_pattern_variables(field, &InferType::Con(TypeConstructor::Any), span);
+                    let fallback = self.alloc_fallback_var();
+                    self.bind_pattern_variables(field, &fallback, span);
                 }
             }
             return;
         }
         for field in fields {
-            self.bind_pattern_variables(field, &InferType::Con(TypeConstructor::Any), span);
+            let fallback = self.alloc_fallback_var();
+            self.bind_pattern_variables(field, &fallback, span);
+        }
+    }
+
+    /// Bind variables introduced by a named-field constructor pattern
+    /// (Proposal 0152). Reorders fields into positional order against the
+    /// variant's declared field list and dispatches to the ordinary
+    /// constructor-pattern binding path.
+    fn bind_named_constructor_pattern(
+        &mut self,
+        name: Identifier,
+        fields: &[NamedFieldPattern],
+        rest: bool,
+        resolved_scrutinee: &InferType,
+        span: Span,
+    ) {
+        let Some(info) = self.adt_constructor_types.get(&name).cloned() else {
+            self.bind_named_pattern_fallback(fields, span);
+            return;
+        };
+        let Some(field_names) = info.field_names.clone() else {
+            if let Some(first) = fields.first() {
+                self.emit_field_diag(
+                    &NAMED_FIELD_UNKNOWN,
+                    first.span,
+                    format!(
+                        "Constructor `{}` was declared with positional fields; \
+                         named-field patterns are not allowed.",
+                        self.interner.resolve(name)
+                    ),
+                );
+            }
+            self.bind_named_pattern_fallback(fields, span);
+            return;
+        };
+        let Some((param_tys, result_ty)) = self.instantiate_constructor_parts(name) else {
+            return;
+        };
+        self.unify_reporting(resolved_scrutinee, &result_ty, span);
+        let by_index = self.bucket_named_pattern_fields(name, fields, &field_names);
+        if !rest {
+            self.check_named_pattern_missing(name, &field_names, &by_index, span);
+        }
+        for (idx, slot) in by_index.iter().enumerate() {
+            let Some(f) = slot else { continue };
+            let field_ty = param_tys[idx].apply_type_subst(&self.subst);
+            match &f.pattern {
+                Some(pat) => self.bind_pattern_variables(pat, &field_ty, f.span),
+                None => {
+                    self.env.bind(f.name, Scheme::mono(field_ty));
+                }
+            }
+        }
+    }
+
+    /// Recovery path: bind each field as a fresh fallback variable when the
+    /// enclosing variant cannot be resolved. Keeps downstream inference total.
+    fn bind_named_pattern_fallback(&mut self, fields: &[NamedFieldPattern], span: Span) {
+        for f in fields {
+            let fallback = self.alloc_fallback_var();
+            if let Some(pat) = &f.pattern {
+                self.bind_pattern_variables(pat, &fallback, span);
+            } else {
+                self.env.bind(f.name, Scheme::mono(fallback));
+            }
+        }
+    }
+
+    /// Map pattern fields to their positional indices against the variant's
+    /// declared field list, emitting E461 for unknown fields and E462 for
+    /// duplicates.
+    fn bucket_named_pattern_fields<'f>(
+        &mut self,
+        name: Identifier,
+        fields: &'f [NamedFieldPattern],
+        field_names: &[Identifier],
+    ) -> Vec<Option<&'f NamedFieldPattern>> {
+        let mut seen: std::collections::HashSet<Identifier> = std::collections::HashSet::new();
+        let mut by_index: Vec<Option<&NamedFieldPattern>> = vec![None; field_names.len()];
+        for f in fields {
+            let Some(index) = field_names.iter().position(|n| *n == f.name) else {
+                self.emit_field_diag(
+                    &NAMED_FIELD_UNKNOWN,
+                    f.span,
+                    format!(
+                        "`{}` has no field named `{}`.",
+                        self.interner.resolve(name),
+                        self.interner.resolve(f.name),
+                    ),
+                );
+                continue;
+            };
+            if !seen.insert(f.name) {
+                self.emit_field_diag(
+                    &NAMED_FIELD_DUPLICATE,
+                    f.span,
+                    format!(
+                        "Field `{}` is listed more than once.",
+                        self.interner.resolve(f.name)
+                    ),
+                );
+                continue;
+            }
+            by_index[index] = Some(f);
+        }
+        by_index
+    }
+
+    /// Emit E460 for every declared field that the pattern does not name
+    /// (and the pattern does not end with a `..` rest sentinel).
+    fn check_named_pattern_missing(
+        &mut self,
+        name: Identifier,
+        field_names: &[Identifier],
+        by_index: &[Option<&NamedFieldPattern>],
+        span: Span,
+    ) {
+        for (idx, slot) in by_index.iter().enumerate() {
+            if slot.is_none() {
+                self.emit_field_diag(
+                    &NAMED_FIELD_MISSING,
+                    span,
+                    format!(
+                        "Missing field `{}` in `{}` pattern.",
+                        self.interner.resolve(field_names[idx]),
+                        self.interner.resolve(name),
+                    ),
+                );
+            }
         }
     }
 
@@ -234,7 +382,7 @@ impl<'a> InferCtx<'a> {
             Pattern::Left { .. } | Pattern::Right { .. } => PatternFamily::Either,
             Pattern::EmptyList { .. } | Pattern::Cons { .. } => PatternFamily::List,
             Pattern::Tuple { elements, .. } => PatternFamily::Tuple(elements.len()),
-            Pattern::Constructor { name, .. } => self
+            Pattern::Constructor { name, .. } | Pattern::NamedConstructor { name, .. } => self
                 .adt_constructor_types
                 .get(name)
                 .map(|info| PatternFamily::Adt(info.adt_name))

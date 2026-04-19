@@ -1,9 +1,17 @@
-// Aether FBIP vacuous-annotation regression fixture.
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
 
+/*
+Aether FBIP vacuous-annotation regression fixture.
+*/
+
+
+// Helper for no alloc.
 @fip fn no_alloc(x) {
     x
 }
 
+// Program entry point.
 fn main() {
     no_alloc(1)
 }

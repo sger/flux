@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROGRAM="${1:-examples/perf/complexity_scaling.flx}"
+PROGRAM="${1:-examples/performance/complexity_scaling.flx}"
 
 if [[ ! -f "$PROGRAM" ]]; then
   echo "Error: missing Flux program: $PROGRAM" >&2

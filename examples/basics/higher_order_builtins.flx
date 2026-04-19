@@ -1,5 +1,35 @@
+// parity-expected-stdout-begin
+// true
+// false
+// false
+// true
+// false
+// true
+// Some(4)
+// Some("fig")
+// None
+// "Found: apple"
+// [|"fig", "kiwi", "apple", "banana"|]
+// [|5, 4, 3, 2, 1|]
+// [|"Bob", "Alice", "Carol"|]
+// [|("a", 1), ("b", 2), ("c", 3)|]
+// [|(1, "x"), (2, "y")|]
+// [|("banana", 6), ("fig", 3), ("apple", 5), ("kiwi", 4)|]
+// [|1, 2, 3, 4, 5|]
+// [|"hello", "world", "foo", "bar", "baz"|]
+// [|1, 2|]
+// 2
+// 2
+// 0
+// 2
+// Some("banana")
+// 1
+// [|("b", 2), ("d", 4)|]
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Higher-order base functions: any, all, find, sort_by, zip, flatten, count
 

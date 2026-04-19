@@ -14,49 +14,22 @@ stderr:
 [5 of 7] Compiling  Option
 [6 of 7] Compiling  String
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E300]: Argument Type Mismatch
+error[E300]: Type Mismatch
 
-I found the wrong type in the 1st argument to `string_len`.
-
-  examples/runtime_errors/primop_string_len_type.flx:2:30
-  |
-2 |     let ignored = string_len(1)
-  |                              ^
-  |                              - this argument has type `Int`
-
-Note:
-  expected argument type: String
-  found argument type: Int
-  the actual argument type is inferred from this expression
-
-Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
-== jit ==
-status: 1
-stdout:
-<empty>
-stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-• 1 error • examples/runtime_errors/primop_string_len_type.flx
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `string_len`.
+I found a type mismatch.
 
   examples/runtime_errors/primop_string_len_type.flx:2:30
   |
 2 |     let ignored = string_len(1)
   |                              ^
-  |                              - this argument has type `Int`
+  |                              - this expression has type `Int`
+
+  |                              - argument type is known at compile time
 
 Note:
-  expected argument type: String
-  found argument type: Int
-  the actual argument type is inferred from this expression
+  expected type: String
+  found type: Int
 
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
+  argument 1 to `string_len` does not match the imported boundary type

@@ -1,3 +1,14 @@
+// parity-expected-stdout-begin
+// "== PrimOps: arrays =="
+// 3
+// 20
+// [|10, 99, 30|]
+// [|10, 99|]
+// [|10, 20, 30, 40, 50|]
+// 3
+// true
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn main() with IO {

@@ -9,9 +9,9 @@ error[E026]: Invalid Module Alias
 
 Invalid module alias: `myfile`.
 
-  examples/imports/alias_invalid_error.flx:1:1
+  examples/imports/alias_invalid_error.flx:4:1
   |
-1 | import Modules.Data.MyFile as myfile
+4 | import Modules.Data.MyFile as myfile
   | ^
 
 Hint:

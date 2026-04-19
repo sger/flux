@@ -1,4 +1,4 @@
-#![cfg(all(feature = "native", not(feature = "core_to_llvm")))]
+#![cfg(all(feature = "native", not(feature = "llvm")))]
 
 use std::path::Path;
 use std::process::Command;

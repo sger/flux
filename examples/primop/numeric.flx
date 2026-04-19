@@ -1,3 +1,19 @@
+// parity-expected-stdout-begin
+// "== PrimOps: numeric =="
+// 30
+// 17
+// 42
+// 7
+// 2
+// 3.75
+// 3.5
+// 9
+// 4.5
+// 10
+// 3
+// 7.5
+// parity-expected-stdout-end
+
 fn main() with IO {
     print("== PrimOps: numeric ==");
     print(iadd(10, 20));

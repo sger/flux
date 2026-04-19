@@ -1,21 +1,41 @@
-// Using Constants and Constant-driven helpers
+// parity-expected-stdout-begin
+// "=== Mathematical Constants ==="
+// "PI: 3.14159"
+// "E: 2.71828"
+// "TAU (2*PI): 6.28318"
+// "=== Calculations ==="
+// "Circle area (r=1): 3.14159"
+// "Circle area (r=5): 78.53975"
+// "Circumference (r=5): 31.4159"
+// "=== Angle Conversion ==="
+// "90 degrees in radians: 1.570795"
+// parity-expected-stdout-end
+
+/*
+Using Constants and Constant-driven helpers
+*/
+
 
 let PI = 3.14159
 let E = 2.71828
 let TAU = PI * 2.0
 
+// Helper for circle area.
 fn circle_area(radius) {
     PI * radius * radius
 }
 
+// Helper for circumference.
 fn circumference(radius) {
     TAU * radius
 }
 
+// Helper for degrees to radians.
 fn degrees_to_radians(degrees) {
     degrees * (PI / 180.0)
 }
 
+// Program entry point.
 fn main() with IO {
     print("=== Mathematical Constants ===")
     print("PI: " + to_string(PI))

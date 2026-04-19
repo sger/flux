@@ -1,3 +1,15 @@
+// parity-expected-stdout-begin
+// "== PrimOps: collections (array + list) =="
+// Some(10)
+// Some(30)
+// [|20, 30|]
+// true
+// 1
+// 3
+// [2, 3]
+// true
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 fn main() with IO {

@@ -25,68 +25,79 @@ let students: List<(String, Int)> = list(
 
 let scores: List<Int> = C.map_list(students, \(p: (String, Int)) -> p.1)
 
-// ── Summary ADT — all fields via typed accessors ──────────────────────────
-
-let stats: Summary = Stats.summarize(scores)
-
-// ── Report: per-student lines ─────────────────────────────────────────────
-
 fn report_line(name: String, score: Int) -> String {
-    // score_to_grade returns an opaque Grade ADT value.
-    // We pass it to grade_to_string / grade_points — Grade stays inside Stats.
     let g = Stats.score_to_grade(score)
     "  " + name + ": " + to_string(score) +
     " (" + Stats.grade_to_string(g) + ")" +
     " [" + to_string(Stats.grade_points(g)) + " pts]"
 }
 
-print("=== Grade Report ===")
-print("")
-print("Scores by student:")
-C.fold_list(students, (), \(_, p: (String, Int)) ->
-    print(report_line(p.0, p.1))
-)
+fn main() with IO {
+    let stats = Stats.summarize(scores)
 
-// ── Statistics via Summary ADT ────────────────────────────────────────────
+    fn print_students(xs: List<(String, Int)>) with IO {
+        match xs {
+            [(name, score) | rest] -> do {
+                print(report_line(name, score))
+                print_students(rest)
+            },
+            _ -> None
+        }
+    }
 
-print("")
-print("=== Statistics ===")
-Stats.summary_print(stats)
+    fn print_ranked(xs: List<(String, Int)>, pos: Int) with IO {
+        match xs {
+            [(name, score) | rest] -> do {
+                print("  #" + to_string(pos) + "  " + name + "  " + to_string(score))
+                print_ranked(rest, pos + 1)
+            },
+            _ -> None
+        }
+    }
 
-let passing: List<Int> = Stats.keep_above(scores, 59)
-let failing: List<Int> = Stats.keep_below(scores, 60)
-print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
-print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+    fn print_gpa(xs: List<(String, Int)>) with IO {
+        match xs {
+            [(name, score) | rest] -> do {
+                let g = Stats.score_to_grade(score)
+                let letter: String = Stats.grade_to_string(g)
+                let gpa: Int = Stats.grade_points(g)
+                let status: String = if Stats.grade_passed(g) { "PASS" } else { "FAIL" }
+                print("  " + name + ": " + letter + " (GPA " + to_string(gpa) + ") — " + status)
+                print_gpa(rest)
+            },
+            _ -> None
+        }
+    }
 
-// ── Ranking ───────────────────────────────────────────────────────────────
+    print("=== Grade Report ===")
+    print("")
+    print("Scores by student:")
+    print_students(students)
 
-print("")
-print("=== Ranking (best to worst) ===")
-let ranked: List<(String, Int)> = Stats.rank(students)
-C.fold_list(ranked, 1, \(pos: Int, p: (String, Int)) -> do {
-    print("  #" + to_string(pos) + "  " + p.0 + "  " + to_string(p.1))
-    pos + 1
-})
+    print("")
+    print("=== Statistics ===")
+    Stats.summary_print(stats)
 
-// ── Grade Distribution — ADT used internally, result is a plain tuple ─────
+    let passing: List<Int> = Stats.keep_above(scores, 59)
+    let failing: List<Int> = Stats.keep_below(scores, 60)
+    print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+    print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
 
-print("")
-print("=== Grade Distribution ===")
-let dist: (Int, Int, Int, Int, Int) = Stats.grade_distribution(scores)
-print("  A (4pts): " + to_string(dist.0))
-print("  B (3pts): " + to_string(dist.1))
-print("  C (2pts): " + to_string(dist.2))
-print("  D (1pts): " + to_string(dist.3))
-print("  F (0pts): " + to_string(dist.4))
+    print("")
+    print("=== Ranking (best to worst) ===")
+    let ranked: List<(String, Int)> = Stats.rank(students)
+    print_ranked(ranked, 1)
 
-// ── GPA per Student — Grade as opaque value flowing through stats functions ─
+    print("")
+    print("=== Grade Distribution ===")
+    let dist: (Int, Int, Int, Int, Int) = Stats.grade_distribution(scores)
+    print("  A (4pts): " + to_string(dist.0))
+    print("  B (3pts): " + to_string(dist.1))
+    print("  C (2pts): " + to_string(dist.2))
+    print("  D (1pts): " + to_string(dist.3))
+    print("  F (0pts): " + to_string(dist.4))
 
-print("")
-print("=== GPA per Student ===")
-C.fold_list(students, (), \(_, p: (String, Int)) -> do {
-    let g = Stats.score_to_grade(p.1)
-    let letter: String = Stats.grade_to_string(g)
-    let gpa: Int       = Stats.grade_points(g)
-    let status: String = if Stats.grade_passed(g) { "PASS" } else { "FAIL" }
-    print("  " + p.0 + ": " + letter + " (GPA " + to_string(gpa) + ") — " + status)
-})
+    print("")
+    print("=== GPA per Student ===")
+    print_gpa(students)
+}

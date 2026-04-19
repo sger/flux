@@ -5,47 +5,16 @@ Fixture: examples/flow/base_alias_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E413]: Top-Level Effect
+error[E012]: Unknown Module Member
 
-Effectful operation is not allowed at top level (requires: IO).
+Module `Flow` has no member named `len`.
 
-  examples/flow/base_alias_error.flx:4:1
-  |
-4 | print(1);
-  | ^^^^^^^^^
-  | --------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
-error[E414]: Missing Main Function
-
-Effectful program is missing `fn main` root effect handler.
-
-  examples/flow/base_alias_error.flx:4:1
-  |
-4 | print(1);
-  | ^^^^^^^^^
-  | --------- effectful top-level execution
+  examples/flow/base_alias_error.flx:10:11
+   |
+10 |     print(Core.len([1, 2, 3]))
+   |           ^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
-error[E400]: Missing Effect
-
-requires effect `IO` but the enclosing context does not provide it
-
-  examples/flow/base_alias_error.flx:4:1
-  |
-4 | print(1);
-  | ^^^^^^^^
-  | -------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-Found 3 errors.
+  Check the module's public members or import the correct module.
 == stdout ==
 <not executed>

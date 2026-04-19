@@ -1,0 +1,12 @@
+// Using field punning when no variable with the field's name is in scope.
+//
+// Expected: E466 Punned Field Not In Scope
+//   "No variable named `x` is in scope for punning."
+
+data Point { Point { x: Int, y: Int } }
+
+fn main() {
+    let y = 42
+    let p = Point { x, y }
+    p
+}

@@ -711,6 +711,7 @@ fn rewrite_drop_body_with_env(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
@@ -736,6 +737,7 @@ fn rewrite_drop_body_with_env(
                     CoreExpr::Case {
                         scrutinee,
                         alts,
+                        join_ty: join_ty.clone(),
                         span,
                     },
                     ReuseFailureReason::BranchAmbiguity,
@@ -796,6 +798,7 @@ fn rewrite_drop_body_with_env(
                     expr: CoreExpr::Case {
                         scrutinee,
                         alts: new_alts,
+                        join_ty: join_ty.clone(),
                         span,
                     },
                     reused: true,
@@ -806,6 +809,7 @@ fn rewrite_drop_body_with_env(
                     CoreExpr::Case {
                         scrutinee,
                         alts: new_alts,
+                        join_ty,
                         span,
                     },
                     choose_reason(&reasons),
@@ -899,6 +903,7 @@ fn rewrite_nested_drop_sites(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
@@ -938,6 +943,7 @@ fn rewrite_nested_drop_sites(
                     expr: CoreExpr::Case {
                         scrutinee,
                         alts,
+                        join_ty: join_ty.clone(),
                         span,
                     },
                     reused: true,
@@ -948,6 +954,7 @@ fn rewrite_nested_drop_sites(
                     CoreExpr::Case {
                         scrutinee,
                         alts,
+                        join_ty,
                         span,
                     },
                     choose_reason(&reasons),
@@ -1143,10 +1150,18 @@ fn rewrite_nested_drop_sites(
                 )
             }
         }
-        CoreExpr::Lam { params, body, span } => {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty,
+            body,
+            span,
+        } => {
             let inner = rewrite_nested_drop_sites(*body, &ReuseEnv::default(), blocked_outer_token);
             let expr = CoreExpr::Lam {
                 params,
+                param_types,
+                result_ty,
                 body: Box::new(inner.expr),
                 span,
             };
@@ -1327,6 +1342,7 @@ fn rewrite_forwarded_wrapper_body(
         CoreExpr::Case {
             scrutinee,
             alts,
+            join_ty,
             span,
         } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
@@ -1377,6 +1393,7 @@ fn rewrite_forwarded_wrapper_body(
                     expr: CoreExpr::Case {
                         scrutinee,
                         alts,
+                        join_ty,
                         span,
                     },
                     reused: true,
@@ -1387,6 +1404,7 @@ fn rewrite_forwarded_wrapper_body(
                     CoreExpr::Case {
                         scrutinee,
                         alts,
+                        join_ty,
                         span,
                     },
                     choose_reason(&reasons),
@@ -1742,6 +1760,7 @@ mod tests {
     use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
+    use std::borrow::Borrow;
 
     fn s() -> Span {
         Span::default()
@@ -1751,8 +1770,8 @@ mod tests {
         CoreBinder::new(CoreBinderId(raw), name)
     }
 
-    fn v(binder: CoreBinder) -> CoreExpr {
-        CoreExpr::bound_var(binder, s())
+    fn v<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
+        CoreExpr::bound_var(*binder.borrow(), s())
     }
 
     #[allow(dead_code)]
@@ -1852,7 +1871,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -1904,7 +1923,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(t),
+            &CoreVarRef::resolved(&t),
             body,
             s(),
             Some(&pat_binders),
@@ -1951,7 +1970,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(opt),
+            &CoreVarRef::resolved(&opt),
             body,
             s(),
             Some(&pat_binders),
@@ -2004,7 +2023,7 @@ mod tests {
         };
 
         let reason = diagnose_drop_body(
-            &CoreVarRef::resolved(t),
+            &CoreVarRef::resolved(&t),
             &body,
             Some(&pat_binders),
             Some(&pat_tag),
@@ -2056,7 +2075,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -2106,7 +2125,7 @@ mod tests {
         };
 
         let reason = diagnose_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             &body,
             Some(&pat_binders),
             Some(&CoreTag::Cons),
@@ -2141,7 +2160,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -2162,7 +2181,7 @@ mod tests {
 
         let pair_pat = vec![Some(xs.id), Some(acc.id)];
         let env = super::ReuseEnv::seed(
-            &CoreVarRef::resolved(pair),
+            &CoreVarRef::resolved(&pair),
             Some(&pair_pat),
             Some(&CoreTag::Named(pair2)),
         );
@@ -2200,7 +2219,7 @@ mod tests {
 
         let pair_pat = vec![Some(xs.id), Some(acc.id)];
         let env = super::ReuseEnv::seed(
-            &CoreVarRef::resolved(pair),
+            &CoreVarRef::resolved(&pair),
             Some(&pair_pat),
             Some(&CoreTag::Named(pair2)),
         );
@@ -2246,7 +2265,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -2309,7 +2328,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -2342,7 +2361,7 @@ mod tests {
         let pair = binder(5, interner.intern("pair"));
         let pair_pat = vec![Some(xs.id), Some(acc.id)];
         let env = super::ReuseEnv::seed(
-            &CoreVarRef::resolved(pair),
+            &CoreVarRef::resolved(&pair),
             Some(&pair_pat),
             Some(&CoreTag::Named(pair2)),
         );
@@ -2376,6 +2395,7 @@ mod tests {
                     span: s(),
                 },
             ],
+            join_ty: None,
             span: s(),
         });
 
@@ -2432,6 +2452,7 @@ mod tests {
                         span: s(),
                     },
                 ],
+                join_ty: None,
                 span: s(),
             }),
             body: Box::new(v(out)),
@@ -2439,7 +2460,7 @@ mod tests {
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),
@@ -2524,11 +2545,12 @@ mod tests {
                     span: s(),
                 },
             ],
+            join_ty: None,
             span: s(),
         };
 
         let rewritten = rewrite_drop_body(
-            &CoreVarRef::resolved(xs),
+            &CoreVarRef::resolved(&xs),
             body,
             s(),
             Some(&pat_binders),

@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 module Day03Solver {
     // Tokens that can appear at any position in the memory string.
     data Token {
@@ -6,19 +9,23 @@ module Day03Solver {
         Disable,        // don't()  — disable multiplication
     }
 
+    // Return the character slice at the given index.
     fn char_at(s: String, idx: Int) -> String {
         substring(s, idx, idx + 1)
     }
 
+    // Helper for starts with at.
     fn starts_with_at(s: String, idx: Int, token: String) -> Bool {
         idx + len(token) <= len(s) && substring(s, idx, idx + len(token)) == token
     }
 
+    // Check whether digit.
     fn is_digit(ch: String) -> Bool {
         ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" ||
         ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
     }
 
+    // Helper for take digits 1 to 3.
     fn take_digits_1_to_3(s: String, idx: Int, count: Int, acc: String) -> (String, Int, Int) {
         if idx >= len(s) || count >= 3 {
             (acc, idx, count)
@@ -80,21 +87,21 @@ module Day03Solver {
         state.1
         where indices = range(0, len(memory))
         where state = fold(indices, (0, 0), fn(st, i) {
-            let next_idx = st.0
-            let total = st.1
+                let next_idx = st.0
+                let total = st.1
 
-            if i != next_idx {
-                st
-            } else {
-                match parse_token_at(memory, i) {
-                    Some(hit) -> if hit.0 == 0 {
-                        (hit.2, total + hit.1)
-                    } else {
-                        (hit.2, total)
-                    },
-                    _ -> (i + 1, total),
+                if i != next_idx {
+                    st
+                } else {
+                    match parse_token_at(memory, i) {
+                        Some(hit) -> if hit.0 == 0 {
+                            (hit.2, total + hit.1)
+                        } else {
+                            (hit.2, total)
+                        },
+                        _ -> (i + 1, total),
+                    }
                 }
-            }
         })
     }
 
@@ -104,26 +111,26 @@ module Day03Solver {
         state.2
         where indices = range(0, len(memory))
         where state = fold(indices, (0, true, 0), fn(st, i) {
-            let next_idx = st.0
-            let enabled = st.1
-            let total = st.2
+                let total = st.2
+                let next_idx = st.0
+                let enabled = st.1
 
-            if i != next_idx {
-                st
-            } else {
-                match parse_token_at(memory, i) {
-                    Some(hit) -> if hit.0 == 1 {
-                        (hit.2, true, total)
-                    } else if hit.0 == 2 {
-                        (hit.2, false, total)
-                    } else if enabled {
-                        (hit.2, true, total + hit.1)
-                    } else {
-                        (hit.2, false, total)
-                    },
-                    _ -> (i + 1, enabled, total),
+                if i != next_idx {
+                    st
+                } else {
+                    match parse_token_at(memory, i) {
+                        Some(hit) -> if hit.0 == 1 {
+                            (hit.2, true, total)
+                        } else if hit.0 == 2 {
+                            (hit.2, false, total)
+                        } else if enabled {
+                            (hit.2, true, total + hit.1)
+                        } else {
+                            (hit.2, false, total)
+                        },
+                        _ -> (i + 1, enabled, total),
+                    }
                 }
-            }
         })
     }
 

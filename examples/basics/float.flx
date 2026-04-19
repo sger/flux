@@ -1,3 +1,13 @@
+// parity-expected-stdout-begin
+// 3.14
+// -0.5
+// 100
+// 2.64
+// 6.28
+// 3.5
+// 20.4
+// parity-expected-stdout-end
+
 fn main() with IO {
     let a = 3.14;
     let b = -0.5;
@@ -11,6 +21,7 @@ fn main() with IO {
     print(a * 2.0);
     print(1.0 + 2.5);
 
+    // Helper for add floats.
     fn add_floats(a, b) {
         return a + b;
     }

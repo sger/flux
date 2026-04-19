@@ -1,8 +1,16 @@
-// Aether drop-spec regression fixture.
+/*
+Aether drop-spec regression fixture.
+*/
+
+// parity-expected-stdout-begin
+// [1, 1, 2, 3]
+// Node(Red, Leaf, 5, Leaf)
+// parity-expected-stdout-end
 
 type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 
+// Helper for copy or keep head.
 fn copy_or_keep_head(xs, copy) {
     match xs {
         [h | t] -> if copy { [h | [h | t]] } else { [h | t] },
@@ -10,15 +18,17 @@ fn copy_or_keep_head(xs, copy) {
     }
 }
 
+// Helper for keep or dup left.
 fn keep_or_dup_left(t, keep) {
     match t {
         Node(color, left, key, right) ->
-            if keep { Node(color, left, key, right) }
-            else { Node(color, left, key, left) },
+        if keep { Node(color, left, key, right) }
+        else { Node(color, left, key, left) },
         _ -> t,
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print(copy_or_keep_head([1, 2, 3], true))
     print(keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false))

@@ -1,0 +1,10 @@
+effect Console {
+    print: String -> ()
+    read: () -> String
+}
+
+fn main() {
+    print("hello") handle Console {
+        print(resume, _msg) -> resume(())
+    }
+}

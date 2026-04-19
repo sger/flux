@@ -384,19 +384,20 @@ mod tests {
                 params: vec![IrParam {
                     name: interner.intern("param"),
                     var: IrVar(99),
-                    ty: IrType::Any,
+                    ty: IrType::Tagged,
                 }],
                 parameter_types: vec![None],
                 return_type_annotation: None,
                 effects: Vec::new(),
                 captures: Vec::new(),
                 body_span: crate::diagnostics::position::Span::default(),
-                ret_type: IrType::Any,
+                ret_type: IrType::Tagged,
                 blocks: vec![IrBlock {
                     id: BlockId(0),
                     params: vec![IrBlockParam {
                         var: IrVar(2),
                         ty: IrType::Int,
+                        inferred_ty: None,
                     }],
                     instrs,
                     terminator: IrTerminator::Return(IrVar(2), IrMetadata::empty()),
@@ -482,7 +483,7 @@ mod tests {
             effects: Vec::new(),
             captures: Vec::new(),
             body_span: crate::diagnostics::position::Span::default(),
-            ret_type: IrType::Any,
+            ret_type: IrType::Tagged,
             blocks: vec![
                 IrBlock {
                     id: BlockId(0),
@@ -499,7 +500,8 @@ mod tests {
                     id: BlockId(1),
                     params: vec![IrBlockParam {
                         var: IrVar(2),
-                        ty: IrType::Any,
+                        ty: IrType::Tagged,
+                        inferred_ty: None,
                     }],
                     instrs: vec![],
                     terminator: IrTerminator::Jump(BlockId(2), vec![IrVar(2)], IrMetadata::empty()),
@@ -508,7 +510,8 @@ mod tests {
                     id: BlockId(2),
                     params: vec![IrBlockParam {
                         var: IrVar(3),
-                        ty: IrType::Any,
+                        ty: IrType::Tagged,
+                        inferred_ty: None,
                     }],
                     instrs: vec![],
                     terminator: IrTerminator::Return(IrVar(3), IrMetadata::empty()),

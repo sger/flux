@@ -105,6 +105,7 @@ pub fn lower_program_ast_with_class_env(
     class_env: Option<&crate::types::class_env::ClassEnv>,
 ) -> CoreProgram {
     let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
+    lowerer.collect_ctor_field_names(program);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -138,6 +139,15 @@ pub(super) struct AstLowerer<'a> {
     pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
     /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
     pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
+    /// Proposal 0152: variant name → declared field names in declaration
+    /// order. Used to desugar named-field constructor expressions, spread
+    /// expressions, and named-field patterns into positional form.
+    pub(super) ctor_field_names:
+        std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
+    /// Proposal 0152: ADT name → list of variant names. Used when
+    /// desugaring dot access on multi-variant ADTs.
+    pub(super) adt_variants:
+        std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -156,7 +166,41 @@ impl<'a> AstLowerer<'a> {
             type_env,
             effect_op_sigs,
             class_env,
+            ctor_field_names: std::collections::HashMap::new(),
+            adt_variants: std::collections::HashMap::new(),
         }
+    }
+
+    /// Proposal 0152: populate `ctor_field_names` from a program's `data`
+    /// declarations. Walks both top-level and module-nested statements.
+    pub(super) fn collect_ctor_field_names(&mut self, program: &Program) {
+        fn walk(
+            stmts: &[Statement],
+            field_names: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
+            adt_variants: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
+        ) {
+            for stmt in stmts {
+                match stmt {
+                    Statement::Data { name, variants, .. } => {
+                        adt_variants.insert(*name, variants.iter().map(|v| v.name).collect());
+                        for variant in variants {
+                            if let Some(names) = variant.field_names.as_ref() {
+                                field_names.insert(variant.name, names.clone());
+                            }
+                        }
+                    }
+                    Statement::Module { body, .. } => {
+                        walk(&body.statements, field_names, adt_variants);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(
+            &program.statements,
+            &mut self.ctor_field_names,
+            &mut self.adt_variants,
+        );
     }
 
     pub(super) fn bind_name(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
@@ -201,8 +245,7 @@ impl<'a> AstLowerer<'a> {
         CoreBinder::with_rep(id, name, rep)
     }
 
-    /// Create typed binders for lambda parameters by extracting param types
-    /// from the lambda's HM-inferred function type.
+    /// Create binders whose runtime representation is derived from HM param types.
     pub(super) fn bind_lambda_params(
         &mut self,
         parameters: &[crate::syntax::Identifier],
@@ -506,27 +549,99 @@ impl<'a> AstLowerer<'a> {
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
     fn infer_core_type(&self, id: ExprId) -> Option<super::CoreType> {
-        self.hm_expr_types.get(&id).map(super::CoreType::from_infer)
+        self.hm_expr_types
+            .get(&id)
+            .and_then(super::CoreType::try_from_infer)
+    }
+
+    fn lambda_signature_from_infer_type(
+        &self,
+        ty: Option<&InferType>,
+    ) -> (Vec<Option<super::CoreType>>, Option<super::CoreType>) {
+        match ty {
+            Some(InferType::Fun(params, ret, _)) => (
+                params.iter().map(super::CoreType::try_from_infer).collect(),
+                super::CoreType::try_from_infer(ret),
+            ),
+            _ => (Vec::new(), None),
+        }
+    }
+
+    fn lambda_signature_from_expr_id(
+        &self,
+        id: ExprId,
+    ) -> (Vec<Option<super::CoreType>>, Option<super::CoreType>) {
+        self.lambda_signature_from_infer_type(self.hm_expr_types.get(&id))
+    }
+
+    fn lambda_signature_from_function_name(
+        &self,
+        fn_name: crate::syntax::Identifier,
+    ) -> (Vec<Option<super::CoreType>>, Option<super::CoreType>) {
+        self.lambda_signature_from_infer_type(
+            self.type_env
+                .and_then(|env| env.lookup(fn_name))
+                .map(|scheme| &scheme.infer_type),
+        )
     }
 
     /// Convert a source-level type annotation to a `CoreType`, if the interner
-    /// is available and the annotation is a simple named type (Int, Float, etc.).
+    /// is available. This preserves container/tuple/function structure and
+    /// keeps source-level abstract names explicit instead of dropping them.
     fn core_type_from_type_expr(
         &self,
         type_expr: &crate::syntax::type_expr::TypeExpr,
     ) -> Option<super::CoreType> {
         let interner = self.interner?;
         match type_expr {
-            crate::syntax::type_expr::TypeExpr::Named { name, args, .. } if args.is_empty() => {
-                match interner.resolve(*name) {
-                    "Int" => Some(super::CoreType::Int),
-                    "Float" => Some(super::CoreType::Float),
-                    "Bool" => Some(super::CoreType::Bool),
-                    "String" => Some(super::CoreType::String),
-                    _ => None,
-                }
+            crate::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
+                let args = args
+                    .iter()
+                    .map(|arg| self.core_type_from_type_expr(arg))
+                    .collect::<Option<Vec<_>>>()?;
+                let resolved = interner.resolve(*name);
+                Some(match resolved {
+                    "Int" if args.is_empty() => super::CoreType::Int,
+                    "Float" if args.is_empty() => super::CoreType::Float,
+                    "Bool" if args.is_empty() => super::CoreType::Bool,
+                    "String" if args.is_empty() => super::CoreType::String,
+                    "Unit" if args.is_empty() => super::CoreType::Unit,
+                    "Never" if args.is_empty() => super::CoreType::Never,
+                    "List" if args.len() == 1 => super::CoreType::List(Box::new(args[0].clone())),
+                    "Array" if args.len() == 1 => super::CoreType::Array(Box::new(args[0].clone())),
+                    "Option" if args.len() == 1 => {
+                        super::CoreType::Option(Box::new(args[0].clone()))
+                    }
+                    "Either" if args.len() == 2 => super::CoreType::Either(
+                        Box::new(args[0].clone()),
+                        Box::new(args[1].clone()),
+                    ),
+                    "Map" if args.len() == 2 => {
+                        super::CoreType::Map(Box::new(args[0].clone()), Box::new(args[1].clone()))
+                    }
+                    _ if resolved.chars().next().is_some_and(|ch| ch.is_lowercase()) => {
+                        super::CoreType::Abstract(super::CoreAbstractType::Named(*name, args))
+                    }
+                    _ => super::CoreType::Adt(*name, args),
+                })
             }
-            _ => None,
+            crate::syntax::type_expr::TypeExpr::Tuple { elements, .. } => {
+                Some(super::CoreType::Tuple(
+                    elements
+                        .iter()
+                        .map(|elem| self.core_type_from_type_expr(elem))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            crate::syntax::type_expr::TypeExpr::Function { params, ret, .. } => {
+                Some(super::CoreType::Function(
+                    params
+                        .iter()
+                        .map(|param| self.core_type_from_type_expr(param))
+                        .collect::<Option<Vec<_>>>()?,
+                    Box::new(self.core_type_from_type_expr(ret)?),
+                ))
+            }
         }
     }
 
@@ -554,6 +669,15 @@ impl<'a> AstLowerer<'a> {
             } => {
                 let binder = self.bind_name(*name);
                 let params = self.bind_fn_params(*name, parameters);
+                let (mut param_types, inferred_result_ty) =
+                    self.lambda_signature_from_function_name(*name);
+                // Guard: param_types must match params length. If the scheme's
+                // Fun type has a different arity (e.g., from cross-function
+                // inlining or module-scoped name shadowing), discard param_types
+                // to prevent LamParamTypeMismatch.
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -561,6 +685,8 @@ impl<'a> AstLowerer<'a> {
                 // instead of using CoreExpr::lambda() which elides empty params.
                 let expr = CoreExpr::Lam {
                     params,
+                    param_types,
+                    result_ty: inferred_result_ty.clone(),
                     body: Box::new(body_expr),
                     span: *span,
                 };
@@ -579,11 +705,14 @@ impl<'a> AstLowerer<'a> {
                 {
                     def.result_ty = self.infer_core_type(expression.expr_id());
                 }
+                if def.result_ty.is_none() {
+                    def.result_ty = inferred_result_ty;
+                }
                 // If HM didn't resolve the result type, fall back to the
                 // source return-type annotation.  This is critical for
                 // recursive functions where HM may leave the return type as
                 // an unresolved variable.
-                if (def.result_ty.is_none() || matches!(def.result_ty, Some(super::CoreType::Any)))
+                if def.result_ty.is_none()
                     && let Some(rt) = return_type
                     && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
                 {
@@ -632,6 +761,7 @@ impl<'a> AstLowerer<'a> {
                 pattern,
                 value,
                 span,
+                ..
             } => {
                 let rhs = self.lower_expr(value);
                 let core_pat = self.lower_pattern(pattern);
@@ -655,7 +785,7 @@ impl<'a> AstLowerer<'a> {
 
             // Declarations that don't produce runtime values — skip.
             Statement::Module { body, .. } => {
-                self.lower_functions_in_module(&body.statements, out);
+                self.lower_module_defs(&body.statements, out);
             }
 
             Statement::Import { .. }
@@ -666,9 +796,18 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    fn lower_functions_in_module(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
+    fn lower_module_defs(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
         for stmt in stmts {
             match stmt {
+                Statement::Let {
+                    name, value, span, ..
+                } => {
+                    let result_ty = self.infer_core_type(value.expr_id());
+                    let binder = self.bind_name_with_expr_type(*name, value.expr_id());
+                    let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
+                    def.result_ty = result_ty;
+                    out.push(def);
+                }
                 Statement::Function {
                     name,
                     parameters,
@@ -678,16 +817,23 @@ impl<'a> AstLowerer<'a> {
                 } => {
                     let binder = self.bind_name(*name);
                     let params = self.bind_fn_params(*name, parameters);
+                    let (mut param_types, result_ty) =
+                        self.lambda_signature_from_function_name(*name);
+                    if !param_types.is_empty() && param_types.len() != params.len() {
+                        param_types = Vec::new();
+                    }
                     let body_expr = self.lower_block(body);
                     let expr = CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: Box::new(body_expr),
                         span: *span,
                     };
                     out.push(CoreDef::new(binder, expr, true, *span));
                 }
                 Statement::Module { body, .. } => {
-                    self.lower_functions_in_module(&body.statements, out);
+                    self.lower_module_defs(&body.statements, out);
                 }
                 _ => {}
             }
@@ -696,6 +842,16 @@ impl<'a> AstLowerer<'a> {
 
     fn lower_decl_item(&mut self, stmt: &Statement) -> Option<CoreTopLevelItem> {
         match stmt {
+            Statement::Let {
+                is_public,
+                name,
+                span,
+                ..
+            } => Some(CoreTopLevelItem::Let {
+                is_public: *is_public,
+                name: *name,
+                span: *span,
+            }),
             Statement::Function {
                 is_public,
                 name,
@@ -791,8 +947,7 @@ impl<'a> AstLowerer<'a> {
                 methods: methods.clone(),
                 span: *span,
             }),
-            Statement::Let { .. }
-            | Statement::LetDestructure { .. }
+            Statement::LetDestructure { .. }
             | Statement::Return { .. }
             | Statement::Expression { .. }
             | Statement::Assign { .. } => None,
@@ -957,11 +1112,17 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 (
                     binder,
                     Box::new(CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: Box::new(body_expr),
                         span: *s,
                     }),
@@ -1014,11 +1175,17 @@ impl<'a> AstLowerer<'a> {
                 };
                 let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 CoreExpr::LetRec {
                     var: binder,
                     rhs: Box::new(CoreExpr::Lam {
                         params,
+                        param_types,
+                        result_ty,
                         body: Box::new(body_expr),
                         span: *s,
                     }),
@@ -1042,6 +1209,7 @@ impl<'a> AstLowerer<'a> {
                 pattern,
                 value,
                 span: s,
+                ..
             } => {
                 // Bind the scrutinee to a tmp var and use Case to extract fields.
                 let rhs = self.lower_expr(value);
@@ -1051,7 +1219,7 @@ impl<'a> AstLowerer<'a> {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 1_000_000);
                 self.fresh += 1;
                 let tmp_binder = self.fresh_binder(tmp_name);
-                let tmp_var = CoreExpr::bound_var(tmp_binder, *s);
+                let tmp_var = CoreExpr::bound_var(&tmp_binder, *s);
                 let alt = CoreAlt {
                     pat: core_pat,
                     guard: None,
@@ -1064,6 +1232,7 @@ impl<'a> AstLowerer<'a> {
                     body: Box::new(CoreExpr::Case {
                         scrutinee: Box::new(tmp_var),
                         alts: vec![alt],
+                        join_ty: None,
                         span: *s,
                     }),
                     span: *s,
@@ -1297,6 +1466,7 @@ mod tests {
             &interner,
             InferProgramConfig {
                 file_path: None,
+
                 preloaded_base_schemes: HashMap::new(),
                 preloaded_module_member_schemes: HashMap::new(),
                 known_flow_names: std::collections::HashSet::new(),
@@ -1457,7 +1627,7 @@ mod tests {
     #[test]
     fn generic_add_stays_generic_without_type_info() {
         // Unannotated polymorphic add — HM resolves to Int here, so we get IAdd.
-        // This test verifies that untyped (Any) additions stay as generic Add.
+        // This test verifies that untyped additions stay as generic Add.
         // We use a String + String expression so HM infers String, not Int/Float,
         // which means no typed variant should be emitted — just generic Add.
         let src = r#"fn cat(a: String, b: String) -> String { a + b }"#;

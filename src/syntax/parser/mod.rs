@@ -151,6 +151,10 @@ pub struct Parser {
     pub(super) recovery_state: ParserRecoveryState,
     pub(super) suppress_top_level_rbrace_once: bool,
     pub(super) parser_contexts: Vec<ParserContext>,
+    /// Whether `Variant { ... }` is parsed as a named-field constructor in
+    /// expression position. Disabled inside `if`/`match`/`while` head
+    /// expressions, where `{` opens the body block.
+    pub(super) allow_struct_literal: bool,
     expr_id_gen: ExprIdGen,
 }
 
@@ -168,6 +172,7 @@ impl Parser {
             recovery_state: ParserRecoveryState::default(),
             suppress_top_level_rbrace_once: false,
             parser_contexts: Vec::new(),
+            allow_struct_literal: true,
             expr_id_gen: ExprIdGen::new(),
         };
         parser.prime();

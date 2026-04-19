@@ -20,7 +20,10 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Option, vec![args[1].clone()])
             }
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),
-            _ => InferType::Con(TypeConstructor::Any),
+            _other => InferType::App(
+                TypeConstructor::Option,
+                vec![self.env.alloc_infer_type_var()],
+            ),
         }
     }
 
@@ -43,8 +46,8 @@ impl<'a> InferCtx<'a> {
             elements
                 .first()
                 .cloned()
-                .unwrap_or(InferType::Con(TypeConstructor::Any)),
-            |acc, ty| self.join_types(&acc, ty),
+                .unwrap_or_else(|| self.env.alloc_infer_type_var()),
+            |acc, ty| self.unify_reporting(&acc, ty, index.span()),
         );
         InferType::App(TypeConstructor::Option, vec![joined])
     }
@@ -65,9 +68,11 @@ impl<'a> InferCtx<'a> {
                 .cloned()
         {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
-            for &fresh in mapping.values() {
+            let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+            for &fresh in &fresh_vars {
                 self.env.record_var_level(fresh);
             }
+            self.record_instantiated_expr_vars(fresh_vars);
             self.emit_scheme_constraints(&constraints, expr.span());
             return ty;
         }
@@ -80,8 +85,15 @@ impl<'a> InferCtx<'a> {
         {
             self.emit_missing_flow_hm_signature(member, expr.span());
         }
-        self.infer_expression(object);
-        InferType::Con(TypeConstructor::Any)
+        // Named-field dot access (Proposal 0152). If the object's inferred
+        // type is an ADT with named-field variants, try resolving `member`
+        // against those fields. Returns the field type when it is common to
+        // all variants with the same type; otherwise lifts to Option<T>.
+        let object_ty = self.infer_expression(object);
+        if let Some(field_ty) = self.resolve_named_field_access(&object_ty, member, expr.span()) {
+            return field_ty;
+        }
+        self.alloc_fallback_var()
     }
 
     /// Infer tuple field projection by static index.
@@ -90,12 +102,27 @@ impl<'a> InferCtx<'a> {
         object: &Expression,
         index: usize,
     ) -> InferType {
-        match self.infer_expression(object).apply_type_subst(&self.subst) {
+        let object_ty = self.infer_expression(object);
+        match object_ty.apply_type_subst(&self.subst) {
             InferType::Tuple(elements) => elements
                 .get(index)
                 .cloned()
-                .unwrap_or(InferType::Con(TypeConstructor::Any)),
-            _ => InferType::Con(TypeConstructor::Any),
+                .unwrap_or_else(|| self.alloc_fallback_var()),
+            InferType::Var(_) => {
+                // Delay projection failure for unresolved tuple-typed values by
+                // constraining them to a tuple shape. This lets later call-site
+                // unification discharge local helper projections like `pair.0`
+                // instead of poisoning the expression with a fallback hole.
+                let arity = std::cmp::max(index + 1, 2);
+                let elements: Vec<InferType> = (0..arity)
+                    .map(|_| self.env.alloc_infer_type_var())
+                    .collect();
+                let projected = elements[index].clone();
+                let tuple_shape = InferType::Tuple(elements);
+                self.unify_silent(&object_ty, &tuple_shape);
+                projected.apply_type_subst(&self.subst)
+            }
+            _other => self.alloc_fallback_var(),
         }
     }
 }
