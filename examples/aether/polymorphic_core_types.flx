@@ -1,26 +1,34 @@
-// Polymorphic Core dump regression fixture.
-// Used by --dump-core=debug tests to ensure explicit semantic forms
-// remain visible and semantic Dynamic does not return.
+/*
+Polymorphic Core dump regression fixture.
+Used by --dump-core=debug tests to ensure explicit semantic forms
+remain visible and semantic Dynamic does not return.
+*/
+
 // parity-expected-stdout-begin
 // 2
 // parity-expected-stdout-end
 
 class Eqish<a> {
+    // Helper for same.
     fn same(x: a, y: a) -> Bool
 }
 
 instance Eqish<Int> {
+    // Helper for same.
     fn same(x, y) { x == y }
 }
 
+// Helper for id.
 fn id<a>(x: a) -> a {
     x
 }
 
+// Helper for choose.
 fn choose<a: Eqish>(x: a, y: a) -> a {
     if same(x, y) { id(x) } else { id(y) }
 }
 
+// Program entry point.
 fn main() with IO {
     print(choose(1, 2))
 }

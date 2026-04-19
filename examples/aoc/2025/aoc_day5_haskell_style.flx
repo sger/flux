@@ -3,17 +3,24 @@
 // 357485433193284
 // parity-expected-stdout-end
 
-// Advent of Code - Day 5 (Haskell-style translation)
-// Inspired by AOC2025.Day05 day05a/day05b.
-// Uses input file: examples/aoc/2025/aoc_day5.txt
+/*
+Advent of Code - Day 5 (Haskell-style translation)
+Inspired by AOC2025.Day05 day05a/day05b.
+Uses input file: examples/aoc/2025/aoc_day5.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -21,6 +28,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -28,6 +36,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for tuple at.
     fn tuple_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -35,6 +44,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find blank.
     fn find_blank(lines, idx) {
         if idx >= len(lines) {
             len(lines)
@@ -47,6 +57,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse range line.
     fn parse_range_line(line) {
         let parts = split_ints(trim(line), "-")
         let a = int_at(parts, 0)
@@ -54,6 +65,7 @@ fn main() with IO, Time {
         if a <= b { (a, b) } else { (b, a) }
     }
 
+    // Parse all range records from the input file.
     fn parse_ranges(lines, idx, stop, acc) {
         if idx >= stop {
             acc
@@ -67,6 +79,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse values.
     fn parse_values(lines, idx, acc) {
         if idx >= len(lines) {
             acc
@@ -80,6 +93,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse input.
     fn parse_input(path) with IO {
         let lines = read_lines(path)
         let sep = find_blank(lines, 0)
@@ -88,6 +102,7 @@ fn main() with IO, Time {
         (ranges, values)
     }
 
+    // Helper for in any range.
     fn in_any_range(x, ranges, idx) {
         if idx >= len(ranges) {
             false
@@ -101,6 +116,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count members.
     fn count_members(xs, ranges, idx, acc) {
         if idx >= len(xs) {
             acc
@@ -111,6 +127,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for insert sorted ranges.
     fn insert_sorted_ranges(sorted, r, idx, acc) {
         if idx >= len(sorted) {
             array_push(acc, r)
@@ -124,6 +141,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for sort ranges.
     fn sort_ranges(ranges, idx, acc) {
         if idx >= len(ranges) {
             acc
@@ -132,6 +150,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for merged width sum.
     fn merged_width_sum(sorted, idx, cur_lo, cur_hi, acc) {
         if idx >= len(sorted) {
             if cur_lo < 0 {
@@ -154,12 +173,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY05A.
     fn day05a(parsed) {
         let ranges = parsed.0
         let xs = parsed.1
         count_members(xs, ranges, 0, 0)
     }
 
+    // Compute DAY05B.
     fn day05b(ranges) {
         let sorted = sort_ranges(ranges, 0, [||])
         merged_width_sum(sorted, 0, -1, -1, 0)
@@ -171,4 +192,3 @@ fn main() with IO, Time {
     print(day05a(parsed))
     print(day05b(ranges))
 }
-//

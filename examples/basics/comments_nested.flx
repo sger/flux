@@ -57,6 +57,7 @@ fn main() with IO {
     * that already contains block comments, without breaking anything!
     */
 
+    // Helper for calculate total.
     fn calculate_total(items) {
         /*
         Temporarily disabled - needs refactoring
@@ -87,13 +88,13 @@ fn main() with IO {
     * Process user data with validation
     *
     * Implementation notes:
-    * /* TODO: Add email validation
-    *    /* Check format */
-    *    /* Verify domain */
-    * */
+    * - TODO: add email validation
+    * - Check format
+    * - Verify domain
     *
     * Returns processed user object
     */
+    // Helper for process user.
     fn process_user(name, email) {
         return name;
     }
@@ -113,7 +114,7 @@ fn main() with IO {
 
         /**
         * API settings
-        * /* Version control /* v2.0 */ */
+        * Version control notes: v2.0
         */
         "api_version": "2.0"
     };
@@ -143,37 +144,35 @@ fn main() with IO {
     // ════════════════════════════════════════════════════════════════════════════
 
     /**
-    * Without nested comment support, you can't do this:
-    *
-    * /* Comment out a whole function
-    * fn debug_helper() {
-        *     /* This inner comment would break non-nested systems */
-        *     let temp = calculate();
-        *     return temp;
-        * }
-        * */
-        *
-        * But Flux handles it perfectly!
-        */
+     * Without nested comment support, you can't do this:
+     *
+     * Comment out a whole function that already contains comments:
+     * fn debug_helper() {
+     *     let temp = calculate();
+     *     return temp;
+     * }
+     *
+     * But Flux handles it perfectly!
+     */
 
-        // Test execution
-        print("Nested comments example running successfully!");
-        print(deeply_nested);
-        print(calculate_total([|1, 2, 3|]));
-        print(process_user("Alice", "alice@example.com"));
+    // Test execution
+    print("Nested comments example running successfully!");
+    print(deeply_nested);
+    print(calculate_total([|1, 2, 3|]));
+    print(process_user("Alice", "alice@example.com"));
 
-        /*
-        Summary:
+    /*
+    Summary:
 
-        Flux's comment system supports:
-        ✓ Single-line comments (//)
-            ✓ Block comments (/* */)
-            ✓ Arbitrarily nested block comments
-            ✓ Line doc comments (///)
-                ✓ Block doc comments (/** */)
-                ✓ Nested doc comments
+    Flux's comment system supports:
+    ✓ Single-line comments (//)
+    ✓ Block comments (/* */)
+    ✓ Arbitrarily nested block comments
+    ✓ Line doc comments (///)
+    ✓ Block doc comments (/** */)
+    ✓ Nested doc comments
 
-                This makes it easy to comment out large code sections
-                without worrying about breaking existing comments!
-                */
-            }
+    This makes it easy to comment out large code sections
+    without worrying about breaking existing comments!
+    */
+}

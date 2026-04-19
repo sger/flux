@@ -2,19 +2,26 @@
 // 46398
 // parity-expected-stdout-end
 
-// Advent of Code - Day 8 Part 1 (Playground)
-// Connect the 1000 closest pairs and multiply the sizes of the 3 largest circuits.
-// Performance: prune edges by distance threshold (from the Rust approach).
-// Input: examples/aoc/2025/aoc_day8.txt
+/*
+Advent of Code - Day 8 Part 1 (Playground)
+Connect the 1000 closest pairs and multiply the sizes of the 3 largest circuits.
+Performance: prune edges by distance threshold (from the Rust approach).
+Input: examples/aoc/2025/aoc_day8.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -22,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arr at.
     fn arr_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -29,12 +37,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for set at.
     fn set_at(arr, idx, value) {
         let left = slice(arr, 0, idx)
         let right = slice(arr, idx + 1, len(arr))
         concat(concat(left, [|value|]), right)
     }
 
+    // Helper for dist sq.
     fn dist_sq(points, i, j) {
         ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
             * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
@@ -44,14 +54,17 @@ fn main() with IO, Time {
                     * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
                 }
 
+                // Helper for pair code.
                 fn pair_code(i, j) {
                     (i * 1000) + j
                 }
 
+                // Helper for edge key.
                 fn edge_key(points, i, j) {
                     (dist_sq(points, i, j) * 1000000) + pair_code(i, j)
                 }
 
+                // Helper for maybe push edge.
                 fn maybe_push_edge(points, i, j, max_dist, acc) {
                     let d = dist_sq(points, i, j)
                     if d < max_dist {
@@ -61,16 +74,19 @@ fn main() with IO, Time {
                     }
                 }
 
+                // Helper for root.
                 fn root(parents, x) {
                     let p = int_at(parents, x)
                     if p == x { x } else { root(parents, p) }
                 }
 
+                // Helper for dsu state.
                 fn dsu_state(parents, sizes) {
                     let s = Map.set({}, "p", parents)
                     Map.set(s, "sz", sizes)
                 }
 
+                // Helper for dsu parents.
                 fn dsu_parents(state) {
                     match Map.get(state, "p") {
                         Some(v) -> v,
@@ -78,6 +94,7 @@ fn main() with IO, Time {
                     }
                 }
 
+                // Helper for dsu sizes.
                 fn dsu_sizes(state) {
                     match Map.get(state, "sz") {
                         Some(v) -> v,
@@ -85,6 +102,7 @@ fn main() with IO, Time {
                     }
                 }
 
+                // Helper for union key.
                 fn union_key(state, key) {
                     let parents = dsu_parents(state)
                     let sizes = dsu_sizes(state)
@@ -142,4 +160,3 @@ fn main() with IO, Time {
                     let top = Array.sort_by(comps, \x -> 0 - x)
                     print(int_at(top, 0) * int_at(top, 1) * int_at(top, 2))
                 }
-                //

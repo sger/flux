@@ -9,11 +9,14 @@
 // Some(3)
 // parity-expected-stdout-end
 
-// Arrays combined with named-field records (proposal 0152) and with a
-// homogeneous String-keyed map.
+/*
+Arrays combined with named-field records (proposal 0152) and with a
+homogeneous String-keyed map.
+*/
 
 data User { User { name: String, age: Int } }
 
+// Program entry point.
 fn main() with IO {
     let users = [|
         User { name: "Alice", age: 25 },

@@ -16,15 +16,9 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Test: Basic arrays
-    // Expected output:
-    // [|1, 2, 3|]
-    // []
-    // [|1, 2, 3, 4, 5|]
-    // hello
-    // 42
-    // true
 
     // Simple array
     let arr = [|1, 2, 3|];

@@ -5,12 +5,16 @@
 // 31
 // parity-expected-stdout-end
 
-// Field punning in construction and spread (proposal 0152).
-// When a local variable has the same name as a field, `{ x }` is shorthand
-// for `{ x: x }`.
+/*
+Field punning in construction and spread (proposal 0152).
+When a local variable has the same name as a field, `{ x }` is shorthand
+for `{ x: x }`.
+*/
+
 
 data Person { Person { name: String, age: Int } }
 
+// Program entry point.
 fn main() with IO {
     let name = "Alice"
     let age = 30

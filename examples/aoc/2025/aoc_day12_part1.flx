@@ -2,15 +2,19 @@
 // 422
 // parity-expected-stdout-end
 
-// Advent of Code - Day 12 Part 1
-// Count regions that can fit the requested presents using the rule:
-//   width * height >= 9 * sum(counts)
-// This mirrors the provided Rust solution logic, implemented in Flux.
-// Input: examples/aoc/2025/aoc_day12.txt
+/*
+Advent of Code - Day 12 Part 1
+Count regions that can fit the requested presents using the rule:
+width * height >= 9 * sum(counts)
+This mirrors the provided Rust solution logic, implemented in Flux.
+Input: examples/aoc/2025/aoc_day12.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -18,6 +22,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -25,10 +30,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -41,10 +48,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Check whether char.
     fn has_char(s, ch) {
         find_char_from(s, ch, 0) >= 0
     }
 
+    // Check whether one region can fit its requested presents.
     fn region_fits(line) {
         let c = find_char_from(line, ":", 0)
         let left = trim(substring(line, 0, c))
@@ -68,4 +77,3 @@ fn main() with IO, Time {
         let fits = Array.map(region_lines, \line -> if region_fits(line) { 1 } else { 0 })
         print(Array.sum(fits))
     }
-    //

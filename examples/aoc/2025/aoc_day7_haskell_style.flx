@@ -3,18 +3,25 @@
 // 47274292756692
 // parity-expected-stdout-end
 
-// Advent of Code - Day 7 (Haskell-style translation)
-// Inspired by AOC2025.Day07 day07a/day07b.
-// Uses input file: examples/aoc/2025/aoc_day7.txt
+/*
+Advent of Code - Day 7 (Haskell-style translation)
+Inspired by AOC2025.Day07 day07a/day07b.
+Uses input file: examples/aoc/2025/aoc_day7.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -22,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -29,6 +37,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx < 0 || idx >= len(s) {
             " "
@@ -37,12 +46,14 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for set at.
     fn set_at(arr, idx, value) {
         let left = slice(arr, 0, idx)
         let right = slice(arr, idx + 1, len(arr))
         concat(concat(left, [|value|]), right)
     }
 
+    // Helper for add at.
     fn add_at(arr, idx, delta) {
         if idx < 0 || idx >= len(arr) {
             arr
@@ -51,6 +62,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for zeros.
     fn zeros(n, i, acc) {
         if i >= n {
             acc
@@ -59,6 +71,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute the maximum width.
     fn max_width(lines, i, cur) {
         if i >= len(lines) {
             cur
@@ -68,6 +81,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s in row.
     fn find_s_in_row(s, i) {
         if i >= len(s) {
             -1
@@ -80,6 +94,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find s.
     fn find_s(lines, r) {
         if r >= len(lines) {
             (-1, -1)
@@ -93,6 +108,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Sum arr.
     fn sum_arr(arr, i, acc) {
         if i >= len(arr) {
             acc
@@ -101,11 +117,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step a res.
     fn step_a_res(next_mask, split_count) {
         let m = Map.set({}, "next", next_mask)
         Map.set(m, "split", split_count)
     }
 
+    // Helper for step a next.
     fn step_a_next(x) {
         match Map.get(x, "next") {
             Some(v) -> v,
@@ -113,6 +131,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step a split.
     fn step_a_split(x) {
         match Map.get(x, "split") {
             Some(v) -> v,
@@ -120,6 +139,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process cols a.
     fn process_cols_a(row_txt, col, width, active, next_mask, split_count) {
         if col >= width {
             step_a_res(next_mask, split_count)
@@ -140,6 +160,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for simulate a.
     fn simulate_a(lines, row_idx, width, active, split_count) {
         if row_idx >= len(lines) {
             split_count
@@ -151,11 +172,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step b res.
     fn step_b_res(next_counts, finished) {
         let m = Map.set({}, "next", next_counts)
         Map.set(m, "done", finished)
     }
 
+    // Helper for step b next.
     fn step_b_next(x) {
         match Map.get(x, "next") {
             Some(v) -> v,
@@ -163,6 +186,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for step b done.
     fn step_b_done(x) {
         match Map.get(x, "done") {
             Some(v) -> v,
@@ -170,6 +194,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for process cols b.
     fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
         if col >= width {
             step_b_res(next_counts, finished)
@@ -195,6 +220,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for simulate b.
     fn simulate_b(lines, row_idx, width, active_counts, finished) {
         if row_idx >= len(lines) {
             finished + sum_arr(active_counts, 0, 0)
@@ -206,6 +232,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute DAY07A.
     fn day07a(lines) {
         let width = max_width(lines, 0, 0)
         let start = find_s(lines, 0)
@@ -215,6 +242,7 @@ fn main() with IO, Time {
         simulate_a(lines, srow, width, start_mask, 0)
     }
 
+    // Compute DAY07B.
     fn day07b(lines) {
         let width = max_width(lines, 0, 0)
         let start = find_s(lines, 0)
@@ -229,4 +257,3 @@ fn main() with IO, Time {
     print(day07a(lines))
     print(day07b(lines))
 }
-//

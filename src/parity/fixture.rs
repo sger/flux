@@ -27,6 +27,8 @@ pub struct FixtureMeta {
     pub ways: Vec<Way>,
     /// Expected outcome (defaults to `Success`).
     pub expect: Expect,
+    /// Extra CLI args forwarded only for this fixture.
+    pub extra_args: Vec<String>,
     /// One-line description of the bug shape.
     pub bug: Option<String>,
     /// Optional expected normalized stdout block.
@@ -38,6 +40,7 @@ impl Default for FixtureMeta {
         Self {
             ways: vec![Way::Vm, Way::Llvm],
             expect: Expect::Success,
+            extra_args: Vec::new(),
             bug: None,
             expected_stdout: None,
         }
@@ -115,6 +118,12 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
                 "runtime_error" => Expect::RuntimeError,
                 _ => Expect::Success,
             };
+        } else if let Some(value) = comment.strip_prefix("root:") {
+            let value = value.trim();
+            if !value.is_empty() {
+                meta.extra_args.push("--root".to_string());
+                meta.extra_args.push(value.to_string());
+            }
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
         }
@@ -150,6 +159,7 @@ mod tests {
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::RuntimeError);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
         assert_eq!(
             meta.bug.as_deref(),
             Some("division by zero differs across backends")
@@ -170,6 +180,7 @@ mod tests {
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::Success);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
         assert!(meta.bug.is_none());
         assert!(meta.expected_stdout.is_none());
 
@@ -193,6 +204,22 @@ mod tests {
         assert_eq!(meta.expected_stdout.as_deref(), Some("1"));
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::Success);
+        assert_eq!(meta.extra_args, Vec::<String>::new());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_fixture_root_into_extra_args() {
+        let dir = std::env::temp_dir().join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_root_meta.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "// root: examples").unwrap();
+        writeln!(f, "fn main() {{ }}").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        assert_eq!(meta.extra_args, vec!["--root", "examples"]);
 
         let _ = std::fs::remove_file(&path);
     }

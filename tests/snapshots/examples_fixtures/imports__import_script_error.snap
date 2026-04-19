@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Errors.ScriptOnly` to import.
 
-  examples/imports/import_script_error.flx:1:1
+  examples/imports/import_script_error.flx:4:1
   |
-1 | import Errors.ScriptOnly
+4 | import Errors.ScriptOnly
   | ^
 
 Hint:

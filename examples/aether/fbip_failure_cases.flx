@@ -17,14 +17,17 @@ import Aether.FbipImportedSupport as Imported
     f(x)
 }
 
+// Helper for fail imported.
 @fip fn fail_imported(x: Int) -> Int {
     Imported.imported_inc(x)
 }
 
+// Helper for fail fresh.
 @fip fn fail_fresh(x: Int) {
     Some(x)
 }
 
+// Program entry point.
 fn main() with IO {
     print(fail_indirect(\y -> y + 1, 1))
     print(fail_imported(2))

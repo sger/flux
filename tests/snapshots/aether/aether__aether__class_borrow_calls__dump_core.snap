@@ -767,15 +767,17 @@ letrec null =
 
 letrec range =
 λstart, stop.
-    let %t93 = ICmpGe(start, stop)
-    case %t93 of
-      true →
-        []
-      _ →
-        let %t94 = (let %t95 = Flow.List.range
-        let %t96 = IAdd(start, 1)
-        %t95(%t96, stop))
-        ::(start, %t94)
+    letrec range_go = (λcurrent, acc.
+      let %t93 = ICmpGe(current, stop)
+      case %t93 of
+        true →
+          reverse(acc)
+        _ →
+          let %t94 = IAdd(current, 1)
+          let %t95 = ::(current, acc)
+          range_go(%t94, %t95))
+    let %t96 = []
+    range_go(start, %t96)
 
 letrec reverse =
 λxs.

@@ -2,16 +2,21 @@
 // 169512729575727
 // parity-expected-stdout-end
 
-// Advent of Code - Day 3 Part 2 (Lobby)
-// Input: examples/aoc/2025/aoc_day3.txt
+/*
+Advent of Code - Day 3 Part 2 (Lobby)
+Input: examples/aoc/2025/aoc_day3.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Helper for digit at.
     fn digit_at(line, idx) {
         parse_int(substring(line, idx, idx + 1))
     }
 
+    // Helper for best digit pos.
     fn best_digit_pos(line, start, end_inclusive, best_digit, best_pos) {
         if start > end_inclusive {
             best_pos
@@ -26,6 +31,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute the maximum k value.
     fn max_k_value(line, start, k, acc) {
         if k == 0 {
             acc
@@ -38,6 +44,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for bank value k12.
     fn bank_value_k12(line) {
         let n = len(line)
         if n < 12 { 0 } else { max_k_value(line, 0, 12, 0) }
@@ -48,4 +55,3 @@ fn main() with IO, Time {
     let bank_values = Array.map(non_empty, \line -> bank_value_k12(line))
     print(Array.sum(bank_values))
 }
-//

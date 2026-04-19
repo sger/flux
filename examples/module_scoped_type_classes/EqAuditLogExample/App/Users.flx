@@ -2,19 +2,21 @@ import EqAuditLogExample.Flow.Comparable as Comparable
 import EqAuditLogExample.Flow.AuditLog as AuditLog
 
 module EqAuditLogExample.App.Users {
-    public data UserId { Id(Int) }
+    public data UserId { UserId(Int) }
 
     public fn id(x: Int) -> UserId {
-        Id(x)
+        UserId(x)
     }
 
     public instance Comparable<UserId> {
         fn same(a, b) with AuditLog {
-            perform AuditLog.record("comparing users")
-            match (a, b) {
-                (Id(x), Id(y)) -> x == y,
-                _ -> false
+            let extract: (UserId) -> Int = \(user: UserId) ->
+            match user {
+                UserId(x) -> x,
+                _ -> 0
             }
+            perform AuditLog.record("comparing users")
+            extract(a) == extract(b)
         }
     }
 

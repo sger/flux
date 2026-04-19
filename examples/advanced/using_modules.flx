@@ -1,4 +1,7 @@
-// Test: Using Functional Patterns with Pipelines and Lambdas
+/*
+Test: Using Functional Patterns with Pipelines and Lambdas
+*/
+
 // parity-expected-stdout-begin
 // "Using functional helper functions:"
 // "Doubled: [|2, 4, 6, 8, 10|]"
@@ -15,10 +18,12 @@
 
 import Flow.Array as Array
 
+// Helper for compose.
 fn compose(f, g) {
     \x -> f(g(x))
 }
 
+// Helper for applyN.
 fn applyN(f, n, x) {
     if n <= 0 {
         x
@@ -27,6 +32,7 @@ fn applyN(f, n, x) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print("Using functional helper functions:")
 

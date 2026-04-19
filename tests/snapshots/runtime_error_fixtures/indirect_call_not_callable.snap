@@ -22,13 +22,13 @@ I found the wrong type in the 1st argument to `f`.
   |
 3 |     let ignored = f(2)
   |                   ^^^^
-  |                   ---- this argument has type `(Int) -> _ with |?9709`
+  |                   ---- this argument has type `(Int) -> _ with |?9714`
 
   |                   ---- this call argument produces the conflicting type
 
 Note:
   expected argument type: Int
-  found argument type: (Int) -> _ with |?9709
+  found argument type: (Int) -> _ with |?9714
   the actual argument type is inferred from this expression
   the actual argument type is inferred from this expression
 

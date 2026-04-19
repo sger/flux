@@ -3,11 +3,14 @@
 // "Part B: 1618"
 // parity-expected-stdout-end
 
-// Advent of Code 2024 - Day 6
-// Uses input file: examples/aoc/2024/day06.txt
+/*
+Advent of Code 2024 - Day 6
+Uses input file: examples/aoc/2024/day06.txt
+*/
 
 import Day06Solver as Day06
 
+// Program entry point.
 fn main() with IO {
     let grid: Array<String> = read_lines("examples/aoc/2024/day06.txt")
     print("Part A: " + to_string(Day06.day06a_from_lines(grid)))

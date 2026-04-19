@@ -14,7 +14,10 @@
 // None
 // parity-expected-stdout-end
 
-// Safe arithmetic: total division and modulo (Proposal 0135)
+/*
+Safe arithmetic: total division and modulo (Proposal 0135)
+*/
+
 //
 // safe_div and safe_mod never panic — they return Option:
 //   Some(result) on success, None on division by zero.

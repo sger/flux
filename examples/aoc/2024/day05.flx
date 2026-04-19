@@ -3,8 +3,10 @@
 // 4151
 // parity-expected-stdout-end
 
-// Advent of Code 2024 - Day 5
-// Uses input file: examples/aoc/2024/day05.txt
+/*
+Advent of Code 2024 - Day 5
+Uses input file: examples/aoc/2024/day05.txt
+*/
 
 import Day05Solver as Day05
 

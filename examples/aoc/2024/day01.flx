@@ -3,8 +3,10 @@
 // 19457120
 // parity-expected-stdout-end
 
-// Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
-// Uses input file: examples/aoc/2024/day01.txt
+/*
+Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
+Uses input file: examples/aoc/2024/day01.txt
+*/
 
 import Aoc2024Shared as Shared
 import Flow.Array as Array
@@ -24,7 +26,6 @@ fn parse_pair(line) {
     |> Array.filter(\t -> trim(t) != "")
     |> Array.map(\t -> parse_int(t))
 }
-
 // Parse whole input into an array of tuples: [(left, right), ...].
 fn parse_pairs(lines: Array<String>) {
     lines
@@ -32,7 +33,6 @@ fn parse_pairs(lines: Array<String>) {
     |> Array.filter(\s -> s != "")
     |> Array.map(\s -> parse_pair(s))
 }
-
 // Part A:
 // - split tuples into two columns
 // - sort both columns
@@ -43,7 +43,6 @@ fn day01a(day_pairs_a) {
     where left  = day_pairs_a |> Array.map(\p -> p.0) |> Array.sort_by(\x -> x)
     where right = day_pairs_a |> Array.map(\p -> p.1) |> Array.sort_by(\x -> x)
 }
-
 // Part B:
 // - keep left column
 // - build a frequency map for right column in one pass
@@ -62,7 +61,6 @@ fn day01b(day_pairs_b) {
             _ -> Map.set(m, x, 1),
     })
 }
-
 // Program entry: parse once, then print both answers.
 fn main() with IO {
     let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs

@@ -23,6 +23,7 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Test: Array base functions
 

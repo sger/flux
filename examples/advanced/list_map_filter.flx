@@ -72,6 +72,7 @@ fn main() with IO {
         }
     }
 
+    // Helper for list filter.
     fn list_filter(lst, pred) {
         match lst {
             [h | t] -> if pred(h) { [h | list_filter(t, pred)] } else { list_filter(t, pred) },
@@ -99,6 +100,7 @@ fn main() with IO {
 
     print("=== Flatten ===");
 
+    // Helper for list append.
     fn list_append(a, b) {
         match a {
             [h | t] -> [h | list_append(t, b)],
@@ -106,6 +108,7 @@ fn main() with IO {
         }
     }
 
+    // Helper for flatten.
     fn flatten(lst) {
         match lst {
             [h | t] -> list_append(h, flatten(t)),
@@ -137,6 +140,7 @@ fn main() with IO {
 
     print("=== Take / Drop ===");
 
+    // Helper for take.
     fn take(lst, n) {
         if n <= 0 {
             []
@@ -148,6 +152,7 @@ fn main() with IO {
         }
     }
 
+    // Helper for drop.
     fn drop(lst, n) {
         if n <= 0 {
             lst

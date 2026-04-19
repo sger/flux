@@ -4,6 +4,7 @@
 import Flow.FTest as Test
 import Day05Solver as Day05
 
+// Helper for sample lines.
 fn sample_lines() {
     [|
         "47|53",
@@ -37,10 +38,12 @@ fn sample_lines() {
     |]
 }
 
+// Helper for test DAY05 part1 prompt sample is 143.
 fn test_day05_part1_prompt_sample_is_143() {
     Test.eq(Day05.day05a_from_lines(sample_lines()), 143)
 }
 
+// Helper for test DAY05 part1 ignores missing page rules.
 fn test_day05_part1_ignores_missing_page_rules() {
     let lines = [|
         "10|20",
@@ -54,6 +57,7 @@ fn test_day05_part1_ignores_missing_page_rules() {
     Test.eq(Day05.day05a_from_lines(lines), 50)
 }
 
+// Helper for test DAY05 part1 rejects violating updates.
 fn test_day05_part1_rejects_violating_updates() {
     let lines = [|
         "10|20",
@@ -65,6 +69,7 @@ fn test_day05_part1_rejects_violating_updates() {
     Test.eq(Day05.day05a_from_lines(lines), 20)
 }
 
+// Helper for test DAY05 part1 memory and lines match.
 fn test_day05_part1_memory_and_lines_match() {
     let memory =
     "1|2\n" +

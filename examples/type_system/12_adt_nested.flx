@@ -1,44 +1,44 @@
-fn main() with IO, Time {
-    data Tree {
-        Leaf,
-        Node(Tree, Int, Tree),
-    }
+data Tree {
+    Leaf,
+    Node(Tree, Int, Tree),
+}
 
-    fn insert(t: Tree, v: Int) -> Tree {
-        match t {
-            Leaf -> Node(Leaf, v, Leaf),
-            Node(left, x, right) ->
+fn insert(t: Tree, v: Int) -> Tree {
+    match t {
+        Leaf -> Node(Leaf, v, Leaf),
+        Node(left, x, right) ->
             if v < x {
                 Node(insert(left, v), x, right)
             } else if v > x {
-            Node(left, x, insert(right, v))
-        } else {
-        t
-    },
-}
+                Node(left, x, insert(right, v))
+            } else {
+                t
+            },
+    }
 }
 
 fn contains(t: Tree, v: Int) -> Bool {
     match t {
         Leaf -> false,
         Node(left, x, right) ->
-        if v == x { true }
-        else if v < x { contains(left, v) }
-        else { contains(right, v) },
+            if v == x { true }
+            else if v < x { contains(left, v) }
+            else { contains(right, v) },
     }
 }
 
-fn inorder(t: Tree) -> Array {
+fn inorder(t: Tree) -> Array<Int> {
     match t {
         Leaf -> [||],
         Node(left, x, right) ->
-        concat(inorder(left), concat([|x|], inorder(right))),
+            array_concat(inorder(left), array_concat([|x|], inorder(right))),
     }
 }
 
-let t = insert(insert(insert(insert(Leaf, 5), 3), 7), 1)
+fn main() with IO, Time {
+    let t = insert(insert(insert(insert(Leaf, 5), 3), 7), 1)
 
-print(contains(t, 3))
-print(contains(t, 4))
-print(inorder(t))
+    print(contains(t, 3))
+    print(contains(t, 4))
+    print(inorder(t))
 }

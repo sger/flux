@@ -11,7 +11,9 @@
 
 import Flow.Array as Array
 
+// Helper for printAll.
 fn printAll(arr) with IO {
+    // Helper for printAllGo.
     fn printAllGo(i) with IO {
         if i >= Array.length(arr) {
             print("done")
@@ -28,14 +30,17 @@ fn printAll(arr) with IO {
     printAllGo(0)
 }
 
+// Helper for mySum.
 fn mySum(arr) {
     Array.fold(arr, 0, fn(acc, x) { acc + x })
 }
 
+// Helper for countItems.
 fn countItems(arr) {
     Array.length(arr)
 }
 
+// Program entry point.
 fn main() with IO {
     // Test: Array iteration with recursion
     // Expected output:

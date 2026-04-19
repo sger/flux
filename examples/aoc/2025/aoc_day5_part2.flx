@@ -2,17 +2,24 @@
 // 357485433193284
 // parity-expected-stdout-end
 
-// Advent of Code - Day 5 Part 2 (Cafeteria)
-// Count how many ingredient IDs are fresh according to the union of ranges.
-// Input: examples/aoc/2025/aoc_day5.txt
+/*
+Advent of Code - Day 5 Part 2 (Cafeteria)
+Count how many ingredient IDs are fresh according to the union of ranges.
+Input: examples/aoc/2025/aoc_day5.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Append one value to an array.
     fn push(arr, value) { array_push(arr, value) }
+    // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
+    // Helper for concat.
     fn concat(left, right) { Array.concat(left, right) }
 
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -20,6 +27,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the integer at the given index or a default.
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -27,6 +35,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arr at.
     fn arr_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -34,6 +43,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse range line.
     fn parse_range_line(line) {
         let parts = split_ints(trim(line), "-")
         let a = int_at(parts, 0)
@@ -43,18 +53,22 @@ fn main() with IO, Time {
         array_push(array_push([||], lo), hi)
     }
 
+    // Helper for range start.
     fn range_start(r) {
         int_at(r, 0)
     }
 
+    // Helper for range end.
     fn range_end(r) {
         int_at(r, 1)
     }
 
+    // Helper for make range.
     fn make_range(a, b) {
         array_push(array_push([||], a), b)
     }
 
+    // Find blank.
     fn find_blank(lines, idx) {
         if idx >= len(lines) {
             len(lines)
@@ -67,6 +81,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for insert range rec.
     fn insert_range_rec(sorted, r, i, acc) {
         if i >= len(sorted) {
             array_push(acc, r)
@@ -80,10 +95,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for insert range.
     fn insert_range(sorted, r) {
         insert_range_rec(sorted, r, 0, [||])
     }
 
+    // Helper for sort ranges.
     fn sort_ranges(ranges, i, acc) {
         if i >= len(ranges) {
             acc
@@ -93,6 +110,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count merged.
     fn count_merged(sorted, idx, cur_a, cur_b, acc) {
         if idx >= len(sorted) {
             if cur_a < 0 {
@@ -124,4 +142,3 @@ fn main() with IO, Time {
     let sorted = sort_ranges(ranges, 0, [||])
     print(count_merged(sorted, 0, -1, -1, 0))
 }
-//

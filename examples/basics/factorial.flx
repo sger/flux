@@ -10,6 +10,7 @@ fn factorial(n, acc) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     let result = factorial(5, 1)
     print("Result: " + to_string(result))

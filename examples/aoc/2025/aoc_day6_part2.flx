@@ -2,14 +2,18 @@
 // 12841228084455
 // parity-expected-stdout-end
 
-// Advent of Code - Day 6 Part 2 (Trash Compactor)
-// Each problem is read right-to-left by columns.
-// In each column, digits are read top-to-bottom to form one number.
-// Input: examples/aoc/2025/aoc_day6.txt
+/*
+Advent of Code - Day 6 Part 2 (Trash Compactor)
+Each problem is read right-to-left by columns.
+In each column, digits are read top-to-bottom to form one number.
+Input: examples/aoc/2025/aoc_day6.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -17,6 +21,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for char at pad.
     fn char_at_pad(s, idx) {
         if idx >= len(s) {
             " "
@@ -25,6 +30,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute the maximum width.
     fn max_width(lines, idx, cur) {
         if idx >= len(lines) {
             cur
@@ -34,6 +40,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Check whether blank col.
     fn is_blank_col(lines, col, row) {
         if row >= len(lines) {
             true
@@ -47,6 +54,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for skip blank cols.
     fn skip_blank_cols(lines, width, col) {
         if col >= width {
             col
@@ -59,6 +67,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Find problem end.
     fn find_problem_end(lines, width, col) {
         if col >= width {
             col
@@ -71,6 +80,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for slice padded.
     fn slice_padded(s, start, stop) {
         if start >= len(s) {
             ""
@@ -84,6 +94,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for col value.
     fn col_value(lines, num_rows, col, empty_default) {
         let digits =
         to_array(range(0, num_rows))
@@ -93,6 +104,7 @@ fn main() with IO, Time {
         if joined == "" { empty_default } else { parse_int(joined) }
     }
 
+    // Helper for eval problem.
     fn eval_problem(lines, num_rows, start, stop) {
         let op_line = line_at(lines, num_rows)
         let op = trim(slice_padded(op_line, start, stop))
@@ -106,6 +118,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Solve cols.
     fn solve_cols(lines, num_rows, width, col, total) {
         let c = skip_blank_cols(lines, width, col)
         if c >= width {
@@ -122,4 +135,3 @@ fn main() with IO, Time {
     let width = max_width(lines, 0, 0)
     print(solve_cols(lines, num_rows, width, 0, 0))
 }
-//

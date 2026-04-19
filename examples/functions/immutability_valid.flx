@@ -13,8 +13,8 @@ fn main() with IO, Time {
     let counter = 0;
 
     fn increment(n) {
-        let counter = n + 1;  // OK: different scope
-        return counter;
+        let next_counter = n + 1;  // OK: different binding name
+        return next_counter;
     }
 
     print(counter);         // 0 (original)
@@ -29,7 +29,11 @@ fn main() with IO, Time {
     }
 
     // In a real implementation, you'd use map here
-    let first_doubled = double(first(numbers));
+    let first_number = match first(numbers) {
+        Some(v) -> v,
+        _ -> 0,
+    };
+    let first_doubled = double(first_number);
     print(first_doubled);  // 2
 
     // Example 5: Recursive functions work with immutability

@@ -23,6 +23,7 @@ fn describe(result) {
     }
 }
 
+// Helper for safeDivide.
 fn safeDivide(a, b) {
     if b == 0 {
         Left("division by zero")
@@ -31,6 +32,7 @@ fn safeDivide(a, b) {
     }
 }
 
+// Helper for isRight.
 fn isRight(either) {
     match either {
         Right(_) -> true,
@@ -38,6 +40,7 @@ fn isRight(either) {
     }
 }
 
+// Helper for isLeft.
 fn isLeft(either) {
     match either {
         Left(_) -> true,
@@ -45,6 +48,7 @@ fn isLeft(either) {
     }
 }
 
+// Helper for getOrElse.
 fn getOrElse(either, defaultVal) {
     match either {
         Right(x) -> x,
@@ -52,6 +56,7 @@ fn getOrElse(either, defaultVal) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     // Either Type Examples
     // Left and Right are used for values that can be one of two types

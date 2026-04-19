@@ -38,6 +38,7 @@ fn test_day06_part_a_straight_exit() {
     assert_eq(Day06.day06a_from_lines(grid), 2)
 }
 
+// Helper for test DAY06 part b no loop possible.
 fn test_day06_part_b_no_loop_possible() {
     let grid = [|
         "..",

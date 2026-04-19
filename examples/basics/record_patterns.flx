@@ -5,11 +5,15 @@
 // "named Alice"
 // parity-expected-stdout-end
 
-// Named-field patterns (proposal 0152): destructuring, punning, `...` rest.
+/*
+Named-field patterns (proposal 0152): destructuring, punning, `...` rest.
+*/
+
 
 data Point { Point { x: Int, y: Int } }
 data User  { User  { name: String, age: Int, email: String } }
 
+// Helper for describe.
 fn describe(p) {
     match p {
         Point { x: 0, y: 0 } -> "at origin",
@@ -18,6 +22,7 @@ fn describe(p) {
     }
 }
 
+// Helper for greet.
 fn greet(u) {
     // `...` skips the fields we don't name.
     match u {
@@ -25,6 +30,7 @@ fn greet(u) {
     }
 }
 
+// Program entry point.
 fn main() with IO {
     print(describe(Point { x: 0, y: 0 }))
     print(describe(Point { x: 3, y: 0 }))

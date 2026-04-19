@@ -2,12 +2,16 @@
 // 54234399924
 // parity-expected-stdout-end
 
-// Advent of Code - Day 2 Part 1 (Gift Shop)
-// Uses input file: examples/aoc/2025/aoc_day2.txt
+/*
+Advent of Code - Day 2 Part 1 (Gift Shop)
+Uses input file: examples/aoc/2025/aoc_day2.txt
+*/
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO, Time {
+    // Count decimal digits in a number.
     fn digits_count(n) {
         if n < 10 {
             1
@@ -16,6 +20,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Compute a power of ten.
     fn pow10(exp) {
         if exp <= 0 {
             1
@@ -24,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Repeat a chunk value to build a candidate number.
     fn repeat_value(seed, base, times_left, acc) {
         if times_left <= 0 {
             acc
@@ -32,11 +38,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Repeat a value a fixed number of times.
     fn rep_digits(times, value) {
         let base = pow10(digits_count(value))
         repeat_value(value, base, times - 1, value)
     }
 
+    // Parse one numeric range token.
     fn parse_range_token(token) {
         let parts = split_ints(trim(token), "-")
         let start = match Array.first(parts) {
@@ -50,6 +58,7 @@ fn main() with IO, Time {
         (start, end)
     }
 
+    // Parse all range records from the input file.
     fn parse_ranges(path) with IO {
         read_file(path)
         |> trim
@@ -58,15 +67,18 @@ fn main() with IO, Time {
         |> Array.map(\t -> parse_range_token(t))
     }
 
+    // Check whether an id falls inside one range.
     fn id_in_range(id, range_pair) {
         let (start, end) = range_pair
         id >= start && id <= end
     }
 
+    // Check whether an id falls inside any range.
     fn id_in_any_range(id, ranges) {
         Array.fold(ranges, false, \(found, r) -> if found { true } else { id_in_range(id, r) })
     }
 
+    // Solve part1.
     fn solve_part1(ranges) {
         range(1, 100000)
         |> fold(0, \(acc, seed) ->
@@ -85,4 +97,3 @@ fn main() with IO, Time {
     let total = solve_part1(ranges)
     print(total)
 }
-//

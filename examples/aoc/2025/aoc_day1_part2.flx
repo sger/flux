@@ -2,10 +2,14 @@
 // 6289
 // parity-expected-stdout-end
 
-// Advent of Code - Day 1 Part 2 (Secret Entrance, method 0x434C49434B)
-// Uses input file: examples/aoc/2025/aoc_day1.txt
+/*
+Advent of Code - Day 1 Part 2 (Secret Entrance, method 0x434C49434B)
+Uses input file: examples/aoc/2025/aoc_day1.txt
+*/
 
+// Program entry point.
 fn main() with IO, Time {
+    // Helper for wrap 100.
     fn wrap_100(value) {
         let reduced = value % 100
         if reduced < 0 {
@@ -15,6 +19,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count every 100.
     fn count_every_100(remaining) {
         if remaining < 100 {
             0
@@ -23,6 +28,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Count hits for rotation.
     fn count_hits_for_rotation(first_zero_click, distance) {
         if distance < first_zero_click {
             0
@@ -31,16 +37,19 @@ fn main() with IO, Time {
         }
     }
 
+    // Count zeros right.
     fn count_zeros_right(pos, distance) {
         let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
         count_hits_for_rotation(first_zero_click, distance)
     }
 
+    // Count zeros left.
     fn count_zeros_left(pos, distance) {
         let first_zero_click = if pos == 0 { 100 } else { pos }
         count_hits_for_rotation(first_zero_click, distance)
     }
 
+    // Apply rotation.
     fn apply_rotation(step, rest, pos, hits) {
         let dir = substring(step, 0, 1)
         let distance = parse_int(substring(step, 1, len(step)))
@@ -56,6 +65,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Solve the current puzzle state.
     fn solve(lines, pos, hits) {
         match lines {
             [line | rest] -> apply_rotation(line, rest, pos, hits),
@@ -68,4 +78,3 @@ fn main() with IO, Time {
     let password = solve(steps, 50, 0)
     print(password)
 }
-//

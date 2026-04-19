@@ -1,3 +1,94 @@
+// parity-expected-stdout-begin
+// "== All PrimOps Showcase =="
+// "-- Numeric --"
+// 30
+// 17
+// 42
+// 7
+// 2
+// 3.75
+// 3.5
+// 9
+// 4.5
+// 10
+// 3
+// 7.5
+// "-- Comparisons --"
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// "-- Arrays/Collections --"
+// 3
+// 20
+// [|10, 99, 30|]
+// Some(10)
+// Some(30)
+// [|99, 30|]
+// true
+// [|10, 99|]
+// [|10, 20, 30, 40, 50|]
+// 1
+// 3
+// [2, 3]
+// true
+// "-- Maps --"
+// true
+// true
+// Some("flux")
+// [|"name", "year"|]
+// true
+// true
+// {"name": "flux"}
+// {"lang": "en", "name": "flux", "year": 2026}
+// true
+// Some("flux")
+// Some("dsl")
+// "-- Strings --"
+// 14
+// "hello world"
+// "hello"
+// "hello flux"
+// "FLUX"
+// "flux"
+// true
+// true
+// "vm vm"
+// [|"a", "b", "c"|]
+// "bcd"
+// "-- Parse --"
+// 42
+// [|1, 2, 3|]
+// [|10, 20, 30|]
+// "-- Compat/Type --"
+// 3
+// "Array"
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// "[|10, 20, 30|]"
+// "-- Effects --"
+// "hello from println"
+// true
+// true
+// "done"
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 import Flow.Map as Map
 

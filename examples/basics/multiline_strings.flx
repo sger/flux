@@ -23,6 +23,7 @@
 
 import Flow.Array as Array
 
+// Program entry point.
 fn main() with IO {
     // Multi-line string literals using triple quotes """..."""
 
@@ -67,12 +68,14 @@ fn main() with IO {
     1 3 6 7 9
     """
 
+    // Parse row.
     fn parse_row(line) {
         split(trim(line), " ")
         |> Array.filter(\t -> trim(t) != "")
         |> Array.map(\t -> parse_int(t))
     }
 
+    // Parse grid.
     fn parse_grid(raw) {
         split(trim(raw), "\n")
         |> Array.filter(\line -> trim(line) != "")

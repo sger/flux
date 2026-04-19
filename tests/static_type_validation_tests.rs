@@ -1024,6 +1024,8 @@ module Local {
     let logger = interner.intern("Logger");
     let log = interner.intern("log");
     let h = interner.intern("h");
+    let handle = interner.intern("handle");
+    let message = interner.intern("message");
     let string = interner.intern("String");
     let unit = interner.intern("Unit");
     let mut env = ClassEnv::new();
@@ -1044,6 +1046,7 @@ module Local {
             methods: vec![flux::types::class_env::MethodSig {
                 name: log,
                 type_params: vec![],
+                param_names: vec![handle, message],
                 param_types: vec![
                     flux::syntax::type_expr::TypeExpr::Named {
                         name: h,
@@ -1063,6 +1066,7 @@ module Local {
                 },
                 arity: 2,
                 effects: vec![],
+                default_body: None,
             }],
             default_methods: vec![],
             span: Default::default(),
@@ -1105,6 +1109,10 @@ class MyEq<a> {
     fn my_eq(x: a, y: a) -> Int
     fn my_neq(x: a, y: a) -> Int { 0 }
 }
+
+instance MyEq<Int> {
+    fn my_eq(x, y) { x }
+}
 "#,
     );
     let mut env = ClassEnv::new();
@@ -1118,9 +1126,9 @@ class MyEq<a> {
         &std::collections::HashSet::new(),
     );
 
-    // Default method `my_neq` should be generated as a regular function
-    // (since there are no instance overrides for it)
-    let has_default = generated.iter().any(|stmt| {
+    // Default method `my_neq` should be generated both as a top-level helper
+    // and as an instance-specific mangled function for omitted methods.
+    let has_default_helper = generated.iter().any(|stmt| {
         if let Statement::Function { name, .. } = stmt {
             interner.resolve(*name) == "my_neq"
         } else {
@@ -1128,8 +1136,19 @@ class MyEq<a> {
         }
     });
     assert!(
-        has_default,
+        has_default_helper,
         "expected default method function `my_neq` in generated functions"
+    );
+    let has_instance_default = generated.iter().any(|stmt| {
+        if let Statement::Function { name, .. } = stmt {
+            interner.resolve(*name) == "__tc_MyEq_Int_my_neq"
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_instance_default,
+        "expected omitted instance method to synthesize `__tc_MyEq_Int_my_neq`"
     );
 }
 

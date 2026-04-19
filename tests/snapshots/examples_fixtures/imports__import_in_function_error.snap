@@ -9,9 +9,9 @@ error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
-  examples/imports/import_in_function_error.flx:2:5
+  examples/imports/import_in_function_error.flx:5:5
   |
-2 |     import Modules.Math
+5 |     import Modules.Math
   |     ^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E013]: Module Not Imported
 
 Module `Math` is not imported.
 
-  examples/imports/import_in_function_error.flx:3:11
+  examples/imports/import_in_function_error.flx:6:11
   |
-3 |     print(Math.square(5));
+6 |     print(Math.square(5));
   |           ^^^^^^^^^^^
 
 Hint:

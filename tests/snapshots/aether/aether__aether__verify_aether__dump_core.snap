@@ -755,15 +755,17 @@ letrec null =
 
 letrec range =
 λstart, stop.
-    let %t93 = ICmpGe(start, stop)
-    case %t93 of
-      true →
-        []
-      _ →
-        let %t94 = (let %t95 = Flow.List.range
-        let %t96 = IAdd(start, 1)
-        %t95(%t96, stop))
-        ::(start, %t94)
+    letrec range_go = (λcurrent, acc.
+      let %t93 = ICmpGe(current, stop)
+      case %t93 of
+        true →
+          reverse(acc)
+        _ →
+          let %t94 = IAdd(current, 1)
+          let %t95 = ::(current, acc)
+          range_go(%t94, %t95))
+    let %t96 = []
+    range_go(start, %t96)
 
 letrec reverse =
 λxs.
@@ -1578,19 +1580,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:17:6
+  examples/aether/verify_aether.flx:20:6
    |
-17 | @fip fn my_map(xs, f) {
+20 | @fip fn my_map(xs, f) {
    |      ^^^^^^^^^^^^^^^^^^
-18 |     match xs {
+21 |     match xs {
    | ^^^^^^^^^^^^^^
-19 |         [h | t] -> [f(h) | my_map(t, f)],
+22 |         [h | t] -> [f(h) | my_map(t, f)],
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-20 |         _ -> [],
+23 |         _ -> [],
    | ^^^^^^^^^^^^^^^^
-21 |     }
+24 |     }
    | ^^^^^
-22 | }
+25 | }
    | ^
 
 
@@ -1601,19 +1603,19 @@ Warning: FBIP Contract Not Proven
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 - control-flow join loses a precise allocation bound across paths
 
-  examples/aether/verify_aether.flx:25:6
+  examples/aether/verify_aether.flx:28:6
    |
-25 | @fip fn option_map(opt, f) {
+28 | @fip fn option_map(opt, f) {
    |      ^^^^^^^^^^^^^^^^^^^^^^^
-26 |     match opt {
+29 |     match opt {
    | ^^^^^^^^^^^^^^^
-27 |         Some(x) -> Some(f(x)),
+30 |         Some(x) -> Some(f(x)),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-28 |         _ -> None,
+31 |         _ -> None,
    | ^^^^^^^^^^^^^^^^^^
-29 |     }
+32 |     }
    | ^^^^^
-30 | }
+33 | }
    | ^
 
 Found 2 warnings.

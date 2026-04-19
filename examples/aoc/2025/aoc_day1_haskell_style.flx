@@ -3,11 +3,15 @@
 // 6289
 // parity-expected-stdout-end
 
-// Advent of Code - Day 1 (Haskell-style translation)
-// Inspired by mapAccumL/scanl approach from the provided Haskell solution.
-// Uses input file: examples/aoc/2025/aoc_day1.txt
+/*
+Advent of Code - Day 1 (Haskell-style translation)
+Inspired by mapAccumL/scanl approach from the provided Haskell solution.
+Uses input file: examples/aoc/2025/aoc_day1.txt
+*/
 
+// Program entry point.
 fn main() with IO, Time {
+    // Helper for wrap 100.
     fn wrap_100(value) {
         let reduced = value % 100
         if reduced < 0 {
@@ -17,6 +21,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for abs int.
     fn abs_int(n) {
         if n < 0 {
             0 - n
@@ -32,6 +37,7 @@ fn main() with IO, Time {
         (q, r)
     }
 
+    // Parse one rotation instruction.
     fn parse_rotation(line) {
         let dir = substring(line, 0, 1)
         let distance = parse_int(substring(line, 1, len(line)))
@@ -42,6 +48,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse line.
     fn parse_line(line, rest, acc) {
         let cleaned = trim(line)
         if cleaned == "" {
@@ -51,6 +58,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse all rotation instructions.
     fn parse_rotations(lines, acc) {
         match lines {
             [line | rest] -> parse_line(line, rest, acc),
@@ -86,6 +94,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Solve b steps.
     fn solve_b_steps(steps, state) {
         match steps {
             [bump | rest] -> do {
@@ -109,4 +118,3 @@ fn main() with IO, Time {
     print(part_a)
     print(part_b)
 }
-//

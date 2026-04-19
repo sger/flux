@@ -1,11 +1,14 @@
-// Canonical Aether positive optimization corpus.
-// This maintained fixture records only optimization claims that are asserted in
-// transformed-Core tests:
-// - plain list `Reuse` on exact cons rebuild
-// - masked named-ADT `Reuse` on field-preserving update
-// - branch-sensitive `DropSpecialized` with asymmetric unique/shared behavior
-// - one forwarded-child `Reuse` inside a fresh wrapper rebuild
-// - one borrowed-only higher-order traversal
+/*
+Canonical Aether positive optimization corpus.
+This maintained fixture records only optimization claims that are asserted in
+transformed-Core tests:
+- plain list `Reuse` on exact cons rebuild
+- masked named-ADT `Reuse` on field-preserving update
+- branch-sensitive `DropSpecialized` with asymmetric unique/shared behavior
+- one forwarded-child `Reuse` inside a fresh wrapper rebuild
+- one borrowed-only higher-order traversal
+*/
+
 // parity-expected-stdout-begin
 // [1, 2, 3]
 // Node(Black, Leaf, 5, Leaf)
@@ -18,6 +21,7 @@ type Color = Red | Black
 type Tree = Leaf | Node(Color, Tree, Int, Tree)
 type Pair2<T> = Pair2(T, T)
 
+// Helper for list rebuild.
 fn list_rebuild(xs) {
     match xs {
         [h | t] -> [h | t],
@@ -25,6 +29,7 @@ fn list_rebuild(xs) {
     }
 }
 
+// Helper for set black.
 fn set_black(t) {
     match t {
         Node(_, left, key, right) -> Node(Black, left, key, right),
@@ -32,6 +37,7 @@ fn set_black(t) {
     }
 }
 
+// Helper for keep or dup left.
 fn keep_or_dup_left(t, keep) {
     match t {
         Node(color, left, key, right) ->
@@ -41,6 +47,7 @@ fn keep_or_dup_left(t, keep) {
     }
 }
 
+// Helper for forwarded child.
 fn forwarded_child(xs, acc) {
     match xs {
         [y | ys] -> Pair2([y | acc], ys),
@@ -48,6 +55,7 @@ fn forwarded_child(xs, acc) {
     }
 }
 
+// Sum by.
 fn sum_by(xs, f) {
     match xs {
         [h | t] -> f(h) + sum_by(t, f),
@@ -55,8 +63,10 @@ fn sum_by(xs, f) {
     }
 }
 
+// Helper for inc.
 fn inc(x) { x + 1 }
 
+// Program entry point.
 fn main() with IO {
     let xs = [1, 2, 3]
     let tree = Node(Red, Leaf, 5, Leaf)

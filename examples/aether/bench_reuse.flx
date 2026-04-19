@@ -1,4 +1,7 @@
-// Aether list workload fixture.
+/*
+Aether list workload fixture.
+*/
+
 // parity-expected-stdout-begin
 // "Aether Reuse Benchmark"
 // "======================"
@@ -12,6 +15,7 @@
 // parity-expected-stdout-end
 
 fn build_list(n) {
+    // Continue build recursion.
     fn build_go(i, acc) {
         if i <= 0 { acc }
         else { build_go(i - 1, [i | acc]) }
@@ -47,6 +51,7 @@ fn fold_left(xs, acc, f) {
 // Repeated map to stress recursive borrow/ownership behavior in a workload,
 // not just a one-off micro fixture.
 fn bench_map(xs, iterations) {
+    // Continue map recursion.
     fn map_go(i, current) {
         if i <= 0 { current }
         else { map_go(i - 1, my_map(current, \x -> x + 1)) }
@@ -56,6 +61,7 @@ fn bench_map(xs, iterations) {
 
 // Repeated len to stress borrowed params in a maintained workload.
 fn bench_len(xs, iterations) {
+    // Continue len recursion.
     fn len_go(i, total) {
         if i <= 0 { total }
         else { len_go(i - 1, total + my_len(xs)) }
@@ -65,6 +71,7 @@ fn bench_len(xs, iterations) {
 
 // Repeated fold to stress accumulation on the same list workload.
 fn bench_fold(xs, iterations) {
+    // Continue fold recursion.
     fn fold_go(i, total) {
         if i <= 0 { total }
         else {
@@ -75,6 +82,7 @@ fn bench_fold(xs, iterations) {
     fold_go(iterations, 0)
 }
 
+// Program entry point.
 fn main() with IO {
     let size = 5000
     let iterations = 100

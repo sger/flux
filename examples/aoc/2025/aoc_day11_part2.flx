@@ -2,14 +2,18 @@
 // 290219757077250
 // parity-expected-stdout-end
 
-// Advent of Code - Day 11 Part 2
-// Count directed paths from "svr" to "out" that visit both "dac" and "fft".
-// Input: examples/aoc/2025/aoc_day11.txt
+/*
+Advent of Code - Day 11 Part 2
+Count directed paths from "svr" to "out" that visit both "dac" and "fft".
+Input: examples/aoc/2025/aoc_day11.txt
+*/
 
 import Flow.Array as Array
 import Flow.Map as Map
 
+// Program entry point.
 fn main() with IO, Time {
+    // Return the line at the given index or a default.
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,
@@ -17,6 +21,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the string at the given index or a default.
     fn str_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -24,6 +29,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for arr at.
     fn arr_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,
@@ -31,10 +37,12 @@ fn main() with IO, Time {
         }
     }
 
+    // Return the character slice at the given index.
     fn char_at(s, idx) {
         substring(s, idx, idx + 1)
     }
 
+    // Find char from.
     fn find_char_from(s, ch, idx) {
         if idx >= len(s) {
             -1
@@ -47,11 +55,13 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for result.
     fn result(count, memo) {
         let r = Map.set({}, "count", count)
         Map.set(r, "memo", memo)
     }
 
+    // Helper for result count.
     fn result_count(r) {
         match Map.get(r, "count") {
             Some(v) -> v,
@@ -59,6 +69,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Helper for result memo.
     fn result_memo(r) {
         match Map.get(r, "memo") {
             Some(v) -> v,
@@ -66,6 +77,7 @@ fn main() with IO, Time {
         }
     }
 
+    // Parse entry.
     fn parse_entry(line) {
         let c = find_char_from(line, ":", 0);
         let name = trim(substring(line, 0, c));
@@ -73,6 +85,7 @@ fn main() with IO, Time {
         (name, outs)
     }
 
+    // Parse graph.
     fn parse_graph(lines) {
         let entries =
         Array.map(
@@ -81,18 +94,22 @@ fn main() with IO, Time {
             Array.fold(entries, {}, \(g, e) -> Map.set(g, e.0, e.1))
         }
 
+        // Helper for bool i.
         fn bool_i(v) {
             if v { 1 } else { 0 }
         }
 
+        // Helper for state mask.
         fn state_mask(seen_dac, seen_fft) {
             bool_i(seen_dac) + (2 * bool_i(seen_fft))
         }
 
+        // Helper for state key.
         fn state_key(node, mask) {
             join([|node, "#", to_string(mask)|], "")
         }
 
+        // Sum children2.
         fn sum_children2(outs, i, seen_dac, seen_fft, graph, memo, acc) {
             if i >= len(outs) {
                 result(acc, memo)
@@ -105,6 +122,7 @@ fn main() with IO, Time {
             }
         }
 
+        // Helper for dfs2 from outs.
         fn dfs2_from_outs(node, key, outs, seen_dac, seen_fft, graph, memo) {
             let r = sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0)
             let total = result_count(r)
@@ -113,11 +131,13 @@ fn main() with IO, Time {
             result(total, memo3)
         }
 
+        // Helper for result zero key.
         fn result_zero_key(key, memo) {
             let memo2 = Map.set(memo, key, 0)
             result(0, memo2)
         }
 
+        // Helper for dfs2 uncached.
         fn dfs2_uncached(node, key, seen_dac, seen_fft, graph, memo) {
             match Map.get(graph, node) {
                 Some(outs) -> dfs2_from_outs(node, key, outs, seen_dac, seen_fft, graph, memo),
@@ -125,6 +145,7 @@ fn main() with IO, Time {
             }
         }
 
+        // Helper for dfs count2.
         fn dfs_count2(node, seen_dac0, seen_fft0, graph, memo) {
             let seen_dac = if seen_dac0 || node == "dac" { true } else { false }
             let seen_fft = if seen_fft0 || node == "fft" { true } else { false }
@@ -146,4 +167,3 @@ fn main() with IO, Time {
         let ans = dfs_count2("svr", false, false, graph, {})
         print(result_count(ans))
     }
-    //

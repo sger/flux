@@ -1,3 +1,4 @@
+// expect: compile_error
 // Error demo: reassignment is rejected (E002 IMMUTABLE BINDING)
 let a = 5;
 a = 10;

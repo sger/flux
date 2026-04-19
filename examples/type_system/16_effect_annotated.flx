@@ -15,7 +15,7 @@ fn main() with IO, Time {
     print(log_and_double(5))
 
     // Case 2: unannotated — gradual mode, IO call is not checked
-    fn just_double(x) {
+    fn just_double(x) with IO {
         print(x)
         x * 2
     }

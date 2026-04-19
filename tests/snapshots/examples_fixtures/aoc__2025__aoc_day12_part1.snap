@@ -3,47 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day12_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `sum`.
-
-  examples/aoc/2025/aoc_day12_part1.flx:52:26
-   |
-52 |     let needed = 9 * sum(counts)
-   |                          ^^^^^^
-   |                          ------ this argument has type `Array<Int>`
-
-Note:
-  expected argument type: List<Int>
-  found argument type: Array<Int>
-  the actual argument type is inferred from this expression
-
-Help:
-  Pass a `List<Int>` value as the 1st argument.
-
-
-error[E300]: Parameter Type Mismatch
-
-Parameter 1 has the wrong type.
-
-  examples/aoc/2025/aoc_day12_part1.flx:58:20
-   |
-58 | let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                    ---------------------------------------------------------------------------------------------------- parameter 1 has type `Array<String>`
-
-   |                    ---------------------------------------------------------------------------------------------------- this type mismatch is reported here
-
-Note:
-  expected parameter type: List<_>
-  found parameter type: Array<String>
-  the conflicting types meet at this expression
-
-Help:
-  Change parameter 1 to use `List<_>` consistently.
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>
