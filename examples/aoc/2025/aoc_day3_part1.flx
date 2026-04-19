@@ -20,21 +20,21 @@ fn main() with IO, Time {
         if idx < 0 {
             best_pair
         } else {
-        let d = digit_at(line, idx)
-        let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
-        let next_right = max2(best_right, d)
-        max_bank_scan(line, idx - 1, next_right, pair_here)
+            let d = digit_at(line, idx)
+            let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
+            let next_right = max2(best_right, d)
+            max_bank_scan(line, idx - 1, next_right, pair_here)
+        }
     }
-}
 
-fn max_bank_value(line) {
-    let n = len(line)
-    if n < 2 { 0 } else { max_bank_scan(line, n - 1, -1, 0) }
-}
+    fn max_bank_value(line) {
+        let n = len(line)
+        if n < 2 { 0 } else { max_bank_scan(line, n - 1, -1, 0) }
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day3.txt")
-let non_empty = Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != "")
-let bests = Array.map(non_empty, \line -> max_bank_value(line))
-print(Array.sum(bests))
+    let lines = read_lines("examples/aoc/2025/aoc_day3.txt")
+    let non_empty = Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != "")
+    let bests = Array.map(non_empty, \line -> max_bank_value(line))
+    print(Array.sum(bests))
 }
 //

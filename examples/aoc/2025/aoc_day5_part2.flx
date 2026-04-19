@@ -59,69 +59,69 @@ fn main() with IO, Time {
         if idx >= len(lines) {
             len(lines)
         } else {
-        if trim(line_at(lines, idx)) == "" {
-            idx
-        } else {
-        find_blank(lines, idx + 1)
+            if trim(line_at(lines, idx)) == "" {
+                idx
+            } else {
+                find_blank(lines, idx + 1)
+            }
+        }
     }
-}
-}
 
-fn insert_range_rec(sorted, r, i, acc) {
-    if i >= len(sorted) {
-        array_push(acc, r)
-    } else {
-    let cur = arr_at(sorted, i)
-    if range_start(r) < range_start(cur) {
-        concat(concat(acc, [|r|]), slice(sorted, i, len(sorted)))
-    } else {
-    insert_range_rec(sorted, r, i + 1, array_push(acc, cur))
-}
-}
-}
+    fn insert_range_rec(sorted, r, i, acc) {
+        if i >= len(sorted) {
+            array_push(acc, r)
+        } else {
+            let cur = arr_at(sorted, i)
+            if range_start(r) < range_start(cur) {
+                concat(concat(acc, [|r|]), slice(sorted, i, len(sorted)))
+            } else {
+                insert_range_rec(sorted, r, i + 1, array_push(acc, cur))
+            }
+        }
+    }
 
-fn insert_range(sorted, r) {
-    insert_range_rec(sorted, r, 0, [||])
-}
+    fn insert_range(sorted, r) {
+        insert_range_rec(sorted, r, 0, [||])
+    }
 
-fn sort_ranges(ranges, i, acc) {
-    if i >= len(ranges) {
-        acc
-    } else {
-    let r = arr_at(ranges, i)
-    sort_ranges(ranges, i + 1, insert_range(acc, r))
-}
-}
-
-fn count_merged(sorted, idx, cur_a, cur_b, acc) {
-    if idx >= len(sorted) {
-        if cur_a < 0 {
+    fn sort_ranges(ranges, i, acc) {
+        if i >= len(ranges) {
             acc
         } else {
-        acc + (cur_b - cur_a + 1)
+            let r = arr_at(ranges, i)
+            sort_ranges(ranges, i + 1, insert_range(acc, r))
+        }
     }
-} else {
-let r = arr_at(sorted, idx)
-let a = range_start(r)
-let b = range_end(r)
-if cur_a < 0 {
-    count_merged(sorted, idx + 1, a, b, acc)
-} else {
-if a <= cur_b + 1 {
-    let nb = if b > cur_b { b } else { cur_b }
-    count_merged(sorted, idx + 1, cur_a, nb, acc)
-} else {
-count_merged(sorted, idx + 1, a, b, acc + (cur_b - cur_a + 1))
-}
-}
-}
-}
 
-let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
-let sep = find_blank(lines, 0)
-let range_lines = Array.filter(Array.map(Array.slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
-let ranges = Array.map(range_lines, \line -> parse_range_line(line))
-let sorted = sort_ranges(ranges, 0, [||])
-print(count_merged(sorted, 0, -1, -1, 0))
+    fn count_merged(sorted, idx, cur_a, cur_b, acc) {
+        if idx >= len(sorted) {
+            if cur_a < 0 {
+                acc
+            } else {
+                acc + (cur_b - cur_a + 1)
+            }
+        } else {
+            let r = arr_at(sorted, idx)
+            let a = range_start(r)
+            let b = range_end(r)
+            if cur_a < 0 {
+                count_merged(sorted, idx + 1, a, b, acc)
+            } else {
+                if a <= cur_b + 1 {
+                    let nb = if b > cur_b { b } else { cur_b }
+                    count_merged(sorted, idx + 1, cur_a, nb, acc)
+                } else {
+                    count_merged(sorted, idx + 1, a, b, acc + (cur_b - cur_a + 1))
+                }
+            }
+        }
+    }
+
+    let lines = read_lines("examples/aoc/2025/aoc_day5.txt")
+    let sep = find_blank(lines, 0)
+    let range_lines = Array.filter(Array.map(Array.slice(lines, 0, sep), \line -> trim(line)), \line -> line != "")
+    let ranges = Array.map(range_lines, \line -> parse_range_line(line))
+    let sorted = sort_ranges(ranges, 0, [||])
+    print(count_merged(sorted, 0, -1, -1, 0))
 }
 //

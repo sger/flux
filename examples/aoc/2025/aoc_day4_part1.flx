@@ -21,41 +21,41 @@ fn main() with IO, Time {
         if r < 0 || c < 0 || r >= rows || c >= cols {
             false
         } else {
-        let line = line_at(lines, r)
-        char_at(line, c) == "@"
+            let line = line_at(lines, r)
+            char_at(line, c) == "@"
+        }
     }
-}
 
-fn adjacent_rolls(lines, rows, cols, r, c) {
-    let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
-    let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
-    let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
-    let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
-    let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
-    let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
-    let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
-    let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
-    n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
-}
+    fn adjacent_rolls(lines, rows, cols, r, c) {
+        let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
+        let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
+        let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
+        let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
+        let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
+        let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
+        let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
+        let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
+        n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
+    }
 
-fn count_row(lines, rows, cols, r, c, acc) {
-    if c >= cols {
-        acc
-    } else {
-    if is_roll(lines, rows, cols, r, c) {
-        let adj = adjacent_rolls(lines, rows, cols, r, c)
-        let add = if adj < 4 { 1 } else { 0 }
-        count_row(lines, rows, cols, r, c + 1, acc + add)
-    } else {
-    count_row(lines, rows, cols, r, c + 1, acc)
-}
-}
-}
+    fn count_row(lines, rows, cols, r, c, acc) {
+        if c >= cols {
+            acc
+        } else {
+            if is_roll(lines, rows, cols, r, c) {
+                let adj = adjacent_rolls(lines, rows, cols, r, c)
+                let add = if adj < 4 { 1 } else { 0 }
+                count_row(lines, rows, cols, r, c + 1, acc + add)
+            } else {
+                count_row(lines, rows, cols, r, c + 1, acc)
+            }
+        }
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day4.txt")
-let rows = len(lines)
-let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
-print(sum(row_counts))
+    let lines = read_lines("examples/aoc/2025/aoc_day4.txt")
+    let rows = len(lines)
+    let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
+    let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
+    print(sum(row_counts))
 }
 //

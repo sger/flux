@@ -39,25 +39,25 @@ fn main() with IO, Time {
         if j >= len(points) {
             best
         } else {
-        let a = pair_area(arr_at(points, i), arr_at(points, j))
-        let b = if a > best { a } else { best }
-        best_with_i(points, i, j + 1, b)
+            let a = pair_area(arr_at(points, i), arr_at(points, j))
+            let b = if a > best { a } else { best }
+            best_with_i(points, i, j + 1, b)
+        }
     }
-}
 
-fn best_all(points, i, best) {
-    if i >= len(points) {
-        best
-    } else {
-    let b = best_with_i(points, i, i + 1, best)
-    best_all(points, i + 1, b)
-}
-}
+    fn best_all(points, i, best) {
+        if i >= len(points) {
+            best
+        } else {
+            let b = best_with_i(points, i, i + 1, best)
+            best_all(points, i + 1, b)
+        }
+    }
 
-let lines = read_lines("examples/aoc/2025/aoc_day9.txt")
-let points = Array.map(
-    Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != ""),
-    \line -> split_ints(line, ","))
-print(best_all(points, 0, 0))
-}
-//
+    let lines = read_lines("examples/aoc/2025/aoc_day9.txt")
+    let points = Array.map(
+        Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != ""),
+        \line -> split_ints(line, ","))
+        print(best_all(points, 0, 0))
+    }
+    //

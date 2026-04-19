@@ -73,7 +73,7 @@ module Day2Part2 {
 
     fn id_in_any_range(id, parsed_ranges) {
         parsed_ranges
-            |> Array.fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+        |> Array.fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
     }
 
     fn sum_repeats_for_seed(seed, base, repeats, max_repeats, max_end, parsed_ranges) {
@@ -103,13 +103,13 @@ module Day2Part2 {
         let base = pow10(chunk_len)
 
         Array.range(min_seed, max_seed + 1)
-            |> Array.fold(0, \(acc, seed) ->
-                if is_primitive_seed(seed, seed_digits) {
-                    acc + sum_repeats_for_seed(seed, base, 2, max_repeats, max_end, parsed_ranges)
-                } else {
-                    acc
-                }
-            )
+        |> Array.fold(0, \(acc, seed) ->
+            if is_primitive_seed(seed, seed_digits) {
+                acc + sum_repeats_for_seed(seed, base, 2, max_repeats, max_end, parsed_ranges)
+            } else {
+                acc
+            }
+        )
     }
 
     fn sum_for_all_chunk_lens(chunk_len, max_chunk_len, max_end, parsed_ranges) {
@@ -117,16 +117,16 @@ module Day2Part2 {
             0
         } else {
             sum_for_chunk_len(chunk_len, max_end, parsed_ranges)
-                + sum_for_all_chunk_lens(chunk_len + 1, max_chunk_len, max_end, parsed_ranges)
+            + sum_for_all_chunk_lens(chunk_len + 1, max_chunk_len, max_end, parsed_ranges)
         }
     }
 
     public fn parse_ranges(path) with IO {
         read_file(path)
-            |> trim
-            |> split(",")
-            |> Array.filter(\t -> trim(t) != "")
-            |> Array.map(\t -> parse_range_token(t))
+        |> trim
+        |> split(",")
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_range_token(t))
     }
 
     fn max_end(parsed_ranges) {

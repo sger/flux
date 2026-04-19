@@ -47,204 +47,204 @@ fn main() with IO, Time {
         if idx >= len(lines) {
             acc
         } else {
-        let s = trim(line_at(lines, idx))
-        if s == "" {
-            parse_points(lines, idx + 1, acc)
-        } else {
-        parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
-    }
-}
-}
-
-fn dist_sq(points, i, j) {
-    ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
-    * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
-    + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
-    * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
-    + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
-    * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
-}
-
-fn pair_code(i, j) {
-    (i * 1000) + j
-}
-
-fn edge_key(points, i, j) {
-    (dist_sq(points, i, j) * 1000000) + pair_code(i, j)
-}
-
-fn maybe_push_edge(points, i, j, max_dist, acc) {
-    let d = dist_sq(points, i, j)
-    if d < max_dist {
-        array_push(acc, edge_key(points, i, j))
-    } else {
-    acc
-}
-}
-
-fn root(parents, x) {
-    let p = int_at(parents, x)
-    if p == x { x } else { root(parents, p) }
-}
-
-fn dsu_state(parents, sizes, comps, last_a, last_b) {
-    let s1 = Map.set({}, "p", parents)
-    let s2 = Map.set(s1, "sz", sizes)
-    let s3 = Map.set(s2, "c", comps)
-    let s4 = Map.set(s3, "a", last_a)
-    Map.set(s4, "b", last_b)
-}
-
-fn dsu_parents(state) {
-    match Map.get(state, "p") {
-        Some(v) -> v,
-        _ -> [||]
-    }
-}
-
-fn dsu_sizes(state) {
-    match Map.get(state, "sz") {
-        Some(v) -> v,
-        _ -> [||]
-    }
-}
-
-fn dsu_comps(state) {
-    match Map.get(state, "c") {
-        Some(v) -> v,
-        _ -> 0
-    }
-}
-
-fn dsu_last_a(state) {
-    match Map.get(state, "a") {
-        Some(v) -> v,
-        _ -> -1
-    }
-}
-
-fn dsu_last_b(state) {
-    match Map.get(state, "b") {
-        Some(v) -> v,
-        _ -> -1
-    }
-}
-
-fn union_key(state, key) {
-    let parents = dsu_parents(state)
-    let sizes = dsu_sizes(state)
-    let comps = dsu_comps(state)
-    let code = key % 1000000
-    let i = code / 1000
-    let j = code % 1000
-    let ri = root(parents, i)
-    let rj = root(parents, j)
-
-    if ri == rj {
-        state
-    } else {
-    let si = int_at(sizes, ri)
-    let sj = int_at(sizes, rj)
-    if si >= sj {
-        let p_left = set_at(parents, rj, ri)
-        let s_left = set_at(sizes, ri, si + sj)
-        dsu_state(p_left, s_left, comps - 1, i, j)
-    } else {
-    let p_right = set_at(parents, ri, rj)
-    let s_right = set_at(sizes, rj, si + sj)
-    dsu_state(p_right, s_right, comps - 1, i, j)
-}
-}
-}
-
-fn root_sizes(parents, sizes, i, acc) {
-    if i >= len(parents) {
-        acc
-    } else {
-    if int_at(parents, i) == i {
-        root_sizes(parents, sizes, i + 1, array_push(acc, int_at(sizes, i)))
-    } else {
-    root_sizes(parents, sizes, i + 1, acc)
-}
-}
-}
-
-fn run_limit(points, limit) {
-    let n = len(points)
-    let idxs = range(0, n)
-    let keys =
-    fold(idxs, [||], \(acc, i) -> {
-        let js = range(i + 1, n)
-        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
-    })
-
-    let sorted_keys = Array.sort(keys)
-    let parents0 = to_array(range(0, n))
-    let sizes0 = to_array(map(range(0, n), \_ -> 1))
-    let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-    let state1 = Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
-
-    let out = Map.set({}, "state", state1)
-    Map.set(out, "keys", sorted_keys)
-}
-
-fn run_day08a(points, max_dist) {
-    let n = len(points)
-    let idxs = range(0, n)
-    let keys =
-    fold(idxs, [||], \(acc, i) -> {
-        let js = range(i + 1, n)
-        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
-    })
-
-    let sorted_keys = Array.sort(keys)
-    let top_keys = slice(sorted_keys, 0, 1000)
-
-    let parents0 = to_array(range(0, n))
-    let sizes0 = to_array(map(range(0, n), \_ -> 1))
-    let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-    let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
-
-    let parents1 = dsu_parents(state1)
-    let sizes1 = dsu_sizes(state1)
-    let comps = root_sizes(parents1, sizes1, 0, [||])
-    let top = Array.sort_by(comps, \x -> 0 - x)
-    int_at(top, 0) * int_at(top, 1) * int_at(top, 2)
-}
-
-fn solve_day08b(points, limit, max_limit) {
-    let run = run_limit(points, limit)
-    let state = Map.get(run, "state")
-    let st = match state {
-        Some(v) -> v,
-        _ -> dsu_state([||], [||], 0, -1, -1)
+            let s = trim(line_at(lines, idx))
+            if s == "" {
+                parse_points(lines, idx + 1, acc)
+            } else {
+                parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
+            }
+        }
     }
 
-    if dsu_comps(st) == 1 {
-        let a = dsu_last_a(st)
-        let b = dsu_last_b(st)
-        int_at(arr_at(points, a), 0) * int_at(arr_at(points, b), 0)
-    } else {
-    if limit >= max_limit {
-        0
-    } else {
-    solve_day08b(points, limit * 2, max_limit)
-}
-}
-}
+    fn dist_sq(points, i, j) {
+        ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
+            * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
+            + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
+                * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
+                + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
+                    * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
+                }
 
-fn day08a(points) {
-    run_day08a(points, 188000000)
-}
+                fn pair_code(i, j) {
+                    (i * 1000) + j
+                }
 
-fn day08b(points) {
-    solve_day08b(points, 188000000, 40000000000)
-}
+                fn edge_key(points, i, j) {
+                    (dist_sq(points, i, j) * 1000000) + pair_code(i, j)
+                }
 
-let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
-let points = parse_points(lines, 0, [||])
+                fn maybe_push_edge(points, i, j, max_dist, acc) {
+                    let d = dist_sq(points, i, j)
+                    if d < max_dist {
+                        array_push(acc, edge_key(points, i, j))
+                    } else {
+                        acc
+                    }
+                }
 
-print(day08a(points))
-print(day08b(points))
-}
-//
+                fn root(parents, x) {
+                    let p = int_at(parents, x)
+                    if p == x { x } else { root(parents, p) }
+                }
+
+                fn dsu_state(parents, sizes, comps, last_a, last_b) {
+                    let s1 = Map.set({}, "p", parents)
+                    let s2 = Map.set(s1, "sz", sizes)
+                    let s3 = Map.set(s2, "c", comps)
+                    let s4 = Map.set(s3, "a", last_a)
+                    Map.set(s4, "b", last_b)
+                }
+
+                fn dsu_parents(state) {
+                    match Map.get(state, "p") {
+                        Some(v) -> v,
+                        _ -> [||]
+                    }
+                }
+
+                fn dsu_sizes(state) {
+                    match Map.get(state, "sz") {
+                        Some(v) -> v,
+                        _ -> [||]
+                    }
+                }
+
+                fn dsu_comps(state) {
+                    match Map.get(state, "c") {
+                        Some(v) -> v,
+                        _ -> 0
+                    }
+                }
+
+                fn dsu_last_a(state) {
+                    match Map.get(state, "a") {
+                        Some(v) -> v,
+                        _ -> -1
+                    }
+                }
+
+                fn dsu_last_b(state) {
+                    match Map.get(state, "b") {
+                        Some(v) -> v,
+                        _ -> -1
+                    }
+                }
+
+                fn union_key(state, key) {
+                    let parents = dsu_parents(state)
+                    let sizes = dsu_sizes(state)
+                    let comps = dsu_comps(state)
+                    let code = key % 1000000
+                    let i = code / 1000
+                    let j = code % 1000
+                    let ri = root(parents, i)
+                    let rj = root(parents, j)
+
+                    if ri == rj {
+                        state
+                    } else {
+                        let si = int_at(sizes, ri)
+                        let sj = int_at(sizes, rj)
+                        if si >= sj {
+                            let p_left = set_at(parents, rj, ri)
+                            let s_left = set_at(sizes, ri, si + sj)
+                            dsu_state(p_left, s_left, comps - 1, i, j)
+                        } else {
+                            let p_right = set_at(parents, ri, rj)
+                            let s_right = set_at(sizes, rj, si + sj)
+                            dsu_state(p_right, s_right, comps - 1, i, j)
+                        }
+                    }
+                }
+
+                fn root_sizes(parents, sizes, i, acc) {
+                    if i >= len(parents) {
+                        acc
+                    } else {
+                        if int_at(parents, i) == i {
+                            root_sizes(parents, sizes, i + 1, array_push(acc, int_at(sizes, i)))
+                        } else {
+                            root_sizes(parents, sizes, i + 1, acc)
+                        }
+                    }
+                }
+
+                fn run_limit(points, limit) {
+                    let n = len(points)
+                    let idxs = range(0, n)
+                    let keys =
+                    fold(idxs, [||], \(acc, i) -> {
+                            let js = range(i + 1, n)
+                            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
+                    })
+
+                    let sorted_keys = Array.sort(keys)
+                    let parents0 = to_array(range(0, n))
+                    let sizes0 = to_array(map(range(0, n), \_ -> 1))
+                    let state0 = dsu_state(parents0, sizes0, n, -1, -1)
+                    let state1 = Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
+
+                    let out = Map.set({}, "state", state1)
+                    Map.set(out, "keys", sorted_keys)
+                }
+
+                fn run_day08a(points, max_dist) {
+                    let n = len(points)
+                    let idxs = range(0, n)
+                    let keys =
+                    fold(idxs, [||], \(acc, i) -> {
+                            let js = range(i + 1, n)
+                            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
+                    })
+
+                    let sorted_keys = Array.sort(keys)
+                    let top_keys = slice(sorted_keys, 0, 1000)
+
+                    let parents0 = to_array(range(0, n))
+                    let sizes0 = to_array(map(range(0, n), \_ -> 1))
+                    let state0 = dsu_state(parents0, sizes0, n, -1, -1)
+                    let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
+
+                    let parents1 = dsu_parents(state1)
+                    let sizes1 = dsu_sizes(state1)
+                    let comps = root_sizes(parents1, sizes1, 0, [||])
+                    let top = Array.sort_by(comps, \x -> 0 - x)
+                    int_at(top, 0) * int_at(top, 1) * int_at(top, 2)
+                }
+
+                fn solve_day08b(points, limit, max_limit) {
+                    let run = run_limit(points, limit)
+                    let state = Map.get(run, "state")
+                    let st = match state {
+                        Some(v) -> v,
+                        _ -> dsu_state([||], [||], 0, -1, -1)
+                    }
+
+                    if dsu_comps(st) == 1 {
+                        let a = dsu_last_a(st)
+                        let b = dsu_last_b(st)
+                        int_at(arr_at(points, a), 0) * int_at(arr_at(points, b), 0)
+                    } else {
+                        if limit >= max_limit {
+                            0
+                        } else {
+                            solve_day08b(points, limit * 2, max_limit)
+                        }
+                    }
+                }
+
+                fn day08a(points) {
+                    run_day08a(points, 188000000)
+                }
+
+                fn day08b(points) {
+                    solve_day08b(points, 188000000, 40000000000)
+                }
+
+                let lines = read_lines("examples/aoc/2025/aoc_day8.txt")
+                let points = parse_points(lines, 0, [||])
+
+                print(day08a(points))
+                print(day08b(points))
+            }
+            //

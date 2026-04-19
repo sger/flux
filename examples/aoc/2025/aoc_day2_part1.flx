@@ -52,10 +52,10 @@ fn main() with IO, Time {
 
     fn parse_ranges(path) with IO {
         read_file(path)
-            |> trim
-            |> split(",")
-            |> Array.filter(\t -> trim(t) != "")
-            |> Array.map(\t -> parse_range_token(t))
+        |> trim
+        |> split(",")
+        |> Array.filter(\t -> trim(t) != "")
+        |> Array.map(\t -> parse_range_token(t))
     }
 
     fn id_in_range(id, range_pair) {
@@ -69,16 +69,16 @@ fn main() with IO, Time {
 
     fn solve_part1(ranges) {
         range(1, 100000)
-            |> fold(0, \(acc, seed) ->
-                do {
-                    let candidate = rep_digits(2, seed)
-                    if id_in_any_range(candidate, ranges) {
-                        acc + candidate
-                    } else {
-                        acc
-                    }
+        |> fold(0, \(acc, seed) ->
+            do {
+                let candidate = rep_digits(2, seed)
+                if id_in_any_range(candidate, ranges) {
+                    acc + candidate
+                } else {
+                    acc
                 }
-            )
+            }
+        )
     }
 
     let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")

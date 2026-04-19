@@ -56,10 +56,10 @@ fn main() with IO {
 
     fn day12a(input_lines) {
         let region_lines =
-            Array.filter(
-                Array.map(input_lines, \line -> trim(line)),
-                \line -> line != "" && has_char(line, "x") && has_char(line, ":"),
-            )
+        Array.filter(
+            Array.map(input_lines, \line -> trim(line)),
+            \line -> line != "" && has_char(line, "x") && has_char(line, ":"),
+        )
         let fits = Array.map(region_lines, \line -> if region_fits(line) { 1 } else { 0 })
         Array.sum(fits)
     }
