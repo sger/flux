@@ -1392,8 +1392,7 @@ fn test_tuple_does_not_match_option_pattern() {
 #[test]
 fn test_named_field_access_in_concrete_option_match_with_wildcard() {
     assert_eq!(
-        run(
-            r#"
+        run(r#"
 data Contact {
     Contact { name: String }
 }
@@ -1405,8 +1404,7 @@ match value {
     None -> "missing",
     _ -> "missing",
 };
-"#
-        ),
+"#),
         make_string("Alice")
     );
 }

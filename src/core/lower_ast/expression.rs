@@ -732,7 +732,7 @@ impl<'a> super::AstLowerer<'a> {
                         FluxRep::BoxedRep,
                     ));
                 }
-                let target = binders[target_index].clone();
+                let target = binders[target_index];
                 let pat = CorePat::Con {
                     tag: CoreTag::Named(variant),
                     fields: binders.into_iter().map(CorePat::Var).collect(),

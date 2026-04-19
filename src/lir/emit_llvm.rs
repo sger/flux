@@ -829,8 +829,7 @@ impl<'a> FnEmitter<'a> {
                 .chain(self.func.params.iter())
                 .map(|p| self.var_local(*p))
                 .collect();
-            let param_types: Vec<LlvmType> =
-                param_locals.iter().map(|_| LlvmType::i64()).collect();
+            let param_types: Vec<LlvmType> = param_locals.iter().map(|_| LlvmType::i64()).collect();
 
             LlvmFunction {
                 linkage: Linkage::Internal,

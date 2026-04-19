@@ -11,8 +11,7 @@ use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
         Identifier, block::Block, effect_expr::EffectExpr, interner::Interner,
-        statement::Statement,
-        type_class::ClassConstraint, type_expr::TypeExpr,
+        statement::Statement, type_class::ClassConstraint, type_expr::TypeExpr,
     },
     types::{
         class_id::{ClassId, ModulePath},
