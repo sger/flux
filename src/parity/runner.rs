@@ -299,7 +299,11 @@ fn clear_cache_files(file: &Path, extra_args: &[String], cache_dir: &Path) {
 }
 
 /// Observe which cache files exist for a fixture.
-fn observe_cache_files(file: &Path, extra_args: &[String], cache_dir: &Path) -> Vec<CacheObservation> {
+fn observe_cache_files(
+    file: &Path,
+    extra_args: &[String],
+    cache_dir: &Path,
+) -> Vec<CacheObservation> {
     let mut obs = Vec::new();
     let (bytecode_key, _, _) = cache_keys_for_fixture(file, extra_args);
     let layout = cache_paths::resolve_cache_layout(file, Some(cache_dir));

@@ -42,11 +42,8 @@ fn desugar_stmt(stmt: &mut Statement, ctx: &mut NamedFieldDesugarCtx<'_>) {
     match stmt {
         Statement::Let { value, .. } => desugar_expr(value, ctx),
         Statement::Expression { expression, .. } => desugar_expr(expression, ctx),
-        Statement::Return { value, .. } => {
-            if let Some(e) = value {
-                desugar_expr(e, ctx);
-            }
-        }
+        Statement::Return { value: Some(e), .. } => desugar_expr(e, ctx),
+        Statement::Return { value: None, .. } => {}
         Statement::Function { body, .. } => desugar_block(body, ctx),
         Statement::Module { body, .. } => {
             for s in &mut body.statements {

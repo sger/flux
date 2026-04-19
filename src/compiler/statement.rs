@@ -2004,32 +2004,31 @@ impl Compiler {
             .resolve(qualified_name)
             .unwrap_or_else(|| self.symbol_table.define(qualified_name, span));
 
-        if let Some(annotation) = type_annotation {
-            if let Some(expected_infer) =
+        if let Some(annotation) = type_annotation
+            && let Some(expected_infer) =
                 TypeEnv::infer_type_from_type_expr(annotation, &Default::default(), &self.interner)
+        {
+            if let Some((expected_str, actual_str)) =
+                self.known_concrete_expr_type_mismatch(&expected_infer, value)
             {
-                if let Some((expected_str, actual_str)) =
-                    self.known_concrete_expr_type_mismatch(&expected_infer, value)
-                {
-                    let name_str = self.sym(name).to_string();
-                    return Err(Self::boxed(let_annotation_type_mismatch(
-                        self.file_path.clone(),
-                        annotation.span(),
-                        value.span(),
-                        &name_str,
-                        &expected_str,
-                        &actual_str,
-                    )));
-                }
-                self.validate_expr_expected_type_with_policy(
-                    &expected_infer,
-                    value,
-                    "initializer type is known at compile time",
-                    "binding initializer does not match type annotation".to_string(),
-                    "typed let initializer",
-                    true,
-                )?;
+                let name_str = self.sym(name).to_string();
+                return Err(Self::boxed(let_annotation_type_mismatch(
+                    self.file_path.clone(),
+                    annotation.span(),
+                    value.span(),
+                    &name_str,
+                    &expected_str,
+                    &actual_str,
+                )));
             }
+            self.validate_expr_expected_type_with_policy(
+                &expected_infer,
+                value,
+                "initializer type is known at compile time",
+                "binding initializer does not match type annotation".to_string(),
+                "typed let initializer",
+                true,
+            )?;
         }
 
         self.compile_expression(value)?;

@@ -361,9 +361,7 @@ mod tests {
             ),
         );
         interface.member_is_value.insert("map".to_string(), false);
-        interface
-            .member_is_value
-            .insert("answer".to_string(), true);
+        interface.member_is_value.insert("answer".to_string(), true);
         interface.interface_fingerprint = "f00d".to_string();
         interface
             .dependency_fingerprints

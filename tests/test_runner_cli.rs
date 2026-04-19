@@ -1122,8 +1122,7 @@ fn test_native_aoc_2025_day2_haskell_style_no_longer_crashes() {
         text
     );
     assert!(
-        text.contains("54234399924\n70187097315")
-            || text.contains("54234399924\r\n70187097315"),
+        text.contains("54234399924\n70187097315") || text.contains("54234399924\r\n70187097315"),
         "expected native day2 output, output:\n{}",
         text
     );

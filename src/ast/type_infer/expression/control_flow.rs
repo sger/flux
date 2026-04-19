@@ -49,12 +49,11 @@ impl<'a> InferCtx<'a> {
         }
         let shared_family = self.shared_pattern_family(input.arms);
         let has_nonconstraining_arm = self.match_has_nonconstraining_arm(input.arms);
-        let isolate_arm_scrutinees =
-            self.should_isolate_match_arm_scrutinees(
-                input.arms,
-                &scrutinee_ty,
-                shared_family.as_ref(),
-            );
+        let isolate_arm_scrutinees = self.should_isolate_match_arm_scrutinees(
+            input.arms,
+            &scrutinee_ty,
+            shared_family.as_ref(),
+        );
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(
             &scrutinee_ty,
             &shared_family,
@@ -92,7 +91,7 @@ impl<'a> InferCtx<'a> {
         }
         shared_family
             .as_ref()
-            .and_then(|family| self.expected_type_for_pattern_family(&family))
+            .and_then(|family| self.expected_type_for_pattern_family(family))
             .map(|expected| self.unify_reporting(scrutinee_ty, &expected, input.span))
             .unwrap_or_else(|| scrutinee_ty.clone())
     }
@@ -186,9 +185,12 @@ impl<'a> InferCtx<'a> {
             {
                 return false;
             }
-            return arms
-                .iter()
-                .any(|arm| !matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining));
+            return arms.iter().any(|arm| {
+                !matches!(
+                    self.pattern_family(&arm.pattern),
+                    PatternFamily::NonConstraining
+                )
+            });
         }
         if shared_family.is_some() {
             return false;
@@ -205,25 +207,41 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Return true when a fully resolved scrutinee already matches the shared pattern family.
-    fn concrete_scrutinee_matches_family(&self, scrutinee_ty: &InferType, family: &PatternFamily) -> bool {
+    fn concrete_scrutinee_matches_family(
+        &self,
+        scrutinee_ty: &InferType,
+        family: &PatternFamily,
+    ) -> bool {
         if !scrutinee_ty.free_vars().is_empty() {
             return false;
         }
         match (scrutinee_ty, family) {
-            (InferType::App(TypeConstructor::Option, args), PatternFamily::Option) => args.len() == 1,
-            (InferType::App(TypeConstructor::Either, args), PatternFamily::Either) => args.len() == 2,
+            (InferType::App(TypeConstructor::Option, args), PatternFamily::Option) => {
+                args.len() == 1
+            }
+            (InferType::App(TypeConstructor::Either, args), PatternFamily::Either) => {
+                args.len() == 2
+            }
             (InferType::App(TypeConstructor::List, args), PatternFamily::List) => args.len() == 1,
             (InferType::Tuple(elements), PatternFamily::Tuple(arity)) => elements.len() == *arity,
-            (InferType::Con(TypeConstructor::Adt(name)), PatternFamily::Adt(expected)) => name == expected,
-            (InferType::App(TypeConstructor::Adt(name), _), PatternFamily::Adt(expected)) => name == expected,
+            (InferType::Con(TypeConstructor::Adt(name)), PatternFamily::Adt(expected)) => {
+                name == expected
+            }
+            (InferType::App(TypeConstructor::Adt(name), _), PatternFamily::Adt(expected)) => {
+                name == expected
+            }
             _ => false,
         }
     }
 
     /// Return whether a match includes any arm that does not constrain the scrutinee family.
     fn match_has_nonconstraining_arm(&self, arms: &[MatchArm]) -> bool {
-        arms.iter()
-            .any(|arm| matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining))
+        arms.iter().any(|arm| {
+            matches!(
+                self.pattern_family(&arm.pattern),
+                PatternFamily::NonConstraining
+            )
+        })
     }
 
     /// Emit additional conflicts between concrete match arms when first arm is unresolved.
