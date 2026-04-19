@@ -107,9 +107,9 @@ module Day03Solver {
         state.2
         where indices = range(0, len(memory))
         where state = fold(indices, (0, true, 0), fn(st, i) {
+                let total = st.2
                 let next_idx = st.0
                 let enabled = st.1
-                let total = st.2
 
                 if i != next_idx {
                     st

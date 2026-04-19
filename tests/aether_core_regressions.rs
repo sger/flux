@@ -809,7 +809,7 @@ fn fbip_clean_fixture_keeps_annotations_provable() {
 
 #[test]
 fn fbip_failure_fixture_stays_non_provable() {
-    let src = std::fs::read_to_string("examples/aether/fbip_fail_nonfip_call.flx")
+    let src = std::fs::read_to_string("examples/compiler_errors/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist");
     let (program, types, interner) = parse_and_infer(&src);
     let mut core = lower_program_ast(&program, &types);
