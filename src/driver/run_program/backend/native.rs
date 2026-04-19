@@ -71,9 +71,7 @@ fn native_exit_summary(status: &std::process::ExitStatus) -> String {
                 15 => ("SIGTERM", "termination requested"),
                 _ => ("signal", "native program crashed"),
             };
-            return format!(
-                "native program terminated by signal {signal} ({name}): {reason}"
-            );
+            return format!("native program terminated by signal {signal} ({name}): {reason}");
         }
     }
 

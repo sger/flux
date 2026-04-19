@@ -379,7 +379,15 @@ pub fn lower_aether_program_with_interner(
     interner: Option<&Interner>,
     globals_map: Option<&HashMap<String, usize>>,
 ) -> LirProgram {
-    lower_aether_program_with_interner_and_externs(program, interner, globals_map, None, None, true, None)
+    lower_aether_program_with_interner_and_externs(
+        program,
+        interner,
+        globals_map,
+        None,
+        None,
+        true,
+        None,
+    )
 }
 
 /// Lower a `CoreProgram` to `LirProgram` with optional native external symbol
@@ -1381,7 +1389,9 @@ impl<'a> FnLower<'a> {
                                         },
                                     );
                                 } else {
-                                    inner.direct_func_vars.insert(sibling_var, entry_j.synthetic_id);
+                                    inner
+                                        .direct_func_vars
+                                        .insert(sibling_var, entry_j.synthetic_id);
                                 }
                             }
                         }
@@ -2102,7 +2112,9 @@ impl<'a> FnLower<'a> {
                                         },
                                     );
                                 } else {
-                                    inner.direct_func_vars.insert(sibling_var, entry_j.synthetic_id);
+                                    inner
+                                        .direct_func_vars
+                                        .insert(sibling_var, entry_j.synthetic_id);
                                 }
                             }
                         }

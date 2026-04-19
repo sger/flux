@@ -2251,7 +2251,8 @@ impl Compiler {
                 if let Some(module_name) = module_name {
                     self.module_function_visibility
                         .insert((module_name, *name), *is_public);
-                    self.module_member_is_value.insert((module_name, *name), false);
+                    self.module_member_is_value
+                        .insert((module_name, *name), false);
                 }
             }
             Statement::Let {
@@ -2260,7 +2261,8 @@ impl Compiler {
                 if let Some(module_name) = module_name {
                     self.module_function_visibility
                         .insert((module_name, *name), *is_public);
-                    self.module_member_is_value.insert((module_name, *name), true);
+                    self.module_member_is_value
+                        .insert((module_name, *name), true);
                 }
             }
             Statement::Module { name, body, .. } => {
