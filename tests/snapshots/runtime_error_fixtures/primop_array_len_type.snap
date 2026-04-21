@@ -7,13 +7,28 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  primop_array_len_type
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  Array
+[3 of 8] Compiling  IO
+[4 of 8] Compiling  List
+[5 of 8] Compiling  Numeric
+[6 of 8] Compiling  Option
+[7 of 8] Compiling  String
+[8 of 8] Compiling  primop_array_len_type
+• 1 warning • examples/runtime_errors/primop_array_len_type.flx
+Warning[W034]: Legacy Builtin Helper
+
+`array_len` is a legacy builtin helper spelling; prefer `Flow.Array.length`.
+
+  examples/runtime_errors/primop_array_len_type.flx:2:19
+  |
+2 |     let ignored = array_len(1)
+  |                   ^^^^^^^^^
+  |                   --------- legacy helper spelling used here
+
+Help:
+  Import the owning Flow module and call the module-qualified API instead.
+
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/primop_array_len_type.flx
 error[E1004]: primop array_len expected Array, got Int

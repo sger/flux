@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Day12Parser` doesn't match file path `examples/Modules/Day12Parser.flx`.
 
-  examples/Modules/Day12Parser.flx:1:1
+  examples/Modules/Day12Parser.flx:3:1
   |
-1 | module Modules.Day12Parser {
+3 | module Modules.Day12Parser {
   | ^
 
 Hint:

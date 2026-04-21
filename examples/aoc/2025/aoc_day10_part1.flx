@@ -8,11 +8,12 @@ Input: examples/aoc/2025/aoc_day10.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // Program entry point.
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
     // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
     // Helper for concat.
@@ -78,7 +79,7 @@ fn main() with IO, Time {
             acc
         } else {
             let bit = if char_at(inner, idx) == "#" { 1 } else { 0 }
-            parse_pattern_bits(inner, idx + 1, array_push(acc, bit))
+            parse_pattern_bits(inner, idx + 1, push(acc, bit))
         }
     }
 
@@ -96,7 +97,7 @@ fn main() with IO, Time {
         if t == "" {
             [||]
         } else {
-            split_ints(t, ",")
+            IO.split_ints(t, ",")
         }
     }
 
@@ -109,7 +110,7 @@ fn main() with IO, Time {
                 let close = find_char_from(line, ")", idx + 1)
                 let inner = substring(line, idx + 1, close)
                 let btn = parse_button(inner)
-                parse_buttons_rec(line, close + 1, stop, array_push(acc, btn))
+                parse_buttons_rec(line, close + 1, stop, push(acc, btn))
             } else {
                 parse_buttons_rec(line, idx + 1, stop, acc)
             }
@@ -128,7 +129,7 @@ fn main() with IO, Time {
         if idx >= n {
             acc
         } else {
-            zeros(n, idx + 1, array_push(acc, 0))
+            zeros(n, idx + 1, push(acc, 0))
         }
     }
 

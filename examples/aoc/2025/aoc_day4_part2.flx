@@ -12,7 +12,7 @@ import Flow.Array as Array
 // Program entry point.
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
 
     // Return the line at the given index or a default.
     fn line_at(lines, idx) {

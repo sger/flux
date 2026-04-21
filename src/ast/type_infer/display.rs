@@ -37,8 +37,11 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
                     .into_iter()
                     .map(|e| interner.resolve(e).to_string())
                     .collect();
-                if let Some(tail) = effects.tail() {
-                    eff_str.push(format!("|?{tail}"));
+                if effects.tail().is_some() {
+                    // User-facing diagnostics should not leak unstable solver
+                    // ids like `|?10256`; render unresolved effect tails the
+                    // same way we render unresolved type variables.
+                    eff_str.push("|_".to_string());
                 }
                 format!(
                     "({}) -> {} with {}",
@@ -318,7 +321,7 @@ pub fn suggest_type_name(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::type_infer::{constraint::SchemeConstraint, render_scheme_canonical},
+        ast::type_infer::{constraint::SchemeConstraint, display_infer_type, render_scheme_canonical},
         syntax::interner::Interner,
         types::{
             infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
@@ -409,5 +412,17 @@ mod tests {
             render_scheme_canonical(&interner, &scheme),
             "forall a, b, c. (a) -> (b) -> c with |b"
         );
+    }
+
+    #[test]
+    fn display_infer_type_hides_unresolved_effect_tail_ids() {
+        let interner = Interner::new();
+        let ty = InferType::Fun(
+            vec![InferType::Con(TypeConstructor::Int)],
+            Box::new(InferType::Con(TypeConstructor::Bool)),
+            InferEffectRow::open_from_symbols(std::iter::empty(), 10256),
+        );
+
+        assert_eq!(display_infer_type(&ty, &interner), "(Int) -> Bool with |_");
     }
 }

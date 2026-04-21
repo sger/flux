@@ -3113,8 +3113,12 @@ impl Compiler {
             return Ok(false);
         };
 
-        // Exposed Flux stdlib functions shadow primops.
-        if self.exposed_bindings.contains_key(name) {
+        // Exposed Flux stdlib functions shadow primops only when the exposed
+        // binding currently resolves to a real value. This keeps stale or
+        // non-value exports from blocking bare primop names.
+        if let Some(&qualified) = self.exposed_bindings.get(name)
+            && self.resolve_visible_symbol(qualified).is_some()
+        {
             return Ok(false);
         }
 

@@ -1,0 +1,29 @@
+import Flow.Array as Array
+import Flow.Numeric as Numeric
+
+// Tests for the public Flow.Numeric surface.
+
+fn test_numeric_sqrt() {
+    assert_eq(Numeric.sqrt(9.0), 3.0)
+}
+
+fn test_numeric_sin_cos() {
+    assert_eq(Numeric.sin(0.0), 0.0)
+    assert_eq(Numeric.cos(0.0), 1.0)
+}
+
+fn test_numeric_exp_log() {
+    assert_eq(Numeric.exp(0.0), 1.0)
+    assert_eq(Numeric.log(1.0), 0.0)
+}
+
+fn test_numeric_floor_ceil_round() {
+    assert_eq(Numeric.floor(3.9), 3.0)
+    assert_eq(Numeric.ceil(3.1), 4.0)
+    assert_eq(Numeric.round(3.5), 4.0)
+}
+
+fn test_array_minimum_maximum() {
+    assert_eq(Array.maximum([|1, 9, 3|]), 9)
+    assert_eq(Array.minimum([|1, 9, 3|]), 1)
+}

@@ -33,7 +33,7 @@ I found the wrong type in the 2nd argument to `add`.
   examples/diagnostics_demos/hint_demos/inline_labels_demo.flx:9:13
   |
 8 | fn add(a, b) { a + b }
-  | ---------------------- `add` expects `String` as the 2nd parameter
+  | ------------ `add` expects `String` as the 2nd parameter
 9 | add("text", 456);
   |             ^^^
   |             --- this argument has type `Int`

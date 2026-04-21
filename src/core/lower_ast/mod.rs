@@ -585,6 +585,15 @@ impl<'a> AstLowerer<'a> {
         )
     }
 
+    fn full_function_core_type_from_name(
+        &self,
+        fn_name: crate::syntax::Identifier,
+    ) -> Option<super::CoreType> {
+        self.type_env
+            .and_then(|env| env.lookup(fn_name))
+            .and_then(|scheme| super::CoreType::try_from_infer(&scheme.infer_type))
+    }
+
     /// Convert a source-level type annotation to a `CoreType`, if the interner
     /// is available. This preserves container/tuple/function structure and
     /// keeps source-level abstract names explicit instead of dropping them.
@@ -694,20 +703,12 @@ impl<'a> AstLowerer<'a> {
                 // The function itself doesn't have a single ExprId, but the body block does.
                 let mut def = CoreDef::new(binder, expr, true, *span);
                 def.fip = *fip;
-                // Try to get the type from the last expression in the block.
-                if let Some(
-                    Statement::Expression { expression, .. }
-                    | Statement::Return {
-                        value: Some(expression),
-                        ..
-                    },
-                ) = body.statements.last()
-                {
-                    def.result_ty = self.infer_core_type(expression.expr_id());
-                }
-                if def.result_ty.is_none() {
-                    def.result_ty = inferred_result_ty;
-                }
+                // Preserve the full inferred function type for semantic/debug
+                // Core dumps. Downstream lowering can peel `forall` wrappers
+                // when it needs concrete parameter/return metadata.
+                def.result_ty = self
+                    .full_function_core_type_from_name(*name)
+                    .or_else(|| inferred_result_ty.clone());
                 // If HM didn't resolve the result type, fall back to the
                 // source return-type annotation.  This is critical for
                 // recursive functions where HM may leave the return type as
@@ -863,6 +864,7 @@ impl<'a> AstLowerer<'a> {
                 body: _,
                 span,
                 fip: _,
+                intrinsic: _,
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,

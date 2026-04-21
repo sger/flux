@@ -9,11 +9,13 @@ Uses input file: examples/aoc/2025/aoc_day12.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
+import Flow.String as String
 
 // Program entry point.
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
 
     // Return the line at the given index or a default.
     fn line_at(lines, idx) {
@@ -51,7 +53,7 @@ fn main() with IO, Time {
 
     // Count hashes.
     fn count_hashes(s) {
-        Array.fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
+        Array.fold(String.chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
     }
 
     // Parse the present shape sizes from the input.
@@ -106,11 +108,11 @@ fn main() with IO, Time {
                     let parts = split(line, " ") |> Array.filter(\t -> trim(t) != "")
                     let dims_raw = str_at(parts, 0)
                     let dims = substring(dims_raw, 0, len(dims_raw) - 1)
-                    let bounds = split_ints(dims, "x")
+                    let bounds = IO.split_ints(dims, "x")
                     let counts = parse_area_counts(parts, 1, [||])
                     let w = int_at(bounds, 0)
                     let h = int_at(bounds, 1)
-                    parse_areas(lines, idx + 1, array_push(acc, (w, h, counts)))
+                    parse_areas(lines, idx + 1, push(acc, (w, h, counts)))
                 } else {
                     parse_areas(lines, idx + 1, acc)
                 }

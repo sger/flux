@@ -434,6 +434,19 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Sub
         | CorePrimOp::Mul
         | CorePrimOp::Abs
+        | CorePrimOp::BitAnd
+        | CorePrimOp::BitOr
+        | CorePrimOp::BitXor
+        | CorePrimOp::BitShl
+        | CorePrimOp::BitShr
+        | CorePrimOp::FSqrt
+        | CorePrimOp::FSin
+        | CorePrimOp::FCos
+        | CorePrimOp::FExp
+        | CorePrimOp::FLog
+        | CorePrimOp::FFloor
+        | CorePrimOp::FCeil
+        | CorePrimOp::FRound
         | CorePrimOp::Min
         | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types

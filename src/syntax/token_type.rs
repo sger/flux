@@ -124,6 +124,8 @@ define_tokens! {
         Let    => "let",
         Do     => "do",
         Fn     => "fn",
+        Intrinsic => "intrinsic",
+        Primop => "primop",
         Public => "public",
         With   => "with",
         If     => "if",

@@ -13,11 +13,7 @@ error[E999]: FBIP Contract Failed
   examples/compiler_errors/fbip_fail_nonfip_call.flx:10:7
    |
 10 | @fbip fn bounded(f, x) {
-   |       ^^^^^^^^^^^^^^^^^^
-11 |     f(x)
-   | ^^^^^^^^
-12 | }
-   | ^
+   |       ^^^^^^^^^^^^^^^^
 
 Hint:
   Annotate only functions whose fresh allocations remain provably bounded.

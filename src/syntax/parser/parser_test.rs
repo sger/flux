@@ -431,6 +431,54 @@ fn parses_public_function_statement() {
 }
 
 #[test]
+fn parses_public_intrinsic_function_statement() {
+    let (program, interner) =
+        parse_ok("public intrinsic fn length<a>(arr: Array<a>) -> Int = primop ArrayLen");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function {
+            is_public,
+            name,
+            parameters,
+            return_type,
+            body,
+            ..
+        } => {
+            assert!(*is_public);
+            assert_eq!(interner.resolve(*name), "length");
+            assert_eq!(parameters.len(), 1);
+            assert_eq!(
+                return_type
+                    .as_ref()
+                    .map(|ty| ty.display_with(&interner))
+                    .as_deref(),
+                Some("Int")
+            );
+            match &body.statements[0] {
+                Statement::Expression { expression, .. } => match expression {
+                    Expression::Call {
+                        function,
+                        arguments,
+                        ..
+                    } => {
+                        match function.as_ref() {
+                            Expression::Identifier { name, .. } => {
+                                assert_eq!(interner.resolve(*name), "array_len");
+                            }
+                            _ => panic!("expected intrinsic body to call helper identifier"),
+                        }
+                        assert_eq!(arguments.len(), 1);
+                    }
+                    _ => panic!("expected intrinsic body to desugar to a call"),
+                },
+                _ => panic!("expected intrinsic body expression statement"),
+            }
+        }
+        _ => panic!("expected desugared function statement"),
+    }
+}
+
+#[test]
 fn parses_private_function_statement_by_default() {
     let (program, interner) = parse_ok("fn helper(x: Int) -> Int { x }");
     assert_eq!(program.statements.len(), 1);

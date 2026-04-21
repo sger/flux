@@ -1,4 +1,5 @@
 import Flow.Map as Map
+import Flow.String as String
 
 // Tests for base assertion functions: assert_eq, assert_neq, assert_true,
 // assert_false, assert_throws, assert_msg, try, str_contains,
@@ -140,18 +141,18 @@ fn test_try_does_not_propagate() {
 // --- str_contains ---
 
 fn test_str_contains_found() {
-    assert_true(str_contains("hello world", "world"))
-    assert_true(str_contains("hello world", "hello"))
-    assert_true(str_contains("hello world", " "))
+    assert_true(String.str_contains("hello world", "world"))
+    assert_true(String.str_contains("hello world", "hello"))
+    assert_true(String.str_contains("hello world", " "))
 }
 
 fn test_str_contains_not_found() {
-    assert_false(str_contains("hello world", "xyz"))
-    assert_false(str_contains("hello", "HELLO"))
+    assert_false(String.str_contains("hello world", "xyz"))
+    assert_false(String.str_contains("hello", "HELLO"))
 }
 
 fn test_str_contains_empty_needle() {
-    assert_true(str_contains("hello", ""))
+    assert_true(String.str_contains("hello", ""))
 }
 
 // --- assert_gt ---
@@ -165,7 +166,7 @@ fn test_assert_gt_passes() {
 fn test_assert_gt_fails() {
     let result = try(\() -> assert_gt(3, 5))
     assert_eq(result.0, "error")
-    assert_true(str_contains(result.1, "assert_gt failed"))
+    assert_true(String.str_contains(result.1, "assert_gt failed"))
 }
 
 // --- assert_lt ---
@@ -178,7 +179,7 @@ fn test_assert_lt_passes() {
 fn test_assert_lt_fails() {
     let result = try(\() -> assert_lt(5, 3))
     assert_eq(result.0, "error")
-    assert_true(str_contains(result.1, "assert_lt failed"))
+    assert_true(String.str_contains(result.1, "assert_lt failed"))
 }
 
 // --- assert_gte ---
@@ -191,7 +192,7 @@ fn test_assert_gte_passes() {
 fn test_assert_gte_fails() {
     let result = try(\() -> assert_gte(3, 5))
     assert_eq(result.0, "error")
-    assert_true(str_contains(result.1, "assert_gte failed"))
+    assert_true(String.str_contains(result.1, "assert_gte failed"))
 }
 
 // --- assert_lte ---
@@ -204,7 +205,7 @@ fn test_assert_lte_passes() {
 fn test_assert_lte_fails() {
     let result = try(\() -> assert_lte(5, 3))
     assert_eq(result.0, "error")
-    assert_true(str_contains(result.1, "assert_lte failed"))
+    assert_true(String.str_contains(result.1, "assert_lte failed"))
 }
 
 // --- assert_len ---
@@ -222,5 +223,5 @@ fn test_assert_len_string() {
 fn test_assert_len_fails() {
     let result = try(\() -> assert_len([1, 2], 5))
     assert_eq(result.0, "error")
-    assert_true(str_contains(result.1, "assert_len failed"))
+    assert_true(String.str_contains(result.1, "assert_len failed"))
 }

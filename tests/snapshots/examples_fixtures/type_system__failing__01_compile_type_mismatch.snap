@@ -12,6 +12,7 @@ I found the wrong type in the 1st argument to `add`.
   examples/type_system/failing/01_compile_type_mismatch.flx:6:5
   |
 1 | fn add(a: Int, b: Int) -> Int {
+  | ----------------------------- `add` expects `Int` as the 1st parameter
 2 |     a + b
 3 | }
 4 | 

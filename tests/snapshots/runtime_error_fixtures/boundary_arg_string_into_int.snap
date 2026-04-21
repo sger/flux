@@ -7,13 +7,14 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  Numeric
-[5 of 8] Compiling  Option
-[6 of 8] Compiling  String
-[7 of 8] Compiling  BoundaryUnknown
+[1 of 9] Compiling  Assert
+[2 of 9] Compiling  Array
+[3 of 9] Compiling  IO
+[4 of 9] Compiling  List
+[5 of 9] Compiling  Numeric
+[6 of 9] Compiling  Option
+[7 of 9] Compiling  String
+[8 of 9] Compiling  BoundaryUnknown
 • 1 error • examples/runtime_errors/boundary_arg_string_into_int.flx
 error[E300]: Argument Type Mismatch
 
@@ -22,6 +23,7 @@ I found the wrong type in the 1st argument to `typed_add`.
   examples/runtime_errors/boundary_arg_string_into_int.flx:8:11
   |
 3 | fn typed_add(a: Int, b: Int) -> Int {
+  | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
 4 |     a + b
 5 | }
 6 |

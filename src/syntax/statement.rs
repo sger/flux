@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::{
+    core::CorePrimOp,
     diagnostics::position::{Position, Span},
     syntax::{
         Identifier,
@@ -75,6 +76,10 @@ pub enum Statement {
         is_public: bool,
         /// FBIP annotation: `@fip` or `@fbip` before `fn`.
         fip: Option<FipAnnotation>,
+        /// Original `intrinsic fn ... = primop ...` binding, if this function
+        /// came from an intrinsic declaration and was desugared to a normal
+        /// function body.
+        intrinsic: Option<CorePrimOp>,
         name: Identifier,
         /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
         /// Empty for non-generic functions.
@@ -262,6 +267,7 @@ impl fmt::Display for Statement {
             }
             Statement::Function {
                 is_public,
+                intrinsic,
                 name,
                 type_params,
                 parameters,
@@ -281,10 +287,67 @@ impl fmt::Display for Statement {
                         },
                     )
                     .collect();
-                let fn_kw = if *is_public { "public fn" } else { "fn" };
+                let fn_kw = match (*is_public, intrinsic.is_some()) {
+                    (true, true) => "public intrinsic fn",
+                    (false, true) => "intrinsic fn",
+                    (true, false) => "public fn",
+                    (false, false) => "fn",
+                };
                 let type_params_text =
                     Self::format_function_type_params(type_params, |id| id.to_string());
-                if let Some(return_type) = return_type {
+                if let Some(primop) = intrinsic {
+                    if let Some(return_type) = return_type {
+                        if effects.is_empty() {
+                            write!(
+                                f,
+                                "{} {}{}({}) -> {} = primop {:?}",
+                                fn_kw,
+                                name,
+                                type_params_text,
+                                params.join(", "),
+                                return_type,
+                                primop
+                            )
+                        } else {
+                            let effects_text: Vec<String> =
+                                effects.iter().map(ToString::to_string).collect();
+                            write!(
+                                f,
+                                "{} {}{}({}) -> {} with {} = primop {:?}",
+                                fn_kw,
+                                name,
+                                type_params_text,
+                                params.join(", "),
+                                return_type,
+                                effects_text.join(", "),
+                                primop
+                            )
+                        }
+                    } else if effects.is_empty() {
+                        write!(
+                            f,
+                            "{} {}{}({}) = primop {:?}",
+                            fn_kw,
+                            name,
+                            type_params_text,
+                            params.join(", "),
+                            primop
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(ToString::to_string).collect();
+                        write!(
+                            f,
+                            "{} {}{}({}) with {} = primop {:?}",
+                            fn_kw,
+                            name,
+                            type_params_text,
+                            params.join(", "),
+                            effects_text.join(", "),
+                            primop
+                        )
+                    }
+                } else if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         write!(
                             f,
@@ -488,6 +551,7 @@ impl Statement {
             }
             Statement::Function {
                 is_public,
+                intrinsic,
                 name,
                 type_params,
                 parameters,
@@ -508,11 +572,64 @@ impl Statement {
                         }
                     })
                     .collect();
-                let fn_kw = if *is_public { "public fn" } else { "fn" };
+                let fn_kw = match (*is_public, intrinsic.is_some()) {
+                    (true, true) => "public intrinsic fn",
+                    (false, true) => "intrinsic fn",
+                    (true, false) => "public fn",
+                    (false, false) => "fn",
+                };
                 let type_params_text = Self::format_function_type_params(type_params, |id| {
                     interner.resolve(id).to_string()
                 });
-                if let Some(return_type) = return_type {
+                if let Some(primop) = intrinsic {
+                    if let Some(return_type) = return_type {
+                        if effects.is_empty() {
+                            format!(
+                                "{} {}{}({}) -> {} = primop {:?}",
+                                fn_kw,
+                                interner.resolve(*name),
+                                type_params_text,
+                                params.join(", "),
+                                return_type.display_with(interner),
+                                primop
+                            )
+                        } else {
+                            let effects_text: Vec<String> =
+                                effects.iter().map(|e| e.display_with(interner)).collect();
+                            format!(
+                                "{} {}{}({}) -> {} with {} = primop {:?}",
+                                fn_kw,
+                                interner.resolve(*name),
+                                type_params_text,
+                                params.join(", "),
+                                return_type.display_with(interner),
+                                effects_text.join(", "),
+                                primop
+                            )
+                        }
+                    } else if effects.is_empty() {
+                        format!(
+                            "{} {}{}({}) = primop {:?}",
+                            fn_kw,
+                            interner.resolve(*name),
+                            type_params_text,
+                            params.join(", "),
+                            primop
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(|e| e.display_with(interner)).collect();
+                        format!(
+                            "{} {}{}({}) with {} = primop {:?}",
+                            fn_kw,
+                            interner.resolve(*name),
+                            type_params_text,
+                            params.join(", "),
+                            effects_text.join(", "),
+                            primop
+                        )
+                    }
+                } else if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         format!(
                             "{} {}{}({}) -> {} {}",

@@ -95,8 +95,8 @@ fn main() {
         "expected debug Core dump to preserve explicit type-variable residue, got:\n{core}"
     );
     assert!(
-        core.contains("letrec id : a ="),
-        "expected canonical debug Core dump to render stable quantified names, got:\n{core}"
+        core.contains("letrec id : forall a. (a) -> a ="),
+        "expected canonical debug Core dump to render explicit quantified names, got:\n{core}"
     );
     assert!(
         !core.contains("Dynamic"),

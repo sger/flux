@@ -1,4 +1,5 @@
 use crate::{
+    core::CorePrimOp,
     diagnostics::{
         DiagnosticBuilder, DiagnosticCategory, compiler_errors::DATA_MIXED_FIELD_FORMS,
         diagnostic_for, missing_fn_param_list, missing_function_body_brace, missing_let_assign,
@@ -8,6 +9,7 @@ use crate::{
     syntax::{
         data_variant::DataVariant,
         effect_ops::EffectOp,
+        expression::{ExprId, Expression},
         precedence::Precedence,
         statement::{FunctionTypeParam, Statement},
         token_type::TokenType,
@@ -70,9 +72,25 @@ impl Parser {
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement(false, None)
             }
+            TokenType::Intrinsic if self.is_peek_token(TokenType::Fn) => {
+                self.next_token(); // fn
+                self.parse_intrinsic_function_statement(false)
+            }
             TokenType::Public if self.is_peek_token(TokenType::Fn) => {
                 self.next_token(); // fn
                 self.parse_function_statement(true, None)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Intrinsic) => {
+                self.next_token(); // intrinsic
+                if !self.expect_peek_context(
+                    TokenType::Fn,
+                    "Expected `fn` after `public intrinsic`.".to_string(),
+                    "Intrinsic declarations use `public intrinsic fn name(...) = primop PrimOp`."
+                        .to_string(),
+                ) {
+                    return None;
+                }
+                self.parse_intrinsic_function_statement(true)
             }
             TokenType::Public if self.is_peek_token(TokenType::Let) => {
                 self.next_token(); // let
@@ -358,27 +376,25 @@ impl Parser {
         self.parse_function_statement(false, annotation)
     }
 
-    pub(super) fn parse_function_statement(
+    fn parse_function_signature(
         &mut self,
-        is_public: bool,
-        fip: Option<crate::syntax::statement::FipAnnotation>,
-    ) -> Option<Statement> {
-        let context_name = if self.is_peek_token(TokenType::Ident) {
-            Some(self.peek_token.literal.to_string())
-        } else {
-            None
-        };
-        let _function_context = context_name
-            .clone()
-            .map(|name| self.enter_parser_context(ParserContext::Function(name)));
+        declaration_keyword: &'static str,
+    ) -> Option<(
+        crate::syntax::Identifier,
+        Vec<FunctionTypeParam>,
+        Vec<crate::syntax::Identifier>,
+        Vec<Option<TypeExpr>>,
+        Option<TypeExpr>,
+        Vec<crate::syntax::effect_expr::EffectExpr>,
+        Span,
+    )> {
         let start = self.current_token.position;
-
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
             "Missing Function Name",
             DiagnosticCategory::ParserDeclaration,
-            "Expected function name after `fn`.".to_string(),
-            "Function declarations start with `fn name(...) { ... }`.".to_string(),
+            format!("Expected function name after `{declaration_keyword}`."),
+            format!("Function declarations start with `{declaration_keyword} name(...)`."),
         ) {
             return None;
         }
@@ -404,7 +420,7 @@ impl Parser {
             "Missing Function Parameter List",
             DiagnosticCategory::ParserDeclaration,
             "Expected `(` after function name.".to_string(),
-            "Function declarations use `fn name(params) { ... }`.".to_string(),
+            format!("Function declarations use `{declaration_keyword} name(params)`."),
         ) {
             return None;
         }
@@ -419,6 +435,7 @@ impl Parser {
             if ty.is_none() {
                 self.recover_to_type_anchor(&[
                     TokenType::With,
+                    TokenType::Assign,
                     TokenType::LBrace,
                     TokenType::Semicolon,
                     TokenType::RBrace,
@@ -431,13 +448,14 @@ impl Parser {
                 self.peek_token.span(),
                 "Missing Return Type Arrow",
                 DiagnosticCategory::ParserSeparator,
-                "Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.",
+                "Missing `->` before function return type. Write it as `fn name(...) -> Type`.",
             ));
             self.next_token(); // start of return type
             let ty = self.parse_type_expr();
             if ty.is_none() {
                 self.recover_to_type_anchor(&[
                     TokenType::With,
+                    TokenType::Assign,
                     TokenType::LBrace,
                     TokenType::Semicolon,
                     TokenType::RBrace,
@@ -451,9 +469,173 @@ impl Parser {
 
         let effects = self.parse_effect_list()?;
 
+        Some((
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            self.span_from(start),
+        ))
+    }
+
+    fn parse_intrinsic_function_statement(&mut self, is_public: bool) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        let _function_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Function(name)));
+
+        let (name, type_params, parameters, parameter_types, return_type, effects, span) =
+            self.parse_function_signature("intrinsic fn")?;
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Assign,
+            "Missing Intrinsic PrimOp Binding",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `=` after intrinsic function signature.".to_string(),
+            "Intrinsic declarations use `intrinsic fn name(...) = primop PrimOpName`.".to_string(),
+        ) {
+            return None;
+        }
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Primop,
+            "Missing PrimOp Keyword",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected `primop` after `=` in intrinsic declaration.".to_string(),
+            "Intrinsic declarations bind to a primop with `= primop PrimOpName`.".to_string(),
+        ) {
+            return None;
+        }
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing PrimOp Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected a primop name after `primop`.".to_string(),
+            "Use an internal primop name like `ArrayLen` or `StringConcat`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let primop_name = self.current_token.literal.to_string();
+        let Some(primop) = CorePrimOp::from_intrinsic_name(&primop_name) else {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Unknown PrimOp Name",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!("Unknown primop `{primop_name}` in intrinsic declaration."),
+                )
+                .with_hint_text("Use a valid internal primop name such as `ArrayLen`."),
+            );
+            return None;
+        };
+
+        if parameters.len() != primop.arity() {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "INTRINSIC ARITY MISMATCH",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Intrinsic `{}` declares {} parameter(s), but primop `{}` expects {}.",
+                        self.lexer.interner().resolve(name),
+                        parameters.len(),
+                        primop_name,
+                        primop.arity()
+                    ),
+                )
+                .with_hint_text("Make the intrinsic parameter list match the primop arity."),
+            );
+            return None;
+        }
+
+        let Some(helper_name) = primop.intrinsic_helper_name() else {
+            self.emit_parser_diagnostic(
+                unexpected_token_with_details(
+                    self.current_token.span(),
+                    "UNSUPPORTED INTRINSIC PRIMOP",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Primop `{primop_name}` is not available for `intrinsic fn` declarations."
+                    ),
+                )
+                .with_hint_text(
+                    "Use a function-shaped primop intended for stdlib intrinsic wrappers.",
+                ),
+            );
+            return None;
+        };
+
+        let helper_symbol = self.lexer.interner_mut().intern(helper_name);
+        let helper_expr = Expression::Identifier {
+            name: helper_symbol,
+            span,
+            id: ExprId::UNSET,
+        };
+        let args = parameters
+            .iter()
+            .map(|param| Expression::Identifier {
+                name: *param,
+                span,
+                id: ExprId::UNSET,
+            })
+            .collect();
+        let call = Expression::Call {
+            function: Box::new(helper_expr),
+            arguments: args,
+            span,
+            id: ExprId::UNSET,
+        };
+        let body = crate::syntax::block::Block {
+            statements: vec![Statement::Expression {
+                expression: call,
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        };
+
+        Some(Statement::Function {
+            is_public,
+            fip: None,
+            intrinsic: Some(primop),
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body,
+            span,
+        })
+    }
+
+    pub(super) fn parse_function_statement(
+        &mut self,
+        is_public: bool,
+        fip: Option<crate::syntax::statement::FipAnnotation>,
+    ) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        let _function_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Function(name)));
+        let (name, type_params, parameters, parameter_types, return_type, effects, span) =
+            self.parse_function_signature("fn")?;
+
         if !self.is_current_token(TokenType::LBrace) && !self.is_peek_token(TokenType::LBrace) {
             let fn_name = self.lexer.interner().resolve(name).to_string();
-            let fn_span = Span::new(start, start);
+            let fn_span = Span::new(span.start, span.start);
             let found_desc = match self.peek_token.token_type {
                 TokenType::Ident => format!("`{}`", self.peek_token.literal),
                 TokenType::Eof => "end of file".to_string(),
@@ -479,13 +661,14 @@ impl Parser {
         Some(Statement::Function {
             is_public,
             name,
+            intrinsic: None,
             type_params,
             parameters,
             parameter_types,
             return_type,
             effects,
             body,
-            span: self.span_from(start),
+            span,
             fip,
         })
     }

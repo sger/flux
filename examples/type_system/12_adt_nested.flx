@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 data Tree {
     Leaf,
     Node(Tree, Int, Tree),
@@ -31,7 +33,7 @@ fn inorder(t: Tree) -> Array<Int> {
     match t {
         Leaf -> [||],
         Node(left, x, right) ->
-            array_concat(inorder(left), array_concat([|x|], inorder(right))),
+            Array.concat(inorder(left), Array.concat([|x|], inorder(right))),
     }
 }
 

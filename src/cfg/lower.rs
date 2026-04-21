@@ -2680,6 +2680,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             ..
         } => Statement::Function {
             is_public: *is_public,
+            intrinsic: None,
             name: *name,
             type_params: type_params
                 .iter()

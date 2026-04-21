@@ -1,9 +1,10 @@
 import Flow.Array as Array
+import Flow.IO as IO
 
 module Day2Part2 {
     // Parse one numeric range token.
     fn parse_range_token(token) {
-        split_ints(trim(token), "-")
+        IO.split_ints(trim(token), "-")
     }
 
     // Helper for range start.
