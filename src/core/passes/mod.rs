@@ -19,6 +19,7 @@ mod inliner;
 pub mod lint;
 mod primop_promote;
 mod specialize;
+pub mod static_contract;
 mod tail_resumptive;
 
 pub use algebraic::algebraic_simplify;
@@ -144,7 +145,7 @@ fn run_semantic_core_passes_with_optional_interner(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    let warnings = Vec::new();
+    let mut warnings: Vec<Diagnostic> = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
     let mut max_binder_id: u32 = 0;
     for def in &program.defs {
@@ -221,6 +222,25 @@ fn run_semantic_core_passes_with_optional_interner(
             if size_after == size_before {
                 break;
             }
+        }
+    }
+
+    // ── Stage 1b: Static typing contract validation (Proposal 0167 Part 7) ─
+    //
+    // Spot-check each Core definition's HM-resolved result type for illegal
+    // unresolved residue *before* normalization settles representations.
+    //
+    // Emission is opt-in via the `FLUX_CORE_CONTRACT_WARN` env var during
+    // rollout. The AST-level strict validator already emits hard errors for
+    // user-visible boundaries; the Core-adjacent pass is an observability
+    // layer that surfaces residue the AST pass did not catch. Gating the
+    // emission avoids flooding stderr on working programs until we have
+    // real evidence that the pass catches new bugs. The walk itself still
+    // runs so the logic stays exercised on every build.
+    if let Some(interner) = interner {
+        let report = static_contract::validate_core_static_contract(program, interner);
+        if std::env::var_os("FLUX_CORE_CONTRACT_WARN").is_some() {
+            warnings.extend(report.violations);
         }
     }
 

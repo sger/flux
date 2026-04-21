@@ -14,7 +14,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
-        expression::{ExprId, ExprIdGen, Expression},
+        expression::{ExprIdGen, Expression},
         interner::Interner,
         statement::{FunctionTypeParam, Statement},
         type_class::ClassConstraint,
@@ -41,22 +41,29 @@ pub fn generate_dispatch_functions(
     // Collect instance method info grouped by (class_name, method_name)
     let mut dispatch_table: HashSet<(Identifier, Identifier)> = HashSet::new();
 
+    // Single source of truth for synthetic [`ExprId`] allocation
+    // (Proposal 0167 Part 6). Resuming past the max id already present in
+    // `statements` guarantees no collision with parser-assigned ids, and
+    // the same allocator threaded through every synthesis site below
+    // guarantees no collision *between* generated nodes either.
+    let mut synth_expr_ids = ExprIdGen::resuming_past_statements(statements);
+
     generate_from_statements(
         statements,
         class_env,
         interner,
         &mut generated,
         &mut dispatch_table,
+        &mut synth_expr_ids,
     );
     if needs_builtin_dispatch_support(statements) {
-        let mut builtin_expr_ids = ExprIdGen::from_counter(1_000_000);
         generate_builtin_instance_functions(
             class_env,
             interner,
             &mut generated,
             &mut dispatch_table,
             &mut reserved_names,
-            &mut builtin_expr_ids,
+            &mut synth_expr_ids,
         );
     }
 
@@ -83,6 +90,7 @@ pub fn generate_dispatch_functions(
                 class_def,
                 method_sig,
                 interner,
+                &mut synth_expr_ids,
             ));
         }
     }
@@ -303,6 +311,7 @@ fn generate_from_statements(
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    synth_expr_ids: &mut ExprIdGen,
 ) {
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
@@ -447,6 +456,7 @@ fn generate_from_statements(
                     interner,
                     generated,
                     dispatch_table,
+                    synth_expr_ids,
                 );
             }
             _ => {}
@@ -821,6 +831,7 @@ fn generate_polymorphic_stub(
     class_def: &crate::types::class_env::ClassDef,
     method_sig: &crate::types::class_env::MethodSig,
     interner: &mut Interner,
+    synth_expr_ids: &mut ExprIdGen,
 ) -> Statement {
     // Use the class's type parameter plus any per-method type params.
     let mut type_params: Vec<FunctionTypeParam> = class_def
@@ -851,13 +862,15 @@ fn generate_polymorphic_stub(
     let return_type = Some(method_sig.return_type.clone());
 
     let span = Span::default();
-    let id = ExprId::UNSET;
 
     // Body: panic with a descriptive message. This stub exists only to give
     // HM inference a properly typed function signature. Monomorphic calls are
     // resolved directly to __tc_* mangled functions during Core lowering, and
     // polymorphic calls go through dictionary elaboration. The stub body is
     // never executed in well-typed programs.
+    //
+    // Each nested AST node receives its own fresh id so HM inference's
+    // expr-type map keys stay unique (Proposal 0167 Part 6).
     let method_display = interner.resolve(method_name).to_string();
     let class_display = interner.resolve(class_def.name).to_string();
     let panic_sym = interner.intern("panic");
@@ -865,15 +878,15 @@ fn generate_polymorphic_stub(
         function: Box::new(Expression::Identifier {
             name: panic_sym,
             span,
-            id,
+            id: synth_expr_ids.next_id(),
         }),
         arguments: vec![Expression::String {
             value: format!("No instance of {class_display}.{method_display} for the given type"),
             span,
-            id,
+            id: synth_expr_ids.next_id(),
         }],
         span,
-        id,
+        id: synth_expr_ids.next_id(),
     };
 
     Statement::Function {
