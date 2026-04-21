@@ -2,6 +2,7 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 module Day05Solver {
     data Section {
@@ -33,7 +34,7 @@ module Day05Solver {
         } else {
             Right((int_at(parts, 0), int_at(parts, 1)))
         }
-        where parts = split_ints(trim(line), "|")
+        where parts = IO.split_ints(trim(line), "|")
     }
 
     // Parse update.
@@ -43,7 +44,7 @@ module Day05Solver {
         } else {
             Right(pages)
         }
-        where pages = split_ints(trim(line), ",")
+        where pages = IO.split_ints(trim(line), ",")
     }
 
     // Parse sections.
@@ -61,11 +62,11 @@ module Day05Solver {
                 } else {
                     match section {
                         RulesPart -> match parse_rule(cleaned) {
-                            Right(rule) -> parse_sections(rest, RulesPart, array_push(rules, rule), pages),
+                            Right(rule) -> parse_sections(rest, RulesPart, Array.push(rules, rule), pages),
                             Left(err) -> Left(err),
                         },
                         UpdatesPart -> match parse_update(cleaned) {
-                            Right(update) -> parse_sections(rest, UpdatesPart, rules, array_push(pages, update)),
+                            Right(update) -> parse_sections(rest, UpdatesPart, rules, Array.push(pages, update)),
                             Left(err) -> Left(err),
                         },
                     }
@@ -149,7 +150,7 @@ module Day05Solver {
             acc
         } else {
             match pick_zero_indegree(remaining, rules, 0) {
-                Some(next) -> topo_sort(remove_value(remaining, next), rules, array_push(acc, next)),
+                Some(next) -> topo_sort(remove_value(remaining, next), rules, Array.push(acc, next)),
                 _ -> remaining,
             }
         }

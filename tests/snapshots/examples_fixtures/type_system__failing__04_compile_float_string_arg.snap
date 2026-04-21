@@ -12,6 +12,7 @@ I found the wrong type in the 1st argument to `scale`.
   examples/type_system/failing/04_compile_float_string_arg.flx:6:7
   |
 1 | fn scale(x: Float, factor: Float) -> Float {
+  | ------------------------------------------ `scale` expects `Float` as the 1st parameter
 2 |     x * factor
 3 | }
 4 | 

@@ -73,6 +73,19 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ToList => "to_list",
         CorePrimOp::ToArray => "to_array",
         CorePrimOp::Abs => "abs",
+        CorePrimOp::FSqrt => "sqrt",
+        CorePrimOp::FSin => "sin",
+        CorePrimOp::FCos => "cos",
+        CorePrimOp::FExp => "exp",
+        CorePrimOp::FLog => "log",
+        CorePrimOp::FFloor => "floor",
+        CorePrimOp::FCeil => "ceil",
+        CorePrimOp::FRound => "round",
+        CorePrimOp::BitAnd => "bit_and",
+        CorePrimOp::BitOr => "bit_or",
+        CorePrimOp::BitXor => "bit_xor",
+        CorePrimOp::BitShl => "bit_shl",
+        CorePrimOp::BitShr => "bit_shr",
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
@@ -281,6 +294,19 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ToList
             | CorePrimOp::ToArray
             | CorePrimOp::Abs
+            | CorePrimOp::FSqrt
+            | CorePrimOp::FSin
+            | CorePrimOp::FCos
+            | CorePrimOp::FExp
+            | CorePrimOp::FLog
+            | CorePrimOp::FFloor
+            | CorePrimOp::FCeil
+            | CorePrimOp::FRound
+            | CorePrimOp::BitAnd
+            | CorePrimOp::BitOr
+            | CorePrimOp::BitXor
+            | CorePrimOp::BitShl
+            | CorePrimOp::BitShr
             | CorePrimOp::Min
             | CorePrimOp::Max
             | CorePrimOp::Len

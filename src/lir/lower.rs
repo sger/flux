@@ -3597,6 +3597,11 @@ impl<'a> FnLower<'a> {
             CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars, span),
             CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars, span),
             CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars, span),
+            CorePrimOp::BitAnd => self.lower_int_binop(LirIntOp::And, &arg_vars, span),
+            CorePrimOp::BitOr => self.lower_int_binop(LirIntOp::Or, &arg_vars, span),
+            CorePrimOp::BitXor => self.lower_int_binop(LirIntOp::Xor, &arg_vars, span),
+            CorePrimOp::BitShl => self.lower_int_binop(LirIntOp::Shl, &arg_vars, span),
+            CorePrimOp::BitShr => self.lower_int_binop(LirIntOp::Shr, &arg_vars, span),
 
             // Typed integer comparisons → inline ICmp.
             CorePrimOp::ICmpEq => self.lower_int_cmp(CmpOp::Eq, &arg_vars),
@@ -3832,6 +3837,31 @@ impl<'a> FnLower<'a> {
                 a: a_raw,
                 b: b_raw,
                 span,
+            },
+            LirIntOp::And => LirInstr::IAnd {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Or => LirInstr::IOr {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Xor => LirInstr::IXor {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Shl => LirInstr::IShl {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Shr => LirInstr::IShr {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
             },
         };
         self.emit(instr);
@@ -4747,6 +4777,11 @@ enum LirIntOp {
     Mul,
     Div,
     Rem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
 }
 
 // ── Top-level definition lowering ────────────────────────────────────────────
@@ -5114,6 +5149,11 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::IMul { dst, a, b } => format!("{dst} = imul {a}, {b}"),
         LirInstr::IDiv { dst, a, b, .. } => format!("{dst} = idiv {a}, {b}"),
         LirInstr::IRem { dst, a, b, .. } => format!("{dst} = irem {a}, {b}"),
+        LirInstr::IAnd { dst, a, b } => format!("{dst} = iand {a}, {b}"),
+        LirInstr::IOr { dst, a, b } => format!("{dst} = ior {a}, {b}"),
+        LirInstr::IXor { dst, a, b } => format!("{dst} = ixor {a}, {b}"),
+        LirInstr::IShl { dst, a, b } => format!("{dst} = ishl {a}, {b}"),
+        LirInstr::IShr { dst, a, b } => format!("{dst} = ishr {a}, {b}"),
         LirInstr::ICmp { dst, op, a, b } => format!("{dst} = icmp {op} {a}, {b}"),
         LirInstr::PrimCall { dst, op, args } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();

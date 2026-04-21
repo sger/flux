@@ -152,6 +152,16 @@ pub enum LirInstr {
         b: LirVar,
         span: Span,
     },
+    /// Integer bitwise and on raw i64 values.
+    IAnd { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer bitwise or on raw i64 values.
+    IOr { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer bitwise xor on raw i64 values.
+    IXor { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer left shift on raw i64 values.
+    IShl { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer arithmetic right shift on raw i64 values.
+    IShr { dst: LirVar, a: LirVar, b: LirVar },
     /// Integer comparison on raw i64 values.  Result is 0 or 1.
     ICmp {
         dst: LirVar,

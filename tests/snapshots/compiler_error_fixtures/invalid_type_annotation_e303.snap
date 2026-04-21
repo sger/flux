@@ -26,6 +26,7 @@ I found the wrong type in the 1st argument to `use_unknown`.
   examples/compiler_errors/invalid_type_annotation_e303.flx:12:25
    |
  7 | fn use_unknown(x: NotAType) -> Int {
+   | ---------------------------------- `use_unknown` expects `NotAType` as the 1st parameter
  8 |     0
  9 | }
 10 | 

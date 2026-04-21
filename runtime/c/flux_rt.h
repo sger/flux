@@ -234,6 +234,14 @@ int64_t flux_hamt_format(int64_t map);
 int64_t flux_abs(int64_t n);
 int64_t flux_min(int64_t a, int64_t b);
 int64_t flux_max(int64_t a, int64_t b);
+int64_t flux_sqrt(int64_t n);
+int64_t flux_sin(int64_t n);
+int64_t flux_cos(int64_t n);
+int64_t flux_exp(int64_t n);
+int64_t flux_log(int64_t n);
+int64_t flux_floor(int64_t n);
+int64_t flux_ceil(int64_t n);
+int64_t flux_round(int64_t n);
 
 /* ── Runtime-dispatching arithmetic (int/float/string) ──────────────── */
 

@@ -20,7 +20,7 @@ Hint:
 
 error[E034]: Missing Return Type Arrow
 
-Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.
+Missing `->` before function return type. Write it as `fn name(...) -> Type`.
 
   examples/parser_errors/MultiAnnotationErrors.flx:3:27
   |

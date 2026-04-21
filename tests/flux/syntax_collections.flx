@@ -105,7 +105,7 @@ fn test_list_rest() {
 }
 
 fn test_array_push() {
-    let result = array_push([|1, 2|], 3)
+    let result = Array.push([|1, 2|], 3)
     assert_eq(len(result), 3)
     assert_eq(result[0], Some(1))
     assert_eq(result[1], Some(2))

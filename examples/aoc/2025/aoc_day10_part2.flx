@@ -84,6 +84,7 @@ Advent of Code - Day 10 Part 2 (Factory)
 // ============================================================================
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // ============================================================================
 // Section 1 — Array helpers
@@ -96,7 +97,7 @@ import Flow.Array as Array
 // Get a string element from an array (used for lines of the input file).
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
     // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
     // Helper for concat.
@@ -175,7 +176,7 @@ fn main() with IO, Time {
         if t == "" {
             [||]
         } else {
-            split_ints(t, ",")
+            IO.split_ints(t, ",")
         }
     }
 
@@ -190,7 +191,7 @@ fn main() with IO, Time {
                 let close = find_char_from(line, ")", idx + 1)
                 let inner = substring(line, idx + 1, close)
                 let btn = parse_button(inner)
-                parse_buttons_rec(line, close + 1, stop, array_push(acc, btn))
+                parse_buttons_rec(line, close + 1, stop, push(acc, btn))
             } else {
                 parse_buttons_rec(line, idx + 1, stop, acc)
             }
@@ -213,7 +214,7 @@ fn main() with IO, Time {
         let lb = find_char_from(line, "{", 0)
         let rb = find_char_from(line, "}", lb + 1)
         let inner = substring(line, lb + 1, rb)
-        split_ints(inner, ",")
+        IO.split_ints(inner, ",")
     }
 
 
@@ -303,7 +304,7 @@ fn main() with IO, Time {
     // Divide every element of `row` by `d`.
     fn div_row(row, d, i, acc) {
         if i >= len(row) { acc }
-        else { div_row(row, d, i + 1, array_push(acc, int_at(row, i) / d)) }
+        else { div_row(row, d, i + 1, push(acc, int_at(row, i) / d)) }
     }
 
     // Divide all elements of `row` by their GCD to keep numbers small.
@@ -319,7 +320,7 @@ fn main() with IO, Time {
     // after elimination.
     fn negate_row(row, i, acc) {
         if i >= len(row) { acc }
-        else { negate_row(row, i + 1, array_push(acc, 0 - int_at(row, i))) }
+        else { negate_row(row, i + 1, push(acc, 0 - int_at(row, i))) }
     }
 
     // Linear combination of two rows:
@@ -335,7 +336,7 @@ fn main() with IO, Time {
         if i >= len(a) { acc }
         else {
             let v = int_at(a, i) * fa - int_at(b, i) * fb
-            combine_rows(a, fa, b, fb, i + 1, array_push(acc, v))
+            combine_rows(a, fa, b, fb, i + 1, push(acc, v))
         }
     }
 
@@ -355,10 +356,10 @@ fn main() with IO, Time {
     // Iterates over button columns 0..nbtn-1, then appends the target value.
     fn build_row(buttons, target, pos, col, nbtn, acc) {
         if col >= nbtn {
-            array_push(acc, int_at(target, pos))
+            push(acc, int_at(target, pos))
         } else {
             let v = if btn_covers(button_at(buttons, col), pos, 0) { 1 } else { 0 }
-            build_row(buttons, target, pos, col + 1, nbtn, array_push(acc, v))
+            build_row(buttons, target, pos, col + 1, nbtn, push(acc, v))
         }
     }
 
@@ -367,7 +368,7 @@ fn main() with IO, Time {
         if pos >= npos { acc }
         else {
             let row = build_row(buttons, target, pos, 0, nbtn, [||])
-            build_matrix(buttons, target, pos + 1, npos, nbtn, array_push(acc, row))
+            build_matrix(buttons, target, pos + 1, npos, nbtn, push(acc, row))
         }
     }
 
@@ -457,7 +458,7 @@ fn main() with IO, Time {
                 } else {
                     let mat2 = swap_rows(mat, cur_row, pr)
                     let mat3 = eliminate_col(mat2, cur_row, cur_col, 0, nrows)
-                    ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, array_push(pivot_cols, cur_col))
+                    ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, push(pivot_cols, cur_col))
                 }
             }
         }
@@ -509,7 +510,7 @@ fn main() with IO, Time {
             if is_pivot_col(pivot_cols, col, 0) {
                 get_free_cols(nbtn, pivot_cols, col + 1, acc)
             } else {
-                get_free_cols(nbtn, pivot_cols, col + 1, array_push(acc, col))
+                get_free_cols(nbtn, pivot_cols, col + 1, push(acc, col))
             }
         }
     }
@@ -713,7 +714,7 @@ fn main() with IO, Time {
                 // Every larger v only increases the sum — prune the rest.
                 best
             } else {
-                let new_vals = array_push(free_vals, v)
+                let new_vals = push(free_vals, v)
                 let sub = search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx + 1, new_vals, best, mt)
                 let new_best = if sub < best { sub } else { best }
                 iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v + 1, max_v, new_best, mt)

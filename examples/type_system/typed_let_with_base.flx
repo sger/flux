@@ -3,6 +3,8 @@
 // and polymorphic function return types.
 
 import Flow.Array as Array
+import Flow.IO as IO
+import Flow.String as String
 
 fn main() with IO {
     // === Primop return types ===
@@ -15,10 +17,10 @@ fn main() with IO {
     let upper_s: String = upper("hello")
     assert_eq(upper_s, "HELLO")
 
-    let has: Bool = starts_with("hello", "he")
+    let has: Bool = String.starts_with("hello", "he")
     assert_true(has)
 
-    let chars_arr: Array<String> = chars("abc")
+    let chars_arr: Array<String> = String.chars("abc")
     assert_eq(len(chars_arr), 3)
 
     let replaced: String = replace("hello world", "world", "flux")
@@ -57,7 +59,7 @@ fn main() with IO {
     assert_eq(none_val, 99)
 
     // === Flow.IO functions ===
-    let ints: Array<Int> = split_ints("1,2,3", ",")
+    let ints: Array<Int> = IO.split_ints("1,2,3", ",")
     assert_eq(len(ints), 3)
     assert_eq(Array.sum(ints), 6)
 

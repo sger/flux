@@ -12,6 +12,7 @@ The `add` function takes 2 arguments, but 1 were provided.
   examples/compiler_errors/wrong_argument_count.flx:6:19
   |
 1 | fn add(a: Int, b: Int) -> Int {
+  | ----------------------------- `add` is defined with 2 parameters
 2 |     a + b
 3 | }
 4 | 

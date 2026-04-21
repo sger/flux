@@ -14,6 +14,7 @@ Uses input file: examples/aoc/2025/aoc_day9.txt
 // where the answer is input-specific and emitted as a constant.
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // Program entry point.
 fn main() with IO, Time {
@@ -55,8 +56,8 @@ fn main() with IO, Time {
             if s == "" {
                 parse_points(lines, idx + 1, acc)
             } else {
-                let nums = split_ints(s, ",")
-                parse_points(lines, idx + 1, array_push(acc, (int_at(nums, 0), int_at(nums, 1))))
+                let nums = IO.split_ints(s, ",")
+                parse_points(lines, idx + 1, Array.push(acc, (int_at(nums, 0), int_at(nums, 1))))
             }
         }
     }

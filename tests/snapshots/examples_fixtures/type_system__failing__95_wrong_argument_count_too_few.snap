@@ -12,6 +12,7 @@ The `add` function takes 2 arguments, but 1 were provided.
   examples/type_system/failing/95_wrong_argument_count_too_few.flx:7:14
   |
 2 | fn add(a: Int, b: Int) -> Int {
+  | ----------------------------- `add` is defined with 2 parameters
 3 |     a + b
 4 | }
 5 | 

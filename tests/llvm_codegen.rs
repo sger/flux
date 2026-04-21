@@ -120,6 +120,49 @@ fn main(x) {
 }
 
 #[test]
+fn lowers_float_math_primops_via_runtime_helpers() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+fn main(x) {
+    round(ceil(floor(log(exp(cos(sin(sqrt(x))))))))
+}
+"#,
+    );
+
+    assert!(rendered.contains("flux_sqrt"), "expected flux_sqrt helper");
+    assert!(rendered.contains("flux_sin"), "expected flux_sin helper");
+    assert!(rendered.contains("flux_cos"), "expected flux_cos helper");
+    assert!(rendered.contains("flux_exp"), "expected flux_exp helper");
+    assert!(rendered.contains("flux_log"), "expected flux_log helper");
+    assert!(
+        rendered.contains("flux_floor"),
+        "expected flux_floor helper"
+    );
+    assert!(rendered.contains("flux_ceil"), "expected flux_ceil helper");
+    assert!(
+        rendered.contains("flux_round"),
+        "expected flux_round helper"
+    );
+}
+
+#[test]
+fn lowers_bitwise_primops_to_integer_llvm_ops() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+fn main(x, y) {
+    bit_and(x, y) + bit_or(x, y) + bit_xor(x, y) + bit_shl(x, y) + bit_shr(x, y)
+}
+"#,
+    );
+
+    assert!(rendered.contains(" and i64 "), "expected integer and");
+    assert!(rendered.contains(" or i64 "), "expected integer or");
+    assert!(rendered.contains(" xor i64 "), "expected integer xor");
+    assert!(rendered.contains(" shl i64 "), "expected integer shl");
+    assert!(rendered.contains(" ashr i64 "), "expected integer ashr");
+}
+
+#[test]
 fn emitted_factorial_module_verifies_with_opt_when_available() {
     if Command::new("opt").arg("--version").output().is_err() {
         return;

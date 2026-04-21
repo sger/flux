@@ -15,6 +15,7 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.String as String
 
 // Program entry point.
 fn main() with IO {
@@ -55,5 +56,5 @@ fn main() with IO {
 
     print(Array.sort(sort_arr));
 
-    print(join([|"1", "2", "3"|], ","));
+    print(String.join([|"1", "2", "3"|], ","));
 }

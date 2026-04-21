@@ -12,11 +12,7 @@ Duplicate binding: `my_func` is already defined.
   examples/functions/function_redeclaration_error.flx:6:1
   |
 6 | fn my_func() {
-  | ^^^^^^^^^^^^^^
-7 |     return 2;
-  | ^^^^^^^^^^^^^
-8 | }
-  | ^
+  | ^^^^^^^^^^^^
 
 Hint:
   Use a different name or remove the previous definition.
@@ -25,10 +21,6 @@ Hint:
   examples/functions/function_redeclaration_error.flx:2:1
   |
 2 | fn my_func() {
-  | ^^^^^^^^^^^^^^
-3 |     return 1;
-  | ^^^^^^^^^^^^^
-4 | }
-  | ^
+  | ^^^^^^^^^^^^
 == stdout ==
 <not executed>

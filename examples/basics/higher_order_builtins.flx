@@ -28,6 +28,7 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.String as String
 
 // Program entry point.
 fn main() with IO {
@@ -62,7 +63,7 @@ fn main() with IO {
     print(Array.find(nums, \x -> x > 100))       // None
 
     // Unwrap with match
-    let result = Array.find(words, \w -> starts_with(w, "a"))
+    let result = Array.find(words, \w -> String.starts_with(w, "a"))
     let greeting = match result {
         Some(w) -> "Found: #{w}",
         _       -> "Not found"

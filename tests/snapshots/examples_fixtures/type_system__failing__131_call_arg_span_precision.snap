@@ -12,7 +12,7 @@ I found the wrong type in the 2nd argument to `pair`.
   examples/type_system/failing/131_call_arg_span_precision.flx:4:22
   |
 1 | fn pair(a: Int, b: Int) -> Int { a + b }
-  | ---------------------------------------- `pair` expects `Int` as the 2nd parameter
+  | ------------------------------ `pair` expects `Int` as the 2nd parameter
 2 | 
 3 | fn main() -> Unit {
 4 |     let _x = pair(1, "oops")

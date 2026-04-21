@@ -5,12 +5,13 @@ $ flux --no-cache tests/fixtures/semantic_types/modules/public_api/main.flx
 exit_code: 0
 
 42
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  Numeric
-[5 of 8] Compiling  Option
-[6 of 8] Compiling  String
-[7 of 8] Compiling  Math
-[8 of 8] Compiling  main
+[1 of 9] Compiling  Assert
+[2 of 9] Compiling  Array
+[3 of 9] Compiling  IO
+[4 of 9] Compiling  List
+[5 of 9] Compiling  Numeric
+[6 of 9] Compiling  Option
+[7 of 9] Compiling  String
+[8 of 9] Compiling  Math
+[9 of 9] Compiling  main
 [cfg→vm] Running via CFG → bytecode VM backend...
