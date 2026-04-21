@@ -41,6 +41,7 @@ use crate::{
 };
 
 mod adt;
+pub mod boundary;
 pub mod constraint;
 mod display;
 mod effects;

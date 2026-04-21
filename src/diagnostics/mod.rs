@@ -10,6 +10,7 @@ pub mod diagnostic;
 pub mod format;
 pub mod position;
 pub mod quality;
+pub mod ranking;
 pub mod registry;
 pub mod rendering;
 pub mod runtime_errors;

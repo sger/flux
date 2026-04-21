@@ -272,27 +272,53 @@ impl Compiler {
         }
     }
 
-    /// Check if any typed let binding has a type annotation mismatch (E300).
+    /// Check if any typed let binding carries an unsound annotation-vs-initializer
+    /// relationship that the CFG path cannot diagnose:
+    ///
+    /// 1. **E300 type mismatch** — annotation resolves to a concrete type, the
+    ///    initializer's HM type is known and concrete, and they fail to unify.
+    /// 2. **E425 unresolved boundary** — strict mode is on and either the
+    ///    annotation itself cannot be resolved to a concrete type (unknown
+    ///    type constructor), or the initializer's HM type is still unresolved.
+    ///
+    /// Returns `true` when the function body should fall back to the AST path
+    /// so the specialized diagnostic can be rendered. Well-typed annotated
+    /// lets return `false` and proceed through CFG (Proposal 0167 Part 4).
     fn block_has_typed_let_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| {
-            if let Statement::Let {
+            let Statement::Let {
                 type_annotation: Some(annotation),
                 value,
                 ..
             } = s
-            {
-                if let Some(expected) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
-                    annotation,
-                    &Default::default(),
-                    &self.interner,
-                ) {
-                    self.known_concrete_expr_type_mismatch(&expected, value)
+            else {
+                return false;
+            };
+            match crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                annotation,
+                &Default::default(),
+                &self.interner,
+            ) {
+                Some(expected) => {
+                    if self
+                        .known_concrete_expr_type_mismatch(&expected, value)
                         .is_some()
-                } else {
+                    {
+                        return true;
+                    }
+                    if self.strict_mode
+                        && matches!(
+                            self.hm_expr_type_strict_path(value),
+                            super::hm_expr_typer::HmExprTypeResult::Unresolved(_)
+                        )
+                    {
+                        return true;
+                    }
                     false
                 }
-            } else {
-                false
+                // Annotation could not be resolved (unknown type constructor).
+                // In strict mode this is E425 on the AST path; let it fall back.
+                None => self.strict_mode,
             }
         })
     }
@@ -639,22 +665,6 @@ impl Compiler {
             matches!(
                 statement,
                 Statement::Module { .. } | Statement::Import { .. }
-            )
-        })
-    }
-
-    /// Returns `true` when the block contains a typed `let` binding whose
-    /// type annotation the AST path must validate. The CFG path does not yet
-    /// perform strict annotation checking, so we fall back to AST when
-    /// strict mode is active and annotated let-bindings are present.
-    fn block_contains_typed_let_ast(body: &Block) -> bool {
-        body.statements.iter().any(|statement| {
-            matches!(
-                statement,
-                Statement::Let {
-                    type_annotation: Some(_),
-                    ..
-                }
             )
         })
     }
@@ -1395,18 +1405,20 @@ impl Compiler {
                 self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
 
             // CFG handles all well-typed functions. AST fallback is used only
-            // for: (a) functions with pre-validation errors, (b) HM type errors,
-            // (c) module/import statements, (d) strict-mode typed-let.
+            // for: (a) functions with pre-validation errors (incl. strict-mode
+            // typed-let errors — see `block_has_typed_let_error`),
+            // (b) HM type errors, (c) CFG-incompatible statements such as
+            // module/import statements.
+            //
+            // Well-typed strict-mode annotated lets now stay on the CFG path
+            // (Proposal 0167 Part 4).
             let use_ast_path = if requires_ir_only {
-                ir_function.is_none()
-                    || Self::block_contains_cfg_incompatible_statements_ast(body)
-                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+                ir_function.is_none() || Self::block_contains_cfg_incompatible_statements_ast(body)
             } else {
                 has_body_errors
                     || self.has_hm_diagnostics
                     || ir_function.is_none()
                     || Self::block_contains_cfg_incompatible_statements_ast(body)
-                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
             };
 
             if !use_ast_path {
