@@ -321,7 +321,9 @@ pub fn suggest_type_name(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::type_infer::{constraint::SchemeConstraint, display_infer_type, render_scheme_canonical},
+        ast::type_infer::{
+            constraint::SchemeConstraint, display_infer_type, render_scheme_canonical,
+        },
         syntax::interner::Interner,
         types::{
             infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,

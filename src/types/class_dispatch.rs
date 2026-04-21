@@ -164,15 +164,13 @@ fn generate_builtin_instance_functions(
 
         for method_sig in &class_def.methods {
             let method_name_str = interner.resolve(method_sig.name).to_string();
-            let Some(body) =
-                builtin_method_body(
-                    interner,
-                    builtin_expr_ids,
-                    &class_name_str,
-                    &type_name,
-                    &method_name_str,
-                )
-            else {
+            let Some(body) = builtin_method_body(
+                interner,
+                builtin_expr_ids,
+                &class_name_str,
+                &type_name,
+                &method_name_str,
+            ) else {
                 continue;
             };
 
