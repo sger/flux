@@ -60,6 +60,47 @@ impl Default for ExprIdGen {
     }
 }
 
+impl ExprIdGen {
+    /// Build an allocator that resumes past the highest [`ExprId`] present in
+    /// `program`. Use this when synthesizing AST nodes after parsing so the
+    /// new nodes cannot collide with any parser-assigned id (Proposal 0167
+    /// Part 6).
+    ///
+    /// Returning an `ExprIdGen` — rather than mutating a parameter — makes
+    /// the call site's intent explicit: "allocate synthetic ids **past
+    /// everything the parser produced**".
+    pub fn resuming_past_program(program: &crate::syntax::program::Program) -> Self {
+        Self::resuming_past_statements(&program.statements)
+    }
+
+    /// Like [`Self::resuming_past_program`], but accepts a bare statement
+    /// slice. Prefer this when the caller already has the slice in hand.
+    pub fn resuming_past_statements(
+        statements: &[crate::syntax::statement::Statement],
+    ) -> Self {
+        let mut scanner = MaxExprIdScanner { max: 0 };
+        for stmt in statements {
+            crate::ast::visit::walk_stmt(&mut scanner, stmt);
+        }
+        Self::from_counter(scanner.max.saturating_add(1))
+    }
+}
+
+/// Internal visitor for [`ExprIdGen::resuming_past_program`].
+struct MaxExprIdScanner {
+    max: u32,
+}
+
+impl<'ast> crate::ast::visit::Visitor<'ast> for MaxExprIdScanner {
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        let ExprId(n) = expr.expr_id();
+        if n > self.max {
+            self.max = n;
+        }
+        crate::ast::visit::walk_expr(self, expr);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StringPart {
     Literal(String),

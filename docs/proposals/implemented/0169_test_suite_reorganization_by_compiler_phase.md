@@ -1,6 +1,7 @@
 - Feature Name: Test Suite Reorganization by Compiler Phase
 - Start Date: 2026-04-21
-- Status: Proposed
+- Status: Implemented
+- Completion Date: 2026-04-21
 - Proposal PR:
 - Flux Issue:
 - Depends on: —

@@ -350,6 +350,10 @@ name = "type_infer_guards"
 path = "tests/type_inference/type_infer_guards.rs"
 
 [[test]]
+name = "boundary_contract_tests"
+path = "tests/type_inference/boundary_contract_tests.rs"
+
+[[test]]
 name = "diagnostic_render_tests"
 path = "tests/diagnostics/diagnostic_render_tests.rs"
 
@@ -452,6 +456,10 @@ path = "tests/integration/test_runner_cli.rs"
 [[test]]
 name = "regression_snapshots"
 path = "tests/integration/regression_snapshots.rs"
+
+[[test]]
+name = "layout_guard"
+path = "tests/integration/layout_guard.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.

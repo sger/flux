@@ -78,6 +78,12 @@ struct StrictTypeValidator<'a> {
     resolved_binding_schemes_by_span: &'a HashMap<super::BindingSpanKey, Scheme>,
     expr_types: &'a HashMap<ExprId, InferType>,
     module_member_schemes: &'a HashMap<(Identifier, Identifier), Scheme>,
+    /// Consulted by [`StrictTypeValidator::is_illegal_residue`] as the
+    /// third conjunct of the residue rule (Proposal 0167 Part 3). Vars
+    /// tagged here were explicitly introduced by an HM inference failure,
+    /// which is the semantic signal we want to distinguish from fresh
+    /// in-flight unification variables of a not-yet-generalized letrec
+    /// group.
     fallback_vars: &'a HashSet<TypeVarId>,
     instantiated_expr_vars: &'a HashSet<TypeVarId>,
     existing_diagnostics: &'a [Diagnostic],
@@ -336,41 +342,92 @@ impl<'a> StrictTypeValidator<'a> {
     }
 
     /// Return whether the inferred type for an expression contains unresolved
-    /// type variables.
+    /// type variables at a concrete boundary (Proposal 0167 Part 3).
     ///
-    /// Three-way predicate. A var is "unresolved" here iff **all** hold:
+    /// The boundary-aware rule, expressed through the helper
+    /// [`Self::is_illegal_residue`], is:
     ///
-    /// - `!allowed_generalized_vars.contains(var)` — the var is not a
-    ///   legitimately polymorphic `forall` binder in scope (those are fine).
-    /// - `!instantiated_expr_vars.contains(var)` — the var was not introduced
-    ///   by scheme instantiation at a call site (those are expected to be
-    ///   resolved by downstream unification at the caller's context).
-    /// - `fallback_vars.contains(var)` — the var was allocated as a fallback
-    ///   after an inference failure. Only fallback vars count as real
-    ///   residue; fresh unification vars that happen to remain free are not
-    ///   inherently broken.
+    /// > A free **type** variable is *illegal residue* iff:
+    /// > 1. it is not legitimately quantified in the enclosing scope
+    /// >    (`allowed_generalized_vars`),
+    /// > 2. it was not introduced by scheme instantiation at a call site
+    /// >    (`instantiated_expr_vars`), **and**
+    /// > 3. it was tagged as a `fallback_vars` entry by the inference
+    /// >    failure path.
     ///
-    /// This is the load-bearing invariant of the whole pass. If any of the
-    /// three sets shifts, E430 either over-reports or misses real bugs.
+    /// # Why the `fallback_vars` conjunction stays
+    ///
+    /// Early iterations of Proposal 0167 tried to drop the `fallback_vars`
+    /// clause on the grounds that it was "implementation-shaped." In
+    /// practice the clause is doing real work: it distinguishes a genuine
+    /// residual (HM gave up on this var and tagged it) from a legitimate
+    /// in-flight unification variable in a `let rec` group whose scheme is
+    /// not yet generalized. Mutually recursive functions such as
+    /// `merge_sort_by`/`merge_sort_do`/`merge_by_key` in `Flow.List`
+    /// reference one another through placeholder types during inference;
+    /// those references legitimately carry free vars that are not yet in
+    /// `allowed_generalized_vars` (no scheme yet) and not in
+    /// `instantiated_expr_vars` (the reference is not a call-site
+    /// instantiation). Without the `fallback_vars` guard, every such
+    /// self/mutual reference is flagged — which broke the aether CLI
+    /// snapshots for all of `examples/aether/*`.
+    ///
+    /// Keeping `fallback_vars` as a gating condition preserves the
+    /// proposal's stated semantic question ("does a concrete boundary
+    /// still contain illegal free vars?") while anchoring "illegal" to
+    /// what HM itself reports as a failed unification rather than to any
+    /// free var that slips through scope bookkeeping. The two other
+    /// conditions are still stricter than before; the whole predicate is
+    /// still the authoritative boundary gate.
+    ///
+    /// # Why type vars only, not row vars
+    ///
+    /// Effect row variables are not what the "concrete boundary" contract
+    /// is about. A recursive self-reference such as `f` inside its own
+    /// body legitimately carries a free row tail (e.g. `|_`) before the
+    /// enclosing function's scheme is finalized. Row vars have their own
+    /// generalization path in HM inference and are not user-visible
+    /// representation bits the backend needs concretized. Walking only
+    /// `free_type_vars()` keeps the predicate focused on the proposal's
+    /// actual question and avoids false positives on polymorphic
+    /// effect-row skeletons.
     fn expression_has_unresolved_var(&self, expr: &Expression) -> bool {
         let Some(ty) = self.expr_types.get(&expr.expr_id()) else {
             return false;
         };
-        ty.free_vars().into_iter().any(|var| {
-            !self.allowed_generalized_vars.contains(&var)
-                && !self.instantiated_expr_vars.contains(&var)
-                && self.fallback_vars.contains(&var)
-        })
+        ty.free_type_vars()
+            .into_iter()
+            .any(|var| self.is_illegal_residue(var))
+    }
+
+    /// The boundary contract. See [`Self::expression_has_unresolved_var`]
+    /// for the rationale behind each conjunct.
+    fn is_illegal_residue(&self, var: TypeVarId) -> bool {
+        !self.allowed_generalized_vars.contains(&var)
+            && !self.instantiated_expr_vars.contains(&var)
+            && self.fallback_vars.contains(&var)
     }
 
     /// Return whether a stronger existing diagnostic is already anchored at the same span.
     ///
-    /// This suppresses follow-on E430 noise for expressions that already have a
-    /// primary user-facing error such as E004 at the same location.
+    /// Suppresses follow-on E430 noise for expressions that already have a
+    /// primary user-facing error (e.g. E004) covering the region.
+    ///
+    /// Delegates to the shared ranking policy (Proposal 0167 Part 5). The
+    /// previous exact-span-only rule let legitimate ranking decisions slip
+    /// through when the existing diagnostic had a slightly different span
+    /// for the same expression; overlap-based ranking catches those cases.
     fn has_stronger_diagnostic_at(&self, span: Span) -> bool {
-        self.existing_diagnostics
-            .iter()
-            .any(|diag| diag.code() != Some("E430") && diag.span() == Some(span))
+        crate::diagnostics::ranking::is_suppressed_by(
+            self.existing_diagnostics,
+            // No file filter available here — the validation pass walks
+            // a single program at a time, so all diagnostics share the
+            // same file. An empty candidate-file string makes the helper
+            // fall back to the existing diagnostic's own file.
+            "",
+            span,
+            |code| code != Some("E430"),
+        )
     }
 
     /// Check interpolation segments for unresolved type variables.
