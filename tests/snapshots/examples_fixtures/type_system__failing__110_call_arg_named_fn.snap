@@ -12,6 +12,7 @@ I found the wrong type in the 1st argument to `greet`.
   examples/type_system/failing/110_call_arg_named_fn.flx:6:20
   |
 1 | fn greet(name: String) -> String {
+  | -------------------------------- `greet` expects `String` as the 1st parameter
 2 |     name
 3 | }
 4 | 

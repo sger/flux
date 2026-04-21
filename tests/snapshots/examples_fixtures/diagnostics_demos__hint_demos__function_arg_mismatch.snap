@@ -12,10 +12,9 @@ The `add` function takes 2 arguments, but 3 were provided.
   examples/diagnostics_demos/hint_demos/function_arg_mismatch.flx:17:15
    |
  4 | fn add(a, b) {
+   | ------------ `add` is defined with 2 parameters
  5 |     a + b
  6 | }
- 7 | 
- 8 | fn multiply(x, y, z) {
 ... |
 15 | 
 16 | 

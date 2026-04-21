@@ -7,13 +7,14 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  division_by_zero_variable
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  Array
+[3 of 8] Compiling  IO
+[4 of 8] Compiling  List
+[5 of 8] Compiling  Numeric
+[6 of 8] Compiling  Option
+[7 of 8] Compiling  String
+[8 of 8] Compiling  division_by_zero_variable
 [cfg→vm] Running via CFG → bytecode VM backend...
 • 1 error • examples/runtime_errors/division_by_zero_variable.flx
 error[E1008]: Division By Zero

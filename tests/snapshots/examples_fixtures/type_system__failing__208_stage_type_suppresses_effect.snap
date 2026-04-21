@@ -31,10 +31,9 @@ I found the wrong type in the 1st argument to `greet`.
   examples/type_system/failing/208_stage_type_suppresses_effect.flx:14:17
    |
  5 | fn greet(name: String) -> String {
+   | -------------------------------- `greet` expects `String` as the 1st parameter
  6 |     "Hello, #{name}!"
  7 | }
- 8 | 
- 9 | fn bad() with Mystery {
 ... |
 12 | 
 13 | fn main() with IO {

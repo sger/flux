@@ -12,7 +12,7 @@ import Flow.Map as Map
 
 // Program entry point.
 fn main() with IO {
-    // Hash / Map base functions — proposal 0152 migration keeps this demo
+    // Flow.Map public API — proposal 0152 migration keeps this demo
     // homogeneous (String -> String) so the values all share a single type.
     // For mixed-type records, see `examples/basics/records.flx`.
 

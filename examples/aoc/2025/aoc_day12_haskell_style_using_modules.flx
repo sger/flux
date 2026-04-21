@@ -3,6 +3,7 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // Program entry point.
 fn main() with IO {
@@ -51,11 +52,11 @@ fn main() with IO {
         let left = trim(substring(line, 0, c))
         let right = trim(substring(line, c + 1, len(line)))
 
-        let dims = split_ints(left, "x")
+        let dims = IO.split_ints(left, "x")
         let w = int_at(dims, 0)
         let h = int_at(dims, 1)
 
-        let counts = split_ints(right, " ")
+        let counts = IO.split_ints(right, " ")
         let needed = 9 * Array.sum(counts)
         let area = w * h
         area >= needed

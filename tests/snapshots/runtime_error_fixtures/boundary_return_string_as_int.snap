@@ -7,13 +7,14 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  Numeric
-[5 of 8] Compiling  Option
-[6 of 8] Compiling  String
-[7 of 8] Compiling  BoundaryUnknown
+[1 of 9] Compiling  Assert
+[2 of 9] Compiling  Array
+[3 of 9] Compiling  IO
+[4 of 9] Compiling  List
+[5 of 9] Compiling  Numeric
+[6 of 9] Compiling  Option
+[7 of 9] Compiling  String
+[8 of 9] Compiling  BoundaryUnknown
 • 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
 error[E300]: Return Type Mismatch
 

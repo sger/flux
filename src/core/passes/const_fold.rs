@@ -81,6 +81,29 @@ fn fold_primop(
         (FDiv | Div, [CoreExpr::Lit(Float(a), _), CoreExpr::Lit(Float(b), _)]) if *b != 0.0 => {
             CoreExpr::Lit(Float(a / b), span)
         }
+        (FSqrt, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.sqrt()), span),
+        (FSin, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.sin()), span),
+        (FCos, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.cos()), span),
+        (FExp, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.exp()), span),
+        (FLog, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.ln()), span),
+        (FFloor, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.floor()), span),
+        (FCeil, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.ceil()), span),
+        (FRound, [CoreExpr::Lit(Float(a), _)]) => CoreExpr::Lit(Float(a.round()), span),
+        (BitAnd, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
+            CoreExpr::Lit(Int(a & b), span)
+        }
+        (BitOr, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
+            CoreExpr::Lit(Int(a | b), span)
+        }
+        (BitXor, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
+            CoreExpr::Lit(Int(a ^ b), span)
+        }
+        (BitShl, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
+            CoreExpr::Lit(Int(a.wrapping_shl(masked_shift_amount(*b))), span)
+        }
+        (BitShr, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
+            CoreExpr::Lit(Int(a.wrapping_shr(masked_shift_amount(*b))), span)
+        }
         (ICmpEq | Eq, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
             CoreExpr::Lit(Bool(a == b), span)
         }
@@ -126,6 +149,10 @@ fn fold_primop(
         (Not, [CoreExpr::Lit(Bool(a), _)]) => CoreExpr::Lit(Bool(!a), span),
         _ => return None,
     })
+}
+
+fn masked_shift_amount(value: i64) -> u32 {
+    (value as u64 & 63) as u32
 }
 
 fn fold_case(scrutinee: &CoreExpr, alts: &[CoreAlt]) -> Option<CoreExpr> {

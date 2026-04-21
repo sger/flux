@@ -1,0 +1,13 @@
+// parity: vm, llvm
+// expect: success
+
+fn main() with IO {
+    print(sqrt(9.0))
+    print(sin(0.0))
+    print(cos(0.0))
+    print(exp(0.0))
+    print(log(1.0))
+    print(floor(3.9))
+    print(ceil(3.1))
+    print(round(3.5))
+}

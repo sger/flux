@@ -10,6 +10,7 @@ Uses input file: examples/aoc/2025/aoc_day2.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
 import Flow.Map as Map
 
 // Program entry point.
@@ -49,7 +50,7 @@ fn main() with IO, Time {
 
     // Parse one numeric range token.
     fn parse_range_token(token) {
-        let parts = split_ints(trim(token), "-")
+        let parts = IO.split_ints(trim(token), "-")
         let start = match Array.first(parts) {
             Some(v) -> v,
             _ -> 0

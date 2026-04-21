@@ -14,7 +14,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
-        expression::{ExprId, Expression},
+        expression::{ExprId, ExprIdGen, Expression},
         interner::Interner,
         statement::{FunctionTypeParam, Statement},
         type_class::ClassConstraint,
@@ -49,12 +49,14 @@ pub fn generate_dispatch_functions(
         &mut dispatch_table,
     );
     if needs_builtin_dispatch_support(statements) {
+        let mut builtin_expr_ids = ExprIdGen::from_counter(1_000_000);
         generate_builtin_instance_functions(
             class_env,
             interner,
             &mut generated,
             &mut dispatch_table,
             &mut reserved_names,
+            &mut builtin_expr_ids,
         );
     }
 
@@ -143,6 +145,7 @@ fn generate_builtin_instance_functions(
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
     reserved_names: &mut HashSet<Identifier>,
+    builtin_expr_ids: &mut ExprIdGen,
 ) {
     for instance in &class_env.instances {
         if instance.span != Span::default() || !instance.method_names.is_empty() {
@@ -162,7 +165,13 @@ fn generate_builtin_instance_functions(
         for method_sig in &class_def.methods {
             let method_name_str = interner.resolve(method_sig.name).to_string();
             let Some(body) =
-                builtin_method_body(interner, &class_name_str, &type_name, &method_name_str)
+                builtin_method_body(
+                    interner,
+                    builtin_expr_ids,
+                    &class_name_str,
+                    &type_name,
+                    &method_name_str,
+                )
             else {
                 continue;
             };
@@ -189,6 +198,7 @@ fn generate_builtin_instance_functions(
 
             generated.push(Statement::Function {
                 is_public: false,
+                intrinsic: None,
                 fip: None,
                 name: mangled_sym,
                 type_params: vec![],
@@ -259,6 +269,7 @@ fn generate_default_method_functions(
                             // implementations at all for this method.
                             generated.push(Statement::Function {
                                 is_public: false,
+                                intrinsic: None,
                                 fip: None,
                                 name: method.name,
                                 type_params: vec![],
@@ -414,6 +425,7 @@ fn generate_from_statements(
 
                     let fn_stmt = Statement::Function {
                         is_public: false,
+                        intrinsic: None,
                         fip: None,
                         name: mangled_sym,
                         type_params,
@@ -473,73 +485,163 @@ fn context_dict_param_names(
 
 fn builtin_method_body(
     interner: &mut Interner,
+    id_gen: &mut ExprIdGen,
     class_name: &str,
     type_name: &str,
     method_name: &str,
 ) -> Option<Block> {
+    fn var(id_gen: &mut ExprIdGen, name: Identifier, span: Span) -> Expression {
+        Expression::Identifier {
+            name,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn int(id_gen: &mut ExprIdGen, value: i64, span: Span) -> Expression {
+        Expression::Integer {
+            value,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn infix(
+        id_gen: &mut ExprIdGen,
+        left: Expression,
+        operator: &str,
+        right: Expression,
+        span: Span,
+    ) -> Expression {
+        Expression::Infix {
+            left: Box::new(left),
+            operator: operator.to_string(),
+            right: Box::new(right),
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn ret(expression: Expression, span: Span) -> Block {
+        Block {
+            statements: vec![Statement::Expression {
+                expression,
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        }
+    }
+
+    fn call(
+        id_gen: &mut ExprIdGen,
+        interner: &mut Interner,
+        name: &str,
+        arguments: Vec<Expression>,
+        span: Span,
+    ) -> Expression {
+        Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: interner.intern(name),
+                span,
+                id: id_gen.next_id(),
+            }),
+            arguments,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
     let span = Span::default();
     let x = interner.intern("__x0");
     let y = interner.intern("__x1");
-    let id = ExprId::UNSET;
-
-    let var = |name: Identifier| Expression::Identifier { name, span, id };
-    let int = |value| Expression::Integer { value, span, id };
-    let infix = |left, operator: &str, right| Expression::Infix {
-        left: Box::new(left),
-        operator: operator.to_string(),
-        right: Box::new(right),
-        span,
-        id,
-    };
-    let mut call = |name: &str, arguments: Vec<Expression>| Expression::Call {
-        function: Box::new(Expression::Identifier {
-            name: interner.intern(name),
-            span,
-            id,
-        }),
-        arguments,
-        span,
-        id,
-    };
-    let ret = |expression| Block {
-        statements: vec![Statement::Expression {
-            expression,
-            has_semicolon: false,
-            span,
-        }],
-        span,
-    };
 
     let expression = match (class_name, type_name, method_name) {
-        ("Eq", _, "eq") => infix(var(x), "==", var(y)),
-        ("Eq", _, "neq") => infix(var(x), "!=", var(y)),
-        ("Ord", _, "compare") => Expression::If {
-            condition: Box::new(infix(var(x), "<", var(y))),
-            consequence: ret(int(-1)),
-            alternative: Some(ret(Expression::If {
-                condition: Box::new(infix(var(x), ">", var(y))),
-                consequence: ret(int(1)),
-                alternative: Some(ret(int(0))),
+        ("Eq", _, "eq") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "==", rhs, span)
+        }
+        ("Eq", _, "neq") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "!=", rhs, span)
+        }
+        ("Ord", _, "compare") => {
+            let lt_lhs = var(id_gen, x, span);
+            let lt_rhs = var(id_gen, y, span);
+            let gt_lhs = var(id_gen, x, span);
+            let gt_rhs = var(id_gen, y, span);
+            Expression::If {
+                condition: Box::new(infix(id_gen, lt_lhs, "<", lt_rhs, span)),
+                consequence: ret(int(id_gen, -1, span), span),
+                alternative: Some(ret(
+                    Expression::If {
+                        condition: Box::new(infix(id_gen, gt_lhs, ">", gt_rhs, span)),
+                        consequence: ret(int(id_gen, 1, span), span),
+                        alternative: Some(ret(int(id_gen, 0, span), span)),
+                        span,
+                        id: id_gen.next_id(),
+                    },
+                    span,
+                )),
                 span,
-                id,
-            })),
-            span,
-            id,
-        },
-        ("Ord", _, "lt") => infix(var(x), "<", var(y)),
-        ("Ord", _, "lte") => infix(var(x), "<=", var(y)),
-        ("Ord", _, "gt") => infix(var(x), ">", var(y)),
-        ("Ord", _, "gte") => infix(var(x), ">=", var(y)),
-        ("Num", _, "add") => infix(var(x), "+", var(y)),
-        ("Num", _, "sub") => infix(var(x), "-", var(y)),
-        ("Num", _, "mul") => infix(var(x), "*", var(y)),
-        ("Num", _, "div") => infix(var(x), "/", var(y)),
-        ("Show", _, "show") => call("to_string", vec![var(x)]),
-        ("Semigroup", "String", "append") => call("string_concat", vec![var(x), var(y)]),
+                id: id_gen.next_id(),
+            }
+        }
+        ("Ord", _, "lt") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "<", rhs, span)
+        }
+        ("Ord", _, "lte") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "<=", rhs, span)
+        }
+        ("Ord", _, "gt") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, ">", rhs, span)
+        }
+        ("Ord", _, "gte") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, ">=", rhs, span)
+        }
+        ("Num", _, "add") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "+", rhs, span)
+        }
+        ("Num", _, "sub") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "-", rhs, span)
+        }
+        ("Num", _, "mul") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "*", rhs, span)
+        }
+        ("Num", _, "div") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "/", rhs, span)
+        }
+        ("Show", _, "show") => {
+            let arg = var(id_gen, x, span);
+            call(id_gen, interner, "to_string", vec![arg], span)
+        }
+        ("Semigroup", "String", "append") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            call(id_gen, interner, "string_concat", vec![lhs, rhs], span)
+        }
         _ => return None,
     };
 
-    Some(ret(expression))
+    Some(ret(expression, span))
 }
 
 fn build_instance_function_type_params(
@@ -778,6 +880,7 @@ fn generate_polymorphic_stub(
 
     Statement::Function {
         is_public: false,
+        intrinsic: None,
         fip: None,
         name: method_name,
         type_params,

@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.HmGenericModule` doesn't match file path `examples/type_system/TypeSystem/HmGenericModule.flx`.
 
-  examples/type_system/TypeSystem/HmGenericModule.flx:1:1
+  examples/type_system/TypeSystem/HmGenericModule.flx:3:1
   |
-1 | module TypeSystem.HmGenericModule {
+3 | module TypeSystem.HmGenericModule {
   | ^
 
 Hint:

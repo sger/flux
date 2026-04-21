@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 module TypeSystem.HmGenericModule {
     public fn id<T>(x: T) -> T {
         x
@@ -6,6 +8,6 @@ module TypeSystem.HmGenericModule {
     // Multi-param generic: both xs and elem must be the same element type.
     // T is a generic param -- convert_type_expr returns None for T, so Stage 2 applies.
     public fn prepend<T>(elem: T, xs: Array<T>) -> Array<T> {
-        array_push(xs, elem)
+        Array.push(xs, elem)
     }
 }

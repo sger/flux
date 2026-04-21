@@ -2515,12 +2515,21 @@ impl Compiler {
         // that call primops (e.g., lib/Flow/*.flx functions like read_lines).
         self.inject_primop_hm_schemes(&mut exposed_schemes);
 
-        // Auto-inject all cached Flow module member schemes so that every
-        // module has access to Flow functions without explicit imports
-        // (like Haskell's implicit Prelude import).
+        // Auto-inject only the selected Flow prelude module schemes so that
+        // every module has access to the intended implicit Prelude surface
+        // without leaking non-prelude namespaces like Flow.Array/Flow.Map
+        // into unqualified HM resolution.
+        let flow_prelude_modules = [
+            "Flow.Option",
+            "Flow.List",
+            "Flow.String",
+            "Flow.Numeric",
+            "Flow.IO",
+            "Flow.Assert",
+        ];
         for ((mod_name, member), scheme) in &self.cached_member_schemes {
             let mod_str = self.interner.resolve(*mod_name);
-            if mod_str.starts_with("Flow.") {
+            if flow_prelude_modules.contains(&mod_str) {
                 // Only inject if not already present (explicit imports take priority).
                 exposed_schemes
                     .entry(*member)
@@ -2664,6 +2673,57 @@ impl Compiler {
             ("to_string", vec![var_a()], con(TC::String), pure(), 0),
             // Numeric
             ("abs", vec![var_a()], var_a(), pure(), 0),
+            ("sqrt", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("sin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("cos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("exp", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("log", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("floor", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ceil", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("round", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsqrt", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fcos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fexp", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("flog", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ffloor", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fceil", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fround", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            (
+                "bit_and",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_or",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_xor",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_shl",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_shr",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
             ("min", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("max", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),

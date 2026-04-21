@@ -322,8 +322,8 @@ fn snapshot_polymorphic_core_types_dump_core_debug() {
         .filter(|line| {
             line.starts_with("letrec __tc_Eqish_Int_same :")
                 || line.starts_with("letrec __tc_Eq_Int_eq : forall ")
-                || line.starts_with("letrec id : a")
-                || line.starts_with("letrec choose : a")
+                || line.starts_with("letrec id : forall a.")
+                || line.starts_with("letrec choose : forall a.")
         })
         .collect::<Vec<_>>()
         .join("\n");

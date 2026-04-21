@@ -389,6 +389,38 @@ int64_t flux_max(int64_t a, int64_t b) {
     return flux_tag_int(ra > rb ? ra : rb);
 }
 
+int64_t flux_sqrt(int64_t n) {
+    return flux_box_float(sqrt(flux_unbox_float(n)));
+}
+
+int64_t flux_sin(int64_t n) {
+    return flux_box_float(sin(flux_unbox_float(n)));
+}
+
+int64_t flux_cos(int64_t n) {
+    return flux_box_float(cos(flux_unbox_float(n)));
+}
+
+int64_t flux_exp(int64_t n) {
+    return flux_box_float(exp(flux_unbox_float(n)));
+}
+
+int64_t flux_log(int64_t n) {
+    return flux_box_float(log(flux_unbox_float(n)));
+}
+
+int64_t flux_floor(int64_t n) {
+    return flux_box_float(floor(flux_unbox_float(n)));
+}
+
+int64_t flux_ceil(int64_t n) {
+    return flux_box_float(ceil(flux_unbox_float(n)));
+}
+
+int64_t flux_round(int64_t n) {
+    return flux_box_float(round(flux_unbox_float(n)));
+}
+
 /* ── Runtime-dispatching arithmetic ─────────────────────────────────── */
 /* These check the value type at runtime and dispatch to the correct op. */
 

@@ -15,17 +15,7 @@ Warning: FBIP Contract Not Proven
   examples/aether/verify_aether.flx:20:6
    |
 20 | @fip fn my_map(xs, f) {
-   |      ^^^^^^^^^^^^^^^^^^
-21 |     match xs {
-   | ^^^^^^^^^^^^^^
-22 |         [h | t] -> [f(h) | my_map(t, f)],
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-23 |         _ -> [],
-   | ^^^^^^^^^^^^^^^^
-24 |     }
-   | ^^^^^
-25 | }
-   | ^
+   |      ^^^^^^^^^^^^^^^^
 
 
 Warning: FBIP Contract Not Proven
@@ -38,17 +28,7 @@ Warning: FBIP Contract Not Proven
   examples/aether/verify_aether.flx:28:6
    |
 28 | @fip fn option_map(opt, f) {
-   |      ^^^^^^^^^^^^^^^^^^^^^^^
-29 |     match opt {
-   | ^^^^^^^^^^^^^^^
-30 |         Some(x) -> Some(f(x)),
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-31 |         _ -> None,
-   | ^^^^^^^^^^^^^^^^^^
-32 |     }
-   | ^^^^^
-33 | }
-   | ^
+   |      ^^^^^^^^^^^^^^^^^^^^^
 
 Found 2 warnings.
 

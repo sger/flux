@@ -3,8 +3,83 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/aoc_day10_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/aoc/2025/aoc_day10_part2.flx:448:20
+    |
+448 |             [|mat, pivot_cols|]
+    |                    ^^^^^^^^^^
+    |                    ---------- this expression has type `Int`
+
+    |                    ---------- this type mismatch is reported here
+
+Note:
+  expected type: Array<Int>
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `button_at`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:747:34
+    |
+125 |     fn button_at(arr, idx) {
+    |     ---------------------- `button_at` expects `Array<Array<Int>>` as the 1st parameter
+126 |         match arr[idx] {
+127 |             Some(v) -> v,
+... |
+745 |             let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
+746 |             let result = ge_step(mat, npos, nbtn, 0, 0, [||])
+747 |             let rmat = button_at(result, 0)
+    |                                  ^^^^^^
+    |                                  ------ this argument has type `Array<Array<Array<Int>>>`
+
+Note:
+  expected argument type: Array<Array<Int>>
+  found argument type: Array<Array<Array<Int>>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Array<Int>>` value as the 1st argument.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `fix_pivot_signs`.
+
+  examples/aoc/2025/aoc_day10_part2.flx:749:41
+    |
+471 |     fn fix_pivot_signs(mat, pivot_cols, row) {
+    |     ---------------------------------------- `fix_pivot_signs` expects `Array<Array<Int>>` as the 1st parameter
+472 |         if row >= len(pivot_cols) { mat }
+473 |         else {
+... |
+747 |             let rmat = button_at(result, 0)
+748 |             let pivots = button_at(result, 1)
+749 |             let rmat2 = fix_pivot_signs(rmat, pivots, 0)
+    |                                         ^^^^
+    |                                         ---- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: Array<Array<Int>>
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<Array<Int>>` value as the 1st argument.
+
+Found 3 errors.
 == stdout ==
 <not executed>

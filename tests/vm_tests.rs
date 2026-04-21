@@ -208,6 +208,27 @@ fn test_float_arithmetic() {
 }
 
 #[test]
+fn test_float_math_primops() {
+    assert_eq!(run("sqrt(9.0);"), Value::Float(3.0));
+    assert_eq!(run("sin(0.0);"), Value::Float(0.0));
+    assert_eq!(run("cos(0.0);"), Value::Float(1.0));
+    assert_eq!(run("exp(0.0);"), Value::Float(1.0));
+    assert_eq!(run("log(1.0);"), Value::Float(0.0));
+    assert_eq!(run("floor(3.9);"), Value::Float(3.0));
+    assert_eq!(run("ceil(3.1);"), Value::Float(4.0));
+    assert_eq!(run("round(3.5);"), Value::Float(4.0));
+}
+
+#[test]
+fn test_integer_bitwise_primops() {
+    assert_eq!(run("bit_and(6, 3);"), Value::Integer(2));
+    assert_eq!(run("bit_or(6, 3);"), Value::Integer(7));
+    assert_eq!(run("bit_xor(6, 3);"), Value::Integer(5));
+    assert_eq!(run("bit_shl(3, 2);"), Value::Integer(12));
+    assert_eq!(run("bit_shr(-8, 1);"), Value::Integer(-4));
+}
+
+#[test]
 fn test_boolean_expressions() {
     assert_eq!(run("true;"), Value::Boolean(true));
     assert_eq!(run("1 < 2;"), Value::Boolean(true));

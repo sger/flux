@@ -10,15 +10,9 @@ error[E430]: Any Type Inferred
 Could not determine a concrete type for `main`. Inferred type: `() -> _`.
 
   examples/compiler_errors/named_field_not_on_type_e463.flx:8:1
-   |
- 8 | fn main() {
-   | ^^^^^^^^^^^
- 9 |     let p = Point { x: 1, y: 2 }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-10 |     p.z
-   | ^^^^^^^
-11 | }
-   | ^
+  |
+8 | fn main() {
+  | ^^^^^^^^^
 
 Hint:
   Add a type annotation: e.g. `fn main(x: Int, y: Int): Int`

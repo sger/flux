@@ -64,6 +64,27 @@ pub fn execute_core_primop(
         FSub => float2(&args, |a, b| Value::Float(a - b), "fsub"),
         FMul => float2(&args, |a, b| Value::Float(a * b), "fmul"),
         FDiv => float2(&args, |a, b| Value::Float(a / b), "fdiv"),
+        FSqrt => float1(&args, |a| Value::Float(a.sqrt()), "fsqrt"),
+        FSin => float1(&args, |a| Value::Float(a.sin()), "fsin"),
+        FCos => float1(&args, |a| Value::Float(a.cos()), "fcos"),
+        FExp => float1(&args, |a| Value::Float(a.exp()), "fexp"),
+        FLog => float1(&args, |a| Value::Float(a.ln()), "flog"),
+        FFloor => float1(&args, |a| Value::Float(a.floor()), "ffloor"),
+        FCeil => float1(&args, |a| Value::Float(a.ceil()), "fceil"),
+        FRound => float1(&args, |a| Value::Float(a.round()), "fround"),
+        BitAnd => int2(&args, |a, b| Value::Integer(a & b), "bit_and"),
+        BitOr => int2(&args, |a, b| Value::Integer(a | b), "bit_or"),
+        BitXor => int2(&args, |a, b| Value::Integer(a ^ b), "bit_xor"),
+        BitShl => int2(
+            &args,
+            |a, b| Value::Integer(a.wrapping_shl(masked_shift_amount(b))),
+            "bit_shl",
+        ),
+        BitShr => int2(
+            &args,
+            |a, b| Value::Integer(a.wrapping_shr(masked_shift_amount(b))),
+            "bit_shr",
+        ),
 
         // ── Numeric helpers ───────────────────────────────────────────
         Abs => match &args[0] {
@@ -793,6 +814,14 @@ fn int2_result(
 
 fn float2(args: &[Value], f: impl FnOnce(f64, f64) -> Value, op: &str) -> Result<Value, String> {
     Ok(f(efloat(&args[0], op)?, efloat(&args[1], op)?))
+}
+
+fn float1(args: &[Value], f: impl FnOnce(f64) -> Value, op: &str) -> Result<Value, String> {
+    Ok(f(efloat(&args[0], op)?))
+}
+
+fn masked_shift_amount(value: i64) -> u32 {
+    (value as u64 & 63) as u32
 }
 
 fn int_cmp(args: &[Value], f: impl FnOnce(i64, i64) -> bool, op: &str) -> Result<Value, String> {

@@ -1,43 +1,12 @@
 // Flow.Numeric — Numeric list aggregation operations.
 
 module Flow.Numeric {
-
-    public fn max_list(arr: Array<Int>) -> Int {
-        fn maxl_go(i, best) {
-            if i >= len(arr) { best }
-            else {
-                match arr[i] {
-                    Some(v) -> maxl_go(i + 1, if v > best { v } else { best }),
-                    _ -> maxl_go(i + 1, best)
-                }
-            }
-        }
-        if len(arr) == 0 { 0 }
-        else {
-            match arr[0] {
-                Some(first) -> maxl_go(1, first),
-                _ -> 0
-            }
-        }
-    }
-
-    public fn min_list(arr: Array<Int>) -> Int {
-        fn minl_go(i, best) {
-            if i >= len(arr) { best }
-            else {
-                match arr[i] {
-                    Some(v) -> minl_go(i + 1, if v < best { v } else { best }),
-                    _ -> minl_go(i + 1, best)
-                }
-            }
-        }
-        if len(arr) == 0 { 0 }
-        else {
-            match arr[0] {
-                Some(first) -> minl_go(1, first),
-                _ -> 0
-            }
-        }
-    }
-
+    public intrinsic fn sqrt(x: Float) -> Float = primop FSqrt
+    public intrinsic fn sin(x: Float) -> Float = primop FSin
+    public intrinsic fn cos(x: Float) -> Float = primop FCos
+    public intrinsic fn exp(x: Float) -> Float = primop FExp
+    public intrinsic fn log(x: Float) -> Float = primop FLog
+    public intrinsic fn floor(x: Float) -> Float = primop FFloor
+    public intrinsic fn ceil(x: Float) -> Float = primop FCeil
+    public intrinsic fn round(x: Float) -> Float = primop FRound
 }

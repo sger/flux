@@ -1,6 +1,8 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 
+import Flow.IO as IO
+
 module Day07Solver {
     // AoC 2024 Day 7 - Bridge Repair
 
@@ -13,7 +15,7 @@ module Day07Solver {
 
     // Helper for to int.
     fn to_int(s) {
-        let arr = parse_ints([|s|])
+        let arr = IO.parse_ints([|s|])
         safe_get(arr, 0)
     }
 
@@ -23,7 +25,7 @@ module Day07Solver {
         let target_str = match parts[0] { Some(v) -> v, _ -> "0" }
         let nums_str = match parts[1] { Some(v) -> v, _ -> "" }
         let target = to_int(target_str)
-        let nums = parse_ints(split(nums_str, " "))
+        let nums = IO.parse_ints(split(nums_str, " "))
         let result = (target, nums)
         result
     }

@@ -25,7 +25,7 @@ The `add` function takes 2 arguments, but 1 were provided.
   examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:10:14
    |
  1 | fn add(a: Int, b: Int) -> Int { a + b }
-   | --------------------------------------- `add` is defined with 2 parameters
+   | ----------------------------- `add` is defined with 2 parameters
  2 | 
  3 | fn main() -> Unit {
 ... |

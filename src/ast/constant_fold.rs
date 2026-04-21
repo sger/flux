@@ -254,6 +254,23 @@ fn try_fold_pure_primop_call(
             }),
             _ => None,
         },
+        CorePrimOp::FSqrt => fold_float_unary(arguments, span, id, f64::sqrt),
+        CorePrimOp::FSin => fold_float_unary(arguments, span, id, f64::sin),
+        CorePrimOp::FCos => fold_float_unary(arguments, span, id, f64::cos),
+        CorePrimOp::FExp => fold_float_unary(arguments, span, id, f64::exp),
+        CorePrimOp::FLog => fold_float_unary(arguments, span, id, f64::ln),
+        CorePrimOp::FFloor => fold_float_unary(arguments, span, id, f64::floor),
+        CorePrimOp::FCeil => fold_float_unary(arguments, span, id, f64::ceil),
+        CorePrimOp::FRound => fold_float_unary(arguments, span, id, f64::round),
+        CorePrimOp::BitAnd => fold_int_binary(arguments, span, id, |a, b| a & b),
+        CorePrimOp::BitOr => fold_int_binary(arguments, span, id, |a, b| a | b),
+        CorePrimOp::BitXor => fold_int_binary(arguments, span, id, |a, b| a ^ b),
+        CorePrimOp::BitShl => fold_int_binary(arguments, span, id, |a, b| {
+            a.wrapping_shl(masked_shift_amount(b))
+        }),
+        CorePrimOp::BitShr => fold_int_binary(arguments, span, id, |a, b| {
+            a.wrapping_shr(masked_shift_amount(b))
+        }),
         CorePrimOp::Min => fold_min_max(arguments, span, true, id),
         CorePrimOp::Max => fold_min_max(arguments, span, false, id),
         CorePrimOp::StringLength => match arguments.first()? {
@@ -276,6 +293,44 @@ fn try_fold_pure_primop_call(
         },
         _ => None,
     }
+}
+
+fn fold_float_unary(
+    arguments: &[Expression],
+    span: Span,
+    id: ExprId,
+    f: impl FnOnce(f64) -> f64,
+) -> Option<Expression> {
+    match arguments.first()? {
+        Expression::Float { value, .. } => Some(Expression::Float {
+            value: f(*value),
+            span,
+            id,
+        }),
+        _ => None,
+    }
+}
+
+fn fold_int_binary(
+    arguments: &[Expression],
+    span: Span,
+    id: ExprId,
+    f: impl FnOnce(i64, i64) -> i64,
+) -> Option<Expression> {
+    match (arguments.first()?, arguments.get(1)?) {
+        (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
+            Some(Expression::Integer {
+                value: f(*a, *b),
+                span,
+                id,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn masked_shift_amount(value: i64) -> u32 {
+    (value as u64 & 63) as u32
 }
 
 fn fold_min_max(

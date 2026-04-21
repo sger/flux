@@ -106,12 +106,26 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::ISub
         | CorePrimOp::IMul
         | CorePrimOp::IDiv
-        | CorePrimOp::IMod => FluxRep::IntRep,
+        | CorePrimOp::IMod
+        | CorePrimOp::BitAnd
+        | CorePrimOp::BitOr
+        | CorePrimOp::BitXor
+        | CorePrimOp::BitShl
+        | CorePrimOp::BitShr => FluxRep::IntRep,
 
         // Typed float arithmetic → FloatRep
-        CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul | CorePrimOp::FDiv => {
-            FluxRep::FloatRep
-        }
+        CorePrimOp::FAdd
+        | CorePrimOp::FSub
+        | CorePrimOp::FMul
+        | CorePrimOp::FDiv
+        | CorePrimOp::FSqrt
+        | CorePrimOp::FSin
+        | CorePrimOp::FCos
+        | CorePrimOp::FExp
+        | CorePrimOp::FLog
+        | CorePrimOp::FFloor
+        | CorePrimOp::FCeil
+        | CorePrimOp::FRound => FluxRep::FloatRep,
 
         // Comparisons → BoolRep
         CorePrimOp::Eq

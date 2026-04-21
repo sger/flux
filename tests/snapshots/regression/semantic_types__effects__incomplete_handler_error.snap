@@ -4,12 +4,13 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/semantic_types/effects/incomplete_handler_error.flx
 exit_code: 1
 
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
+[1 of 8] Compiling  Assert
+[2 of 8] Compiling  Array
+[3 of 8] Compiling  IO
+[4 of 8] Compiling  List
+[5 of 8] Compiling  Numeric
+[6 of 8] Compiling  Option
+[7 of 8] Compiling  String
 • 1 error • tests/fixtures/semantic_types/effects/incomplete_handler_error.flx
 error[E402]: Missing Effect Handler Arm
 

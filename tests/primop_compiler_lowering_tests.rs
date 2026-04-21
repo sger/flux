@@ -106,6 +106,27 @@ fn compiler_emits_op_primop_for_concat_array() {
 }
 
 #[test]
+fn compiler_emits_op_primop_for_float_math_builtins() {
+    assert_contains_primop("sqrt(9.0);");
+    assert_contains_primop("sin(0.0);");
+    assert_contains_primop("cos(0.0);");
+    assert_contains_primop("exp(0.0);");
+    assert_contains_primop("log(1.0);");
+    assert_contains_primop("floor(3.9);");
+    assert_contains_primop("ceil(3.1);");
+    assert_contains_primop("round(3.5);");
+}
+
+#[test]
+fn compiler_emits_op_primop_for_bitwise_builtins() {
+    assert_contains_primop("bit_and(6, 3);");
+    assert_contains_primop("bit_or(6, 3);");
+    assert_contains_primop("bit_xor(6, 3);");
+    assert_contains_primop("bit_shl(3, 2);");
+    assert_contains_primop("bit_shr(-8, 1);");
+}
+
+#[test]
 fn compiler_emits_op_primop_for_explicit_array_reverse_and_contains() {
     assert_contains_primop("array_reverse([|1, 2, 3|]);");
     assert_contains_primop("array_contains([|1, 2, 3|], 2);");

@@ -199,6 +199,23 @@ fn compile_err_rendered(input: &str) -> String {
     render_diagnostics(&err, None, None)
 }
 
+fn compile_err_rendered_in(file_path: &str, input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner(file_path, interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    render_diagnostics(&err, None, None)
+}
+
 fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
@@ -372,6 +389,160 @@ fn fbip_annotation_without_constructors_emits_advisory_warning() {
             .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn direct_array_len_emits_legacy_helper_warning() {
+    let warnings =
+        compile_ok_with_warnings_in("<unknown>", "fn main() { array_len([|1, 2, 3|]) }", false);
+    assert!(
+        warnings.iter().any(|d| {
+            d.title() == "Legacy Builtin Helper"
+                && d.message().is_some_and(|m| m.contains("Flow.Array.length"))
+        }),
+        "expected legacy builtin warning for array_len, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn direct_string_len_emits_legacy_helper_warning() {
+    let warnings =
+        compile_ok_with_warnings_in("<unknown>", "fn main() { string_len(\"abc\") }", false);
+    assert!(
+        warnings.iter().any(|d| {
+            d.title() == "Legacy Builtin Helper"
+                && d.message()
+                    .is_some_and(|m| m.contains("Flow.String.string_len"))
+        }),
+        "expected legacy builtin warning for string_len, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn direct_array_len_is_rejected_in_normal_example_files() {
+    let rendered = compile_err_rendered_in(
+        "examples/basics/test.flx",
+        "fn main() { array_len([|1, 2, 3|]) }",
+    );
+    assert!(rendered.contains("error[E034]"));
+    assert!(rendered.contains("Flow.Array.length"));
+}
+
+#[test]
+fn primop_example_fixtures_still_allow_legacy_helper_spellings() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/primop/demo.flx",
+        "fn main() { array_len([|1, 2, 3|]) }",
+        false,
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|d| d.title() == "Legacy Builtin Helper"),
+        "did not expect legacy builtin warning inside primop fixtures, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn flow_stdlib_modules_do_not_warn_on_legacy_helper_spellings() {
+    let warnings = compile_ok_with_warnings_in(
+        "lib/Flow/Array.flx",
+        "module Flow.Array { public fn demo(arr: Array<Int>) -> Int { array_len(arr) } }",
+        false,
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|d| d.title() == "Legacy Builtin Helper"),
+        "did not expect legacy builtin warning inside lib/Flow, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn flow_array_surface_wrappers_compile_without_legacy_warning() {
+    let source =
+        std::fs::read_to_string("lib/Flow/Array.flx").expect("expected to read lib/Flow/Array.flx");
+    let warnings = compile_ok_with_warnings_in("lib/Flow/Array.flx", &source, false);
+    assert!(
+        !warnings
+            .iter()
+            .any(|d| d.title() == "Legacy Builtin Helper"),
+        "Flow.Array surface wrappers should not emit legacy helper warnings: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn flow_map_surface_wrappers_compile_without_legacy_warning() {
+    let source =
+        std::fs::read_to_string("lib/Flow/Map.flx").expect("expected to read lib/Flow/Map.flx");
+    let warnings = compile_ok_with_warnings_in("lib/Flow/Map.flx", &source, false);
+    assert!(
+        !warnings
+            .iter()
+            .any(|d| d.title() == "Legacy Builtin Helper"),
+        "Flow.Map surface wrappers should not emit legacy helper warnings: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn flow_string_surface_wrappers_compile_without_legacy_warning() {
+    let warnings = compile_ok_with_warnings_in(
+        "lib/Flow/String.flx",
+        r#"module Flow.String { public fn demo(s: String) -> Bool { starts_with(s, "x") } }"#,
+        false,
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|d| d.title() == "Legacy Builtin Helper"),
+        "Flow.String surface wrappers should not emit legacy helper warnings: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.title().to_string(), d.message().unwrap_or("").to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn intrinsic_array_surface_wrapper_compiles() {
+    compile_ok_in(
+        "lib/Flow/Array.flx",
+        "module Flow.Array { public intrinsic fn length<a>(arr: Array<a>) -> Int = primop ArrayLen }",
+    );
+}
+
+#[test]
+fn intrinsic_declarations_are_rejected_outside_flow_stdlib() {
+    let rendered = compile_err_rendered_in(
+        "examples/test.flx",
+        "module Demo { public intrinsic fn length<a>(arr: Array<a>) -> Int = primop ArrayLen }",
+    );
+    assert!(rendered.contains("outside the Flow stdlib surface"));
+    assert!(rendered.contains("Move this intrinsic declaration into `lib/Flow/*`"));
 }
 
 #[test]

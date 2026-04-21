@@ -990,8 +990,9 @@ fn dump_core_debug_shows_explicit_polymorphism_without_dynamic() {
         text
     );
     assert!(
-        text.contains("letrec id : a") && text.contains("letrec choose : a"),
-        "expected dump-core debug to preserve explicit polymorphism for local defs with canonical variable names, output:\n{}",
+        text.contains("letrec id : forall a.")
+            && text.contains("letrec choose : forall a."),
+        "expected dump-core debug to preserve explicit quantified polymorphism for local defs, output:\n{}",
         text
     );
     assert!(
