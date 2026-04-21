@@ -23,6 +23,16 @@ use super::{
     helpers::{ParameterListContext, SyncMode},
 };
 
+type ParsedFunctionSignature = (
+    crate::syntax::Identifier,
+    Vec<FunctionTypeParam>,
+    Vec<crate::syntax::Identifier>,
+    Vec<Option<TypeExpr>>,
+    Option<TypeExpr>,
+    Vec<crate::syntax::effect_expr::EffectExpr>,
+    Span,
+);
+
 impl Parser {
     fn looks_like_text_block_juxtaposition(&self) -> bool {
         if self.current_token.token_type != TokenType::Ident
@@ -379,15 +389,7 @@ impl Parser {
     fn parse_function_signature(
         &mut self,
         declaration_keyword: &'static str,
-    ) -> Option<(
-        crate::syntax::Identifier,
-        Vec<FunctionTypeParam>,
-        Vec<crate::syntax::Identifier>,
-        Vec<Option<TypeExpr>>,
-        Option<TypeExpr>,
-        Vec<crate::syntax::effect_expr::EffectExpr>,
-        Span,
-    )> {
+    ) -> Option<ParsedFunctionSignature> {
         let start = self.current_token.position;
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
