@@ -1,3 +1,4 @@
+#[path = "../../support/diagnostics_env.rs"]
 mod diagnostics_env;
 
 use flux::compiler::Compiler;
