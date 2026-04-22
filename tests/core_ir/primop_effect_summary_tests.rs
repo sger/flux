@@ -58,7 +58,7 @@ id(1);
 fn function_debug_info_carries_effect_summary() {
     let bytecode = compile_bytecode(
         r#"
-fn noisy() { print("x"); }
+fn noisy() with IO { print("x"); }
 fn main() -> Unit with IO {
     noisy();
 }

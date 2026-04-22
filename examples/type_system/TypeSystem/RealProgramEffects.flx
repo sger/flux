@@ -8,8 +8,13 @@ module TypeSystem.RealProgramEffects {
         step_io(x)
     }
 
-    public fn run_with_row(f: (() -> Int with IO + Time - Time)) -> Int with IO + Time - Time {
+    public fn run_with_row(f: (() -> Int with Console + Clock - Clock)) -> Int with Console + Clock - Clock {
         f()
+    }
+
+    public fn console_only_value() -> Int with Console {
+        print("console_only_value")
+        7
     }
 
     public fn io_only_value() -> Int with IO {

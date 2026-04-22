@@ -1,5 +1,5 @@
 import Flow.List as List
 
-fn main() {
+fn main() with Console {
     print(to_string(List.sort_by(["bb", "a", "ccc"], fn(s) { string_len(s) })))
 }
