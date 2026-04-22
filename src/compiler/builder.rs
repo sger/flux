@@ -39,7 +39,10 @@ impl Compiler {
             OpCode::OpPrimOp => {
                 let primop_id = operands.first().copied();
                 match primop_id.and_then(|id| CorePrimOp::from_id(id as u8)) {
-                    Some(op) if op.effect_kind() != crate::core::PrimEffect::Pure => {
+                    Some(op)
+                        if crate::syntax::builtin_effects::primop_fine_effect_label(op)
+                            .is_some() =>
+                    {
                         EffectSummary::HasEffects
                     }
                     Some(_) => EffectSummary::Pure,

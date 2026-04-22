@@ -1,5 +1,5 @@
 use crate::ast::fold::{self, Folder};
-use crate::core::{CorePrimOp, PrimEffect};
+use crate::core::CorePrimOp;
 use crate::diagnostics::position::Span;
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
@@ -236,7 +236,11 @@ fn try_fold_pure_primop_call(
     };
     let call_name = interner.resolve(*name);
     let op = CorePrimOp::from_name(call_name, arguments.len())?;
-    if op.effect_kind() != PrimEffect::Pure {
+    // Reject primops that carry a side effect (I/O, time, panic). The
+    // CanFail band (generic arithmetic, indexing) is still fold-eligible
+    // here because each arm below only fires on statically-known literal
+    // arguments, so no dynamic failure can occur.
+    if crate::syntax::builtin_effects::primop_fine_effect_label(op).is_some() {
         return None;
     }
 

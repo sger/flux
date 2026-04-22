@@ -154,35 +154,31 @@ mod tests {
     }
 
     #[test]
-    fn coarse_labels_align_with_existing_effect_kind() {
-        // Ensures the new registry produces the same IO/Time/None classification
-        // as the legacy `CorePrimOp::effect_kind()` match, keeping behavior
-        // equivalent while the registry scaffolding stabilizes.
-        use crate::core::PrimEffect;
-        for op in [
+    fn coarse_label_classification_is_exhaustive() {
+        // The registry is the single source of truth for primop → effect-label
+        // mapping (Proposal 0161). This test pins the classification of every
+        // primop that carries a label so that accidentally pruning one is
+        // caught at test time.
+        let io_primops = [
             CorePrimOp::Print,
             CorePrimOp::Println,
             CorePrimOp::ReadFile,
             CorePrimOp::WriteFile,
             CorePrimOp::ReadLines,
             CorePrimOp::ReadStdin,
-            CorePrimOp::ClockNow,
-            CorePrimOp::Time,
-            CorePrimOp::Panic,
-            CorePrimOp::Add,
-        ] {
-            let coarse = primop_coarse_effect_label(op);
-            let expected = match op.effect_kind() {
-                PrimEffect::Io => Some(IO),
-                PrimEffect::Time => Some(TIME),
-                PrimEffect::Control => Some(PANIC),
-                PrimEffect::Pure => None,
-            };
-            assert_eq!(
-                coarse, expected,
-                "coarse label mismatch for {:?}: {:?} vs {:?}",
-                op, coarse, expected
-            );
+        ];
+        for op in io_primops {
+            assert_eq!(primop_coarse_effect_label(op), Some(IO), "{:?}", op);
+        }
+
+        for op in [CorePrimOp::ClockNow, CorePrimOp::Time] {
+            assert_eq!(primop_coarse_effect_label(op), Some(TIME), "{:?}", op);
+        }
+
+        assert_eq!(primop_coarse_effect_label(CorePrimOp::Panic), Some(PANIC));
+
+        for op in [CorePrimOp::Add, CorePrimOp::IAdd, CorePrimOp::Mul] {
+            assert_eq!(primop_coarse_effect_label(op), None, "{:?}", op);
         }
     }
 }
