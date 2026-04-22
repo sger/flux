@@ -2343,72 +2343,64 @@ impl<'a> FnEmitter<'a> {
         // (`[dst]`, so 1). Captures are separate.
         let user_arity = target.params.len() as i32;
 
-        // The closure fn_ptr: the `$dc` variant of the synthesized function,
-        // which is a fastcc function `(cap_0, .., cap_N, param_0, .., param_M)`
-        // — but flux_make_closure expects a ccc `(closure, args, nargs)`
-        // entry, not fastcc. The closure-entry wrapper flux_{name}.closure_entry
-        // is the ccc variant. For synthesized functions with captures, that
-        // wrapper DOES exist (it comes from the `else` branch of emit_function
-        // — line ~912 — which emits a closure-convention function named the
-        // same as flux_{name} with ccc signature). Hence we reference
-        // flux_{name} directly here; it's the correct ccc entry.
+        // Select the correct ccc-convention entry point to pack into the
+        // closure. `flux_make_closure`'s fn_ptr must be a ccc function
+        // `(i64 closure, ptr args_ptr, i32 nargs) -> i64` since the closure
+        // is later dispatched through `flux_call_closure_c`. Two cases:
         //
-        // Note: this relies on synthesized continuation functions having
-        // non-empty `capture_vars`, which is true by construction (we always
-        // include `dst`'s parent-scope siblings as captures via live_in(cont)
-        // ∪ {dst}, and params = [dst] means capture_vars.is_empty() only when
-        // dst itself is the only live var — in which case the function has
-        // zero captures, and the `else if capture_vars.is_empty()` branch
-        // emits a direct fastcc function that's INCOMPATIBLE with indirect
-        // dispatch. Slice 3b-ii guard: when captures is empty, fall back to
-        // the stub (drop the continuation). Future work will emit a closure-
-        // entry wrapper for this case.
-        if captures.is_empty() || target.capture_vars.is_empty() {
-            // Degenerate case: the cont has no captured state to thread.
-            // We still need to yield (the perform above us expects the
-            // sentinel). Drop the continuation for now.
-            return (
-                Vec::new(),
-                LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 64,
-                        value: FLUX_YIELD_SENTINEL as i128,
-                    }),
-                },
-            );
-        }
+        //  - Synthesized fn has captures (`capture_vars` non-empty): the
+        //    `else` branch of emit_function emits a ccc-entry with that same
+        //    name (flux_{name}), which unpacks both captures from the
+        //    closure payload and args from args_ptr.
+        //
+        //  - Synthesized fn has NO captures (live_in(cont) = {dst} only):
+        //    the `else if capture_vars.is_empty()` branch emits a fastcc
+        //    direct function. We can't point the closure at it — instead we
+        //    use the auto-generated `.closure_entry` wrapper, which is ccc
+        //    and unpacks args only. Register it so `emit_closure_wrapper`
+        //    produces the wrapper.
+        let fn_ptr_name = if target.capture_vars.is_empty() {
+            self.closure_wrappers_needed.insert(func_id);
+            format!("flux_{sanitized_target}.closure_entry")
+        } else {
+            format!("flux_{sanitized_target}")
+        };
 
-        let fn_ptr_name = format!("flux_{sanitized_target}");
-
-        // Build the captures array on the stack.
+        // Build the closure. For non-empty captures, allocate an i64 array
+        // on the stack, store each capture, and pass the array pointer to
+        // flux_make_closure. For empty captures, pass a null pointer.
         let mut instrs: Vec<LlvmInstr> = Vec::new();
-        let cap_arr = self.tmp();
-        instrs.push(LlvmInstr::Alloca {
-            dst: cap_arr.clone(),
-            ty: LlvmType::Array {
-                len: captures.len() as u64,
-                element: Box::new(LlvmType::i64()),
-            },
-            count: None,
-            align: Some(8),
-        });
-        for (i, cap) in captures.iter().enumerate() {
-            let gep = self.tmp();
-            instrs.push(LlvmInstr::GetElementPtr {
-                dst: gep.clone(),
-                inbounds: true,
-                element_ty: LlvmType::i64(),
-                base: LlvmOperand::Local(cap_arr.clone()),
-                indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
-            });
-            instrs.push(LlvmInstr::Store {
-                ty: LlvmType::i64(),
-                value: self.var(*cap),
-                ptr: LlvmOperand::Local(gep),
+        let (cap_ptr, cap_count) = if captures.is_empty() {
+            (LlvmOperand::Const(LlvmConst::Null), 0i32)
+        } else {
+            let cap_arr = self.tmp();
+            instrs.push(LlvmInstr::Alloca {
+                dst: cap_arr.clone(),
+                ty: LlvmType::Array {
+                    len: captures.len() as u64,
+                    element: Box::new(LlvmType::i64()),
+                },
+                count: None,
                 align: Some(8),
             });
-        }
+            for (i, cap) in captures.iter().enumerate() {
+                let gep = self.tmp();
+                instrs.push(LlvmInstr::GetElementPtr {
+                    dst: gep.clone(),
+                    inbounds: true,
+                    element_ty: LlvmType::i64(),
+                    base: LlvmOperand::Local(cap_arr.clone()),
+                    indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
+                });
+                instrs.push(LlvmInstr::Store {
+                    ty: LlvmType::i64(),
+                    value: self.var(*cap),
+                    ptr: LlvmOperand::Local(gep),
+                    align: Some(8),
+                });
+            }
+            (LlvmOperand::Local(cap_arr), captures.len() as i32)
+        };
 
         // %closure = flux_make_closure(fn_ptr, arity, captures_ptr,
         //                              cap_count, null, 0)
@@ -2422,8 +2414,8 @@ impl<'a> FnEmitter<'a> {
             args: vec![
                 (LlvmType::Ptr, LlvmOperand::Global(GlobalId(fn_ptr_name))),
                 (LlvmType::i32(), self.i32_const(user_arity)),
-                (LlvmType::Ptr, LlvmOperand::Local(cap_arr)),
-                (LlvmType::i32(), self.i32_const(captures.len() as i32)),
+                (LlvmType::Ptr, cap_ptr),
+                (LlvmType::i32(), self.i32_const(cap_count)),
                 (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
                 (LlvmType::i32(), self.i32_const(0)),
             ],

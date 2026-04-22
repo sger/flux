@@ -3414,6 +3414,18 @@ impl<'a> FnLower<'a> {
     /// The identity closure, when called with a value, simply returns it.
     /// This is correct for tail-resumptive handlers where `resume(v)` is
     /// the last thing the handler does.
+    ///
+    /// Proposal 0162 Phase 3 slice 4 (attempted, deferred): flipping this to
+    /// `flux_yield_to` produces working IR but breaks at runtime because the
+    /// after-call yield check emitted at the handle body's final Call
+    /// preempts `flux_yield_prompt` — `main` returns the sentinel before
+    /// the prompt can catch the yield. The fix is an architectural change:
+    /// the handle-body-final Call needs to suppress its yield check so the
+    /// sentinel flows into `flux_yield_prompt` rather than propagating past
+    /// `main`. That suppression isn't implemented yet; until then we keep
+    /// the direct path. The YieldTo primop and `.closure_entry` closure
+    /// wrapper selection from slice 3b-ii remain in place for when the
+    /// flip is safe to land.
     fn lower_perform(
         &mut self,
         effect: Identifier,
