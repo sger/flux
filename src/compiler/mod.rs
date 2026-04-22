@@ -2706,7 +2706,13 @@ impl Compiler {
             // I/O — decomposed (Proposal 0161 Phase 1)
             ("print", vec![var_a()], con(TC::Unit), console(), 0),
             ("println", vec![var_a()], con(TC::Unit), console(), 0),
-            ("read_file", vec![con(TC::String)], con(TC::String), filesystem(), 0),
+            (
+                "read_file",
+                vec![con(TC::String)],
+                con(TC::String),
+                filesystem(),
+                0,
+            ),
             ("read_stdin", vec![], con(TC::String), stdin(), 0),
             (
                 "read_lines",
@@ -3819,7 +3825,9 @@ impl Compiler {
         let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
         // Proposal 0161 B3: the decomposed labels are also root-dischargeable,
         // since they are exactly what `IO` / `Time` expand to.
-        let console_effect = self.interner.intern(crate::syntax::builtin_effects::CONSOLE);
+        let console_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::CONSOLE);
         let filesystem_effect = self
             .interner
             .intern(crate::syntax::builtin_effects::FILESYSTEM);
@@ -5593,68 +5601,18 @@ impl Compiler {
     pub(super) fn replace_last_pop_with_return(&mut self) {
         let scope = &self.scopes[self.scope_index];
         let pop_pos = scope.last_instruction.position;
-        let prev_op = scope.previous_instruction.opcode;
-        let prev_pos = scope.previous_instruction.position;
-
-        // Superinstruction: GetLocal(n) + Pop → ReturnLocal(n)
-        // Only safe when the previous instruction is adjacent AND no jump targets
-        // pop_pos (which would land on the operand byte after fusion).
-        let adjacent = match prev_op {
-            Some(OpCode::OpGetLocal) => prev_pos + 2 == pop_pos,
-            Some(
-                OpCode::OpGetLocal0
-                | OpCode::OpGetLocal1
-                | OpCode::OpConsumeLocal0
-                | OpCode::OpConsumeLocal1,
-            ) => prev_pos + 1 == pop_pos,
-            Some(OpCode::OpConsumeLocal) => prev_pos + 2 == pop_pos,
-            _ => false,
-        };
-
-        if adjacent && !self.has_jump_target_at(pop_pos) {
-            match prev_op {
-                Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
-                    let local_idx =
-                        self.scopes[self.scope_index].instructions[prev_pos + 1] as usize;
-                    self.replace_instruction(prev_pos, make(OpCode::OpReturnLocal, &[local_idx]));
-                    self.scopes[self.scope_index].instructions.truncate(pop_pos);
-                    while let Some(last) = self.scopes[self.scope_index].locations.last() {
-                        if last.offset >= pop_pos {
-                            self.scopes[self.scope_index].locations.pop();
-                        } else {
-                            break;
-                        }
-                    }
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
-                    self.scopes[self.scope_index].instructions[prev_pos] =
-                        OpCode::OpReturnLocal as u8;
-                    self.scopes[self.scope_index].instructions[pop_pos] = 0u8;
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
-                    self.scopes[self.scope_index].instructions[prev_pos] =
-                        OpCode::OpReturnLocal as u8;
-                    self.scopes[self.scope_index].instructions[pop_pos] = 1u8;
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        // Default: just replace Pop with ReturnValue
-        self.replace_instruction(pop_pos, make(OpCode::OpReturnValue, &[]));
+        self.scopes[self.scope_index].instructions.truncate(pop_pos);
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&make(OpCode::OpReturnCheck, &[]));
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&make(OpCode::OpReturnValue, &[]));
+        self.scopes[self.scope_index]
+            .locations
+            .retain(|location| location.offset < pop_pos);
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
+        self.scopes[self.scope_index].last_instruction.position = pop_pos + 1;
     }
 
     pub(super) fn replace_last_local_read_with_return(&mut self) -> bool {

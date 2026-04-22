@@ -346,11 +346,10 @@ impl<'a> StrictTypeValidator<'a> {
                 self.member_access_children_have_unresolved(object, *member)
             }
             Expression::TupleFieldAccess { object, .. } => self.validate_expression(object),
-            Expression::Perform { args, .. } => {
-                self.with_boundary(BoundaryKind::EffectBoundary, |v| {
+            Expression::Perform { args, .. } => self
+                .with_boundary(BoundaryKind::EffectBoundary, |v| {
                     v.expressions_have_unresolved(args)
-                })
-            }
+                }),
             _ => false,
         }
     }
@@ -556,7 +555,9 @@ impl<'a> StrictTypeValidator<'a> {
                 self.validate_expression(value)
             }
             Statement::Return { value, .. } => value.as_ref().is_some_and(|value| {
-                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| v.validate_expression(value))
+                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| {
+                    v.validate_expression(value)
+                })
             }),
             Statement::Expression { expression, .. } => self.validate_expression(expression),
             Statement::Function {

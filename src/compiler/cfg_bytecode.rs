@@ -1033,6 +1033,7 @@ impl Compiler {
                 this.load_symbol(bindings.get(var).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode return binding"))
                 })?);
+                this.emit(OpCode::OpReturnCheck, &[]);
                 this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
@@ -1079,6 +1080,7 @@ impl Compiler {
                         })?);
                     }
                     this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                    this.emit(OpCode::OpReturnCheck, &[]);
                     this.emit(OpCode::OpReturnValue, &[]);
                     return Ok(());
                 }
@@ -1144,6 +1146,7 @@ impl Compiler {
                     }
                 } else {
                     this.emit(OpCode::OpCall, &[args.len()]);
+                    this.emit(OpCode::OpReturnCheck, &[]);
                     this.emit(OpCode::OpReturnValue, &[]);
                 }
                 Ok(())
@@ -1157,6 +1160,7 @@ impl Compiler {
                     OpCode::OpPrimOp,
                     &[crate::core::CorePrimOp::Panic.id() as usize, 1],
                 );
+                this.emit(OpCode::OpReturnCheck, &[]);
                 this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }

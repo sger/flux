@@ -2274,10 +2274,7 @@ impl<'a> FnEmitter<'a> {
             op: LlvmCmpOp::Ne,
             ty: LlvmType::i32(),
             lhs: LlvmOperand::Local(y),
-            rhs: LlvmOperand::Const(LlvmConst::Int {
-                bits: 32,
-                value: 0,
-            }),
+            rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
         });
 
         // The yield block: build continuation closure + flux_yield_extend.
@@ -2505,6 +2502,7 @@ impl<'a> FnEmitter<'a> {
                 args,
                 cont,
                 kind,
+                suppress_yield_check,
                 yield_cont,
             } => {
                 match kind {
@@ -2582,7 +2580,7 @@ impl<'a> FnEmitter<'a> {
                         );
                     }
                 }
-                if self.emit_yield_checks {
+                if self.emit_yield_checks && !suppress_yield_check {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
                     // continuation function (populated in Call.yield_cont by
@@ -3428,7 +3426,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         "flux_yield_to" => (
             LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
         ),
         "flux_yield_extend" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_yield_prompt" => (

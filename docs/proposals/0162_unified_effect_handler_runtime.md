@@ -243,6 +243,91 @@ YieldState     { yielding, marker, clause, conts[] }
   both backends.
 - Full VM/LLVM parity sweep on `examples/` maintained.
 
+### Phase 3 implementation status (2026-04-22)
+
+Current todo list:
+
+- [x] Define shared `Evidence` / `EvidenceVector` / `YieldState` data
+  structures (VM Rust + C runtime).
+- [x] Add LIR liveness analysis (backward over `LirFunction`).
+- [x] Slice 3a: emit yield-check branch + abort-stub at `Call` sites
+  (opt-in via `FLUX_YIELD_CHECKS` env).
+- [x] Slice 3b-i: pre-pass `cont_split.rs` — synthesize `LirFunction`s from
+  `cont` + live vars, populate `Call.yield_cont`.
+- [x] Slice 3b-ii: wire `cont_split` into emit pipeline + replace stub with
+  `flux_make_closure` + `flux_yield_extend`.
+- [x] Slice 3b-iii: use `.closure_entry` wrapper for zero-capture synthesized
+  continuations.
+- [x] Slice 4-prereq: add `suppress_yield_check` flag to
+  `LirTerminator::Call`; set it on handle-body-final calls so
+  `flux_yield_prompt` catches the yield.
+- [x] Slice 4: flip native `lower_perform` from `PerformDirect` to `YieldTo`
+  when `FLUX_YIELD_CHECKS=1`; keep `PerformDirect` as the fallback while the
+  Phase 3 path remains env-gated.
+- [ ] Rewrite VM `OpHandle` / `OpPerform` to install evidence and yield.
+- [ ] Add `OpReturnCheck` opcode and emit at function returns.
+- [ ] Implement `Continuation::compose` (VM) for `conts[]` composition.
+- [ ] Rewrite `runtime/c/effects.c`: `flux_yield`, `flux_compose_conts`,
+  `flux_install_evidence`; remove `setjmp`/`longjmp` path.
+- [ ] Remove old VM perform/handle dispatch paths.
+- [ ] Write `effect_runtime_parity_tests.rs` (all handler shapes, both
+  backends bit-identical).
+- [ ] Write `effect_multi_shot_tests.rs`.
+- [ ] Flip parity fixtures back to `parity: vm, llvm` + `expect: success`.
+- [ ] Update `--dump-aether` to show yield+evidence vocabulary.
+
+Honest status for slice 4:
+
+- Slice 4-prereq is now landed: the handle body's final `Call` can suppress
+  its post-call yield check, which lets the yield sentinel flow into
+  `flux_yield_prompt` instead of escaping past `main`.
+- Slice 4 is also landed, but intentionally only behind `FLUX_YIELD_CHECKS=1`.
+  In that mode, native `lower_perform` now uses `flux_yield_to` and the
+  after-call yield checks capture continuations as the stack unwinds.
+- The old `PerformDirect` path remains the fallback when
+  `FLUX_YIELD_CHECKS=0`, because unconditional `YieldTo` would regress the
+  default native path until the full Phase 3 runtime is always-on.
+- This is a real semantic improvement, not just plumbing: native now executes
+  non-tail-resumptive discard/conditional-resume shapes correctly under the
+  gate instead of reporting `E1200`.
+
+What slice 4 now proves:
+
+- The old blocker was real and is now resolved: the handle-body-final call no
+  longer preempts `flux_yield_prompt`.
+- The native yield path is coherent enough for single-shot non-TR handlers.
+- Multi-shot is still not solved. `tests/parity/effect_multi_shot.flx` under
+  `FLUX_YIELD_CHECKS=1` still fails, which is expected until the later
+  continuation-composition/runtime slices land.
+
+Files touched in slices 4-prereq / 4:
+
+- `src/lir/mod.rs` — `LirTerminator::Call` now carries
+  `suppress_yield_check: bool`.
+- `src/lir/lower.rs` — `lower_handle` marks handle-body-final calls for
+  suppression; `lower_perform` flips to `YieldTo` under
+  `FLUX_YIELD_CHECKS=1` and falls back to `PerformDirect` otherwise.
+- `src/lir/cont_split.rs` — suppressed calls are excluded from continuation
+  synthesis.
+- `src/lir/emit_llvm.rs` — suppressed calls skip the post-call yield-check
+  branch.
+- `src/lir/emit_llvm.rs` — `build_yield_block_instrs` now handles
+  zero-capture synthesized continuations by using the `.closure_entry`
+  wrapper and a null captures pointer.
+
+Verification from these sessions:
+
+- `cargo test --lib lir::` passed.
+- `tests/parity/effect_deep_nesting` produced `"7"` in both
+  `FLUX_YIELD_CHECKS=0` and `FLUX_YIELD_CHECKS=1` native runs.
+- `tests/parity/effect_non_tr_discard.flx` produced `"-1"` on native with
+  `FLUX_YIELD_CHECKS=1`.
+- `tests/parity/effect_conditional_resume.flx` produced `"100"` on native with
+  `FLUX_YIELD_CHECKS=1`.
+- `tests/parity/effect_multi_shot.flx` still fails on native with
+  `FLUX_YIELD_CHECKS=1`; that remains tracked work for the later
+  continuation-composition slices.
+
 ## Exit Criteria
 [exit-criteria]: #exit-criteria
 

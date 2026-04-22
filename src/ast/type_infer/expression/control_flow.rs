@@ -1,9 +1,7 @@
 use super::*;
 use crate::ast::type_infer::expression::patterns::PatternFamily;
 use crate::ast::type_infer::pattern_coverage::check_match;
-use crate::ast::type_infer::pattern_coverage_adapter::{
-    AdtResolver, pat_of, ty_shape_of,
-};
+use crate::ast::type_infer::pattern_coverage_adapter::{AdtResolver, pat_of, ty_shape_of};
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory,
     compiler_errors::{EMPTY_MATCH, NON_EXHAUSTIVE_MATCH},
@@ -15,8 +13,10 @@ use crate::types::type_constructor::TypeConstructor;
 struct InferAdtResolver<'a> {
     adt_type_params:
         &'a std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
-    adt_constructor_types:
-        &'a std::collections::HashMap<crate::syntax::Identifier, super::super::AdtConstructorTypeInfo>,
+    adt_constructor_types: &'a std::collections::HashMap<
+        crate::syntax::Identifier,
+        super::super::AdtConstructorTypeInfo,
+    >,
     interner: &'a crate::syntax::interner::Interner,
 }
 
@@ -36,7 +36,10 @@ impl<'a> AdtResolver for InferAdtResolver<'a> {
             .iter()
             .filter(|(_, info)| info.adt_name == adt)
             .map(|(name, info)| {
-                (self.interner.resolve(*name).to_string(), info.fields.clone())
+                (
+                    self.interner.resolve(*name).to_string(),
+                    info.fields.clone(),
+                )
             })
             .collect();
         ctors.sort_by(|a, b| a.0.cmp(&b.0));
@@ -164,7 +167,10 @@ impl<'a> InferCtx<'a> {
         if std::env::var("FLUX_COVERAGE_WARN").ok().as_deref() == Some("0") {
             return true;
         }
-        matches!(scrutinee_ty.apply_type_subst(&self.subst), InferType::Var(_))
+        matches!(
+            scrutinee_ty.apply_type_subst(&self.subst),
+            InferType::Var(_)
+        )
     }
 
     /// Push an `E015: Non-Exhaustive Match` error at `span`.
@@ -180,8 +186,7 @@ impl<'a> InferCtx<'a> {
                 .with_span(span)
                 .with_message(msg)
                 .with_hint_text(
-                    "Add the missing pattern(s) or an unguarded `_ -> ...` catch-all."
-                        .to_string(),
+                    "Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.".to_string(),
                 )
                 .with_category(DiagnosticCategory::TypeInference),
         );
@@ -193,10 +198,7 @@ impl<'a> InferCtx<'a> {
             Diagnostic::warning("Redundant Match Arm")
                 .with_file(self.file_path.clone())
                 .with_span(span)
-                .with_message(
-                    "this arm is unreachable — earlier arms already cover it"
-                        .to_string(),
-                )
+                .with_message("this arm is unreachable — earlier arms already cover it".to_string())
                 .with_category(DiagnosticCategory::TypeInference),
         );
     }

@@ -92,9 +92,9 @@ fn find_unbound_var(
                 Some(build_violation(def, *var, span))
             }
         }
-        CoreType::List(inner)
-        | CoreType::Array(inner)
-        | CoreType::Option(inner) => find_unbound_var(inner, bound, def, span),
+        CoreType::List(inner) | CoreType::Array(inner) | CoreType::Option(inner) => {
+            find_unbound_var(inner, bound, def, span)
+        }
         CoreType::Either(l, r) | CoreType::Map(l, r) => {
             find_unbound_var(l, bound, def, span).or_else(|| find_unbound_var(r, bound, def, span))
         }

@@ -75,9 +75,7 @@ impl ExprIdGen {
 
     /// Like [`Self::resuming_past_program`], but accepts a bare statement
     /// slice. Prefer this when the caller already has the slice in hand.
-    pub fn resuming_past_statements(
-        statements: &[crate::syntax::statement::Statement],
-    ) -> Self {
+    pub fn resuming_past_statements(statements: &[crate::syntax::statement::Statement]) -> Self {
         let mut scanner = MaxExprIdScanner { max: 0 };
         for stmt in statements {
             crate::ast::visit::walk_stmt(&mut scanner, stmt);

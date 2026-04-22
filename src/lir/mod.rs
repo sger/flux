@@ -308,6 +308,13 @@ pub enum LirTerminator {
         args: Vec<LirVar>,
         cont: BlockId,
         kind: CallKind,
+        /// When true, suppress the native backend's post-call yield check for
+        /// this call site even when `FLUX_YIELD_CHECKS=1`.
+        ///
+        /// Proposal 0162 Phase 3 slice 4-prereq: the handle body's final call
+        /// must let the yield sentinel flow into `flux_yield_prompt` instead
+        /// of returning early from the enclosing function.
+        suppress_yield_check: bool,
         /// Optional yield continuation function (Proposal 0134).
         /// When present, the LLVM emitter inserts a yield check after the call:
         /// if `flux_is_yielding()`, build a closure from this function + captured

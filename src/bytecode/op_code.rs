@@ -205,10 +205,14 @@ pub enum OpCode {
     /// Profiling: enter a cost centre at function entry. Operand: `[cc_index: u16]`.
     /// Only emitted when `--prof` is passed. The VM tracks call counts and timing.
     OpEnterCC = 104,
+    /// Proposal 0162 Phase 3: return-site yield checkpoint.
+    /// No operands. Emitted immediately before return opcodes so the VM can
+    /// observe an in-flight yield while unwinding.
+    OpReturnCheck = 105,
 }
 
 /// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
-pub const MAX_OPCODE: u8 = OpCode::OpEnterCC as u8;
+pub const MAX_OPCODE: u8 = OpCode::OpReturnCheck as u8;
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
@@ -318,6 +322,7 @@ impl From<u8> for OpCode {
             102 => OpCode::OpCall2,
             103 => OpCode::OpTailCall1,
             104 => OpCode::OpEnterCC,
+            105 => OpCode::OpReturnCheck,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -389,6 +394,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpIsUnique => vec![],
         OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
         OpCode::OpEnterCC => vec![2], // cc_index: u16
+        OpCode::OpReturnCheck => vec![],
         _ => vec![],
     }
 }
