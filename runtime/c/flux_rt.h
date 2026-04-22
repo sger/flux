@@ -383,6 +383,17 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
 int64_t flux_compose_conts(void);
 int32_t flux_is_yielding(void);
 
+/* Proposal 0162 Phase 3 (partial): short-circuit detection for non-TR
+ * handlers on the native backend.  `flux_resume_mark_called` is used as
+ * the `resume` closure passed to `flux_perform_direct`: the compiler
+ * changes its identity-resume synthesis to call this function (which
+ * both marks the flag and returns its argument) instead of the pure
+ * identity.  When a clause returns without having invoked resume, the
+ * flag is still 0 — flux_perform_direct then emits a structured error
+ * instead of silently returning the wrong value. */
+extern int32_t flux_resume_called;
+int64_t flux_resume_mark_called(int64_t value);
+
 #ifdef __cplusplus
 }
 #endif

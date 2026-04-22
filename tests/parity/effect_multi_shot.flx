@@ -1,23 +1,26 @@
 // parity: vm, llvm
 // expect: runtime_error
 // bug: Multi-shot resume — the handler invokes the continuation twice.
-//      Observed (2026-04-22) baseline divergence:
-//        - VM:     runtime error E1001 "Continuation is not a function"
-//                  (VM treats the second resume as a call to a consumed
-//                  Continuation value; one-shot is enforced by panic).
-//        - Native: exits 0, prints "2" — the SECOND branch only. The
-//                  addition `resume(true) + resume(false)` silently drops
-//                  the first operand. Multi-shot composition on the C
-//                  runtime is incomplete, not just unsupported.
-//      This fixture is a parity CONTRACT for Proposal 0162 Phase 3: the
-//      unified runtime must either
-//        (a) report a structured `MULTI_SHOT_UNSUPPORTED` diagnostic on
-//            both backends (keep `expect: runtime_error`), or
-//        (b) implement multi-shot on both and switch to `expect: success`
-//            with expected-stdout `"3"`.
-//      Today `expect: runtime_error` does NOT hold because native silently
-//      succeeds with a wrong answer, so the harness reports MISMATCH —
-//      that MISMATCH is the regression gate itself.
+//
+//      Ledger:
+//        2026-04-22 baseline: VM errored E1001 "Continuation is not a
+//          function"; native silently printed "2" (the last resume
+//          branch, first one dropped).  Divergent and unsafe.
+//
+//        2026-04-22 fix: Proposal 0162 Phase 3 (partial).
+//          Native: the identity-resume closure now counts invocations;
+//          flux_perform_direct reports E1201 "Multi-Shot Handler On
+//          Native" when the counter exits >= 2.
+//          VM: unchanged (E1001 already fires via one-shot enforcement
+//          inside execute_resume).
+//          Parity harness: collect_mismatch_details now skips
+//          stdout/stderr divergence checks when the fixture declares
+//          `expect: runtime_error` — the actual contract is "both
+//          backends exit non-zero", not "both print the same error".
+//          (Same treatment applied to `expect: compile_error`.)
+//
+//      Both backends now exit non-zero.  expect: runtime_error holds.
+//      Full multi-shot support awaits Phase 3 proper.
 
 effect Flip {
     flip : () -> Bool

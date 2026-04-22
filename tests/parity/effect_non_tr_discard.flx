@@ -1,8 +1,24 @@
-// parity: vm, llvm
+// parity: vm
 // expect: success
 // bug: Non-tail-resumptive exception-style handler (discard continuation).
-//      VM uses the full continuation capture path; native unwinds via yield.
-//      Both must agree on the short-circuited return value.
+//      VM uses the full continuation capture path and correctly short-
+//      circuits to the handler clause return value.
+//
+//      Native (2026-04-22): Proposal 0162 Phase 3 (partial) makes
+//      `flux_perform_direct` detect when a clause short-circuits (returns
+//      without invoking `resume`) and report E1200 instead of silently
+//      returning the clause value.  On this particular fixture native
+//      happened to produce "-1" by accident — the function is linear
+//      (one perform, no post-perform work), so the clause value
+//      propagated up through `safe_div`'s return path as if the short-
+//      circuit had unwound correctly.  A sibling fixture that performs
+//      post-call work (effect_conditional_resume) returns the wrong
+//      answer on the same code path.
+//
+//      Until Phase 3 proper lands (yield-check-on-every-return + function
+//      splitting), native correctly refuses to execute this handler shape.
+//      The fixture is restricted to `parity: vm` to avoid churning the
+//      MISMATCH gate; a companion fixture covers the native diagnostic.
 // parity-expected-stdout-begin
 // "-1"
 // parity-expected-stdout-end

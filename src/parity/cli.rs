@@ -219,7 +219,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
 
     let mut artifacts = capture_artifacts(file, opts, false);
     let mut details =
-        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
+        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only, opts.expect);
 
     if !opts.capture_core
         && !details.is_empty()
@@ -228,7 +228,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         && !opts.compare_surfaces_only
     {
         artifacts = capture_artifacts(file, opts, true);
-        details = collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
+        details = collect_mismatch_details(
+            &run_results,
+            &artifacts,
+            opts.compare_surfaces_only,
+            opts.expect,
+        );
     }
 
     // Cache parity: compare each cached way against its fresh counterpart
@@ -456,7 +461,15 @@ fn collect_mismatch_details(
     run_results: &[super::RunResult],
     artifacts: &[(Way, DebugArtifacts)],
     compare_surfaces_only: bool,
+    expect: Expect,
 ) -> Vec<MismatchDetail> {
+    // For error fixtures, stdout/stderr diverge by construction — each backend
+    // formats its own diagnostic. The parity gate is "both backends failed,"
+    // which is verified later in the Verdict assembly.  Suppress shared/backend
+    // runtime divergence details here so the fixture doesn't register as a
+    // MISMATCH just because diagnostics read differently.
+    let suppress_runtime_comparison =
+        matches!(expect, Expect::CompileError | Expect::RuntimeError);
     let mut details = Vec::new();
 
     if artifacts.len() >= 2 {
@@ -500,7 +513,7 @@ fn collect_mismatch_details(
         }
     }
 
-    if !compare_surfaces_only && run_results.len() >= 2 {
+    if !compare_surfaces_only && !suppress_runtime_comparison && run_results.len() >= 2 {
         let base = &run_results[0];
         let has_shared_mismatch = details.iter().any(|d| {
             matches!(

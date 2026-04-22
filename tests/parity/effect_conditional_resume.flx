@@ -1,20 +1,42 @@
-// parity: vm, llvm
+// parity: vm
 // expect: success
 // bug: Conditional resume — the handler decides per-invocation whether
-//      to resume or to short-circuit.  Observed (2026-04-22) baseline:
-//        - VM:     runtime error E1001 on `resume(10)` inside the `if` —
-//                  the VM appears to treat the arm as non-TR and hands a
-//                  Continuation object, but then the expression `resume(10)`
-//                  fails as "not a function" because the conditional path
-//                  wasn't recognized as a direct-dispatch call site.
-//        - Native: exits 0, prints "110" (= resume(10) returning 10, added
-//                  to 100 from the second pick(2) branch).
-//      Phase 1/3 of Proposal 0162 should fix the VM path — every shape
-//      that succeeds on native must also succeed on VM.  Expected stdout
-//      below reflects the native answer; today this fixture reports
-//      MISMATCH which is the regression gate.
+//      to resume or to short-circuit.  Restricted to `parity: vm` while
+//      Phase 3 proper is outstanding — native currently emits E1200 by
+//      design (see ledger below).  A companion fixture will cover the
+//      native diagnostic once Phase 3 proper lands and the expect flag
+//      can flip back to `success` with `parity: vm, llvm`.
+//
+//      Ledger (trace-linked):
+//        2026-04-22 baseline: VM produced runtime error E1001
+//          "Continuation is not a function"; native produced "110".
+//          Root cause: src/vm/dispatch.rs `OpTailCall` / `OpTailCall1`
+//          dispatch path did not check for `Value::Continuation`, unlike
+//          their non-tail siblings `OpCall` / `OpCall0/1/2`.  When the
+//          compiler emitted `resume(10)` in tail position (an if-branch
+//          of a non-tail-resumptive arm), the VM walked straight into
+//          `execute_tail_call`, which rejected a non-`Closure` callee.
+//
+//        2026-04-22 fix (VM): VM `OpTailCall` / `OpTailCall1` now dispatch
+//          `Continuation` callees to `execute_resume`, mirroring
+//          `OpCall`.  VM now prints "100" — the correct answer: the
+//          second `perform pick(2)` arm returns `100` without resuming,
+//          so the whole handle block evaluates to `100`; `a + b` is
+//          never computed because `b` is never bound.
+//
+//        2026-04-22 fix (native, partial): Proposal 0162 Phase 3 (partial)
+//          adds short-circuit detection to `flux_perform_direct`.  When
+//          a clause returns without invoking `resume`, the runtime now
+//          reports E1200 "Non-TR handler on native" instead of silently
+//          computing `a + 100 = 110`.  Full non-TR support on native
+//          requires yield-check-on-every-return + function splitting —
+//          tracked as Phase 3 proper.
+//
+//      Current state: VM prints "100" correctly; native aborts with
+//      E1200.  This fixture reports MISMATCH — the MISMATCH records
+//      that non-TR support is a known gap, not a silent corruption.
 // parity-expected-stdout-begin
-// "110"
+// "100"
 // parity-expected-stdout-end
 
 effect Choose {

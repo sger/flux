@@ -635,11 +635,27 @@ impl VM {
             }
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
-                self.execute_tail_call(num_args)?;
+                let callee_idx = self.sp - 1 - num_args;
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
+                    // `resume(v)` in tail position — e.g. a handler arm of the
+                    // shape `pick(resume, n) -> if cond { resume(v) } else { … }`
+                    // where the resume call is tail-emitted by the compiler.
+                    // `execute_resume` restores the captured continuation state
+                    // and wipes the current frame, which is exactly what tail-
+                    // position semantics require; no special-case is needed.
+                    self.execute_resume(num_args)?;
+                } else {
+                    self.execute_tail_call(num_args)?;
+                }
                 Ok(0)
             }
             OpCode::OpTailCall1 => {
-                self.execute_tail_call(1)?;
+                let callee_idx = self.sp - 2;
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
+                    self.execute_resume(1)?;
+                } else {
+                    self.execute_tail_call(1)?;
+                }
                 Ok(0)
             }
             OpCode::OpPop => {

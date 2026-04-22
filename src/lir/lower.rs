@@ -3518,43 +3518,23 @@ impl<'a> FnLower<'a> {
 
     /// Create an identity closure: a function that returns its argument.
     /// Used as the `resume` parameter for tail-resumptive effect handlers.
+    ///
+    /// Proposal 0162 Phase 3 (partial): on the native backend, the identity
+    /// closure is replaced with `flux_resume_mark_called` — an external C
+    /// helper that sets a shared flag and returns its argument. This lets
+    /// `flux_perform_direct` detect when a handler clause short-circuits
+    /// (returns without invoking resume) and report a structured error
+    /// instead of silently producing wrong answers.
+    ///
+    /// The VM doesn't need this: it uses the singleton identity closure
+    /// from Phase 1 (`src/vm/mod.rs::make_identity_closure`). LIR is the
+    /// native-only lowering, so swapping the closure here is native-only.
     fn make_identity_closure(&mut self) -> LirVar {
-        let mut temp_program = std::mem::take(self.program);
-
-        let synthetic_id = temp_program.alloc_synthetic_func_id();
-        let func_name = format!("resume_identity_{}", temp_program.functions.len());
-        let mut inner = FnLower::new(
-            func_name,
-            synthetic_id,
-            format!("resume_id_{}", synthetic_id.0),
-            FnLowerCtx {
-                program: &mut temp_program,
-                interner: self.interner,
-                globals_map: self.globals_map,
-                extern_symbols: self.extern_symbols,
-                name_binder_map: self.name_binder_map,
-                binder_func_id_map: self.binder_func_id_map,
-                qualified_names: self.qualified_names,
-                top_level_value_map: self.top_level_value_map,
-                int_return_binders: self.int_return_binders,
-            },
-        );
-
-        // Single parameter: the value to return.
-        let param = inner.fresh_var();
-        inner.func.params.push(param);
-        inner.set_terminator(LirTerminator::Return(param));
-
-        let inner_func = inner.func;
-        *self.program = temp_program;
-        self.program.push_function(inner_func);
-
-        // Emit MakeClosure (no captures).
         let dst = self.fresh_var();
-        self.emit(LirInstr::MakeClosure {
+        self.emit(LirInstr::MakeExternClosure {
             dst,
-            func_id: synthetic_id,
-            captures: vec![],
+            symbol: "flux_resume_mark_called".to_string(),
+            arity: 1,
         });
         dst
     }
