@@ -1,13 +1,13 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E083]: Non-Exhaustive ADT Match
+error[E015]: Non-Exhaustive Match
 
-Match is non-exhaustive: nested list patterns under constructor `Boxed` field #1 miss non-empty list cases.
+Match is not exhaustive: 1 missing pattern.
 
   examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:9:5
    |
@@ -21,6 +21,6 @@ Match is non-exhaustive: nested list patterns under constructor `Boxed` field #1
    | ^^^^^
 
 Hint:
-  Add a `[h | t]` nested pattern or a nested catch-all (`_`).
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 == stdout ==
 <not executed>

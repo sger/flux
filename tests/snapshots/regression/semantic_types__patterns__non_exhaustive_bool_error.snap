@@ -16,7 +16,7 @@ exit_code: 1
 • 1 error • tests/fixtures/semantic_types/patterns/non_exhaustive_bool_error.flx
 error[E015]: Non-Exhaustive Match
 
-Match is non-exhaustive: missing Bool case(s): true.
+Match is not exhaustive: 1 missing pattern.
 
   tests/fixtures/semantic_types/patterns/non_exhaustive_bool_error.flx:3:5
   |
@@ -28,4 +28,4 @@ Match is non-exhaustive: missing Bool case(s): true.
   | ^^^^^
 
 Hint:
-  Add missing boolean arms or an unguarded `_ -> ...` catch-all.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

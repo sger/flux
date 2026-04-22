@@ -157,7 +157,7 @@ match x { 1 -> 10 };
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert_eq!(diag.title(), "NON-EXHAUSTIVE MATCH");
     assert!(
-        diag.message().is_some_and(|m| m.contains("non-exhaustive")),
+        diag.message().is_some_and(|m| m.contains("not exhaustive")),
         "unexpected E015 message: {:?}",
         diag.message()
     );
@@ -214,9 +214,8 @@ match x { _ if x > 0 -> 1 };
     let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("guarded wildcard")),
-        "expected targeted guarded wildcard message, got: {:?}",
+        diag.message().is_some_and(|m| m.contains("not exhaustive")),
+        "expected non-exhaustive message, got: {:?}",
         diag.message()
     );
 }
@@ -264,9 +263,8 @@ match b { false -> 0 };
     let compile_diags = compile_result.expect_err("expected E015 from bool exhaustiveness");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("missing Bool case(s): true")),
-        "expected bool missing-true message, got: {:?}",
+        diag.message().is_some_and(|m| m.contains("not exhaustive")),
+        "expected non-exhaustive message for Bool missing-true, got: {:?}",
         diag.message()
     );
 }
@@ -292,7 +290,7 @@ match t { (1, true) -> 1, (2, false) -> 2 };
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
         diag.message()
-            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+            .is_some_and(|m| m.contains("not exhaustive")),
         "expected tuple-conservative E015 message, got: {:?}",
         diag.message()
     );
@@ -320,7 +318,7 @@ match t { (a, b) if a > 0 && b -> 1 };
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
         diag.message()
-            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+            .is_some_and(|m| m.contains("not exhaustive")),
         "expected guarded tuple conservative E015 message, got: {:?}",
         diag.message()
     );

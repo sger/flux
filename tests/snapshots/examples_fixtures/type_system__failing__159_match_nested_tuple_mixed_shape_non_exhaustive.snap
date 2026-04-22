@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx
 == compile ==
@@ -44,9 +44,9 @@ Help:
   These two types are not compatible.
 
 
-error[E083]: Non-Exhaustive ADT Match
+error[E015]: Non-Exhaustive Match
 
-Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 are mixed-shape and cannot be proven exhaustive conservatively.
+Match is not exhaustive: 1 missing pattern.
 
   examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:5:14
   |
@@ -62,7 +62,7 @@ Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 ar
   | ^^^^^
 
 Hint:
-  Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`).
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 
 Found 3 errors.
 == stdout ==

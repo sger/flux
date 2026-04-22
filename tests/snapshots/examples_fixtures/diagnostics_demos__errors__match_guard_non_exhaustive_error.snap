@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/diagnostics_demos/errors/match_guard_non_exhaustive_error.flx
 == compile ==
@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E015]: Non-Exhaustive Match
 
-A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.
+Match is not exhaustive: 1 missing pattern.
 
   examples/diagnostics_demos/errors/match_guard_non_exhaustive_error.flx:4:22
   |
@@ -19,7 +19,7 @@ A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guar
   | ^
 
 Hint:
-  Add an unguarded `_ -> ...` fallback arm after guarded arms.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 
 
 error[E413]: Top-Level Effect

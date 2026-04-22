@@ -1,10 +1,29 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E015]: Non-Exhaustive Match
+
+Match is not exhaustive: 1 missing pattern.
+
+  examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx:7:14
+   |
+ 7 |     let _y = match x {
+   |              ^^^^^^^^^
+ 8 |         LeftI(a, b, c) -> a,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 9 |         RightI(n) -> n,
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+10 |     }
+   | ^^^^^
+
+Hint:
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+
+
 error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `LeftI` expects 1 argument(s) but got 3.
@@ -16,5 +35,7 @@ Constructor pattern `LeftI` expects 1 argument(s) but got 3.
 
 Hint:
   Check the constructor's declared pattern field count.
+
+Found 2 errors.
 == stdout ==
 <not executed>
