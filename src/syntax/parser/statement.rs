@@ -9,7 +9,7 @@ use crate::{
     syntax::{
         data_variant::DataVariant,
         effect_ops::EffectOp,
-        expression::{ExprId, Expression},
+        expression::Expression,
         precedence::Precedence,
         statement::{FunctionTypeParam, Statement},
         token_type::TokenType,
@@ -576,24 +576,30 @@ impl Parser {
         };
 
         let helper_symbol = self.lexer.interner_mut().intern(helper_name);
+        // Allocate fresh ExprIds for every synthesized node. Reusing
+        // `ExprId::UNSET` across multiple intrinsic declarations in the same
+        // module made HM's per-expression type map alias across them, so the
+        // first intrinsic's call expression could be unified with the
+        // second's body type. This is the structural fix referenced by
+        // Proposal 0167 Part 6.
         let helper_expr = Expression::Identifier {
             name: helper_symbol,
             span,
-            id: ExprId::UNSET,
+            id: self.next_expr_id(),
         };
         let args = parameters
             .iter()
             .map(|param| Expression::Identifier {
                 name: *param,
                 span,
-                id: ExprId::UNSET,
+                id: self.next_expr_id(),
             })
             .collect();
         let call = Expression::Call {
             function: Box::new(helper_expr),
             arguments: args,
             span,
-            id: ExprId::UNSET,
+            id: self.next_expr_id(),
         };
         let body = crate::syntax::block::Block {
             statements: vec![Statement::Expression {

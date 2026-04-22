@@ -125,7 +125,15 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FLog
         | CorePrimOp::FFloor
         | CorePrimOp::FCeil
-        | CorePrimOp::FRound => FluxRep::FloatRep,
+        | CorePrimOp::FRound
+        | CorePrimOp::FTan
+        | CorePrimOp::FAsin
+        | CorePrimOp::FAcos
+        | CorePrimOp::FAtan
+        | CorePrimOp::FSinh
+        | CorePrimOp::FCosh
+        | CorePrimOp::FTanh
+        | CorePrimOp::FTruncate => FluxRep::FloatRep,
 
         // Comparisons → BoolRep
         CorePrimOp::Eq
@@ -148,10 +156,7 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FCmpGe
         | CorePrimOp::And
         | CorePrimOp::Or
-        | CorePrimOp::Not
-        | CorePrimOp::StartsWith
-        | CorePrimOp::EndsWith
-        | CorePrimOp::StrContains => FluxRep::BoolRep,
+        | CorePrimOp::Not => FluxRep::BoolRep,
 
         // String operations → BoxedRep
         CorePrimOp::Concat
@@ -160,13 +165,11 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::StringSlice
         | CorePrimOp::ToString
         | CorePrimOp::Split
-        | CorePrimOp::Join
         | CorePrimOp::Trim
         | CorePrimOp::Upper
         | CorePrimOp::Lower
         | CorePrimOp::Replace
-        | CorePrimOp::Substring
-        | CorePrimOp::Chars => FluxRep::BoxedRep,
+        | CorePrimOp::Substring => FluxRep::BoxedRep,
 
         // Collection constructors → BoxedRep
         CorePrimOp::MakeList

@@ -1,0 +1,54 @@
+// Flow.Either — helpers for the built-in Either<L, R> type.
+//
+// Mirrors Haskell's Data.Either: `either`, `lefts`, `rights`,
+// `partition_eithers`.
+
+import Flow.List as List
+
+module Flow.Either {
+
+    /// Case analysis for Either: apply `on_left` if `Left`, `on_right` if `Right`.
+    public fn either<l, r, c>(e: Either<l, r>, on_left: (l) -> c, on_right: (r) -> c) -> c {
+        match e {
+            Left(x) -> on_left(x),
+            Right(y) -> on_right(y),
+        }
+    }
+
+    /// Extract every `Left` value from a list of `Either`s, preserving order.
+    public fn lefts<l, r>(xs: List<Either<l, r>>) -> List<l> {
+        fn lefts_acc(ys, acc) {
+            match ys {
+                [Left(x) | t] -> lefts_acc(t, [x | acc]),
+                [Right(_) | t] -> lefts_acc(t, acc),
+                _ -> List.reverse(acc),
+            }
+        }
+        lefts_acc(xs, [])
+    }
+
+    /// Extract every `Right` value from a list of `Either`s, preserving order.
+    public fn rights<l, r>(xs: List<Either<l, r>>) -> List<r> {
+        fn rights_acc(ys, acc) {
+            match ys {
+                [Right(y) | t] -> rights_acc(t, [y | acc]),
+                [Left(_) | t] -> rights_acc(t, acc),
+                _ -> List.reverse(acc),
+            }
+        }
+        rights_acc(xs, [])
+    }
+
+    /// Split a list of `Either`s into (lefts, rights), preserving order.
+    public fn partition_eithers<l, r>(xs: List<Either<l, r>>) -> (List<l>, List<r>) {
+        fn partition_acc(ys, ls, rs) {
+            match ys {
+                [Left(x) | t] -> partition_acc(t, [x | ls], rs),
+                [Right(y) | t] -> partition_acc(t, ls, [y | rs]),
+                _ -> (List.reverse(ls), List.reverse(rs)),
+            }
+        }
+        partition_acc(xs, [], [])
+    }
+
+}

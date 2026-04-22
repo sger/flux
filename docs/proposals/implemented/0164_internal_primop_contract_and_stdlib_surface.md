@@ -1,6 +1,7 @@
 - Feature Name: Internal PrimOp Contract and Stdlib Surface
 - Start Date: 2026-04-20
-- Status: Proposed
+- Status: Implemented
+- Completion Date: 2026-04-21
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0133 (Unified PrimOp enum), Proposal 0154 (CLI/driver split)
@@ -600,19 +601,22 @@ These should stop being long-term first-class primops and become ordinary stdlib
 
 #### String and text helpers
 
-Move to `Flow.String`:
+Move to `Flow.String` (pure-Flux stdlib owns the public surface):
 
-- `Split`
 - `Join`
-- `Trim`
-- `Upper`
-- `Lower`
 - `StartsWith`
 - `EndsWith`
-- `Replace`
-- `Substring`
 - `Chars`
 - `StrContains`
+
+**Reclassified — stays as primops** (representation-sensitive, require
+C-runtime support that is hard to express efficiently in pure Flux):
+
+- `Trim` — Unicode whitespace awareness (`char::is_whitespace`)
+- `Upper` / `Lower` — Unicode case folding
+- `Replace` — efficient string search + allocation
+- `Substring` — byte-slice primitive; also underpins `string_slice`
+- `Split` — efficient UTF-8 iteration
 
 #### Parsing helpers
 
@@ -1110,3 +1114,57 @@ This proposal is successful when:
 - internal primops have explicit backend/runtime justification
 - VM and native continue to share the same internal primop contract
 - convenience helpers are no longer permanently coupled to the backend/runtime surface by default
+
+## Completion Summary (2026-04-21)
+
+All phases landed. Final outcome:
+
+**Phase 2**: Added math primops (`FSqrt`, `FSin`, `FCos`, `FExp`, `FLog`,
+`FFloor`, `FCeil`, `FRound`) and bitwise primops (`BitAnd`, `BitOr`,
+`BitXor`, `BitShl`, `BitShr`) to `CorePrimOp` with VM + native backend
+support.
+
+**Phase 3**: `public intrinsic fn … = primop …` declaration syntax wired
+end-to-end (parser → AST → desugar → Core). Restricted to `lib/Flow/*`
+modules in v1. Fresh `ExprId` allocation in the desugar (fixes cross-
+intrinsic HM contamination — also progress on Proposal 0167 Part 6).
+
+**Phase 4–6**: `Flow.Array`, `Flow.Map`, `Flow.String` are now the
+canonical public surfaces. Representation-sensitive core operations use
+`public intrinsic fn` (6 array, 7 map, 3 string). Parsing helpers
+(`parse_ints`, `split_ints`) live in `Flow.IO` as ordinary stdlib.
+
+**Phase 7**: 24 `CorePrimOp` variants removed across 6 slices:
+`ParseInts`, `SplitInts`, `ArrayReverse`, `ArrayContains`, `Sort`,
+`SortBy`, `HoMap`, `HoFilter`, `HoFold`, `HoAny`, `HoAll`, `HoEach`,
+`HoFind`, `HoCount`, `Zip`, `Flatten`, `HoFlatMap`, `Join`, `StartsWith`,
+`EndsWith`, `Chars`, `StrContains`, `ToList`, `ToArray`. Each removal
+deletes VM dispatch, LLVM symbol mapping, primop promotion, and type-
+signature registration. Pure-Flux implementations in `Flow.Array`,
+`Flow.List`, `Flow.Map`, `Flow.String`, `Flow.IO` are the single source
+of truth.
+
+**Reclassified — stays internal**: `Trim`, `Upper`, `Lower`, `Replace`,
+`Substring`, `Split` depend on Unicode-aware C runtime behavior and
+cannot be replaced with pure-Flux without regressing correctness or
+performance. The proposal's "Move to stdlib" list was amended to reflect
+this.
+
+**Performance**: VM benchmark (HOF chain on 10k array, insertion sort on
+2000 reverse-sorted ints) showed no measurable regression.
+
+**Not done** (intentionally out of scope):
+- C runtime dead-code removal (`flux_ho_map`, `flux_parse_ints`, etc.
+  unreachable but retained in `runtime/c/` — would require rebuilding
+  the static lib).
+- LLVM `BuiltinMapping` entries kept for removed primops —
+  unreachable from LIR but stable as internal bindings; follow-up sweep
+  can remove them if confidence in native-path coverage grows.
+- `PrimSurfaceKind::TransitionalStdlib` variant kept with
+  `#[allow(dead_code)]` — no current members, stable for future
+  migrations.
+
+**Net code impact** (across all phases, approximate): `CorePrimOp`
+shrank by 24 variants; VM dispatch lost ~240 lines of hand-written Rust;
+compiler builtin type-signature table lost ~80 lines; overall session
+net −478 lines despite adding new intrinsics and Flow.List.to_array.

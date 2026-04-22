@@ -12,6 +12,7 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.List as List
 
 fn main() with IO {
     print("== OpCallBase fastcall candidates ==");
@@ -22,12 +23,12 @@ fn main() with IO {
     let filtered = filter(mapped, fn(x) { x > 5 });
     let total = fold(filtered, 0, fn(acc, x) { acc + x });
 
-    print(to_array(mapped));    // [|2, 4, 6, 8, 10|]
-    print(to_array(filtered));  // [|6, 8, 10|]
+    print(List.to_array(mapped));    // [|2, 4, 6, 8, 10|]
+    print(List.to_array(filtered));  // [|6, 8, 10|]
     print(total);               // 24
 
     let expanded = flat_map(xs, fn(x) { list(x, x + 10) });
-    print(to_array(expanded)); // [|1, 11, 2, 12, ...|]
+    print(List.to_array(expanded)); // [|1, 11, 2, 12, ...|]
 
     print(any(xs, fn(x) { x == 4 }));      // true
     print(all(xs, fn(x) { x > 0 }));       // true

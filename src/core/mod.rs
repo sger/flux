@@ -408,9 +408,14 @@ pub enum PrimEffect {
 /// Whether a primop is part of the long-term internal compiler/runtime
 /// contract or only kept temporarily while public stdlib ownership is
 /// migrating.
+///
+/// After Proposal 0164 Phase 7, no primop is currently `TransitionalStdlib`
+/// — the variant is retained so future migrations can reuse the classifier
+/// without reintroducing the type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimSurfaceKind {
     CoreContract,
+    #[allow(dead_code)]
     TransitionalStdlib,
 }
 
@@ -512,16 +517,16 @@ pub enum CorePrimOp {
     StringSlice = 56,
     ToString = 57,
     Split = 58,
-    Join = 59,
+    // Join (59) removed — see Flow.String.join.
     Trim = 60,
     Upper = 61,
     Lower = 62,
-    StartsWith = 63,
-    EndsWith = 64,
+    // StartsWith (63), EndsWith (64) removed — see
+    // Flow.String.starts_with / ends_with.
     Replace = 65,
     Substring = 66,
-    Chars = 67,
-    StrContains = 68,
+    // Chars (67), StrContains (68) removed — see
+    // Flow.String.chars / str_contains.
 
     // ── Array operations ──────────────────────────────────────────────
     ArrayLen = 69,
@@ -562,33 +567,20 @@ pub enum CorePrimOp {
 
     // ── Parsing ───────────────────────────────────────────────────────
     ParseInt = 98,
-    ParseInts = 99,
-    SplitInts = 100,
 
     // ── List / cons cell operations ───────────────────────────────────
-    ToList = 101,
-    ToArray = 102,
+    // ToList (101), ToArray (102) removed — see
+    // Flow.Array.to_list / Flow.Array.to_array.
 
     // ── Polymorphic length (dispatches on type tag) ───────────────────
     Len = 103,
 
     // ── Collection helpers (promoted for native compilation) ─────────
-    // First (104), Rest (105), Last (112) removed — stdlib is source of truth.
-    ArrayReverse = 106,
-    ArrayContains = 107,
-    Sort = 108,
-    SortBy = 109,
-    HoMap = 110,
-    HoFilter = 111,
-    HoFold = 112,
-    HoAny = 113,
-    HoAll = 114,
-    HoEach = 115,
-    HoFind = 116,
-    HoCount = 117,
-    Zip = 118,
-    Flatten = 119,
-    HoFlatMap = 120,
+    // First (104), Rest (105), Last (112), ArrayReverse (106),
+    // ArrayContains (107), Sort (108), SortBy (109), HoMap (110),
+    // HoFilter (111), HoFold (112), HoAny (113), HoAll (114),
+    // HoEach (115), HoFind (116), HoCount (117), Zip (118),
+    // Flatten (119), HoFlatMap (120) removed — stdlib is source of truth.
 
     // ── Effect handlers (Koka-style yield model, Proposal 0134) ───────
     EvvGet = 121,
@@ -628,7 +620,17 @@ pub enum CorePrimOp {
     BitXor = 143,
     BitShl = 144,
     BitShr = 145,
-    // ── Next free ID: 146 ─────────────────────────────────────────────
+
+    // ── Float math helpers extension (trig + hyperbolic + truncate) ──
+    FTan = 146,
+    FAsin = 147,
+    FAcos = 148,
+    FAtan = 149,
+    FSinh = 150,
+    FCosh = 151,
+    FTanh = 152,
+    FTruncate = 153,
+    // ── Next free ID: 154 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -658,6 +660,14 @@ impl CorePrimOp {
             "BitXor" => return Some(Self::BitXor),
             "BitShl" => return Some(Self::BitShl),
             "BitShr" => return Some(Self::BitShr),
+            "FTan" => return Some(Self::FTan),
+            "FAsin" => return Some(Self::FAsin),
+            "FAcos" => return Some(Self::FAcos),
+            "FAtan" => return Some(Self::FAtan),
+            "FSinh" => return Some(Self::FSinh),
+            "FCosh" => return Some(Self::FCosh),
+            "FTanh" => return Some(Self::FTanh),
+            "FTruncate" => return Some(Self::FTruncate),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -676,8 +686,6 @@ impl CorePrimOp {
             Self::ArrayPush => Some("array_push"),
             Self::ArrayConcat => Some("array_concat"),
             Self::ArraySlice => Some("array_slice"),
-            Self::ArrayReverse => Some("array_reverse"),
-            Self::ArrayContains => Some("array_contains"),
             Self::HamtGet => Some("map_get"),
             Self::HamtSet => Some("map_set"),
             Self::HamtDelete => Some("map_delete"),
@@ -687,8 +695,13 @@ impl CorePrimOp {
             Self::HamtSize => Some("map_size"),
             Self::HamtContains => Some("map_has"),
             Self::StringLength => Some("string_length"),
-            Self::StringConcat => Some("string_concat"),
-            Self::StringSlice => Some("string_slice"),
+            // Helper names used by `public intrinsic fn … = primop …` desugaring.
+            // These must differ from the declared intrinsic names in
+            // `lib/Flow/String.flx` (`string_concat`, `string_slice`); otherwise
+            // the synthesized body is a recursive self-call rather than a
+            // builtin-helper call and the primop is never invoked at runtime.
+            Self::StringConcat => Some("string_concat_builtin"),
+            Self::StringSlice => Some("string_slice_builtin"),
             Self::Len => Some("len"),
             Self::ParseInt => Some("parse_int"),
             Self::ToString => Some("to_string"),
@@ -716,6 +729,14 @@ impl CorePrimOp {
             Self::BitXor => Some("bit_xor"),
             Self::BitShl => Some("bit_shl"),
             Self::BitShr => Some("bit_shr"),
+            Self::FTan => Some("ftan"),
+            Self::FAsin => Some("fasin"),
+            Self::FAcos => Some("facos"),
+            Self::FAtan => Some("fatan"),
+            Self::FSinh => Some("fsinh"),
+            Self::FCosh => Some("fcosh"),
+            Self::FTanh => Some("ftanh"),
+            Self::FTruncate => Some("ftruncate"),
             _ => None,
         }
     }
@@ -726,14 +747,58 @@ impl CorePrimOp {
     }
 
     /// Reconstruct from a `u8` discriminant.  Returns `None` for invalid IDs.
+    ///
+    /// Phase 7 of Proposal 0164 left gaps in the discriminant space
+    /// (e.g. 59, 63–64, 67–68, 99–102, 104–120). A plain `transmute` for
+    /// values in those gaps would be undefined behavior, so this function
+    /// explicitly matches each retained variant. Mappings are kept in sync
+    /// with the `CorePrimOp` enum declaration — verify any new variant is
+    /// added to both.
     pub fn from_id(id: u8) -> Option<Self> {
-        if id <= 145 {
-            // SAFETY: all discriminants 0..=145 are defined and the enum is
-            // `#[repr(u8)]`, so the transmute is valid for any value in range.
-            Some(unsafe { std::mem::transmute::<u8, CorePrimOp>(id) })
-        } else {
-            None
-        }
+        use CorePrimOp::*;
+        let op = match id {
+            0 => Add, 1 => Sub, 2 => Mul, 3 => Div, 4 => Mod,
+            5 => IAdd, 6 => ISub, 7 => IMul, 8 => IDiv, 9 => IMod,
+            10 => FAdd, 11 => FSub, 12 => FMul, 13 => FDiv,
+            14 => Abs, 15 => Min, 16 => Max, 17 => Neg,
+            18 => Not, 19 => And, 20 => Or,
+            21 => Eq, 22 => NEq, 23 => Lt, 24 => Le, 25 => Gt, 26 => Ge,
+            27 => ICmpEq, 28 => ICmpNe, 29 => ICmpLt, 30 => ICmpLe,
+            31 => ICmpGt, 32 => ICmpGe,
+            33 => FCmpEq, 34 => FCmpNe, 35 => FCmpLt, 36 => FCmpLe,
+            37 => FCmpGt, 38 => FCmpGe,
+            39 => CmpEq, 40 => CmpNe,
+            41 => Concat, 42 => Interpolate,
+            43 => MakeList, 44 => MakeArray, 45 => MakeTuple, 46 => MakeHash,
+            47 => Index,
+            48 => Print, 49 => Println,
+            50 => ReadFile, 51 => WriteFile, 52 => ReadStdin, 53 => ReadLines,
+            54 => StringLength, 55 => StringConcat, 56 => StringSlice,
+            57 => ToString, 58 => Split,
+            60 => Trim, 61 => Upper, 62 => Lower,
+            65 => Replace, 66 => Substring,
+            69 => ArrayLen, 70 => ArrayGet, 71 => ArraySet, 72 => ArrayPush,
+            73 => ArrayConcat, 74 => ArraySlice,
+            75 => HamtGet, 76 => HamtSet, 77 => HamtDelete, 78 => HamtKeys,
+            79 => HamtValues, 80 => HamtMerge, 81 => HamtSize, 82 => HamtContains,
+            83 => TypeOf, 84 => IsInt, 85 => IsFloat, 86 => IsString,
+            87 => IsBool, 88 => IsArray, 89 => IsNone, 90 => IsSome,
+            91 => IsList, 92 => IsMap,
+            93 => Panic, 94 => ClockNow, 95 => Try, 96 => AssertThrows,
+            97 => Time, 98 => ParseInt,
+            103 => Len,
+            121 => EvvGet, 122 => EvvSet, 123 => FreshMarker, 124 => EvvInsert,
+            125 => YieldTo, 126 => YieldExtend, 127 => YieldPrompt,
+            128 => IsYielding, 129 => PerformDirect,
+            130 => Unwrap, 131 => SafeDiv, 132 => SafeMod,
+            133 => FSqrt, 134 => FSin, 135 => FCos, 136 => FExp,
+            137 => FLog, 138 => FFloor, 139 => FCeil, 140 => FRound,
+            141 => BitAnd, 142 => BitOr, 143 => BitXor, 144 => BitShl, 145 => BitShr,
+            146 => FTan, 147 => FAsin, 148 => FAcos, 149 => FAtan,
+            150 => FSinh, 151 => FCosh, 152 => FTanh, 153 => FTruncate,
+            _ => return None,
+        };
+        Some(op)
     }
 
     /// Resolve a function name + arity to a `CorePrimOp`, if it names a
@@ -742,17 +807,14 @@ impl CorePrimOp {
         // Sorted by (name, arity) for binary search.
         static TABLE: &[(&str, usize, CorePrimOp)] = &[
             ("abs", 1, CorePrimOp::Abs),
-            ("array_contains", 2, CorePrimOp::ArrayContains),
             ("array_concat", 2, CorePrimOp::ArrayConcat),
             ("array_get", 2, CorePrimOp::ArrayGet),
             ("array_len", 1, CorePrimOp::ArrayLen),
             ("array_push", 2, CorePrimOp::ArrayPush),
-            ("array_reverse", 1, CorePrimOp::ArrayReverse),
             ("array_slice", 3, CorePrimOp::ArraySlice),
             ("array_set", 3, CorePrimOp::ArraySet),
             ("assert_throws", 1, CorePrimOp::AssertThrows),
             ("assert_throws", 2, CorePrimOp::AssertThrows),
-            ("chars", 1, CorePrimOp::Chars),
             ("bit_and", 2, CorePrimOp::BitAnd),
             ("bit_or", 2, CorePrimOp::BitOr),
             ("bit_shl", 2, CorePrimOp::BitShl),
@@ -761,7 +823,6 @@ impl CorePrimOp {
             ("clock_now", 0, CorePrimOp::ClockNow),
             ("cmp_eq", 2, CorePrimOp::CmpEq),
             ("cmp_ne", 2, CorePrimOp::CmpNe),
-            ("ends_with", 2, CorePrimOp::EndsWith),
             ("fadd", 2, CorePrimOp::FAdd),
             ("fceil", 1, CorePrimOp::FCeil),
             ("fcmp_eq", 2, CorePrimOp::FCmpEq),
@@ -770,7 +831,11 @@ impl CorePrimOp {
             ("fcmp_le", 2, CorePrimOp::FCmpLe),
             ("fcmp_lt", 2, CorePrimOp::FCmpLt),
             ("fcmp_ne", 2, CorePrimOp::FCmpNe),
+            ("facos", 1, CorePrimOp::FAcos),
+            ("fasin", 1, CorePrimOp::FAsin),
+            ("fatan", 1, CorePrimOp::FAtan),
             ("fcos", 1, CorePrimOp::FCos),
+            ("fcosh", 1, CorePrimOp::FCosh),
             ("fdiv", 2, CorePrimOp::FDiv),
             ("fexp", 1, CorePrimOp::FExp),
             ("ffloor", 1, CorePrimOp::FFloor),
@@ -778,13 +843,25 @@ impl CorePrimOp {
             ("fmul", 2, CorePrimOp::FMul),
             ("fround", 1, CorePrimOp::FRound),
             ("fsin", 1, CorePrimOp::FSin),
+            ("fsinh", 1, CorePrimOp::FSinh),
             ("fsqrt", 1, CorePrimOp::FSqrt),
             ("fsub", 2, CorePrimOp::FSub),
+            ("ftan", 1, CorePrimOp::FTan),
+            ("ftanh", 1, CorePrimOp::FTanh),
+            ("ftruncate", 1, CorePrimOp::FTruncate),
+            ("acos", 1, CorePrimOp::FAcos),
+            ("asin", 1, CorePrimOp::FAsin),
+            ("atan", 1, CorePrimOp::FAtan),
             ("ceil", 1, CorePrimOp::FCeil),
             ("cos", 1, CorePrimOp::FCos),
+            ("cosh", 1, CorePrimOp::FCosh),
             ("exp", 1, CorePrimOp::FExp),
             ("floor", 1, CorePrimOp::FFloor),
             ("log", 1, CorePrimOp::FLog),
+            ("sinh", 1, CorePrimOp::FSinh),
+            ("tan", 1, CorePrimOp::FTan),
+            ("tanh", 1, CorePrimOp::FTanh),
+            ("truncate", 1, CorePrimOp::FTruncate),
             ("iadd", 2, CorePrimOp::IAdd),
             ("icmp_eq", 2, CorePrimOp::ICmpEq),
             ("icmp_ge", 2, CorePrimOp::ICmpGe),
@@ -806,7 +883,6 @@ impl CorePrimOp {
             ("is_some", 1, CorePrimOp::IsSome),
             ("is_string", 1, CorePrimOp::IsString),
             ("isub", 2, CorePrimOp::ISub),
-            ("join", 2, CorePrimOp::Join),
             ("len", 1, CorePrimOp::Len),
             ("lower", 1, CorePrimOp::Lower),
             ("map_delete", 2, CorePrimOp::HamtDelete),
@@ -822,7 +898,6 @@ impl CorePrimOp {
             ("now_ms", 0, CorePrimOp::ClockNow),
             ("panic", 1, CorePrimOp::Panic),
             ("parse_int", 1, CorePrimOp::ParseInt),
-            ("parse_ints", 1, CorePrimOp::ParseInts),
             ("print", 1, CorePrimOp::Print),
             ("println", 1, CorePrimOp::Println),
             ("read_file", 1, CorePrimOp::ReadFile),
@@ -833,19 +908,16 @@ impl CorePrimOp {
             ("safe_div", 2, CorePrimOp::SafeDiv),
             ("safe_mod", 2, CorePrimOp::SafeMod),
             ("split", 2, CorePrimOp::Split),
-            ("split_ints", 2, CorePrimOp::SplitInts),
             ("sin", 1, CorePrimOp::FSin),
-            ("starts_with", 2, CorePrimOp::StartsWith),
-            ("str_contains", 2, CorePrimOp::StrContains),
             ("string_concat", 2, CorePrimOp::StringConcat),
+            ("string_concat_builtin", 2, CorePrimOp::StringConcat),
             ("string_len", 1, CorePrimOp::StringLength),
             ("string_length", 1, CorePrimOp::StringLength),
             ("string_slice", 3, CorePrimOp::StringSlice),
+            ("string_slice_builtin", 3, CorePrimOp::StringSlice),
             ("substring", 3, CorePrimOp::Substring),
             ("sqrt", 1, CorePrimOp::FSqrt),
             ("time", 0, CorePrimOp::Time),
-            ("to_array", 1, CorePrimOp::ToArray),
-            ("to_list", 1, CorePrimOp::ToList),
             ("to_string", 1, CorePrimOp::ToString),
             ("trim", 1, CorePrimOp::Trim),
             ("try", 1, CorePrimOp::Try),
@@ -865,21 +937,20 @@ impl CorePrimOp {
         use CorePrimOp::*;
         match self {
             ClockNow | ReadStdin | Time => 0,
-            Abs | ArrayLen | Chars | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
-            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | ParseInts | Print
-            | Println | ReadFile | ReadLines | StringLength | ToArray | ToList | ToString
+            Abs | ArrayLen | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
+            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print
+            | Println | ReadFile | ReadLines | StringLength | ToString
             | Trim | Try | AssertThrows | TypeOf | Upper | HamtKeys | HamtValues | HamtSize
-            | Neg | Not | ArrayReverse | Sort | Flatten | Unwrap | FSqrt | FSin | FCos | FExp
-            | FLog | FFloor | FCeil | FRound => 1,
+            | Neg | Not | Unwrap | FSqrt | FSin | FCos | FExp
+            | FLog | FFloor | FCeil | FRound
+            | FTan | FAsin | FAcos | FAtan | FSinh | FCosh | FTanh | FTruncate => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
-            | HamtDelete | HamtMerge | Index | Join | Max | Min | Split | SplitInts
-            | StartsWith | EndsWith | StringConcat | StrContains | WriteFile | ArrayContains
-            | SortBy | HoMap | HoFilter | HoAny | HoAll | HoEach | HoFind | HoCount | HoFlatMap
-            | Zip | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr => 2,
-            HoFold => 3,
+            | HamtDelete | HamtMerge | Index | Max | Min | Split
+            | StringConcat | WriteFile
+            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
@@ -911,40 +982,16 @@ impl CorePrimOp {
     }
 
     /// Phase 1 inventory freeze classification.
+    ///
+    /// After Phase 7 removals, no primop is classified as
+    /// `TransitionalStdlib` — the previously-transitional text helpers
+    /// (`Split`, `Trim`, `Upper`, `Lower`, `Replace`, `Substring`) were
+    /// reclassified to `CoreContract` because they depend on Unicode-aware
+    /// C runtime behavior that can't be replicated efficiently in pure
+    /// Flux. All surviving primops are part of the long-term internal
+    /// contract.
     pub fn surface_kind(self) -> PrimSurfaceKind {
-        match self {
-            Self::Split
-            | Self::Join
-            | Self::Trim
-            | Self::Upper
-            | Self::Lower
-            | Self::StartsWith
-            | Self::EndsWith
-            | Self::Replace
-            | Self::Substring
-            | Self::Chars
-            | Self::StrContains
-            | Self::ParseInts
-            | Self::SplitInts
-            | Self::ToList
-            | Self::ToArray
-            | Self::ArrayReverse
-            | Self::ArrayContains
-            | Self::Sort
-            | Self::SortBy
-            | Self::HoMap
-            | Self::HoFilter
-            | Self::HoFold
-            | Self::HoAny
-            | Self::HoAll
-            | Self::HoEach
-            | Self::HoFind
-            | Self::HoCount
-            | Self::Zip
-            | Self::Flatten
-            | Self::HoFlatMap => PrimSurfaceKind::TransitionalStdlib,
-            _ => PrimSurfaceKind::CoreContract,
-        }
+        PrimSurfaceKind::CoreContract
     }
 
     /// Legacy globally-recognized helper spellings that should move toward
@@ -975,6 +1022,8 @@ impl CorePrimOp {
             ("starts_with", 2) => Some("Flow.String.starts_with"),
             ("str_contains", 2) => Some("Flow.String.str_contains"),
             ("string_len", 1) | ("string_length", 1) => Some("Flow.String.string_len"),
+            ("to_array", 1) => Some("Flow.List.to_array"),
+            ("to_list", 1) => Some("Flow.Array.to_list"),
             _ => None,
         }
     }
@@ -1462,22 +1511,6 @@ fn main() { inc(41) }
     }
 
     #[test]
-    fn primop_surface_kind_marks_higher_order_helpers_transitional() {
-        assert_eq!(
-            super::CorePrimOp::HoMap.surface_kind(),
-            super::PrimSurfaceKind::TransitionalStdlib
-        );
-        assert_eq!(
-            super::CorePrimOp::SortBy.surface_kind(),
-            super::PrimSurfaceKind::TransitionalStdlib
-        );
-        assert_eq!(
-            super::CorePrimOp::ArrayContains.surface_kind(),
-            super::PrimSurfaceKind::TransitionalStdlib
-        );
-    }
-
-    #[test]
     fn primop_surface_kind_keeps_len_and_parse_int_in_core_contract() {
         assert_eq!(
             super::CorePrimOp::Len.surface_kind(),
@@ -1491,6 +1524,51 @@ fn main() { inc(41) }
             super::CorePrimOp::ArrayLen.surface_kind(),
             super::PrimSurfaceKind::CoreContract
         );
+    }
+
+    /// Spot-check that `from_id` inverts `id` for a representative sample of
+    /// variants across the whole range. Each entry pairs a variant with its
+    /// expected numeric discriminant; if either side drifts, this fires and
+    /// prevents a regression like the one that made `from_id(14)` return
+    /// `Eq` instead of `Abs`.
+    #[test]
+    fn primop_from_id_roundtrips_representative_variants() {
+        use super::CorePrimOp::*;
+        let cases = [
+            (Add, 0u8),
+            (Abs, 14),
+            (Not, 18),
+            (Eq, 21),
+            (CmpEq, 39),
+            (MakeArray, 44),
+            (Index, 47),
+            (Print, 48),
+            (StringLength, 54),
+            (Trim, 60),
+            (ArrayLen, 69),
+            (HamtGet, 75),
+            (TypeOf, 83),
+            (ParseInt, 98),
+            (Len, 103),
+            (EvvGet, 121),
+            (SafeDiv, 131),
+            (FSqrt, 133),
+            (BitAnd, 141),
+            (FTan, 146),
+            (FTruncate, 153),
+        ];
+        for (variant, id) in cases {
+            assert_eq!(
+                variant.id(),
+                id,
+                "variant {variant:?} should have discriminant {id}"
+            );
+            assert_eq!(
+                super::CorePrimOp::from_id(id),
+                Some(variant),
+                "from_id({id}) should return {variant:?}"
+            );
+        }
     }
 
     #[test]

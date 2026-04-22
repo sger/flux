@@ -1454,7 +1454,7 @@ fn test_list_first_rest() {
 
 #[test]
 fn test_list_to_array_round_trip() {
-    let result = run("to_array(to_list(#[1, 2, 3]));");
+    let result = run("import Flow.Array as Arr\nimport Flow.List as Lst\nLst.to_array(Arr.to_list(#[1, 2, 3]));");
     assert_eq!(
         result,
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())

@@ -67,8 +67,6 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     // Strip module prefix (e.g. "Flow.List.first" → "first")
     let short = name.rsplit('.').next().unwrap_or(name);
     match (short, arity) {
-        ("sort", 1) => Some(CorePrimOp::Sort),
-        ("sort_by", 2) => Some(CorePrimOp::SortBy),
         ("safe_div", 2) => Some(CorePrimOp::SafeDiv),
         ("safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,

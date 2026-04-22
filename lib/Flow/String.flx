@@ -44,7 +44,11 @@ module Flow.String {
         }
     }
 
+    public intrinsic fn string_concat(left: String, right: String) -> String = primop StringConcat
+
     public intrinsic fn string_len(s: String) -> Int = primop StringLength
+
+    public intrinsic fn string_slice(s: String, start: Int, end: Int) -> String = primop StringSlice
 
     public fn str_contains(s: String, needle: String) -> Bool {
         let slen = len(s)

@@ -1,16 +1,18 @@
 ---
-source: tests/regression_snapshots.rs
+source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/recovery/double_comma_in_call_then_continue.flx
 exit_code: 1
 
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  Array
-[3 of 8] Compiling  IO
-[4 of 8] Compiling  List
-[5 of 8] Compiling  Numeric
-[6 of 8] Compiling  Option
-[7 of 8] Compiling  String
+[ 1 of 10] Compiling  Assert
+[ 2 of 10] Compiling  Array
+[ 3 of 10] Compiling  List
+[ 4 of 10] Compiling  Either
+[ 5 of 10] Compiling  IO
+[ 6 of 10] Compiling  Math
+[ 7 of 10] Compiling  Numeric
+[ 8 of 10] Compiling  Option
+[ 9 of 10] Compiling  String
 • 1 error • tests/fixtures/recovery/double_comma_in_call_then_continue.flx
 error[E034]: Unexpected Token
 

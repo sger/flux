@@ -510,9 +510,17 @@ fn flow_map_surface_wrappers_compile_without_legacy_warning() {
 
 #[test]
 fn flow_string_surface_wrappers_compile_without_legacy_warning() {
+    // After Proposal 0164 Phase 7, `starts_with` etc. are pure-Flux
+    // functions living in Flow.String, not primop-backed helpers. A file
+    // under lib/Flow/ that defines its own such functions must not trip the
+    // "Legacy Builtin Helper" warning that fires for bare primop spellings.
     let warnings = compile_ok_with_warnings_in(
         "lib/Flow/String.flx",
-        r#"module Flow.String { public fn demo(s: String) -> Bool { starts_with(s, "x") } }"#,
+        r#"module Flow.String {
+            public fn starts_with(s: String, prefix: String) -> Bool {
+                substring(s, 0, 1) == prefix
+            }
+        }"#,
         false,
     );
     assert!(

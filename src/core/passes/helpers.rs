@@ -447,6 +447,14 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FFloor
         | CorePrimOp::FCeil
         | CorePrimOp::FRound
+        | CorePrimOp::FTan
+        | CorePrimOp::FAsin
+        | CorePrimOp::FAcos
+        | CorePrimOp::FAtan
+        | CorePrimOp::FSinh
+        | CorePrimOp::FCosh
+        | CorePrimOp::FTanh
+        | CorePrimOp::FTruncate
         | CorePrimOp::Min
         | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types
@@ -468,16 +476,11 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::StringSlice
         | CorePrimOp::ToString
         | CorePrimOp::Split
-        | CorePrimOp::Join
         | CorePrimOp::Trim
         | CorePrimOp::Upper
         | CorePrimOp::Lower
-        | CorePrimOp::StartsWith
-        | CorePrimOp::EndsWith
         | CorePrimOp::Replace
         | CorePrimOp::Substring
-        | CorePrimOp::Chars
-        | CorePrimOp::StrContains
         | CorePrimOp::ArrayLen
         | CorePrimOp::ArrayGet
         | CorePrimOp::ArraySet
@@ -507,31 +510,11 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ClockNow
         | CorePrimOp::Time
         | CorePrimOp::ParseInt
-        | CorePrimOp::ParseInts
-        | CorePrimOp::SplitInts
-        | CorePrimOp::ToList
-        | CorePrimOp::ToArray
         | CorePrimOp::Len
         | CorePrimOp::CmpEq
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows => false,
-        // Collection operations — pure (no I/O, no side effects)
-        CorePrimOp::ArrayReverse
-        | CorePrimOp::ArrayContains
-        | CorePrimOp::Sort
-        | CorePrimOp::SortBy
-        | CorePrimOp::HoMap
-        | CorePrimOp::HoFilter
-        | CorePrimOp::HoFold
-        | CorePrimOp::HoAny
-        | CorePrimOp::HoAll
-        | CorePrimOp::HoEach
-        | CorePrimOp::HoFind
-        | CorePrimOp::HoCount
-        | CorePrimOp::Zip
-        | CorePrimOp::Flatten
-        | CorePrimOp::HoFlatMap => true,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

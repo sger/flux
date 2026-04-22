@@ -242,6 +242,14 @@ int64_t flux_log(int64_t n);
 int64_t flux_floor(int64_t n);
 int64_t flux_ceil(int64_t n);
 int64_t flux_round(int64_t n);
+int64_t flux_tan(int64_t n);
+int64_t flux_asin(int64_t n);
+int64_t flux_acos(int64_t n);
+int64_t flux_atan(int64_t n);
+int64_t flux_sinh(int64_t n);
+int64_t flux_cosh(int64_t n);
+int64_t flux_tanh(int64_t n);
+int64_t flux_truncate(int64_t n);
 
 /* ── Runtime-dispatching arithmetic (int/float/string) ──────────────── */
 
