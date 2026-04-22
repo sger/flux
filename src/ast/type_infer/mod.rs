@@ -47,6 +47,8 @@ mod display;
 mod effects;
 mod expression;
 mod function;
+mod pattern_coverage;
+mod pattern_coverage_adapter;
 mod solver;
 mod statement;
 pub mod static_type_validation;

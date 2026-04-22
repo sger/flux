@@ -1,7 +1,48 @@
 use super::*;
 use crate::ast::type_infer::expression::patterns::PatternFamily;
-use crate::diagnostics::{DiagnosticCategory, compiler_errors::EMPTY_MATCH, diagnostic_for};
+use crate::ast::type_infer::pattern_coverage::check_match;
+use crate::ast::type_infer::pattern_coverage_adapter::{
+    AdtResolver, pat_of, ty_shape_of,
+};
+use crate::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory,
+    compiler_errors::{EMPTY_MATCH, NON_EXHAUSTIVE_MATCH},
+    diagnostic_for,
+};
 use crate::types::type_constructor::TypeConstructor;
+
+/// Snapshot of the `InferCtx` ADT tables for coverage queries.
+struct InferAdtResolver<'a> {
+    adt_type_params:
+        &'a std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
+    adt_constructor_types:
+        &'a std::collections::HashMap<crate::syntax::Identifier, super::super::AdtConstructorTypeInfo>,
+    interner: &'a crate::syntax::interner::Interner,
+}
+
+impl<'a> AdtResolver for InferAdtResolver<'a> {
+    /// Resolve an ADT symbol to its sorted list of `(constructor_name,
+    /// field_type_exprs)`, or `None` if the symbol is not a
+    /// registered ADT.
+    fn lookup_adt(
+        &self,
+        adt: crate::syntax::Identifier,
+    ) -> Option<Vec<(String, Vec<crate::syntax::type_expr::TypeExpr>)>> {
+        if !self.adt_type_params.contains_key(&adt) {
+            return None;
+        }
+        let mut ctors: Vec<(String, Vec<crate::syntax::type_expr::TypeExpr>)> = self
+            .adt_constructor_types
+            .iter()
+            .filter(|(_, info)| info.adt_name == adt)
+            .map(|(name, info)| {
+                (self.interner.resolve(*name).to_string(), info.fields.clone())
+            })
+            .collect();
+        ctors.sort_by(|a, b| a.0.cmp(&b.0));
+        Some(ctors)
+    }
+}
 
 impl<'a> InferCtx<'a> {
     /// Infer `if` expressions, constraining condition to `Bool` and joining branch results.
@@ -75,7 +116,89 @@ impl<'a> InferCtx<'a> {
             first_span,
         );
         self.infer_match_concrete_pivot_conflicts(&first_ty, &arm_types);
+        self.experimental_coverage_check(&scrutinee_ty, input.arms, input.span);
         result_ty
+    }
+
+    /// Matrix-based coverage check (Proposal 0166).
+    ///
+    /// Emits warning-severity diagnostics (Non-Exhaustive Match,
+    /// Redundant Match Arm) alongside the existing ad-hoc error
+    /// checks. Opt-out via `FLUX_COVERAGE_WARN=0`.
+    fn experimental_coverage_check(
+        &mut self,
+        scrutinee_ty: &InferType,
+        arms: &[MatchArm],
+        span: Span,
+    ) {
+        if self.coverage_check_suppressed(scrutinee_ty) {
+            return;
+        }
+        let resolver = InferAdtResolver {
+            adt_type_params: &self.adt_type_params,
+            adt_constructor_types: &self.adt_constructor_types,
+            interner: self.interner,
+        };
+        let resolved = scrutinee_ty.apply_type_subst(&self.subst);
+        let ty = ty_shape_of(&resolved, &resolver, self.interner);
+        let arm_entries: Vec<_> = arms
+            .iter()
+            .map(|arm| (pat_of(&arm.pattern, self.interner), arm.guard.is_some()))
+            .collect();
+        let cov = check_match(&ty, &arm_entries);
+        if !cov.is_exhaustive() {
+            self.emit_coverage_non_exhaustive(cov.missing.len(), span);
+        }
+        for idx in cov.redundant {
+            if let Some(arm) = arms.get(idx) {
+                self.emit_coverage_redundant(arm.span);
+            }
+        }
+    }
+
+    /// Returns true when the coverage check should skip this match.
+    /// Suppression rules:
+    /// - explicit opt-out via `FLUX_COVERAGE_WARN=0`
+    /// - scrutinee type did not resolve (inference failure upstream)
+    fn coverage_check_suppressed(&self, scrutinee_ty: &InferType) -> bool {
+        if std::env::var("FLUX_COVERAGE_WARN").ok().as_deref() == Some("0") {
+            return true;
+        }
+        matches!(scrutinee_ty.apply_type_subst(&self.subst), InferType::Var(_))
+    }
+
+    /// Push an `E015: Non-Exhaustive Match` error at `span`.
+    fn emit_coverage_non_exhaustive(&mut self, missing_count: usize, span: Span) {
+        let msg = if missing_count == 1 {
+            "Match is not exhaustive: 1 missing pattern.".to_string()
+        } else {
+            format!("Match is not exhaustive: {missing_count} missing patterns.")
+        };
+        self.errors.push(
+            diagnostic_for(&NON_EXHAUSTIVE_MATCH)
+                .with_file(self.file_path.clone())
+                .with_span(span)
+                .with_message(msg)
+                .with_hint_text(
+                    "Add the missing pattern(s) or an unguarded `_ -> ...` catch-all."
+                        .to_string(),
+                )
+                .with_category(DiagnosticCategory::TypeInference),
+        );
+    }
+
+    /// Push a `Redundant Match Arm` warning at `span`.
+    fn emit_coverage_redundant(&mut self, span: Span) {
+        self.errors.push(
+            Diagnostic::warning("Redundant Match Arm")
+                .with_file(self.file_path.clone())
+                .with_span(span)
+                .with_message(
+                    "this arm is unreachable — earlier arms already cover it"
+                        .to_string(),
+                )
+                .with_category(DiagnosticCategory::TypeInference),
+        );
     }
 
     /// Infer optional family constraint for a match scrutinee.

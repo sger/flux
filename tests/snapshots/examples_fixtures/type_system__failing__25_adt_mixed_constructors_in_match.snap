@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
 == compile ==
@@ -29,9 +29,9 @@ Help:
   These two types are not compatible.
 
 
-error[E083]: Non-Exhaustive ADT Match
+error[E015]: Non-Exhaustive Match
 
-Match arms mix constructors from different ADTs: `A` and `B`.
+Match is not exhaustive: 1 missing pattern.
 
   examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
    |
@@ -45,7 +45,7 @@ Match arms mix constructors from different ADTs: `A` and `B`.
    | ^^^^^
 
 Hint:
-  Use constructors from a single ADT in a given match expression.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 
 Found 2 errors.
 == stdout ==

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/diagnostics_demos/errors/empty_match_error.flx
 == compile ==
@@ -29,19 +29,6 @@ Match expression must have at least one arm.
 
 Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
-
-
-error[E015]: Non-Exhaustive Match
-
-Match is non-exhaustive without an unguarded catch-all arm.
-
-  examples/diagnostics_demos/errors/empty_match_error.flx:2:9
-  |
-2 | let x = match 1 { };
-  |         ^^^^^^^^^^^
-
-Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
 error[E413]: Top-Level Effect
@@ -85,6 +72,6 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 6 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/diagnostics_demos/errors/invalid_pattern_error.flx
 == compile ==
@@ -16,6 +16,16 @@ Catch-all patterns must be the final match arm.
 
 Hint:
   Move `_` or the binding pattern to the last arm.
+
+
+Warning: Redundant Match Arm
+
+this arm is unreachable — earlier arms already cover it
+
+  examples/diagnostics_demos/errors/invalid_pattern_error.flx:4:5
+  |
+4 |     1 -> 2,
+  |     ^^^^^^
 
 
 error[E413]: Top-Level Effect
@@ -59,6 +69,6 @@ requires effect `IO` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with IO`
 
-Found 4 errors.
+Found 4 errors and 1 warning.
 == stdout ==
 <not executed>

@@ -2,8 +2,10 @@
 source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/semantic_types/patterns/option_tuple_patterns.flx
-exit_code: 1
+exit_code: 0
 
+9
+9
 [ 1 of 10] Compiling  Assert
 [ 2 of 10] Compiling  Array
 [ 3 of 10] Compiling  List
@@ -13,19 +15,5 @@ exit_code: 1
 [ 7 of 10] Compiling  Numeric
 [ 8 of 10] Compiling  Option
 [ 9 of 10] Compiling  String
-• 1 error • tests/fixtures/semantic_types/patterns/option_tuple_patterns.flx
-error[E015]: Non-Exhaustive Match
-
-Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
-
-  tests/fixtures/semantic_types/patterns/option_tuple_patterns.flx:9:5
-   |
- 9 |     match pair {
-   |     ^^^^^^^^^^^^
-10 |         (a, b) -> a + b,
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-11 |     }
-   | ^^^^^
-
-Hint:
-  Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.
+[10 of 10] Compiling  option_tuple_patterns
+[cfg→vm] Running via CFG → bytecode VM backend...

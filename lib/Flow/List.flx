@@ -163,8 +163,7 @@ module Flow.List {
         else {
             match xs {
                 [h | t] -> match split_at(t, n - 1) {
-                    (left, right) -> ([h | left], right),
-                    _ -> ([], xs)
+                    (left, right) -> ([h | left], right)
                 },
                 _ -> ([], [])
             }
@@ -175,8 +174,7 @@ module Flow.List {
         match xs {
             [h | t] -> if pred(h) {
                 match span(t, pred) {
-                    (left, right) -> ([h | left], right),
-                    _ -> ([], xs)
+                    (left, right) -> ([h | left], right)
                 }
             } else { ([], xs) },
             _ -> ([], [])
@@ -189,8 +187,7 @@ module Flow.List {
 
     public fn scanr<a, b>(xs: List<a>, acc: b, f: (a, b) -> b) -> List<b> {
         match scanr_go(xs, acc, f) {
-            (result, last_acc) -> result,
-            _ -> [acc]
+            (result, last_acc) -> result
         }
     }
 
@@ -286,8 +283,7 @@ module Flow.List {
     public fn unzip<a, b>(xs: List<(a, b)>) -> (List<a>, List<b>) {
         match xs {
             [(a, b) | t] -> match unzip(t) {
-                (left, right) -> ([a | left], [b | right]),
-                _ -> ([], [])
+                (left, right) -> ([a | left], [b | right])
             },
             _ -> ([], [])
         }
@@ -311,8 +307,7 @@ module Flow.List {
     public fn partition<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         match xs {
             [h | t] -> match partition(t, pred) {
-                (yes, no) -> if pred(h) { ([h | yes], no) } else { (yes, [h | no]) },
-                _ -> ([], [])
+                (yes, no) -> if pred(h) { ([h | yes], no) } else { (yes, [h | no]) }
             },
             _ -> ([], [])
         }
@@ -522,8 +517,7 @@ module Flow.List {
 
     fn scanr_step(h, state, acc, f) {
         match state {
-            (rest, next_acc) -> scanr_finish(rest, next_acc, h, f),
-            _ -> ([acc], acc)
+            (rest, next_acc) -> scanr_finish(rest, next_acc, h, f)
         }
     }
 
@@ -545,8 +539,7 @@ module Flow.List {
     fn merge_sort_do(xs, key_fn) {
         let mid = length(xs) / 2
         match split_at(xs, mid) {
-            (left, right) -> merge_by_key(merge_sort_by(left, key_fn), merge_sort_by(right, key_fn), key_fn),
-            _ -> []
+            (left, right) -> merge_by_key(merge_sort_by(left, key_fn), merge_sort_by(right, key_fn), key_fn)
         }
     }
 
@@ -586,8 +579,7 @@ module Flow.List {
 
     fn group_by_head(h, t, eq) {
         match span(t, fn(x) { eq(h, x) }) {
-            (prefix, rest) -> [[h | prefix] | group_by(rest, eq)],
-            _ -> [[h] | group_by(t, eq)]
+            (prefix, rest) -> [[h | prefix] | group_by(rest, eq)]
         }
     }
 
