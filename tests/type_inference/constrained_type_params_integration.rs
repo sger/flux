@@ -196,3 +196,61 @@ fn main() {
         "expected non-strict missing instance to report E444, got: {diags:?}"
     );
 }
+
+/// Proposal 0168: polymorphic dispatch over a higher-kinded (constructor-headed)
+/// type class constraint must route through dictionary elaboration instead of
+/// degrading into the polymorphic-stub panic.
+///
+/// A function `fn poly<F: Functor, A>(container: F<A>, f: (A) -> A) -> F<A>`
+/// must, when invoked with a concrete `List<Int>` container, thread the
+/// `__dict_Functor_List` dictionary through to the callee.
+#[test]
+fn hkt_constrained_polymorphic_call_elaborates_dictionary() {
+    let (program, mut compiler) = compiler_for(
+        r#"
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
+}
+
+instance Functor<List> {
+    fn fmap(xs, func) {
+        fn go(ys) {
+            match ys {
+                [] -> [],
+                [h | t] -> [func(h) | go(t)]
+            }
+        }
+        go(xs)
+    }
+}
+
+fn double_val(x: Int) -> Int { x * 2 }
+
+fn double_all<f: Functor, a>(container: f<a>, d: (a) -> a) -> f<a> {
+    fmap(container, d)
+}
+
+fn main() {
+    let xs = [1, 2, 3]
+    double_all(xs, double_val)
+}
+"#,
+    );
+
+    compiler
+        .compile_with_opts(&program, false, false)
+        .expect("polymorphic HKT dispatch should compile");
+    let dumped = compiler
+        .dump_core_with_opts(&program, false, CoreDisplayMode::Readable)
+        .expect("core dump should succeed");
+
+    assert!(
+        dumped.contains("__dict_Functor_List"),
+        "expected concrete Functor<List> dictionary at the HKT call site, got:\n{dumped}"
+    );
+    assert!(
+        dumped.contains("double_all(__dict_Functor_List"),
+        "expected `double_all` call to receive the concrete dictionary as its \
+         first argument, got:\n{dumped}"
+    );
+}
