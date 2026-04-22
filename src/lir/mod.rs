@@ -12,6 +12,7 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
+pub mod cont_split;
 #[cfg(feature = "llvm")]
 pub mod emit_llvm;
 pub mod liveness;
