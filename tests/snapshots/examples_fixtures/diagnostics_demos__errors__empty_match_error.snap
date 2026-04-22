@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E430]: Any Type Inferred
 
-Could not determine a concrete type for `x`. Inferred type: `_`.
+Could not determine a concrete type for `x` at the public function signature. Inferred type: `_`.
 
   examples/diagnostics_demos/errors/empty_match_error.flx:2:1
   |

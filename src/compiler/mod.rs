@@ -4725,9 +4725,14 @@ impl Compiler {
     }
 
     fn is_expression_level_e430(diag: &Diagnostic) -> bool {
+        // The message prefix distinguishes expression-level E430 (recursive
+        // walker emission) from binding-level E430 (scheme-level emission).
+        // Proposal 0167 Part 1 added "at the {boundary}" to the message, so
+        // both "this expression." (legacy) and "this expression at" (new)
+        // must match.
         diag.code() == Some("E430")
             && diag.message().is_some_and(|msg| {
-                msg.starts_with("Could not determine a concrete type for this expression.")
+                msg.starts_with("Could not determine a concrete type for this expression")
             })
     }
 

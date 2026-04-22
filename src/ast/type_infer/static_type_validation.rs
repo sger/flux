@@ -16,6 +16,7 @@ use crate::{
     types::{TypeVarId, infer_type::InferType, scheme::Scheme},
 };
 
+use super::boundary::BoundaryKind;
 use super::display::display_infer_type;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ pub fn validate_static_types(
         emitted_exprs: &mut emitted_exprs,
         allowed_generalized_vars: HashSet::new(),
         current_module: None,
+        current_boundary: BoundaryKind::PublicFunctionSignature,
     }
     .validate_statements(&program.statements);
     diagnostics
@@ -92,6 +94,13 @@ struct StrictTypeValidator<'a> {
     emitted_exprs: &'a mut HashSet<ExprId>,
     allowed_generalized_vars: HashSet<TypeVarId>,
     current_module: Option<Identifier>,
+    /// The static boundary classification currently in scope (Proposal 0167
+    /// Part 1). Recursive walks override this via [`Self::with_boundary`] at
+    /// annotated-let bindings and public function signatures; the value is
+    /// read by [`Self::emit_binding_diagnostic`] and
+    /// [`Self::emit_expression_diagnostic_if_needed`] to tag messages with
+    /// the responsible boundary label.
+    current_boundary: BoundaryKind,
 }
 
 impl<'a> StrictTypeValidator<'a> {
@@ -105,29 +114,17 @@ impl<'a> StrictTypeValidator<'a> {
     /// Validate one statement and recurse into nested shapes.
     fn validate_statement(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::Function {
-                name, body, span, ..
-            } => {
-                self.with_binding_allowance(*span, *name, |validator| {
-                    validator.validate_block(body)
-                });
-                self.emit_binding_diagnostic(*name, *span);
-            }
-            Statement::Let {
-                name, value, span, ..
-            } => {
-                self.with_binding_allowance(*span, *name, |validator| {
-                    validator.validate_expression(value)
-                });
-                self.emit_binding_diagnostic(*name, *span);
-            }
+            Statement::Function { .. } => self.validate_function_statement(stmt),
+            Statement::Let { .. } => self.validate_let_statement(stmt),
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
                 self.validate_expression(value);
             }
             Statement::Return {
                 value: Some(value), ..
             } => {
-                self.validate_expression(value);
+                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| {
+                    v.validate_expression(value);
+                });
             }
             Statement::Expression { expression, .. } => {
                 self.validate_expression(expression);
@@ -153,9 +150,61 @@ impl<'a> StrictTypeValidator<'a> {
         }
     }
 
+    /// Validate a `Statement::Function`, tagging the body walk with the
+    /// statement's outward-facing boundary (public signature or annotated
+    /// return) so E430 messages surface the right label.
+    fn validate_function_statement(&mut self, stmt: &Statement) {
+        let Statement::Function {
+            name,
+            body,
+            span,
+            is_public,
+            return_type,
+            ..
+        } = stmt
+        else {
+            return;
+        };
+        let kind = function_boundary_kind(*is_public, return_type.is_some());
+        self.with_binding_allowance(*span, *name, |validator| {
+            validator.with_boundary(kind, |v| v.validate_block(body))
+        });
+        self.emit_binding_diagnostic(*name, *span, kind);
+    }
+
+    /// Validate a `Statement::Let`, entering the `AnnotatedLet` boundary
+    /// when the binding carries an explicit type annotation and otherwise
+    /// inheriting the enclosing boundary.
+    fn validate_let_statement(&mut self, stmt: &Statement) {
+        let Statement::Let {
+            name,
+            value,
+            span,
+            type_annotation,
+            ..
+        } = stmt
+        else {
+            return;
+        };
+        let kind = if type_annotation.is_some() {
+            BoundaryKind::AnnotatedLet
+        } else {
+            self.current_boundary
+        };
+        self.with_binding_allowance(*span, *name, |validator| {
+            validator.with_boundary(kind, |v| v.validate_expression(value))
+        });
+        self.emit_binding_diagnostic(*name, *span, kind);
+    }
+
     /// Emit an E430 diagnostic if the binding's resolved scheme still contains
     /// unresolved type variables (vars not in `forall`).
-    fn emit_binding_diagnostic(&mut self, name: Identifier, span: Span) {
+    ///
+    /// `kind` tags the emission with the responsible boundary classification
+    /// (Proposal 0167 Part 1). The label surfaces in the user-facing message
+    /// so "why is this a hard error?" has a single, consistent answer across
+    /// passes.
+    fn emit_binding_diagnostic(&mut self, name: Identifier, span: Span, kind: BoundaryKind) {
         let Some(scheme) = self.resolved_schemes.get(&name) else {
             return;
         };
@@ -168,13 +217,23 @@ impl<'a> StrictTypeValidator<'a> {
             diagnostic_for(&STRICT_TYPES_ANY_INFERRED)
                 .with_span(span)
                 .with_message(format!(
-                    "Could not determine a concrete type for `{display_name}`. \
-                     Inferred type: `{inferred}`."
+                    "Could not determine a concrete type for `{display_name}` \
+                     at the {boundary}. Inferred type: `{inferred}`.",
+                    boundary = kind.label(),
                 ))
                 .with_hint_text(format!(
                     "Add a type annotation: e.g. `fn {display_name}(x: Int, y: Int): Int`"
                 )),
         );
+    }
+
+    /// Run `f` with `kind` as the in-scope static boundary, restoring the
+    /// previous value afterwards. See [`BoundaryKind`] for the classification.
+    fn with_boundary<R>(&mut self, kind: BoundaryKind, f: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = std::mem::replace(&mut self.current_boundary, kind);
+        let result = f(self);
+        self.current_boundary = previous;
+        result
     }
 
     /// Validate every statement in a block.
@@ -287,7 +346,11 @@ impl<'a> StrictTypeValidator<'a> {
                 self.member_access_children_have_unresolved(object, *member)
             }
             Expression::TupleFieldAccess { object, .. } => self.validate_expression(object),
-            Expression::Perform { args, .. } => self.expressions_have_unresolved(args),
+            Expression::Perform { args, .. } => {
+                self.with_boundary(BoundaryKind::EffectBoundary, |v| {
+                    v.expressions_have_unresolved(args)
+                })
+            }
             _ => false,
         }
     }
@@ -329,10 +392,11 @@ impl<'a> StrictTypeValidator<'a> {
                 diagnostic_for(&STRICT_TYPES_ANY_INFERRED)
                     .with_span(expr.span())
                     .with_message(format!(
-                        "Could not determine a concrete type for this expression. \
-                         Expression: `{}`. Inferred type: `{}`.",
-                        expr.display_with(self.interner),
-                        display_infer_type(ty, self.interner),
+                        "Could not determine a concrete type for this expression \
+                         at the {boundary}. Expression: `{expr}`. Inferred type: `{ty}`.",
+                        boundary = self.current_boundary.label(),
+                        expr = expr.display_with(self.interner),
+                        ty = display_infer_type(ty, self.interner),
                     ))
                     .with_hint_text(
                         "Add a type annotation or rewrite this expression so its type is fully determined.",
@@ -473,21 +537,38 @@ impl<'a> StrictTypeValidator<'a> {
     /// Return whether a statement contains nested expressions with unresolved type variables.
     fn statement_has_unresolved(&mut self, statement: &Statement) -> bool {
         match statement {
-            Statement::Let { name, value, .. } => {
+            Statement::Let {
+                name,
+                value,
+                type_annotation,
+                ..
+            } => {
+                let kind = if type_annotation.is_some() {
+                    BoundaryKind::AnnotatedLet
+                } else {
+                    self.current_boundary
+                };
                 self.with_binding_allowance(statement.span(), *name, |validator| {
-                    validator.validate_expression(value)
+                    validator.with_boundary(kind, |v| v.validate_expression(value))
                 })
             }
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
                 self.validate_expression(value)
             }
-            Statement::Return { value, .. } => value
-                .as_ref()
-                .is_some_and(|value| self.validate_expression(value)),
+            Statement::Return { value, .. } => value.as_ref().is_some_and(|value| {
+                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| v.validate_expression(value))
+            }),
             Statement::Expression { expression, .. } => self.validate_expression(expression),
-            Statement::Function { name, body, .. } => {
+            Statement::Function {
+                name,
+                body,
+                is_public,
+                return_type,
+                ..
+            } => {
+                let kind = function_boundary_kind(*is_public, return_type.is_some());
                 self.with_binding_allowance(statement.span(), *name, |validator| {
-                    validator.block_has_unresolved(body)
+                    validator.with_boundary(kind, |v| v.block_has_unresolved(body))
                 })
             }
             Statement::Module { name, body, .. } => {
@@ -556,5 +637,18 @@ impl<'a> StrictTypeValidator<'a> {
                 None => false,
             }),
         }
+    }
+}
+
+/// Classify a function statement's outward-facing boundary (Proposal 0167
+/// Part 1). Public signatures are the most externally observable boundary
+/// and are preferred when both a public flag and a return annotation apply.
+fn function_boundary_kind(is_public: bool, has_return_annotation: bool) -> BoundaryKind {
+    if is_public {
+        BoundaryKind::PublicFunctionSignature
+    } else if has_return_annotation {
+        BoundaryKind::AnnotatedReturn
+    } else {
+        BoundaryKind::PublicFunctionSignature
     }
 }

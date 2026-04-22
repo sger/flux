@@ -16,7 +16,7 @@ exit_code: 1
 • 2 errors • tests/fixtures/semantic_types/adts/constructor_arity_error.flx
 error[E430]: Any Type Inferred
 
-Could not determine a concrete type for `main`. Inferred type: `() -> _`.
+Could not determine a concrete type for `main` at the public function signature. Inferred type: `() -> _`.
 
   tests/fixtures/semantic_types/adts/constructor_arity_error.flx:3:1
   |

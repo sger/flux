@@ -21,8 +21,9 @@
 use std::collections::HashSet;
 
 use crate::{
+    ast::type_infer::boundary::BoundaryKind,
     core::{CoreDef, CoreProgram, CoreType},
-    diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
+    diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span, types::Severity},
     syntax::interner::Interner,
     types::TypeVarId,
 };
@@ -122,20 +123,39 @@ fn build_violation(def: &CoreDef, var: TypeVarId, span: Span) -> Diagnostic {
     // Reuse the existing "strict unresolved" error code so downstream users
     // (docs, error-code guides) see consistent surfacing. The message makes
     // clear this is a Core-layer check rather than an AST one.
-    diagnostic_for(&crate::diagnostics::compiler_errors::STRICT_TYPES_ANY_INFERRED)
+    //
+    // Tagged with [`BoundaryKind::BackendConcreteBoundary`] (Proposal 0167
+    // Part 1): by the time Core lowering has run, any residue in a def's
+    // result type is a representation-level failure — backends need every
+    // Core-visible type concrete to pick a layout. The label surfaces in
+    // the user-facing message so "why is this reported here?" reads
+    // consistently with the AST-level boundary diagnostics.
+    //
+    // Severity is `Error`: by this point HM inference has finalized and
+    // AST strict validation has already run. Residue surfacing here is a
+    // real contract violation the AST layer missed, not observability
+    // noise. The explicit `Severity::Error` assignment is retained
+    // (rather than relying on the default from `diagnostic_for`) so the
+    // intent is documented at the emission site and a future rollout
+    // step can flip it in one place without hunting for the severity.
+    let kind = BoundaryKind::BackendConcreteBoundary;
+    let mut diag = diagnostic_for(&crate::diagnostics::compiler_errors::STRICT_TYPES_ANY_INFERRED)
         .with_span(span)
         .with_message(format!(
             "Core definition `{}` has an unresolved type variable (var #{}) \
-             in its HM-inferred result type. The static typing contract \
-             requires every Core-visible boundary to be concrete before \
-             backend lowering.",
+             in its HM-inferred result type at the {boundary}. The static \
+             typing contract requires every Core-visible boundary to be \
+             concrete before backend lowering.",
             def.name.as_u32(),
             var,
+            boundary = kind.label(),
         ))
         .with_hint_text(
             "Add a type annotation or adjust the definition so inference \
              fully resolves its result type.",
-        )
+        );
+    diag.severity = Severity::Error;
+    diag
 }
 
 #[cfg(test)]

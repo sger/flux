@@ -1,11 +1,86 @@
 - Feature Name: Static Typing Contract Hardening
 - Start Date: 2026-04-20
-- Status: Proposed
+- Status: Implemented (2026-04-22)
 - Proposal PR:
 - Flux Issue:
-- Depends on: current HM/Core pipeline, [0157](0157_remove_dynamic_from_maintained_paths.md), [0158](0158_static_typing_contract_enforcement.md), [0159](0159_polymorphic_recursion_signature_guided.md), [0164](implemented/0164_internal_primop_contract_and_stdlib_surface.md) where relevant
+- Depends on: current HM/Core pipeline, [0157](../0157_remove_dynamic_from_maintained_paths.md), [0158](../0158_static_typing_contract_enforcement.md), [0159](../0159_polymorphic_recursion_signature_guided.md), [0164](0164_internal_primop_contract_and_stdlib_surface.md) where relevant
 
 # Proposal 0167: Static Typing Contract Hardening
+
+## Implementation Summary
+
+Landed across two commits (April 21–22).
+
+**Commit `ca6f79ca` — infrastructure (April 21):**
+
+- `src/ast/type_infer/boundary.rs` — `BoundaryKind` enum with six
+  variants (`PublicFunctionSignature`, `AnnotatedLet`, `AnnotatedReturn`,
+  `EffectBoundary`, `ModuleInterfaceBoundary`, `BackendConcreteBoundary`)
+  plus `BoundaryViolation` carrier and stable user-facing labels.
+- `src/diagnostics/ranking.rs` — unified overlap-based
+  `is_suppressed_by` / `spans_related` helper replacing the per-pass
+  "span overlap OR same line" heuristics in `hm_expr_typer` and
+  `static_type_validation`. Same-line-disjoint no longer suppresses.
+- `src/core/passes/static_contract.rs` — Core-adjacent walker that
+  inspects each `CoreDef::result_ty` for free variables not enclosed by
+  a `Forall`, wired into the semantic core-pass pipeline as Stage 1b.
+- `src/ast/type_infer/static_type_validation.rs` — `is_illegal_residue`
+  three-conjunct rule: a type variable is illegal residue iff it is not
+  in `allowed_generalized_vars`, not in `instantiated_expr_vars`, and
+  tagged in `fallback_vars`. The `fallback_vars` conjunct is retained
+  with a documented rationale (mutual-recursion groups).
+- `src/syntax/expression.rs` — `ExprIdGen::resuming_past_program` /
+  `resuming_past_statements` replace the hardcoded 1_000_000 sentinel
+  for compiler-generated AST (class dispatch, synthetic wrappers).
+- Infinite-type diagnostic already present as **E301 `OCCURS_CHECK_FAILURE`**
+  with "infinite type" user-facing wording (the proposal's suggested
+  `E306` is subsumed by the existing code).
+- Typed-let strict path cleanup in `src/compiler/statement.rs`:
+  `block_has_typed_let_error` now only triggers AST fallback on
+  diagnosable errors (E300 mismatch, E425 unresolved, unknown annotation
+  constructor); well-typed annotated lets proceed through CFG.
+
+**Part 1 consumption + Part 7 promotion (April 22):**
+
+- `StrictTypeValidator` now carries a `current_boundary: BoundaryKind`
+  field threaded via `with_boundary` at every relevant entry point:
+  `Statement::Function` (per `is_public` / `return_type`),
+  `Statement::Let` (when `type_annotation.is_some()`), `Statement::Return`,
+  and `Expression::Perform`. Both emission sites (binding-level and
+  expression-level E430) now include the boundary label in the user-facing
+  message via `kind.label()`.
+- `src/core/passes/static_contract.rs` `build_violation` tags emissions
+  as `BackendConcreteBoundary` and sets `Severity::Error` explicitly.
+- `src/core/passes/mod.rs` removes the `FLUX_CORE_CONTRACT_WARN` opt-in
+  and emits by default; `FLUX_CORE_CONTRACT_SILENT` remains as a
+  rollout escape hatch.
+- `src/compiler/mod.rs` `is_expression_level_e430` predicate loosened:
+  drops the trailing period from the message-prefix match so the new
+  " at the {boundary}" infix still participates in suppression.
+- `validate_statement` split into `validate_function_statement` and
+  `validate_let_statement` helpers to stay within the
+  `type_infer_function_complexity_budget` guard.
+
+**Part-by-part status:**
+
+- Part 1 (boundary classification): enum + consumption — user-visible
+  diagnostics carry the label.
+- Part 2 (infinite type): already landed as **E301**.
+- Part 3 (unresolved-boundary rule): `is_illegal_residue` three-conjunct.
+- Part 4 (reduce AST fallback): typed-let happy path on CFG; remaining
+  AST fallbacks are specialised-diagnostic paths only.
+- Part 5 (unified suppression): `ranking::is_suppressed_by` consumed
+  by both validators; same-line disjoint no longer related.
+- Part 6 (globally unique ExprId): `resuming_past_program`.
+- Part 7 (Core-adjacent contract): default-on, **Error severity**,
+  `FLUX_CORE_CONTRACT_SILENT` escape hatch.
+
+**Tests:** `tests/type_inference/boundary_contract_tests.rs` covers the
+label vocabulary, strict-mode typed-let acceptance, the ranking policy,
+`ExprIdGen::resuming_past_program`, the residue rule, and the Core
+contract pass entry point (`core_contract_violation_includes_boundary_label`
+confirms the `BackendConcreteBoundary` label flows into the emitted
+diagnostic).
 
 ## Summary
 [summary]: #summary

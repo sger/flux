@@ -13,7 +13,33 @@ exit_code: 1
 [ 7 of 10] Compiling  Numeric
 [ 8 of 10] Compiling  Option
 [ 9 of 10] Compiling  String
-• 2 errors • tests/fixtures/collections/empty_and_singleton.flx
+• 5 errors • tests/fixtures/collections/empty_and_singleton.flx
+error[E430]: Any Type Inferred
+
+Core definition `0` has an unresolved type variable (var #10597) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+
+  tests/fixtures/collections/empty_and_singleton.flx:1:1
+  |
+1 | [];
+  | ^^^
+
+Hint:
+  Add a type annotation or adjust the definition so inference fully resolves its result type.
+
+
+error[E430]: Any Type Inferred
+
+Core definition `0` has an unresolved type variable (var #10599) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+
+  tests/fixtures/collections/empty_and_singleton.flx:3:1
+  |
+3 | f();
+  | ^^^^
+
+Hint:
+  Add a type annotation or adjust the definition so inference fully resolves its result type.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `f`.
@@ -28,6 +54,19 @@ Hint:
 
 Help:
   Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
+
+
+error[E430]: Any Type Inferred
+
+Core definition `0` has an unresolved type variable (var #10601) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+
+  tests/fixtures/collections/empty_and_singleton.flx:4:1
+  |
+4 | f(1);
+  | ^^^^^
+
+Hint:
+  Add a type annotation or adjust the definition so inference fully resolves its result type.
 
 
 error[E004]: Undefined Variable
@@ -45,4 +84,4 @@ Hint:
 Help:
   Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
 
-Found 2 errors.
+Found 5 errors.
