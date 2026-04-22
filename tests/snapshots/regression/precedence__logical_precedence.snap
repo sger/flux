@@ -44,16 +44,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   tests/fixtures/precedence/logical_precedence.flx:1:1
   |
 1 | print(true || false && false);
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------- requires `IO`
+  | ----------------------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 
 error[E413]: Top-Level Effect
@@ -72,15 +72,15 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   tests/fixtures/precedence/logical_precedence.flx:2:1
   |
 2 | print(!true == false);
   | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- requires `IO`
+  | --------------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 5 errors.

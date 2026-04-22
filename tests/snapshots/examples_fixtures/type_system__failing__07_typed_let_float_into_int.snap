@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/07_typed_let_float_into_int.flx
 == compile ==
@@ -55,16 +55,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
    |
 14 | print("#{label}: #{add(answer, 8)}")
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------ requires `IO`
+   | ------------------------------------ requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 
 error[E413]: Top-Level Effect
@@ -83,16 +83,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
    |
 15 | print(distance_tag(point))
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------- requires `IO`
+   | -------------------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 6 errors.
 == stdout ==

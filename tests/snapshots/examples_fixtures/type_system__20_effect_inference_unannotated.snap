@@ -1,10 +1,21 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/20_effect_inference_unannotated.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E400]: Missing Ambient Effect
+
+Call to `double_and_log` requires effect `IO` in this function signature.
+
+  examples/type_system/20_effect_inference_unannotated.flx:17:21
+   |
+17 |     print(to_string(double_and_log(7)))
+   |                     ^^^^^^^^^^^^^^
+   |                     -------------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
 == stdout ==
 <not executed>

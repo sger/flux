@@ -2041,8 +2041,8 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
         rendered
     );
     assert!(
-        rendered.contains("requires effect `IO`"),
-        "expected deterministic first missing effect `IO`, got:\n{}",
+        rendered.contains("requires effect `Clock`"),
+        "expected deterministic first missing effect `Clock`, got:\n{}",
         rendered
     );
 }
@@ -2180,8 +2180,8 @@ fn effect_row_subset_unsatisfied_reports_e422() {
         rendered
     );
     assert!(
-        rendered.contains("missing required effects: Time"),
-        "expected missing `Time` subset message, got:\n{}",
+        rendered.contains("missing required effects: Clock"),
+        "expected missing `Clock` subset message, got:\n{}",
         rendered
     );
     assert!(
@@ -2224,8 +2224,8 @@ fn effect_row_absent_ordering_linked_violation_reports_e421() {
         rendered
     );
     assert!(
-        rendered.contains("I cannot subtract effect `IO`"),
-        "expected deferred absent violation message for `IO`, got:\n{}",
+        rendered.contains("I cannot subtract effect `Console`"),
+        "expected deferred absent violation message for `Console`, got:\n{}",
         rendered
     );
 }

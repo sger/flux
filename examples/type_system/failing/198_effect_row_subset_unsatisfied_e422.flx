@@ -1,15 +1,15 @@
 // E422: callback effect row is missing required effects.
 
-fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+fn run_needs_console_clock(f: (() -> Int with Console, Clock)) -> Int with Console, Clock {
     f()
 }
 
-fn only_io() -> Int with IO {
-    print("io")
+fn only_console() -> Int with Console {
+    print("console")
     1
 }
 
-fn main() with IO, Time {
-    run_needs_io_time(only_io)
+fn main() with Console, Clock {
+    run_needs_console_clock(only_console)
     None
 }
