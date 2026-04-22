@@ -2502,3 +2502,42 @@ fn main() with IO {
     );
     assert_eq!(code, "E400");
 }
+
+/// Proposal 0161 B3: fine-grained `with Console` annotations are accepted
+/// as first-class. The builtin `IO = <Console | FileSystem | Stdin>` seed
+/// means a caller with `with Console` can invoke any `println`-shaped
+/// function without widening to `IO`.
+#[test]
+fn fine_grained_console_annotation_accepted() {
+    compile_ok_in(
+        "fine_console.flx",
+        r#"
+fn shout(msg: String) with Console {
+    println(msg)
+}
+
+fn main() with Console {
+    shout("hi")
+}
+"#,
+    );
+}
+
+/// Proposal 0161 B3: a function annotated `with IO` still accepts all
+/// three decomposed primops because the alias seeding expands `IO` into
+/// `<Console | FileSystem | Stdin>` before the effect check runs.
+#[test]
+fn with_io_still_covers_all_decomposed_primops() {
+    compile_ok_in(
+        "with_io_decomposed.flx",
+        r#"
+fn do_all() with IO {
+    println("ping")
+}
+
+fn main() with IO {
+    do_all()
+}
+"#,
+    );
+}
