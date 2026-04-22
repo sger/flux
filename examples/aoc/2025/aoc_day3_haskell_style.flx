@@ -9,6 +9,8 @@ Mirrors the provided StateT/List backtracking approach.
 Uses input file: examples/aoc/2025/aoc_day3.txt
 */
 
+import Flow.Array as Array
+
 // Program entry point.
 fn main() with IO, Time {
     // Find next pos.
@@ -90,7 +92,7 @@ fn main() with IO, Time {
 
     // Compute DAY03.
     fn day03(n, path) with IO {
-        match sum_values(to_list(read_lines(path)), n, 0) {
+        match sum_values(Array.to_list(read_lines(path)), n, 0) {
             Some(total) -> total,
             _ -> 0
         }

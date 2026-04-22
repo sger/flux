@@ -10,7 +10,6 @@ use std::time::{Instant, SystemTime};
 
 use crate::core::CorePrimOp;
 use crate::runtime::RuntimeContext;
-use crate::runtime::cons_cell::ConsCell;
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
@@ -72,6 +71,14 @@ pub fn execute_core_primop(
         FFloor => float1(&args, |a| Value::Float(a.floor()), "ffloor"),
         FCeil => float1(&args, |a| Value::Float(a.ceil()), "fceil"),
         FRound => float1(&args, |a| Value::Float(a.round()), "fround"),
+        FTan => float1(&args, |a| Value::Float(a.tan()), "ftan"),
+        FAsin => float1(&args, |a| Value::Float(a.asin()), "fasin"),
+        FAcos => float1(&args, |a| Value::Float(a.acos()), "facos"),
+        FAtan => float1(&args, |a| Value::Float(a.atan()), "fatan"),
+        FSinh => float1(&args, |a| Value::Float(a.sinh()), "fsinh"),
+        FCosh => float1(&args, |a| Value::Float(a.cosh()), "fcosh"),
+        FTanh => float1(&args, |a| Value::Float(a.tanh()), "ftanh"),
+        FTruncate => float1(&args, |a| Value::Float(a.trunc()), "ftruncate"),
         BitAnd => int2(&args, |a, b| Value::Integer(a & b), "bit_and"),
         BitOr => int2(&args, |a, b| Value::Integer(a | b), "bit_or"),
         BitXor => int2(&args, |a, b| Value::Integer(a ^ b), "bit_xor"),
@@ -320,21 +327,6 @@ pub fn execute_core_primop(
             };
             Ok(Value::Array(parts.into()))
         }
-        Join => {
-            let arr = earr(&args[0], "join")?;
-            let delim = estr(&args[1], "join")?;
-            let strings: Result<Vec<String>, String> = arr
-                .iter()
-                .map(|item| match item {
-                    Value::String(s) => Ok(s.to_string()),
-                    other => Err(format!(
-                        "join expects String elements, got {}",
-                        other.type_name()
-                    )),
-                })
-                .collect();
-            Ok(Value::String(strings?.join(delim).into()))
-        }
         Trim => Ok(Value::String(
             estr(&args[0], "trim")?.trim().to_string().into(),
         )),
@@ -344,28 +336,10 @@ pub fn execute_core_primop(
         Lower => Ok(Value::String(
             estr(&args[0], "lower")?.to_lowercase().into(),
         )),
-        StartsWith => Ok(Value::Boolean(
-            estr(&args[0], "starts_with")?.starts_with(estr(&args[1], "starts_with")?),
-        )),
-        EndsWith => Ok(Value::Boolean(
-            estr(&args[0], "ends_with")?.ends_with(estr(&args[1], "ends_with")?),
-        )),
         Replace => Ok(Value::String(
             estr(&args[0], "replace")?
                 .replace(estr(&args[1], "replace")?, estr(&args[2], "replace")?)
                 .into(),
-        )),
-        Chars => {
-            let s = estr(&args[0], "chars")?;
-            Ok(Value::Array(
-                s.chars()
-                    .map(|c| Value::String(c.to_string().into()))
-                    .collect::<Vec<_>>()
-                    .into(),
-            ))
-        }
-        StrContains => Ok(Value::Boolean(
-            estr(&args[0], "str_contains")?.contains(estr(&args[1], "str_contains")?),
         )),
 
         // ── Type tag inspection ───────────────────────────────────────
@@ -497,67 +471,6 @@ pub fn execute_core_primop(
                 .map_err(|_| format!("parse_int: could not parse '{}' as Int", text))?;
             Ok(Value::Integer(parsed))
         }
-        ParseInts => {
-            let arr = earr(&args[0], "parse_ints")?;
-            let mut out = Vec::with_capacity(arr.len());
-            for value in arr.iter() {
-                let s = estr(value, "parse_ints")?;
-                let parsed = s
-                    .trim()
-                    .parse::<i64>()
-                    .map_err(|_| format!("parse_ints: could not parse '{}' as Int", s))?;
-                out.push(Value::Integer(parsed));
-            }
-            Ok(Value::Array(out.into()))
-        }
-        SplitInts => {
-            let s = estr(&args[0], "split_ints")?;
-            let delim = estr(&args[1], "split_ints")?;
-            let mut out = Vec::new();
-            if delim.is_empty() {
-                for ch in s.chars() {
-                    let text = ch.to_string();
-                    out.push(Value::Integer(text.trim().parse::<i64>().map_err(
-                        |_| format!("split_ints: could not parse '{}' as Int", text),
-                    )?));
-                }
-            } else {
-                for part in s.split(delim) {
-                    out.push(Value::Integer(part.trim().parse::<i64>().map_err(
-                        |_| format!("split_ints: could not parse '{}' as Int", part),
-                    )?));
-                }
-            }
-            Ok(Value::Array(out.into()))
-        }
-
-        // ── List / cons cell ──────────────────────────────────────────
-        ToList => match &args[0] {
-            Value::Array(arr) => {
-                let mut list = Value::EmptyList;
-                for elem in arr.iter().rev() {
-                    list = ConsCell::cons(elem.clone(), list);
-                }
-                Ok(list)
-            }
-            other => Err(terr("to_list", "Array", other)),
-        },
-        ToArray => {
-            let mut elements = Vec::new();
-            let mut current = args[0].clone();
-            loop {
-                match &current {
-                    Value::None | Value::EmptyList => break,
-                    Value::Cons(cell) => {
-                        elements.push(cell.head.clone());
-                        current = cell.tail.clone();
-                    }
-                    _ => return Err(terr("to_array", "List", &current)),
-                }
-            }
-            Ok(Value::Array(Rc::new(elements)))
-        }
-
         // ── Polymorphic length ────────────────────────────────────────
         Len => match &args[0] {
             Value::String(s) => Ok(Value::Integer(s.len() as i64)),
@@ -582,35 +495,6 @@ pub fn execute_core_primop(
             Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
             other => Err(terr("len", "String, Array, Tuple, or Map", other)),
         },
-
-        // ── Array helpers promoted through explicit builtin names ──────
-        ArrayReverse => match &args[0] {
-            Value::Array(arr) => {
-                let mut v: Vec<Value> = arr.iter().cloned().collect();
-                v.reverse();
-                Ok(Value::Array(Rc::new(v)))
-            }
-            other => Err(terr("array_reverse", "Array", other)),
-        },
-        ArrayContains => {
-            let (collection, target) = (&args[0], &args[1]);
-            match collection {
-                Value::Array(arr) => Ok(Value::Boolean(arr.iter().any(|e| e == target))),
-                other => Err(terr("array_contains", "Array", other)),
-            }
-        }
-        Sort => sort_collection(&args[0]),
-        SortBy => sort_by_collection(ctx, &args[0], args[1].clone()),
-        HoMap | HoFilter | HoFold | HoAny | HoAll | HoEach | HoFind | HoCount | Zip | Flatten
-        | HoFlatMap => {
-            // These higher-order ops require closure calls; in VM they go through
-            // the prelude Flow.* modules (not OpPrimOp). If we reach here, it
-            // means the bytecode compiler emitted them — fall through gracefully.
-            Err(format!(
-                "CorePrimOp {:?} requires closure dispatch; use prelude functions",
-                op
-            ))
-        }
 
         // ── Effect handler ops (native-only, Koka-style yield model) ────
         EvvGet | EvvSet | FreshMarker | EvvInsert | YieldTo | YieldExtend | YieldPrompt
@@ -679,124 +563,6 @@ fn ehamt<'a>(v: &'a Value, op: &str) -> Result<&'a Rc<rc_hamt::HamtNode>, String
     match v {
         Value::HashMap(n) => Ok(n),
         other => Err(terr(op, "Map", other)),
-    }
-}
-
-fn sort_collection(collection: &Value) -> Result<Value, String> {
-    match collection {
-        Value::Array(items) => {
-            let mut sorted: Vec<Value> = items.iter().cloned().collect();
-            stable_insertion_sort_values(&mut sorted)?;
-            Ok(Value::Array(sorted.into()))
-        }
-        Value::Cons(_) | Value::EmptyList => {
-            let mut sorted = list_to_vec(collection);
-            stable_insertion_sort_values(&mut sorted)?;
-            Ok(vec_to_list(sorted))
-        }
-        other => Err(terr("sort", "Array or List", other)),
-    }
-}
-
-fn sort_by_collection(
-    ctx: &mut dyn RuntimeContext,
-    collection: &Value,
-    func: Value,
-) -> Result<Value, String> {
-    match collection {
-        Value::Array(items) => {
-            let mut sorted: Vec<Value> = items.iter().cloned().collect();
-            let mut keys = compute_sort_keys(ctx, &sorted, &func)?;
-            stable_insertion_sort_by_keys(&mut sorted, &mut keys)?;
-            Ok(Value::Array(sorted.into()))
-        }
-        Value::Cons(_) | Value::EmptyList => {
-            let mut sorted = list_to_vec(collection);
-            let mut keys = compute_sort_keys(ctx, &sorted, &func)?;
-            stable_insertion_sort_by_keys(&mut sorted, &mut keys)?;
-            Ok(vec_to_list(sorted))
-        }
-        other => Err(terr("sort_by", "Array or List", other)),
-    }
-}
-
-fn compute_sort_keys(
-    ctx: &mut dyn RuntimeContext,
-    values: &[Value],
-    func: &Value,
-) -> Result<Vec<Value>, String> {
-    values
-        .iter()
-        .map(|value| ctx.invoke_value(func.clone(), vec![value.clone()]))
-        .collect()
-}
-
-fn stable_insertion_sort_values(values: &mut [Value]) -> Result<(), String> {
-    for i in 1..values.len() {
-        let value = values[i].clone();
-        let key = value.clone();
-        let mut j = i;
-        while j > 0 && value_gt(&values[j - 1], &key)? {
-            values[j] = values[j - 1].clone();
-            j -= 1;
-        }
-        values[j] = value;
-    }
-    Ok(())
-}
-
-fn stable_insertion_sort_by_keys(values: &mut [Value], keys: &mut [Value]) -> Result<(), String> {
-    for i in 1..values.len() {
-        let value = values[i].clone();
-        let key = keys[i].clone();
-        let mut j = i;
-        while j > 0 && value_gt(&keys[j - 1], &key)? {
-            values[j] = values[j - 1].clone();
-            keys[j] = keys[j - 1].clone();
-            j -= 1;
-        }
-        values[j] = value;
-        keys[j] = key;
-    }
-    Ok(())
-}
-
-fn list_to_vec(value: &Value) -> Vec<Value> {
-    let mut out = Vec::new();
-    let mut cur = value.clone();
-    loop {
-        match cur {
-            Value::Cons(cell) => {
-                out.push(cell.head.clone());
-                cur = cell.tail.clone();
-            }
-            Value::EmptyList | Value::None => break,
-            _ => break,
-        }
-    }
-    out
-}
-
-fn vec_to_list(values: Vec<Value>) -> Value {
-    values
-        .into_iter()
-        .rev()
-        .fold(Value::EmptyList, |tail, head| ConsCell::cons(head, tail))
-}
-
-fn value_gt(left: &Value, right: &Value) -> Result<bool, String> {
-    match (left, right) {
-        (Value::Integer(l), Value::Integer(r)) => Ok(l > r),
-        (Value::Float(l), Value::Float(r)) => Ok(l > r),
-        (Value::Integer(l), Value::Float(r)) => Ok((*l as f64) > *r),
-        (Value::Float(l), Value::Integer(r)) => Ok(*l > (*r as f64)),
-        (Value::String(l), Value::String(r)) => Ok(l.as_str() > r.as_str()),
-        (Value::Boolean(l), Value::Boolean(r)) => Ok((*l as u8) > (*r as u8)),
-        _ => Err(format!(
-            "sort comparison only supports Int, Float, String, or Bool keys; got {} and {}",
-            left.type_name(),
-            right.type_name()
-        )),
     }
 }
 

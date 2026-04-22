@@ -126,11 +126,11 @@ fn compiler_emits_op_primop_for_bitwise_builtins() {
     assert_contains_primop("bit_shr(-8, 1);");
 }
 
-#[test]
-fn compiler_emits_op_primop_for_explicit_array_reverse_and_contains() {
-    assert_contains_primop("array_reverse([|1, 2, 3|]);");
-    assert_contains_primop("array_contains([|1, 2, 3|], 2);");
-}
+// compiler_emits_op_primop_for_explicit_array_reverse_and_contains removed
+// after Proposal 0164 Phase 7: `ArrayReverse` and `ArrayContains` are no
+// longer primops. `Flow.Array.reverse` / `Flow.Array.contains` are the
+// canonical pure-Flux implementations, and bare `array_reverse` /
+// `array_contains` now fail to resolve (with a legacy-helper hint).
 
 #[test]
 fn compiler_emits_op_primop_for_explicit_map_builtins() {

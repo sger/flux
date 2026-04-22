@@ -33,16 +33,11 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         // String memory operations
         ("to_string", 1, CorePrimOp::ToString),
         ("split", 2, CorePrimOp::Split),
-        ("join", 2, CorePrimOp::Join),
         ("trim", 1, CorePrimOp::Trim),
-        ("starts_with", 2, CorePrimOp::StartsWith),
-        ("ends_with", 2, CorePrimOp::EndsWith),
         ("substring", 3, CorePrimOp::Substring),
         ("upper", 1, CorePrimOp::Upper),
         ("lower", 1, CorePrimOp::Lower),
         ("replace", 3, CorePrimOp::Replace),
-        ("chars", 1, CorePrimOp::Chars),
-        ("str_contains", 2, CorePrimOp::StrContains),
         // Array memory operations
         ("array_push", 2, CorePrimOp::ArrayPush),
         ("array_concat", 2, CorePrimOp::ArrayConcat),
@@ -95,6 +90,22 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("fceil", 1, CorePrimOp::FCeil),
         ("round", 1, CorePrimOp::FRound),
         ("fround", 1, CorePrimOp::FRound),
+        ("tan", 1, CorePrimOp::FTan),
+        ("ftan", 1, CorePrimOp::FTan),
+        ("asin", 1, CorePrimOp::FAsin),
+        ("fasin", 1, CorePrimOp::FAsin),
+        ("acos", 1, CorePrimOp::FAcos),
+        ("facos", 1, CorePrimOp::FAcos),
+        ("atan", 1, CorePrimOp::FAtan),
+        ("fatan", 1, CorePrimOp::FAtan),
+        ("sinh", 1, CorePrimOp::FSinh),
+        ("fsinh", 1, CorePrimOp::FSinh),
+        ("cosh", 1, CorePrimOp::FCosh),
+        ("fcosh", 1, CorePrimOp::FCosh),
+        ("tanh", 1, CorePrimOp::FTanh),
+        ("ftanh", 1, CorePrimOp::FTanh),
+        ("truncate", 1, CorePrimOp::FTruncate),
+        ("ftruncate", 1, CorePrimOp::FTruncate),
         ("bit_and", 2, CorePrimOp::BitAnd),
         ("bit_or", 2, CorePrimOp::BitOr),
         ("bit_xor", 2, CorePrimOp::BitXor),
@@ -106,20 +117,13 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("time", 0, CorePrimOp::Time),
         // Parsing
         ("parse_int", 1, CorePrimOp::ParseInt),
-        ("parse_ints", 1, CorePrimOp::ParseInts),
-        ("split_ints", 2, CorePrimOp::SplitInts),
-        // List / cons cell
-        ("to_list", 1, CorePrimOp::ToList),
-        ("to_array", 1, CorePrimOp::ToArray),
         // Polymorphic length
         ("len", 1, CorePrimOp::Len),
         // Collection helpers (C runtime implementations).
         // map/filter/sort/sort_by are NOT promoted — they take closures
         // which the VM dispatch can't call (needs prelude closure path).
-        // stdlib-facing `reverse`/`contains` stay ordinary bindings; only the
-        // array-specific builtin names promote to primops.
-        ("array_reverse", 1, CorePrimOp::ArrayReverse),
-        ("array_contains", 2, CorePrimOp::ArrayContains),
+        // `array_reverse` / `array_contains` removed: `Flow.Array.reverse` and
+        // `Flow.Array.contains` are the canonical stdlib implementations.
     ];
     entries.iter().map(|&(n, a, op)| ((n, a), op)).collect()
 }

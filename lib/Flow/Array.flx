@@ -324,7 +324,13 @@ module Flow.Array {
     }
 
     public fn from_list<a>(xs: List<a>) -> Array<a> {
-        to_array(xs)
+        fn from_list_go(ys, acc) {
+            match ys {
+                [h | t] -> from_list_go(t, push(acc, h)),
+                _ -> acc
+            }
+        }
+        from_list_go(xs, [||])
     }
 
     public fn find_index<a>(arr: Array<a>, pred: (a) -> Bool) -> Option<Int> {
@@ -379,8 +385,6 @@ module Flow.Array {
         }
         accum_go(base, pairs)
     }
-
-    // ── Conversion (Phase 3) ────────────────────────────────────────
 
     public fn to_list<a>(arr: Array<a>) -> List<a> {
         fn to_list_go(idx) {

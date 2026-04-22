@@ -1585,9 +1585,13 @@ impl<'a> FnEmitter<'a> {
         span: crate::diagnostics::position::Span,
         c_name: &str,
     ) {
+        // Reserve a fresh counter slot so multiple checked ops in the same
+        // LLVM function don't collide on `dz0_…` SSA names.
+        let n = self.next_tmp;
+        self.next_tmp += 1;
         // Tag: (raw << 1) | 1
-        let a_tag = LlvmLocal(format!("dz{}_a_tag", self.next_tmp));
-        let a_tag2 = LlvmLocal(format!("dz{}_a_tag2", self.next_tmp));
+        let a_tag = LlvmLocal(format!("dz{n}_a_tag"));
+        let a_tag2 = LlvmLocal(format!("dz{n}_a_tag2"));
         self.emit(LlvmInstr::Binary {
             dst: a_tag.clone(),
             op: LlvmValueKind::Shl,
@@ -1602,8 +1606,8 @@ impl<'a> FnEmitter<'a> {
             lhs: LlvmOperand::Local(a_tag),
             rhs: self.i64_const(1),
         });
-        let b_tag = LlvmLocal(format!("dz{}_b_tag", self.next_tmp));
-        let b_tag2 = LlvmLocal(format!("dz{}_b_tag2", self.next_tmp));
+        let b_tag = LlvmLocal(format!("dz{n}_b_tag"));
+        let b_tag2 = LlvmLocal(format!("dz{n}_b_tag2"));
         self.emit(LlvmInstr::Binary {
             dst: b_tag.clone(),
             op: LlvmValueKind::Shl,
@@ -1619,7 +1623,7 @@ impl<'a> FnEmitter<'a> {
             rhs: self.i64_const(1),
         });
         // Call the C runtime function (which checks for zero).
-        let tagged_result = LlvmLocal(format!("dz{}_result", self.next_tmp));
+        let tagged_result = LlvmLocal(format!("dz{n}_result"));
         self.call_c(
             Some(tagged_result.clone()),
             c_name,
@@ -2939,16 +2943,11 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
         CorePrimOp::Split => "split",
-        CorePrimOp::Join => "join",
         CorePrimOp::Trim => "trim",
         CorePrimOp::Upper => "upper",
         CorePrimOp::Lower => "lower",
-        CorePrimOp::StartsWith => "starts_with",
-        CorePrimOp::EndsWith => "ends_with",
         CorePrimOp::Replace => "replace",
         CorePrimOp::Substring => "substring",
-        CorePrimOp::Chars => "chars",
-        CorePrimOp::StrContains => "str_contains",
         CorePrimOp::ArrayLen => "array_len",
         CorePrimOp::ArrayGet => "array_get",
         CorePrimOp::ArraySet => "array_set",
@@ -2981,10 +2980,6 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::ParseInts => "parse_ints",
-        CorePrimOp::SplitInts => "split_ints",
-        CorePrimOp::ToList => "to_list",
-        CorePrimOp::ToArray => "to_array",
         CorePrimOp::Abs => "abs",
         CorePrimOp::FSqrt => "sqrt",
         CorePrimOp::FSin => "sin",
@@ -2994,6 +2989,14 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FFloor => "floor",
         CorePrimOp::FCeil => "ceil",
         CorePrimOp::FRound => "round",
+        CorePrimOp::FTan => "tan",
+        CorePrimOp::FAsin => "asin",
+        CorePrimOp::FAcos => "acos",
+        CorePrimOp::FAtan => "atan",
+        CorePrimOp::FSinh => "sinh",
+        CorePrimOp::FCosh => "cosh",
+        CorePrimOp::FTanh => "tanh",
+        CorePrimOp::FTruncate => "truncate",
         CorePrimOp::BitAnd => "bit_and",
         CorePrimOp::BitOr => "bit_or",
         CorePrimOp::BitXor => "bit_xor",
@@ -3048,22 +3051,6 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::MakeList => return "flux_make_list".to_string(),
         CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
         CorePrimOp::Index => return "flux_rt_index".to_string(),
-        // Collection helpers (promoted for native)
-        CorePrimOp::ArrayReverse => return "flux_array_reverse".to_string(),
-        CorePrimOp::ArrayContains => return "flux_array_contains".to_string(),
-        CorePrimOp::Sort => return "flux_sort_default".to_string(),
-        CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
-        CorePrimOp::HoMap => return "flux_ho_map".to_string(),
-        CorePrimOp::HoFilter => return "flux_ho_filter".to_string(),
-        CorePrimOp::HoFold => return "flux_ho_fold".to_string(),
-        CorePrimOp::HoAny => return "flux_ho_any".to_string(),
-        CorePrimOp::HoAll => return "flux_ho_all".to_string(),
-        CorePrimOp::HoEach => return "flux_ho_each".to_string(),
-        CorePrimOp::HoFind => return "flux_ho_find".to_string(),
-        CorePrimOp::HoCount => return "flux_ho_count".to_string(),
-        CorePrimOp::Zip => return "flux_zip".to_string(),
-        CorePrimOp::Flatten => return "flux_flatten".to_string(),
-        CorePrimOp::HoFlatMap => return "flux_ho_flat_map".to_string(),
         // Effect handlers (Koka-style yield model)
         CorePrimOp::EvvGet => return "flux_evv_get".to_string(),
         CorePrimOp::EvvSet => return "flux_evv_set".to_string(),

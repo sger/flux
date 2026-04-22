@@ -19,6 +19,9 @@
 // false
 // parity-expected-stdout-end
 
+import Flow.Array as Array
+import Flow.List as List
+
 fn main() with IO {
     // Test: Persistent lists (cons cells)
     // Expected output:
@@ -52,7 +55,7 @@ fn main() with IO {
 
     let my_array = [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
     print(my_array);  // [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
-    print(rest(to_list(my_array))); // [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    print(rest(Array.to_list(my_array))); // [2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     // =============================================================================
     // Head and Tail (O(1) operations)
@@ -89,8 +92,8 @@ fn main() with IO {
 
     // Convert array to list
     let arr = [|1, 2, 3|]
-    let lst = to_list(arr)
-    print(to_array(lst))  // [|1, 2, 3|]
+    let lst = Array.to_list(arr)
+    print(List.to_array(lst))  // [|1, 2, 3|]
 
     let my_new_list = [20, 30, 40]
     print(my_new_list)
@@ -98,7 +101,7 @@ fn main() with IO {
     let my_new_list2 = [|1|]
     print(my_new_list2)
 
-    print(to_list(my_new_list2))
+    print(Array.to_list(my_new_list2))
 
     let xs_list = [100 | [200 | [300 | []]]];
     print(xs_list)

@@ -11,6 +11,7 @@ Input: examples/aoc/2025/aoc_day8.txt
 
 import Flow.Array as Array
 import Flow.IO as IO
+import Flow.List as List
 import Flow.Map as Map
 
 // Program entry point.
@@ -147,15 +148,15 @@ fn main() with IO, Time {
                     let sorted_keys = Array.sort(all_keys)
                     let top_keys = slice(sorted_keys, 0, 1000)
 
-                    let parents0 = to_array(range(0, n))
-                    let sizes0 = to_array(map(range(0, n), \_ -> 1))
+                    let parents0 = List.to_array(range(0, n))
+                    let sizes0 = List.to_array(map(range(0, n), \_ -> 1))
                     let state0 = dsu_state(parents0, sizes0)
                     let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
                     let parents1 = dsu_parents(state1)
                     let sizes1 = dsu_sizes(state1)
                     let comps =
-                    to_array(range(0, len(parents1)))
+                    List.to_array(range(0, len(parents1)))
                     |> Array.filter(\i -> int_at(parents1, i) == i)
                     |> Array.map(\i -> int_at(sizes1, i))
                     let top = Array.sort_by(comps, \x -> 0 - x)

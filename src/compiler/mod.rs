@@ -2618,30 +2618,9 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            (
-                "join",
-                vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)],
-                con(TC::String),
-                pure(),
-                0,
-            ),
             ("trim", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("upper", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("lower", vec![con(TC::String)], con(TC::String), pure(), 0),
-            (
-                "starts_with",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
-                "ends_with",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
             (
                 "replace",
                 vec![con(TC::String), con(TC::String), con(TC::String)],
@@ -2650,23 +2629,9 @@ impl Compiler {
                 0,
             ),
             (
-                "chars",
-                vec![con(TC::String)],
-                app(TC::Array, vec![con(TC::String)]),
-                pure(),
-                0,
-            ),
-            (
                 "substring",
                 vec![con(TC::String), con(TC::Int), con(TC::Int)],
                 con(TC::String),
-                pure(),
-                0,
-            ),
-            (
-                "str_contains",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
                 pure(),
                 0,
             ),
@@ -2689,6 +2654,22 @@ impl Compiler {
             ("ffloor", vec![con(TC::Float)], con(TC::Float), pure(), 0),
             ("fceil", vec![con(TC::Float)], con(TC::Float), pure(), 0),
             ("fround", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("tan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("asin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("acos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("atan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("sinh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("cosh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("tanh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("truncate", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fasin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("facos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fatan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsinh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fcosh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftanh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftruncate", vec![con(TC::Float)], con(TC::Float), pure(), 0),
             (
                 "bit_and",
                 vec![con(TC::Int), con(TC::Int)],
@@ -2727,20 +2708,6 @@ impl Compiler {
             ("min", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("max", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),
-            (
-                "parse_ints",
-                vec![app(TC::Array, vec![con(TC::String)])],
-                app(TC::Array, vec![con(TC::Int)]),
-                pure(),
-                0,
-            ),
-            (
-                "split_ints",
-                vec![con(TC::String), con(TC::String)],
-                app(TC::Array, vec![con(TC::Int)]),
-                pure(),
-                0,
-            ),
             // Collection ops
             ("len", vec![var_a()], con(TC::Int), pure(), 0),
             ("array_push", vec![var_a(), var_b()], var_a(), pure(), 0),
@@ -2749,14 +2716,6 @@ impl Compiler {
                 "array_slice",
                 vec![var_a(), con(TC::Int), con(TC::Int)],
                 var_a(),
-                pure(),
-                0,
-            ),
-            ("array_reverse", vec![var_a()], var_a(), pure(), 0),
-            (
-                "array_contains",
-                vec![var_a(), var_b()],
-                con(TC::Bool),
                 pure(),
                 0,
             ),
@@ -2773,8 +2732,6 @@ impl Compiler {
             ("is_hash", vec![var_a()], con(TC::Bool), pure(), 0),
             ("is_map", vec![var_a()], con(TC::Bool), pure(), 0),
             // List ops
-            ("to_list", vec![var_a()], var_b(), pure(), 0),
-            ("to_array", vec![var_a()], var_b(), pure(), 0),
             // Map ops
             ("map_keys", vec![var_a()], var_b(), pure(), 0),
             ("map_values", vec![var_a()], var_b(), pure(), 0),
@@ -5907,14 +5864,13 @@ impl Compiler {
     }
 
     pub(super) fn resolve_library_primop(
-        name: &str,
-        arity: usize,
+        _name: &str,
+        _arity: usize,
     ) -> Option<crate::core::CorePrimOp> {
-        match (name.rsplit('.').next().unwrap_or(name), arity) {
-            ("sort", 1) => Some(crate::core::CorePrimOp::Sort),
-            ("sort_by", 2) => Some(crate::core::CorePrimOp::SortBy),
-            _ => None,
-        }
+        // No library-shaped functions currently lower to a primop. Kept as a
+        // stable hook so future `Flow.*` → primop shortcuts can be added
+        // without changing call sites.
+        None
     }
 }
 

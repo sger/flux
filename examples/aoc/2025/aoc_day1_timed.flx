@@ -8,6 +8,8 @@ Advent of Code - Day 1 (timed)
 Uses input file: examples/aoc/2025/aoc_day1.txt
 */
 
+import Flow.Array as Array
+
 // Program entry point.
 fn main() with IO, Time {
     // Helper for wrap 100.
@@ -69,7 +71,7 @@ fn main() with IO, Time {
 
     // Run DAY1.
     fn run_day1() {
-        let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+        let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
         let steps = parse_rotations(lines, None)
         solve_steps(steps, 50, 0)
     }
