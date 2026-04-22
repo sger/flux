@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
+use super::{builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 use super::{AetherDef, AetherExpr, AetherProgram};
 use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
 
@@ -65,7 +65,9 @@ pub enum FbipCallKind {
     DirectInternal,
     DirectInferredGlobal,
     DirectImported,
-    Builtin(AetherBuiltinEffect),
+    /// Builtin call carrying a coarse effect label string (`"IO"`, `"Time"`,
+    /// `"Panic"`) from the 0161 effect registry.
+    Builtin(&'static str),
     Indirect,
 }
 
