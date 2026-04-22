@@ -159,6 +159,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         Statement::Data { .. } => {}
         Statement::EffectDecl { .. } => {}
+        Statement::EffectAlias { .. } => {}
         Statement::Class { .. } => {}
         Statement::Instance { .. } => {}
     }

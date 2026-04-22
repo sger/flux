@@ -909,6 +909,10 @@ pub struct Compiler {
     pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    /// Effect-row aliases declared via `alias Name = <E1 | E2 | ...>`
+    /// (Proposal 0161 B1). Populated during statement collection and
+    /// consumed by the pre-inference alias-expansion pass.
+    pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
@@ -1096,6 +1100,7 @@ impl Compiler {
             field_registry: FieldRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
+            effect_row_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
@@ -1166,6 +1171,7 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
+        self.effect_row_aliases.clear();
     }
 
     pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
@@ -1733,6 +1739,8 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_native_constructor_tags(program);
+        // Proposal 0161 B1: populate alias table before contract collection.
+        self.collect_effect_aliases_for_contracts(program);
         self.collect_module_contracts(program);
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
@@ -2124,6 +2132,33 @@ impl Compiler {
         }
     }
 
+    /// Proposal 0161 B1: scan only for `Statement::EffectAlias` and populate
+    /// `effect_row_aliases`. Runs early in `phase_collection` (before
+    /// contract collection) so downstream contract consumers see the same
+    /// expanded rows as the later AST-level expansion pass will produce.
+    pub(in crate::compiler) fn collect_effect_aliases_for_contracts(&mut self, program: &Program) {
+        self.effect_row_aliases.clear();
+        for statement in &program.statements {
+            self.collect_effect_aliases_for_contracts_from_stmt(statement);
+        }
+    }
+
+    fn collect_effect_aliases_for_contracts_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                self.effect_row_aliases.insert(*name, expansion.clone());
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_effect_aliases_for_contracts_from_stmt(nested);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_effect_declarations_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::EffectDecl { name, ops, .. } => {
@@ -2133,6 +2168,14 @@ impl Compiler {
                     self.effect_op_signatures
                         .insert((*name, op.name), op.type_expr.clone());
                 }
+            }
+            // Proposal 0161 B1: capture `alias Name = <E1 | E2 | ...>` so the
+            // pre-inference pass can rewrite any reference to `Name` into its
+            // decomposed row.
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                self.effect_row_aliases.insert(*name, expansion.clone());
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2295,6 +2338,15 @@ impl Compiler {
                     || !effects.is_empty();
 
                 if has_annotations {
+                    // Proposal 0161 B1: contracts live past the AST expansion
+                    // pass, so eagerly resolve effect-row aliases on the
+                    // captured effect list. This keeps contract consumers
+                    // (E400, E406) seeing the same decomposed row the AST
+                    // gets rewritten to post-expansion.
+                    let expanded_effects: Vec<crate::syntax::effect_expr::EffectExpr> = effects
+                        .iter()
+                        .map(|e| e.expand_aliases(&self.effect_row_aliases))
+                        .collect();
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
@@ -2305,7 +2357,7 @@ impl Compiler {
                             type_params: Statement::function_type_param_names(type_params),
                             params: parameter_types.clone(),
                             ret: return_type.clone(),
-                            effects: effects.clone(),
+                            effects: expanded_effects,
                         },
                     );
                 }
@@ -2572,7 +2624,7 @@ impl Compiler {
         use crate::types::infer_effect_row::InferEffectRow;
         use crate::types::type_constructor::TypeConstructor as TC;
 
-        let io_sym = self.interner.intern("IO");
+        let io_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
 
         // Helper closures for common type patterns.
         let con = |tc: TC| InferType::Con(tc);
@@ -2853,8 +2905,8 @@ impl Compiler {
     }
 
     fn infer_unannotated_function_effects(&mut self, program: &Program) {
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
 
         let seeds = self.collect_function_effect_seeds(program);
         if seeds.is_empty() {
@@ -3606,8 +3658,8 @@ impl Compiler {
 
     fn validate_top_level_effectful_code(&mut self, program: &Program, has_main: bool) {
         let inferred = self.contract_effect_sets();
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
         let mut missing_root_reported = false;
 
         for statement in &program.statements {
@@ -3699,8 +3751,8 @@ impl Compiler {
             return;
         }
         let main_symbol = self.interner.intern("main");
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
         let inferred = self.contract_effect_sets();
 
         let mut main_body = None;

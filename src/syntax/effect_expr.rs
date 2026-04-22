@@ -1,6 +1,6 @@
 use core::fmt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     diagnostics::position::Span,
@@ -118,6 +118,58 @@ impl EffectExpr {
                 }
                 out
             }
+        }
+    }
+
+    /// Expand any `Named` atom whose identifier is a key in `aliases` into
+    /// the aliased expansion, recursively. Non-alias atoms and row variables
+    /// pass through unchanged. Alias expansions may not reference other
+    /// aliases (Proposal 0161 B1 — non-recursive aliases); if they do, this
+    /// expander will not follow the chain.
+    ///
+    /// Span of each replacement inherits the original reference's span so
+    /// that downstream diagnostics point at the user-written source, not at
+    /// the alias definition.
+    pub fn expand_aliases(&self, aliases: &HashMap<Identifier, EffectExpr>) -> EffectExpr {
+        match self {
+            EffectExpr::Named { name, span } => {
+                if let Some(expansion) = aliases.get(name) {
+                    expansion.with_span(*span)
+                } else {
+                    self.clone()
+                }
+            }
+            EffectExpr::RowVar { .. } => self.clone(),
+            EffectExpr::Add { left, right, span } => EffectExpr::Add {
+                left: Box::new(left.expand_aliases(aliases)),
+                right: Box::new(right.expand_aliases(aliases)),
+                span: *span,
+            },
+            EffectExpr::Subtract { left, right, span } => EffectExpr::Subtract {
+                left: Box::new(left.expand_aliases(aliases)),
+                right: Box::new(right.expand_aliases(aliases)),
+                span: *span,
+            },
+        }
+    }
+
+    /// Clone this expression replacing every internal span with `span`.
+    /// Used when inlining an alias body at a call site so the substituted
+    /// row points at the reference's source location.
+    fn with_span(&self, span: Span) -> EffectExpr {
+        match self {
+            EffectExpr::Named { name, .. } => EffectExpr::Named { name: *name, span },
+            EffectExpr::RowVar { name, .. } => EffectExpr::RowVar { name: *name, span },
+            EffectExpr::Add { left, right, .. } => EffectExpr::Add {
+                left: Box::new(left.with_span(span)),
+                right: Box::new(right.with_span(span)),
+                span,
+            },
+            EffectExpr::Subtract { left, right, .. } => EffectExpr::Subtract {
+                left: Box::new(left.with_span(span)),
+                right: Box::new(right.with_span(span)),
+                span,
+            },
         }
     }
 

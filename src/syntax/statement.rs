@@ -130,6 +130,17 @@ pub enum Statement {
         ops: Vec<EffectOp>,
         span: Span,
     },
+    /// `alias Name = <E1 | E2 | ...>` — declares an effect-row alias.
+    ///
+    /// Proposal 0161 Phase 1 (B1). At type-inference time, any occurrence of
+    /// `Name` in an effect expression expands to `expansion`. Aliases are
+    /// non-recursive in this first pass: an alias body may not reference
+    /// another alias.
+    EffectAlias {
+        name: Identifier,
+        expansion: EffectExpr,
+        span: Span,
+    },
     /// Type class declaration: class Eq<a> => Ord<a> { methods... }
     ///
     /// Proposal 0151: `is_public` controls whether the class name and its
@@ -199,6 +210,7 @@ impl Statement {
             Statement::Import { span, .. } => span.start,
             Statement::Data { span, .. } => span.start,
             Statement::EffectDecl { span, .. } => span.start,
+            Statement::EffectAlias { span, .. } => span.start,
             Statement::Class { span, .. } => span.start,
             Statement::Instance { span, .. } => span.start,
         }
@@ -216,6 +228,7 @@ impl Statement {
             Statement::Import { span, .. } => *span,
             Statement::Data { span, .. } => *span,
             Statement::EffectDecl { span, .. } => *span,
+            Statement::EffectAlias { span, .. } => *span,
             Statement::Class { span, .. } => *span,
             Statement::Instance { span, .. } => *span,
         }
@@ -451,6 +464,11 @@ impl fmt::Display for Statement {
                     write!(f, " {}: {},", op.name, op.type_expr)?;
                 }
                 write!(f, " }}")
+            }
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                write!(f, "alias {} = <{}>", name, expansion)
             }
             Statement::Class {
                 name,
@@ -741,6 +759,15 @@ impl Statement {
                 }
                 text.push_str(" }");
                 text
+            }
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                format!(
+                    "alias {} = <{}>",
+                    interner.resolve(*name),
+                    expansion.display_with(interner)
+                )
             }
             Statement::Class {
                 name,

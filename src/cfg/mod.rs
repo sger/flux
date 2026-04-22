@@ -709,6 +709,12 @@ pub enum IrTopLevelItem {
         ops: Vec<EffectOp>,
         span: Span,
     },
+    /// `alias Name = <E1 | E2 | ...>` (Proposal 0161 B1).
+    EffectAlias {
+        name: Identifier,
+        expansion: EffectExpr,
+        span: Span,
+    },
     Class {
         name: Identifier,
         type_params: Vec<Identifier>,
