@@ -3,7 +3,7 @@ use flux::diagnostics::{
     DiagnosticCategory, ERROR_CODES, LabelStyle, Severity, call_arg_type_mismatch,
     constructor_pattern_arity_mismatch, cross_module_constructor_access_error,
     cross_module_constructor_access_warning, fun_arity_mismatch, fun_param_type_mismatch,
-    fun_return_annotation_mismatch, fun_return_type_mismatch, guarded_wildcard_non_exhaustive,
+    fun_return_annotation_mismatch, fun_return_type_mismatch,
     if_branch_type_mismatch, let_annotation_type_mismatch, lookup_error_code,
     match_arm_type_mismatch, match_fat_arrow, match_pipe_separator, missing_array_close_bracket,
     missing_comprehension_close_bracket, missing_do_block_brace, missing_else_body_brace,
@@ -436,24 +436,6 @@ fn parser_diagnostic_constructor_shapes_for_059() {
             .is_some_and(|m| m.contains("close list comprehension"))
     );
     assert!(!comp_close.hints().is_empty(), "expected help hint");
-}
-
-#[test]
-fn guarded_wildcard_non_exhaustive_constructor_shape() {
-    let diag = guarded_wildcard_non_exhaustive(span(4, 1, 20));
-    assert_eq!(diag.code(), Some("E015"));
-    assert_eq!(diag.title(), "NON-EXHAUSTIVE MATCH");
-    assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("guarded wildcard") && m.contains("guard may fail")),
-        "expected targeted guarded wildcard message"
-    );
-    assert!(
-        diag.hints()
-            .iter()
-            .any(|h| h.text.contains("unguarded `_ -> ...` fallback")),
-        "expected actionable fallback hint"
-    );
 }
 
 #[test]

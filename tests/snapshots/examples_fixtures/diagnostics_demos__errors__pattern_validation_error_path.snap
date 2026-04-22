@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/diagnostics_demos/errors/pattern_validation_error_path.flx
 == compile ==
@@ -75,6 +75,16 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
+Warning: Redundant Match Arm
+
+this arm is unreachable — earlier arms already cover it
+
+  examples/diagnostics_demos/errors/pattern_validation_error_path.flx:11:5
+   |
+11 |     2 -> "two",
+   |     ^^^^^^^^^^
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -115,7 +125,7 @@ Hint:
 
 error[E015]: Non-Exhaustive Match
 
-Match is non-exhaustive without an unguarded catch-all arm.
+Match is not exhaustive: 1 missing pattern.
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:14:7
    |
@@ -129,7 +139,7 @@ Match is non-exhaustive without an unguarded catch-all arm.
    | ^
 
 Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 
 
 error[E413]: Top-Level Effect
@@ -172,19 +182,6 @@ Match expression must have at least one arm.
 Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
-
-error[E015]: Non-Exhaustive Match
-
-Match is non-exhaustive without an unguarded catch-all arm.
-
-  examples/diagnostics_demos/errors/pattern_validation_error_path.flx:19:7
-   |
-19 | print(match value { });
-   |       ^^^^^^^^^^^^^^^
-
-Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
-
-Found 11 errors.
+Found 10 errors and 1 warning.
 == stdout ==
 <not executed>

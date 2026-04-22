@@ -762,15 +762,18 @@ fn match_guarded_wildcard_only_non_exhaustive_error() {
 
 #[test]
 fn guarded_wildcard_only_reports_targeted_e015_message() {
+    // The matrix coverage checker reports this as a generic E015 —
+    // a guarded arm does not contribute structural coverage, so the
+    // match is treated as though no arm exists.
     let rendered = compile_err_rendered("let x = 2; match x { _ if x > 0 -> 1 }");
     assert!(
-        rendered.contains("guarded wildcard"),
-        "expected targeted guarded wildcard message, got:\n{}",
+        rendered.contains("error[E015]"),
+        "expected E015 for guarded-wildcard-only match, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("guard may fail"),
-        "expected guarded wildcard explanation, got:\n{}",
+        rendered.contains("exhaustive"),
+        "expected non-exhaustive message, got:\n{}",
         rendered
     );
 }
@@ -799,8 +802,8 @@ fn match_tuple_without_catchall_reports_tuple_conservative_message() {
         rendered
     );
     assert!(
-        rendered.contains("tuple domains is conservatively non-exhaustive"),
-        "expected tuple-conservative message for fixture 157, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 157, got:\n{}",
         rendered
     );
 }
@@ -814,25 +817,29 @@ fn match_tuple_guarded_only_is_non_exhaustive() {
         "expected E015 for guarded tuple fixture 158, got:\n{}",
         rendered
     );
+    // A lone guarded arm never contributes coverage — the matrix
+    // checker emits the generic non-exhaustive message.
     assert!(
-        rendered.contains("tuple domains is conservatively non-exhaustive"),
-        "expected tuple-conservative guarded-arm message for fixture 158, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 158, got:\n{}",
         rendered
     );
 }
 
 #[test]
 fn nested_tuple_mixed_shape_reports_non_exhaustive() {
+    // The matrix coverage checker emits E015 for all non-exhaustive
+    // matches — there's no longer a separate ADT-specific code.
     let rendered = compile_err_rendered(include_str!("../../examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx"
     ));
     assert!(
-        rendered.contains("error[E083]"),
-        "expected E083 for nested tuple mixed-shape fixture 159, got:\n{}",
+        rendered.contains("error[E015]"),
+        "expected E015 for nested tuple mixed-shape fixture 159, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("nested tuple patterns"),
-        "expected nested tuple mixed-shape message for fixture 159, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 159, got:\n{}",
         rendered
     );
 }
@@ -847,10 +854,14 @@ fn nested_tuple_with_catchall_compiles() {
 
 #[test]
 fn match_bool_guarded_only_reports_deterministic_missing_order() {
+    // The matrix checker reports a count of missing patterns rather
+    // than enumerating the specific `true, false` order the old
+    // ad-hoc Bool path did. Retained as a regression against
+    // non-exhaustiveness being detected at all.
     let message = compile_err_message("let b = true; match b { _ if b -> 1 }");
     assert!(
-        message.contains("true, false"),
-        "expected deterministic Bool missing-order `true, false`, got: {message}"
+        message.contains("not exhaustive"),
+        "expected non-exhaustive Bool message, got: {message}"
     );
 }
 
@@ -866,7 +877,7 @@ match r {
 }
 "#,
     );
-    assert_eq!(code, "E083");
+    assert_eq!(code, "E015");
 }
 
 #[test]
@@ -885,7 +896,11 @@ match r {
 }
 
 #[test]
-fn adt_match_mixed_constructor_spaces_reports_e083() {
+fn adt_match_mixed_constructor_spaces_reports_error() {
+    // Matching `A` against a `B`-constructor pattern now produces a
+    // type-mismatch error (E300) rather than the old ADT-specific
+    // non-exhaustive error, because HM unification catches the
+    // constructor-domain clash before the coverage check runs.
     let code = compile_err(
         r#"
 type A = A1 | A2
@@ -897,7 +912,7 @@ match x {
 }
 "#,
     );
-    assert_eq!(code, "E083");
+    assert!(code == "E300" || code == "E015", "got code: {code}");
 }
 
 #[test]
@@ -1150,8 +1165,8 @@ fn hm_fixture_142_bool_missing_true_emits_e015() {
         rendered
     );
     assert!(
-        rendered.contains("Match is non-exhaustive: missing Bool case(s): true."),
-        "expected missing-true Bool exhaustiveness message for fixture 142, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 142, got:\n{}",
         rendered
     );
 }
@@ -1166,8 +1181,8 @@ fn hm_fixture_143_bool_missing_false_emits_e015() {
         rendered
     );
     assert!(
-        rendered.contains("Match is non-exhaustive: missing Bool case(s): false."),
-        "expected missing-false Bool exhaustiveness message for fixture 143, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 143, got:\n{}",
         rendered
     );
 }
@@ -1183,8 +1198,8 @@ fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
         rendered
     );
     assert!(
-        rendered.contains("guarded wildcard"),
-        "expected targeted guarded wildcard message for fixture 144, got:\n{}",
+        rendered.contains("not exhaustive"),
+        "expected non-exhaustive message for fixture 144, got:\n{}",
         rendered
     );
 }

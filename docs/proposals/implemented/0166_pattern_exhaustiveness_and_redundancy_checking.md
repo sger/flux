@@ -1,11 +1,44 @@
 - Feature Name: Pattern Exhaustiveness and Redundancy Checking
 - Start Date: 2026-04-20
-- Status: Proposed
+- Status: Implemented (2026-04-22)
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0152](0152_named_field_constructors.md) where applicable for named constructor patterns, current HM/Core pipeline
+- Depends on: [0152](0152_named_fields_for_data_types.md) where applicable for named constructor patterns, current HM/Core pipeline
 
 # Proposal 0166: Pattern Exhaustiveness and Redundancy Checking
+
+## Implementation Summary
+
+Landed in a five-step incremental rollout:
+
+1. **Matrix coverage module** — `src/ast/type_infer/pattern_coverage.rs`: Maranget-style `is_useful` + `missing_witnesses` with normalized `Pat`/`Ctor`/`TyShape` types; 13 unit tests.
+2. **Adapter + warning-mode wiring** — `src/ast/type_infer/pattern_coverage_adapter.rs`: AST `Pattern` → `Pat` and `InferType` → `TyShape` translation for Bool / Option / Either / List / Tuple / ADT. Initially gated behind `FLUX_COVERAGE_WARN=1`.
+3. **Default-on warnings + ADT field-type threading** — `AdtResolver::lookup_adt` returns full `(name, Vec<TypeExpr>)` so nested ADT exhaustiveness is precise; cycle-guard for recursive ADTs via a `visiting` stack; promoted from env-var-gated to default-on.
+4. **Tuple heuristic relaxation** — `src/compiler/expression.rs` `GeneralCoverageDomain::Tuple` accepts a full positional destructure (every slot wildcard/identifier) as structurally exhaustive. `Flow.List` stdlib drops 6 defensive `_ ->` arms.
+5. **Decommission + promotion** — Deleted ~755 lines of ad-hoc checks from `src/compiler/expression.rs` (`check_match_exhaustiveness`, `check_adt_match_exhaustiveness`, `check_general_match_exhaustiveness`, `check_nested_constructor_exhaustiveness`, `collect_unreachable_arm_warnings`, `infer_general_match_domain`, `domain_from_*`, `pattern_subsumes`, `literals_equal`, `is_irrefutable_pattern`, the `GeneralCoverageDomain` enum). Promoted the matrix checker's non-exhaustive diagnostic from Warning → **E015 Error** (reusing the existing code). Redundant-arm diagnostic remains a Warning. Orphaned `E083 ADT_NON_EXHAUSTIVE_MATCH`, `W202 UNREACHABLE_PATTERN_ARM`, and the `guarded_wildcard_non_exhaustive` helper were removed.
+
+**Files**
+- Checker: `src/ast/type_infer/pattern_coverage.rs`
+- Adapter: `src/ast/type_infer/pattern_coverage_adapter.rs`
+- Wire-up: `src/ast/type_infer/expression/control_flow.rs` (`experimental_coverage_check` + helpers)
+- Incidental fix: `src/compiler/passes/finalization.rs` — warnings no longer cascade as module-skip errors.
+
+**Coverage domains handled**
+- Bool (true/false)
+- Option<T> (None/Some)
+- Either<L, R> (Left/Right)
+- List<T> (Nil/Cons, recursion-safe)
+- Tuple (single constructor, arity-aware)
+- User ADTs including named-field patterns (normalized positionally)
+- Nested constructors (e.g. `Some(Circle(r))` on `Option<Shape>`)
+- Literal heads on opaque (Int/String) domains — correctly flagged as never-exhaustive without `_`
+- Recursive ADTs terminate via `visiting` cycle-guard
+
+**Guards**: conservative — a guarded arm contributes no structural coverage, matching the proposal's v1 scope.
+
+**User-visible error codes**
+- `error[E015] Non-Exhaustive Match` — single unified code (previously split across E015 and E083)
+- `warning: Redundant Match Arm` — unreachable arm, stays a warning
 
 ## Summary
 [summary]: #summary
