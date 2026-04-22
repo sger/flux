@@ -1,0 +1,26 @@
+// parity: vm, llvm
+// expect: success
+// bug: Reader-like handler shape — the target for Proposal 0162 Phase 2
+//      monomorphic evidence (no heap alloc, direct pointer threading).
+// parity-expected-stdout-begin
+// "flux-server"
+// parity-expected-stdout-end
+
+effect Config {
+    get_name : () -> String
+    get_port : () -> Int
+}
+
+fn describe() -> String with Config {
+    let name = perform Config.get_name()
+    let _port = perform Config.get_port()
+    name
+}
+
+fn main() with IO {
+    let result = describe() handle Config {
+        get_name(resume) -> resume("flux-server"),
+        get_port(resume) -> resume(8080)
+    }
+    print(result)
+}

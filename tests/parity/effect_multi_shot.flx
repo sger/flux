@@ -1,0 +1,39 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: Multi-shot resume — the handler invokes the continuation twice.
+//      Observed (2026-04-22) baseline divergence:
+//        - VM:     runtime error E1001 "Continuation is not a function"
+//                  (VM treats the second resume as a call to a consumed
+//                  Continuation value; one-shot is enforced by panic).
+//        - Native: exits 0, prints "2" — the SECOND branch only. The
+//                  addition `resume(true) + resume(false)` silently drops
+//                  the first operand. Multi-shot composition on the C
+//                  runtime is incomplete, not just unsupported.
+//      This fixture is a parity CONTRACT for Proposal 0162 Phase 3: the
+//      unified runtime must either
+//        (a) report a structured `MULTI_SHOT_UNSUPPORTED` diagnostic on
+//            both backends (keep `expect: runtime_error`), or
+//        (b) implement multi-shot on both and switch to `expect: success`
+//            with expected-stdout `"3"`.
+//      Today `expect: runtime_error` does NOT hold because native silently
+//      succeeds with a wrong answer, so the harness reports MISMATCH —
+//      that MISMATCH is the regression gate itself.
+
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+fn main() with IO {
+    // Handler resumes twice, summing both branches. Today this must fail
+    // on the VM (one-shot enforcement) and is expected to fail on native
+    // too until the unified runtime lands.
+    let result = decide() handle Flip {
+        flip(resume) -> resume(true) + resume(false)
+    }
+    print(to_string(result))
+}
