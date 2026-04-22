@@ -18,7 +18,7 @@ use crate::{
         hm_expr_typer::HmExprTypeResult,
         symbol_scope::SymbolScope,
     },
-    core::{CorePrimOp, PrimEffect},
+    core::CorePrimOp,
     diagnostics::{
         CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
         DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
@@ -3154,11 +3154,11 @@ impl Compiler {
             return Ok(false);
         };
 
-        let required_name = match primop.effect_kind() {
-            PrimEffect::Io => Some(crate::syntax::builtin_effects::IO),
-            PrimEffect::Time => Some(crate::syntax::builtin_effects::TIME),
-            PrimEffect::Control | PrimEffect::Pure => None,
-        };
+        let required_name = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+            .filter(|label| {
+                // Control-flow labels (Panic) do not yet require a `with` clause.
+                *label != crate::syntax::builtin_effects::PANIC
+            });
         if let Some(required_name) = required_name
             && !self.is_effect_available_name(required_name)
         {

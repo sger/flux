@@ -574,6 +574,88 @@ fn main() {
     assert_eq!(run(src), Value::Integer(42));
 }
 
+// ── Test 8b: Phase 3 — dead CanFail binding is eliminable ───────────────────
+//
+// Proposal 0161 Phase 3: `dead_let` uses the `can_discard` predicate, which
+// treats a `CanFail` rhs as droppable when the binder is unused (the failure
+// was never observed). This replaces the strict `is_pure` predicate that
+// previously preserved `let _ = 10 / n`.
+#[test]
+fn pipeline_dead_let_eliminates_can_fail_binding() {
+    let src = r#"
+fn main() {
+    let n = 7
+    let _unused_ratio = 10 / n
+    42
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+
+    run_core_passes_with_interner(&mut core, &interner, false)
+        .expect("core passes should succeed");
+
+    // After passes: the `10 / n` Let must be gone. Only the outer `let n = 7`
+    // can survive (and even that may get inlined) — the CanFail division on a
+    // dead binder must be eliminable.
+    let remaining_div = collect_core_exprs(&core.defs[0].expr)
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::Div
+                        | CorePrimOp::IDiv,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        remaining_div, 0,
+        "dead CanFail division should be eliminated by Phase 3 dead_let"
+    );
+
+    assert_eq!(run(src), Value::Integer(42));
+}
+
+// ── Test 8c: Dead HasEffect binding is preserved ────────────────────────────
+//
+// Counterpart to the test above: `println` carries the `Console` effect, so
+// `can_discard` returns false. Even on a dead binder the call must remain so
+// the program actually prints.
+#[test]
+fn pipeline_dead_let_preserves_has_effect_binding() {
+    let src = r#"
+fn main() with IO {
+    let _unused = println("side effect must survive")
+    42
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+
+    run_core_passes_with_interner(&mut core, &interner, false)
+        .expect("core passes should succeed");
+
+    let remaining_println = collect_core_exprs(&core.defs[0].expr)
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::Println,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert!(
+        remaining_println >= 1,
+        "HasEffect call must not be discarded by dead_let"
+    );
+}
+
 // ── Test 9: Index type validation catches String index on List ──────────────
 
 #[test]

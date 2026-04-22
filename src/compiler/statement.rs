@@ -859,7 +859,20 @@ impl Compiler {
         if self.effect_declared_ops(effect).is_some() {
             return true;
         }
-        matches!(self.sym(effect), "IO" | "Time" | "State")
+        // Proposal 0161 B3: `IO` and `Time` are coarse aliases that expand to
+        // fine-grained rows; the decomposed labels themselves are also valid
+        // annotations (`with Console`, `with FileSystem`, `with Clock`, …).
+        matches!(
+            self.sym(effect),
+            "IO" | "Time"
+                | "State"
+                | crate::syntax::builtin_effects::CONSOLE
+                | crate::syntax::builtin_effects::FILESYSTEM
+                | crate::syntax::builtin_effects::STDIN
+                | crate::syntax::builtin_effects::CLOCK
+                | crate::syntax::builtin_effects::PANIC
+                | crate::syntax::builtin_effects::DIV
+        )
     }
 
     fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {

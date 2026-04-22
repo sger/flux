@@ -9,7 +9,7 @@
 /// Recursive (`LetRec`) bindings are never inlined (would create infinite expansion).
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
 
-use super::helpers::{expr_size, is_pure, map_children, subst};
+use super::helpers::{can_discard, expr_size, is_pure, map_children, subst};
 
 /// Maximum node count of an RHS to inline when the binder is used more than once.
 const INLINE_THRESHOLD: usize = 10;
@@ -34,11 +34,13 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
                     && occurs_as_callee(var.id, &body);
 
-            if count == 0 && is_pure(&rhs) {
-                // Dead binding — drop it.
+            if count == 0 && can_discard(&rhs) {
+                // Dead binding — drop it. Proposal 0161 Phase 3: `CanFail`
+                // primops (`10 / n`, `arr[i]`) are also droppable here because
+                // the binding was unused, so the failure was never observed.
                 body
             } else if count == 0 {
-                // Dead but effectful — keep the binding to preserve side effects.
+                // Dead but has observable effect — keep to preserve side effects.
                 CoreExpr::Let {
                     var,
                     rhs: Box::new(rhs),

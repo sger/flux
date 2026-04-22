@@ -1049,11 +1049,8 @@ impl Compiler {
                     && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
                         .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
                 {
-                    let required = match primop.effect_kind() {
-                        crate::core::PrimEffect::Io => Some("IO"),
-                        crate::core::PrimEffect::Time => Some("Time"),
-                        _ => None,
-                    };
+                    let required = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                        .filter(|l| *l != crate::syntax::builtin_effects::PANIC);
                     if let Some(required_name) = required
                         && !this.is_effect_available_name(required_name)
                     {
@@ -1191,11 +1188,8 @@ impl Compiler {
             && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
                 .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
         {
-            let required = match primop.effect_kind() {
-                crate::core::PrimEffect::Io => Some("IO"),
-                crate::core::PrimEffect::Time => Some("Time"),
-                _ => None,
-            };
+            let required = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                .filter(|l| *l != crate::syntax::builtin_effects::PANIC);
             if let Some(required_name) = required
                 && !self.is_effect_available_name(required_name)
             {
