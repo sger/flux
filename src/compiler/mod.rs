@@ -1172,6 +1172,7 @@ impl Compiler {
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
+        self.seed_builtin_effect_aliases();
     }
 
     pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
@@ -2138,6 +2139,7 @@ impl Compiler {
     /// expanded rows as the later AST-level expansion pass will produce.
     pub(in crate::compiler) fn collect_effect_aliases_for_contracts(&mut self, program: &Program) {
         self.effect_row_aliases.clear();
+        self.seed_builtin_effect_aliases();
         for statement in &program.statements {
             self.collect_effect_aliases_for_contracts_from_stmt(statement);
         }
@@ -2148,7 +2150,12 @@ impl Compiler {
             Statement::EffectAlias {
                 name, expansion, ..
             } => {
-                self.effect_row_aliases.insert(*name, expansion.clone());
+                // Expand the RHS against already-collected aliases (including
+                // the builtin `IO`/`Time` seeds) so transitive references are
+                // fully decomposed at insert time. The AST expansion pass is
+                // single-pass, so aliases must already be closed when stored.
+                let expanded = expansion.expand_aliases(&self.effect_row_aliases);
+                self.effect_row_aliases.insert(*name, expanded);
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2169,13 +2176,14 @@ impl Compiler {
                         .insert((*name, op.name), op.type_expr.clone());
                 }
             }
-            // Proposal 0161 B1: capture `alias Name = <E1 | E2 | ...>` so the
-            // pre-inference pass can rewrite any reference to `Name` into its
-            // decomposed row.
+            // Proposal 0161 B1/B3: capture `alias Name = <E1 | E2 | ...>` and
+            // pre-expand its RHS against existing aliases (including builtin
+            // `IO`/`Time` seeds) so later references see a fully decomposed row.
             Statement::EffectAlias {
                 name, expansion, ..
             } => {
-                self.effect_row_aliases.insert(*name, expansion.clone());
+                let expanded = expansion.expand_aliases(&self.effect_row_aliases);
+                self.effect_row_aliases.insert(*name, expanded);
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2184,6 +2192,47 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    /// Proposal 0161 Phase 1: seed `effect_row_aliases` with the builtin
+    /// `IO = <Console | FileSystem | Stdin>` and `Time = <Clock>` aliases so
+    /// every module — entry file or library — sees the same decomposition
+    /// without needing to write the alias explicitly. User-written aliases
+    /// with the same name (processed afterward) will override these seeds.
+    ///
+    /// Called after every `effect_row_aliases.clear()` so that user code that
+    /// writes `with IO` (and `with Time`) is uniformly expanded before
+    /// downstream phases see it.
+    pub(in crate::compiler) fn seed_builtin_effect_aliases(&mut self) {
+        use crate::diagnostics::position::Span;
+        use crate::syntax::builtin_effects as be;
+        use crate::syntax::effect_expr::EffectExpr;
+
+        let span = Span::default();
+        let console_sym = self.interner.intern(be::CONSOLE);
+        let filesystem_sym = self.interner.intern(be::FILESYSTEM);
+        let stdin_sym = self.interner.intern(be::STDIN);
+        let clock_sym = self.interner.intern(be::CLOCK);
+        let io_sym = self.interner.intern(be::IO);
+        let time_sym = self.interner.intern(be::TIME);
+
+        let named = |name| EffectExpr::Named { name, span };
+        let add = |l, r| EffectExpr::Add {
+            left: Box::new(l),
+            right: Box::new(r),
+            span,
+        };
+
+        let io_expansion = add(
+            add(named(console_sym), named(filesystem_sym)),
+            named(stdin_sym),
+        );
+        self.effect_row_aliases
+            .entry(io_sym)
+            .or_insert(io_expansion);
+        self.effect_row_aliases
+            .entry(time_sym)
+            .or_insert(named(clock_sym));
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -2624,7 +2673,16 @@ impl Compiler {
         use crate::types::infer_effect_row::InferEffectRow;
         use crate::types::type_constructor::TypeConstructor as TC;
 
-        let io_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        use crate::syntax::builtin_effects as be;
+
+        // Fine-grained effect labels (Proposal 0161 Phase 1). Primop schemes
+        // emit the decomposed row directly; user-written `with IO` / `with Time`
+        // is expanded to the same row by the alias-seeding pass so row
+        // unification succeeds without coarse↔fine mismatches.
+        let console_sym = self.interner.intern(be::CONSOLE);
+        let filesystem_sym = self.interner.intern(be::FILESYSTEM);
+        let stdin_sym = self.interner.intern(be::STDIN);
+        let clock_sym = self.interner.intern(be::CLOCK);
 
         // Helper closures for common type patterns.
         let con = |tc: TC| InferType::Con(tc);
@@ -2633,7 +2691,10 @@ impl Compiler {
             InferType::Fun(params, Box::new(ret), eff)
         };
         let pure = || InferEffectRow::closed_empty();
-        let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
+        let console = || InferEffectRow::closed_from_symbols(vec![console_sym]);
+        let filesystem = || InferEffectRow::closed_from_symbols(vec![filesystem_sym]);
+        let stdin = || InferEffectRow::closed_from_symbols(vec![stdin_sym]);
+        let _clock = || InferEffectRow::closed_from_symbols(vec![clock_sym]);
         // Type variables for polymorphic primop signatures.
         // IDs are arbitrary — schemes are instantiated with fresh vars at each use.
         let var_a = || InferType::Var(9000);
@@ -2642,25 +2703,28 @@ impl Compiler {
 
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
-            // I/O
-            ("print", vec![var_a()], con(TC::Unit), io(), 0),
-            ("println", vec![var_a()], con(TC::Unit), io(), 0),
-            ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
-            ("read_stdin", vec![], con(TC::String), io(), 0),
+            // I/O — decomposed (Proposal 0161 Phase 1)
+            ("print", vec![var_a()], con(TC::Unit), console(), 0),
+            ("println", vec![var_a()], con(TC::Unit), console(), 0),
+            ("read_file", vec![con(TC::String)], con(TC::String), filesystem(), 0),
+            ("read_stdin", vec![], con(TC::String), stdin(), 0),
             (
                 "read_lines",
                 vec![con(TC::String)],
                 app(TC::Array, vec![con(TC::String)]),
-                io(),
+                filesystem(),
                 0,
             ),
             (
                 "write_file",
                 vec![con(TC::String), con(TC::String)],
                 con(TC::Unit),
-                io(),
+                filesystem(),
                 0,
             ),
+            // `panic` stays pure at the HM level — it diverges rather than
+            // returning, so no `with Panic` annotation is required today.
+            // The registry still classifies it as `Panic` for the optimizer.
             ("panic", vec![var_a()], var_b(), pure(), 2),
             // String ops
             (
@@ -3753,6 +3817,14 @@ impl Compiler {
         let main_symbol = self.interner.intern("main");
         let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
         let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        // Proposal 0161 B3: the decomposed labels are also root-dischargeable,
+        // since they are exactly what `IO` / `Time` expand to.
+        let console_effect = self.interner.intern(crate::syntax::builtin_effects::CONSOLE);
+        let filesystem_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::FILESYSTEM);
+        let stdin_effect = self.interner.intern(crate::syntax::builtin_effects::STDIN);
+        let clock_effect = self.interner.intern(crate::syntax::builtin_effects::CLOCK);
         let inferred = self.contract_effect_sets();
 
         let mut main_body = None;
@@ -3772,7 +3844,14 @@ impl Compiler {
             self.infer_effects_from_block(main_body, None, &inferred, io_effect, time_effect);
         let mut disallowed: Vec<Symbol> = residual
             .into_iter()
-            .filter(|effect| *effect != io_effect && *effect != time_effect)
+            .filter(|effect| {
+                *effect != io_effect
+                    && *effect != time_effect
+                    && *effect != console_effect
+                    && *effect != filesystem_effect
+                    && *effect != stdin_effect
+                    && *effect != clock_effect
+            })
             .collect();
         if disallowed.is_empty() {
             return;

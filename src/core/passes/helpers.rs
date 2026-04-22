@@ -377,13 +377,72 @@ pub(super) fn is_trivially_pure(expr: &CoreExpr) -> bool {
 /// Returns true when `expr` is guaranteed pure (no effects, no calls, cannot fail).
 /// Uses primop-level classification: typed arithmetic on proven types is pure,
 /// generic arithmetic that may fail on type mismatches is not.
-/// Used by dead-binding elimination where the question is "can we drop this?".
+/// Used by passes that speculate — beta, case-of-case, specialize, inliner's
+/// multi-use copy rule — where "is this safe to duplicate or reorder?" needs
+/// the strict answer.
 pub(super) fn is_pure(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Lam { .. } => true,
         CoreExpr::Con { fields, .. } => fields.iter().all(is_pure),
         CoreExpr::PrimOp { op, args, .. } => is_primop_pure(op) && args.iter().all(is_pure),
+        _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
+    }
+}
+
+/// Proposal 0161 Phase 3: three-level effect classification derived from the
+/// effect-label registry. Drives the "is it safe to discard a dead binding?"
+/// question for `dead_let` and `inliner`'s dead-let rule, where the correct
+/// predicate is `!= HasEffect` rather than `== Pure`:
+///
+/// - `Pure`:      no effects, cannot fail. Speculation-safe. Equivalent to `is_pure`.
+/// - `CanFail`:   no observable effect, but may trap (div-by-zero, OOB, panic).
+///                Safe to *discard* in dead-code elimination (the failure was
+///                never observed), but not safe to *speculate* (duplicating the
+///                op could turn a run-once trap into multiple traps).
+/// - `HasEffect`: observable side effect (I/O, stdout, time). Must not be dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PrimOpEffectClass {
+    Pure,
+    #[allow(dead_code)] // used by future sealing/optimizer passes
+    CanFail,
+    HasEffect,
+}
+
+pub(super) fn primop_effect_class(op: &CorePrimOp) -> PrimOpEffectClass {
+    // Consult the fine-grained effect registry: any label other than the
+    // failure labels (`Div`) is observable. `Panic` is observable (intentional
+    // crash that must not be discarded). Pure primops return None from the
+    // registry AND pass the narrow `is_primop_pure` gate.
+    match crate::syntax::builtin_effects::primop_fine_effect_label(*op) {
+        Some(crate::syntax::builtin_effects::DIV) => PrimOpEffectClass::CanFail,
+        Some(_) => PrimOpEffectClass::HasEffect,
+        None => {
+            if is_primop_pure(op) {
+                PrimOpEffectClass::Pure
+            } else {
+                // Primop has no fine-grained effect label but `is_primop_pure`
+                // rejected it: generic-arithmetic-may-type-mismatch, Index OOB,
+                // Unwrap-on-None, etc. These are CanFail, not HasEffect.
+                PrimOpEffectClass::CanFail
+            }
+        }
+    }
+}
+
+/// Returns true when `expr` is safe to drop as dead code: it has no observable
+/// side effect. A `CanFail` expression is safe to drop because its failure was
+/// never observed (it's on a dead binding). This is strictly weaker than
+/// `is_pure`, which additionally guarantees the expression cannot trap.
+pub(super) fn can_discard(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Lam { .. } => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(can_discard),
+        CoreExpr::PrimOp { op, args, .. } => {
+            primop_effect_class(op) != PrimOpEffectClass::HasEffect
+                && args.iter().all(can_discard)
+        }
         _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
     }
 }
