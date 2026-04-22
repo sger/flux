@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::diagnostics::NOT_A_FUNCTION;
+use crate::diagnostics::{MULTI_SHOT_HANDLER, NOT_A_FUNCTION};
 use crate::runtime::RuntimeContext;
 use crate::runtime::value::format_value;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
@@ -230,7 +230,10 @@ impl VM {
         let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers) = {
             let mut cont = cont_rc.borrow_mut();
             if cont.used {
-                return Err("continuation already resumed (one-shot)".to_string());
+                // Proposal 0162 Phase 3: match the native backend's E1201
+                // wording so user-visible multi-shot diagnostics are the same
+                // across VM and LLVM. See runtime/c/effects.c's E1201 message.
+                return Err(self.runtime_error_enhanced(&MULTI_SHOT_HANDLER, &[]));
             }
             cont.used = true;
             (
