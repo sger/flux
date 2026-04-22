@@ -157,10 +157,7 @@ pub fn check_match(ty: &TyShape, arms: &[(Pat, bool)]) -> Coverage {
     }
 
     let missing = missing_witnesses(&matrix, std::slice::from_ref(ty));
-    Coverage {
-        missing,
-        redundant,
-    }
+    Coverage { missing, redundant }
 }
 
 /// Usefulness: does `row` match some value that `matrix` does not?
@@ -206,11 +203,7 @@ fn is_useful_wild(matrix: &[Vec<Pat>], row: &[Pat], tys: &[TyShape]) -> bool {
         let default_matrix = default_matrix(matrix);
         return is_useful(&default_matrix, &row[1..], &tys[1..]);
     };
-    if let Some(c) = all
-        .iter()
-        .find(|c| !column_ctors.contains(c))
-        .cloned()
-    {
+    if let Some(c) = all.iter().find(|c| !column_ctors.contains(c)).cloned() {
         // Wildcard specializes to the missing constructor.
         let arity = ctor_arity(&c);
         let spec_matrix = specialize(matrix, &c, arity);
@@ -452,11 +445,7 @@ fn missing_witnesses_known(
 /// Witness search on an opaque (unknown / infinite) domain. Conservative:
 /// report missing only when the matrix is empty or when a trailing
 /// wildcard row leaves later columns non-exhaustive.
-fn missing_witnesses_opaque(
-    matrix: &[Vec<Pat>],
-    tys: &[TyShape],
-    has_wild_row: bool,
-) -> Vec<Pat> {
+fn missing_witnesses_opaque(matrix: &[Vec<Pat>], tys: &[TyShape], has_wild_row: bool) -> Vec<Pat> {
     if matrix.is_empty() {
         return vec![Pat::Wild];
     }
@@ -464,9 +453,9 @@ fn missing_witnesses_opaque(
         // Literal heads on an opaque (infinite) domain — e.g. `Int`
         // or `String` — can never exhaust the domain: only a
         // wildcard/identifier binding can. Report missing.
-        let any_literal_head = matrix.iter().any(|r| {
-            !r.is_empty() && matches!(&r[0], Pat::Ctor(Ctor::Lit(_), _))
-        });
+        let any_literal_head = matrix
+            .iter()
+            .any(|r| !r.is_empty() && matches!(&r[0], Pat::Ctor(Ctor::Lit(_), _)));
         if any_literal_head {
             return vec![Pat::Wild];
         }
@@ -527,10 +516,7 @@ mod tests {
                 false,
             ),
             (
-                Pat::Ctor(
-                    Ctor::Adt("Rect".into(), 2),
-                    vec![Pat::Wild, Pat::Wild],
-                ),
+                Pat::Ctor(Ctor::Adt("Rect".into(), 2), vec![Pat::Wild, Pat::Wild]),
                 false,
             ),
         ];
@@ -566,10 +552,7 @@ mod tests {
     #[test]
     fn redundant_arm_after_wildcard() {
         let ty = TyShape::Bool;
-        let arms = vec![
-            (Pat::Wild, false),
-            (Pat::nullary(Ctor::Bool(true)), false),
-        ];
+        let arms = vec![(Pat::Wild, false), (Pat::nullary(Ctor::Bool(true)), false)];
         let cov = check_match(&ty, &arms);
         assert!(cov.is_exhaustive());
         assert_eq!(cov.redundant, vec![1]);
@@ -592,13 +575,14 @@ mod tests {
     fn list_missing_empty() {
         let ty = TyShape::List(Box::new(TyShape::Opaque));
         // Only [h | t] — missing [].
-        let arms = vec![(
-            Pat::Ctor(Ctor::Cons, vec![Pat::Wild, Pat::Wild]),
-            false,
-        )];
+        let arms = vec![(Pat::Ctor(Ctor::Cons, vec![Pat::Wild, Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
-        assert!(cov.missing.iter().any(|p| matches!(p, Pat::Ctor(Ctor::Nil, _))));
+        assert!(
+            cov.missing
+                .iter()
+                .any(|p| matches!(p, Pat::Ctor(Ctor::Nil, _)))
+        );
     }
 
     #[test]
@@ -629,16 +613,17 @@ mod tests {
         let arms = vec![(Pat::Ctor(Ctor::Some, vec![Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
-        assert!(cov.missing.iter().any(|p| matches!(p, Pat::Ctor(Ctor::None, _))));
+        assert!(
+            cov.missing
+                .iter()
+                .any(|p| matches!(p, Pat::Ctor(Ctor::None, _)))
+        );
     }
 
     #[test]
     fn tuple_wildcard_exhaustive() {
         let ty = TyShape::Tuple(vec![TyShape::Bool, TyShape::Bool]);
-        let arms = vec![(
-            Pat::Ctor(Ctor::Tuple(2), vec![Pat::Wild, Pat::Wild]),
-            false,
-        )];
+        let arms = vec![(Pat::Ctor(Ctor::Tuple(2), vec![Pat::Wild, Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(cov.is_exhaustive());
     }

@@ -82,9 +82,7 @@ fn expand_stmt(stmt: &mut Statement, aliases: &HashMap<Identifier, EffectExpr>) 
         } => {
             expand_expr(value, aliases);
         }
-        Statement::Return {
-            value: Some(v), ..
-        } => expand_expr(v, aliases),
+        Statement::Return { value: Some(v), .. } => expand_expr(v, aliases),
         Statement::Return { value: None, .. } => {}
         Statement::Import { .. }
         | Statement::Data { .. }
@@ -173,8 +171,7 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
             expand_expr(left, aliases);
             expand_expr(index, aliases);
         }
-        Expression::MemberAccess { object, .. }
-        | Expression::TupleFieldAccess { object, .. } => {
+        Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
             expand_expr(object, aliases);
         }
         Expression::ListLiteral { elements, .. }

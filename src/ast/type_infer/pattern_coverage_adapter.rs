@@ -29,11 +29,7 @@ pub(super) trait AdtResolver {
 /// Translate an `InferType` into a [`TyShape`] descriptor for the
 /// coverage checker. Returns `TyShape::Opaque` for types the
 /// adapter does not model.
-pub(super) fn ty_shape_of(
-    ty: &InferType,
-    adts: &dyn AdtResolver,
-    interner: &Interner,
-) -> TyShape {
+pub(super) fn ty_shape_of(ty: &InferType, adts: &dyn AdtResolver, interner: &Interner) -> TyShape {
     ty_shape_of_rec(ty, adts, interner, &mut Vec::new())
 }
 
@@ -194,15 +190,9 @@ pub(super) fn pat_of(p: &Pattern, interner: &Interner) -> Pat {
         Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Pat::Wild,
         Pattern::Literal { expression, .. } => lit_pat(expression),
         Pattern::None { .. } => Pat::nullary(Ctor::None),
-        Pattern::Some { pattern, .. } => {
-            Pat::Ctor(Ctor::Some, vec![pat_of(pattern, interner)])
-        }
-        Pattern::Left { pattern, .. } => {
-            Pat::Ctor(Ctor::Left, vec![pat_of(pattern, interner)])
-        }
-        Pattern::Right { pattern, .. } => {
-            Pat::Ctor(Ctor::Right, vec![pat_of(pattern, interner)])
-        }
+        Pattern::Some { pattern, .. } => Pat::Ctor(Ctor::Some, vec![pat_of(pattern, interner)]),
+        Pattern::Left { pattern, .. } => Pat::Ctor(Ctor::Left, vec![pat_of(pattern, interner)]),
+        Pattern::Right { pattern, .. } => Pat::Ctor(Ctor::Right, vec![pat_of(pattern, interner)]),
         Pattern::EmptyList { .. } => Pat::nullary(Ctor::Nil),
         Pattern::Cons { head, tail, .. } => Pat::Ctor(
             Ctor::Cons,
@@ -221,10 +211,7 @@ pub(super) fn pat_of(p: &Pattern, interner: &Interner) -> Pat {
             )
         }
         Pattern::NamedConstructor {
-            name,
-            fields,
-            rest,
-            ..
+            name, fields, rest, ..
         } => named_ctor_pat(*name, fields, *rest, interner),
     }
 }
@@ -260,15 +247,9 @@ fn named_ctor_pat(
 /// shapes fall back to `Pat::Wild`.
 fn lit_pat(expr: &Expression) -> Pat {
     match expr {
-        Expression::Boolean { value, .. } => {
-            Pat::nullary(Ctor::Bool(*value))
-        }
-        Expression::Integer { value, .. } => {
-            Pat::nullary(Ctor::Lit(LitKey(value.to_string())))
-        }
-        Expression::String { value, .. } => {
-            Pat::nullary(Ctor::Lit(LitKey(format!("\"{value}\""))))
-        }
+        Expression::Boolean { value, .. } => Pat::nullary(Ctor::Bool(*value)),
+        Expression::Integer { value, .. } => Pat::nullary(Ctor::Lit(LitKey(value.to_string()))),
+        Expression::String { value, .. } => Pat::nullary(Ctor::Lit(LitKey(format!("\"{value}\"")))),
         _ => Pat::Wild,
     }
 }

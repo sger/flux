@@ -1,11 +1,20 @@
-use crate::{runtime::handler_arm::HandlerArm, syntax::Identifier};
+use std::rc::Rc;
+
+use crate::{
+    runtime::{evidence::EvidenceVector, handler_arm::HandlerArm},
+    syntax::Identifier,
+};
 
 /// An active handler pushed onto the VM's `handler_stack` by `OpHandle`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandlerFrame {
     /// The effect this handler covers.
     pub effect: Identifier,
-    pub arms: Vec<HandlerArm>,
+    pub arms: Rc<Vec<HandlerArm>>,
+    /// Fresh marker identifying this handler instance in the evidence vector.
+    pub marker: u32,
+    /// Evidence vector to restore when this handler unwinds.
+    pub saved_evv: EvidenceVector,
     /// `VM.frame_index` when `OpHandle` executed.
     pub entry_frame_index: usize,
     /// `VM.sp` when `OpHandle` executed.

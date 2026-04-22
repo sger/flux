@@ -289,8 +289,7 @@ match t { (1, true) -> 1, (2, false) -> 2 };
     let compile_diags = compile_result.expect_err("expected E015 from tuple exhaustiveness");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("not exhaustive")),
+        diag.message().is_some_and(|m| m.contains("not exhaustive")),
         "expected tuple-conservative E015 message, got: {:?}",
         diag.message()
     );
@@ -317,8 +316,7 @@ match t { (a, b) if a > 0 && b -> 1 };
         compile_result.expect_err("expected E015 from guarded tuple non-exhaustive");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("not exhaustive")),
+        diag.message().is_some_and(|m| m.contains("not exhaustive")),
         "expected guarded tuple conservative E015 message, got: {:?}",
         diag.message()
     );

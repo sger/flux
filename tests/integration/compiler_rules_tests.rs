@@ -794,7 +794,8 @@ fn match_tuple_without_catchall_is_conservatively_non_exhaustive() {
 
 #[test]
 fn match_tuple_without_catchall_reports_tuple_conservative_message() {
-    let rendered = compile_err_rendered(include_str!("../../examples/type_system/failing/157_match_tuple_missing_catchall_general.flx"
+    let rendered = compile_err_rendered(include_str!(
+        "../../examples/type_system/failing/157_match_tuple_missing_catchall_general.flx"
     ));
     assert!(
         rendered.contains("error[E015]"),
@@ -810,7 +811,8 @@ fn match_tuple_without_catchall_reports_tuple_conservative_message() {
 
 #[test]
 fn match_tuple_guarded_only_is_non_exhaustive() {
-    let rendered = compile_err_rendered(include_str!("../../examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx"
+    let rendered = compile_err_rendered(include_str!(
+        "../../examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx"
     ));
     assert!(
         rendered.contains("error[E015]"),
@@ -830,7 +832,8 @@ fn match_tuple_guarded_only_is_non_exhaustive() {
 fn nested_tuple_mixed_shape_reports_non_exhaustive() {
     // The matrix coverage checker emits E015 for all non-exhaustive
     // matches — there's no longer a separate ADT-specific code.
-    let rendered = compile_err_rendered(include_str!("../../examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx"
+    let rendered = compile_err_rendered(include_str!(
+        "../../examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx"
     ));
     assert!(
         rendered.contains("error[E015]"),
@@ -1064,7 +1067,8 @@ fn hm_fixture_134_if_concrete_branch_mismatch_reports_contextual_message() {
 
 #[test]
 fn hm_fixture_135_if_unresolved_branch_suppresses_contextual_message() {
-    let source = include_str!("../../examples/type_system/failing/135_if_any_branch_suppressed.flx");
+    let source =
+        include_str!("../../examples/type_system/failing/135_if_any_branch_suppressed.flx");
     let rendered = compile_err_rendered(source);
     assert!(
         !rendered.contains("The branches of this `if` expression do not agree on a type."),
@@ -1080,8 +1084,9 @@ fn hm_fixture_135_if_unresolved_branch_suppresses_contextual_message() {
 
 #[test]
 fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
-    let source =
-        include_str!("../../examples/type_system/failing/136_tuple_projection_precise_mismatch.flx");
+    let source = include_str!(
+        "../../examples/type_system/failing/136_tuple_projection_precise_mismatch.flx"
+    );
     let rendered = compile_err_rendered(source);
     assert!(
         rendered.contains("error[E300]"),
@@ -1104,7 +1109,8 @@ fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
 
 #[test]
 fn hm_fixture_137_tuple_projection_unresolved_behavior_is_stable() {
-    let source = include_str!("../../examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1121,7 +1127,8 @@ fn hm_fixture_137_tuple_projection_unresolved_behavior_is_stable() {
 
 #[test]
 fn hm_fixture_138_match_scrutinee_constraint_propagates() {
-    let source = include_str!("../../examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1140,7 +1147,8 @@ fn hm_fixture_138_match_scrutinee_constraint_propagates() {
 
 #[test]
 fn hm_fixture_139_match_scrutinee_constraint_mixed_family_no_propagation() {
-    let source = include_str!("../../examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1173,7 +1181,8 @@ fn hm_fixture_142_bool_missing_true_emits_e015() {
 
 #[test]
 fn hm_fixture_143_bool_missing_false_emits_e015() {
-    let source = include_str!("../../examples/type_system/failing/143_match_bool_missing_false.flx");
+    let source =
+        include_str!("../../examples/type_system/failing/143_match_bool_missing_false.flx");
     let rendered = compile_err_rendered(source);
     assert!(
         rendered.contains("error[E015]"),
@@ -1189,7 +1198,8 @@ fn hm_fixture_143_bool_missing_false_emits_e015() {
 
 #[test]
 fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
-    let source = include_str!("../../examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1206,7 +1216,8 @@ fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
 
 #[test]
 fn hm_fixture_151_array_literal_concrete_conflict_prefers_e300() {
-    let source = include_str!("../../examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1223,7 +1234,8 @@ fn hm_fixture_151_array_literal_concrete_conflict_prefers_e300() {
 
 #[test]
 fn hm_fixture_152_array_literal_callarg_conflict_prefers_e300() {
-    let source = include_str!("../../examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1240,8 +1252,9 @@ fn hm_fixture_152_array_literal_callarg_conflict_prefers_e300() {
 
 #[test]
 fn hm_fixture_153_match_branch_conflict_prefers_e300() {
-    let source =
-        include_str!("../../examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx");
+    let source = include_str!(
+        "../../examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx"
+    );
     let rendered = compile_err_strict_rendered(source);
     assert!(
         rendered.contains("error[E300]"),
@@ -1252,8 +1265,9 @@ fn hm_fixture_153_match_branch_conflict_prefers_e300() {
 
 #[test]
 fn hm_fixture_154_unresolved_projection_reports_undefined_name_first() {
-    let source =
-        include_str!("../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx");
+    let source = include_str!(
+        "../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"
+    );
     let rendered = compile_err_strict_rendered(source);
     assert!(
         rendered.contains("error[E004]"),
@@ -1264,7 +1278,8 @@ fn hm_fixture_154_unresolved_projection_reports_undefined_name_first() {
 
 #[test]
 fn hm_fixture_155_unresolved_member_access_reports_undefined_name_first() {
-    let source = include_str!("../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1293,7 +1308,8 @@ fn hm_fixture_156_unresolved_call_arg_reports_undefined_name_first() {
 
 #[test]
 fn hm_fixture_146_constructor_pattern_arity_some_too_many() {
-    let source = include_str!("../../examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1305,7 +1321,8 @@ fn hm_fixture_146_constructor_pattern_arity_some_too_many() {
 
 #[test]
 fn hm_fixture_147_constructor_pattern_arity_none_too_many() {
-    let source = include_str!("../../examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1317,7 +1334,8 @@ fn hm_fixture_147_constructor_pattern_arity_none_too_many() {
 
 #[test]
 fn hm_fixture_148_constructor_pattern_arity_left_too_many() {
-    let source = include_str!("../../examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1647,7 +1665,8 @@ fn pass2_multi_error_continuation_reports_independent_errors_in_order() {
 
 #[test]
 fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
-    let source = include_str!("../../examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1664,7 +1683,8 @@ fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
 
 #[test]
 fn hm_fixture_162_tuple_destructure_unresolved_strict_e425() {
-    let source = include_str!("../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1676,7 +1696,8 @@ fn hm_fixture_162_tuple_destructure_unresolved_strict_e425() {
 
 #[test]
 fn hm_fixture_163_match_concrete_disagreement_prefers_e300() {
-    let source = include_str!("../../examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1688,7 +1709,8 @@ fn hm_fixture_163_match_concrete_disagreement_prefers_e300() {
 
 #[test]
 fn hm_fixture_164_match_unresolved_arm_stays_suppressed() {
-    let source = include_str!("../../examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1700,7 +1722,8 @@ fn hm_fixture_164_match_unresolved_arm_stays_suppressed() {
 
 #[test]
 fn hm_fixture_165_self_recursive_precision_prefers_e300() {
-    let source = include_str!("../../examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1712,7 +1735,8 @@ fn hm_fixture_165_self_recursive_precision_prefers_e300() {
 
 #[test]
 fn hm_fixture_166_self_recursive_guard_stable_unresolved() {
-    let source = include_str!("../../examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1729,7 +1753,8 @@ fn hm_fixture_166_self_recursive_guard_stable_unresolved() {
 
 #[test]
 fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
-    let source = include_str!("../../examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1746,7 +1771,8 @@ fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
 
 #[test]
 fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
-    let source = include_str!("../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1759,8 +1785,11 @@ fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
 #[test]
 fn unresolved_name_fixtures_report_e004_even_in_strict_modes() {
     let unresolved_name_fixtures = [
-        include_str!("../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"),
-        include_str!("../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
+        include_str!(
+            "../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"
+        ),
+        include_str!(
+            "../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
         ),
         include_str!("../../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx"),
     ];
@@ -1785,9 +1814,11 @@ fn unresolved_name_fixtures_report_e004_even_in_strict_modes() {
 #[test]
 fn strict_only_hm_boundary_fixtures_still_report_e425_in_strict_modes() {
     let strict_boundary_fixtures = [
-        include_str!("../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+        include_str!(
+            "../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
         ),
-        include_str!("../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+        include_str!(
+            "../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
         ),
     ];
 
@@ -1810,7 +1841,8 @@ fn strict_only_hm_boundary_fixtures_still_report_e425_in_strict_modes() {
 
 #[test]
 fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
-    let source = include_str!("../../examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1827,7 +1859,8 @@ fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
 
 #[test]
 fn hm_fixture_170_match_disagreement_all_concrete_ordering_invariant_e300() {
-    let source = include_str!("../../examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -1839,7 +1872,8 @@ fn hm_fixture_170_match_disagreement_all_concrete_ordering_invariant_e300() {
 
 #[test]
 fn hm_fixture_171_self_recursive_refinement_concrete_chain_e300() {
-    let source = include_str!("../../examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -1851,7 +1885,8 @@ fn hm_fixture_171_self_recursive_refinement_concrete_chain_e300() {
 
 #[test]
 fn hm_fixture_172_self_recursive_unresolved_guard_no_false_positive() {
-    let source = include_str!("../../examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2032,7 +2067,8 @@ fn effect_row_order_equivalence_fixture_compiles() {
 
 #[test]
 fn effect_row_multi_missing_reports_deterministic_first_effect() {
-    let source = include_str!("../../examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2112,7 +2148,8 @@ fn effect_row_invalid_subtract_reports_e421() {
 
 #[test]
 fn effect_row_unresolved_single_subtract_reports_e419() {
-    let source = include_str!("../../examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2139,7 +2176,8 @@ fn effect_row_unresolved_single_subtract_reports_e419() {
 
 #[test]
 fn effect_row_unresolved_multi_subtract_reports_e420() {
-    let source = include_str!("../../examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2166,8 +2204,9 @@ fn effect_row_unresolved_multi_subtract_reports_e420() {
 
 #[test]
 fn effect_row_subset_unsatisfied_reports_e422() {
-    let source =
-        include_str!("../../examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx");
+    let source = include_str!(
+        "../../examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx"
+    );
     let rendered = compile_err_rendered(source);
     assert!(
         rendered.contains("error[E422]"),
@@ -2193,7 +2232,8 @@ fn effect_row_subset_unsatisfied_reports_e422() {
 
 #[test]
 fn effect_row_subset_missing_list_is_sorted() {
-    let source = include_str!("../../examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2210,7 +2250,8 @@ fn effect_row_subset_missing_list_is_sorted() {
 
 #[test]
 fn effect_row_absent_ordering_linked_violation_reports_e421() {
-    let source = include_str!("../../examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2364,7 +2405,8 @@ fn self_recursion_still_works() {
 
 #[test]
 fn hm_fixture_140_recursive_self_reference_refines_type() {
-    let source = include_str!("../../examples/type_system/failing/140_recursive_self_reference_return_precision.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/140_recursive_self_reference_return_precision.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -2383,7 +2425,8 @@ fn hm_fixture_140_recursive_self_reference_refines_type() {
 
 #[test]
 fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
-    let source = include_str!("../../examples/type_system/failing/141_recursive_self_reference_negative_guard.flx"
+    let source = include_str!(
+        "../../examples/type_system/failing/141_recursive_self_reference_negative_guard.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(

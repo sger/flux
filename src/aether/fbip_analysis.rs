@@ -3,9 +3,9 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 use super::{AetherDef, AetherExpr, AetherProgram};
 use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
+use super::{builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {

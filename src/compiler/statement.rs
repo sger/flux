@@ -1089,10 +1089,12 @@ impl Compiler {
                         // Don't emit OpReturnValue if we just emitted OpTailCall
                         // because the tail call will loop back instead of returning
                         if !self.is_last_instruction(OpCode::OpTailCall) {
+                            self.emit(OpCode::OpReturnCheck, &[]);
                             self.emit(OpCode::OpReturnValue, &[]);
                         }
                     }
                     None => {
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturn, &[]);
                     }
                 },
@@ -1496,15 +1498,18 @@ impl Compiler {
                         // OpReturnValue so the jump has a valid target.
                         // It is dead code for the alternative path but
                         // harmless (1 extra byte per affected function).
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturnValue, &[]);
                     } else if !self.is_last_instruction(OpCode::OpReturnValue)
                         && !self.is_last_instruction(OpCode::OpReturnLocal)
                     {
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturnValue, &[]);
                     }
                 } else if !self.is_last_instruction(OpCode::OpReturnValue)
                     && !self.is_last_instruction(OpCode::OpReturnLocal)
                 {
+                    self.emit(OpCode::OpReturnCheck, &[]);
                     self.emit(OpCode::OpReturn, &[]);
                 }
             }
@@ -1704,11 +1709,13 @@ impl Compiler {
                 if !self.is_last_instruction(OpCode::OpReturnValue)
                     && !self.is_last_instruction(OpCode::OpReturnLocal)
                 {
+                    self.emit(OpCode::OpReturnCheck, &[]);
                     self.emit(OpCode::OpReturnValue, &[]);
                 }
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
+                self.emit(OpCode::OpReturnCheck, &[]);
                 self.emit(OpCode::OpReturn, &[]);
             }
             for err in body_errors {

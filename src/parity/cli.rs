@@ -218,8 +218,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut artifacts = capture_artifacts(file, opts, false);
-    let mut details =
-        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only, opts.expect);
+    let mut details = collect_mismatch_details(
+        &run_results,
+        &artifacts,
+        opts.compare_surfaces_only,
+        opts.expect,
+    );
 
     if !opts.capture_core
         && !details.is_empty()
@@ -468,8 +472,7 @@ fn collect_mismatch_details(
     // which is verified later in the Verdict assembly.  Suppress shared/backend
     // runtime divergence details here so the fixture doesn't register as a
     // MISMATCH just because diagnostics read differently.
-    let suppress_runtime_comparison =
-        matches!(expect, Expect::CompileError | Expect::RuntimeError);
+    let suppress_runtime_comparison = matches!(expect, Expect::CompileError | Expect::RuntimeError);
     let mut details = Vec::new();
 
     if artifacts.len() >= 2 {
