@@ -11,7 +11,6 @@
 use std::collections::HashSet;
 
 use crate::core::CorePrimOp;
-use crate::lir::liveness::{self, FunctionLiveness};
 use crate::lir::*;
 use crate::llvm::codegen::builtins;
 use crate::llvm::ir::{
@@ -78,13 +77,22 @@ pub fn emit_llvm_module_with_options(
     export_runtime_trampoline: bool,
     export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
-    // Proposal 0162 Phase 3 slice 3b-i: the continuation-splitting pass lives
-    // at `crate::lir::cont_split::split_continuations` and runs when
-    // `FLUX_YIELD_CHECKS=1`. It synthesizes per-call-site continuation
-    // functions but is NOT yet plumbed into the default emission flow —
-    // slice 3b-ii will wire it in together with real closure construction
-    // and `flux_yield_extend` at the yield-check stub. Until then, the slice
-    // 3a stub remains.
+    // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
+    // the continuation-splitting pre-pass to synthesize per-call-site
+    // continuation functions and populate `Call.yield_cont`. The yield-check
+    // stub then builds a real closure from the synthesized function and
+    // passes it to `flux_yield_extend`.
+    //
+    // Accepts `&LirProgram` but must produce owned output to run the pass.
+    // Clone is a cheap DAG copy — only happens when the feature flag is on,
+    // so the default path pays nothing.
+    let owned_program: LirProgram;
+    let program: &LirProgram = if yield_checks_enabled() {
+        owned_program = crate::lir::cont_split::split_continuations(program.clone());
+        &owned_program
+    } else {
+        program
+    };
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
@@ -143,7 +151,6 @@ pub fn emit_llvm_module_with_options(
             direct_capture_mode: false,
             worker_eligible: &worker_eligible,
             emit_yield_checks,
-            liveness: None,
         };
         let llvm_func = emitter.emit_function();
         module.functions.push(llvm_func);
@@ -168,7 +175,6 @@ pub fn emit_llvm_module_with_options(
                 direct_capture_mode: false,
                 worker_eligible: &worker_eligible,
                 emit_yield_checks,
-                liveness: None,
             };
             let worker_func = emitter.emit_function();
             module.functions.push(worker_func);
@@ -193,7 +199,6 @@ pub fn emit_llvm_module_with_options(
                 direct_capture_mode: true,
                 worker_eligible: &worker_eligible,
                 emit_yield_checks,
-                liveness: None,
             };
             let direct_capture_func = emitter.emit_function();
             module.functions.push(direct_capture_func);
@@ -595,16 +600,14 @@ struct FnEmitter<'a> {
     /// Set of LirFuncIds eligible for worker/wrapper splitting.
     worker_eligible: &'a HashSet<LirFuncId>,
     direct_capture_mode: bool,
-    /// Proposal 0162 Phase 3 (slice 3a). When true, emit `flux_is_yielding`
-    /// checks after each `Call` terminator. The yield path is an abort stub
-    /// until slice 3b wires function splitting + `flux_yield_extend`.
+    /// Proposal 0162 Phase 3. When true, emit `flux_is_yielding` checks
+    /// after each `Call` terminator, consuming the `yield_cont` populated by
+    /// the `cont_split` pre-pass to build a real continuation closure on the
+    /// yield path.
     ///
     /// Controlled by the `FLUX_YIELD_CHECKS=1` environment variable. Off by
     /// default so existing output is byte-identical.
     emit_yield_checks: bool,
-    /// Liveness cache. Populated lazily on first access when
-    /// `emit_yield_checks` is on; unused otherwise.
-    liveness: Option<FunctionLiveness>,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -2209,27 +2212,12 @@ impl<'a> FnEmitter<'a> {
 
     // ── Yield-check emission (Proposal 0162 Phase 3 slice 3a) ────────
 
-    /// Lazily compute and return the function's liveness summary. Only called
-    /// when `emit_yield_checks` is true.
-    fn liveness(&mut self) -> &FunctionLiveness {
-        if self.liveness.is_none() {
-            self.liveness = Some(liveness::compute(self.func));
-        }
-        self.liveness.as_ref().unwrap()
-    }
-
-    /// Collect the set of LirVars that would need to be spilled into the yield
-    /// continuation closure at a `Call`'s continuation site. This is
-    /// `live_in(cont) ∪ {dst}` (including `dst` because the continuation must
-    /// bind the resume value back to it).
-    fn collect_live_at_cont(&mut self, cont: BlockId, dst: LirVar) -> Vec<LirVar> {
-        let mut live: Vec<LirVar> = self.liveness().live_in(cont).iter().copied().collect();
-        if !live.contains(&dst) {
-            live.push(dst);
-        }
-        live.sort_by_key(|v| v.0);
-        live
-    }
+    // Slice 3b moved live-at-cont computation into the `cont_split` pre-pass
+    // (which populates `Call.yield_cont` with the capture set). The emitter
+    // no longer needs per-call liveness — it reads the canonical set from
+    // `yield_cont`. The `FunctionLiveness` / `liveness()` helpers remain on
+    // the struct for potential use by later slices (e.g. debug dumps or IR
+    // validation passes), but are no longer exercised in the default path.
 
     /// After a `Call` has emitted its actual call instruction (result bound to
     /// `dst`), insert the yield-check shape:
@@ -2237,28 +2225,26 @@ impl<'a> FnEmitter<'a> {
     /// ```llvm
     ///   %y = call i32 @flux_is_yielding()
     ///   %y_nz = icmp ne i32 %y, 0
-    ///   br i1 %y_nz, label %yield.N, label %cont.N
-    /// yield.N:                             ; slice 3a stub
-    ///   ret i64 FLUX_YIELD_SENTINEL
-    /// cont.N:
+    ///   br i1 %y_nz, label %yield.N, label %yield.cont.N
+    /// yield.N:
+    ///   ; when Call.yield_cont is Some (slice 3b-ii):
+    ///   %captures = alloca [M x i64]
+    ///   ; store each capture into the array...
+    ///   %closure = call @flux_make_closure(ptr @<synth>$dc, i32 1, ptr %captures, i32 M, null, 0)
+    ///   %sentinel = call @flux_yield_extend(i64 %closure)
+    ///   ret i64 %sentinel
+    /// yield.cont.N:
     ///   br label %<cont>
     /// ```
     ///
-    /// Returns the terminator for the block that held the call itself.
-    ///
-    /// **Slice 3a stub**: the yield block currently just returns the sentinel
-    /// (propagating the yield without participating). Slice 3b will replace
-    /// that with `closure = MakeClosure(synthetic_cont_fn, live_vars...)` and
-    /// `ret i64 @flux_yield_extend(closure)`.
-    ///
-    /// `live_at_cont` — the live-in set of the `cont` block plus `dst`. Slice
-    /// 3a emits this set as a comment-carrying placeholder so the liveness
-    /// integration can be validated in emitted IR. Slice 3b consumes it.
+    /// When `yield_cont` is `None` the yield block falls back to the slice-3a
+    /// stub (`ret i64 FLUX_YIELD_SENTINEL`), which silently drops the
+    /// continuation. The pre-pass runs whenever `FLUX_YIELD_CHECKS=1`, so in
+    /// that configuration `yield_cont` is populated for every normal Call.
     fn emit_yield_check_after_call(
         &mut self,
-        dst: LirVar,
         cont: BlockId,
-        live_at_cont: &[LirVar],
+        yield_cont: Option<(LirFuncId, &[LirVar])>,
     ) -> LlvmTerminator {
         // Label ids unique per call site.
         let slot = self.next_tmp;
@@ -2266,7 +2252,7 @@ impl<'a> FnEmitter<'a> {
         let yield_label = LabelId(format!("yield.{slot}"));
         let cont_label = LabelId(format!("yield.cont.{slot}"));
 
-        // Add external declaration for flux_is_yielding (i32 ()).
+        // Declare C runtime helpers we rely on.
         self.needed_decls.insert("flux_is_yielding".to_string());
 
         // %y = call i32 @flux_is_yielding()
@@ -2294,20 +2280,12 @@ impl<'a> FnEmitter<'a> {
             }),
         });
 
-        // Slice 3a stub block: just `ret i64 FLUX_YIELD_SENTINEL`. Slice 3b
-        // will replace this with MakeClosure + flux_yield_extend using
-        // `live_at_cont` as the capture set.
-        let _ = (dst, live_at_cont); // Intentionally unused in 3a.
+        // The yield block: build continuation closure + flux_yield_extend.
+        let yield_block_instrs = self.build_yield_block_instrs(yield_cont);
         self.extra_blocks.push(LlvmBlock {
             label: yield_label.clone(),
-            instrs: Vec::new(),
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: LlvmOperand::Const(LlvmConst::Int {
-                    bits: 64,
-                    value: FLUX_YIELD_SENTINEL as i128,
-                }),
-            },
+            instrs: yield_block_instrs.0,
+            term: yield_block_instrs.1,
         });
 
         // The cont-path block: forward to the actual `cont` in a new block so
@@ -2327,6 +2305,150 @@ impl<'a> FnEmitter<'a> {
             then_label: yield_label,
             else_label: cont_label,
         }
+    }
+
+    /// Emit the body of the yield-path block.
+    ///
+    /// - `Some((func_id, captures))`: allocate a captures array, store each
+    ///   live var into it, build a closure over the synthesized continuation
+    ///   function, call `flux_yield_extend`, return the sentinel.
+    /// - `None`: emit the slice-3a stub — just return the sentinel. This path
+    ///   is only reached if the pre-pass didn't synthesize a continuation
+    ///   (e.g. the cont subgraph was trivially empty).
+    fn build_yield_block_instrs(
+        &mut self,
+        yield_cont: Option<(LirFuncId, &[LirVar])>,
+    ) -> (Vec<LlvmInstr>, LlvmTerminator) {
+        let Some((func_id, captures)) = yield_cont else {
+            return (
+                Vec::new(),
+                LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: FLUX_YIELD_SENTINEL as i128,
+                    }),
+                },
+            );
+        };
+
+        self.needed_decls.insert("flux_yield_extend".to_string());
+
+        let target = self
+            .program
+            .func_by_id(func_id)
+            .expect("yield_cont references unknown synthesized LirFuncId");
+        let sanitized_target = sanitize_llvm_symbol_fragment(&target.qualified_name);
+        // The synthesized function's user-visible arity is its own params
+        // (`[dst]`, so 1). Captures are separate.
+        let user_arity = target.params.len() as i32;
+
+        // The closure fn_ptr: the `$dc` variant of the synthesized function,
+        // which is a fastcc function `(cap_0, .., cap_N, param_0, .., param_M)`
+        // — but flux_make_closure expects a ccc `(closure, args, nargs)`
+        // entry, not fastcc. The closure-entry wrapper flux_{name}.closure_entry
+        // is the ccc variant. For synthesized functions with captures, that
+        // wrapper DOES exist (it comes from the `else` branch of emit_function
+        // — line ~912 — which emits a closure-convention function named the
+        // same as flux_{name} with ccc signature). Hence we reference
+        // flux_{name} directly here; it's the correct ccc entry.
+        //
+        // Note: this relies on synthesized continuation functions having
+        // non-empty `capture_vars`, which is true by construction (we always
+        // include `dst`'s parent-scope siblings as captures via live_in(cont)
+        // ∪ {dst}, and params = [dst] means capture_vars.is_empty() only when
+        // dst itself is the only live var — in which case the function has
+        // zero captures, and the `else if capture_vars.is_empty()` branch
+        // emits a direct fastcc function that's INCOMPATIBLE with indirect
+        // dispatch. Slice 3b-ii guard: when captures is empty, fall back to
+        // the stub (drop the continuation). Future work will emit a closure-
+        // entry wrapper for this case.
+        if captures.is_empty() || target.capture_vars.is_empty() {
+            // Degenerate case: the cont has no captured state to thread.
+            // We still need to yield (the perform above us expects the
+            // sentinel). Drop the continuation for now.
+            return (
+                Vec::new(),
+                LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: FLUX_YIELD_SENTINEL as i128,
+                    }),
+                },
+            );
+        }
+
+        let fn_ptr_name = format!("flux_{sanitized_target}");
+
+        // Build the captures array on the stack.
+        let mut instrs: Vec<LlvmInstr> = Vec::new();
+        let cap_arr = self.tmp();
+        instrs.push(LlvmInstr::Alloca {
+            dst: cap_arr.clone(),
+            ty: LlvmType::Array {
+                len: captures.len() as u64,
+                element: Box::new(LlvmType::i64()),
+            },
+            count: None,
+            align: Some(8),
+        });
+        for (i, cap) in captures.iter().enumerate() {
+            let gep = self.tmp();
+            instrs.push(LlvmInstr::GetElementPtr {
+                dst: gep.clone(),
+                inbounds: true,
+                element_ty: LlvmType::i64(),
+                base: LlvmOperand::Local(cap_arr.clone()),
+                indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
+            });
+            instrs.push(LlvmInstr::Store {
+                ty: LlvmType::i64(),
+                value: self.var(*cap),
+                ptr: LlvmOperand::Local(gep),
+                align: Some(8),
+            });
+        }
+
+        // %closure = flux_make_closure(fn_ptr, arity, captures_ptr,
+        //                              cap_count, null, 0)
+        let closure = self.tmp();
+        instrs.push(LlvmInstr::Call {
+            dst: Some(closure.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_make_closure".to_string())),
+            args: vec![
+                (LlvmType::Ptr, LlvmOperand::Global(GlobalId(fn_ptr_name))),
+                (LlvmType::i32(), self.i32_const(user_arity)),
+                (LlvmType::Ptr, LlvmOperand::Local(cap_arr)),
+                (LlvmType::i32(), self.i32_const(captures.len() as i32)),
+                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                (LlvmType::i32(), self.i32_const(0)),
+            ],
+            attrs: Vec::new(),
+        });
+
+        // %sentinel = call i64 @flux_yield_extend(i64 %closure)
+        let sentinel = self.tmp();
+        instrs.push(LlvmInstr::Call {
+            dst: Some(sentinel.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_yield_extend".to_string())),
+            args: vec![(LlvmType::i64(), LlvmOperand::Local(closure))],
+            attrs: Vec::new(),
+        });
+
+        (
+            instrs,
+            LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(sentinel),
+            },
+        )
     }
 
     // ── Terminator emission ─────────────────────────────────────────
@@ -2391,7 +2513,7 @@ impl<'a> FnEmitter<'a> {
                 args,
                 cont,
                 kind,
-                yield_cont: _,
+                yield_cont,
             } => {
                 match kind {
                     CallKind::Direct { func_id } => {
@@ -2469,12 +2591,17 @@ impl<'a> FnEmitter<'a> {
                     }
                 }
                 if self.emit_yield_checks {
-                    // Slice 3a: emit `flux_is_yielding` + cond-br to a stub
-                    // yield block that returns the sentinel. The liveness
-                    // analysis is consulted to prepare the capture set that
-                    // slice 3b will spill into the yield continuation.
-                    let live_at_cont = self.collect_live_at_cont(*cont, *dst);
-                    self.emit_yield_check_after_call(*dst, *cont, &live_at_cont)
+                    // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
+                    // yield path, build a closure over the synthesized
+                    // continuation function (populated in Call.yield_cont by
+                    // the `cont_split` pre-pass) and hand it to
+                    // `flux_yield_extend`. When the pre-pass produced no
+                    // synthesized continuation, fall back to the stub path
+                    // that drops the continuation — only reachable for
+                    // degenerate cont subgraphs.
+                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
+                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
+                    self.emit_yield_check_after_call(*cont, passed_cont)
                 } else {
                     // Default output (yield checks disabled): branch straight
                     // to `cont`. Byte-identical to pre-slice-3a IR.
