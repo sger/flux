@@ -1,10 +1,27 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/63_real_program_effect_rows_and_handle.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E422]: Effect Requirement Mismatch
+
+This call requires effects that are missing from the surrounding effect row: IO.
+
+  examples/type_system/63_real_program_effect_rows_and_handle.flx:18:13
+   |
+18 |     let c = E.run_with_row(E.io_only_value)
+   |             ^^^^^^^^^^^^^^
+   |             -------------- this call needs effects that are not currently available
+
+   |             -------------- this call to `run_with_row` creates the effect obligation
+
+Note:
+  missing required effects: IO
+  constraint source: effect-row checking for `run_with_row`
+
+Help:
+  Add the missing effects to the enclosing function or handle them before this call.
 == stdout ==
 <not executed>

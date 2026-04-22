@@ -1,9 +1,9 @@
 // E421: deferred Absent catches shared-row binding from a later argument.
 
 fn needs_linked_absence(
-    first: (() -> Int with |e - IO),
+    first: (() -> Int with |e - Console),
     second: (() -> Int with |e)
-) -> Int with |e - IO {
+) -> Int with |e - Console {
     first() + second()
 }
 
@@ -11,11 +11,11 @@ fn row_var_worker() -> Int with |e {
     1
 }
 
-fn io_worker() -> Int with IO {
-    print("io")
+fn console_worker() -> Int with Console {
+    print("console")
     2
 }
 
-fn main() -> Unit with IO {
-    let _ = needs_linked_absence(row_var_worker, io_worker)
+fn main() -> Unit with Console {
+    let _ = needs_linked_absence(row_var_worker, console_worker)
 }

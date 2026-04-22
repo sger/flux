@@ -1,10 +1,61 @@
 ---
-source: tests/examples_advanced_snapshots.rs
+source: tests/examples/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/shapes_records.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E400]: Missing Ambient Effect
+
+Call to `print` requires effect `Console` in this function signature.
+
+  examples/advanced/shapes_records.flx:22:5
+   |
+22 |     print(s.label)
+   |     ^^^^^
+   |     ----- effectful call occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
+
+
+Warning: Redundant Match Arm
+
+this arm is unreachable — earlier arms already cover it
+
+  examples/advanced/shapes_records.flx:29:9
+   |
+29 |         Square { side, ... } -> side,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `describe` requires effect `IO` in this function signature.
+
+  examples/advanced/shapes_records.flx:39:5
+   |
+39 |     describe(c)
+   |     ^^^^^^^^
+   |     -------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `describe` requires effect `IO` in this function signature.
+
+  examples/advanced/shapes_records.flx:40:5
+   |
+40 |     describe(sq)
+   |     ^^^^^^^^
+   |     -------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+Found 3 errors and 1 warning.
 == stdout ==
 <not executed>

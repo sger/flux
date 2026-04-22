@@ -1,10 +1,21 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2025/Day2Part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E400]: Missing Ambient Effect
+
+Call to `parse_ranges` requires effect `Console` in this function signature.
+
+  examples/aoc/2025/Day2Part2.flx:159:29
+    |
+159 |         let parsed_ranges = parse_ranges(path)
+    |                             ^^^^^^^^^^^^
+    |                             ------------ effectful call occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>

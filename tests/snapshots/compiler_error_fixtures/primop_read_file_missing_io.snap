@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/primop_read_file_missing_io.flx
 == compile ==
@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `read_file` requires effect `IO` in this function signature.
+Call to `read_file` requires effect `FileSystem` in this function signature.
 
   examples/compiler_errors/primop_read_file_missing_io.flx:2:19
   |
@@ -16,6 +16,6 @@ Call to `read_file` requires effect `IO` in this function signature.
   |                   --------- effectful call occurs here
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Add `with FileSystem` to the enclosing function.
 == stdout ==
 <not executed>

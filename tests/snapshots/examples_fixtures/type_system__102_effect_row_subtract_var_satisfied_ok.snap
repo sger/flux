@@ -1,10 +1,27 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E421]: Effect Requirement Mismatch
+
+I cannot subtract effect `Console` from this effect row.
+
+  examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx:17:21
+   |
+17 |     print(to_string(run_filtered(io_work)))
+   |                     ^^^^^^^^^^^^
+   |                     ------------ this call violates an effect-row subtraction constraint
+
+   |                     ------------ this call to `run_filtered` creates the effect obligation
+
+Note:
+  requested subtraction: Console
+  constraint source: effect-row checking for `run_filtered`
+
+Help:
+  Handle or include this effect before subtracting it from an effect row.
 == stdout ==
 <not executed>
