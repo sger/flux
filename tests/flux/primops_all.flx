@@ -138,7 +138,7 @@ fn test_type_and_compat_primops() {
     assert_true(string_len(to_string(arr)) > 0)
 }
 
-fn test_effect_primops() {
+fn test_effect_primops() with IO, Time {
     println("primop test println")
 
     let t0 = clock_now()

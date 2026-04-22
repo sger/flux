@@ -5,23 +5,17 @@ Fixture: examples/type_system/failing/194_effect_row_multi_missing_deterministic
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E422]: Effect Requirement Mismatch
+error[E400]: Missing Ambient Effect
 
-This call requires effects that are missing from the surrounding effect row: IO, Time.
+Call to `call_requires_clock_console` requires effect `Clock` in this function signature.
 
   examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:14:5
    |
-14 |     call_requires_io_time(worker)
-   |     ^^^^^^^^^^^^^^^^^^^^^
-   |     --------------------- this call needs effects that are not currently available
+14 |     call_requires_clock_console(worker)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     --------------------------- effectful call occurs here
 
-   |     --------------------- this call to `call_requires_io_time` creates the effect obligation
-
-Note:
-  missing required effects: IO, Time
-  constraint source: effect-row checking for `call_requires_io_time`
-
-Help:
-  Add the missing effects to the enclosing function or handle them before this call.
+Hint:
+  Add `with Clock` to the enclosing function.
 == stdout ==
 <not executed>

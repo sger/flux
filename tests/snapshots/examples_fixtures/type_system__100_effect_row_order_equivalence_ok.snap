@@ -3,25 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/100_effect_row_order_equivalence_ok.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E422]: Effect Requirement Mismatch
-
-This call requires effects that are missing from the surrounding effect row: IO, Time.
-
-  examples/type_system/100_effect_row_order_equivalence_ok.flx:13:21
-   |
-13 |     print(to_string(call_swapped_effects(add_one, 41)))
-   |                     ^^^^^^^^^^^^^^^^^^^^
-   |                     -------------------- this call needs effects that are not currently available
-
-   |                     -------------------- this call to `call_swapped_effects` creates the effect obligation
-
-Note:
-  missing required effects: IO, Time
-  constraint source: effect-row checking for `call_swapped_effects`
-
-Help:
-  Add the missing effects to the enclosing function or handle them before this call.
+<none>
 == stdout ==
 <not executed>
