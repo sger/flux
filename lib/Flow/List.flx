@@ -5,6 +5,8 @@
 //
 // Argument order follows Flux convention: collection first, function second.
 
+import Flow.Array as Array
+
 module Flow.List {
 
     public fn map<a, b>(xs: List<a>, f: (a) -> b) -> List<b> {
@@ -439,11 +441,29 @@ module Flow.List {
         product_go(xs, 1)
     }
 
+    // `append` is provided by the built-in `Semigroup` class; use the `++`
+    // operator or the class method rather than a Flow.List-level `append`.
+    // The private helper below backs the internal uses in this module.
     fn append(xs, ys) {
         match xs {
             [h | t] -> [h | append(t, ys)],
             _ -> ys
         }
+    }
+
+    public fn break_at<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
+        span(xs, fn(x) { !pred(x) })
+    }
+
+    public fn lookup<k: Eq, v>(xs: List<(k, v)>, key: k) -> Option<v> {
+        match xs {
+            [(k, v) | t] -> if k == key { Some(v) } else { lookup(t, key) },
+            _ -> None
+        }
+    }
+
+    public fn not_elem<a: Eq>(xs: List<a>, x: a) -> Bool {
+        !contains(xs, x)
     }
 
     fn enumerate_go(xs, i) {
@@ -583,6 +603,16 @@ module Flow.List {
             [h | t] -> minimum_go(t, if h < best { h } else { best }),
             _ -> best
         }
+    }
+
+    public fn to_array<a>(xs: List<a>) -> Array<a> {
+        fn to_array_go(ys, acc) {
+            match ys {
+                [h | t] -> to_array_go(t, Array.push(acc, h)),
+                _ -> acc
+            }
+        }
+        to_array_go(xs, [||])
     }
 
 }

@@ -1,0 +1,41 @@
+// Flow.Math — Floating-point math primitives.
+//
+// All operations take and return Float. Trigonometric functions use radians.
+
+module Flow.Math {
+
+    public let pi: Float = 3.141592653589793
+
+    public intrinsic fn sqrt(x: Float) -> Float = primop FSqrt
+
+    public intrinsic fn exp(x: Float) -> Float = primop FExp
+
+    public intrinsic fn log(x: Float) -> Float = primop FLog
+
+    public intrinsic fn sin(x: Float) -> Float = primop FSin
+
+    public intrinsic fn cos(x: Float) -> Float = primop FCos
+
+    public intrinsic fn tan(x: Float) -> Float = primop FTan
+
+    public intrinsic fn asin(x: Float) -> Float = primop FAsin
+
+    public intrinsic fn acos(x: Float) -> Float = primop FAcos
+
+    public intrinsic fn atan(x: Float) -> Float = primop FAtan
+
+    public intrinsic fn sinh(x: Float) -> Float = primop FSinh
+
+    public intrinsic fn cosh(x: Float) -> Float = primop FCosh
+
+    public intrinsic fn tanh(x: Float) -> Float = primop FTanh
+
+    public intrinsic fn floor(x: Float) -> Float = primop FFloor
+
+    public intrinsic fn ceil(x: Float) -> Float = primop FCeil
+
+    public intrinsic fn round(x: Float) -> Float = primop FRound
+
+    public intrinsic fn truncate(x: Float) -> Float = primop FTruncate
+
+}

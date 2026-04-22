@@ -15,6 +15,7 @@ Student Grade Analyzer (self-contained)
 */
 
 
+import Flow.Array as Array
 import Flow.Map as Map
 
 type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
@@ -80,7 +81,7 @@ fn analyze(students) {
 
 // Count passed.
 fn count_passed(results) {
-    len(filter(to_list(Map.values(results)), \r ->
+    len(filter(Array.to_list(Map.values(results)), \r ->
             match r {
                 Summary(_, _, passed) -> passed,
             }
@@ -89,7 +90,7 @@ fn count_passed(results) {
 
 // Count failed.
 fn count_failed(results) {
-    len(filter(to_list(Map.values(results)), \r ->
+    len(filter(Array.to_list(Map.values(results)), \r ->
             match r {
                 Summary(_, _, passed) -> !passed,
             }

@@ -4,6 +4,8 @@
 // - list_hd_ms and array_first_ms stay roughly flat as n grows (O(1))
 // - list_len_ms and array_concat_ms grow with n (O(n))
 
+import Flow.Array as Array
+
 fn main() with IO, Time {
     fn bench_list_head(lst, reps, acc) {
         if reps <= 0 {
@@ -51,7 +53,7 @@ fn value_at(arr, idx) {
         } else {
             let n = value_at(sizes, idx)
             let arr = range(0, n)
-            let lst = to_list(arr)
+            let lst = Array.to_list(arr)
 
             let t0 = now_ms()
             let sink1 = bench_list_head(lst, reps_o1, 0)

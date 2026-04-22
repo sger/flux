@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn test_numeric_primops() {
     assert_eq(iadd(10, 20), 30)
     assert_eq(isub(20, 3), 17)
@@ -79,8 +81,8 @@ fn test_map_primops() {
     let vs = map_values(m2)
     assert_eq(len(ks), 2)
     assert_eq(len(vs), 2)
-    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "name") }))
-    assert_true(any(to_list(ks), fn(k) { cmp_eq(k, "year") }))
+    assert_true(any(Array.to_list(ks), fn(k) { cmp_eq(k, "name") }))
+    assert_true(any(Array.to_list(ks), fn(k) { cmp_eq(k, "year") }))
 
     let m3 = map_delete(m2, "year")
     assert_false(map_has(m3, "year"))

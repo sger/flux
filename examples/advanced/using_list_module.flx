@@ -29,6 +29,7 @@ Test: Persistent lists with helper functions
 */
 
 
+import Flow.List as List
 import Flow.Map as Map
 
 // Helper for list range.
@@ -152,7 +153,7 @@ fn main() with IO {
     let names = [1, 2, 3]
     let scores = [95, 87, 92]
     let paired = list_zip(names, scores)
-    print(to_array(paired))
+    print(List.to_array(paired))
 
     print("=== Any / All ===")
     let sample_data = [1, 2, 3, 4, 5]

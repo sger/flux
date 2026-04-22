@@ -1,12 +1,82 @@
-// Flow.Numeric — Numeric list aggregation operations.
+// Flow.Numeric — Integer-level numeric helpers.
+//
+// For floating-point math (sqrt, sin, cos, exp, log, floor, ceil, round,
+// truncate, trig, hyperbolic, pi), see Flow.Math.
 
 module Flow.Numeric {
-    public intrinsic fn sqrt(x: Float) -> Float = primop FSqrt
-    public intrinsic fn sin(x: Float) -> Float = primop FSin
-    public intrinsic fn cos(x: Float) -> Float = primop FCos
-    public intrinsic fn exp(x: Float) -> Float = primop FExp
-    public intrinsic fn log(x: Float) -> Float = primop FLog
-    public intrinsic fn floor(x: Float) -> Float = primop FFloor
-    public intrinsic fn ceil(x: Float) -> Float = primop FCeil
-    public intrinsic fn round(x: Float) -> Float = primop FRound
+
+    /// True when `n` is divisible by 2.
+    public fn even(n: Int) -> Bool {
+        n % 2 == 0
+    }
+
+    /// True when `n` is not divisible by 2.
+    public fn odd(n: Int) -> Bool {
+        n % 2 != 0
+    }
+
+    /// Greatest common divisor of `a` and `b`. Always non-negative.
+    public fn gcd(a: Int, b: Int) -> Int {
+        let aa = if a < 0 { 0 - a } else { a }
+        let bb = if b < 0 { 0 - b } else { b }
+        fn gcd_go(x, y) {
+            if y == 0 { x } else { gcd_go(y, x % y) }
+        }
+        gcd_go(aa, bb)
+    }
+
+    /// Least common multiple of `a` and `b`. Zero if either is zero.
+    public fn lcm(a: Int, b: Int) -> Int {
+        if a == 0 { 0 }
+        else if b == 0 { 0 }
+        else {
+            let g = gcd(a, b)
+            let q = a / g
+            let p = q * b
+            if p < 0 { 0 - p } else { p }
+        }
+    }
+
+    // Note: `abs` is already a polymorphic built-in (handles Int and Float);
+    // no wrapper needed here. Use `abs(x)` directly.
+
+    /// Sign of an integer: -1, 0, or 1.
+    public fn signum(n: Int) -> Int {
+        if n > 0 { 1 } else if n < 0 { 0 - 1 } else { 0 }
+    }
+
+    /// Floor-division integer quotient: rounds toward negative infinity.
+    /// Differs from the `/` operator, which rounds toward zero.
+    ///
+    /// Examples:
+    ///   div(7, 2) == 3       (same as /)
+    ///   div(-7, 2) == -4     (/ gives -3)
+    ///   div(7, -2) == -4     (/ gives -3)
+    ///   div(-7, -2) == 3     (same as /)
+    public fn div(a: Int, b: Int) -> Int {
+        let q = a / b
+        let r = a % b
+        if r != 0 && ((a < 0) != (b < 0)) { q - 1 } else { q }
+    }
+
+    /// Floor-division integer remainder: result has the same sign as the
+    /// divisor. Differs from the `%` operator, which follows the dividend's
+    /// sign.
+    ///
+    /// Examples:
+    ///   mod(7, 2) == 1       (same as %)
+    ///   mod(-7, 2) == 1      (% gives -1)
+    ///   mod(7, -2) == -1     (% gives 1)
+    ///   mod(-7, -2) == -1    (same as %)
+    public fn mod(a: Int, b: Int) -> Int {
+        let r = a % b
+        if r != 0 && ((r < 0) != (b < 0)) { r + b } else { r }
+    }
+
+    // Note: `from_integral` / `real_to_frac` are not exposed here because
+    // Flux currently has no Int → Float conversion primop. Once an
+    // `IntToFloat` (or equivalent) primop lands, add:
+    //   public fn from_integral(n: Int) -> Float { … }
+    //   public fn real_to_frac(x: Float) -> Float { x }
+
 }

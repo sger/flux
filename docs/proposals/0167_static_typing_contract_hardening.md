@@ -3,7 +3,7 @@
 - Status: Proposed
 - Proposal PR:
 - Flux Issue:
-- Depends on: current HM/Core pipeline, [0157](0157_remove_dynamic_from_maintained_paths.md), [0158](0158_static_typing_contract_enforcement.md), [0159](0159_polymorphic_recursion_signature_guided.md), [0164](0164_internal_primop_contract_and_stdlib_surface.md) where relevant
+- Depends on: current HM/Core pipeline, [0157](0157_remove_dynamic_from_maintained_paths.md), [0158](0158_static_typing_contract_enforcement.md), [0159](0159_polymorphic_recursion_signature_guided.md), [0164](implemented/0164_internal_primop_contract_and_stdlib_surface.md) where relevant
 
 # Proposal 0167: Static Typing Contract Hardening
 

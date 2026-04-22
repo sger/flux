@@ -9,9 +9,11 @@ use crate::syntax::{
 
 const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
     ("Flow.Option", "Option.flx"),
+    ("Flow.Either", "Either.flx"),
     ("Flow.List", "List.flx"),
     ("Flow.String", "String.flx"),
     ("Flow.Numeric", "Numeric.flx"),
+    ("Flow.Math", "Math.flx"),
     ("Flow.IO", "IO.flx"),
     ("Flow.Assert", "Assert.flx"),
 ];

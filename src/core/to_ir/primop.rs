@@ -23,16 +23,11 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::StringSlice => "string_slice",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::Split => "split",
-        CorePrimOp::Join => "join",
         CorePrimOp::Trim => "trim",
         CorePrimOp::Upper => "upper",
         CorePrimOp::Lower => "lower",
-        CorePrimOp::StartsWith => "starts_with",
-        CorePrimOp::EndsWith => "ends_with",
         CorePrimOp::Replace => "replace",
         CorePrimOp::Substring => "substring",
-        CorePrimOp::Chars => "chars",
-        CorePrimOp::StrContains => "str_contains",
         CorePrimOp::ArrayLen => "array_len",
         CorePrimOp::ArrayGet => "array_get",
         CorePrimOp::ArraySet => "array_set",
@@ -68,10 +63,6 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::ParseInts => "parse_ints",
-        CorePrimOp::SplitInts => "split_ints",
-        CorePrimOp::ToList => "to_list",
-        CorePrimOp::ToArray => "to_array",
         CorePrimOp::Abs => "abs",
         CorePrimOp::FSqrt => "sqrt",
         CorePrimOp::FSin => "sin",
@@ -81,6 +72,14 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FFloor => "floor",
         CorePrimOp::FCeil => "ceil",
         CorePrimOp::FRound => "round",
+        CorePrimOp::FTan => "tan",
+        CorePrimOp::FAsin => "asin",
+        CorePrimOp::FAcos => "acos",
+        CorePrimOp::FAtan => "atan",
+        CorePrimOp::FSinh => "sinh",
+        CorePrimOp::FCosh => "cosh",
+        CorePrimOp::FTanh => "tanh",
+        CorePrimOp::FTruncate => "truncate",
         CorePrimOp::BitAnd => "bit_and",
         CorePrimOp::BitOr => "bit_or",
         CorePrimOp::BitXor => "bit_xor",
@@ -89,21 +88,6 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
-        CorePrimOp::ArrayReverse => "array_reverse",
-        CorePrimOp::ArrayContains => "array_contains",
-        CorePrimOp::Sort => "sort",
-        CorePrimOp::SortBy => "sort_by",
-        CorePrimOp::HoMap => "map",
-        CorePrimOp::HoFilter => "filter",
-        CorePrimOp::HoFold => "fold",
-        CorePrimOp::HoAny => "any",
-        CorePrimOp::HoAll => "all",
-        CorePrimOp::HoEach => "each",
-        CorePrimOp::HoFind => "find",
-        CorePrimOp::HoCount => "count",
-        CorePrimOp::Zip => "zip",
-        CorePrimOp::Flatten => "flatten",
-        CorePrimOp::HoFlatMap => "flat_map",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -248,16 +232,11 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::StringSlice
             | CorePrimOp::ToString
             | CorePrimOp::Split
-            | CorePrimOp::Join
             | CorePrimOp::Trim
             | CorePrimOp::Upper
             | CorePrimOp::Lower
-            | CorePrimOp::StartsWith
-            | CorePrimOp::EndsWith
             | CorePrimOp::Replace
             | CorePrimOp::Substring
-            | CorePrimOp::Chars
-            | CorePrimOp::StrContains
             | CorePrimOp::ArrayLen
             | CorePrimOp::ArrayGet
             | CorePrimOp::ArraySet
@@ -289,10 +268,6 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ClockNow
             | CorePrimOp::Time
             | CorePrimOp::ParseInt
-            | CorePrimOp::ParseInts
-            | CorePrimOp::SplitInts
-            | CorePrimOp::ToList
-            | CorePrimOp::ToArray
             | CorePrimOp::Abs
             | CorePrimOp::FSqrt
             | CorePrimOp::FSin
@@ -302,6 +277,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FFloor
             | CorePrimOp::FCeil
             | CorePrimOp::FRound
+            | CorePrimOp::FTan
+            | CorePrimOp::FAsin
+            | CorePrimOp::FAcos
+            | CorePrimOp::FAtan
+            | CorePrimOp::FSinh
+            | CorePrimOp::FCosh
+            | CorePrimOp::FTanh
+            | CorePrimOp::FTruncate
             | CorePrimOp::BitAnd
             | CorePrimOp::BitOr
             | CorePrimOp::BitXor
@@ -313,22 +296,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows
-            | CorePrimOp::ArrayReverse
-            | CorePrimOp::ArrayContains
-            | CorePrimOp::Sort
-            | CorePrimOp::SortBy
-            | CorePrimOp::HoMap
-            | CorePrimOp::HoFilter
-            | CorePrimOp::HoFold
-            | CorePrimOp::HoAny
-            | CorePrimOp::HoAll
-            | CorePrimOp::HoEach
-            | CorePrimOp::HoFind
-            | CorePrimOp::HoCount
-            | CorePrimOp::Zip
-            | CorePrimOp::Flatten
-            | CorePrimOp::HoFlatMap => {
+            | CorePrimOp::AssertThrows => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

@@ -421,6 +421,38 @@ int64_t flux_round(int64_t n) {
     return flux_box_float(round(flux_unbox_float(n)));
 }
 
+int64_t flux_tan(int64_t n) {
+    return flux_box_float(tan(flux_unbox_float(n)));
+}
+
+int64_t flux_asin(int64_t n) {
+    return flux_box_float(asin(flux_unbox_float(n)));
+}
+
+int64_t flux_acos(int64_t n) {
+    return flux_box_float(acos(flux_unbox_float(n)));
+}
+
+int64_t flux_atan(int64_t n) {
+    return flux_box_float(atan(flux_unbox_float(n)));
+}
+
+int64_t flux_sinh(int64_t n) {
+    return flux_box_float(sinh(flux_unbox_float(n)));
+}
+
+int64_t flux_cosh(int64_t n) {
+    return flux_box_float(cosh(flux_unbox_float(n)));
+}
+
+int64_t flux_tanh(int64_t n) {
+    return flux_box_float(tanh(flux_unbox_float(n)));
+}
+
+int64_t flux_truncate(int64_t n) {
+    return flux_box_float(trunc(flux_unbox_float(n)));
+}
+
 /* ── Runtime-dispatching arithmetic ─────────────────────────────────── */
 /* These check the value type at runtime and dispatch to the correct op. */
 

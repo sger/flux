@@ -1,26 +1,79 @@
 import Flow.Array as Array
+import Flow.Math as Math
 import Flow.Numeric as Numeric
 
-// Tests for the public Flow.Numeric surface.
+// Tests for the public Flow.Math (floating-point) and Flow.Numeric
+// (integer-semantics) surfaces.
 
-fn test_numeric_sqrt() {
-    assert_eq(Numeric.sqrt(9.0), 3.0)
+fn test_math_sqrt() {
+    assert_eq(Math.sqrt(9.0), 3.0)
 }
 
-fn test_numeric_sin_cos() {
-    assert_eq(Numeric.sin(0.0), 0.0)
-    assert_eq(Numeric.cos(0.0), 1.0)
+fn test_math_sin_cos() {
+    assert_eq(Math.sin(0.0), 0.0)
+    assert_eq(Math.cos(0.0), 1.0)
 }
 
-fn test_numeric_exp_log() {
-    assert_eq(Numeric.exp(0.0), 1.0)
-    assert_eq(Numeric.log(1.0), 0.0)
+fn test_math_exp_log() {
+    assert_eq(Math.exp(0.0), 1.0)
+    assert_eq(Math.log(1.0), 0.0)
 }
 
-fn test_numeric_floor_ceil_round() {
-    assert_eq(Numeric.floor(3.9), 3.0)
-    assert_eq(Numeric.ceil(3.1), 4.0)
-    assert_eq(Numeric.round(3.5), 4.0)
+fn test_math_floor_ceil_round() {
+    assert_eq(Math.floor(3.9), 3.0)
+    assert_eq(Math.ceil(3.1), 4.0)
+    assert_eq(Math.round(3.5), 4.0)
+}
+
+fn test_math_truncate() {
+    assert_eq(Math.truncate(3.7), 3.0)
+    assert_eq(Math.truncate(0.0 - 3.7), 0.0 - 3.0)
+}
+
+fn test_math_tan_family() {
+    assert_eq(Math.tan(0.0), 0.0)
+    assert_eq(Math.asin(0.0), 0.0)
+    assert_eq(Math.acos(1.0), 0.0)
+    assert_eq(Math.atan(0.0), 0.0)
+}
+
+fn test_math_hyperbolic() {
+    assert_eq(Math.sinh(0.0), 0.0)
+    assert_eq(Math.cosh(0.0), 1.0)
+    assert_eq(Math.tanh(0.0), 0.0)
+}
+
+fn test_math_pi() {
+    assert_eq(Math.pi, 3.141592653589793)
+}
+
+fn test_numeric_even_odd() {
+    assert_eq(Numeric.even(4), true)
+    assert_eq(Numeric.even(5), false)
+    assert_eq(Numeric.odd(4), false)
+    assert_eq(Numeric.odd(5), true)
+}
+
+fn test_numeric_signum() {
+    assert_eq(Numeric.signum(0 - 3), 0 - 1)
+    assert_eq(Numeric.signum(0), 0)
+    assert_eq(Numeric.signum(3), 1)
+}
+
+fn test_numeric_gcd_lcm() {
+    assert_eq(Numeric.gcd(12, 8), 4)
+    assert_eq(Numeric.gcd(0 - 12, 8), 4)
+    assert_eq(Numeric.lcm(4, 6), 12)
+}
+
+fn test_numeric_div_mod() {
+    assert_eq(Numeric.div(7, 2), 3)
+    assert_eq(Numeric.div(0 - 7, 2), 0 - 4)
+    assert_eq(Numeric.div(7, 0 - 2), 0 - 4)
+    assert_eq(Numeric.div(0 - 7, 0 - 2), 3)
+    assert_eq(Numeric.mod(7, 2), 1)
+    assert_eq(Numeric.mod(0 - 7, 2), 1)
+    assert_eq(Numeric.mod(7, 0 - 2), 0 - 1)
 }
 
 fn test_array_minimum_maximum() {

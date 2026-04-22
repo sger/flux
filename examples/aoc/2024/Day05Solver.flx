@@ -79,7 +79,7 @@ module Day05Solver {
     public fn parse_day05_input(
         lines: Array<String>,
     ) -> Either<String, (Array<(Int, Int)>, Array<Array<Int>>)> {
-        parse_sections(to_list(lines), RulesPart, [||], [||])
+        parse_sections(Array.to_list(lines), RulesPart, [||], [||])
     }
 
     // Helper for contains int.

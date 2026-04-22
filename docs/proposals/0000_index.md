@@ -95,6 +95,7 @@ Feature state is evidence-driven:
 | 0158 | [0158_core_semantic_types_and_backend_rep_split_execution.md](implemented/0158_core_semantic_types_and_backend_rep_split_execution.md) | Implemented | have | explicit Core semantic residue + rep-oriented CFG/LIR cleanup landed in maintained paths | keep as downstream execution closure |
 | 0159 | [0159_signature_directed_checking_and_skolemisation.md](implemented/0159_signature_directed_checking_and_skolemisation.md) | Implemented | have | bidirectional check mode, rigid skolem variables (E305), recursive pre-binding, and call-site lambda propagation landed 2026-04-17 | see `docs/internals/signature_directed_checking.md` and `docs/internals/proposal_0159_investigation.md` |
 | 0160 | [0160_static_typing_hardening_closure.md](implemented/0160_static_typing_hardening_closure.md) | Implemented | have | scheme-surface normalization, runtime boundary hardening, expression-level E430, and closure over `0127`/`0155`/`0159` acceptance criteria landed 2026-04-18 | see delivery commits in the proposal header |
+| 0164 | [0164_internal_primop_contract_and_stdlib_surface.md](implemented/0164_internal_primop_contract_and_stdlib_surface.md) | Implemented | have | 24 `CorePrimOp` variants removed (Phase 7); `public intrinsic fn = primop …` surface live in `Flow.Array/Map/String`; math + bitwise primops added (Phase 2); 6 text primops reclassified to stay internal per Unicode/C-runtime constraints. Landed 2026-04-21 | keep as baseline for any future primop migration |
 
 ### Backlog (Draft / Proposed)
 
