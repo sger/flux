@@ -822,6 +822,7 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }
@@ -947,6 +948,10 @@ impl<'a> AstLowerer<'a> {
                 ops: ops.clone(),
                 span: *span,
             }),
+            // Effect aliases (Proposal 0161 B1) are a compile-time-only
+            // construct — they are consumed by the Compiler's alias table
+            // before Core lowering runs, so the Core IR never sees them.
+            Statement::EffectAlias { .. } => None,
             Statement::Class {
                 // Proposal 0151: Core IR is currently visibility-blind. Phase
                 // 2 will revisit whether `CoreTopLevelItem::Class` needs to
@@ -1319,6 +1324,7 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::Module { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => tail,

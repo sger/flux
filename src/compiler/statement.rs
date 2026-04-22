@@ -1218,6 +1218,9 @@ impl Compiler {
                 }
                 // Effect declarations are syntax only for now no bytecode emitted.
                 Statement::EffectDecl { .. } => {}
+                // Effect aliases are compile-time only (Proposal 0161 B1); the
+                // compiler's alias table is populated before codegen runs.
+                Statement::EffectAlias { .. } => {}
                 // Type class declarations are syntax only — no bytecode emitted.
                 Statement::Class { .. } => {}
                 Statement::Instance { .. } => {}
@@ -1813,6 +1816,10 @@ impl Compiler {
                 // declaration as transparent here, identical to how it treats
                 // top-level `effect` declarations.
                 Statement::EffectDecl { .. } => {}
+                // Effect aliases (Proposal 0161 B1) are allowed inside modules
+                // for the same reason EffectDecl is — they only affect the
+                // compile-time alias table.
+                Statement::EffectAlias { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(

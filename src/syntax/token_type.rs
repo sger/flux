@@ -150,5 +150,6 @@ define_tokens! {
         Class => "class",
         Instance => "instance",
         Deriving => "deriving",
+        Alias => "alias",
     }
 }

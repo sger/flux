@@ -2437,3 +2437,68 @@ fn module_mutual_recursion() {
         "module Parity { fn isEven(n) { if n == 0 { true; } else { isOdd(n - 1); } } fn isOdd(n) { if n == 0 { false; } else { isEven(n - 1); } } }",
     );
 }
+
+/// Proposal 0161 B1: `alias Name = <E1 | E2 | ...>` declarations declare a
+/// compile-time effect-row alias. Any `with Alias` clause is expanded to the
+/// named row before type inference runs.
+#[test]
+fn effect_row_alias_single_expands_to_declared_effect() {
+    // `Stdout` expands to `<IO>`. A caller that declares `with IO` can call
+    // a callee declared `with Stdout` — they must type-check as the same row.
+    compile_ok_in(
+        "alias_single.flx",
+        r#"
+alias Stdout = <IO>
+
+fn shout(msg: String) with Stdout {
+    println(msg)
+}
+
+fn main() with IO {
+    shout("hi")
+}
+"#,
+    );
+}
+
+#[test]
+fn effect_row_alias_multi_expands_to_decomposed_row() {
+    // Caller declares `with IO, Time`; callee declares `with Observable`
+    // which expands to `<IO | Time>`. Both rows must match.
+    compile_ok_in(
+        "alias_multi.flx",
+        r#"
+alias Observable = <IO | Time>
+
+fn log_event(msg: String) with Observable {
+    let t = clock_now()
+    println(msg)
+}
+
+fn main() with IO, Time {
+    log_event("start")
+}
+"#,
+    );
+}
+
+#[test]
+fn effect_row_alias_missing_component_reports_e400() {
+    // Callee declares `with Observable` (= `<IO | Time>`) but caller only
+    // declares `with IO`. The alias must be expanded before the E400 check
+    // runs, so Time is reported missing — not "effect Observable".
+    let code = compile_err(
+        r#"
+alias Observable = <IO | Time>
+
+fn log_event(msg: String) with Observable {
+    println(msg)
+}
+
+fn main() with IO {
+    log_event("x")
+}
+"#,
+    );
+    assert_eq!(code, "E400");
+}

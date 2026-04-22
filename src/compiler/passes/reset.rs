@@ -15,6 +15,7 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry = self.preloaded_effect_ops_registry.clone();
         self.effect_op_signatures = self.preloaded_effect_op_signatures.clone();
+        self.effect_row_aliases.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();

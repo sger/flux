@@ -395,6 +395,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             }
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::EffectAlias { .. } => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }

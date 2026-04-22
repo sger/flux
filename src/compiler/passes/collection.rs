@@ -24,6 +24,11 @@ impl Compiler {
     pub(in crate::compiler) fn phase_collection(&mut self, program: &Program) -> CollectionResult {
         self.warn_on_legacy_builtin_helper_surface(program);
         self.validate_intrinsic_surface(program);
+        // Proposal 0161 B1: pre-collect effect-row aliases so downstream
+        // contract collection and validators can resolve `with Alias`
+        // references. The full effect_ops_registry collection still happens
+        // below; this step only touches `effect_row_aliases`.
+        self.collect_effect_aliases_for_contracts(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);
@@ -79,6 +84,7 @@ impl Compiler {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }

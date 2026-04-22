@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 use crate::types::class_dispatch::generate_dispatch_functions;
@@ -51,6 +52,23 @@ impl Compiler {
             } else {
                 program
             }
+        } else {
+            program
+        };
+
+        // Phase 1c (Proposal 0161 B1): expand effect-row aliases in place.
+        // After this pass, every EffectExpr in the AST has any
+        // `alias Name = <...>` reference replaced by its decomposed body, so
+        // downstream phases (predeclaration, inference, codegen) never see
+        // unexpanded aliases.
+        let alias_expanded;
+        let program: &Program = if !self.effect_row_aliases.is_empty() {
+            alias_expanded = {
+                let mut owned: Program = program.clone();
+                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                owned
+            };
+            &alias_expanded
         } else {
             program
         };
