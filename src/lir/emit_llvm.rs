@@ -78,6 +78,13 @@ pub fn emit_llvm_module_with_options(
     export_runtime_trampoline: bool,
     export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
+    // Proposal 0162 Phase 3 slice 3b-i: the continuation-splitting pass lives
+    // at `crate::lir::cont_split::split_continuations` and runs when
+    // `FLUX_YIELD_CHECKS=1`. It synthesizes per-call-site continuation
+    // functions but is NOT yet plumbed into the default emission flow —
+    // slice 3b-ii will wire it in together with real closure construction
+    // and `flux_yield_extend` at the yield-check stub. Until then, the slice
+    // 3a stub remains.
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
