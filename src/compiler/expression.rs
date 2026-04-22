@@ -20,13 +20,12 @@ use crate::{
     },
     core::CorePrimOp,
     diagnostics::{
-        CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
-        DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
-        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
-        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR,
-        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder,
+        DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
+        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
             call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
@@ -2105,15 +2104,16 @@ impl Compiler {
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
                 self.replace_last_pop_with_return();
-            } else if self.replace_last_local_read_with_return() {
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
+                self.emit(OpCode::OpReturnCheck, &[]);
                 self.emit(OpCode::OpReturnValue, &[]);
             }
         } else if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
         {
+            self.emit(OpCode::OpReturnCheck, &[]);
             self.emit(OpCode::OpReturn, &[]);
         }
 
@@ -4127,7 +4127,8 @@ impl Compiler {
 
         let mut dict_args = Vec::with_capacity(scheme.constraints.len());
         for constraint in &scheme.constraints {
-            let actual = self.resolve_scheme_constraint_type_args_ast(constraint, scheme, arguments)?;
+            let actual =
+                self.resolve_scheme_constraint_type_args_ast(constraint, scheme, arguments)?;
             let dict_ref = self.class_env.resolve_dictionary_ref(
                 constraint.class_name,
                 &actual,

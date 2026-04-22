@@ -113,11 +113,12 @@ fn collect_call_sites(func: &LirFunction) -> Vec<CallSite> {
         if let LirTerminator::Call {
             dst,
             cont,
+            suppress_yield_check,
             yield_cont,
             ..
         } = &block.terminator
         {
-            if yield_cont.is_some() {
+            if *suppress_yield_check || yield_cont.is_some() {
                 // Already populated (e.g., by a previous pass run) — skip.
                 continue;
             }
@@ -361,6 +362,7 @@ mod tests {
                 args: Vec::new(),
                 cont: BlockId(1),
                 kind: CallKind::Indirect,
+                suppress_yield_check: false,
                 yield_cont: None,
             },
         });
@@ -447,6 +449,7 @@ mod tests {
                 args: Vec::new(),
                 cont: BlockId(1),
                 kind: CallKind::Indirect,
+                suppress_yield_check: false,
                 yield_cont: None,
             },
         });
@@ -483,5 +486,35 @@ mod tests {
         // captures automatically).
         let entry = &synth.blocks[0];
         assert!(entry.instrs.is_empty());
+    }
+
+    #[test]
+    fn suppressed_calls_are_not_split() {
+        let mut f = empty_function(0, "f");
+        let v_func = LirVar(0);
+        let v_dst = LirVar(1);
+        f.params = vec![v_func];
+        f.blocks.push(LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Call {
+                dst: v_dst,
+                func: v_func,
+                args: Vec::new(),
+                cont: BlockId(1),
+                kind: CallKind::Indirect,
+                suppress_yield_check: true,
+                yield_cont: None,
+            },
+        });
+        f.blocks.push(LirBlock {
+            id: BlockId(1),
+            params: vec![v_dst],
+            instrs: Vec::new(),
+            terminator: LirTerminator::Return(v_dst),
+        });
+
+        assert!(collect_call_sites(&f).is_empty());
     }
 }

@@ -3,8 +3,9 @@ use std::rc::Rc;
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, frame::Frame, hamt,
-        handler_frame::HandlerFrame, leak_detector, value::Value,
+        closure::Closure, compiled_function::CompiledFunction, evidence::EvidenceVector,
+        frame::Frame, hamt, handler_frame::HandlerFrame, leak_detector, value::Value,
+        yield_state::YieldState,
     },
 };
 
@@ -78,6 +79,10 @@ pub struct VM {
     tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
+    /// Shared evidence vector for the Phase 3 VM effect runtime path.
+    pub(crate) evv: EvidenceVector,
+    /// In-flight yield state for the Phase 3 VM effect runtime path.
+    pub(crate) yield_state: YieldState,
     /// Profiling state — only active when `--prof` is passed.
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
@@ -101,6 +106,8 @@ impl VM {
             trace: false,
             tail_arg_scratch: Vec::new(),
             handler_stack: Vec::new(),
+            evv: EvidenceVector::new(),
+            yield_state: YieldState::new(),
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),

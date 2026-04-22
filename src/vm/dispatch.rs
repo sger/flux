@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     bytecode::op_code::OpCode,
@@ -1193,9 +1193,15 @@ impl VM {
                     .zip(arm_closures)
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
+                let arms = Rc::new(arms);
+                let saved_evv = self.evv.clone();
+                let marker = self.yield_state.fresh_marker();
+                self.evv = self.evv.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
+                    marker,
+                    saved_evv,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1237,9 +1243,15 @@ impl VM {
                     .zip(arm_closures)
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
+                let arms = Rc::new(arms);
+                let saved_evv = self.evv.clone();
+                let marker = self.yield_state.fresh_marker();
+                self.evv = self.evv.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
+                    marker,
+                    saved_evv,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1250,7 +1262,9 @@ impl VM {
             }
             OpCode::OpEndHandle => {
                 // No operands. Pops the top handler from handler_stack.
-                self.handler_stack.pop();
+                if let Some(handler) = self.handler_stack.pop() {
+                    self.evv = handler.saved_evv;
+                }
                 Ok(1)
             }
             OpCode::OpPerform => {
@@ -1285,29 +1299,38 @@ impl VM {
                 }
                 perform_args.reverse();
 
-                // Find matching handler frame (search from top)
+                // Find matching evidence entry (most recent wins).
+                let evv_index = self.evv.lookup(effect).ok_or_else(|| {
+                    format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    )
+                })?;
+                let evidence = self.evv.get(evv_index).cloned().ok_or_else(|| {
+                    format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    )
+                })?;
                 let handler_pos = self
                     .handler_stack
                     .iter()
-                    .rposition(|h| h.effect == effect)
+                    .rposition(|h| h.marker == evidence.marker)
                     .ok_or_else(|| {
                         format!(
-                            "unhandled effect: {} (no matching handle block)",
+                            "unhandled effect: {} (missing handler frame for evidence marker)",
                             effect_name
                         )
                     })?;
-
                 let is_direct = self.handler_stack[handler_pos].is_direct;
-
-                let arm_closure = {
-                    let handler = &self.handler_stack[handler_pos];
-                    let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
-                        format!("unhandled operation: {}.{}", effect_name, op_name)
-                    })?;
-                    arm.closure.clone()
-                };
-
                 let is_discard = self.handler_stack[handler_pos].is_discard;
+                let arm_closure = evidence
+                    .arms
+                    .iter()
+                    .find(|a| a.op == op)
+                    .ok_or_else(|| format!("unhandled operation: {}.{}", effect_name, op_name))?
+                    .closure
+                    .clone();
 
                 if is_direct {
                     // Tail-resumptive fast path: call the arm directly
@@ -1351,39 +1374,38 @@ impl VM {
                     self.execute_call(1 + arity)?;
                     Ok(0)
                 } else {
-                    let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
-                    let entry_sp = self.handler_stack[handler_pos].entry_sp;
-
-                    // Capture frames above the handler boundary.
-                    let mut captured_frames: Vec<crate::runtime::frame::Frame> =
-                        self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
-                    if let Some(last) = captured_frames.last_mut() {
-                        last.ip += 4;
-                    }
-
-                    let captured_sp = self.sp;
-                    let captured_stack: Vec<Value> = self.stack[entry_sp..captured_sp]
-                        .iter()
-                        .map(slot::from_slot_ref)
-                        .collect();
-
+                    let handler = self.handler_stack[handler_pos].clone();
                     let inner_handlers: Vec<HandlerFrame> =
                         self.handler_stack[handler_pos + 1..].to_vec();
 
-                    let cont = Continuation {
-                        frames: captured_frames,
-                        stack: captured_stack,
-                        sp: captured_sp,
-                        entry_sp,
-                        entry_frame_index,
-                        inner_handlers,
-                        used: false,
-                    };
-                    let cont_val = Value::Continuation(Rc::new(RefCell::new(cont)));
+                    self.yield_state.yielding = crate::runtime::yield_state::Yielding::Pending;
+                    self.yield_state.marker = evidence.marker;
+                    self.yield_state.clause = Some(Rc::new(HandlerArm {
+                        op,
+                        closure: arm_closure.clone(),
+                    }));
+                    self.yield_state.op_arg = perform_args.first().cloned();
+                    self.yield_state.conts.clear();
 
-                    self.frame_index = entry_frame_index;
+                    // Capture the current frame's post-perform continuation.
+                    self.yield_state
+                        .extend(self.capture_continuation_piece(self.sp, 4));
+
+                    // Unwind outer frames up to the matching handler boundary,
+                    // capturing one continuation piece per frame.
+                    while self.frame_index > handler.entry_frame_index {
+                        let return_slot = self.pop_frame_return_slot();
+                        self.reset_sp(return_slot)?;
+                        if self.frame_index > handler.entry_frame_index {
+                            self.yield_state
+                                .extend(self.capture_continuation_piece(self.sp, 0));
+                        }
+                    }
+
+                    let cont_val = Continuation::compose(&self.yield_state.conts, inner_handlers)?;
                     self.handler_stack.truncate(handler_pos + 1);
-                    self.reset_sp(entry_sp)?;
+                    self.reset_sp(handler.entry_sp)?;
+                    self.yield_state.clear();
 
                     self.push(Value::Closure(arm_closure))?;
                     self.push(cont_val)?;
@@ -1393,6 +1415,13 @@ impl VM {
                     self.execute_call(1 + arity)?;
                     Ok(0)
                 }
+            }
+            OpCode::OpReturnCheck => {
+                if self.yield_state.is_yielding() {
+                    self.yield_state
+                        .extend(self.capture_continuation_piece(self.sp, 0));
+                }
+                Ok(1)
             }
             OpCode::OpPerformDirect => {
                 // Tail-resumptive perform: no continuation capture.

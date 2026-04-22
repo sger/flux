@@ -328,8 +328,9 @@ fn effect_example_max_error_cap_enforcement() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let root = temp_root("effect_example_cap");
     let entry = root.join("Main.flx");
-    let source =
-        include_str!("../../examples/type_system/failing/205_effect_max_errors_many_missing_io.flx");
+    let source = include_str!(
+        "../../examples/type_system/failing/205_effect_max_errors_many_missing_io.flx"
+    );
     write_file(&entry, source);
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
@@ -460,10 +461,13 @@ fn stage_filtering_suppresses_effects_but_all_errors_preserves_them() {
     );
     write_file(
         &root.join("EffectBroken.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/stage_all_errors/EffectBroken.flx"),
+        include_str!(
+            "../../examples/compiler_errors/adversarial/stage_all_errors/EffectBroken.flx"
+        ),
     );
     let entry = root.join("Main.flx");
-    let source = include_str!("../../examples/compiler_errors/adversarial/stage_all_errors/Main.flx");
+    let source =
+        include_str!("../../examples/compiler_errors/adversarial/stage_all_errors/Main.flx");
     write_file(&entry, source);
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
@@ -494,46 +498,57 @@ fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
     );
     write_file(
         &root.join("HiddenApi.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/HiddenApi.flx"),
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/HiddenApi.flx"
+        ),
     );
     write_file(
         &root.join("MissingPublicAccess.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx"
         ),
     );
     write_file(
         &root.join("PrivateMemberAccess.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx"
         ),
     );
     write_file(
         &root.join("CollectionsConfusion.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx"
         ),
     );
     write_file(
         &root.join("UnknownEffectTypo.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx"
         ),
     );
     write_file(
         &root.join("UnknownEffectOpTypo.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx"
         ),
     );
     write_file(
         &root.join("UnknownBaseMemberTypo.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx"
         ),
     );
     write_file(
         &root.join("UnknownIdentifierTypo.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx"
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx"
         ),
     );
     write_file(
         &root.join("WrongArity.flx"),
-        include_str!("../../examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx"),
+        include_str!(
+            "../../examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx"
+        ),
     );
 
     let entry = root.join("Main.flx");

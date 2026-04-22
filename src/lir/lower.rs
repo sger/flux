@@ -140,6 +140,13 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
     }
 }
 
+fn native_yield_checks_enabled() -> bool {
+    match std::env::var("FLUX_YIELD_CHECKS") {
+        Ok(v) => !v.is_empty() && v != "0",
+        Err(_) => false,
+    }
+}
+
 // ── Qualified name resolution ────────────────────────────────────────────────
 
 /// Walk the `CoreTopLevelItem` tree to build a module-qualified name for each
@@ -936,6 +943,7 @@ impl<'a> FnLower<'a> {
             args: Vec::new(),
             cont: cont_id,
             kind: CallKind::DirectExtern { symbol },
+            suppress_yield_check: false,
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
@@ -1025,6 +1033,10 @@ impl<'a> FnLower<'a> {
     /// Set the terminator of the current block.
     fn set_terminator(&mut self, term: LirTerminator) {
         self.func.blocks[self.current_block].terminator = term;
+    }
+
+    fn suppress_yield_check_for_calls_into_block(&mut self, target: BlockId) {
+        suppress_yield_check_for_calls_into_block(&mut self.func.blocks, target);
     }
 
     /// Copy `val` into the first parameter of `target_block` (SSA phi-node bridging).
@@ -2722,6 +2734,7 @@ impl<'a> FnLower<'a> {
 
         // 4. Lower the body expression.
         let body_result = self.lower_expr(body);
+        self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
 
         // 5. Prompt check: restore evv and check for yields.
         let result = self.fresh_var();
@@ -2778,6 +2791,7 @@ impl<'a> FnLower<'a> {
         });
 
         let body_result = self.lower_expr_aether(body);
+        self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
@@ -2885,6 +2899,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2917,6 +2932,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::DirectExtern {
                     symbol: extern_fn.symbol,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2947,6 +2963,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2973,6 +2990,7 @@ impl<'a> FnLower<'a> {
                     func_id: target.func_id,
                     captures: target.captures,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3002,6 +3020,7 @@ impl<'a> FnLower<'a> {
             args: arg_vars,
             cont: cont_id,
             kind: CallKind::Indirect,
+            suppress_yield_check: false,
             yield_cont: None,
         });
 
@@ -3106,6 +3125,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3135,6 +3155,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::DirectExtern {
                     symbol: extern_fn.symbol,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3158,6 +3179,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3182,6 +3204,7 @@ impl<'a> FnLower<'a> {
                     func_id: target.func_id,
                     captures: target.captures,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3210,6 +3233,7 @@ impl<'a> FnLower<'a> {
             args: arg_vars,
             cont: cont_id,
             kind: CallKind::Indirect,
+            suppress_yield_check: false,
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
@@ -3407,25 +3431,16 @@ impl<'a> FnLower<'a> {
 
     /// Lower `perform Effect.operation(args)`.
     ///
-    /// Phase 1 (tail-resumptive fast path): directly calls the handler via
-    /// `flux_perform_direct` with an identity resume closure. No yield flag
-    /// or continuation building needed.
+    /// Proposal 0162 Phase 3 slice 4: when `FLUX_YIELD_CHECKS=1`, native
+    /// handlers enter the yield/prompt path via `flux_yield_to`. The actual
+    /// continuation capture still happens in the after-call yield checks
+    /// emitted by the LLVM backend, and slice 4-prereq suppresses the
+    /// handle-body-final call's check so the yield sentinel reaches
+    /// `flux_yield_prompt` instead of escaping past `main`.
     ///
-    /// The identity closure, when called with a value, simply returns it.
-    /// This is correct for tail-resumptive handlers where `resume(v)` is
-    /// the last thing the handler does.
-    ///
-    /// Proposal 0162 Phase 3 slice 4 (attempted, deferred): flipping this to
-    /// `flux_yield_to` produces working IR but breaks at runtime because the
-    /// after-call yield check emitted at the handle body's final Call
-    /// preempts `flux_yield_prompt` — `main` returns the sentinel before
-    /// the prompt can catch the yield. The fix is an architectural change:
-    /// the handle-body-final Call needs to suppress its yield check so the
-    /// sentinel flows into `flux_yield_prompt` rather than propagating past
-    /// `main`. That suppression isn't implemented yet; until then we keep
-    /// the direct path. The YieldTo primop and `.closure_entry` closure
-    /// wrapper selection from slice 3b-ii remain in place for when the
-    /// flip is safe to land.
+    /// With yield checks disabled we intentionally keep the old
+    /// `flux_perform_direct` fallback so default native behavior remains
+    /// unchanged until the full Phase 3 path is always-on.
     fn lower_perform(
         &mut self,
         effect: Identifier,
@@ -3446,9 +3461,6 @@ impl<'a> FnLower<'a> {
             self.lower_expr(&args[0])
         };
 
-        // Build identity resume closure: fn(v) → v
-        let resume = self.make_identity_closure();
-
         // Effect tag and operation tag as NaN-boxed integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
@@ -3468,13 +3480,23 @@ impl<'a> FnLower<'a> {
             value: LirConst::Int(args.len() as i64),
         });
 
-        // Direct perform: calls handler inline with (resume, arg0, ..., argN).
         let result = self.fresh_var();
-        self.emit(LirInstr::PrimCall {
-            dst: Some(result),
-            op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume, arity],
-        });
+        if native_yield_checks_enabled() {
+            // Enter the yield path. The enclosing call sites' yield checks will
+            // capture continuations as the stack unwinds.
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::YieldTo,
+                args: vec![htag, optag, arg, arity],
+            });
+        } else {
+            let resume = self.make_identity_closure();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::PerformDirect,
+                args: vec![htag, optag, arg, resume, arity],
+            });
+        }
 
         result
     }
@@ -3498,8 +3520,6 @@ impl<'a> FnLower<'a> {
             self.lower_expr_aether(&args[0])
         };
 
-        let resume = self.make_identity_closure();
-
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -3519,28 +3539,27 @@ impl<'a> FnLower<'a> {
         });
 
         let result = self.fresh_var();
-        self.emit(LirInstr::PrimCall {
-            dst: Some(result),
-            op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume, arity],
-        });
+        if native_yield_checks_enabled() {
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::YieldTo,
+                args: vec![htag, optag, arg, arity],
+            });
+        } else {
+            let resume = self.make_identity_closure();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::PerformDirect,
+                args: vec![htag, optag, arg, resume, arity],
+            });
+        }
 
         result
     }
 
     /// Create an identity closure: a function that returns its argument.
-    /// Used as the `resume` parameter for tail-resumptive effect handlers.
-    ///
-    /// Proposal 0162 Phase 3 (partial): on the native backend, the identity
-    /// closure is replaced with `flux_resume_mark_called` — an external C
-    /// helper that sets a shared flag and returns its argument. This lets
-    /// `flux_perform_direct` detect when a handler clause short-circuits
-    /// (returns without invoking resume) and report a structured error
-    /// instead of silently producing wrong answers.
-    ///
-    /// The VM doesn't need this: it uses the singleton identity closure
-    /// from Phase 1 (`src/vm/mod.rs::make_identity_closure`). LIR is the
-    /// native-only lowering, so swapping the closure here is native-only.
+    /// Retained as the native fallback while `FLUX_YIELD_CHECKS` keeps the
+    /// Phase 3 yield path behind an env gate.
     fn make_identity_closure(&mut self) -> LirVar {
         let dst = self.fresh_var();
         self.emit(LirInstr::MakeExternClosure {
@@ -5252,6 +5271,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             args,
             cont,
             kind,
+            suppress_yield_check,
             yield_cont: _,
         } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
@@ -5264,9 +5284,14 @@ fn display_terminator(term: &LirTerminator) -> String {
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
             };
+            let suppress_str = if *suppress_yield_check {
+                " [suppress-yield-check]"
+            } else {
+                ""
+            };
             format!(
-                "{dst} = call {func}({}){kind_str} -> {cont}",
-                args_str.join(", ")
+                "{dst} = call {func}({}){kind_str}{suppress_str} -> {cont}",
+                args_str.join(", "),
             )
         }
         LirTerminator::MatchCtor {
@@ -5467,11 +5492,25 @@ fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderI
     added
 }
 
+fn suppress_yield_check_for_calls_into_block(blocks: &mut [LirBlock], target: BlockId) {
+    for block in blocks {
+        if let LirTerminator::Call {
+            cont,
+            suppress_yield_check,
+            ..
+        } = &mut block.terminator
+            && *cont == target
+        {
+            *suppress_yield_check = true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_qualified_names, lir_symbol_name_for_def, result_rep_for_aether_def_expr,
-        result_rep_for_def_expr,
+        result_rep_for_def_expr, suppress_yield_check_for_calls_into_block,
     };
     use crate::aether::AetherExpr;
     use crate::core::{
@@ -5479,6 +5518,7 @@ mod tests {
         CoreType, FluxRep,
     };
     use crate::diagnostics::position::{Position, Span};
+    use crate::lir::{BlockId, CallKind, LirBlock, LirTerminator, LirVar};
     use crate::syntax::Identifier;
 
     fn mk_binder(id: u32, name: Identifier) -> CoreBinder {
@@ -5596,5 +5636,56 @@ mod tests {
             ),
             FluxRep::BoolRep
         );
+    }
+
+    #[test]
+    fn suppress_helper_marks_only_calls_into_target_block() {
+        let mut blocks = vec![
+            LirBlock {
+                id: BlockId(0),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(1),
+                    func: LirVar(0),
+                    args: Vec::new(),
+                    cont: BlockId(2),
+                    kind: CallKind::Indirect,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                },
+            },
+            LirBlock {
+                id: BlockId(1),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(2),
+                    func: LirVar(0),
+                    args: Vec::new(),
+                    cont: BlockId(3),
+                    kind: CallKind::Indirect,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                },
+            },
+        ];
+
+        suppress_yield_check_for_calls_into_block(&mut blocks, BlockId(2));
+
+        match &blocks[0].terminator {
+            LirTerminator::Call {
+                suppress_yield_check,
+                ..
+            } => assert!(*suppress_yield_check),
+            other => panic!("expected call terminator, got {other:?}"),
+        }
+        match &blocks[1].terminator {
+            LirTerminator::Call {
+                suppress_yield_check,
+                ..
+            } => assert!(!*suppress_yield_check),
+            other => panic!("expected call terminator, got {other:?}"),
+        }
     }
 }

@@ -29,7 +29,8 @@
 int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
 int32_t  flux_yield_marker      = 0;   /* target handler's marker */
 int64_t  flux_yield_clause      = 0;   /* operation clause closure */
-int64_t  flux_yield_op_arg      = 0;   /* performed argument */
+int64_t  flux_yield_op_arg      = 0;   /* performed argument (unused for 0-arity) */
+int32_t  flux_yield_op_arity    = 0;   /* user-visible arity of the op (0 or 1) */
 int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
 int32_t  flux_yield_conts_count = 0;
 
@@ -146,11 +147,15 @@ static int evv_lookup(EvvArray *arr, int64_t htag) {
  * htag:  effect tag (tagged int)
  * optag: operation tag (tagged int) — currently unused for single-op dispatch
  * arg:   the performed argument (tagged value)
+ * arity: user-visible arity of the op (0 for `() -> T`, 1 for `A -> T`).
+ *        Needed so flux_yield_prompt can call the clause with the correct
+ *        number of args: `(resume)` when arity=0 (no user arg) or
+ *        `(resume, arg)` when arity=1.
  *
  * The caller must check flux_yield_yielding after every call and propagate
  * the sentinel + extend continuations as needed.
  */
-int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg) {
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
     EvvArray *arr = evv_unbox(current_evv);
@@ -170,6 +175,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg) {
     flux_yield_marker      = m;
     flux_yield_clause      = clause;
     flux_yield_op_arg      = arg;
+    flux_yield_op_arity    = (int32_t)flux_untag_int(arity);
     flux_yield_conts_count = 0;
 
     return FLUX_YIELD_SENTINEL;
@@ -361,15 +367,62 @@ int64_t flux_yield_extend(int64_t cont) {
 }
 
 /*
- * Compose accumulated continuations into a single closure.
+ * Trampoline entry for a multi-cont composed resume closure.
  *
- * Given conts[0..n], builds a closure that when called with a value v,
+ * The closure captures a single int64 value — the tagged pointer to the
+ * conts-array the compose step built. When the clause calls the composed
+ * closure with (v), this entry:
+ *   1. Reads the conts array from the captures.
+ *   2. Calls cont_0(v), then cont_1(result), ..., cont_n(result).
+ *   3. Returns the final result.
+ *
+ * Signature matches the standard closure-entry convention:
+ *   (i64 closure, ptr args, i32 nargs) -> i64.
+ *
+ * Exposed under `flux_compose_trampoline.closure_entry` via an asm() label
+ * so flux_make_closure can install it as a function pointer. The `.entry`
+ * token can't appear in a C identifier, so we follow the same pattern as
+ * flux_resume_mark_called_closure_entry in this file.
+ */
+#if defined(__APPLE__)
+#  define FLUX_COMPOSE_TRAMPOLINE_SYMBOL "_flux_compose_trampoline.closure_entry"
+#else
+#  define FLUX_COMPOSE_TRAMPOLINE_SYMBOL "flux_compose_trampoline.closure_entry"
+#endif
+
+int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs)
+    __asm__(FLUX_COMPOSE_TRAMPOLINE_SYMBOL);
+
+int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
+    (void)nargs; /* always 1 for a resume(v) call */
+
+    /* Unpack the single capture: the conts array. FluxClosure layout mirrors
+     * flux_rt.c / llvm/codegen/closure.rs — 24-byte header then payload. */
+    void *clo_ptr = flux_untag_ptr(closure_raw);
+    int64_t *payload = (int64_t *)((char *)clo_ptr + 24);
+    int64_t conts_arr = payload[0];
+
+    int64_t count = flux_untag_int(flux_array_len(conts_arr));
+    int64_t result = args_ptr[0];
+    for (int64_t i = 0; i < count; i++) {
+        int64_t cont = flux_array_get(conts_arr, flux_tag_int(i));
+        int64_t arg_slot[1] = { result };
+        result = flux_call_closure_c(cont, arg_slot, 1);
+    }
+    return result;
+}
+
+/*
+ * Compose accumulated continuations into a single resume closure.
+ *
+ * Given conts[0..n], returns a closure that when called with a value v,
  * computes: cont_n(...(cont_1(cont_0(v))))
  *
  * i.e., cont_0 is the innermost (closest to perform), cont_n is outermost.
  *
- * For a single continuation, returns it directly.
- * For zero continuations, returns None (identity).
+ * Zero conts: returns None — the clause is expected not to call resume.
+ * Single cont: returns it directly — no trampoline overhead.
+ * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
 int64_t flux_compose_conts(void) {
     if (flux_yield_conts_count == 0) {
@@ -381,29 +434,39 @@ int64_t flux_compose_conts(void) {
         return result;
     }
 
-    /*
-     * Compose multiple continuations by chaining:
-     * Start with cont_0, wrap it so calling the result calls cont_0 first,
-     * then passes the result to cont_1, etc.
-     *
-     * We do this by creating a "chain" — for now, just fold:
-     * composed(v) = cont_n(cont_{n-1}(...(cont_0(v))...))
-     *
-     * Implementation: store all conts into an array, create a trampoline
-     * closure that iterates through them. For simplicity in Phase 1,
-     * we build a chain by wrapping pairs.
-     *
-     * Phase 1 approach: return an array of continuations and have
-     * flux_yield_prompt iterate through them. This avoids needing to
-     * build composed closures in C.
-     */
-
-    /* Package continuations into an array for flux_yield_prompt to iterate. */
+    /* Package continuations into an array. */
     int64_t *elems = flux_yield_conts;
     int32_t count = flux_yield_conts_count;
     int64_t arr = flux_array_new(elems, count);
     flux_yield_conts_count = 0;
-    return arr;
+
+    /* Build a trampoline closure by hand. The FluxClosure layout
+     * (runtime/c/flux_rt.c lines 1025-1032):
+     *   { void *fn_ptr; int32_t remaining_arity; int32_t capture_count;
+     *     int32_t applied_count; int32_t _pad; int64_t payload[]; }
+     * Header size = 24 bytes; payload is i64-aligned. We stash the conts
+     * array (tagged pointer) as the single capture. */
+    uint32_t payload_bytes = (uint32_t)sizeof(int64_t); /* one capture */
+    uint32_t size = 24 + payload_bytes;
+    void *mem = flux_gc_alloc_header(size, 1 /* scan_fsize = 1 capture */,
+                                     FLUX_OBJ_CLOSURE);
+    struct FluxClosureLayout {
+        void   *fn_ptr;
+        int32_t remaining_arity;
+        int32_t capture_count;
+        int32_t applied_count;
+        int32_t _pad;
+        int64_t payload[];
+    };
+    struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
+    clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
+    clo->remaining_arity = 1;   /* user-visible: resume(v) */
+    clo->capture_count   = 1;
+    clo->applied_count   = 0;
+    clo->_pad            = 0;
+    clo->payload[0]      = arr;
+
+    return flux_tag_ptr(mem);
 }
 
 /*
@@ -445,6 +508,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
     /* This yield is for us. Compose continuations into a resume closure. */
     int64_t clause = flux_yield_clause;
     int64_t op_arg = flux_yield_op_arg;
+    int32_t op_arity = flux_yield_op_arity;
 
     /* Build the resume closure from accumulated continuations. */
     int64_t resume_cont = flux_compose_conts();
@@ -454,6 +518,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
     flux_yield_marker      = 0;
     flux_yield_clause      = 0;
     flux_yield_op_arg      = 0;
+    flux_yield_op_arity    = 0;
     flux_yield_conts_count = 0;
 
     /*
@@ -465,8 +530,16 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
      *   - An array of continuations (flux_yield_prompt iterates them)
      *   - None (no continuation — perform was the last expression)
      */
-    int64_t args[2] = { resume_cont, op_arg };
-    int64_t result = flux_call_closure_c(clause, args, 2);
+    int64_t result;
+    if (op_arity <= 0) {
+        /* Zero-arity op (e.g. `value : () -> Int`): clause(resume). */
+        int64_t args[1] = { resume_cont };
+        result = flux_call_closure_c(clause, args, 1);
+    } else {
+        /* Unary op: clause(resume, arg). */
+        int64_t args[2] = { resume_cont, op_arg };
+        result = flux_call_closure_c(clause, args, 2);
+    }
 
     return result;
 }

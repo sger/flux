@@ -440,8 +440,7 @@ pub(super) fn can_discard(expr: &CoreExpr) -> bool {
         CoreExpr::Lam { .. } => true,
         CoreExpr::Con { fields, .. } => fields.iter().all(can_discard),
         CoreExpr::PrimOp { op, args, .. } => {
-            primop_effect_class(op) != PrimOpEffectClass::HasEffect
-                && args.iter().all(can_discard)
+            primop_effect_class(op) != PrimOpEffectClass::HasEffect && args.iter().all(can_discard)
         }
         _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
     }

@@ -592,8 +592,7 @@ fn main() {
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
 
-    run_core_passes_with_interner(&mut core, &interner, false)
-        .expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     // After passes: the `10 / n` Let must be gone. Only the outer `let n = 7`
     // can survive (and even that may get inlined) — the CanFail division on a
@@ -604,8 +603,7 @@ fn main() {
             matches!(
                 e,
                 CoreExpr::PrimOp {
-                    op: CorePrimOp::Div
-                        | CorePrimOp::IDiv,
+                    op: CorePrimOp::Div | CorePrimOp::IDiv,
                     ..
                 }
             )
@@ -635,8 +633,7 @@ fn main() with IO {
     let (program, types, interner) = parse_and_infer(src);
     let mut core = lower_program_ast(&program, &types);
 
-    run_core_passes_with_interner(&mut core, &interner, false)
-        .expect("core passes should succeed");
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
 
     let remaining_println = collect_core_exprs(&core.defs[0].expr)
         .iter()

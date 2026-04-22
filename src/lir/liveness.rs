@@ -162,9 +162,7 @@ fn compute_block_live_in(block: &LirBlock, live_out: &HashSet<LirVar>) -> HashSe
 /// Vars defined by a `MatchCtor`'s field binders at the target block's
 /// entry. These behave like block params but are attached to the arm, not
 /// the destination block itself.
-fn match_ctor_field_binders_by_target(
-    func: &LirFunction,
-) -> HashMap<BlockId, HashSet<LirVar>> {
+fn match_ctor_field_binders_by_target(func: &LirFunction) -> HashMap<BlockId, HashSet<LirVar>> {
     let mut map: HashMap<BlockId, HashSet<LirVar>> = HashMap::new();
     for block in &func.blocks {
         if let LirTerminator::MatchCtor { arms, .. } = &block.terminator {
@@ -448,6 +446,7 @@ mod tests {
                 args: vec![v0],
                 cont: BlockId(1),
                 kind: CallKind::Indirect,
+                suppress_yield_check: false,
                 yield_cont: None,
             },
         });

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::diagnostics::{MULTI_SHOT_HANDLER, NOT_A_FUNCTION};
 use crate::runtime::RuntimeContext;
 use crate::runtime::value::format_value;
-use crate::runtime::{closure::Closure, frame::Frame, value::Value};
+use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
 
 use super::VM;
 
@@ -13,6 +13,29 @@ use super::VM;
 const _OP_PERFORM_SIZE: usize = 3;
 
 impl VM {
+    pub(super) fn capture_continuation_piece(
+        &self,
+        resume_slot: usize,
+        advance_ip: usize,
+    ) -> Value {
+        let mut frame = self.frames[self.frame_index].clone();
+        frame.ip += advance_ip;
+        let entry_sp = frame.base_pointer;
+        let stack: Vec<Value> = self.stack[entry_sp..resume_slot]
+            .iter()
+            .map(super::slot::from_slot_ref)
+            .collect();
+        Value::Continuation(Rc::new(std::cell::RefCell::new(Continuation {
+            frames: vec![frame],
+            stack,
+            sp: resume_slot,
+            entry_sp,
+            entry_frame_index: self.frame_index.saturating_sub(1),
+            inner_handlers: vec![],
+            used: false,
+        })))
+    }
+
     #[inline]
     fn check_closure_contract_stack_args(
         &self,
