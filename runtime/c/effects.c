@@ -184,7 +184,78 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg) {
  *
  * This is correct when the handler always calls resume in tail position.
  * For the general case (non-tail-resumptive), use flux_yield_to + yield checks.
+ *
+ * Proposal 0162 Phase 3 (partial): when the handler clause short-circuits
+ * (returns without invoking `resume`), naive direct-perform silently returns
+ * the clause's value to the perform site — producing wrong answers because
+ * the short-circuit should unwind the entire handle-block, not feed the
+ * value back as the perform's result.
+ *
+ * Detecting the short-circuit requires the caller to set
+ * `flux_resume_called = 0` before calling flux_perform_direct, then check it
+ * after. The `resume` closure passed in is synthesized by the compiler; when
+ * it is the identity closure, we cannot observe whether it ran. To make the
+ * observation possible without rewriting the compiler's closure synthesis,
+ * the direct-perform path wraps the clause call in a shared-flag check:
+ * short-circuit detection currently reports a structured runtime error so
+ * the failure is loud and diagnosable, rather than silently corrupting the
+ * result. Full non-TR support requires the yield-check emission described
+ * in Proposal 0162 Phase 3 proper, which depends on LIR liveness analysis.
  */
+
+/*
+ * Shared counter used by the resume-shape detector. Each invocation of the
+ * compiler-synthesised identity-resume closure increments it; after the
+ * clause returns, flux_perform_direct inspects the counter to classify the
+ * handler shape:
+ *   - counter == 0 : short-circuit (non-TR discard-style)   → E1200
+ *   - counter == 1 : tail-resumptive                         → ok
+ *   - counter >= 2 : multi-shot                              → E1201
+ *
+ * Single-threaded today, fits the rest of the runtime's global-state model.
+ */
+int32_t flux_resume_called = 0;
+
+/*
+ * Called by the compiler-emitted identity-resume closure. Bumps the counter
+ * and returns its argument. When flux_perform_direct sees the counter in an
+ * unsupported band after the clause returns, it reports a structured error.
+ *
+ * TODO(0162 Phase 3 proper): replace this detection with proper yield-based
+ * unwinding + multi-shot composition, so non-TR and multi-shot handlers
+ * return the correct value instead of erroring.
+ */
+int64_t flux_resume_mark_called(int64_t value) {
+    flux_resume_called += 1;
+    return value;
+}
+
+/*
+ * Closure-entry wrapper for flux_resume_mark_called.
+ *
+ * The compiler's MakeExternClosure LIR instruction emits a reference to
+ * `<symbol>.closure_entry`, which the LLVM backend declares as an external
+ * function with signature `i64 (i64 closure_raw, i8* args_ptr, i32 nargs)`.
+ * C source can't contain `.` in identifiers, so we declare the wrapper with
+ * an asm() label to give it the required LLVM symbol name.  On Mach-O the
+ * assembler prefixes an underscore to C symbols; the asm() label must match
+ * what the LLVM backend emits, including that platform-specific prefix.
+ */
+#if defined(__APPLE__)
+#  define FLUX_CLOSURE_ENTRY_SYMBOL "_flux_resume_mark_called.closure_entry"
+#else
+#  define FLUX_CLOSURE_ENTRY_SYMBOL "flux_resume_mark_called.closure_entry"
+#endif
+
+int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs)
+    __asm__(FLUX_CLOSURE_ENTRY_SYMBOL);
+
+int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
+    (void)closure_raw;
+    (void)nargs;  /* always 1 for an arity-1 closure */
+    return flux_resume_mark_called(args_ptr[0]);
+}
+
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
@@ -200,6 +271,10 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int64_t clause = entry[EVV_HANDLER_OFF];
 
+    /* Save & reset the counter so nested performs don't confuse the detector. */
+    int32_t saved_count = flux_resume_called;
+    flux_resume_called = 0;
+
     /*
      * Direct call: clause(resume, arg0, ..., argN).
      *
@@ -209,13 +284,63 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
      *   - arity == 1: clause(resume, arg)
      */
     int64_t argc = flux_untag_int(arity);
+    int64_t result;
     if (argc <= 0) {
         int64_t args[1] = { resume };
-        return flux_call_closure_c(clause, args, 1);
+        result = flux_call_closure_c(clause, args, 1);
+    } else {
+        int64_t args[2] = { resume, arg };
+        result = flux_call_closure_c(clause, args, 2);
     }
 
-    int64_t args[2] = { resume, arg };
-    return flux_call_closure_c(clause, args, 2);
+    /*
+     * Classify the clause's resume behaviour:
+     *   0  → short-circuit / discard (non-TR)                       E1200
+     *   1  → tail-resumptive, correct answer in `result`             ok
+     *   2+ → multi-shot (composed branches never materialise on the  E1201
+     *        native fast path — the identity closure can't split
+     *        execution into independent continuation tails).
+     *
+     * Both error bands require Phase 3 proper (yield-based unwinding
+     * + multi-shot continuation composition) to lift the restriction.
+     */
+    if (flux_resume_called == 0) {
+        fprintf(stderr,
+            "error[E1200]: Non-Tail-Resumptive Handler On Native\n"
+            "\n"
+            "A handler clause returned without invoking `resume`. This is\n"
+            "the exception/short-circuit pattern, which the native backend\n"
+            "cannot yet express — the short-circuit would need to unwind\n"
+            "the entire handle-block, which requires continuation-capture\n"
+            "support planned for Proposal 0162 Phase 3 proper.\n"
+            "\n"
+            "The VM backend supports this shape. Run with --native disabled\n"
+            "(the default) until Phase 3 lands.\n");
+        abort();
+    }
+    if (flux_resume_called >= 2) {
+        fprintf(stderr,
+            "error[E1201]: Multi-Shot Handler On Native\n"
+            "\n"
+            "A handler clause invoked `resume` more than once (%d times).\n"
+            "Multi-shot effect handlers (search, backtracking,\n"
+            "non-determinism) require composing the captured\n"
+            "continuation into independent branches — the native backend's\n"
+            "direct-dispatch fast path cannot express this today.\n"
+            "\n"
+            "Proposal 0162 Phase 3 proper adds multi-shot continuation\n"
+            "composition via the yield/prompt runtime.  Until then the VM\n"
+            "backend also does not support multi-shot (it enforces\n"
+            "one-shot continuations), so this program has no valid\n"
+            "execution path — the handler needs to be rewritten.\n",
+            (int)flux_resume_called);
+        abort();
+    }
+
+    /* Restore the outer counter; we're now unwinding past this perform. */
+    flux_resume_called = saved_count;
+
+    return result;
 }
 
 /*
