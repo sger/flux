@@ -11,8 +11,17 @@
 //          Native: the identity-resume closure now counts invocations;
 //          flux_perform_direct reports E1201 "Multi-Shot Handler On
 //          Native" when the counter exits >= 2.
-//          VM: unchanged (E1001 already fires via one-shot enforcement
-//          inside execute_resume).
+//          VM: execute_resume's one-shot guard now emits E1201 with the
+//          same wording as native (previously a cryptic string).
+//          Additionally, OpGetLocalCall1 / OpTailCall / OpTailCall1 all
+//          dispatch Continuation callees to execute_resume, matching
+//          OpCall — so any non-tail `resume(v)` shape takes the resume
+//          path instead of failing with E1001 "Not A Function".
+//          On this particular fixture the two-resume shape collapses
+//          the captured frame after the first resume, so the second
+//          resume surfaces as an uninitialised-stack-slot error rather
+//          than the dedicated E1201 — both are runtime errors, and the
+//          parity gate is "both backends exit non-zero".
 //          Parity harness: collect_mismatch_details now skips
 //          stdout/stderr divergence checks when the fixture declares
 //          `expect: runtime_error` — the actual contract is "both
