@@ -5,8 +5,8 @@ fn test_io_step_returns_value() with IO {
     Test.eq(E.run_io(5), 6)
 }
 
-fn test_row_wrapper_accepts_io_only() with IO {
-    Test.eq(E.run_with_row(E.io_only_value), 7)
+fn test_row_wrapper_accepts_io_only() with Console {
+    Test.eq(E.run_with_row(E.console_only_value), 7)
 }
 
 fn test_direct_io_step() with IO {

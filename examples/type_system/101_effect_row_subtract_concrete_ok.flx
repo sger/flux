@@ -1,18 +1,18 @@
 // Concrete subtraction remains valid when the removed effect is absent.
 
-effect Console {
-    print: String -> ()
+effect MyLog {
+    log: String -> ()
 }
 
-fn wrap(f: (() -> Int with IO + Console - Console)) -> Int with IO + Console - Console {
+fn wrap(f: (() -> Int with Console + MyLog - MyLog)) -> Int with Console + MyLog - MyLog {
     f()
 }
 
-fn io_only() -> Int with IO {
-    print("io-only")
+fn console_only() -> Int with Console {
+    print("console-only")
     7
 }
 
-fn main() with IO {
-    print(to_string(wrap(io_only)))
+fn main() with Console {
+    print(to_string(wrap(console_only)))
 }
