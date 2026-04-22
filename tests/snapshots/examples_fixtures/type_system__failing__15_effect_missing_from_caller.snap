@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/15_effect_missing_from_caller.flx
 == compile ==
@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `log_line` requires effect `IO` in this function signature.
+Call to `log_line` requires effect `Console` in this function signature.
 
   examples/type_system/failing/15_effect_missing_from_caller.flx:8:5
   |
@@ -16,6 +16,6 @@ Call to `log_line` requires effect `IO` in this function signature.
   |     -------- effectful call occurs here
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>

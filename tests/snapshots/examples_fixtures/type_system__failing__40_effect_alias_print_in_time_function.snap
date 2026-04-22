@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/40_effect_alias_print_in_time_function.flx
 == compile ==
@@ -23,16 +23,16 @@ Help:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/type_system/failing/40_effect_alias_print_in_time_function.flx:5:5
   |
 5 |     p("tick")
   |     ^^^^^^^^^
-  |     --------- requires `IO`
+  |     --------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 2 errors.
 == stdout ==

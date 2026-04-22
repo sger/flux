@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx
 == compile ==
@@ -13,13 +13,13 @@ Parameter 2 has the wrong type.
   |
 8 |     each([1, 2, 3], noisy_log)
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     -------------------------- parameter 2 has type `() -> Unit with IO`
+  |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin`
 
   |     -------------------------- this type mismatch is reported here
 
 Note:
   expected parameter type: () -> Unit
-  found parameter type: () -> Unit with IO
+  found parameter type: () -> Unit with Console, FileSystem, Stdin
   the conflicting types meet at this expression
 
 Help:
@@ -28,16 +28,16 @@ Help:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
   |
 8 |     each([1, 2, 3], noisy_log)
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     -------------------------- requires `IO`
+  |     -------------------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 2 errors.
 == stdout ==

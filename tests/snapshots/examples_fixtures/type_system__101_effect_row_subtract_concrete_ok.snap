@@ -1,10 +1,33 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/101_effect_row_subtract_concrete_ok.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E300]: Parameter Type Mismatch
+
+Parameter 1 has the wrong type.
+
+  examples/type_system/101_effect_row_subtract_concrete_ok.flx:17:21
+   |
+17 |     print(to_string(wrap(io_only)))
+   |                     ^^^^^^^^^^^^^
+   |                     ------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
+
+   |                     ------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: () -> Unit with FileSystem, Stdin
+  found parameter type: () -> Unit with Console, FileSystem, Stdin
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `() -> Unit with FileSystem, Stdin` consistently.
+
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 == stdout ==
 <not executed>

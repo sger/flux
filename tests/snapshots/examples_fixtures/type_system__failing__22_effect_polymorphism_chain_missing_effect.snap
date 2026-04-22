@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx
 == compile ==
@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `wrap_apply` requires effect `IO` in this function signature.
+Call to `wrap_apply` requires effect `Console` in this function signature.
 
   examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx:17:5
    |
@@ -16,6 +16,6 @@ Call to `wrap_apply` requires effect `IO` in this function signature.
    |     ---------- effectful call occurs here
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>

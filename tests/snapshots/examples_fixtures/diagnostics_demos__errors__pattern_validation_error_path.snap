@@ -45,7 +45,7 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:9:1
    |
@@ -59,7 +59,7 @@ requires effect `IO` but the enclosing context does not provide it
    | ^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 
 error[E016]: Invalid Pattern
@@ -106,7 +106,7 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:14:1
    |
@@ -120,7 +120,7 @@ requires effect `IO` but the enclosing context does not provide it
    | ^^
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 
 error[E015]: Non-Exhaustive Match
@@ -158,16 +158,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:19:1
    |
 19 | print(match value { });
    | ^^^^^^^^^^^^^^^^^^^^^^
-   | ---------------------- requires `IO`
+   | ---------------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 
 error[E014]: Empty Match

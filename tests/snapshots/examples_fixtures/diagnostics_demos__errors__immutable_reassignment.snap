@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/diagnostics_demos/errors/immutable_reassignment.flx
 == compile ==
@@ -48,16 +48,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/diagnostics_demos/errors/immutable_reassignment.flx:8:1
   |
 8 | print(x)
   | ^^^^^^^^
-  | -------- requires `IO`
+  | -------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 4 errors.
 == stdout ==

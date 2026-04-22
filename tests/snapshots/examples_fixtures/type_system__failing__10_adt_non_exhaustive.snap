@@ -56,16 +56,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `IO` but the enclosing context does not provide it
+requires effect `Console` but the enclosing context does not provide it
 
   examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
    |
 28 | print(pass(t))
    | ^^^^^^^^^^^^^^
-   | -------------- requires `IO`
+   | -------------- requires `Console`
 
 Hint:
-  annotate the enclosing function with `with IO`
+  annotate the enclosing function with `with Console`
 
 Found 4 errors.
 == stdout ==
