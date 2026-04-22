@@ -526,6 +526,36 @@ impl<'a> AstLowerer<'a> {
                     },
                 )
             }
+            // Higher-kinded pattern: `HktApp(head, args)` shapes arise for
+            // signatures like `fn f<F, a>(xs: F<a>) where Functor<F>`, where
+            // `F` is a type constructor variable. When the pattern head is
+            // the constraint's target variable, bind it to the actual
+            // constructor so dictionary resolution can pick the right
+            // instance (Proposal 0168).
+            InferType::HktApp(pattern_head, pattern_args) => {
+                let actual_args = match actual {
+                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                    _ => return None,
+                };
+                if pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                if let InferType::Var(var) = pattern_head.as_ref()
+                    && *var == target
+                {
+                    return Some(match actual {
+                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
+                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
+                        _ => return None,
+                    });
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
+                    })
+            }
             _ => None,
         }
     }

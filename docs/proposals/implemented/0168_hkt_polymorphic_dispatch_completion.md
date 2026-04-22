@@ -1,11 +1,28 @@
 - Feature Name: HKT Polymorphic Dispatch Completion
 - Start Date: 2026-04-20
-- Status: Proposed
+- Status: Implemented (2026-04-22)
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0145](0145_type_class_dispatch.md), [0146](0146_type_class_dispatch_runtime.md), [0147](0147_dictionary_elaboration.md), [0150](0150_constructor_headed_instance_resolution.md)
+- Depends on: [0145](../0145_type_class_dispatch.md), [0146](../0146_type_class_dispatch_runtime.md), [0147](../0147_dictionary_elaboration.md), [0150](../0150_constructor_headed_instance_resolution.md)
 
 # Proposal 0168: HKT Polymorphic Dispatch Completion
+
+## Implementation Summary
+
+Landed 2026-04-22. Two thin wiring changes closed the remaining panic-stub path for constructor-headed polymorphic class calls:
+
+1. **HKT case in constraint matching** (`src/core/lower_ast/mod.rs` `match_constraint_type_var`). The matcher now handles the `InferType::HktApp(head, args)` pattern: when the pattern head is the constraint's target type variable, it binds to the actual constructor (`App(ctor, _) → Con(ctor)` or `HktApp(head, _) → head`). This lets `resolve_dict_args_for_call` pick the right `__dict_{Class}_{Type}` for a caller invoking a function like `fn double_all<f: Functor, a>(xs: f<a>, d) { fmap(xs, d) }` with a concrete `List<Int>` argument.
+
+2. **AST-fallback dict insertion for constrained user functions** (`src/compiler/expression.rs` `try_build_constrained_user_fn_call_ast`). When the CFG path rolls back to AST (e.g. closure-lowering edge cases unrelated to dispatch), call sites to user-defined functions with class constraints now resolve and prepend `__dict_*` arguments from the AST compiler. Previously, only direct class-method calls got dict insertion at the AST layer; polymorphic user-function calls fell through to a plain `OpCall` and crashed with an arity mismatch at the callee.
+
+### Acceptance criteria status
+
+| Criterion | Status |
+|-----------|--------|
+| constructor-headed polymorphic class calls no longer fall through to panic when valid evidence exists | met |
+| existing monomorphic direct dispatch remains unchanged | met (existing `examples/strict_types/type_class_functor.flx` still prints `[2, 4, 6]`) |
+| existing dictionary elaboration cases remain green | met (all `constrained_type_params_integration` tests pass) |
+| parity tests cover at least one HKT-shaped polymorphic dispatch scenario that previously failed | met (`hkt_constrained_polymorphic_call_elaborates_dictionary` added to `tests/type_inference/constrained_type_params_integration.rs`) |
 
 ## Summary
 [summary]: #summary

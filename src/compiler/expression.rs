@@ -905,6 +905,26 @@ impl Compiler {
                     return Ok(());
                 }
 
+                // Proposal 0168: when the AST path compiles a call to a
+                // user-defined function that has class constraints in its
+                // scheme, prepend the resolved `__dict_{Class}_{Type}` args
+                // so the callee's Core-elaborated dictionary parameters are
+                // filled in. Without this, a CFG→AST fallback (e.g. due to a
+                // closure-lowering hiccup in the argument position) drops the
+                // dict args and the callee crashes with an arity error.
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(constrained_call) = self.try_build_constrained_user_fn_call_ast(
+                        *name,
+                        function.span(),
+                        arguments,
+                        expression.span(),
+                    )
+                {
+                    self.compile_non_tail_expression(&constrained_call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -4074,6 +4094,144 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// AST-path analogue of `core/lower_ast::resolve_dict_args_for_call`.
+    ///
+    /// When a user-defined function has class constraints in its scheme,
+    /// Core/dict_elaborate rewrites its body to accept a `__dict_*` parameter
+    /// per constraint. Call sites must supply matching dictionary arguments.
+    /// The Core lowering path does this; when that path fails and we fall
+    /// back to compiling from the AST, this helper recovers the same
+    /// insertion so polymorphic dispatch keeps working.
+    fn try_build_constrained_user_fn_call_ast(
+        &self,
+        callee_name: crate::syntax::Identifier,
+        function_span: Span,
+        arguments: &[Expression],
+        call_span: Span,
+    ) -> Option<Expression> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let scheme = self.type_env.lookup(callee_name)?;
+        if scheme.constraints.is_empty() {
+            return None;
+        }
+        // Skip if this is a class method — those are already handled by
+        // `try_resolve_class_method_call` / `try_build_dict_class_method_call`.
+        if self.class_env.method_to_class(callee_name).is_some() {
+            return None;
+        }
+
+        let mut dict_args = Vec::with_capacity(scheme.constraints.len());
+        for constraint in &scheme.constraints {
+            let actual = self.resolve_scheme_constraint_type_args_ast(constraint, scheme, arguments)?;
+            let dict_ref = self.class_env.resolve_dictionary_ref(
+                constraint.class_name,
+                &actual,
+                &self.interner,
+            )?;
+            dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, function_span));
+        }
+
+        let mut all_args = dict_args;
+        all_args.extend(arguments.iter().cloned());
+        Some(Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: callee_name,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: all_args,
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    fn resolve_scheme_constraint_type_args_ast(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        arguments: &[Expression],
+    ) -> Option<Vec<InferType>> {
+        let InferType::Fun(param_tys, _ret_ty, _) = &scheme.infer_type else {
+            return None;
+        };
+        let param_offset = param_tys.len().saturating_sub(arguments.len());
+        let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+        for type_var in &constraint.type_vars {
+            let mut found = None;
+            for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                let arg = arguments.get(i - param_offset)?;
+                let arg_ty = self.hm_expr_types.get(&arg.expr_id())?;
+                if let Some(actual) =
+                    Self::match_scheme_constraint_type_var_ast(param_ty, arg_ty, *type_var)
+                {
+                    found = Some(actual);
+                    break;
+                }
+            }
+            resolved.push(found?);
+        }
+        Some(resolved)
+    }
+
+    fn match_scheme_constraint_type_var_ast(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        match pattern {
+            InferType::Var(var) if *var == target => Some(actual.clone()),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems
+                    .iter()
+                    .zip(actual_elems.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            InferType::HktApp(pattern_head, pattern_args) => {
+                let actual_args = match actual {
+                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                    _ => return None,
+                };
+                if pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                if let InferType::Var(var) = pattern_head.as_ref()
+                    && *var == target
+                {
+                    return Some(match actual {
+                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
+                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
+                        _ => return None,
+                    });
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            _ => None,
+        }
     }
 
     fn lower_dictionary_ref_ast(
