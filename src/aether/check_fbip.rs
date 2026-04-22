@@ -254,7 +254,7 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
                 FbipCallKind::Builtin(effect) => format!(
                     "calls Flux builtin `{}` ({}) at a proof boundary",
                     detail.callee,
-                    builtin_effect_label(effect)
+                    effect
                 ),
                 FbipCallKind::Indirect => {
                     "calls a known function whose FBIP contract could not be proved".to_string()
@@ -280,7 +280,7 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
                 FbipCallKind::Builtin(effect) => format!(
                     "calls Flux builtin `{}` ({}) at a conservative proof boundary",
                     detail.callee,
-                    builtin_effect_label(effect)
+                    effect
                 ),
                 _ => unreachable!(),
             })
@@ -297,13 +297,6 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
             "control-flow join loses a precise allocation bound across paths".to_string()
         }
         FbipFailureReason::NoConstructors => "no heap constructor sites were found".to_string(),
-    }
-}
-
-fn builtin_effect_label(effect: crate::aether::AetherBuiltinEffect) -> &'static str {
-    match effect {
-        crate::aether::AetherBuiltinEffect::Io => crate::syntax::builtin_effects::IO,
-        crate::aether::AetherBuiltinEffect::Time => crate::syntax::builtin_effects::TIME,
     }
 }
 

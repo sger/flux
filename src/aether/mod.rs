@@ -38,11 +38,11 @@ use crate::core::{
 use crate::diagnostics::position::Span;
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AetherBuiltinEffect {
-    Io,
-    Time,
-}
+// Aether's builtin-effect classifier was retired as part of Proposal 0161.
+// The registry at `crate::syntax::builtin_effects::primop_coarse_effect_label`
+// is now the single source of truth. Callers that previously matched on
+// `AetherBuiltinEffect::{Io, Time}` now hold the interned label string
+// (`"IO"` / `"Time"` / fine-grained) directly.
 
 /// Backend-only Aether lowering product.
 ///
@@ -599,12 +599,24 @@ impl AetherHandler {
     }
 }
 
-pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {
-    match name {
-        "print" | "read_file" | "read_lines" | "read_stdin" => Some(AetherBuiltinEffect::Io),
-        "now" | "clock_now" | "now_ms" | "time" => Some(AetherBuiltinEffect::Time),
-        _ => None,
+/// Look up the coarse effect label (`"IO"`, `"Time"`, `"Panic"`) a builtin
+/// function carries, if any. The result routes through the
+/// `primop_coarse_effect_label` registry — this function just bridges from
+/// function name to the primop enum the registry expects.
+///
+/// Returns `None` when the name does not refer to a known builtin primop
+/// or the primop has no effect (arithmetic, collection access, etc.).
+pub fn builtin_effect_for_name(name: &str) -> Option<&'static str> {
+    // Try zero-, one-, and two-arg forms; the registry is arity-agnostic so
+    // the first successful resolution wins.
+    for arity in 0..=3 {
+        if let Some(op) = CorePrimOp::from_name(name, arity)
+            && let Some(label) = crate::syntax::builtin_effects::primop_coarse_effect_label(op)
+        {
+            return Some(label);
+        }
     }
+    None
 }
 
 /// Statistics collected from an Aether-transformed Core IR expression.

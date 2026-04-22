@@ -389,21 +389,14 @@ pub enum CoreTag {
 }
 
 // ── Effect classification ─────────────────────────────────────────────────────
-
-/// Side-effect classification for primitive operations.
-///
-/// Used for optimization/planning decisions where purity matters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrimEffect {
-    /// Deterministic and side-effect free.
-    Pure,
-    /// Performs observable I/O.
-    Io,
-    /// Depends on wall-clock or monotonic time.
-    Time,
-    /// Affects control flow in non-local ways.
-    Control,
-}
+//
+// The old coarse `PrimEffect { Pure, Io, Time, Control }` enum was retired as
+// part of Proposal 0161. The single source of truth for primop effect labels
+// is now `crate::syntax::builtin_effects::primop_fine_effect_label`, which
+// returns the decomposed label (`Console`, `FileSystem`, `Stdin`, `Clock`,
+// `Panic`) or `None` for pure primops. The `Pure`/`CanFail`/`HasEffect`
+// classification used by optimizer passes lives in
+// `crate::core::passes::helpers::PrimOpEffectClass` (Proposal 0161 Phase 3).
 
 /// Whether a primop is part of the long-term internal compiler/runtime
 /// contract or only kept temporarily while public stdlib ownership is
@@ -962,22 +955,6 @@ impl CorePrimOp {
             EvvInsert => 4,
             YieldPrompt => 3,
             PerformDirect => 5,
-        }
-    }
-
-    /// Side-effect classification. Used by the compiler to check that
-    /// effectful primops have the required ambient effect in scope.
-    pub fn effect_kind(self) -> PrimEffect {
-        match self {
-            Self::Println
-            | Self::ReadFile
-            | Self::WriteFile
-            | Self::ReadStdin
-            | Self::Print
-            | Self::ReadLines => PrimEffect::Io,
-            Self::ClockNow | Self::Time => PrimEffect::Time,
-            Self::Panic => PrimEffect::Control,
-            _ => PrimEffect::Pure,
         }
     }
 
