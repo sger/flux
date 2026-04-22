@@ -1,0 +1,27 @@
+// parity: vm, llvm
+// expect: success
+// bug: Repeated perform in a recursive loop — the hot path targeted by
+//      Proposal 0162 Phase 1 (no continuation allocation per iteration).
+// parity-expected-stdout-begin
+// "done"
+// parity-expected-stdout-end
+
+effect Acc {
+    add : (Int) -> ()
+}
+
+fn sum_range(lo: Int, hi: Int) with Acc {
+    if lo > hi {
+        ()
+    } else {
+        perform Acc.add(lo)
+        sum_range(lo + 1, hi)
+    }
+}
+
+fn main() with IO {
+    let _ = sum_range(1, 10) handle Acc {
+        add(resume, _n) -> resume(())
+    }
+    print("done")
+}

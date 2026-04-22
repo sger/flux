@@ -1,0 +1,32 @@
+// parity: vm, llvm
+// expect: success
+// bug: Nested handlers — the VM's handler_stack and the native evidence
+//      vector must agree on marker ordering when both are in scope.
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
+effect Outer {
+    get_x : () -> Int
+}
+
+effect Inner {
+    get_y : () -> Int
+}
+
+fn compute() -> Int with Outer, Inner {
+    let x = perform Outer.get_x()
+    let y = perform Inner.get_y()
+    x + y
+}
+
+fn main() with IO {
+    let result = do {
+        compute() handle Inner {
+            get_y(resume) -> resume(30)
+        }
+    } handle Outer {
+        get_x(resume) -> resume(12)
+    }
+    print(to_string(result))
+}

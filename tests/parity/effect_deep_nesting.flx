@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// bug: Perform through multiple call frames before reaching the handler.
+//      Tests unwinding across deep call stacks on both backends.
+// parity-expected-stdout-begin
+// "7"
+// parity-expected-stdout-end
+
+effect Ask {
+    value : () -> Int
+}
+
+fn level3() -> Int with Ask {
+    perform Ask.value()
+}
+
+fn level2() -> Int with Ask {
+    level3() + 1
+}
+
+fn level1() -> Int with Ask {
+    level2() + 1
+}
+
+fn main() with IO {
+    let result = level1() handle Ask {
+        value(resume) -> resume(5)
+    }
+    print(to_string(result))
+}
