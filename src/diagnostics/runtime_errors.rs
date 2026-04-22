@@ -182,6 +182,41 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
     hint: Some("Ensure 0 <= start <= end <= length."),
 };
 
+// ── Effect handler runtime errors (Proposal 0162) ───────────────────────────
+//
+// E1200 and E1201 mirror the native backend's structured diagnostics so that
+// user-visible wording is identical across VM and LLVM backends. The native
+// runtime reports these via `fprintf(stderr, ...)` from `flux_perform_direct`
+// (see runtime/c/effects.c); the VM reports them via this registry when
+// `execute_resume` detects a second invocation of an already-consumed
+// continuation (multi-shot).
+
+pub const NON_TAIL_RESUMPTIVE_HANDLER: ErrorCode = ErrorCode {
+    code: "E1200",
+    title: "NON TAIL RESUMPTIVE HANDLER",
+    error_type: ErrorType::Runtime,
+    message: "A handler clause returned without invoking `resume`.",
+    hint: Some(
+        "Exception-style / discard handlers require continuation capture, \
+         which only the VM backend supports today. Proposal 0162 Phase 3 \
+         will close this gap.",
+    ),
+};
+
+pub const MULTI_SHOT_HANDLER: ErrorCode = ErrorCode {
+    code: "E1201",
+    title: "MULTI SHOT HANDLER",
+    error_type: ErrorType::Runtime,
+    message: "A handler clause invoked `resume` more than once (multi-shot).",
+    hint: Some(
+        "Multi-shot handlers (search, backtracking, non-determinism) are \
+         not yet supported on either backend. The VM enforces one-shot \
+         continuations; the native runtime's direct-dispatch fast path \
+         cannot compose branched continuations. Tracked in Proposal 0162 \
+         Phase 3. Rewrite the handler to resume at most once.",
+    ),
+};
+
 // ============================================================================
 // Runtime Error Constructor Functions
 // ============================================================================

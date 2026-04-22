@@ -156,6 +156,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     STRING_INDEX_ERROR,
     STRING_ENCODING_ERROR,
     INVALID_SUBSTRING,
+    NON_TAIL_RESUMPTIVE_HANDLER,
+    MULTI_SHOT_HANDLER,
 ];
 
 fn error_code_map() -> &'static HashMap<&'static str, &'static ErrorCode> {

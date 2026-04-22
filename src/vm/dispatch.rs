@@ -615,9 +615,20 @@ impl VM {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.frames[self.frame_index].base_pointer;
                 let arg = self.pop_untracked()?;
-                self.push(self.stack_get(bp + idx))?;
+                let callee = self.stack_get(bp + idx);
+                self.push(callee.clone())?;
                 self.push(arg)?;
-                self.execute_call(1)?;
+                // Proposal 0162 Phase 3 (continuation of 2026-04-22 fix):
+                // non-tail `resume(v)` calls can be emitted as `OpGetLocalCall1`
+                // when `resume` is a local and the single argument has been
+                // pushed. Mirror `OpCall` / `OpTailCall1`: dispatch Continuation
+                // callees to `execute_resume` so multi-shot / general resume
+                // shapes are handled uniformly.
+                if matches!(callee, Value::Continuation(_)) {
+                    self.execute_resume(1)?;
+                } else {
+                    self.execute_call(1)?;
+                }
                 Ok(2)
             }
             OpCode::OpCallSelf => {
