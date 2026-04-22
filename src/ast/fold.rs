@@ -191,6 +191,15 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             deriving,
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
+        Statement::EffectAlias {
+            name,
+            expansion,
+            span,
+        } => Statement::EffectAlias {
+            name,
+            expansion,
+            span,
+        },
         Statement::Class {
             is_public,
             name,

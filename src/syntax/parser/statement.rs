@@ -77,6 +77,7 @@ impl Parser {
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(false),
             TokenType::Effect => self.parse_effect_statement(),
+            TokenType::Alias => self.parse_effect_alias_statement(),
             TokenType::Class => self.parse_class_statement(false),
             TokenType::Instance => self.parse_instance_statement(false),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
@@ -2252,5 +2253,126 @@ impl Parser {
             ops,
             span: self.span_from(start),
         })
+    }
+
+    /// Parses `alias Name = <E1 | E2 | ...>` (Proposal 0161 B1).
+    ///
+    /// Effect-row aliases let users give a short name to a decomposed row.
+    /// Expansion happens at type-inference time; see
+    /// `Compiler::effect_alias_table`.
+    pub(super) fn parse_effect_alias_statement(&mut self) -> Option<Statement> {
+        let start = self.current_token.position;
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Effect Alias Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected alias name after `alias`.".to_string(),
+            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+        ) {
+            return None;
+        }
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Assign,
+            "Missing `=` in Effect Alias",
+            DiagnosticCategory::ParserSeparator,
+            "Expected `=` after alias name.".to_string(),
+            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+        ) {
+            return None;
+        }
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Lt,
+            "Missing `<` in Effect Alias Body",
+            DiagnosticCategory::ParserSeparator,
+            "Expected `<` to begin the effect-row body.".to_string(),
+            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let expansion = self.parse_effect_alias_body()?;
+
+        Some(Statement::EffectAlias {
+            name,
+            expansion,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parses the `<E1 | E2 | ...>` body of an alias declaration.
+    ///
+    /// Each atom is an identifier (either an effect label like `Console` or
+    /// another alias). `|` joins atoms via `EffectExpr::Add`. A trailing
+    /// `>` closes the row. This is a stripped-down parser specific to the
+    /// alias body — it does not accept row-tail variables or subtraction,
+    /// which are meaningful at use-site rows but not inside an alias.
+    fn parse_effect_alias_body(&mut self) -> Option<crate::syntax::effect_expr::EffectExpr> {
+        use crate::syntax::effect_expr::EffectExpr;
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Effect Name in Alias",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected an effect label name inside `<...>`.".to_string(),
+            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+        ) {
+            return None;
+        }
+        let first_name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        let first_span = self.current_token.span();
+        let mut expr = EffectExpr::Named {
+            name: first_name,
+            span: first_span,
+        };
+
+        while self.is_peek_token(TokenType::Bar) {
+            self.next_token(); // consume `|`
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Effect Name After `|`",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected an effect label name after `|` in an alias body.".to_string(),
+                "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            ) {
+                return None;
+            }
+            let atom_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let atom_span = self.current_token.span();
+            let atom = EffectExpr::Named {
+                name: atom_name,
+                span: atom_span,
+            };
+            let combined_span = Span::new(expr.span().start, atom_span.end);
+            expr = EffectExpr::Add {
+                left: Box::new(expr),
+                right: Box::new(atom),
+                span: combined_span,
+            };
+        }
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Gt,
+            "Missing `>` in Effect Alias Body",
+            DiagnosticCategory::ParserSeparator,
+            "Expected `>` to close the effect-row body.".to_string(),
+            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(expr)
     }
 }

@@ -390,6 +390,7 @@ impl<'a> FunctionLoweringContext<'a> {
             | Statement::Module { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::LetDestructure { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => Ok(None),
@@ -2590,6 +2591,15 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             ops: ops.clone(),
             span: *span,
         }),
+        Statement::EffectAlias {
+            name,
+            expansion,
+            span,
+        } => Ok(IrTopLevelItem::EffectAlias {
+            name: *name,
+            expansion: expansion.clone(),
+            span: *span,
+        }),
         Statement::Class {
             // Proposal 0151: visibility is enforced in higher-level passes
             // (class collection, name resolution). The cfg/IR layer is
@@ -2745,6 +2755,15 @@ pub(crate) fn ir_top_level_item_to_statement(
         IrTopLevelItem::EffectDecl { name, ops, span } => Statement::EffectDecl {
             name: *name,
             ops: ops.clone(),
+            span: *span,
+        },
+        IrTopLevelItem::EffectAlias {
+            name,
+            expansion,
+            span,
+        } => Statement::EffectAlias {
+            name: *name,
+            expansion: expansion.clone(),
             span: *span,
         },
         IrTopLevelItem::Class {

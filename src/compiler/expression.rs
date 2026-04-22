@@ -3155,8 +3155,8 @@ impl Compiler {
         };
 
         let required_name = match primop.effect_kind() {
-            PrimEffect::Io => Some("IO"),
-            PrimEffect::Time => Some("Time"),
+            PrimEffect::Io => Some(crate::syntax::builtin_effects::IO),
+            PrimEffect::Time => Some(crate::syntax::builtin_effects::TIME),
             PrimEffect::Control | PrimEffect::Pure => None,
         };
         if let Some(required_name) = required_name
@@ -3705,6 +3705,7 @@ impl Compiler {
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::EffectAlias { .. } => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }

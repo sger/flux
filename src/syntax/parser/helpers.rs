@@ -863,7 +863,7 @@ impl Parser {
     ///
     /// Lowercase identifiers are rejected unless introduced by `|`; implicit row variables
     /// are intentionally disallowed.
-    fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
+    pub(super) fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
         let is_lowercase_ident = |literal: &str| {
             literal
                 .chars()

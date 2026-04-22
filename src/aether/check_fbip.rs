@@ -302,8 +302,8 @@ fn detail_for_reason(reason: FbipFailureReason, call_details: &[FbipCallDetail])
 
 fn builtin_effect_label(effect: crate::aether::AetherBuiltinEffect) -> &'static str {
     match effect {
-        crate::aether::AetherBuiltinEffect::Io => "IO",
-        crate::aether::AetherBuiltinEffect::Time => "Time",
+        crate::aether::AetherBuiltinEffect::Io => crate::syntax::builtin_effects::IO,
+        crate::aether::AetherBuiltinEffect::Time => crate::syntax::builtin_effects::TIME,
     }
 }
 
