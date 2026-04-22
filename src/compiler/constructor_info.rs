@@ -1,6 +1,10 @@
 use crate::{core::FluxRep, syntax::symbol::Symbol};
 
 pub struct ConstructorInfo {
+    /// Owning ADT name. Populated by `AdtRegistry::register_adt` but not
+    /// yet read; retained for the same representation-directed work that
+    /// will eventually consume `field_reps`.
+    #[allow(dead_code)]
     pub adt_name: Symbol,
     pub tag_idx: usize,
     pub arity: usize,

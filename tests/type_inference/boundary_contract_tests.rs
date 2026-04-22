@@ -209,3 +209,46 @@ fn core_contract_accepts_concrete_result() {
     // here we just confirm the public entry point is wired.)
     let _ = CoreType::Int;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 1 consumption: emitted diagnostics carry the BoundaryKind label
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn core_contract_violation_includes_boundary_label() {
+    // The Core-adjacent pass tags violations as BackendConcreteBoundary, so
+    // the rendered message must contain "backend representation" — the label
+    // from BoundaryKind::BackendConcreteBoundary.
+    use flux::ast::type_infer::boundary::BoundaryKind;
+    use flux::core::passes::static_contract::validate_core_static_contract;
+    use flux::core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreType};
+    use flux::diagnostics::position::Span;
+
+    let mut interner = Interner::new();
+    let name = interner.intern("some_fn");
+    // Function returning an unbound type variable — illegal residue.
+    let ty = CoreType::Function(vec![CoreType::Int], Box::new(CoreType::Var(7)));
+    let def = CoreDef {
+        name,
+        binder: CoreBinder::new(CoreBinderId(0), name),
+        expr: CoreExpr::Lit(CoreLit::Unit, Default::default()),
+        borrow_signature: None,
+        result_ty: Some(ty),
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: Span::default(),
+    };
+    let prog = CoreProgram {
+        defs: vec![def],
+        top_level_items: Vec::new(),
+    };
+    let report = validate_core_static_contract(&prog, &interner);
+    assert_eq!(report.violations.len(), 1, "expected one violation");
+    let expected = BoundaryKind::BackendConcreteBoundary.label();
+    let msg = format!("{:?}", report.violations[0]);
+    assert!(
+        msg.contains(expected),
+        "Core contract message must include boundary label `{expected}`; got: {msg}"
+    );
+}

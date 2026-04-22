@@ -230,18 +230,24 @@ fn run_semantic_core_passes_with_optional_interner(
     // Spot-check each Core definition's HM-resolved result type for illegal
     // unresolved residue *before* normalization settles representations.
     //
-    // Emission is opt-in via the `FLUX_CORE_CONTRACT_WARN` env var during
-    // rollout. The AST-level strict validator already emits hard errors for
-    // user-visible boundaries; the Core-adjacent pass is an observability
-    // layer that surfaces residue the AST pass did not catch. Gating the
-    // emission avoids flooding stderr on working programs until we have
-    // real evidence that the pass catches new bugs. The walk itself still
-    // runs so the logic stays exercised on every build.
-    if let Some(interner) = interner {
+    // Violations emit at `Severity::Error` (see `build_violation` in
+    // `static_contract.rs`). The AST-level strict validator is the primary
+    // gate; this pass catches residue the AST pass missed — by definition
+    // a real contract violation.
+    //
+    // The diagnostics still travel through the `warnings` return channel
+    // because the surrounding pass infrastructure uses that channel as a
+    // general "non-fatal diagnostics" bag. Callers (the type-inference
+    // pass) treat Error-severity entries as fatal via `has_hm_diagnostics`.
+    //
+    // `FLUX_CORE_CONTRACT_SILENT` exists as a temporary escape hatch in
+    // case a real user program trips a false-positive during rollout. It
+    // can be removed once we have confidence in the pass.
+    if let Some(interner) = interner
+        && std::env::var_os("FLUX_CORE_CONTRACT_SILENT").is_none()
+    {
         let report = static_contract::validate_core_static_contract(program, interner);
-        if std::env::var_os("FLUX_CORE_CONTRACT_WARN").is_some() {
-            warnings.extend(report.violations);
-        }
+        warnings.extend(report.violations);
     }
 
     // ── Stage 2: Normalization passes (run once) ─────────────────────────
