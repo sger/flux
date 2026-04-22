@@ -14,6 +14,7 @@
 
 #[cfg(feature = "llvm")]
 pub mod emit_llvm;
+pub mod liveness;
 pub mod lower;
 
 use std::collections::HashMap;
