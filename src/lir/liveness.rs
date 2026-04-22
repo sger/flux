@@ -34,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use crate::lir::{
-    BlockId, CtorArm, LirBlock, LirFunction, LirInstr, LirTerminator, LirVar,
+    BlockId, CallKind, CtorArm, LirBlock, LirFunction, LirInstr, LirTerminator, LirVar,
 };
 
 /// Per-block liveness summary. `live_in` is the set of vars live entering the
@@ -96,6 +96,8 @@ pub fn compute(function: &LirFunction) -> FunctionLiveness {
         .map(|b| (b.id, terminator_successors(&b.terminator)))
         .collect();
 
+    let match_binders = match_ctor_field_binders_by_target(function);
+
     loop {
         let mut changed = false;
         for block in &function.blocks {
@@ -109,7 +111,16 @@ pub fn compute(function: &LirFunction) -> FunctionLiveness {
                 }
             }
             // live_in(b) = (live_out(b) ∪ uses by terminator then body, minus defs)
-            let new_live_in = compute_block_live_in(block, &new_live_out);
+            let mut new_live_in = compute_block_live_in(block, &new_live_out);
+            // MatchCtor field_binders become defs at the arm's target block
+            // entry — kill them from live_in of that target. Without this,
+            // binders appear live above a block that actually defines them,
+            // causing spurious inclusion in yield-continuation capture sets.
+            if let Some(binders) = match_binders.get(&block.id) {
+                for b in binders {
+                    new_live_in.remove(b);
+                }
+            }
 
             let summary = blocks.get_mut(&block.id).unwrap();
             if summary.live_in != new_live_in || summary.live_out != new_live_out {
@@ -146,6 +157,27 @@ fn compute_block_live_in(block: &LirBlock, live_out: &HashSet<LirVar>) -> HashSe
     }
 
     live
+}
+
+/// Vars defined by a `MatchCtor`'s field binders at the target block's
+/// entry. These behave like block params but are attached to the arm, not
+/// the destination block itself.
+fn match_ctor_field_binders_by_target(
+    func: &LirFunction,
+) -> HashMap<BlockId, HashSet<LirVar>> {
+    let mut map: HashMap<BlockId, HashSet<LirVar>> = HashMap::new();
+    for block in &func.blocks {
+        if let LirTerminator::MatchCtor { arms, .. } = &block.terminator {
+            for arm in arms {
+                if !arm.field_binders.is_empty() {
+                    map.entry(arm.target)
+                        .or_default()
+                        .extend(arm.field_binders.iter().copied());
+                }
+            }
+        }
+    }
+    map
 }
 
 /// Update `live` to reflect executing `instr`'s defs (removed from live) and
@@ -266,25 +298,38 @@ fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
 }
 
 /// Return the vars read by a terminator.
+///
+/// Important: `CallKind::DirectClosure` carries its captures separately from
+/// the `args` slice — those captures are threaded into the emitted LLVM call
+/// at code-gen time. They must be counted as uses here or they'll go missing
+/// from the live-out set at the call site, which the yield-continuation
+/// splitter uses to decide what to spill.
 fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
     match term {
         LirTerminator::Return(v) => vec![*v],
         LirTerminator::Jump(_) => Vec::new(),
         LirTerminator::Branch { cond, .. } => vec![*cond],
         LirTerminator::Switch { scrutinee, .. } => vec![*scrutinee],
-        LirTerminator::TailCall { func, args, .. } => {
+        LirTerminator::TailCall { func, args, kind } => {
             let mut v = vec![*func];
             v.extend(args.iter().copied());
+            if let CallKind::DirectClosure { captures, .. } = kind {
+                v.extend(captures.iter().copied());
+            }
             v
         }
         LirTerminator::Call {
             func,
             args,
+            kind,
             yield_cont,
             ..
         } => {
             let mut v = vec![*func];
             v.extend(args.iter().copied());
+            if let CallKind::DirectClosure { captures, .. } = kind {
+                v.extend(captures.iter().copied());
+            }
             if let Some((_, captures)) = yield_cont {
                 v.extend(captures.iter().copied());
             }
