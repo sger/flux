@@ -63,6 +63,16 @@ pub fn time_effect_symbol_opt(interner: &Interner) -> Option<Identifier> {
     interner.lookup(TIME)
 }
 
+/// Whether a function effect annotation name is one of the builtin 0161
+/// aliases or fine-grained labels currently recognized by the compiler.
+///
+/// This intentionally covers only the labels/aliases that have operational
+/// compiler support in the current slice. Broader documented labels like
+/// `Random` / `NonDet` / `Exn` remain future-facing until their support lands.
+pub fn is_known_function_effect_annotation_name(name: &str) -> bool {
+    matches!(name, IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV)
+}
+
 // ── Primop → effect label registry ──
 
 use crate::core::CorePrimOp;
@@ -99,6 +109,23 @@ pub fn primop_coarse_effect_label(op: CorePrimOp) -> Option<&'static str> {
         // Panic and Div stay as themselves — no coarse alias.
         other => Some(other),
     }
+}
+
+/// Look up the current coarse effect label (`IO`, `Time`, `Panic`, ...)
+/// carried by a builtin function name.
+///
+/// This is the name-based bridge used by Aether/FBIP today. It delegates to
+/// the same primop registry as the optimizer so compiler consumers stay in
+/// sync until a later phase replaces the bridge entirely.
+pub fn builtin_effect_for_name(name: &str) -> Option<&'static str> {
+    for arity in 0..=3 {
+        if let Some(op) = CorePrimOp::from_name(name, arity)
+            && let Some(label) = primop_coarse_effect_label(op)
+        {
+            return Some(label);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -179,6 +206,28 @@ mod tests {
 
         for op in [CorePrimOp::Add, CorePrimOp::IAdd, CorePrimOp::Mul] {
             assert_eq!(primop_coarse_effect_label(op), None, "{:?}", op);
+        }
+    }
+
+    #[test]
+    fn builtin_name_bridge_uses_the_same_registry() {
+        assert_eq!(builtin_effect_for_name("print"), Some(IO));
+        assert_eq!(builtin_effect_for_name("now_ms"), Some(TIME));
+        assert_eq!(builtin_effect_for_name("panic"), Some(PANIC));
+        assert_eq!(builtin_effect_for_name("iadd"), None);
+        assert_eq!(builtin_effect_for_name("definitely_unknown_builtin"), None);
+    }
+
+    #[test]
+    fn known_function_effect_annotation_names_match_current_builtin_surface() {
+        for name in [IO, TIME, CONSOLE, FILESYSTEM, STDIN, CLOCK, PANIC, DIV] {
+            assert!(is_known_function_effect_annotation_name(name), "{name}");
+        }
+        for name in ["State", "Random", "NonDet", "Exn", "DefinitelyUnknown"] {
+            assert!(
+                !is_known_function_effect_annotation_name(name),
+                "{name} should not be treated as a builtin 0161 annotation"
+            );
         }
     }
 }

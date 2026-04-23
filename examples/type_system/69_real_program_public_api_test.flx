@@ -1,15 +1,15 @@
 import Flow.FTest as Test
 import TypeSystem.RealProgramPublicApi as Api
 
-fn test_transform() {
+fn test_transform() with IO {
     Test.eq(Api.transform(3), 7)
 }
 
-fn test_render() {
+fn test_render() with IO {
     Test.eq(Api.render(3), "value=7")
 }
 
-fn test_public_composition_stable() {
+fn test_public_composition_stable() with IO {
     let out = Api.render(Api.transform(4))
     Test.eq(out, "value=19")
 }

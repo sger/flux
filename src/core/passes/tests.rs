@@ -1101,6 +1101,26 @@ fn algebraic_simplify_removes_int_identity() {
 }
 
 #[test]
+fn primop_effect_class_distinguishes_pure_can_fail_and_has_effect() {
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::IAdd),
+        helpers::PrimOpEffectClass::Pure
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::IDiv),
+        helpers::PrimOpEffectClass::CanFail
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::Println),
+        helpers::PrimOpEffectClass::HasEffect
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::Panic),
+        helpers::PrimOpEffectClass::HasEffect
+    );
+}
+
+#[test]
 fn constant_fold_reduces_literal_arithmetic_and_branch() {
     let expr = CoreExpr::Case {
         scrutinee: Box::new(CoreExpr::PrimOp {

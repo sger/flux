@@ -396,11 +396,13 @@ pub(super) fn is_pure(expr: &CoreExpr) -> bool {
 /// predicate is `!= HasEffect` rather than `== Pure`:
 ///
 /// - `Pure`:      no effects, cannot fail. Speculation-safe. Equivalent to `is_pure`.
-/// - `CanFail`:   no observable effect, but may trap (div-by-zero, OOB, panic).
+/// - `CanFail`:   no observable effect, but may trap (div-by-zero, OOB,
+///                unwrap failure, generic arithmetic mismatch, etc.).
 ///                Safe to *discard* in dead-code elimination (the failure was
 ///                never observed), but not safe to *speculate* (duplicating the
 ///                op could turn a run-once trap into multiple traps).
-/// - `HasEffect`: observable side effect (I/O, stdout, time). Must not be dropped.
+/// - `HasEffect`: observable side effect (I/O, stdout, time, intentional panic).
+///                Must not be dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrimOpEffectClass {
     Pure,

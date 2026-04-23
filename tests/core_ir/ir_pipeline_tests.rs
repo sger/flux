@@ -653,6 +653,34 @@ fn main() with IO {
     );
 }
 
+// ── Test 8d: Dead Panic binding is preserved ────────────────────────────────
+//
+// Proposal 0161 Phase 3 treats `panic` as `HasEffect`, not `CanFail`.
+// An intentional crash must remain observable even when bound to an unused
+// name, so dead-let elimination must not erase it.
+#[test]
+fn pipeline_dead_let_preserves_panic_binding() {
+    let src = r#"
+fn main() {
+    let _unused = panic("boom")
+    42
+}
+"#;
+    let (program, types, interner) = parse_and_infer(src);
+    let mut core = lower_program_ast(&program, &types);
+
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
+
+    let remaining_panic = collect_core_exprs(&core.defs[0].expr)
+        .iter()
+        .filter(|e| matches!(e, CoreExpr::PrimOp { op: CorePrimOp::Panic, .. }))
+        .count();
+    assert!(
+        remaining_panic >= 1,
+        "panic must not be discarded by dead_let"
+    );
+}
+
 // ── Test 9: Index type validation catches String index on List ──────────────
 
 #[test]
