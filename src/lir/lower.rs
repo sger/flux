@@ -140,10 +140,12 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
     }
 }
 
+/// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
+/// the legacy direct-perform path.
 fn native_yield_checks_enabled() -> bool {
     match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) => !v.is_empty() && v != "0",
-        Err(_) => false,
+        Ok(v) if v == "0" => false,
+        _ => true,
     }
 }
 
@@ -3482,13 +3484,39 @@ impl<'a> FnLower<'a> {
 
         let result = self.fresh_var();
         if native_yield_checks_enabled() {
-            // Enter the yield path. The enclosing call sites' yield checks will
-            // capture continuations as the stack unwinds.
+            // Slice 5-tr-fix: emit the YieldTo PrimCall inline (its return
+            // value is the sentinel and isn't used), then close the current
+            // block with a Call-shaped terminator so `cont_split` synthesizes
+            // a continuation over "the rest of the work" and the emit
+            // pipeline's yield-check branch fires. `result` is bound as a
+            // block param of the cont block — it holds the resume value when
+            // the continuation is invoked.
+            let sink = self.fresh_var();
             self.emit(LirInstr::PrimCall {
-                dst: Some(result),
+                dst: Some(sink),
                 op: CorePrimOp::YieldTo,
                 args: vec![htag, optag, arg, arity],
             });
+
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy_func = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy_func,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy_func,
+                args: Vec::new(),
+                cont: cont_id,
+                kind: CallKind::YieldTo,
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
         } else {
             let resume = self.make_identity_closure();
             self.emit(LirInstr::PrimCall {
@@ -3540,11 +3568,33 @@ impl<'a> FnLower<'a> {
 
         let result = self.fresh_var();
         if native_yield_checks_enabled() {
+            // Slice 5-tr-fix: see `lower_perform` above for the shape.
+            let sink = self.fresh_var();
             self.emit(LirInstr::PrimCall {
-                dst: Some(result),
+                dst: Some(sink),
                 op: CorePrimOp::YieldTo,
                 args: vec![htag, optag, arg, arity],
             });
+
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy_func = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy_func,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy_func,
+                args: Vec::new(),
+                cont: cont_id,
+                kind: CallKind::YieldTo,
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
         } else {
             let resume = self.make_identity_closure();
             self.emit(LirInstr::PrimCall {
@@ -5262,6 +5312,7 @@ fn display_terminator(term: &LirTerminator) -> String {
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
+                CallKind::YieldTo => " [yield-to]".to_string(),
             };
             format!("tailcall {func}({}){kind_str}", args_str.join(", "))
         }
@@ -5283,6 +5334,7 @@ fn display_terminator(term: &LirTerminator) -> String {
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
+                CallKind::YieldTo => " [yield-to]".to_string(),
             };
             let suppress_str = if *suppress_yield_check {
                 " [suppress-yield-check]"

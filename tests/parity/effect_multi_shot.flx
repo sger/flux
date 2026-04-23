@@ -1,35 +1,21 @@
 // parity: vm, llvm
-// expect: runtime_error
+// expect: success
 // bug: Multi-shot resume — the handler invokes the continuation twice.
+//      Expected parity result: `resume(true) + resume(false) = 1 + 2 = 3`.
 //
-//      Ledger:
-//        2026-04-22 baseline: VM errored E1001 "Continuation is not a
-//          function"; native silently printed "2" (the last resume
-//          branch, first one dropped).  Divergent and unsafe.
-//
-//        2026-04-22 fix: Proposal 0162 Phase 3 (partial).
-//          Native: the identity-resume closure now counts invocations;
-//          flux_perform_direct reports E1201 "Multi-Shot Handler On
-//          Native" when the counter exits >= 2.
-//          VM: execute_resume's one-shot guard now emits E1201 with the
-//          same wording as native (previously a cryptic string).
-//          Additionally, OpGetLocalCall1 / OpTailCall / OpTailCall1 all
-//          dispatch Continuation callees to execute_resume, matching
-//          OpCall — so any non-tail `resume(v)` shape takes the resume
-//          path instead of failing with E1001 "Not A Function".
-//          On this particular fixture the two-resume shape collapses
-//          the captured frame after the first resume, so the second
-//          resume surfaces as an uninitialised-stack-slot error rather
-//          than the dedicated E1201 — both are runtime errors, and the
-//          parity gate is "both backends exit non-zero".
-//          Parity harness: collect_mismatch_details now skips
-//          stdout/stderr divergence checks when the fixture declares
-//          `expect: runtime_error` — the actual contract is "both
-//          backends exit non-zero", not "both print the same error".
-//          (Same treatment applied to `expect: compile_error`.)
-//
-//      Both backends now exit non-zero.  expect: runtime_error holds.
-//      Full multi-shot support awaits Phase 3 proper.
+//      BLOCKED on default-on yield checks. Current state (2026-04-23):
+//        - Native: multi-shot works under FLUX_YIELD_CHECKS=1 (Proposal
+//          0162 Phase 3 slice 5-tr-fix + 5-tr-nested). Default-off yield
+//          checks means the parity harness invocation does not get the
+//          correct shape.
+//        - VM: one-shot enforcement still emits E1009; needs a matching
+//          multi-shot runtime before this fixture can go green.
+//      Flip to `parity: vm, llvm` + `expect: success` is staged here so
+//      the fixture reflects the intended contract; re-enable once yield
+//      checks are on by default and the VM gains multi-shot support.
+// parity-expected-stdout-begin
+// "3"
+// parity-expected-stdout-end
 
 effect Flip {
     flip : () -> Bool

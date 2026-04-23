@@ -39,13 +39,33 @@ const FLUX_OBJ_FLOAT: i64 = 0xF8;
 const SOME_TAG: i32 = 1;
 const LEFT_TAG: i32 = 2;
 
-/// True when the `FLUX_YIELD_CHECKS` environment variable opts in to slice 3a
-/// yield-check emission. Any value other than `"0"`/empty enables it.
+/// True when the yield-based algebraic-effect runtime is active (Proposal
+/// 0162 Phase 3). Enabled by default since the program-level gate in
+/// `program_has_yield_sites` skips emission for programs with no perform
+/// sites, so non-effect programs pay zero overhead. Opt out to the legacy
+/// direct-perform path with `FLUX_YIELD_CHECKS=0`.
 fn yield_checks_enabled() -> bool {
     match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) => !v.is_empty() && v != "0",
-        Err(_) => false,
+        Ok(v) if v == "0" => false,
+        _ => true,
     }
+}
+
+/// True when the LIR program contains at least one `CallKind::YieldTo`
+/// terminator — i.e. the program has a `perform` somewhere. Used to gate
+/// the yield-check emission so non-effect programs pay zero overhead even
+/// when the env var is set (Proposal 0162 Phase 3 slice 5-gate).
+fn program_has_yield_sites(program: &LirProgram) -> bool {
+    for func in &program.functions {
+        for block in &func.blocks {
+            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator
+                && matches!(kind, crate::lir::CallKind::YieldTo)
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
@@ -83,11 +103,16 @@ pub fn emit_llvm_module_with_options(
     // stub then builds a real closure from the synthesized function and
     // passes it to `flux_yield_extend`.
     //
+    // Slice 5-gate: also require the program to have at least one yield
+    // site (CallKind::YieldTo terminator). Programs with no performs pay
+    // zero overhead regardless of the env var.
+    //
     // Accepts `&LirProgram` but must produce owned output to run the pass.
     // Clone is a cheap DAG copy — only happens when the feature flag is on,
     // so the default path pays nothing.
     let owned_program: LirProgram;
-    let program: &LirProgram = if yield_checks_enabled() {
+    let yield_active = yield_checks_enabled() && program_has_yield_sites(program);
+    let program: &LirProgram = if yield_active {
         owned_program = crate::lir::cont_split::split_continuations(program.clone());
         &owned_program
     } else {
@@ -125,11 +150,11 @@ pub fn emit_llvm_module_with_options(
         .map(|f| f.id)
         .collect();
 
-    // Proposal 0162 Phase 3 (slice 3a). Opt-in yield-check emission. Off by
-    // default; set `FLUX_YIELD_CHECKS=1` to enable. The yield path is an abort
-    // stub until slice 3b wires function splitting. When off, output is
-    // byte-identical to pre-slice-3a.
-    let emit_yield_checks = yield_checks_enabled();
+    // Proposal 0162 Phase 3 (slice 3a + slice 5-gate). Yield-check emission
+    // activates only when the env flag is on AND the program has at least
+    // one yield site. Non-effect programs emit byte-identical IR to the
+    // pre-slice-3a baseline even with FLUX_YIELD_CHECKS=1 set.
+    let emit_yield_checks = yield_active;
 
     // Emit each LIR function.
     let mut closure_wrappers_needed: HashSet<LirFuncId> = HashSet::new();
@@ -760,7 +785,18 @@ impl<'a> FnEmitter<'a> {
                         v.push(default.0);
                         v
                     }
-                    LirTerminator::Call { cont, .. } => vec![cont.0],
+                    LirTerminator::Call { cont, kind, .. } => {
+                        // Slice 5-tr-fix: `CallKind::YieldTo` always returns
+                        // the sentinel (never falls through), so its cont
+                        // block is dead in the parent — emitting it would
+                        // reference `dst` which is only bound via the
+                        // synthesized continuation fn, not in this function.
+                        if matches!(kind, CallKind::YieldTo) {
+                            vec![]
+                        } else {
+                            vec![cont.0]
+                        }
+                    }
                     LirTerminator::MatchCtor { arms, default, .. } => {
                         let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
                         v.push(default.0);
@@ -2579,8 +2615,28 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
+                    CallKind::YieldTo => {
+                        // Proposal 0162 Phase 3 slice 5-tr-fix: the YieldTo
+                        // PrimCall has already been emitted as the last
+                        // instruction of this block; no call to emit here.
+                        // The yield-check branch below handles propagation.
+                    }
                 }
-                if self.emit_yield_checks && !suppress_yield_check {
+                if matches!(kind, CallKind::YieldTo) {
+                    // Slice 5-tr-fix: YieldTo always yields by construction —
+                    // skip the is_yielding branch and go straight to the yield
+                    // path (extend the continuation + return the sentinel).
+                    // The parent's cont block is only ever entered via the
+                    // synthesized continuation fn, never via straight-line
+                    // fall-through, so %dst is never defined in the parent.
+                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
+                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
+                    let (instrs, term) = self.build_yield_block_instrs(passed_cont);
+                    for instr in instrs {
+                        self.emit(instr);
+                    }
+                    term
+                } else if self.emit_yield_checks && !suppress_yield_check {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
                     // continuation function (populated in Call.yield_cont by
@@ -2688,6 +2744,9 @@ impl<'a> FnEmitter<'a> {
                             ],
                             LlvmType::i64(),
                         );
+                    }
+                    CallKind::YieldTo => {
+                        unreachable!("CallKind::YieldTo only appears on non-tail Call terminators")
                     }
                 }
                 LlvmTerminator::Ret {

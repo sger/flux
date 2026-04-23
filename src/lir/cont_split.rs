@@ -39,17 +39,31 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
         return program;
     }
 
-    // Collect work items first to avoid borrow conflicts (we'll mutate
-    // `program` while iterating).
-    let mut work: Vec<(usize, Vec<CallSite>)> = Vec::new();
-    for (idx, func) in program.functions.iter().enumerate() {
-        let sites = collect_call_sites(func);
-        if !sites.is_empty() {
-            work.push((idx, sites));
-        }
+    // Slice 5-gate: programs with no yield sites need no splitting. Scan
+    // upfront so we skip the worklist entirely for non-effect programs.
+    let has_yield = program.functions.iter().any(|f| {
+        f.blocks
+            .iter()
+            .any(|b| matches!(&b.terminator, LirTerminator::Call { kind, .. }
+                if matches!(kind, crate::lir::CallKind::YieldTo)))
+    });
+    if !has_yield {
+        return program;
     }
 
-    for (func_idx, sites) in work {
+    // Worklist over function indices so newly-synthesized continuation
+    // functions get their own yield sites split recursively. Each iteration
+    // processes one function's call sites and may append more functions to
+    // the program; those new indices are added to the queue.
+    let mut queue: std::collections::VecDeque<usize> =
+        (0..program.functions.len()).collect();
+
+    while let Some(func_idx) = queue.pop_front() {
+        let sites = collect_call_sites(&program.functions[func_idx]);
+        if sites.is_empty() {
+            continue;
+        }
+
         // Pre-compute liveness once per function; all call sites share it.
         let live = liveness::compute(&program.functions[func_idx]);
 
@@ -67,8 +81,12 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
             site.synth_id = synth_id;
             synthesized.id = synth_id;
 
-            // Register the synthesized function.
+            // Register the synthesized function and queue it for its own
+            // call-site scan (nested yields inside the synthesized cont need
+            // their own post-perform continuations).
+            let new_idx = program.functions.len();
             program.push_function(synthesized);
+            queue.push_back(new_idx);
 
             // Populate the original Call's yield_cont pointer.
             let func = &mut program.functions[func_idx];
@@ -86,13 +104,14 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
     program
 }
 
-/// True when the `FLUX_YIELD_CHECKS` environment variable opts in.
-/// Mirrors `emit_llvm::yield_checks_enabled` — intentionally duplicated so
-/// this module stays feature-flag-agnostic at the type level.
+/// True when the yield-based runtime is active (default). Mirrors
+/// `emit_llvm::yield_checks_enabled` — intentionally duplicated so this
+/// module stays feature-flag-agnostic at the type level. Opt out with
+/// `FLUX_YIELD_CHECKS=0`.
 fn yield_checks_enabled() -> bool {
     match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) => !v.is_empty() && v != "0",
-        Err(_) => false,
+        Ok(v) if v == "0" => false,
+        _ => true,
     }
 }
 
@@ -236,12 +255,18 @@ fn synthesize_continuation(
         params: vec![site.dst],
         blocks: synth_blocks,
         next_var,
-        capture_vars,
+        capture_vars: capture_vars.clone(),
         param_reps: vec![FluxRep::TaggedRep; 1],
         result_rep: parent.result_rep,
     };
 
-    Some((synthesized, live_capture_set))
+    // The captures stored in the closure payload must match `capture_vars`
+    // (i.e. live vars minus `dst`). `dst` reaches the synth fn via its
+    // `params[0]` slot, supplied by the closure-entry wrapper from args_ptr —
+    // storing it into the payload would also require it to be live at the
+    // call site, which isn't guaranteed (dst is only bound on the non-yield
+    // return path).
+    Some((synthesized, capture_vars))
 }
 
 /// Rewrite a terminator's block-id references using `id_remap`. All

@@ -302,6 +302,14 @@ name = "native_runtime_error_spans"
 path = "tests/native_llvm/native_runtime_error_spans.rs"
 
 [[test]]
+name = "effect_runtime_parity_tests"
+path = "tests/native_llvm/effect_runtime_parity_tests.rs"
+
+[[test]]
+name = "effect_multi_shot_tests"
+path = "tests/native_llvm/effect_multi_shot_tests.rs"
+
+[[test]]
 name = "type_inference_tests"
 path = "tests/type_inference/type_inference_tests.rs"
 

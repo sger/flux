@@ -390,6 +390,13 @@ pub enum CallKind {
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
     Indirect,
+    /// Proposal 0162 Phase 3 slice 5-tr-fix: a `YieldTo` PrimCall has already
+    /// been emitted inline in this block; the terminator exists purely to
+    /// give `cont_split` + the yield-check machinery a Call-shaped hook so
+    /// the post-perform continuation can be synthesized and the sentinel
+    /// propagated. The LLVM emitter skips call-emission for this kind and
+    /// goes straight to the yield check.
+    YieldTo,
 }
 
 // ── Program structure ────────────────────────────────────────────────────────

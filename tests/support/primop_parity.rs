@@ -11,10 +11,19 @@ pub fn workspace_root() -> &'static Path {
 /// Run a parity fixture through the native/LLVM backend.
 /// Returns `(trimmed stdout, process success flag)`.
 pub fn run_native(fixture: &str) -> (String, bool) {
+    run_native_with_env(fixture, &[])
+}
+
+/// Run a parity fixture through the native/LLVM backend with extra env vars.
+pub fn run_native_with_env(fixture: &str, env: &[(&str, &str)]) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(fixture);
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
+    cmd.current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--native", "--no-cache"]);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let output = cmd
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
