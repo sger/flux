@@ -703,6 +703,83 @@ fn preload_module_interface_inserts_cached_public_schemes() {
 }
 
 #[test]
+fn flow_primops_cached_scheme_takes_precedence_over_rust_primop_injection() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() with Console {
+    println("hello")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.set_strict_mode(true);
+    let module = compiler.interner.intern("Flow.Primops");
+    let println = compiler.interner.intern("println");
+    let filesystem = compiler
+        .interner
+        .intern(crate::syntax::builtin_effects::FILESYSTEM);
+    compiler.cached_member_schemes.insert(
+        (module, println),
+        Scheme {
+            forall: vec![9000],
+            constraints: vec![],
+            infer_type: InferType::Fun(
+                vec![InferType::Var(9000)],
+                Box::new(InferType::Con(TypeConstructor::Unit)),
+                InferEffectRow::closed_from_symbols([filesystem]),
+            ),
+        },
+    );
+
+    let diags = compiler
+        .compile(&program)
+        .expect_err("cached Flow.Primops scheme should require FileSystem, not Console");
+    let rendered = render_diagnostics(&diags, None, None);
+    assert!(
+        rendered.contains("FileSystem"),
+        "expected cached Flow.Primops effect row to win over Rust fallback:\n{rendered}"
+    );
+}
+
+#[test]
+fn flow_primops_missing_covered_scheme_does_not_fall_back_to_rust_injection() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() with Console {
+    println("hello")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let module = compiler.interner.intern("Flow.Primops");
+    let idiv = compiler.interner.intern("idiv");
+    compiler.cached_member_schemes.insert(
+        (module, idiv),
+        Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: InferType::Fun(
+                vec![
+                    InferType::Con(TypeConstructor::Int),
+                    InferType::Con(TypeConstructor::Int),
+                ],
+                Box::new(InferType::Con(TypeConstructor::Int)),
+                InferEffectRow::closed_empty(),
+            ),
+        },
+    );
+
+    let diags = compiler
+        .compile(&program)
+        .expect_err("println should not be supplied by Rust fallback once Flow.Primops is loaded");
+    let rendered = render_diagnostics(&diags, None, None);
+    assert!(
+        rendered.contains("println") || rendered.contains("unresolved"),
+        "expected missing Flow.Primops.println to surface as a compile failure:\n{rendered}"
+    );
+}
+
+#[test]
 fn preload_module_interface_inserts_cached_borrow_signatures() {
     let (program, interner) = parse_program("import Example.Math as Math\nlet x = Math.double(1)");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
@@ -1352,9 +1429,9 @@ fn main() -> Unit {
         .expect_err("expected missing strict effect annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered
-                .contains("Effectful function `main` must declare `with IO` in strict mode."),
+        rendered.contains("error[E400]: Missing Ambient Effect")
+            && rendered.contains("Call to `print` requires effect `Console`")
+            && rendered.contains("Add `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1376,9 +1453,9 @@ fn main() -> Unit {
         .expect_err("expected missing strict time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered
-                .contains("Effectful function `main` must declare `with Time` in strict mode."),
+        rendered.contains("error[E400]: Missing Ambient Effect")
+            && rendered.contains("Call to `now_ms` requires effect `Clock`")
+            && rendered.contains("Add `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1400,7 +1477,9 @@ fn main() -> Unit with IO {
         .expect_err("expected missing Time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+        rendered.contains("error[E400]: Missing Ambient Effect")
+            && rendered.contains("Call to `now_ms` requires effect `Clock`")
+            && rendered.contains("Add `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1422,7 +1501,9 @@ fn main() -> Unit with Time {
         .expect_err("expected missing IO annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+        rendered.contains("error[E400]: Missing Ambient Effect")
+            && rendered.contains("Call to `print` requires effect `Console`")
+            && rendered.contains("Add `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );

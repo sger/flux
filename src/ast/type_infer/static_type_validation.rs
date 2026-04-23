@@ -159,6 +159,7 @@ impl<'a> StrictTypeValidator<'a> {
             body,
             span,
             is_public,
+            intrinsic,
             return_type,
             ..
         } = stmt
@@ -166,6 +167,10 @@ impl<'a> StrictTypeValidator<'a> {
             return;
         };
         let kind = function_boundary_kind(*is_public, return_type.is_some());
+        if intrinsic.is_some() {
+            self.emit_binding_diagnostic(*name, *span, kind);
+            return;
+        }
         self.with_binding_allowance(*span, *name, |validator| {
             validator.with_boundary(kind, |v| v.validate_block(body))
         });
@@ -311,6 +316,7 @@ impl<'a> StrictTypeValidator<'a> {
             Expression::Handle { expr, arms, .. } => {
                 self.validate_expression(expr) || self.handle_arms_have_unresolved(arms)
             }
+            Expression::Sealing { expr, .. } => self.validate_expression(expr),
             _ => self.simple_expression_children_have_unresolved(expr),
         }
     }

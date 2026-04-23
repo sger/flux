@@ -3,35 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/functions/closure_shadow_ok.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E400]: Missing Ambient Effect
-
-Call to `print` requires effect `Console` in this function signature.
-
-  examples/functions/closure_shadow_ok.flx:9:5
-  |
-9 |     print(f());
-  |     ^^^^^
-  |     ----- effectful call occurs here
-
-Hint:
-  Add `with Console` to the enclosing function.
-
-
-error[E400]: Missing Ambient Effect
-
-Call to `print` requires effect `Console` in this function signature.
-
-  examples/functions/closure_shadow_ok.flx:10:5
-   |
-10 |     print(x);
-   |     ^^^^^
-   |     ----- effectful call occurs here
-
-Hint:
-  Add `with Console` to the enclosing function.
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

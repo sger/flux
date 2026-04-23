@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:9:1
    |
@@ -87,7 +87,7 @@ this arm is unreachable — earlier arms already cover it
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:14:1
    |
@@ -144,7 +144,7 @@ Hint:
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/pattern_validation_error_path.flx:19:1
    |

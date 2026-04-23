@@ -4,7 +4,7 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0084](implemented/0084_aether_memory_model.md) (Aether memory model), [0086](implemented/0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)
-- Related: [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified handler runtime)
+- Related: [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified handler runtime)
 
 # Proposal 0169: Parameterized Effect Handlers
 

@@ -11,7 +11,7 @@
 
 import Flow.Array as Array
 
-fn main() with IO {
+fn main() with IO, Div {
     print("== PrimOps: arrays ==");
     let arr = [|10, 20, 30|];
     print(array_len(arr));

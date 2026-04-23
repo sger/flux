@@ -280,6 +280,9 @@ impl Compiler {
                     self.warn_on_legacy_expression(&arm.body);
                 }
             }
+            Expression::Sealing { expr, .. } => {
+                self.warn_on_legacy_expression(expr);
+            }
             Expression::InterpolatedString { parts, .. } => {
                 for part in parts {
                     if let StringPart::Interpolation(expr) = part {

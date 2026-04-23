@@ -1151,6 +1151,15 @@ impl Compiler {
             } => {
                 self.compile_handle(expr, *effect, arms)?;
             }
+            Expression::Sealing {
+                expr,
+                allowed,
+                span,
+                ..
+            } => {
+                self.check_sealing_expression(expr, allowed, *span)?;
+                self.compile_non_tail_expression(expr)?;
+            }
             Expression::NamedConstructor { .. } | Expression::Spread { .. } => {
                 unreachable!(
                     "named-field expression must be desugared during type inference \
@@ -1638,7 +1647,118 @@ impl Compiler {
     }
 
     pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
-        crate::syntax::builtin_effects::builtin_effect_for_name(base_name)
+        for arity in 0..=3 {
+            let Some(primop) = CorePrimOp::from_name(base_name, arity) else {
+                continue;
+            };
+            let Some(label) = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+            else {
+                continue;
+            };
+            if label != crate::syntax::builtin_effects::PANIC {
+                return Some(label);
+            }
+        }
+        None
+    }
+
+    pub(super) fn check_sealing_expression(
+        &mut self,
+        expr: &Expression,
+        allowed: &[EffectExpr],
+        span: Span,
+    ) -> CompileResult<()> {
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        let inferred = self.contract_effect_sets();
+        let actual = self.infer_effects_from_expr(
+            expr,
+            self.current_module_prefix,
+            &inferred,
+            io_effect,
+            time_effect,
+        );
+        let allowed = self.evaluate_sealing_allowed_effects(allowed);
+        let mut missing: Vec<Symbol> = actual.difference(&allowed).copied().collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+
+        missing.sort_by_key(|effect| self.sym(*effect).to_string());
+        let missing_text = missing
+            .iter()
+            .map(|effect| self.sym(*effect).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let allowed_text = self.format_effect_set(&allowed);
+        let actual_text = self.format_effect_set(&actual);
+        Err(Self::boxed(
+            Diagnostic::make_error_dynamic(
+                "E427",
+                "SEALED EFFECT VIOLATION",
+                ErrorType::Compiler,
+                format!(
+                    "This expression was sealed to allow {{{allowed_text}}}, but it performs {{{actual_text}}}."
+                ),
+                Some(format!(
+                    "Remove the sealed call or include these effects in the sealing row: {missing_text}."
+                )),
+                self.file_path.clone(),
+                span,
+            )
+            .with_display_title("Sealed Effect Violation")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+            .with_primary_label(span, "sealed expression exceeds its allowed effects")
+            .with_note(format!("missing sealed effects: {missing_text}")),
+        ))
+    }
+
+    pub(super) fn evaluate_sealing_allowed_effects(
+        &self,
+        allowed: &[EffectExpr],
+    ) -> HashSet<Symbol> {
+        let mut out = HashSet::new();
+        for effect in allowed {
+            out.extend(self.evaluate_sealing_effect_expr(effect));
+        }
+        out
+    }
+
+    fn evaluate_sealing_effect_expr(&self, effect: &EffectExpr) -> HashSet<Symbol> {
+        match effect {
+            EffectExpr::Named { name, .. } => HashSet::from([*name]),
+            EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => {
+                let mut out = HashSet::new();
+                if let Some(effects) = self.current_function_effects() {
+                    out.extend(effects.iter().copied());
+                }
+                out.extend(self.handled_effects.iter().copied());
+                out
+            }
+            EffectExpr::RowVar { .. } => HashSet::new(),
+            EffectExpr::Add { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr(left);
+                out.extend(self.evaluate_sealing_effect_expr(right));
+                out
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr(left);
+                for effect in self.evaluate_sealing_effect_expr(right) {
+                    out.remove(&effect);
+                }
+                out
+            }
+        }
+    }
+
+    fn format_effect_set(&self, effects: &HashSet<Symbol>) -> String {
+        let mut names: Vec<String> = effects
+            .iter()
+            .map(|effect| self.sym(*effect).to_string())
+            .collect();
+        names.sort();
+        names.join(", ")
     }
 
     fn collect_effect_row_constraints(
@@ -3805,6 +3925,9 @@ impl Compiler {
                 for arm in arms {
                     self.collect_consumable_param_uses(&arm.body, counts);
                 }
+            }
+            Expression::Sealing { expr, .. } => {
+                self.collect_consumable_param_uses(expr, counts);
             }
             Expression::Function {
                 parameters, body, ..

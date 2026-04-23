@@ -338,6 +338,7 @@ fn expr_references_name(expr: &Expression, target: Symbol) -> bool {
         Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
             expr_references_name(object, target)
         }
+        Expression::Sealing { expr, .. } => expr_references_name(expr, target),
         Expression::Match {
             scrutinee, arms, ..
         } => {
@@ -452,6 +453,7 @@ fn set_expr_span(expr: &mut Expression, span: Span) {
         | Expression::InterpolatedString { span: s, .. }
         | Expression::Perform { span: s, .. }
         | Expression::Handle { span: s, .. }
+        | Expression::Sealing { span: s, .. }
         | Expression::NamedConstructor { span: s, .. }
         | Expression::Spread { span: s, .. } => *s = span,
     }

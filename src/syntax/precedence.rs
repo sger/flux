@@ -175,6 +175,12 @@ pub const OPERATOR_TABLE: &[OpInfo] = &[
         associativity: Assoc::Left,
         fixity: Fixity::Infix,
     },
+    OpInfo {
+        token: TokenType::Sealing,
+        precedence: Precedence::Pipe,
+        associativity: Assoc::Left,
+        fixity: Fixity::Infix,
+    },
     // Prefix operators
     OpInfo {
         token: TokenType::Bang,

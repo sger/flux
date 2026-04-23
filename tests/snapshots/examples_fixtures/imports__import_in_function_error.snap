@@ -18,8 +18,18 @@ Hint:
   Move all import statements before any other declarations.
 
 
-Note: Downstream Errors Suppressed
+error[E013]: Module Not Imported
 
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+Module `Math` is not imported.
+
+  examples/imports/import_in_function_error.flx:6:11
+  |
+6 |     print(Math.square(5));
+  |           ^^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import Math`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1591,6 +1591,7 @@ impl Compiler {
             "Flow.List",
             "Flow.String",
             "Flow.Numeric",
+            "Flow.Primops",
             "Flow.IO",
             "Flow.Assert",
         ];
@@ -1866,6 +1867,7 @@ impl Compiler {
             "Flow.List",
             "Flow.String",
             "Flow.Numeric",
+            "Flow.Primops",
             "Flow.IO",
             "Flow.Assert",
         ];
@@ -2698,10 +2700,6 @@ impl Compiler {
         // Exposed import schemes are used as unqualified identifiers by HM inference.
         let mut exposed_schemes = self.build_exposed_hm_schemes(program);
 
-        // Inject primop type schemes so HM can resolve types for functions
-        // that call primops (e.g., lib/Flow/*.flx functions like read_lines).
-        self.inject_primop_hm_schemes(&mut exposed_schemes);
-
         // Auto-inject only the selected Flow prelude module schemes so that
         // every module has access to the intended implicit Prelude surface
         // without leaking non-prelude namespaces like Flow.Array/Flow.Map
@@ -2711,6 +2709,7 @@ impl Compiler {
             "Flow.List",
             "Flow.String",
             "Flow.Numeric",
+            "Flow.Primops",
             "Flow.IO",
             "Flow.Assert",
         ];
@@ -2723,6 +2722,15 @@ impl Compiler {
                     .or_insert_with(|| scheme.clone());
             }
         }
+
+        let flow_primops_loaded = self.flow_primops_schemes_loaded();
+        if flow_primops_loaded {
+            self.validate_flow_primops_covered_schemes(&exposed_schemes);
+        }
+        // Inject primop type schemes only after Flow prelude schemes have had
+        // first refusal. When `Flow.Primops` has been preloaded, names covered
+        // by that module are not supplied by the Rust fallback table.
+        self.inject_primop_hm_schemes(&mut exposed_schemes, flow_primops_loaded);
 
         // Imported instance method schemes are hidden implementation details,
         // but HM needs them in scope so resolved class-call effect propagation
@@ -2755,7 +2763,88 @@ impl Compiler {
     ///
     /// Only injects schemes for names not already present in the map
     /// (module-defined functions take priority over primops).
-    fn inject_primop_hm_schemes(&mut self, schemes: &mut HashMap<Symbol, Scheme>) {
+    fn flow_primops_schemes_loaded(&mut self) -> bool {
+        let module = self.interner.intern("Flow.Primops");
+        self.cached_member_schemes
+            .keys()
+            .any(|(mod_name, _)| *mod_name == module)
+    }
+
+    fn flow_primops_covers_hm_name(name: &str) -> bool {
+        matches!(
+            name,
+            "print"
+                | "println"
+                | "read_file"
+                | "read_lines"
+                | "write_file"
+                | "read_stdin"
+                | "clock_now"
+                | "now_ms"
+                | "idiv"
+                | "imod"
+                | "index"
+                | "array_get"
+                | "panic"
+        )
+    }
+
+    fn flow_primops_covered_hm_names() -> &'static [&'static str] {
+        &[
+            "print",
+            "println",
+            "read_file",
+            "read_lines",
+            "write_file",
+            "read_stdin",
+            "clock_now",
+            "now_ms",
+            "idiv",
+            "imod",
+            "index",
+            "array_get",
+            "panic",
+        ]
+    }
+
+    fn validate_flow_primops_covered_schemes(&mut self, schemes: &HashMap<Symbol, Scheme>) {
+        for name in Self::flow_primops_covered_hm_names() {
+            let sym = self.interner.intern(name);
+            if schemes.contains_key(&sym) {
+                continue;
+            }
+            let already_reported = self.errors.iter().any(|diag| {
+                diag.title() == "MISSING FLOW PRIMOPS DECLARATION"
+                    && diag.message().is_some_and(|msg| msg.contains(name))
+            });
+            if already_reported {
+                continue;
+            }
+            self.errors.push(
+                Diagnostic::make_error_dynamic(
+                    "E034",
+                    "MISSING FLOW PRIMOPS DECLARATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "`Flow.Primops` is preloaded but does not expose required primop `{name}`."
+                    ),
+                    Some(
+                        "Restore the matching `public intrinsic fn ... = primop ...` declaration in `lib/Flow/Primops.flx`."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    Span::default(),
+                )
+                .with_category(DiagnosticCategory::TypeInference),
+            );
+        }
+    }
+
+    fn inject_primop_hm_schemes(
+        &mut self,
+        schemes: &mut HashMap<Symbol, Scheme>,
+        flow_primops_loaded: bool,
+    ) {
         use crate::types::infer_effect_row::InferEffectRow;
         use crate::types::type_constructor::TypeConstructor as TC;
 
@@ -2985,6 +3074,9 @@ impl Compiler {
         ];
 
         for (name, params, ret, effects, _forall) in primop_sigs {
+            if flow_primops_loaded && Self::flow_primops_covers_hm_name(name) {
+                continue;
+            }
             let sym = self.interner.intern(name);
             // Don't override module-defined functions.
             if schemes.contains_key(&sym) {
@@ -3477,6 +3569,9 @@ impl Compiler {
                 }
                 effects
             }
+            Expression::Sealing { expr, .. } => {
+                self.infer_effects_from_expr(expr, current_module, inferred, io_effect, time_effect)
+            }
 
             Expression::NamedConstructor { fields, .. } => {
                 let mut effects = HashSet::new();
@@ -3525,8 +3620,8 @@ impl Compiler {
         arguments: &[Expression],
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
-        io_effect: Symbol,
-        time_effect: Symbol,
+        _io_effect: Symbol,
+        _time_effect: Symbol,
     ) -> HashSet<Symbol> {
         let mut effects = HashSet::new();
         let arity = arguments.len();
@@ -3568,14 +3663,13 @@ impl Compiler {
                 }
                 if !resolved {
                     let name = self.sym(*name);
-                    match crate::syntax::builtin_effects::builtin_effect_for_name(name) {
-                        Some(crate::syntax::builtin_effects::IO) => {
-                            effects.insert(io_effect);
-                        }
-                        Some(crate::syntax::builtin_effects::TIME) => {
-                            effects.insert(time_effect);
-                        }
-                        _ => {}
+                    if let Some(primop) = Self::resolve_library_primop(name, arity)
+                        .or_else(|| crate::core::CorePrimOp::from_name(name, arity))
+                        && let Some(label) =
+                            crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                        && label != crate::syntax::builtin_effects::PANIC
+                    {
+                        effects.insert(self.interner.intern(label));
                     }
                 }
             }
@@ -4205,21 +4299,23 @@ impl Compiler {
             return Vec::new();
         }
 
-        let declared: HashSet<Symbol> = declared_effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect();
+        let mut declared: HashSet<Symbol> = HashSet::new();
+        for effect in declared_effects {
+            for name in effect.normalized_names() {
+                declared.insert(name);
+                if let Some(expanded) = self.effect_row_aliases.get(&name) {
+                    declared.extend(expanded.normalized_names());
+                }
+            }
+        }
         let mut missing = Vec::new();
 
-        let builtin_aliases = [
-            crate::syntax::builtin_effects::io_effect_symbol_opt(&self.interner),
-            crate::syntax::builtin_effects::time_effect_symbol_opt(&self.interner),
-        ];
-
         for effect in inferred {
-            if builtin_aliases.into_iter().flatten().any(|builtin| builtin == effect)
-                && !declared.contains(&effect)
-            {
+            let effect_name = self.sym(effect);
+            if effect_name == crate::syntax::builtin_effects::PANIC {
+                continue;
+            }
+            if !declared.contains(&effect) {
                 missing.push(effect);
             }
         }
@@ -4728,6 +4824,7 @@ impl Compiler {
             "Flow.List",
             "Flow.String",
             "Flow.Numeric",
+            "Flow.Primops",
             "Flow.IO",
             "Flow.Assert",
         ];

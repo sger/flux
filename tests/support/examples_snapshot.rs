@@ -134,6 +134,7 @@ fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
         ("Flow.List", "List.flx"),
         ("Flow.String", "String.flx"),
         ("Flow.Numeric", "Numeric.flx"),
+        ("Flow.Primops", "Primops.flx"),
         ("Flow.IO", "IO.flx"),
         ("Flow.Assert", "Assert.flx"),
     ];

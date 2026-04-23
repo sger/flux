@@ -1,0 +1,11 @@
+fn run(test_fn: (() -> Unit with Console)) with Console {
+    test_fn() sealing { Console }
+}
+
+fn main() with Console {
+    fn callback() with Console {
+        println("callback")
+    }
+
+    run(callback)
+}

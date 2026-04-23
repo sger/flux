@@ -25,6 +25,7 @@ fn flow_prelude_source() -> String {
         "import Flow.List as List",
         "import Flow.String exposing (..)",
         "import Flow.Numeric exposing (..)",
+        "import Flow.Primops exposing (..)",
         "import Flow.IO exposing (..)",
         "import Flow.Assert exposing (..)",
         "",
@@ -178,6 +179,21 @@ fn module_can_use_multiple_flow_functions() {
         "sum_evens([1, 2, 3, 4, 5, 6]);",
     );
     assert_eq!(result, Value::Integer(12));
+}
+
+#[test]
+fn module_can_use_flow_primops_from_prelude() {
+    let result = run_module(
+        r#"
+        module Solver {
+            public fn quotient(a: Int, b: Int) -> Int with Div {
+                idiv(a, b)
+            }
+        }
+        "#,
+        "0;",
+    );
+    assert_eq!(result, Value::Integer(0));
 }
 
 // ── Flow.Option functions in modules ────────────────────────────────────

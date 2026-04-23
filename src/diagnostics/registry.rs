@@ -199,7 +199,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
             Some(DiagnosticCategory::TypeInference)
         }
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
-        | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
+        | "E421" | "E422" | "E425" | "E427" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),
         _ if code.starts_with("E100") || code.starts_with("E101") || code.starts_with("E102") => {
             Some(DiagnosticCategory::RuntimeExecution)

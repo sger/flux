@@ -858,8 +858,8 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         text
     );
     assert!(
-        text.contains("Print(3)"),
-        "expected optimized readable Core dump for arithmetic example, output:\n{}",
+        text.contains("print(3)"),
+        "expected readable Core dump to include the prelude print call, output:\n{}",
         text
     );
     assert!(
@@ -1224,7 +1224,7 @@ fn test_native_using_modules_program_links_without_user_adts() {
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
-    let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let default_output = run_flux(&["--no-cache", "--strict", file.to_str().unwrap()]);
     let default_text = combined_output(&default_output);
     assert!(
         !default_output.status.success(),
@@ -1296,20 +1296,20 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
 fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
     let file = example_path("compiler_errors/adversarial/stage_all_errors/Main.flx");
 
-    let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let default_output = run_flux(&["--no-cache", "--strict", file.to_str().unwrap()]);
     let default_text = combined_output(&default_output);
     assert!(
         !default_output.status.success(),
-        "expected adversarial compiler fixture to fail in default mode, output:\n{}",
+        "expected adversarial compiler fixture to fail in strict mode, output:\n{}",
         default_text
     );
     assert!(
         default_text.contains("error[E300]: Annotation Type Mismatch"),
-        "expected visible type diagnostic in default mode, output:\n{}",
+        "expected visible type diagnostic in strict mode, output:\n{}",
         default_text
     );
     assert!(
-        default_text.contains("error[E400]: Missing Ambient Effect"),
+        default_text.contains("error[E418]: Strict Effect Annotation Required"),
         "expected effect diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
@@ -1319,7 +1319,12 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         default_text
     );
 
-    let all_output = run_flux(&["--no-cache", "--all-errors", file.to_str().unwrap()]);
+    let all_output = run_flux(&[
+        "--no-cache",
+        "--strict",
+        "--all-errors",
+        file.to_str().unwrap(),
+    ]);
     let all_text = combined_output(&all_output);
     assert!(
         !all_output.status.success(),
@@ -1332,7 +1337,7 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         all_text
     );
     assert!(
-        all_text.contains("error[E400]: Missing Ambient Effect"),
+        all_text.contains("error[E418]: Strict Effect Annotation Required"),
         "expected effect diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
