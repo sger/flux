@@ -413,10 +413,10 @@ mod tests {
         let (synth, captures) = synthesize_continuation(&program, 0, &site, &live)
             .expect("synthesize should produce a function");
 
-        // Capture set: just {dst} (nothing else live at cont since bb1 only
-        // returns dst).
-        assert_eq!(captures.len(), 1);
-        assert_eq!(captures[0], v_dst);
+        // Capture set excludes dst (dst reaches the synth fn via its resume
+        // param, not the closure payload). bb1 has no other live vars, so
+        // the closure captures nothing.
+        assert!(captures.is_empty());
 
         // Params = [dst] (the resume value arrives in the dst var directly).
         assert_eq!(synth.params, vec![v_dst]);
@@ -501,8 +501,9 @@ mod tests {
         };
         let (synth, captures) = synthesize_continuation(&program, 0, &site, &live).unwrap();
 
-        // Live capture set: {v_arg, v_dst} (sorted).
-        assert_eq!(captures, vec![v_arg, v_dst]);
+        // Closure captures exclude dst — only v_arg is live at the call site
+        // (dst is defined by the Call, not used across it).
+        assert_eq!(captures, vec![v_arg]);
         // Params = [dst] (resume value). Captures = [v_arg] (loaded from
         // closure payload at entry by the wrapper).
         assert_eq!(synth.params, vec![v_dst]);

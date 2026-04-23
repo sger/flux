@@ -104,7 +104,7 @@ impl Compiler {
                 span,
                 ..
             } => {
-                if !self.file_path.contains("lib/Flow/") {
+                if !self.file_path.replace('\\', "/").contains("lib/Flow/") {
                     self.errors.push(
                         Diagnostic::make_error_dynamic(
                             "E034",
@@ -311,7 +311,8 @@ impl Compiler {
     }
 
     fn legacy_helper_surface_policy(&self) -> LegacyHelperSurfacePolicy {
-        let path = self.file_path.as_str();
+        let normalized = self.file_path.replace('\\', "/");
+        let path = normalized.as_str();
 
         if path.contains("lib/Flow/")
             || path.starts_with("examples/primop/")
