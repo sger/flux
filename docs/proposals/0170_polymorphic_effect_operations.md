@@ -1,10 +1,10 @@
 - Feature Name: Polymorphic Effect Operations
 - Start Date: 2026-04-23
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0145](0145_type_classes.md) (Type Classes — introduced `Scheme` / generalization), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition)
-- Related: [0165](0165_io_primop_migration_to_effect_handlers.md) (IO Primop Migration — blocked on this)
+- Related: [0165](0165_io_primop_migration_to_effect_handlers.md) (IO Primop Migration — unblocked by this)
 
 # Proposal 0170: Polymorphic Effect Operations
 
@@ -23,12 +23,30 @@ storage changes from `TypeExpr` to `Scheme`, and the `perform` type
 checker instantiates before unification. No new surface syntax, no
 handler-runtime changes, no effect-row changes.
 
+## Status
+[status]: #status
+
+Implemented. Effect-operation signatures now generalize at collection
+time and instantiate fresh at each `perform` / handler-use site across
+both HM inference and compiler-side validation.
+
+Delivered behavior:
+
+- `effect_op_signatures` stores `Scheme` instead of `TypeExpr`
+- effect op declarations like `emit : a -> ()` and `bounce : a -> a`
+  are treated as polymorphic by default
+- repeated `perform` sites can instantiate the same op at different
+  concrete types in one scope
+- polymorphic functions can perform polymorphic effect operations
+  without rigid-skolem collisions
+- targeted HM and compiler regression tests cover the new behavior
+
 ## Motivation
 [motivation]: #motivation
 
-### The current design is silently monomorphic
+### The previous design was silently monomorphic
 
-Today, effect operations are stored as bare `TypeExpr`:
+Before this proposal landed, effect operations were stored as bare `TypeExpr`:
 
 ```rust
 pub struct Compiler {
@@ -293,8 +311,8 @@ signatures are small and self-contained; they ship independently.
 - **Unison**: abilities (Unison's term for effects) are declared
   with generic type parameters and each ability constructor is
   treated as a polymorphic function by the inferencer.
-- **Flux today**: partial. Function `Scheme`s generalize; effect
-  ops do not. This proposal closes the gap.
+- **Flux now**: function schemes and effect-operation schemes both
+  generalize and instantiate through the same `Scheme` machinery.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
@@ -315,6 +333,8 @@ signatures are small and self-contained; they ship independently.
   not the scheme's quantified form. Existing HM diagnostics
   substitute after unification, so this should be free, but the
   fixture suite should include a deliberate mismatch to confirm.
+
+These are follow-up refinements, not blockers for the delivered scope.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
