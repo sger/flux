@@ -214,7 +214,9 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             ..
         } => {
             out.push_str(&pad);
-            out.push_str("perform ");
+            // Annotate with the Phase 3 runtime lowering (yield_to) so the
+            // dump makes the evidence-passing vocabulary explicit.
+            out.push_str("perform /*yield_to*/ ");
             out.push_str(&resolve_name(interner, *effect));
             out.push('.');
             out.push_str(&resolve_name(interner, *operation));
@@ -235,7 +237,9 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             ..
         } => {
             out.push_str(&pad);
-            out.push_str("handle ");
+            // Annotate with the Phase 3 lowering shape:
+            //   evv_insert + fresh_marker → body → yield_prompt
+            out.push_str("handle /*evv_insert+yield_prompt*/ ");
             out.push_str(&single_line_expr(body, interner));
             out.push_str(" with ");
             out.push_str(interner.resolve(*effect));

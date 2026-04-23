@@ -4699,6 +4699,8 @@ impl Compiler {
                 && stats.drops == 0
                 && stats.reuses == 0
                 && stats.drop_specs == 0
+                && stats.performs == 0
+                && stats.handles == 0
                 && def.fip.is_none()
             {
                 continue;
@@ -4709,7 +4711,22 @@ impl Compiler {
                 Some(crate::syntax::statement::FipAnnotation::Fbip) => " @fbip",
                 None => "",
             };
-            out.push_str(&format!("── fn {}{} ──\n", name, fip_label));
+            let effect_label = if stats.performs > 0 || stats.handles > 0 {
+                let mut tag = String::from(" [");
+                let mut parts = Vec::new();
+                if stats.performs > 0 {
+                    parts.push(format!("yield×{}", stats.performs));
+                }
+                if stats.handles > 0 {
+                    parts.push(format!("handle×{}", stats.handles));
+                }
+                tag.push_str(&parts.join(" "));
+                tag.push(']');
+                tag
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("── fn {}{}{} ──\n", name, fip_label, effect_label));
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
@@ -4778,6 +4795,9 @@ impl Compiler {
             total.reuses += stats.reuses;
             total.drop_specs += stats.drop_specs;
             total.allocs += stats.allocs;
+            total.performs += stats.performs;
+            total.handles += stats.handles;
+            total.handler_arms += stats.handler_arms;
         }
 
         out.push_str(&format!(
