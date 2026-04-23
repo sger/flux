@@ -198,6 +198,7 @@ fn main() {
 fn base_effect_audit_strict_effect_modules() {
     for rel_path in [
         "lib/Flow/Effects.flx",
+        "lib/Flow/Primops.flx",
         "lib/Flow/IO.flx",
         "lib/Flow/Assert.flx",
         "lib/Flow/FTest.flx",

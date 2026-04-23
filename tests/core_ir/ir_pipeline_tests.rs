@@ -345,6 +345,56 @@ fn has_primop(expr: &CoreExpr, target: &CorePrimOp) -> bool {
         .any(|e| matches!(e, CoreExpr::PrimOp { op, .. } if op == target))
 }
 
+#[test]
+fn intrinsic_function_lowers_directly_to_bound_primop() {
+    let src = r#"
+module Flow.Primops {
+    public intrinsic fn println<a>(x: a) -> Unit with Console = primop Println
+}
+"#;
+    let (program, hm_expr_types, interner) = parse_and_infer(src);
+    let core = lower_program_ast(&program, &hm_expr_types);
+    let println_def = core
+        .defs
+        .iter()
+        .find(|def| interner.resolve(def.name) == "println")
+        .expect("expected println intrinsic def");
+    assert!(
+        has_primop(&println_def.expr, &CorePrimOp::Println),
+        "expected intrinsic println wrapper to lower to PrimOp(Println), got: {println_def:#?}"
+    );
+    assert!(
+        !collect_core_exprs(&println_def.expr)
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::App { .. })),
+        "intrinsic wrapper should not lower through a helper call: {println_def:#?}"
+    );
+}
+
+#[test]
+fn intrinsic_module_call_executes_bound_primop() {
+    let src = r#"
+module Flow.Primops {
+    public intrinsic fn idiv(a: Int, b: Int) -> Int with Div = primop IDiv
+}
+
+fn main() with Div {
+    Flow.Primops.idiv(21, 3)
+}
+"#;
+    let lexer = Lexer::new(src);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("lib/Flow/Primops.flx", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(src), None)));
+    let mut vm = VM::new(compiler.bytecode());
+    vm.run().unwrap();
+    assert_eq!(vm.last_popped_stack_elem(), Value::Integer(7));
+}
+
 // ── Test 1: Zero-param nested function ──────────────────────────────────────
 
 #[test]

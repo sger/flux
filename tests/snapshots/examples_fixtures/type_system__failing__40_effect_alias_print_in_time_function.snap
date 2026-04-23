@@ -5,22 +5,6 @@ Fixture: examples/type_system/failing/40_effect_alias_print_in_time_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `print`.
-
-  examples/type_system/failing/40_effect_alias_print_in_time_function.flx:4:13
-  |
-4 |     let p = print
-  |             ^^^^^
-
-Hint:
-  Define it first: let print = ...;
-
-Help:
-  Did you mean `p`?
-
-
 error[E400]: Missing Effect
 
 requires effect `Console` but the enclosing context does not provide it
@@ -33,7 +17,5 @@ requires effect `Console` but the enclosing context does not provide it
 
 Hint:
   annotate the enclosing function with `with Console`
-
-Found 2 errors.
 == stdout ==
 <not executed>

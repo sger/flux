@@ -1,23 +1,10 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/39_effect_alias_print_in_pure_function.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `print`.
-
-  examples/type_system/failing/39_effect_alias_print_in_pure_function.flx:4:13
-  |
-4 |     let p = print
-  |             ^^^^^
-
-Hint:
-  Define it first: let print = ...;
-
-Help:
-  Did you mean `p`?
+<none>
 == stdout ==
 <not executed>

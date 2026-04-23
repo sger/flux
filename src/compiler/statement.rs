@@ -569,6 +569,10 @@ impl Compiler {
             Expression::DoBlock { block, .. } => {
                 self.block_has_effect_row_error(block, declared_effects, param_effect_rows)
             }
+            Expression::Sealing { expr, allowed, .. } => {
+                self.sealing_has_effect_row_error(expr, allowed, declared_effects)
+                    || self.expr_has_effect_row_error(expr, declared_effects, param_effect_rows)
+            }
             Expression::Match { arms, .. } => arms.iter().any(|arm| {
                 self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)
             }),
@@ -648,6 +652,66 @@ impl Compiler {
         }
 
         false
+    }
+
+    fn sealing_has_effect_row_error(
+        &mut self,
+        expr: &Expression,
+        allowed: &[EffectExpr],
+        declared_effects: &[EffectExpr],
+    ) -> bool {
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        let inferred = self.contract_effect_sets();
+        let actual = self.infer_effects_from_expr(
+            expr,
+            self.current_module_prefix,
+            &inferred,
+            io_effect,
+            time_effect,
+        );
+        let allowed = self.evaluate_sealing_allowed_effects_for_declared(allowed, declared_effects);
+        !actual.is_subset(&allowed)
+    }
+
+    fn evaluate_sealing_allowed_effects_for_declared(
+        &self,
+        allowed: &[EffectExpr],
+        declared_effects: &[EffectExpr],
+    ) -> HashSet<Symbol> {
+        let ambient: HashSet<Symbol> = declared_effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect();
+        let mut out = HashSet::new();
+        for effect in allowed {
+            out.extend(self.evaluate_sealing_effect_expr_for_declared(effect, &ambient));
+        }
+        out
+    }
+
+    fn evaluate_sealing_effect_expr_for_declared(
+        &self,
+        effect: &EffectExpr,
+        ambient: &HashSet<Symbol>,
+    ) -> HashSet<Symbol> {
+        match effect {
+            EffectExpr::Named { name, .. } => HashSet::from([*name]),
+            EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => ambient.clone(),
+            EffectExpr::RowVar { .. } => HashSet::new(),
+            EffectExpr::Add { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr_for_declared(left, ambient);
+                out.extend(self.evaluate_sealing_effect_expr_for_declared(right, ambient));
+                out
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr_for_declared(left, ambient);
+                for effect in self.evaluate_sealing_effect_expr_for_declared(right, ambient) {
+                    out.remove(&effect);
+                }
+                out
+            }
+        }
     }
 
     /// Check if an effect is available in the declared effects list.
@@ -1099,6 +1163,7 @@ impl Compiler {
                     return_type,
                     effects,
                     body,
+                    intrinsic,
                     span,
                     ..
                 } => {
@@ -1135,6 +1200,7 @@ impl Compiler {
                         return_type,
                         &effective_effects,
                         body,
+                        *intrinsic,
                         None,
                         *span,
                     )?;
@@ -1249,6 +1315,7 @@ impl Compiler {
         return_type: &Option<TypeExpr>,
         effects: &[EffectExpr],
         body: &Block,
+        intrinsic: Option<crate::core::CorePrimOp>,
         ir_function: Option<&IrFunction>,
         function_span: Span,
     ) -> CompileResult<()> {
@@ -1364,6 +1431,19 @@ impl Compiler {
         }
 
         let compile_result: CompileResult<()> = (|| {
+            if let Some(op) = intrinsic {
+                for param in parameters {
+                    let Some(binding) = self.symbol_table.resolve(*param) else {
+                        continue;
+                    };
+                    self.load_symbol(&binding);
+                }
+                self.emit(OpCode::OpPrimOp, &[op.id() as usize, parameters.len()]);
+                self.emit(OpCode::OpReturnCheck, &[]);
+                self.emit(OpCode::OpReturnValue, &[]);
+                return Ok(());
+            }
+
             // Compile-time return type check: if the declared return type and
             // the static type of the tail expression are both known, verify
             // they're compatible.
@@ -1949,6 +2029,7 @@ impl Compiler {
                 return_type,
                 effects,
                 body: fn_body,
+                intrinsic,
                 span,
                 ..
             } = statement
@@ -1969,6 +2050,7 @@ impl Compiler {
                     return_type,
                     &effective_effects,
                     fn_body,
+                    *intrinsic,
                     ir_program.and_then(|program| {
                         self.find_ir_function_by_symbol(program, qualified_name)
                     }),

@@ -5,7 +5,7 @@
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0026](superseded/0026_concurrency_model.md), [0065](superseded/0065_actor_effect_stdlib.md), [0066](superseded/0066_thread_per_actor_handler.md), [0067](superseded/0067_gchandle_actor_boundary_error.md), [0071](superseded/0071_mn_scheduler_actor_handler.md), [0095](superseded/0095_actor_runtime_architecture.md)
-- Depends on: [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
+- Depends on: [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
 
 # Proposal 0143: Actor Concurrency Roadmap (Aether-Aware)
 
@@ -135,7 +135,7 @@ Aether remains intentionally single-threaded inside an actor:
 ### 4. `Actor` as a Flow.Effects label
 
 The `Actor` effect is declared in [Flow.Effects](../../lib/Flow/) (per
-[0161](0161_effect_system_decomposition_and_capabilities.md)) as a phantom
+[0161](implemented/0161_effect_system_decomposition_and_capabilities.md)) as a phantom
 label. Actor operations (`spawn`, `send`, `recv`, `self_id`) are primops
 declared in `Flow.Primops` with `with Actor` signatures.
 

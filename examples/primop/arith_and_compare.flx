@@ -16,7 +16,7 @@
 // true
 // parity-expected-stdout-end
 
-fn main() with IO {
+fn main() with IO, Div {
     print("== PrimOps: arithmetic + comparison ==");
 
     print(iadd(10, 20));   // 30

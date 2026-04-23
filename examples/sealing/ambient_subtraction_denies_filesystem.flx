@@ -1,0 +1,3 @@
+fn main() with IO {
+    read_file("missing.txt") sealing (ambient - FileSystem)
+}

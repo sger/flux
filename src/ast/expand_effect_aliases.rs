@@ -167,6 +167,12 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
                 expand_expr(&mut arm.body, aliases);
             }
         }
+        Expression::Sealing { expr, allowed, .. } => {
+            expand_expr(expr, aliases);
+            for effect in allowed.iter_mut() {
+                *effect = effect.expand_aliases(aliases);
+            }
+        }
         Expression::Index { left, index, .. } => {
             expand_expr(left, aliases);
             expand_expr(index, aliases);

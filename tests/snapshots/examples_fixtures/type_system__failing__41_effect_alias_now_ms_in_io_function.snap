@@ -1,23 +1,21 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+error[E400]: Missing Effect
 
-I can't find a value named `now_ms`.
+requires effect `Clock` but the enclosing context does not provide it
 
-  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:4:13
+  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:5:5
   |
-4 |     let n = now_ms
-  |             ^^^^^^
+5 |     n()
+  |     ^^^
+  |     --- requires `Clock`
 
 Hint:
-  Define it first: let now_ms = ...;
-
-Help:
-  Did you mean `n`?
+  annotate the enclosing function with `with Clock`
 == stdout ==
 <not executed>

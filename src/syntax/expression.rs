@@ -371,6 +371,13 @@ pub enum Expression {
         span: Span,
         id: ExprId,
     },
+    /// `expr sealing { Effect | ... }` — compile-time effect capability restriction.
+    Sealing {
+        expr: Box<Expression>,
+        allowed: Vec<EffectExpr>,
+        span: Span,
+        id: ExprId,
+    },
     /// `Variant { field: value, ... }` — named-field constructor call (proposal 0152).
     NamedConstructor {
         name: Identifier,
@@ -581,6 +588,10 @@ impl fmt::Display for Expression {
                 }
                 write!(f, " }}")
             }
+            Expression::Sealing { expr, allowed, .. } => {
+                let effects: Vec<String> = allowed.iter().map(ToString::to_string).collect();
+                write!(f, "{} sealing {{ {} }}", expr, effects.join(" | "))
+            }
             Expression::NamedConstructor { name, fields, .. } => {
                 write!(f, "{} {{", name)?;
                 for (i, field) in fields.iter().enumerate() {
@@ -642,6 +653,7 @@ impl Expression {
             | Expression::Cons { id, .. }
             | Expression::Perform { id, .. }
             | Expression::Handle { id, .. }
+            | Expression::Sealing { id, .. }
             | Expression::NamedConstructor { id, .. }
             | Expression::Spread { id, .. } => *id,
         }
@@ -677,6 +689,7 @@ impl Expression {
             Expression::Cons { span, .. } => *span,
             Expression::Perform { span, .. } => *span,
             Expression::Handle { span, .. } => *span,
+            Expression::Sealing { span, .. } => *span,
             Expression::NamedConstructor { span, .. } => *span,
             Expression::Spread { span, .. } => *span,
         }
@@ -916,6 +929,15 @@ impl Expression {
                 }
                 out.push_str(" }");
                 out
+            }
+            Expression::Sealing { expr, allowed, .. } => {
+                let effects: Vec<String> =
+                    allowed.iter().map(|e| e.display_with(interner)).collect();
+                format!(
+                    "{} sealing {{ {} }}",
+                    expr.display_with(interner),
+                    effects.join(" | ")
+                )
             }
             Expression::NamedConstructor { name, fields, .. } => {
                 let mut out = format!("{} {{", interner.resolve(*name));

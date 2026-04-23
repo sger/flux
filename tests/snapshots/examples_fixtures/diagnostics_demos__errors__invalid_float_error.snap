@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/invalid_float_error.flx:4:1
   |

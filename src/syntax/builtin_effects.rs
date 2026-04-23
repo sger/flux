@@ -42,6 +42,18 @@ pub const PANIC: &str = "Panic";
 /// `idiv` / `imod` / indexing — recoverable failure (div-by-zero, OOB).
 pub const DIV: &str = "Div";
 
+/// Reserved non-determinism label. Documented in `Flow.Effects`, not
+/// operationally emitted by compiler primops in this slice.
+pub const NONDET: &str = "NonDet";
+
+/// Reserved randomness label. Documented in `Flow.Effects`, not
+/// operationally emitted by compiler primops in this slice.
+pub const RANDOM: &str = "Random";
+
+/// Reserved recoverable-exception label. Documented in `Flow.Effects`, not
+/// operationally emitted by compiler primops in this slice.
+pub const EXN: &str = "Exn";
+
 /// Intern the `IO` effect label.
 pub fn io_effect_symbol(interner: &mut Interner) -> Identifier {
     interner.intern(IO)
@@ -70,7 +82,10 @@ pub fn time_effect_symbol_opt(interner: &Interner) -> Option<Identifier> {
 /// compiler support in the current slice. Broader documented labels like
 /// `Random` / `NonDet` / `Exn` remain future-facing until their support lands.
 pub fn is_known_function_effect_annotation_name(name: &str) -> bool {
-    matches!(name, IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV)
+    matches!(
+        name,
+        IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV
+    )
 }
 
 // ── Primop → effect label registry ──
@@ -91,6 +106,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
         ReadStdin => Some(STDIN),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
+        Div | Mod | IDiv | IMod | FDiv | Index => Some(DIV),
         _ => None,
     }
 }
@@ -173,6 +189,21 @@ mod tests {
     }
 
     #[test]
+    fn failure_primops_have_div_label_at_both_granularities() {
+        for op in [
+            CorePrimOp::Div,
+            CorePrimOp::Mod,
+            CorePrimOp::IDiv,
+            CorePrimOp::IMod,
+            CorePrimOp::FDiv,
+            CorePrimOp::Index,
+        ] {
+            assert_eq!(primop_fine_effect_label(op), Some(DIV), "{:?}", op);
+            assert_eq!(primop_coarse_effect_label(op), Some(DIV), "{:?}", op);
+        }
+    }
+
+    #[test]
     fn pure_primops_have_no_effect_label() {
         for op in [CorePrimOp::Add, CorePrimOp::Mul, CorePrimOp::IAdd] {
             assert_eq!(primop_fine_effect_label(op), None);
@@ -204,6 +235,17 @@ mod tests {
 
         assert_eq!(primop_coarse_effect_label(CorePrimOp::Panic), Some(PANIC));
 
+        for op in [
+            CorePrimOp::Div,
+            CorePrimOp::Mod,
+            CorePrimOp::IDiv,
+            CorePrimOp::IMod,
+            CorePrimOp::FDiv,
+            CorePrimOp::Index,
+        ] {
+            assert_eq!(primop_coarse_effect_label(op), Some(DIV), "{:?}", op);
+        }
+
         for op in [CorePrimOp::Add, CorePrimOp::IAdd, CorePrimOp::Mul] {
             assert_eq!(primop_coarse_effect_label(op), None, "{:?}", op);
         }
@@ -214,6 +256,8 @@ mod tests {
         assert_eq!(builtin_effect_for_name("print"), Some(IO));
         assert_eq!(builtin_effect_for_name("now_ms"), Some(TIME));
         assert_eq!(builtin_effect_for_name("panic"), Some(PANIC));
+        assert_eq!(builtin_effect_for_name("idiv"), Some(DIV));
+        assert_eq!(builtin_effect_for_name("array_get"), None);
         assert_eq!(builtin_effect_for_name("iadd"), None);
         assert_eq!(builtin_effect_for_name("definitely_unknown_builtin"), None);
     }
@@ -223,7 +267,7 @@ mod tests {
         for name in [IO, TIME, CONSOLE, FILESYSTEM, STDIN, CLOCK, PANIC, DIV] {
             assert!(is_known_function_effect_annotation_name(name), "{name}");
         }
-        for name in ["State", "Random", "NonDet", "Exn", "DefinitelyUnknown"] {
+        for name in [RANDOM, NONDET, EXN, "State", "DefinitelyUnknown"] {
             assert!(
                 !is_known_function_effect_annotation_name(name),
                 "{name} should not be treated as a builtin 0161 annotation"

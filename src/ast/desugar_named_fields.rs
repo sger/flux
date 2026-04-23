@@ -184,6 +184,9 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 desugar_expr(&mut arm.body, ctx);
             }
         }
+        Expression::Sealing { expr: inner, .. } => {
+            desugar_expr(inner, ctx);
+        }
         Expression::NamedConstructor { fields, .. } => {
             for f in fields {
                 if let Some(v) = &mut f.value {

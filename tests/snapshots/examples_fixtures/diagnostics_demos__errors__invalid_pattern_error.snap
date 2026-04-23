@@ -30,7 +30,7 @@ this arm is unreachable — earlier arms already cover it
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/invalid_pattern_error.flx:6:1
   |

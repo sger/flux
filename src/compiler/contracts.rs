@@ -189,12 +189,17 @@ fn convert_type_expr_rec(
                 _ => lower_adt_type(name, args, env, bindings, active_adts),
             }
         }
-        TypeExpr::Tuple { elements, .. } => Ok(RuntimeType::Tuple(
-            elements
-                .iter()
-                .map(|element| convert_type_expr_rec(element, env, bindings, active_adts))
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
+        TypeExpr::Tuple { elements, .. } => {
+            if elements.is_empty() {
+                return Ok(RuntimeType::Unit);
+            }
+            Ok(RuntimeType::Tuple(
+                elements
+                    .iter()
+                    .map(|element| convert_type_expr_rec(element, env, bindings, active_adts))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))
+        }
         TypeExpr::Function {
             params,
             ret,
@@ -338,6 +343,17 @@ mod tests {
                 Box::new(RuntimeType::Int)
             ))
         );
+    }
+
+    #[test]
+    fn empty_tuple_annotation_lowers_to_unit_contract() {
+        let interner = Interner::new();
+        let unit = TypeExpr::Tuple {
+            elements: vec![],
+            span: Default::default(),
+        };
+
+        assert_eq!(convert_type_expr(&unit, &interner), Some(RuntimeType::Unit));
     }
 
     #[test]
