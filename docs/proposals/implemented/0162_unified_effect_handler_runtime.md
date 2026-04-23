@@ -1,10 +1,10 @@
 - Feature Name: Unified Effect Handler Runtime
 - Start Date: 2026-04-18
-- Status: Draft
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0084](implemented/0084_aether_memory_model.md) (Aether memory model), [0086](implemented/0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)
-- Supersedes: [0072](superseded/0072_evidence_passing_handlers.md) (Phase 1), [0073](superseded/0073_state_reader_continuation_elim.md) (Phase 2), [0141](superseded/0141_unified_effect_handlers.md) (Phase 3)
+- Depends on: [0084](0084_aether_memory_model.md) (Aether memory model), [0086](0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)
+- Supersedes: [0072](../superseded/0072_evidence_passing_handlers.md) (Phase 1), [0073](../superseded/0073_state_reader_continuation_elim.md) (Phase 2), [0141](../superseded/0141_unified_effect_handlers.md) (Phase 3)
 
 # Proposal 0162: Unified Effect Handler Runtime
 
