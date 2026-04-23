@@ -79,26 +79,111 @@ fn infer_program_from_source(
     );
     let interner = parser.take_interner();
     let mut effect_op_sigs = HashMap::new();
+    fn effect_op_scheme(
+        interner: &flux::syntax::interner::Interner,
+        type_expr: &flux::syntax::type_expr::TypeExpr,
+    ) -> Scheme {
+        fn collect_implicit_type_params(
+            interner: &flux::syntax::interner::Interner,
+            ty: &flux::syntax::type_expr::TypeExpr,
+            out: &mut HashSet<flux::syntax::Identifier>,
+        ) {
+            match ty {
+                flux::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
+                    if interner
+                        .resolve(*name)
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_lowercase())
+                    {
+                        out.insert(*name);
+                    }
+                    for arg in args {
+                        collect_implicit_type_params(interner, arg, out);
+                    }
+                }
+                flux::syntax::type_expr::TypeExpr::Tuple { elements, .. } => {
+                    for element in elements {
+                        collect_implicit_type_params(interner, element, out);
+                    }
+                }
+                flux::syntax::type_expr::TypeExpr::Function { params, ret, .. } => {
+                    for param in params {
+                        collect_implicit_type_params(interner, param, out);
+                    }
+                    collect_implicit_type_params(interner, ret, out);
+                }
+            }
+        }
+        let flux::syntax::type_expr::TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } = type_expr
+        else {
+            panic!("effect operation signature must be function-shaped");
+        };
+        let mut implicit_type_params = HashSet::new();
+        collect_implicit_type_params(interner, type_expr, &mut implicit_type_params);
+        let mut sorted_type_params = implicit_type_params.into_iter().collect::<Vec<_>>();
+        sorted_type_params.sort_by_key(|sym| sym.as_u32());
+        let type_params = sorted_type_params
+            .into_iter()
+            .enumerate()
+            .map(|(idx, sym)| (sym, idx as u32))
+            .collect::<HashMap<_, _>>();
+        let mut row_var_env = HashMap::new();
+        let mut next_var = type_params.len() as u32;
+        let param_tys = params
+            .iter()
+            .map(|param| {
+                TypeEnv::convert_type_expr_rec(
+                    param,
+                    &type_params,
+                    interner,
+                    &mut row_var_env,
+                    &mut next_var,
+                )
+                .expect("effect op param should lower")
+            })
+            .collect();
+        let ret_ty = TypeEnv::convert_type_expr_rec(
+            ret,
+            &type_params,
+            interner,
+            &mut row_var_env,
+            &mut next_var,
+        )
+        .expect("effect op return should lower");
+        let effect_row =
+            InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
+                .expect("effect op effect row should lower");
+        generalize(
+            &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
+            &HashSet::new(),
+        )
+    }
     fn collect_effect_sigs(
         statements: &[Statement],
-        out: &mut HashMap<
-            (flux::syntax::Identifier, flux::syntax::Identifier),
-            flux::syntax::type_expr::TypeExpr,
-        >,
+        out: &mut HashMap<(flux::syntax::Identifier, flux::syntax::Identifier), Scheme>,
+        interner: &flux::syntax::interner::Interner,
     ) {
         for statement in statements {
             match statement {
                 Statement::EffectDecl { name, ops, .. } => {
                     for op in ops {
-                        out.insert((*name, op.name), op.type_expr.clone());
+                        out.insert((*name, op.name), effect_op_scheme(interner, &op.type_expr));
                     }
                 }
-                Statement::Module { body, .. } => collect_effect_sigs(&body.statements, out),
+                Statement::Module { body, .. } => {
+                    collect_effect_sigs(&body.statements, out, interner)
+                }
                 _ => {}
             }
         }
     }
-    collect_effect_sigs(&program.statements, &mut effect_op_sigs);
+    collect_effect_sigs(&program.statements, &mut effect_op_sigs, &interner);
     let mut interner_for_base = interner.clone();
     let base_symbol = interner_for_base.intern("Flow");
     let result = infer_program(
@@ -1234,6 +1319,69 @@ fn main() -> Unit with Console {
 }
 
 #[test]
+fn infer_polymorphic_effect_op_instantiates_per_perform_site() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Log {
+    emit: a -> Unit
+}
+fn main() -> Unit with Log {
+    perform Log.emit(1)
+    perform Log.emit("hi")
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for polymorphic effect op reuse, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_polymorphic_effect_op_inside_polymorphic_function_is_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Log {
+    emit: a -> Unit
+}
+fn forward<a>(x: a) -> a with Log {
+    perform Log.emit(x)
+    x
+}
+fn main() -> Unit with Log {
+    let _ = forward(1)
+    let _ = forward("hi")
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for polymorphic function performing polymorphic op, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_polymorphic_effect_op_deliberate_mismatch_still_reports_e300() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Id {
+    bounce: a -> a
+}
+fn main() -> Unit with Id {
+    let _: Int = perform Id.bounce("oops")
+}
+"#,
+    );
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for mismatched instantiated polymorphic effect op, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
 fn infer_effect_row_order_equivalence_for_function_params() {
     let (result, _program) = infer_program_from_source(
         r#"
@@ -1392,6 +1540,32 @@ fn main() -> Unit with Console {
             .iter()
             .any(|d| d.code().is_some_and(|code| code == "E300")),
         "expected E300 diagnostics for handler param type usage mismatch"
+    );
+}
+
+#[test]
+fn infer_polymorphic_handle_arm_supports_multiple_perform_instantiations() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Id {
+    bounce: a -> a
+}
+fn run() -> Int with Id {
+    let x = perform Id.bounce(1)
+    let _y = perform Id.bounce("hi")
+    x
+}
+fn main() -> Unit with Id {
+    let _ = run() handle Id {
+        bounce(resume, v) -> resume(v)
+    }
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for polymorphic handler arm across perform instantiations, got: {:?}",
+        result.diagnostics
     );
 }
 

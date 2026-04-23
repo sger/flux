@@ -2056,6 +2056,28 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+fn polymorphic_effect_op_multiple_instantiations_compile() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+effect Id {
+    bounce: a -> a
+}
+fn run() -> Int with Id {
+    let x = perform Id.bounce(1)
+    let _y = perform Id.bounce("hi")
+    x
+}
+fn main() -> Unit with Id {
+    let _ = run() handle Id {
+        bounce(resume, v) -> resume(v)
+    }
+}
+"#,
+    );
+}
+
+#[test]
 #[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_order_equivalence_fixture_compiles() {
     let source = include_str!("../../examples/type_system/100_effect_row_order_equivalence_ok.flx");
