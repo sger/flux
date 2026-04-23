@@ -551,10 +551,14 @@ mod tests {
 
     #[test]
     fn total_graph_source_lines_counts_reachable_module_sources() {
+        let safe_name = std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         let temp = std::env::temp_dir().join(format!(
             "flux_native_line_count_{}_{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            safe_name
         ));
         std::fs::create_dir_all(&temp).expect("create temp dir");
         let first = temp.join("Main.flx");
