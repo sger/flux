@@ -19,7 +19,7 @@ impl InferCtx<'_> {
         span: Span,
     ) -> InferType {
         let arg_tys: Vec<InferType> = args.iter().map(|a| self.infer_expression(a)).collect();
-        if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(effect, operation) {
+        if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(effect, operation, span) {
             if arg_tys.len() == param_tys.len() {
                 for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
                     self.unify_reporting(actual, expected, span);
@@ -45,7 +45,7 @@ impl InferCtx<'_> {
         for (arm_index, arm) in arms.iter().enumerate() {
             self.env.enter_scope();
             if let Some((param_tys, _ret_ty)) =
-                self.effect_op_signature_types(effect, arm.operation_name)
+                self.effect_op_signature_types(effect, arm.operation_name, arm.span)
             {
                 for (param_name, param_ty) in arm.params.iter().zip(param_tys.iter()) {
                     self.env.bind(*param_name, Scheme::mono(param_ty.clone()));

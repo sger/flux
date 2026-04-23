@@ -444,14 +444,14 @@ impl Compiler {
         origin
     }
 
-    fn effect_operation_function_parts<'a>(
-        &'a self,
+    fn effect_operation_function_parts(
+        &mut self,
         effect: Symbol,
         op: Symbol,
         span: Span,
         context: &str,
-    ) -> CompileResult<(&'a [TypeExpr], &'a TypeExpr)> {
-        let Some(signature) = self.effect_op_signature(effect, op) else {
+    ) -> CompileResult<(Vec<InferType>, InferType)> {
+        let Some(signature) = self.effect_op_signature(effect, op).cloned() else {
             let effect_name = self.sym(effect).to_string();
             let op_name = self.sym(op).to_string();
             return Err(Self::boxed(
@@ -471,12 +471,8 @@ impl Compiler {
             ));
         };
 
-        let TypeExpr::Function {
-            params,
-            ret,
-            effects: _,
-            span: _,
-        } = signature
+        let (ty, _mapping, _constraints) = signature.instantiate(&mut self.type_env.counter);
+        let InferType::Fun(params, ret, _effects) = ty
         else {
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
@@ -497,7 +493,7 @@ impl Compiler {
             ));
         };
 
-        Ok((params, ret))
+        Ok((params, *ret))
     }
 
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
@@ -3277,15 +3273,8 @@ impl Compiler {
         }
 
         for (arg, expected_ty) in args.iter().zip(op_params.iter()) {
-            let Some(expected) = TypeEnv::infer_type_from_type_expr(
-                expected_ty,
-                &Default::default(),
-                &self.interner,
-            ) else {
-                continue;
-            };
             self.validate_expr_expected_type_with_policy(
-                &expected,
+                expected_ty,
                 arg,
                 "perform argument type is known at compile time",
                 "argument does not match effect operation signature".to_string(),
@@ -3515,8 +3504,8 @@ impl Compiler {
             let mut parameter_types: Vec<Option<TypeExpr>> =
                 Vec::with_capacity(1 + op_params.len());
             parameter_types.push(None);
-            for ty in op_params {
-                parameter_types.push(Some(ty.clone()));
+            for _ in op_params {
+                parameter_types.push(None);
             }
 
             // Wrap arm body in a synthetic block for compile_function_literal
