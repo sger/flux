@@ -656,7 +656,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
         .cloned()
         .expect("scheme should be cached");
 
-    let io_sym = compiler.interner.intern("IO");
+    let io_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut compiler.interner);
     match &scheme.infer_type {
         InferType::Fun(_, _, effects) => {
             assert!(

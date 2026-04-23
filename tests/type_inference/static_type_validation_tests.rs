@@ -16,8 +16,11 @@ use flux::{
         interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
     },
     types::{
-        class_env::ClassEnv, class_solver::solve_class_constraints,
-        infer_effect_row::InferEffectRow, infer_type::InferType, scheme::{Scheme, generalize},
+        class_env::ClassEnv,
+        class_solver::solve_class_constraints,
+        infer_effect_row::InferEffectRow,
+        infer_type::InferType,
+        scheme::{Scheme, generalize},
         type_env::TypeEnv,
     },
 };

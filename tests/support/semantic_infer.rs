@@ -12,8 +12,11 @@ use flux::{
         statement::Statement, type_expr::TypeExpr,
     },
     types::{
-        class_env::ClassEnv, infer_effect_row::InferEffectRow, infer_type::InferType,
-        scheme::{Scheme, generalize}, type_env::TypeEnv,
+        class_env::ClassEnv,
+        infer_effect_row::InferEffectRow,
+        infer_type::InferType,
+        scheme::{Scheme, generalize},
+        type_env::TypeEnv,
     },
 };
 
@@ -157,9 +160,7 @@ fn collect_effect_sigs(
                     out.insert((*name, op.name), effect_op_scheme(interner, &op.type_expr));
                 }
             }
-            Statement::Module { body, .. } => {
-                collect_effect_sigs(&body.statements, out, interner)
-            }
+            Statement::Module { body, .. } => collect_effect_sigs(&body.statements, out, interner),
             _ => {}
         }
     }

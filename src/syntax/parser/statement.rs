@@ -2172,6 +2172,18 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        let mut ops: Vec<EffectOp> = Vec::new();
+
+        // Proposal 0161: bodiless `effect Name` declares a phantom label —
+        // no operations, tracked via effect rows only (e.g. Console, FileSystem).
+        if !self.is_peek_token(TokenType::LBrace) {
+            return Some(Statement::EffectDecl {
+                name,
+                ops,
+                span: self.span_from(start),
+            });
+        }
+
         // `{`
         if !self.expect_peek_context_with_details(
             TokenType::LBrace,
@@ -2183,8 +2195,6 @@ impl Parser {
             return None;
         }
         self.next_token(); // move past `{`
-
-        let mut ops: Vec<EffectOp> = Vec::new();
 
         while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
             // Optional `fn` keyword prefix (e.g. `fn print: String -> ()`)

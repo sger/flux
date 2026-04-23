@@ -2185,6 +2185,27 @@ let w = match x { Some(n) -> n, None -> 0 };
     }
 
     #[test]
+    fn bodiless_effect_declares_phantom_label() {
+        // Proposal 0161: `effect Name` (no body) declares a phantom effect label.
+        let input = "effect Console\nfn main() { () }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.is_empty(),
+            "unexpected errors: {:?}",
+            parser.errors
+        );
+        assert!(program.statements.iter().any(|stmt| matches!(
+            stmt,
+            Statement::EffectDecl { name, ops, .. }
+                if interner.resolve(*name) == "Console" && ops.is_empty()
+        )));
+    }
+
+    #[test]
     fn missing_function_return_arrow_has_targeted_message() {
         let input = "fn f() Int { 1 }\nlet ok = 1;";
         let lexer = Lexer::new(input);

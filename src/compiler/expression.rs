@@ -472,8 +472,7 @@ impl Compiler {
         };
 
         let (ty, _mapping, _constraints) = signature.instantiate(&mut self.type_env.counter);
-        let InferType::Fun(params, ret, _effects) = ty
-        else {
+        let InferType::Fun(params, ret, _effects) = ty else {
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E300",

@@ -682,7 +682,7 @@ mod tests {
         let module = interner.intern("Test.Mod");
         let fn_name = interner.intern("make");
         let adt_sym = interner.intern("Color");
-        let effect_sym = interner.intern("IO");
+        let effect_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
 
         let program = CoreProgram {
             defs: vec![CoreDef::new(

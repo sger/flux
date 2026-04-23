@@ -2251,8 +2251,10 @@ impl Compiler {
                 let entry = self.effect_ops_registry.entry(*name).or_default();
                 for op in ops {
                     entry.insert(op.name);
-                    self.effect_op_signatures
-                        .insert((*name, op.name), build_effect_op_scheme(&self.interner, &op.type_expr));
+                    self.effect_op_signatures.insert(
+                        (*name, op.name),
+                        build_effect_op_scheme(&self.interner, &op.type_expr),
+                    );
                 }
             }
             // Proposal 0161 B1/B3: capture `alias Name = <E1 | E2 | ...>` and
@@ -2278,6 +2280,11 @@ impl Compiler {
     /// every module — entry file or library — sees the same decomposition
     /// without needing to write the alias explicitly. User-written aliases
     /// with the same name (processed afterward) will override these seeds.
+    ///
+    /// The canonical user-facing spec for these labels and aliases lives in
+    /// `lib/Flow/Effects.flx`. That file is documentation only — the seed
+    /// here is the operational source of truth. A future phase may flip the
+    /// authority by parsing `Effects.flx` and deriving the seed from it.
     ///
     /// Called after every `effect_row_aliases.clear()` so that user code that
     /// writes `with IO` (and `with Time`) is uniformly expanded before
