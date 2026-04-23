@@ -1638,11 +1638,7 @@ impl Compiler {
     }
 
     pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
-        match base_name {
-            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
-            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
-            _ => None,
-        }
+        crate::syntax::builtin_effects::builtin_effect_for_name(base_name)
     }
 
     fn collect_effect_row_constraints(
