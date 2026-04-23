@@ -185,19 +185,11 @@ impl<'a> InferCtx<'a> {
         result
     }
 
-    /// Resolve an effect operation signature and lower it to inference types.
+    /// Resolve an effect operation signature and instantiate it to inference types.
     ///
-    /// Looks up `(effect, operation)` in `effect_op_signatures`, expects the
-    /// stored type expression to be function-shaped, and lowers its parameter
-    /// and return type expressions into [`InferType`] values.
-    ///
-    /// Lowering details:
-    /// - Uses `TypeEnv::convert_type_expr_rec` for each
-    ///   parameter and the return type.
-    /// - Tracks row-variable symbols through a local `row_var_env` so repeated
-    ///   row vars in one signature map to stable row-variable ids.
-    /// - Advances `self.env.counter` to reserve any fresh ids consumed during
-    ///   lowering.
+    /// Looks up `(effect, operation)` in `effect_op_signatures`, instantiates
+    /// the stored [`Scheme`], and returns the function parameter and return
+    /// types from that fresh monotype.
     ///
     /// Returns:
     /// - `Some((params, ret))` when a well-formed function signature is found
@@ -222,41 +214,20 @@ impl<'a> InferCtx<'a> {
         &mut self,
         effect: Identifier,
         operation: Identifier,
+        span: Span,
     ) -> Option<(Vec<InferType>, InferType)> {
-        let type_expr = self.effect_op_signatures.get(&(effect, operation))?;
-        let TypeExpr::Function {
-            params,
-            ret,
-            effects: _,
-            span: _,
-        } = type_expr
-        else {
+        let scheme = self.effect_op_signatures.get(&(effect, operation))?.clone();
+        let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+        let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+        for &fresh in &fresh_vars {
+            self.env.record_var_level(fresh);
+        }
+        self.record_instantiated_expr_vars(fresh_vars);
+        self.emit_scheme_constraints(&constraints, span);
+        let InferType::Fun(params, ret, _effects) = ty else {
             return None;
         };
-        let tp_map: HashMap<Identifier, TypeVarId> = HashMap::new();
-        let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
-        let mut fresh = self.env.counter;
-        let param_tys = params
-            .iter()
-            .map(|p| {
-                TypeEnv::convert_type_expr_rec(
-                    p,
-                    &tp_map,
-                    self.interner,
-                    &mut row_var_env,
-                    &mut fresh,
-                )
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let ret_ty = TypeEnv::convert_type_expr_rec(
-            ret,
-            &tp_map,
-            self.interner,
-            &mut row_var_env,
-            &mut fresh,
-        )?;
-        self.env.counter = fresh;
-        Some((param_tys, ret_ty))
+        Some((params, *ret))
     }
 
     /// Constrain callee effects against currently ambient effects at a call-site.

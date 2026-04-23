@@ -376,6 +376,85 @@ fn build_public_class_method_scheme(
     )
 }
 
+fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if interner
+                .resolve(*name)
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_lowercase())
+            {
+                out.insert(*name);
+            }
+            for arg in args {
+                collect_implicit_type_params(arg, interner, out);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_implicit_type_params(element, interner, out);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_implicit_type_params(param, interner, out);
+            }
+            collect_implicit_type_params(ret, interner, out);
+        }
+    }
+}
+
+fn build_effect_op_scheme(interner: &Interner, ty: &TypeExpr) -> Scheme {
+    let TypeExpr::Function {
+        params,
+        ret,
+        effects,
+        ..
+    } = ty
+    else {
+        panic!("effect operation signature must be function-shaped");
+    };
+    let mut implicit_type_params = HashSet::new();
+    collect_implicit_type_params(ty, interner, &mut implicit_type_params);
+    let mut sorted_type_params = implicit_type_params.into_iter().collect::<Vec<_>>();
+    sorted_type_params.sort_by_key(|sym| sym.as_u32());
+    let type_params = sorted_type_params
+        .into_iter()
+        .enumerate()
+        .map(|(idx, sym)| (sym, idx as TypeVarId))
+        .collect::<HashMap<_, _>>();
+    let mut row_var_env = HashMap::new();
+    let mut next_var: TypeVarId = type_params.len() as TypeVarId;
+    let param_tys: Vec<InferType> = params
+        .iter()
+        .map(|param| {
+            TypeEnv::convert_type_expr_rec(
+                param,
+                &type_params,
+                interner,
+                &mut row_var_env,
+                &mut next_var,
+            )
+            .expect("effect op param type should convert")
+        })
+        .collect();
+    let ret_ty = TypeEnv::convert_type_expr_rec(
+        ret,
+        &type_params,
+        interner,
+        &mut row_var_env,
+        &mut next_var,
+    )
+    .expect("effect op return type should convert");
+    let effect_row = InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
+        .expect("effect op effect row should convert");
+    crate::types::scheme::generalize(
+        &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
+        &HashSet::new(),
+    )
+}
+
 fn substitute_type_expr_for_instance(
     ty: &TypeExpr,
     subst: &HashMap<Identifier, TypeExpr>,
@@ -908,13 +987,13 @@ pub struct Compiler {
     pub(super) adt_registry: AdtRegistry,
     pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
-    pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
     /// Effect-row aliases declared via `alias Name = <E1 | E2 | ...>`
     /// (Proposal 0161 B1). Populated during statement collection and
     /// consumed by the pre-inference alias-expansion pass.
     pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
-    preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
@@ -2173,7 +2252,7 @@ impl Compiler {
                 for op in ops {
                     entry.insert(op.name);
                     self.effect_op_signatures
-                        .insert((*name, op.name), op.type_expr.clone());
+                        .insert((*name, op.name), build_effect_op_scheme(&self.interner, &op.type_expr));
                 }
             }
             // Proposal 0161 B1/B3: capture `alias Name = <E1 | E2 | ...>` and
@@ -4321,7 +4400,7 @@ impl Compiler {
         self.effect_ops_registry.get(&effect)
     }
 
-    pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&TypeExpr> {
+    pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&Scheme> {
         self.effect_op_signatures.get(&(effect, op))
     }
 

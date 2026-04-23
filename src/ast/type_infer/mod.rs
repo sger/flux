@@ -161,7 +161,7 @@ struct InferCtx<'a> {
     /// Reverse index: ADT name → type parameters. Avoids linear scan over
     /// `adt_constructor_types` when only per-ADT metadata is needed.
     adt_type_params: HashMap<Identifier, Vec<Identifier>>,
-    effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
     ambient_effect_rows: Vec<InferEffectRow>,
     handled_effects: Vec<Identifier>,
     /// Deduplication set for unification diagnostics. Keyed by a hash of
@@ -232,7 +232,8 @@ impl<'a> InferCtx<'a> {
     ///   members, keyed by `(module, member)`.
     /// - `known_flow_names`: fast-membership set for names belonging to Flow.
     /// - `flow_module_symbol`: canonical symbol identifying the Flow module.
-    /// - `preloaded_effect_op_signatures`: signatures for effect operations,
+    /// - `preloaded_effect_op_signatures`: generalized signatures for effect
+    ///   operations,
     ///   keyed by `(effect, operation)`.
     fn new(
         interner: &'a Interner,
@@ -241,7 +242,7 @@ impl<'a> InferCtx<'a> {
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
         known_flow_names: HashSet<Identifier>,
         flow_module_symbol: Identifier,
-        preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+        preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
     ) -> Self {
         let mut env = TypeEnv::new();
         advance_counter_past_preloaded_schemes(
@@ -478,7 +479,7 @@ pub struct InferProgramConfig {
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
-    pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
 }
