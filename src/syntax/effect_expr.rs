@@ -210,9 +210,9 @@ mod tests {
     #[test]
     fn normalized_names_apply_add_and_subtract() {
         let mut interner = Interner::new();
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let console = interner.intern("Console");
-        let time = interner.intern("Time");
+        let time = crate::syntax::builtin_effects::time_effect_symbol(&mut interner);
         let span = Span::default();
 
         let expr = EffectExpr::Subtract {
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn row_var_is_excluded_from_normalized_concrete_names() {
         let mut interner = Interner::new();
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let e = interner.intern("e");
         let span = Span::default();
 

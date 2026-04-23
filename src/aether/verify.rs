@@ -861,7 +861,7 @@ mod tests {
         let tmp = binder(5, interner.intern("tmp"));
         let node = CoreTag::Named(interner.intern("Node"));
 
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let print = interner.intern("print");
         let expr = CoreExpr::Case {
             scrutinee: Box::new(v(xs)),
