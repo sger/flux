@@ -33,6 +33,7 @@ int64_t  flux_yield_op_arg      = 0;   /* performed argument (unused for 0-arity
 int32_t  flux_yield_op_arity    = 0;   /* user-visible arity of the op (0 or 1) */
 int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
 int32_t  flux_yield_conts_count = 0;
+int64_t  flux_yield_evv         = 0;   /* current_evv at yield time (slice 5-tr-fix) */
 
 /* ── Evidence vector ───────────────────────────────────────────────── */
 
@@ -142,6 +143,23 @@ static int evv_lookup(EvvArray *arr, int64_t htag) {
 }
 
 /*
+ * Look up evidence by marker (raw, not tagged). Used by the prompt loop in
+ * `flux_yield_prompt` to handle foreign-marker yields whose inner prompt has
+ * already unwound (slice 5-tr-nested).
+ */
+static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
+    if (!arr) return -1;
+    for (int i = arr->count - 1; i >= 0; i--) {
+        int64_t entry_marker =
+            arr->data[i * EVV_ENTRY_WORDS + EVV_MARKER_OFF];
+        if ((int32_t)flux_untag_int(entry_marker) == marker) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/*
  * Perform an effect: set yield state and return sentinel.
  *
  * htag:  effect tag (tagged int)
@@ -177,6 +195,12 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_yield_op_arg      = arg;
     flux_yield_op_arity    = (int32_t)flux_untag_int(arity);
     flux_yield_conts_count = 0;
+    /* Slice 5-tr-fix: capture the evv at yield time so the composed
+     * continuation can re-install it on resume. Nested handlers rely on
+     * this because an inner handle may unwind (restoring its parent evv)
+     * before the outer handle's clause decides to resume into the inner
+     * scope. */
+    flux_yield_evv         = current_evv;
 
     return FLUX_YIELD_SENTINEL;
 }
@@ -490,56 +514,76 @@ int32_t flux_is_yielding(void) {
  *   - FLUX_YIELD_SENTINEL if yielding but marker doesn't match (propagate)
  */
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result) {
-    /* Restore evidence vector. */
-    current_evv = saved_evv;
-
-    if (flux_yield_yielding == 0) {
-        /* Pure path: body completed without performing. */
-        return body_result;
-    }
-
     int32_t m = (int32_t)flux_untag_int(marker);
+    int64_t result = body_result;
 
-    if (flux_yield_marker != m) {
-        /* Not our yield — propagate upward. */
-        return FLUX_YIELD_SENTINEL;
+    /* Prompt loop: handle re-yields that occur while invoking the clause.
+     * A clause that calls `resume(v)` may trigger a nested perform inside
+     * the composed continuation, which re-sets yielding=1. We catch the
+     * re-yield here and run another iteration. */
+    while (flux_yield_yielding != 0) {
+        int is_ours = (flux_yield_marker == m);
+        int64_t yield_evv_local = flux_yield_evv;
+
+        if (!is_ours) {
+            /* Slice 5-tr-nested: the re-yield targets a different handler.
+             * Its C prompt frame may have already unwound for nested shapes
+             * like `handle Inner {} handle Outer {}`. Look up the marker in
+             * the yield-site evv: if found, service it inline using its
+             * recorded clause and evv. Otherwise propagate. */
+            EvvArray *arr = evv_unbox(yield_evv_local);
+            int idx = evv_lookup_by_marker(arr, flux_yield_marker);
+            if (idx < 0) {
+                current_evv = saved_evv;
+                return FLUX_YIELD_SENTINEL;
+            }
+            /* Service inline. The clause + evv come from the yield state
+             * itself — flux_yield_clause was set by flux_yield_to based on
+             * evv_lookup(htag) at the yield site, so it's the correct
+             * foreign handler's clause. */
+        }
+
+        /* Keep the yield-site evv active for the duration of the clause
+         * call so that any resume → composed-continuation → nested perform
+         * finds the full installed handler chain (slice 5-tr-fix). */
+
+        int64_t clause   = flux_yield_clause;
+        int64_t op_arg   = flux_yield_op_arg;
+        int32_t op_arity = flux_yield_op_arity;
+        int64_t yield_evv = yield_evv_local;
+
+        /* Build the resume closure from accumulated continuations. */
+        int64_t resume_cont = flux_compose_conts();
+
+        /* Clear yield state so the clause sees a clean slate (it may re-yield). */
+        flux_yield_yielding    = 0;
+        flux_yield_marker      = 0;
+        flux_yield_clause      = 0;
+        flux_yield_op_arg      = 0;
+        flux_yield_op_arity    = 0;
+        flux_yield_conts_count = 0;
+        flux_yield_evv         = 0;
+
+        /* Re-install the evv that was active at the yield site so the clause
+         * — including any resume it calls into the composed continuation —
+         * sees the full handler chain the yield was performed under (slice
+         * 5-tr-fix: matters for nested handlers where an inner handle may
+         * have unwound before the outer prompt decides to resume). */
+        current_evv = yield_evv;
+
+        /* Call the handler clause: clause(resume, [arg]). */
+        if (op_arity <= 0) {
+            int64_t args[1] = { resume_cont };
+            result = flux_call_closure_c(clause, args, 1);
+        } else {
+            int64_t args[2] = { resume_cont, op_arg };
+            result = flux_call_closure_c(clause, args, 2);
+        }
+        /* Loop: if the clause re-yielded (resume inside triggered a nested
+         * perform targeting this same handler), iterate. Otherwise exit. */
     }
 
-    /* This yield is for us. Compose continuations into a resume closure. */
-    int64_t clause = flux_yield_clause;
-    int64_t op_arg = flux_yield_op_arg;
-    int32_t op_arity = flux_yield_op_arity;
-
-    /* Build the resume closure from accumulated continuations. */
-    int64_t resume_cont = flux_compose_conts();
-
-    /* Clear yield state. */
-    flux_yield_yielding    = 0;
-    flux_yield_marker      = 0;
-    flux_yield_clause      = 0;
-    flux_yield_op_arg      = 0;
-    flux_yield_op_arity    = 0;
-    flux_yield_conts_count = 0;
-
-    /*
-     * Call the handler clause: clause(resume_cont, op_arg)
-     *
-     * The clause is a closure with signature (resume, arg) -> result.
-     * `resume_cont` is either:
-     *   - A single continuation closure (call it with a value to resume)
-     *   - An array of continuations (flux_yield_prompt iterates them)
-     *   - None (no continuation — perform was the last expression)
-     */
-    int64_t result;
-    if (op_arity <= 0) {
-        /* Zero-arity op (e.g. `value : () -> Int`): clause(resume). */
-        int64_t args[1] = { resume_cont };
-        result = flux_call_closure_c(clause, args, 1);
-    } else {
-        /* Unary op: clause(resume, arg). */
-        int64_t args[2] = { resume_cont, op_arg };
-        result = flux_call_closure_c(clause, args, 2);
-    }
-
+    /* No more yields — restore parent evv and return the final value. */
+    current_evv = saved_evv;
     return result;
 }

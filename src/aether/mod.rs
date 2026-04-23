@@ -628,6 +628,13 @@ pub struct AetherStats {
     pub drop_specs: usize,
     /// Number of heap constructor allocations (Con nodes with heap tags).
     pub allocs: usize,
+    /// Proposal 0162 Phase 3: perform sites (lower to `flux_yield_to`).
+    pub performs: usize,
+    /// Proposal 0162 Phase 3: handle sites (lower to evv insert + yield prompt).
+    pub handles: usize,
+    /// Proposal 0162 Phase 3: handler clauses across all `handle`s (shape
+    /// of the prompt's dispatch table).
+    pub handler_arms: usize,
 }
 
 /// FBIP status auto-detected from Aether stats (Perceus Section 2.6).
@@ -670,10 +677,18 @@ impl std::fmt::Display for AetherStats {
             self.dups, self.drops, self.reuses, self.drop_specs
         )?;
         match self.fbip_status() {
-            FbipStatus::Fip => write!(f, "  FBIP: fip"),
-            FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n),
-            FbipStatus::NotApplicable => Ok(()),
+            FbipStatus::Fip => write!(f, "  FBIP: fip")?,
+            FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n)?,
+            FbipStatus::NotApplicable => {}
         }
+        if self.performs > 0 || self.handles > 0 {
+            write!(
+                f,
+                "  Yields: {}  Handles: {}  HandlerArms: {}",
+                self.performs, self.handles, self.handler_arms
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -745,11 +760,14 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
         }
         AetherExpr::Return { value, .. } => count_nodes(value, stats),
         AetherExpr::Perform { args, .. } => {
+            stats.performs += 1;
             for a in args {
                 count_nodes(a, stats);
             }
         }
         AetherExpr::Handle { body, handlers, .. } => {
+            stats.handles += 1;
+            stats.handler_arms += handlers.len();
             count_nodes(body, stats);
             for h in handlers {
                 count_nodes(&h.body, stats);

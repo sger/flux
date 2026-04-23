@@ -1,40 +1,16 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: Conditional resume — the handler decides per-invocation whether
-//      to resume or to short-circuit.  Restricted to `parity: vm` while
-//      Phase 3 proper is outstanding — native currently emits E1200 by
-//      design (see ledger below).  A companion fixture will cover the
-//      native diagnostic once Phase 3 proper lands and the expect flag
-//      can flip back to `success` with `parity: vm, llvm`.
+//      to resume or to short-circuit. `resume(10)` appears in tail
+//      position of an if-branch; the other branch returns `100` without
+//      resuming (non-TR discard shape).
 //
-//      Ledger (trace-linked):
-//        2026-04-22 baseline: VM produced runtime error E1001
-//          "Continuation is not a function"; native produced "110".
-//          Root cause: src/vm/dispatch.rs `OpTailCall` / `OpTailCall1`
-//          dispatch path did not check for `Value::Continuation`, unlike
-//          their non-tail siblings `OpCall` / `OpCall0/1/2`.  When the
-//          compiler emitted `resume(10)` in tail position (an if-branch
-//          of a non-tail-resumptive arm), the VM walked straight into
-//          `execute_tail_call`, which rejected a non-`Closure` callee.
-//
-//        2026-04-22 fix (VM): VM `OpTailCall` / `OpTailCall1` now dispatch
-//          `Continuation` callees to `execute_resume`, mirroring
-//          `OpCall`.  VM now prints "100" — the correct answer: the
-//          second `perform pick(2)` arm returns `100` without resuming,
-//          so the whole handle block evaluates to `100`; `a + b` is
-//          never computed because `b` is never bound.
-//
-//        2026-04-22 fix (native, partial): Proposal 0162 Phase 3 (partial)
-//          adds short-circuit detection to `flux_perform_direct`.  When
-//          a clause returns without invoking `resume`, the runtime now
-//          reports E1200 "Non-TR handler on native" instead of silently
-//          computing `a + 100 = 110`.  Full non-TR support on native
-//          requires yield-check-on-every-return + function splitting —
-//          tracked as Phase 3 proper.
-//
-//      Current state: VM prints "100" correctly; native aborts with
-//      E1200.  This fixture reports MISMATCH — the MISMATCH records
-//      that non-TR support is a known gap, not a silent corruption.
+//      Both backends print "100" (Proposal 0162 Phase 3 slice
+//      5-tr-nested): the VM's OpTailCall/OpTailCall1 dispatch
+//      Continuation callees through execute_resume, and the native
+//      yield-based prompt loop (default since slice 5-gate) composes
+//      the continuation correctly and handles the short-circuit branch
+//      as a non-resumed clause.
 // parity-expected-stdout-begin
 // "100"
 // parity-expected-stdout-end
