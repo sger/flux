@@ -116,7 +116,12 @@ fn runtime_error_fixtures_snapshot() {
 
     for fixture in fixtures
         .into_iter()
-        .filter(|fixture| !fixture.to_string_lossy().contains("/RuntimeErrors/"))
+        .filter(|fixture| {
+            !fixture
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains("/RuntimeErrors/")
+        })
     {
         let rel = fixture
             .strip_prefix(workspace_root)
