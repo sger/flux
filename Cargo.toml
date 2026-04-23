@@ -446,10 +446,6 @@ name = "module_scoped_classes_tests"
 path = "tests/integration/module_scoped_classes_tests.rs"
 
 [[test]]
-name = "io_effect_handlers_runtime"
-path = "tests/integration/io_effect_handlers_runtime.rs"
-
-[[test]]
 name = "mutual_recursion"
 path = "tests/integration/mutual_recursion.rs"
 

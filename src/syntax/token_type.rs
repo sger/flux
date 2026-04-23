@@ -146,6 +146,7 @@ define_tokens! {
         Data   => "data",
         Effect => "effect",
         Handle => "handle",
+        Sealing => "sealing",
         Perform => "perform",
         Class => "class",
         Instance => "instance",

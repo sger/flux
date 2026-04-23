@@ -25,7 +25,9 @@ use crate::{
     types::infer_type::InferType,
 };
 
-use super::{CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreTopLevelItem};
+use super::{
+    CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram, CoreTopLevelItem,
+};
 
 mod binder_resolution;
 mod expression;
@@ -686,6 +688,27 @@ impl<'a> AstLowerer<'a> {
 
     // ── Top-level statements ─────────────────────────────────────────────────
 
+    fn lower_function_body(
+        &mut self,
+        intrinsic: Option<CorePrimOp>,
+        params: &[CoreBinder],
+        body: &Block,
+        span: Span,
+    ) -> CoreExpr {
+        if let Some(op) = intrinsic {
+            CoreExpr::PrimOp {
+                op,
+                args: params
+                    .iter()
+                    .map(|param| CoreExpr::bound_var(param, span))
+                    .collect(),
+                span,
+            }
+        } else {
+            self.lower_block(body)
+        }
+    }
+
     fn lower_top_level(
         &mut self,
         stmt: &Statement,
@@ -702,6 +725,7 @@ impl<'a> AstLowerer<'a> {
                 parameters,
                 body,
                 fip,
+                intrinsic,
                 span,
                 return_type,
                 ..
@@ -717,7 +741,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
                 // definitions from value bindings.  We construct Lam directly
@@ -844,6 +868,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span,
                     ..
                 } => {
@@ -854,7 +879,7 @@ impl<'a> AstLowerer<'a> {
                     if !param_types.is_empty() && param_types.len() != params.len() {
                         param_types = Vec::new();
                     }
-                    let body_expr = self.lower_block(body);
+                    let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
                     let expr = CoreExpr::Lam {
                         params,
                         param_types,
@@ -1141,6 +1166,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span: s,
                     ..
                 } = stmt
@@ -1153,7 +1179,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
                 (
                     binder,
                     Box::new(CoreExpr::Lam {
@@ -1204,6 +1230,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span: s,
                     ..
                 } = stmt
@@ -1216,7 +1243,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
                 CoreExpr::LetRec {
                     var: binder,
                     rhs: Box::new(CoreExpr::Lam {

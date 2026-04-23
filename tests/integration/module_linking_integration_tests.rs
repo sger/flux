@@ -25,6 +25,7 @@ fn flow_prelude_source() -> String {
         "import Flow.List as List",
         "import Flow.String exposing (..)",
         "import Flow.Numeric exposing (..)",
+        "import Flow.Primops exposing (..)",
         "import Flow.IO exposing (..)",
         "import Flow.Assert exposing (..)",
         "",

@@ -402,6 +402,8 @@ impl<'a> super::AstLowerer<'a> {
                 }
             }
 
+            Expression::Sealing { expr, .. } => self.lower_expr(expr),
+
             Expression::NamedConstructor {
                 name, fields, span, ..
             } => self.lower_named_constructor(*name, fields, *span),

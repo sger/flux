@@ -21,7 +21,7 @@ Help:
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/diagnostics_demos/errors/wrong_arguments.flx:8:1
   |

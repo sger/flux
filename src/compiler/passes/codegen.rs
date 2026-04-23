@@ -24,6 +24,7 @@ impl Compiler {
                     return_type,
                     effects,
                     body,
+                    intrinsic,
                     span,
                     ..
                 } => {
@@ -43,6 +44,7 @@ impl Compiler {
                         return_type,
                         &effective_effects,
                         body,
+                        *intrinsic,
                         ir_function,
                         *span,
                     );

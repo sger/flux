@@ -5,6 +5,20 @@ Fixture: examples/type_system/failing/20_direct_builtin_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E400]: Missing Effect
+
+requires effect `Console` but the enclosing context does not provide it
+
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:6:5
+  |
+6 |     print("tick")
+  |     ^^^^^^^^^^^^^
+  |     ------------- requires `Console`
+
+Hint:
+  annotate the enclosing function with `with Console`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Clock).
@@ -46,11 +60,6 @@ requires effect `Clock` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with Clock`
 
-
-Note: Downstream Errors Suppressed
-
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
-
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

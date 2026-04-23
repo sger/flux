@@ -1,22 +1,24 @@
 ---
 source: tests/integration/regression_snapshots.rs
+assertion_line: 132
 ---
 $ flux --no-cache tests/fixtures/collections/trailing_commas_everywhere.flx
 exit_code: 1
 
-[ 1 of 10] Compiling  Assert
-[ 2 of 10] Compiling  Array
-[ 3 of 10] Compiling  List
-[ 4 of 10] Compiling  Either
-[ 5 of 10] Compiling  IO
-[ 6 of 10] Compiling  Math
-[ 7 of 10] Compiling  Numeric
-[ 8 of 10] Compiling  Option
-[ 9 of 10] Compiling  String
-• 2 errors, 1 note • tests/fixtures/collections/trailing_commas_everywhere.flx
+[ 1 of 11] Compiling  Assert
+[ 2 of 11] Compiling  Array
+[ 3 of 11] Compiling  List
+[ 4 of 11] Compiling  Either
+[ 5 of 11] Compiling  IO
+[ 6 of 11] Compiling  Math
+[ 7 of 11] Compiling  Numeric
+[ 8 of 11] Compiling  Option
+[ 9 of 11] Compiling  Primops
+[10 of 11] Compiling  String
+• 2 errors • tests/fixtures/collections/trailing_commas_everywhere.flx
 error[E430]: Any Type Inferred
 
-Core definition `0` has an unresolved type variable (var #10599) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+Core definition `0` has an unresolved type variable (var #10596) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
 
   tests/fixtures/collections/trailing_commas_everywhere.flx:2:1
   |
@@ -41,10 +43,5 @@ Hint:
 
 Help:
   Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
-
-
-Note: Downstream Errors Suppressed
-
-I hid 2 later-stage diagnostics (2 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
 Found 2 errors.

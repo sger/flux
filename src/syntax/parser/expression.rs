@@ -11,6 +11,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        effect_expr::EffectExpr,
         expression::{Expression, HandleArm, MatchArm, NamedFieldInit, NamedFieldPattern, Pattern},
         precedence::{
             Fixity, Precedence, infix_op, parse_loop_precedence, prefix_op,
@@ -22,6 +23,13 @@ use crate::{
 };
 
 use super::{Parser, ParserContext, RecoveryBoundary, helpers::ParameterListContext};
+
+fn is_lowercase_ident_literal(literal: &str) -> bool {
+    literal
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_lowercase())
+}
 
 impl Parser {
     fn parse_parenthesized<T>(
@@ -223,6 +231,7 @@ impl Parser {
             TokenType::Dot => self.parse_member_access(left),
             TokenType::Pipe => self.parse_pipe_expression(left),
             TokenType::Handle => self.parse_handle_expression(left),
+            TokenType::Sealing => self.parse_sealing_expression(left),
             _ if infix_op(&self.current_token.token_type).is_some() => {
                 self.parse_infix_expression(left)
             }
@@ -1570,6 +1579,166 @@ impl Parser {
             arms,
             span: Span::new(start, end),
             id: self.next_expr_id(),
+        })
+    }
+
+    /// `current_token` is `Sealing`; `left` is the expression being restricted.
+    pub(super) fn parse_sealing_expression(&mut self, left: Expression) -> Option<Expression> {
+        let start = left.span().start;
+        let allowed = if self.is_peek_token(TokenType::LBrace) {
+            self.next_token(); // sealing
+            self.parse_sealing_brace_row()?
+        } else if self.is_peek_token(TokenType::LParen) {
+            self.next_token(); // sealing
+            vec![self.parse_sealing_ambient_row()?]
+        } else {
+            self.emit_parser_diagnostic(
+                unexpected_token(
+                    self.peek_token.span(),
+                    "Expected `{` or `(` after `sealing`.".to_string(),
+                )
+                .with_hint_text(
+                    "Use `expr sealing { Console | FileSystem }` or `expr sealing (ambient - FileSystem)`.",
+                ),
+            );
+            return None;
+        };
+
+        let end = self.current_token.span().end;
+        Some(Expression::Sealing {
+            expr: Box::new(left),
+            allowed,
+            span: Span::new(start, end),
+            id: self.next_expr_id(),
+        })
+    }
+
+    fn parse_sealing_brace_row(&mut self) -> Option<Vec<EffectExpr>> {
+        if self.is_peek_token(TokenType::RBrace) {
+            self.emit_parser_diagnostic(
+                unexpected_token(
+                    self.peek_token.span(),
+                    "Sealing requires at least one allowed effect.".to_string(),
+                )
+                .with_hint_text("Write `sealing { Console }` or another non-empty effect row."),
+            );
+            return None;
+        }
+
+        let mut effects = Vec::new();
+        loop {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected effect name in `sealing` row.".to_string(),
+                "Sealing rows use effect names such as `sealing { Console | FileSystem }`."
+                    .to_string(),
+            ) {
+                return None;
+            }
+            if is_lowercase_ident_literal(&self.current_token.literal) {
+                self.emit_parser_diagnostic(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "Sealing rows require concrete effect names.".to_string(),
+                    )
+                    .with_hint_text("Use an uppercase effect name such as `Console`."),
+                );
+                return None;
+            }
+            effects.push(EffectExpr::Named {
+                name: self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+                span: self.current_token.span(),
+            });
+
+            if self.is_peek_token(TokenType::Bar) || self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+                continue;
+            }
+            break;
+        }
+
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close `sealing` row.".to_string(),
+            "Sealing rows use `expr sealing { Effect | Effect }`.".to_string(),
+        ) {
+            return None;
+        }
+        Some(effects)
+    }
+
+    fn parse_sealing_ambient_row(&mut self) -> Option<EffectExpr> {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected `ambient` after `sealing (`.".to_string(),
+            "Use `expr sealing (ambient - FileSystem)`.".to_string(),
+        ) {
+            return None;
+        }
+        if self.current_token.literal != "ambient" {
+            self.emit_parser_diagnostic(
+                unexpected_token(
+                    self.current_token.span(),
+                    "Expected `ambient` in sealing algebraic row.".to_string(),
+                )
+                .with_hint_text("Only `ambient - Effect` is supported in this form."),
+            );
+            return None;
+        }
+        let ambient = EffectExpr::RowVar {
+            name: self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol"),
+            span: self.current_token.span(),
+        };
+
+        if !self.expect_peek_context(
+            TokenType::Minus,
+            "Expected `-` after `ambient` in sealing row.".to_string(),
+            "Use `expr sealing (ambient - FileSystem)`.".to_string(),
+        ) {
+            return None;
+        }
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name after `ambient -`.".to_string(),
+            "Use `expr sealing (ambient - FileSystem)`.".to_string(),
+        ) {
+            return None;
+        }
+        if is_lowercase_ident_literal(&self.current_token.literal) {
+            self.emit_parser_diagnostic(
+                unexpected_token(
+                    self.current_token.span(),
+                    "Sealing subtraction requires a concrete effect name.".to_string(),
+                )
+                .with_hint_text("Use an uppercase effect name such as `FileSystem`."),
+            );
+            return None;
+        }
+        let rhs = EffectExpr::Named {
+            name: self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol"),
+            span: self.current_token.span(),
+        };
+        let span = Span::new(ambient.span().start, rhs.span().end);
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            "Expected `)` to close sealing row.".to_string(),
+            "Use `expr sealing (ambient - FileSystem)`.".to_string(),
+        ) {
+            return None;
+        }
+        Some(EffectExpr::Subtract {
+            left: Box::new(ambient),
+            right: Box::new(rhs),
+            span,
         })
     }
 

@@ -92,7 +92,7 @@
 import Flow.Array as Array
 import Flow.Map as Map
 
-fn main() with IO, Time {
+fn main() with IO, Time, Div {
     print("== All PrimOps Showcase ==");
 
     print("-- Numeric --");

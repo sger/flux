@@ -1,10 +1,48 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/numeric.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E406]: Unhandled Root Effect
+
+`fn main` has undischarged effects: Div.
+
+  examples/primop/numeric.flx:17:24
+   |
+17 | fn main() with IO, Div {
+   |                        ^
+18 |     print("== PrimOps: numeric ==");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     print(iadd(10, 20));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+20 |     print(isub(20, 3));
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+21 |     print(imul(6, 7));
+   | ^^^^^^^^^^^^^^^^^^^^^^
+22 |     print(idiv(21, 3));
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+23 |     print(imod(20, 6));
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+24 |     print(fadd(1.5, 2.25));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |     print(fsub(5.5, 2.0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |     print(fmul(2.0, 4.5));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 |     print(fdiv(9.0, 2.0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |     print(abs(-10));
+   | ^^^^^^^^^^^^^^^^^^^^
+29 |     print(min(3, 7));
+   | ^^^^^^^^^^^^^^^^^^^^^
+30 |     print(max(3.0, 7.5));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+31 | }
+   | ^
+
+Hint:
+  Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
 == stdout ==
 <not executed>

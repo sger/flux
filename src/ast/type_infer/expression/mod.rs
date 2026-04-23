@@ -161,6 +161,7 @@ impl<'a> InferCtx<'a> {
             Expression::Handle {
                 expr, effect, arms, ..
             } => self.infer_handle_expression(expr, *effect, arms),
+            Expression::Sealing { expr, .. } => self.infer_expression(expr),
             // Named-field construction & spread (Proposal 0152)
             Expression::NamedConstructor {
                 name, fields, span, ..

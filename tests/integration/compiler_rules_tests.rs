@@ -544,6 +544,21 @@ fn intrinsic_array_surface_wrapper_compiles() {
 }
 
 #[test]
+fn flow_primops_surface_compiles() {
+    let source =
+        std::fs::read_to_string("lib/Flow/Primops.flx").expect("expected Flow.Primops fixture");
+    compile_ok_in("lib/Flow/Primops.flx", &source);
+}
+
+#[test]
+fn intrinsic_self_named_primop_wrapper_compiles() {
+    compile_ok_in(
+        "lib/Flow/Primops.flx",
+        "module Flow.Primops { public intrinsic fn println<a>(x: a) -> Unit with Console = primop Println }",
+    );
+}
+
+#[test]
 fn intrinsic_declarations_are_rejected_outside_flow_stdlib() {
     let rendered = compile_err_rendered_in(
         "examples/test.flx",
@@ -2605,4 +2620,95 @@ fn main() with IO {
 }
 "#,
     );
+}
+
+#[test]
+fn sealing_allows_matching_fine_grained_effect() {
+    compile_ok_in(
+        "sealing_console_ok.flx",
+        r#"
+fn main() with Console {
+    println("ping") sealing { Console }
+}
+"#,
+    );
+}
+
+#[test]
+fn sealing_denies_effect_outside_allowed_row() {
+    let code = compile_err(
+        r#"
+fn main() with IO {
+    read_file("missing.txt") sealing { Console }
+}
+"#,
+    );
+    assert_eq!(code, "E427");
+}
+
+#[test]
+fn sealing_expands_builtin_io_alias() {
+    compile_ok_in(
+        "sealing_io_alias.flx",
+        r#"
+fn main() with IO {
+    println("ping") sealing { IO }
+}
+"#,
+    );
+}
+
+#[test]
+fn sealing_nested_restrictions_compose() {
+    compile_ok_in(
+        "sealing_nested.flx",
+        r#"
+fn main() with Console {
+    (println("ping") sealing { Console }) sealing { Console }
+}
+"#,
+    );
+}
+
+#[test]
+fn sealing_polymorphic_callback_subset() {
+    compile_ok_in(
+        "sealing_callback.flx",
+        r#"
+fn run(test_fn: (() -> Unit with Console)) with Console {
+    test_fn() sealing { Console }
+}
+
+fn main() with Console {
+    fn callback() with Console {
+        println("ping")
+    }
+    run(callback)
+}
+"#,
+    );
+}
+
+#[test]
+fn sealing_ambient_subtraction_allows_remaining_effects() {
+    compile_ok_in(
+        "sealing_ambient_subtract_ok.flx",
+        r#"
+fn main() with IO {
+    println("ping") sealing (ambient - FileSystem)
+}
+"#,
+    );
+}
+
+#[test]
+fn sealing_ambient_subtraction_denies_removed_effect() {
+    let code = compile_err(
+        r#"
+fn main() with IO {
+    read_file("missing.txt") sealing (ambient - FileSystem)
+}
+"#,
+    );
+    assert_eq!(code, "E427");
 }

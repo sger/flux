@@ -370,6 +370,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&arm.body);
             }
         }
+        Expression::Sealing { expr, .. } => {
+            visitor.visit_expr(expr);
+        }
         Expression::NamedConstructor { fields, .. } => {
             for field in fields {
                 if let Some(value) = &field.value {

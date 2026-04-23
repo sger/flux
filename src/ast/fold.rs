@@ -459,6 +459,17 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             span,
             id,
         },
+        Expression::Sealing {
+            expr,
+            allowed,
+            span,
+            id,
+        } => Expression::Sealing {
+            expr: Box::new(folder.fold_expr(*expr)),
+            allowed,
+            span,
+            id,
+        },
         Expression::NamedConstructor {
             name,
             fields,

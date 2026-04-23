@@ -27,7 +27,7 @@ Help:
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
    |
@@ -69,7 +69,7 @@ Hint:
 
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: IO).
+Effectful operation is not allowed at top level (requires: Console).
 
   examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
    |

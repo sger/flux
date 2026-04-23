@@ -771,6 +771,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
+            Expression::Sealing { expr: inner, .. } => self.lower_expression(inner),
             Expression::Function {
                 parameters, body, ..
             } => {

@@ -14,7 +14,7 @@
 // 7.5
 // parity-expected-stdout-end
 
-fn main() with IO {
+fn main() with IO, Div {
     print("== PrimOps: numeric ==");
     print(iadd(10, 20));
     print(isub(20, 3));

@@ -1,10 +1,58 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/arith_and_compare.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E406]: Unhandled Root Effect
+
+`fn main` has undischarged effects: Div.
+
+  examples/primop/arith_and_compare.flx:19:24
+   |
+19 | fn main() with IO, Div {
+   |                        ^
+20 |     print("== PrimOps: arithmetic + comparison ==");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 | 
+   | ^
+22 |     print(iadd(10, 20));   // 30
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+23 |     print(isub(20, 3));    // 17
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+24 |     print(imul(6, 7));     // 42
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |     print(idiv(21, 3));    // 7
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |     print(imod(20, 6));    // 2
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 | 
+   | ^
+28 |     print(fadd(1.5, 2.25)); // 3.75
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+29 |     print(fsub(5.5, 2.0));  // 3.5
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+30 |     print(fmul(2.0, 4.5));  // 9.0
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+31 |     print(fdiv(9.0, 2.0));  // 4.5
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+32 | 
+   | ^
+33 |     print(icmp_lt(2, 3));   // true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+34 |     print(icmp_ge(10, 10)); // true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+35 |     print(fcmp_gt(2.5, 1.5)); // true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |     print(cmp_eq("flux", "flux")); // true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+37 |     print(cmp_ne(1, 2)); // true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+38 | }
+   | ^
+
+Hint:
+  Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
 == stdout ==
 <not executed>

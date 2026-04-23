@@ -1,5 +1,6 @@
 ---
 source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
+assertion_line: 136
 ---
 Fixture: examples/runtime_errors/base_fold_callback_arity.flx
 == vm ==
@@ -7,15 +8,16 @@ status: 1
 stdout:
 <empty>
 stderr:
-[ 1 of 10] Compiling  Assert
-[ 2 of 10] Compiling  Array
-[ 3 of 10] Compiling  List
-[ 4 of 10] Compiling  Either
-[ 5 of 10] Compiling  IO
-[ 6 of 10] Compiling  Math
-[ 7 of 10] Compiling  Numeric
-[ 8 of 10] Compiling  Option
-[ 9 of 10] Compiling  String
+[ 1 of 11] Compiling  Assert
+[ 2 of 11] Compiling  Array
+[ 3 of 11] Compiling  List
+[ 4 of 11] Compiling  Either
+[ 5 of 11] Compiling  IO
+[ 6 of 11] Compiling  Math
+[ 7 of 11] Compiling  Numeric
+[ 8 of 11] Compiling  Option
+[ 9 of 11] Compiling  Primops
+[10 of 11] Compiling  String
 • 2 errors • examples/runtime_errors/base_fold_callback_arity.flx
 error[E300]: Parameter Type Mismatch
 
