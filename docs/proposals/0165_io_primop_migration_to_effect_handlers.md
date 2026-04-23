@@ -1,9 +1,9 @@
 - Feature Name: IO Primop Migration to Effect Handlers
 - Start Date: 2026-04-20
-- Status: Draft
+- Status: Blocked (spike completed 2026-04-23 — see "Spike findings" below)
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0099](0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) Phase 1 (Unified Effect Handler Runtime — evidence passing)
+- Depends on: [0099](0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) Phase 1 (Unified Effect Handler Runtime — evidence passing), [0170](0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations — surfaced by this proposal's spike)
 
 # Proposal 0165: IO Primop Migration to Effect Handlers
 
@@ -286,6 +286,105 @@ This proposal is complete when:
   user source code
 - 0099's Part 1 status row can be updated to "Delegated to 0165 —
   Implemented"
+
+## Spike findings (2026-04-23)
+[spike]: #spike-findings
+
+A Console-only slice of this proposal was prototyped end-to-end before
+being reverted. The spike's files were removed rather than kept as
+dead code; branch `feature/effects` history up to this commit is the
+record. What landed, what worked, and what blocked:
+
+### What the spike built
+
+- `src/ast/route_io_through_perform.rs` — AST pass rewriting
+  `Call(Identifier("print"|"println"), [arg])` to
+  `Perform { effect: Console, operation: print|println, args: [...] }`.
+  Wired into `Compiler::run_pipeline` between alias expansion (Phase 1c)
+  and predeclaration (Phase 2). Allocates fresh `ExprId`s via
+  `ExprIdGen::resuming_past_program`.
+- `src/ast/synthesize_default_handlers.rs` — AST pass wrapping the body
+  of `main` and every `test_*` in a `handle Console { print(resume, s)
+  -> { __primop_print(s); resume(()) } println(...) -> ... }` block.
+- Reserved primop names `__primop_print` / `__primop_println` added to
+  `primop_promote.rs`, `CorePrimOp::from_name`, and the base-function
+  scheme table, with a carve-out in `try_emit_primop_call` so the
+  reserved spellings do not re-raise the `Console` effect inside the
+  handler arm.
+- `Compiler::seed_builtin_effect_declarations` — registers
+  `Console.print: String -> ()` and `Console.println: String -> ()` in
+  `effect_ops_registry` + `effect_op_signatures` before user-declared
+  effects are collected, so `perform Console.*` resolves without the
+  user writing `effect Console { … }`.
+
+The first user program (`examples/basics/print.flx`) executed end-to-end
+through the rewritten pipeline: stdlib (`Flow.Assert`, `Flow.IO`)
+compiled, `main`'s body was wrapped in the synthesized `handle`, and
+runtime reached `flux_println`.
+
+### The blocker: polymorphic effect operations
+
+User-space `println` is polymorphic (`a -> ()`) — callers write
+`println(42)`, `println(true)`, `println(some_list)`. An effect
+operation signature must be monomorphic in today's compiler:
+`Compiler::effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>`.
+There is no generalization step that freshens a type variable per
+call site, unlike `Scheme` instantiation for ordinary functions.
+
+Two paths were attempted:
+
+1. **Declare `Console.println: a -> ()`.** HM treated the `a` in the
+   signature as a rigid skolem — the same `a` at every `perform` site.
+   A call inside `assert_eq<a>(a, b)` fails with the infamous "Rigid
+   type variable `a` cannot be unified with `a`": the op's `a` and the
+   caller's `a` are different rigid variables that happen to share a
+   name.
+2. **Coerce the argument via `to_string(...)` at routing time.** Each
+   `println(x)` was rewritten to `perform Console.println(to_string(x))`
+   with `Console.println: String -> ()`. This type-checked, but
+   changed observable output. Flux's runtime value printer
+   (`flux_print_value` in `runtime/c/flux_rt.c:115–117`) quotes
+   `String` values but prints `Int` / `Bool` / numbers bare — the
+   distinction being "this came from a Flux string literal" vs "this
+   is a number". Pre-stringifying via `to_string` erases that
+   distinction, so `println(42)` — which printed `42` — began printing
+   `"42"` (with quotes, as if it were a user-typed string literal).
+   Matches the Koka/Effekt model only if the runtime stringification
+   is taught that user-intent printing is distinct from
+   string-representation dumps; that is a runtime-level fix that
+   cascades into every debug print surface.
+
+Neither path is a small patch. Path 1 demands real compiler work on
+effect-operation generalization. Path 2 demands a second print surface
+in the runtime (or moving the printf-style formatting into Flux stdlib,
+which changes the value-printing behavior programs depend on).
+
+### What this implies for 0165
+
+The proposal is coherent as a design, but it silently assumes
+polymorphic effect operations. That assumption deserves its own
+proposal — call it **"Polymorphic effect operations"** — that
+generalizes effect-op signatures the way function schemes are
+generalized today. 0165 should be re-marked as depending on it, and
+the "after 0161 lands" note in the header is insufficient: 0161 does
+not supply op polymorphism.
+
+Alternative workable scopes if polymorphic ops remain unavailable:
+
+- **Monomorphic-string-only slice.** Require users to call
+  `println(to_string(x))` explicitly. The routing pass becomes a typed
+  rewrite that only fires when HM has proved `arg: String`, which
+  flips the pass order (must run *after* type inference). Delivers
+  handler-based mocking for string-valued prints only. Loses the "no
+  user-visible change" guarantee in the proposal's guide-level story.
+- **Introduce a new surface function** `emit : String -> ()` (or
+  similar) that is routed through `Perform` from day one, while
+  `println` / `print` remain direct primop calls. This is a 0099
+  Part 1 compromise but preserves existing semantics.
+
+None of these are pursued by this proposal as written. Recommended next
+step is a short RFC on polymorphic effect operations before revisiting
+0165.
 
 ## Unresolved questions
 [unresolved]: #unresolved
