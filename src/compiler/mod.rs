@@ -3568,10 +3568,14 @@ impl Compiler {
                 }
                 if !resolved {
                     let name = self.sym(*name);
-                    if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
-                        effects.insert(io_effect);
-                    } else if matches!(name, "now" | "clock_now" | "now_ms" | "time") {
-                        effects.insert(time_effect);
+                    match crate::syntax::builtin_effects::builtin_effect_for_name(name) {
+                        Some(crate::syntax::builtin_effects::IO) => {
+                            effects.insert(io_effect);
+                        }
+                        Some(crate::syntax::builtin_effects::TIME) => {
+                            effects.insert(time_effect);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -4207,9 +4211,15 @@ impl Compiler {
             .collect();
         let mut missing = Vec::new();
 
+        let builtin_aliases = [
+            crate::syntax::builtin_effects::io_effect_symbol_opt(&self.interner),
+            crate::syntax::builtin_effects::time_effect_symbol_opt(&self.interner),
+        ];
+
         for effect in inferred {
-            let name = self.sym(effect);
-            if matches!(name, "IO" | "Time") && !declared.contains(&effect) {
+            if builtin_aliases.into_iter().flatten().any(|builtin| builtin == effect)
+                && !declared.contains(&effect)
+            {
                 missing.push(effect);
             }
         }

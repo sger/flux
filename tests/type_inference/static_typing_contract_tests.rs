@@ -1,12 +1,19 @@
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use flux::cfg::validate_ir;
 use flux::compiler::Compiler;
 use flux::core::to_ir::lower_core_to_ir;
 use flux::core::{display::CoreDisplayMode, lower_ast::lower_program_ast};
 use flux::diagnostics::render_diagnostics;
-use flux::syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser};
+use flux::syntax::{
+    expression::ExprId, interner::Interner, lexer::Lexer, module_graph::ModuleGraph,
+    parser::Parser,
+};
 use flux::types::infer_type::InferType;
+
+static MODULE_AUDIT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn parse(input: &str) -> (flux::syntax::program::Program, Interner) {
     let mut parser = Parser::new(Lexer::new(input));
@@ -61,6 +68,71 @@ fn parse_and_infer(
     let mut compiler = Compiler::new_with_interner("<unknown>", interner.clone());
     let hm_expr_types = compiler.infer_expr_types_for_program(&program);
     (program, hm_expr_types, interner)
+}
+
+fn compile_module_fixture_strict(rel_path: &str) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixture = workspace_root.join(rel_path);
+    let module_name = rel_path
+        .strip_prefix("lib/")
+        .expect("audit fixtures should live under lib/")
+        .strip_suffix(".flx")
+        .expect("audit fixtures should be .flx files")
+        .replace(['\\', '/'], ".");
+
+    let audit_id = MODULE_AUDIT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_dir = workspace_root.join(format!("target/tmp/base_effect_audit/{audit_id}"));
+    std::fs::create_dir_all(&temp_dir)
+        .unwrap_or_else(|err| panic!("failed to create {}: {err}", temp_dir.display()));
+    let entry_path = temp_dir.join("main.flx");
+    let entry_source = format!("import {module_name} exposing (..)\n\nfn main() {{ () }}\n");
+    std::fs::write(&entry_path, &entry_source)
+        .unwrap_or_else(|err| panic!("failed to write {}: {err}", entry_path.display()));
+
+    let mut parser = Parser::new(Lexer::new(&entry_source));
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "{}",
+        render_diagnostics(&parser.errors, Some(&entry_source), None)
+    );
+
+    let roots = vec![temp_dir.clone(), workspace_root.join("lib")];
+    let graph_result =
+        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, parser.take_interner(), &roots);
+    assert!(
+        graph_result.diagnostics.is_empty(),
+        "module graph diagnostics for {} via {}:\n{}",
+        fixture.display(),
+        entry_path.display(),
+        render_diagnostics(&graph_result.diagnostics, Some(&entry_source), None)
+    );
+
+    let mut compiler =
+        Compiler::new_with_interner(entry_path.to_string_lossy().to_string(), graph_result.interner);
+    let entry_module_path = graph_result
+        .graph
+        .entry_node()
+        .expect("audit graph should have an entry node")
+        .path
+        .clone();
+    let audited_module_path = std::fs::canonicalize(&fixture).unwrap_or(fixture.clone());
+    for node in graph_result.graph.topo_order() {
+        compiler.set_file_path(node.path.to_string_lossy().to_string());
+        compiler.set_current_module_kind(node.kind);
+        let strict_for_node = node.path == entry_module_path || node.path == audited_module_path;
+        compiler.set_strict_mode(strict_for_node);
+        compiler.set_strict_require_main(node.path == entry_module_path);
+        if let Err(diags) = compiler.compile(&node.program) {
+            let node_source = std::fs::read_to_string(&node.path)
+                .unwrap_or_else(|_| entry_source.clone());
+            panic!(
+                "strict compile failed for {}:\n{}",
+                node.path.display(),
+                render_diagnostics(&diags, Some(&node_source), None)
+            );
+        }
+    }
 }
 
 #[test]
@@ -120,4 +192,16 @@ fn main() {
     let core = lower_program_ast(&program, &hm_expr_types);
     let ir = lower_core_to_ir(&core);
     validate_ir(&ir).expect("maintained Core->CFG path should preserve rep/semantic contract");
+}
+
+#[test]
+fn base_effect_audit_strict_effect_modules() {
+    for rel_path in [
+        "lib/Flow/Effects.flx",
+        "lib/Flow/IO.flx",
+        "lib/Flow/Assert.flx",
+        "lib/Flow/FTest.flx",
+    ] {
+        compile_module_fixture_strict(rel_path);
+    }
 }

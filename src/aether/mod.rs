@@ -601,22 +601,13 @@ impl AetherHandler {
 
 /// Look up the coarse effect label (`"IO"`, `"Time"`, `"Panic"`) a builtin
 /// function carries, if any. The result routes through the
-/// `primop_coarse_effect_label` registry — this function just bridges from
-/// function name to the primop enum the registry expects.
+/// shared builtin-effect registry so Aether stays aligned with the optimizer's
+/// Phase 3 classification.
 ///
 /// Returns `None` when the name does not refer to a known builtin primop
 /// or the primop has no effect (arithmetic, collection access, etc.).
 pub fn builtin_effect_for_name(name: &str) -> Option<&'static str> {
-    // Try zero-, one-, and two-arg forms; the registry is arity-agnostic so
-    // the first successful resolution wins.
-    for arity in 0..=3 {
-        if let Some(op) = CorePrimOp::from_name(name, arity)
-            && let Some(label) = crate::syntax::builtin_effects::primop_coarse_effect_label(op)
-        {
-            return Some(label);
-        }
-    }
-    None
+    crate::syntax::builtin_effects::builtin_effect_for_name(name)
 }
 
 /// Statistics collected from an Aether-transformed Core IR expression.

@@ -1254,8 +1254,8 @@ fn unify_fun_arity_mismatch() {
 #[test]
 fn unify_fun_effect_match_succeeds() {
     let mut interner = flux::syntax::interner::Interner::new();
-    let io = interner.intern("IO");
-    let time = interner.intern("Time");
+    let io = flux::syntax::builtin_effects::io_effect_symbol(&mut interner);
+    let time = flux::syntax::builtin_effects::time_effect_symbol(&mut interner);
     let left = fun_with_effects(vec![int()], int(), vec![io, time]);
     let right = fun_with_effects(vec![int()], int(), vec![time, io]);
     assert!(unify(&left, &right).is_ok());
@@ -1264,8 +1264,8 @@ fn unify_fun_effect_match_succeeds() {
 #[test]
 fn unify_fun_effect_mismatch_fails() {
     let mut interner = flux::syntax::interner::Interner::new();
-    let io = interner.intern("IO");
-    let time = interner.intern("Time");
+    let io = flux::syntax::builtin_effects::io_effect_symbol(&mut interner);
+    let time = flux::syntax::builtin_effects::time_effect_symbol(&mut interner);
     let left = fun_with_effects(vec![int()], int(), vec![io]);
     let right = fun_with_effects(vec![int()], int(), vec![time]);
     let err = unify(&left, &right).unwrap_err();
