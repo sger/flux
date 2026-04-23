@@ -3,7 +3,7 @@
 - Status: Blocked (spike completed 2026-04-23 — see "Spike findings" below; 0170 has since landed, remaining blockers are 0161 and 0162 Phase 1)
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0099](0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) Phase 1 (Unified Effect Handler Runtime — evidence passing), [0170](0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations — surfaced by this proposal's spike)
+- Depends on: [0099](0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) Phase 1 (Unified Effect Handler Runtime — evidence passing), [0170](implemented/0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations — surfaced by this proposal's spike)
 
 # Proposal 0165: IO Primop Migration to Effect Handlers
 
@@ -26,7 +26,7 @@ user-visible syntax. No runtime-representation changes. No new labels
 
 Draft. Blocked on 0161 landing and 0162 Phase 1 landing.
 The polymorphic effect-operation blocker identified by the spike is now
-closed by [0170](0170_polymorphic_effect_operations.md).
+closed by [0170](implemented/0170_polymorphic_effect_operations.md).
 
 ## Motivation
 [motivation]: #motivation

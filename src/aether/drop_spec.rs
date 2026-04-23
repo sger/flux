@@ -1283,7 +1283,7 @@ mod tests {
         let rhs = CoreExpr::Drop {
             var: crate::core::CoreVarRef::resolved(&xs),
             body: Box::new(CoreExpr::Perform {
-                effect: interner.intern("IO"),
+                effect: crate::syntax::builtin_effects::io_effect_symbol(&mut interner),
                 operation: interner.intern("print"),
                 args: vec![var(h), var(t)],
                 span: Span::default(),

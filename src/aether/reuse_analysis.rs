@@ -1995,7 +1995,7 @@ mod tests {
     fn effectful_intermediate_binding_blocks_reuse() {
         let mut interner = Interner::new();
         let node_name = interner.intern("Node");
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let print = interner.intern("print");
         let t = binder(1, interner.intern("t"));
         let color = binder(2, interner.intern("color"));

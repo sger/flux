@@ -18,8 +18,7 @@ use primop_parity::{run_native_with_env, run_vm};
 
 fn assert_parity_with_yield_checks(fixture: &str, expected: &str) {
     let vm_out = run_vm(fixture);
-    let (native_out, success) =
-        run_native_with_env(fixture, &[("FLUX_YIELD_CHECKS", "1")]);
+    let (native_out, success) = run_native_with_env(fixture, &[("FLUX_YIELD_CHECKS", "1")]);
     assert!(
         success,
         "native backend failed with FLUX_YIELD_CHECKS=1 on {fixture}:\n{native_out}"

@@ -3,8 +3,8 @@
 - Status: Implemented
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0145](0145_type_classes.md) (Type Classes — introduced `Scheme` / generalization), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition)
-- Related: [0165](0165_io_primop_migration_to_effect_handlers.md) (IO Primop Migration — unblocked by this)
+- Depends on: [0145](../0145_type_classes.md) (Type Classes — introduced `Scheme` / generalization), [0161](../0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition)
+- Related: [0165](../0165_io_primop_migration_to_effect_handlers.md) (IO Primop Migration — unblocked by this)
 
 # Proposal 0170: Polymorphic Effect Operations
 

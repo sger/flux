@@ -1276,7 +1276,7 @@ mod tests {
         let outer = binder(&mut interner, 1, "x");
         let resume = binder(&mut interner, 2, "resume");
         let shadow = binder(&mut interner, 3, "x");
-        let effect = interner.intern("IO");
+        let effect = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let op = interner.intern("read");
 
         let expr = CoreExpr::Lam {

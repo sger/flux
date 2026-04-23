@@ -42,10 +42,10 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
     // Slice 5-gate: programs with no yield sites need no splitting. Scan
     // upfront so we skip the worklist entirely for non-effect programs.
     let has_yield = program.functions.iter().any(|f| {
-        f.blocks
-            .iter()
-            .any(|b| matches!(&b.terminator, LirTerminator::Call { kind, .. }
-                if matches!(kind, crate::lir::CallKind::YieldTo)))
+        f.blocks.iter().any(|b| {
+            matches!(&b.terminator, LirTerminator::Call { kind, .. }
+                if matches!(kind, crate::lir::CallKind::YieldTo))
+        })
     });
     if !has_yield {
         return program;
@@ -55,8 +55,7 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
     // functions get their own yield sites split recursively. Each iteration
     // processes one function's call sites and may append more functions to
     // the program; those new indices are added to the queue.
-    let mut queue: std::collections::VecDeque<usize> =
-        (0..program.functions.len()).collect();
+    let mut queue: std::collections::VecDeque<usize> = (0..program.functions.len()).collect();
 
     while let Some(func_idx) = queue.pop_front() {
         let sites = collect_call_sites(&program.functions[func_idx]);

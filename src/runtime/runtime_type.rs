@@ -573,8 +573,8 @@ mod tests {
     #[test]
     fn function_runtime_type_rejects_effect_superset() {
         let mut interner = crate::syntax::interner::Interner::new();
-        let io = interner.intern("IO");
-        let time = interner.intern("Time");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
+        let time = crate::syntax::builtin_effects::time_effect_symbol(&mut interner);
         let ctx = TestCtx::new();
         let contract = FunctionContract {
             params: vec![Some(RuntimeType::Int)],
@@ -630,8 +630,8 @@ mod tests {
     #[test]
     fn function_runtime_type_accepts_effect_subset() {
         let mut interner = crate::syntax::interner::Interner::new();
-        let io = interner.intern("IO");
-        let time = interner.intern("Time");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
+        let time = crate::syntax::builtin_effects::time_effect_symbol(&mut interner);
         let ctx = TestCtx::new();
         let contract = FunctionContract {
             params: vec![Some(RuntimeType::Int)],

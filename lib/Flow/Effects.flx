@@ -1,0 +1,36 @@
+// Flow.Effects — effect label and alias spec (Proposal 0161 Phase 1).
+//
+// This file is **documentation**. It is not compiled or auto-imported; the
+// labels and aliases declared below are seeded programmatically by the
+// compiler in `Compiler::seed_builtin_effect_aliases`, which is the
+// operational source of truth. Editing the seed without also updating this
+// file — or vice versa — will cause the spec and the compiler to drift.
+//
+// Labels here are phantom (no operations); they are tracked via effect
+// rows only. The aliases `IO` and `Time` expand to the fine-grained rows
+// at type-inference time, so existing `with IO` / `with Time` annotations
+// continue to work without change.
+
+module Flow.Effects {
+
+    // ── I/O labels ─────────────────────────────────────────────
+    effect Console       // print, println
+    effect FileSystem    // read_file, read_lines, write_file
+    effect Stdin         // read_stdin
+    effect Clock         // clock_now, now_ms
+
+    // ── Non-determinism / randomness (reserved) ────────────────
+    effect Random
+    effect NonDet
+
+    // ── Failure labels ─────────────────────────────────────────
+    // Used by the optimizer to classify CanFail vs HasEffect primops.
+    effect Div           // division by zero, index OOB
+    effect Exn           // recoverable exceptions
+    effect Panic         // intentional crash — cannot be discarded
+
+    // ── Aliases for ergonomics and backward compatibility ──────
+    alias IO   = <Console | FileSystem | Stdin>
+    alias Time = <Clock>
+
+}

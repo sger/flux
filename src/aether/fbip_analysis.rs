@@ -1341,7 +1341,7 @@ mod tests {
     fn perform_boundary_breaks_proof() {
         let mut interner = Interner::new();
         let x = binder(&mut interner, 2, "x");
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let print = interner.intern("print");
         let program = CoreProgram {
             defs: vec![def(
