@@ -592,6 +592,28 @@ fn reserved_internal_primop_call_is_rejected_in_user_source() {
     );
 }
 
+#[test]
+fn parameterized_handle_phase3_compiles_through_vm_runtime() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn main() {
+    let _ = program() handle State(0) {
+        get(resume, state) -> resume(state, state)
+    }
+}
+"#,
+    );
+}
+
 fn expression_contains_perform(
     expression: &Expression,
     effect: &str,
@@ -2841,4 +2863,70 @@ fn main() with IO {
 "#,
     );
     assert_eq!(code, "E427");
+}
+
+#[test]
+fn parameterized_handler_discharges_effect_before_sealing() {
+    compile_ok_in(
+        "parameterized_handler_sealing.flx",
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn main() {
+    let _ = (program() handle State(7) {
+        get(resume, state) -> resume(state, state)
+    }) sealing { Console }
+}
+"#,
+    );
+}
+
+#[test]
+fn parameterized_handler_initializer_keeps_own_effect_requirement() {
+    let code = compile_err_strict(
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn init() -> Int with Console {
+    println("init")
+    0
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn run() {
+    let _ = program() handle State(init()) {
+        get(resume, state) -> resume(state, state)
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E415");
+}
+
+#[test]
+fn parameterized_handler_rejects_builtin_effect_alias_target() {
+    let message = compile_err_message(
+        r#"
+fn main() with IO {
+    let _ = println("hidden") handle IO(0) {
+        println(resume, _value, state) -> resume((), state)
+    }
+}
+"#,
+    );
+    assert!(
+        message.contains("Effect `IO`") || message.contains("Handler for `IO`"),
+        "expected a clear diagnostic for alias-row handler target, got: {message}"
+    );
 }

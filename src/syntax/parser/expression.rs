@@ -1441,6 +1441,8 @@ impl Parser {
     }
 
     /// Parses `expr handle Effect { op(resume, arg1, ...) -> body, ... }`.
+    /// Also accepts proposal 0169's phase-0 shape:
+    /// `expr handle Effect(init) { op(resume, arg1, state) -> body, ... }`.
     /// `current_token` is `Handle`; `left` is the expression being handled.
     pub(super) fn parse_handle_expression(&mut self, left: Expression) -> Option<Expression> {
         let _handle_context = self.enter_parser_context(ParserContext::HandleExpression);
@@ -1458,6 +1460,22 @@ impl Parser {
             .lexer
             .interner_mut()
             .intern(&self.current_token.literal);
+
+        let parameter = if self.is_peek_token(TokenType::LParen) {
+            self.next_token(); // consume `(`
+            self.next_token(); // first token of initializer expression
+            let init = self.parse_expression(Precedence::Lowest)?;
+            if !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` after `handle` initializer.".to_string(),
+                "Parameterized handlers use `expr handle Effect(init) { ... }`.".to_string(),
+            ) {
+                return None;
+            }
+            Some(Box::new(init))
+        } else {
+            None
+        };
 
         // Expect `{`
         if !self.expect_peek_context(
@@ -1576,6 +1594,7 @@ impl Parser {
         Some(Expression::Handle {
             expr: Box::new(left),
             effect,
+            parameter,
             arms,
             span: Span::new(start, end),
             id: self.next_expr_id(),

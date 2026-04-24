@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    runtime::{evidence::EvidenceVector, handler_arm::HandlerArm},
+    runtime::{evidence::EvidenceVector, handler_arm::HandlerArm, value::Value},
     syntax::Identifier,
 };
 
@@ -15,6 +15,8 @@ pub struct HandlerFrame {
     pub marker: u32,
     /// Evidence vector to restore when this handler unwinds.
     pub saved_evv: EvidenceVector,
+    /// Current parameter value for parameterized handlers.
+    pub state: Option<Value>,
     /// `VM.frame_index` when `OpHandle` executed.
     pub entry_frame_index: usize,
     /// `VM.sp` when `OpHandle` executed.

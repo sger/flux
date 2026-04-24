@@ -221,8 +221,16 @@ impl Compiler {
                     self.validate_reserved_primop_expression(arg);
                 }
             }
-            Expression::Handle { expr, arms, .. } => {
+            Expression::Handle {
+                expr,
+                parameter,
+                arms,
+                ..
+            } => {
                 self.validate_reserved_primop_expression(expr);
+                if let Some(parameter) = parameter {
+                    self.validate_reserved_primop_expression(parameter);
+                }
                 for arm in arms {
                     self.validate_reserved_primop_expression(&arm.body);
                 }
@@ -510,8 +518,16 @@ impl Compiler {
                     self.warn_on_legacy_expression(argument);
                 }
             }
-            Expression::Handle { expr, arms, .. } => {
+            Expression::Handle {
+                expr,
+                parameter,
+                arms,
+                ..
+            } => {
                 self.warn_on_legacy_expression(expr);
+                if let Some(parameter) = parameter {
+                    self.warn_on_legacy_expression(parameter);
+                }
                 for arm in arms {
                     self.warn_on_legacy_expression(&arm.body);
                 }

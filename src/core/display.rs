@@ -224,10 +224,17 @@ impl<'a> Formatter<'a> {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 ..
             } => {
-                write!(out, "handle {} {{", self.resolve_name(*effect)).unwrap();
+                write!(out, "handle {}", self.resolve_name(*effect)).unwrap();
+                if let Some(parameter) = parameter {
+                    out.push('(');
+                    self.write_expr_inline(out, parameter, indent);
+                    out.push(')');
+                }
+                out.push_str(" {");
                 for h in handlers {
                     out.push('\n');
                     self.write_handler(out, h, indent + 2);
@@ -290,6 +297,12 @@ impl<'a> Formatter<'a> {
                 out.push_str(", ");
             }
             out.push_str(&self.resolve_binder(p));
+        }
+        if let Some(state) = &h.state {
+            if !h.params.is_empty() {
+                out.push_str(", ");
+            }
+            out.push_str(&self.resolve_binder(state));
         }
         writeln!(out, "; {}) →", self.resolve_binder(&h.resume)).unwrap();
         push_indent(out, indent + 2);

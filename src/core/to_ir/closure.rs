@@ -125,7 +125,15 @@ fn collect_used_candidate_binders(
                 collect_used_candidate_binders(arg, bound, candidates, used);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_used_candidate_binders(parameter, bound, candidates, used);
+            }
             collect_used_candidate_binders(body, bound, candidates, used);
             for handler in handlers {
                 let mut new_binders = Vec::new();
@@ -136,6 +144,11 @@ fn collect_used_candidate_binders(
                     if bound.insert(param.id) {
                         new_binders.push(param.id);
                     }
+                }
+                if let Some(state) = handler.state
+                    && bound.insert(state.id)
+                {
+                    new_binders.push(state.id);
                 }
                 collect_used_candidate_binders(&handler.body, bound, candidates, used);
                 for binder in new_binders {
@@ -168,7 +181,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let free = crate::aether::free_vars::collect_free_vars_aether(&handler.body);
         let used = used_outer_binders_aether(
             &handler.body,
-            std::iter::once(handler.resume.id).chain(handler.params.iter().map(|p| p.id)),
+            std::iter::once(handler.resume.id)
+                .chain(handler.params.iter().map(|p| p.id))
+                .chain(handler.state.as_ref().map(|s| s.id)),
             &free,
         );
         let mut captures: Vec<CoreBinder> = free
@@ -256,6 +271,21 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 sub.inferred_param_types
                     .push(handler.param_types.get(i).cloned().unwrap_or(None));
             }
+            if let Some(state) = &handler.state {
+                let v = sub.ctx.alloc_var();
+                sub.env.insert(state.id, v);
+                sub.binder_names.insert(state.id, state.name);
+                sub.params.push(IrParam {
+                    name: state.name,
+                    var: v,
+                    ty: handler
+                        .state_ty
+                        .as_ref()
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
+                });
+                sub.inferred_param_types.push(handler.state_ty.clone());
+            }
             sub.inferred_return_type = aether_handler_resume_result_type(handler);
 
             let ret = sub.lower_expr_aether(&handler.body);
@@ -277,7 +307,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         free_vars_rec(&handler.body, &mut HashSet::new(), &mut free);
         let used = used_outer_binders(
             &handler.body,
-            std::iter::once(handler.resume.id).chain(handler.params.iter().map(|p| p.id)),
+            std::iter::once(handler.resume.id)
+                .chain(handler.params.iter().map(|p| p.id))
+                .chain(handler.state.as_ref().map(|s| s.id)),
             &free,
         );
         let mut captures: Vec<CoreBinder> = free
@@ -366,6 +398,21 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 });
                 sub.inferred_param_types
                     .push(handler.param_types.get(i).cloned().unwrap_or(None));
+            }
+            if let Some(state) = &handler.state {
+                let v = sub.ctx.alloc_var();
+                sub.env.insert(state.id, v);
+                sub.binder_names.insert(state.id, state.name);
+                sub.params.push(IrParam {
+                    name: state.name,
+                    var: v,
+                    ty: handler
+                        .state_ty
+                        .as_ref()
+                        .map(super::core_type_to_ir_type)
+                        .unwrap_or(IrType::Tagged),
+                });
+                sub.inferred_param_types.push(handler.state_ty.clone());
             }
             sub.inferred_return_type = handler_resume_result_type(handler);
 
@@ -743,7 +790,15 @@ fn collect_used_candidate_binders_aether(
         AetherExpr::Return { value, .. } => {
             collect_used_candidate_binders_aether(value, bound, candidates, used);
         }
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_used_candidate_binders_aether(parameter, bound, candidates, used);
+            }
             collect_used_candidate_binders_aether(body, bound, candidates, used);
             for handler in handlers {
                 let mut new_binders = Vec::new();
@@ -754,6 +809,11 @@ fn collect_used_candidate_binders_aether(
                     if bound.insert(param.id) {
                         new_binders.push(param.id);
                     }
+                }
+                if let Some(state) = &handler.state
+                    && bound.insert(state.id)
+                {
+                    new_binders.push(state.id);
                 }
                 collect_used_candidate_binders_aether(&handler.body, bound, candidates, used);
                 for binder in new_binders {

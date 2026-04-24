@@ -1636,7 +1636,15 @@ mod tests {
                     collect_var_refs(arg, out);
                 }
             }
-            CoreExpr::Handle { body, handlers, .. } => {
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                if let Some(parameter) = parameter {
+                    collect_var_refs(parameter, out);
+                }
                 collect_var_refs(body, out);
                 for handler in handlers {
                     collect_var_refs(&handler.body, out);

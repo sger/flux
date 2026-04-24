@@ -35,6 +35,10 @@ pub struct Continuation {
     /// (between `entry_handler_stack_len` and `handler_pos`).
     pub inner_handlers: Vec<HandlerFrame>,
 
+    /// Handler marker whose state should be replaced when this continuation is
+    /// resumed with `resume(value, next_state)`.
+    pub state_marker: Option<u32>,
+
     /// One-shot enforcement: set to `true` after the first resume.
     pub used: bool,
 }
@@ -46,7 +50,11 @@ impl Continuation {
     /// `pieces` are expected innermost-first, matching `YieldState.conts`.
     /// The composed result stores frames and stack outermost-first so
     /// `execute_resume` can restore them in one shot.
-    pub fn compose(pieces: &[Value], inner_handlers: Vec<HandlerFrame>) -> Result<Value, String> {
+    pub fn compose(
+        pieces: &[Value],
+        inner_handlers: Vec<HandlerFrame>,
+        state_marker: Option<u32>,
+    ) -> Result<Value, String> {
         if pieces.is_empty() {
             return Ok(Value::None);
         }
@@ -83,6 +91,7 @@ impl Continuation {
                 entry_sp: outermost.entry_sp,
                 entry_frame_index: outermost.entry_frame_index,
                 inner_handlers,
+                state_marker,
                 used: false,
             }),
         )))
@@ -127,6 +136,7 @@ mod tests {
             entry_sp: 20,
             entry_frame_index: 1,
             inner_handlers: vec![],
+            state_marker: None,
             used: false,
         })));
         let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
@@ -136,10 +146,12 @@ mod tests {
             entry_sp: 10,
             entry_frame_index: 0,
             inner_handlers: vec![],
+            state_marker: None,
             used: false,
         })));
 
-        let composed = Continuation::compose(&[inner, outer], vec![]).expect("compose succeeds");
+        let composed =
+            Continuation::compose(&[inner, outer], vec![], None).expect("compose succeeds");
         let Value::Continuation(rc) = composed else {
             panic!("compose should produce a continuation");
         };

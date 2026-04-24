@@ -489,8 +489,16 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        CoreExpr::Handle { body, handlers, .. } => {
-            let mut fact = analyze_expr(body, ctx);
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            let mut fact = parameter
+                .as_ref()
+                .map_or_else(FbipFact::default, |p| analyze_expr(p, ctx));
+            fact = seq(fact, analyze_expr(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr(&handler.body, ctx));
             }
@@ -570,8 +578,16 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        AetherExpr::Handle { body, handlers, .. } => {
-            let mut fact = analyze_expr_aether(body, ctx);
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            let mut fact = parameter
+                .as_ref()
+                .map_or_else(FbipFact::default, |p| analyze_expr_aether(p, ctx));
+            fact = seq(fact, analyze_expr_aether(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr_aether(&handler.body, ctx));
             }
@@ -947,7 +963,15 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(arg, unresolved);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_unresolved_callees(parameter, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
             for handler in handlers {
                 collect_unresolved_callees(&handler.body, unresolved);

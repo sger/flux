@@ -677,6 +677,7 @@ fn insert_dict_args_expr(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
@@ -688,6 +689,15 @@ fn insert_dict_args_expr(
                 interner,
             )),
             effect,
+            parameter: parameter.map(|p| {
+                Box::new(insert_dict_args_expr(
+                    *p,
+                    constrained_fns,
+                    caller_dicts,
+                    class_env,
+                    interner,
+                ))
+            }),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
@@ -975,11 +985,13 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(rewrite_expr(*body, method_map)),
             effect,
+            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {

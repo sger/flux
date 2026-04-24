@@ -128,8 +128,19 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         CoreExpr::Return { value, .. } => {
             out.extend(collect_core_exprs(value));
         }
-        CoreExpr::Handle { body, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                out.extend(collect_core_exprs(parameter));
+            }
             out.extend(collect_core_exprs(body));
+            for handler in handlers {
+                out.extend(collect_core_exprs(&handler.body));
+            }
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
@@ -137,6 +148,80 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         }
     }
     out
+}
+
+#[test]
+fn parameterized_handle_lowers_initializer_and_state_binder_to_core() {
+    let (program, hm_expr_types, interner) = parse_and_infer(
+        r#"
+effect State {
+    get() -> Int
+}
+
+fn main() -> Int with State {
+    perform State.get() handle State(0) {
+        get(resume, state) -> resume(state, state + 1)
+    }
+}
+"#,
+    );
+
+    let core = lower_program_ast(&program, &hm_expr_types);
+    let main = core
+        .defs
+        .iter()
+        .find(|def| interner.resolve(def.name) == "main")
+        .expect("main should lower to a core def");
+    let handles: Vec<_> = collect_core_exprs(&main.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::Handle {
+                parameter,
+                handlers,
+                ..
+            } => Some((parameter, handlers)),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(handles.len(), 1);
+    let (parameter, handlers) = handles[0];
+    assert!(
+        parameter.is_some(),
+        "parameterized handle should keep initializer"
+    );
+    assert_eq!(handlers.len(), 1);
+    assert!(
+        handlers[0].state.is_some(),
+        "parameterized handle should lower trailing state binder"
+    );
+    assert!(
+        handlers[0].state_ty.is_some(),
+        "state binder should carry the initializer Core type"
+    );
+}
+
+#[test]
+fn parameterized_state_handler_threads_state_through_resume_on_vm() {
+    let value = run(r#"
+effect Counter {
+    next() -> Int
+}
+
+fn program() -> Int with Counter {
+    let _ = perform Counter.next();
+    perform Counter.next()
+}
+
+fn main() with Console {
+    let result = program() handle Counter(0) {
+        next(resume, state) -> resume(state, state + 1)
+    };
+    if result == 1 { (); } else { let _ = 1 / 0; (); }
+}
+"#);
+
+    assert_eq!(value, Value::None);
 }
 
 #[test]

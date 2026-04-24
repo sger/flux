@@ -3481,6 +3481,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),
+                LlvmType::i64(),
             ],
         ),
         "flux_yield_to" => (

@@ -180,11 +180,13 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(subst(*body, var, replacement)),
             effect,
+            parameter: parameter.map(|p| Box::new(subst(*p, var, replacement))),
             handlers: handlers
                 .into_iter()
                 .map(|handler| subst_handler(handler, var, replacement))
@@ -218,7 +220,10 @@ pub(super) fn subst_handler(
     var: CoreBinderId,
     replacement: &CoreExpr,
 ) -> CoreHandler {
-    if handler.resume.id == var || handler.params.iter().any(|param| param.id == var) {
+    if handler.resume.id == var
+        || handler.params.iter().any(|param| param.id == var)
+        || handler.state.as_ref().is_some_and(|state| state.id == var)
+    {
         handler
     } else {
         CoreHandler {
@@ -330,11 +335,13 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(f(*body)),
             effect,
+            parameter: parameter.map(|p| Box::new(f(*p))),
             handlers: handlers
                 .into_iter()
                 .map(|mut handler| {
@@ -630,11 +637,18 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| appears_free(var, a)),
         CoreExpr::Return { value, .. } => appears_free(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| appears_free(var, a)),
-        CoreExpr::Handle { body, handlers, .. } => {
-            appears_free(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter.as_ref().is_some_and(|p| appears_free(var, p))
+                || appears_free(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var
                         && !h.params.iter().any(|p| p.id == var)
+                        && h.state.is_none_or(|state| state.id != var)
                         && appears_free(var, &h.body)
                 })
         }
@@ -675,8 +689,15 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         CoreExpr::PrimOp { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
         CoreExpr::Return { value, .. } => 1 + expr_size(value),
         CoreExpr::Perform { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            1 + expr_size(body)
+                + parameter.as_ref().map_or(0, |p| expr_size(p))
+                + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             1 + expr_size(object)

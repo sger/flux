@@ -159,8 +159,12 @@ impl<'a> InferCtx<'a> {
                 ..
             } => self.infer_perform_expression(*effect, *operation, args, *span),
             Expression::Handle {
-                expr, effect, arms, ..
-            } => self.infer_handle_expression(expr, *effect, arms),
+                expr: handled,
+                effect,
+                parameter,
+                arms,
+                ..
+            } => self.infer_handle_expression(handled, *effect, parameter.as_deref(), arms),
             Expression::Sealing { expr, .. } => self.infer_expression(expr),
             // Named-field construction & spread (Proposal 0152)
             Expression::NamedConstructor {

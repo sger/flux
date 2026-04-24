@@ -12,6 +12,7 @@ use crate::syntax::{
     interner::Interner,
     program::Program,
     statement::Statement,
+    type_expr::TypeExpr,
 };
 
 #[derive(Clone, Copy)]
@@ -20,6 +21,7 @@ struct RoutedPrimop {
     operation: &'static str,
     internal_name: &'static str,
     arity: usize,
+    returns_unit: bool,
 }
 
 const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
@@ -28,48 +30,56 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
         operation: "print",
         internal_name: "__primop_print",
         arity: 1,
+        returns_unit: true,
     },
     RoutedPrimop {
         effect: be::CONSOLE,
         operation: "println",
         internal_name: "__primop_println",
         arity: 1,
+        returns_unit: true,
     },
     RoutedPrimop {
         effect: be::FILESYSTEM,
         operation: "read_file",
         internal_name: "__primop_read_file",
         arity: 1,
+        returns_unit: false,
     },
     RoutedPrimop {
         effect: be::FILESYSTEM,
         operation: "read_lines",
         internal_name: "__primop_read_lines",
         arity: 1,
+        returns_unit: false,
     },
     RoutedPrimop {
         effect: be::FILESYSTEM,
         operation: "write_file",
         internal_name: "__primop_write_file",
         arity: 2,
+        returns_unit: true,
     },
     RoutedPrimop {
         effect: be::STDIN,
         operation: "read_stdin",
         internal_name: "__primop_read_stdin",
         arity: 0,
+        returns_unit: false,
     },
     RoutedPrimop {
         effect: be::CLOCK,
         operation: "clock_now",
         internal_name: "__primop_clock_now",
         arity: 0,
+        returns_unit: false,
     },
     RoutedPrimop {
         effect: be::CLOCK,
         operation: "now_ms",
         internal_name: "__primop_now_ms",
         arity: 0,
+        returns_unit: false,
     },
 ];
 
@@ -78,7 +88,7 @@ pub fn route_effectful_primops_and_synthesize_handlers(
     interner: &mut Interner,
 ) -> (Program, bool) {
     let mut owned = program.clone();
-    let user_effect_ops = collect_user_effect_ops(&owned);
+    let user_effect_ops = collect_user_effect_ops(&owned, interner);
     let function_effects = collect_function_effects(&owned, interner);
     let mut ids = ExprIdGen::resuming_past_program(&owned);
     let mut changed = false;
@@ -97,10 +107,13 @@ pub fn route_effectful_primops_and_synthesize_handlers(
     (owned, changed)
 }
 
-fn collect_user_effect_ops(program: &Program) -> HashMap<Identifier, HashSet<Identifier>> {
+fn collect_user_effect_ops(
+    program: &Program,
+    interner: &Interner,
+) -> HashMap<Identifier, HashSet<Identifier>> {
     let mut out = HashMap::new();
     for stmt in &program.statements {
-        collect_user_effect_ops_stmt(stmt, &mut out);
+        collect_user_effect_ops_stmt(stmt, interner, &mut out);
     }
     out
 }
@@ -185,19 +198,81 @@ fn collect_default_effects_from_annotation(
 
 fn collect_user_effect_ops_stmt(
     stmt: &Statement,
+    interner: &Interner,
     out: &mut HashMap<Identifier, HashSet<Identifier>>,
 ) {
     match stmt {
         Statement::EffectDecl { name, ops, .. } => {
-            out.insert(*name, ops.iter().map(|op| op.name).collect());
+            let compatible_ops = ops
+                .iter()
+                .filter(|op| {
+                    routed_effect_op(*name, op.name, interner).is_some_and(|entry| {
+                        effect_op_type_matches_routed_primop(&op.type_expr, entry, interner)
+                    })
+                })
+                .map(|op| op.name)
+                .collect();
+            out.insert(*name, compatible_ops);
         }
         Statement::Module { body, .. } => {
             for stmt in &body.statements {
-                collect_user_effect_ops_stmt(stmt, out);
+                collect_user_effect_ops_stmt(stmt, interner, out);
             }
         }
         _ => {}
     }
+}
+
+fn routed_effect_op(
+    effect: Identifier,
+    operation: Identifier,
+    interner: &Interner,
+) -> Option<RoutedPrimop> {
+    let effect = interner.try_resolve(effect)?;
+    let operation = interner.try_resolve(operation)?;
+    ROUTED_PRIMOPS
+        .iter()
+        .copied()
+        .find(|entry| entry.effect == effect && entry.operation == operation)
+}
+
+fn effect_op_type_matches_routed_primop(
+    type_expr: &TypeExpr,
+    entry: RoutedPrimop,
+    interner: &Interner,
+) -> bool {
+    let TypeExpr::Function { params, ret, .. } = type_expr else {
+        return false;
+    };
+    params.len() == entry.arity && routed_return_type_matches(ret, entry, interner)
+}
+
+fn routed_return_type_matches(ret: &TypeExpr, entry: RoutedPrimop, interner: &Interner) -> bool {
+    if entry.returns_unit {
+        return matches!(ret, TypeExpr::Tuple { elements, .. } if elements.is_empty())
+            || type_expr_is_named(ret, "Unit", interner);
+    }
+    match entry.operation {
+        "read_file" | "read_stdin" => type_expr_is_named(ret, "String", interner),
+        "read_lines" => match ret {
+            TypeExpr::Named { name, args, .. } => {
+                interner.try_resolve(*name) == Some("Array")
+                    && args.len() == 1
+                    && type_expr_is_named(&args[0], "String", interner)
+            }
+            _ => false,
+        },
+        "clock_now" | "now_ms" => type_expr_is_named(ret, "Int", interner),
+        _ => false,
+    }
+}
+
+fn type_expr_is_named(type_expr: &TypeExpr, expected: &str, interner: &Interner) -> bool {
+    matches!(
+        type_expr,
+        TypeExpr::Named { name, args, .. }
+            if args.is_empty() && interner.try_resolve(*name) == Some(expected)
+    )
 }
 
 fn route_stmt(stmt: &mut Statement, interner: &mut Interner, skip: bool) -> bool {
@@ -310,10 +385,14 @@ fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> boo
         }
         Expression::Handle {
             expr: handled,
+            parameter,
             arms,
             ..
         } => {
             changed |= route_expr(handled, interner, false);
+            if let Some(parameter) = parameter {
+                changed |= route_expr(parameter, interner, false);
+            }
             for arm in arms {
                 changed |= route_expr(&mut arm.body, interner, false);
             }
@@ -509,6 +588,7 @@ fn wrap_block_with_default_handlers(
         expr = Expression::Handle {
             expr: Box::new(expr),
             effect: interner.intern(effect),
+            parameter: None,
             arms,
             span,
             id: ids.next_id(),
@@ -655,10 +735,14 @@ fn collect_default_effects_expr(
         }
         Expression::Handle {
             expr: handled,
+            parameter,
             arms,
             ..
         } => {
             collect_default_effects_expr(handled, interner, function_effects, out);
+            if let Some(parameter) = parameter {
+                collect_default_effects_expr(parameter, interner, function_effects, out);
+            }
             for arm in arms {
                 collect_default_effects_expr(&arm.body, interner, function_effects, out);
             }
@@ -780,15 +864,47 @@ fn default_handler_arm(
         span,
         id: ids.next_id(),
     };
-    let body = Expression::Call {
+    let resume_arg = if entry.returns_unit {
+        Expression::TupleLiteral {
+            elements: Vec::new(),
+            span,
+            id: ids.next_id(),
+        }
+    } else {
+        primop_call.clone()
+    };
+    let resume_call = Expression::Call {
         function: Box::new(Expression::Identifier {
             name: resume,
             span,
             id: ids.next_id(),
         }),
-        arguments: vec![primop_call],
+        arguments: vec![resume_arg],
         span,
         id: ids.next_id(),
+    };
+    let body = if entry.returns_unit {
+        Expression::DoBlock {
+            block: Block {
+                statements: vec![
+                    Statement::Expression {
+                        expression: primop_call,
+                        has_semicolon: true,
+                        span,
+                    },
+                    Statement::Expression {
+                        expression: resume_call,
+                        has_semicolon: false,
+                        span,
+                    },
+                ],
+                span,
+            },
+            span,
+            id: ids.next_id(),
+        }
+    } else {
+        resume_call
     };
     HandleArm {
         operation_name: interner.intern(entry.operation),

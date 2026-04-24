@@ -69,6 +69,31 @@ fn effect_tr_state_parity() {
 }
 
 #[test]
+fn effect_parameterized_state_parity() {
+    assert_parity_with_yield_checks("effect_parameterized_state.flx", "\"1\"");
+}
+
+#[test]
+fn effect_state_parameterized_parity() {
+    assert_parity_with_yield_checks("effect_state_parameterized.flx", "\"1\"");
+}
+
+#[test]
+fn effect_reader_parameterized_parity() {
+    assert_parity_with_yield_checks("effect_reader_parameterized.flx", "\"flux-server\"");
+}
+
+#[test]
+fn effect_parameterized_console_capture_parity() {
+    assert_parity_with_yield_checks("effect_parameterized_console_capture.flx", "\"visible\"");
+}
+
+#[test]
+fn effect_parameterized_fallthrough_parity() {
+    assert_parity_with_yield_checks("effect_parameterized_fallthrough.flx", "\"41\"");
+}
+
+#[test]
 fn effect_non_tr_discard_parity() {
     assert_parity_with_yield_checks("effect_non_tr_discard.flx", "\"-1\"");
 }

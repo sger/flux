@@ -61,6 +61,8 @@ pub struct AetherHandler {
     pub operation: Identifier,
     pub params: Vec<CoreBinder>,
     pub param_types: Vec<Option<CoreType>>,
+    pub state: Option<CoreBinder>,
+    pub state_ty: Option<CoreType>,
     pub resume: CoreBinder,
     pub resume_ty: Option<CoreType>,
     pub body: AetherExpr,
@@ -148,6 +150,7 @@ pub enum AetherExpr {
     Handle {
         body: Box<AetherExpr>,
         effect: Identifier,
+        parameter: Option<Box<AetherExpr>>,
         handlers: Vec<AetherHandler>,
         span: Span,
     },
@@ -385,11 +388,13 @@ impl AetherExpr {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => Self::Handle {
                 body: Box::new(Self::from_core(*body)),
                 effect,
+                parameter: parameter.map(|p| Box::new(Self::from_core(*p))),
                 handlers: handlers.into_iter().map(AetherHandler::from_core).collect(),
                 span,
             },
@@ -509,11 +514,13 @@ impl AetherExpr {
             Self::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => CoreExpr::Handle {
                 body: Box::new(body.into_core()),
                 effect,
+                parameter: parameter.map(|p| Box::new(p.into_core())),
                 handlers: handlers.into_iter().map(AetherHandler::into_core).collect(),
                 span,
             },
@@ -579,6 +586,8 @@ impl AetherHandler {
             operation: handler.operation,
             params: handler.params,
             param_types: handler.param_types,
+            state: handler.state,
+            state_ty: handler.state_ty,
             resume: handler.resume,
             resume_ty: handler.resume_ty,
             body: AetherExpr::from_core(handler.body),
@@ -591,6 +600,8 @@ impl AetherHandler {
             operation: self.operation,
             params: self.params,
             param_types: self.param_types,
+            state: self.state,
+            state_ty: self.state_ty,
             resume: self.resume,
             resume_ty: self.resume_ty,
             body: self.body.into_core(),
@@ -756,9 +767,17 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
                 count_nodes(a, stats);
             }
         }
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
             stats.handles += 1;
             stats.handler_arms += handlers.len();
+            if let Some(parameter) = parameter {
+                count_nodes(parameter, stats);
+            }
             count_nodes(body, stats);
             for h in handlers {
                 count_nodes(&h.body, stats);

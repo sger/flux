@@ -313,8 +313,17 @@ impl<'a> StrictTypeValidator<'a> {
             Expression::Match {
                 scrutinee, arms, ..
             } => self.validate_expression(scrutinee) || self.match_arms_have_unresolved(arms),
-            Expression::Handle { expr, arms, .. } => {
-                self.validate_expression(expr) || self.handle_arms_have_unresolved(arms)
+            Expression::Handle {
+                expr,
+                parameter,
+                arms,
+                ..
+            } => {
+                self.validate_expression(expr)
+                    || parameter
+                        .as_ref()
+                        .is_some_and(|parameter| self.validate_expression(parameter))
+                    || self.handle_arms_have_unresolved(arms)
             }
             Expression::Sealing { expr, .. } => self.validate_expression(expr),
             _ => self.simple_expression_children_have_unresolved(expr),

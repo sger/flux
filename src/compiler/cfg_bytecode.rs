@@ -339,7 +339,11 @@ impl Compiler {
                 Ok(())
             }
             IrInstr::HandleScope {
-                effect, arms, dest, ..
+                effect,
+                arms,
+                initial_state,
+                dest,
+                ..
             } => {
                 // 1. Emit arm closures (each arm is a MakeClosure)
                 for arm in arms {
@@ -364,6 +368,13 @@ impl Compiler {
                     })?;
                     this.emit_closure_index(fn_binding.index, arm.capture_vars.len());
                 }
+                if let Some(initial_state) = initial_state {
+                    this.load_symbol(bindings.get(initial_state).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode handle state binding",
+                        ))
+                    })?);
+                }
 
                 // 2. Create HandlerDescriptor constant and emit OpHandle
                 let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
@@ -375,6 +386,7 @@ impl Compiler {
                         .iter()
                         .map(|a| this.sym(a.operation_name).to_string().into_boxed_str())
                         .collect(),
+                    has_state: initial_state.is_some(),
                     is_discard: false, // TODO: detect from evidence pass
                 };
                 let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));

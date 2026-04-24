@@ -190,7 +190,7 @@ pub struct MatchArm {
 /// One arm inside a `handle` block.
 ///
 /// ```flux
-/// handle Console {
+/// expr handle Console {
 ///     print(resume, msg) -> body
 /// //         ^^^^^^  ^^^
 /// //   resume_param  params[0]
@@ -364,9 +364,13 @@ pub enum Expression {
         id: ExprId,
     },
     /// `expr handle Effect { op(resume, args) -> body, ... }` — handles an effect.
+    ///
+    /// `parameter` is reserved for proposal 0169's parameterized handler
+    /// syntax: `expr handle Effect(init) { ... }`.
     Handle {
         expr: Box<Expression>,
         effect: Identifier,
+        parameter: Option<Box<Expression>>,
         arms: Vec<HandleArm>,
         span: Span,
         id: ExprId,
@@ -570,9 +574,17 @@ impl fmt::Display for Expression {
                 )
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
-                write!(f, "{} handle {} {{", expr, effect)?;
+                write!(f, "{} handle {}", expr, effect)?;
+                if let Some(parameter) = parameter {
+                    write!(f, "({})", parameter)?;
+                }
+                write!(f, " {{")?;
                 for arm in arms {
                     let param: Vec<String> = std::iter::once(arm.resume_param)
                         .chain(arm.params.iter().copied())
@@ -908,13 +920,21 @@ impl Expression {
                 )
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
                 let mut out = format!(
-                    "{} handle {} {{",
+                    "{} handle {}",
                     expr.display_with(interner),
                     interner.resolve(*effect)
                 );
+                if let Some(parameter) = parameter {
+                    out.push_str(&format!("({})", parameter.display_with(interner)));
+                }
+                out.push_str(" {");
                 for arm in arms {
                     let mut param_names: Vec<&str> = vec![interner.resolve(arm.resume_param)];
                     for p in &arm.params {

@@ -373,7 +373,7 @@ extern int32_t flux_yield_yielding;
 int64_t flux_evv_get(void);
 void    flux_evv_set(int64_t evv);
 int64_t flux_fresh_marker(void);
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler);
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state);
 
 /* Yield operations. */
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity);
