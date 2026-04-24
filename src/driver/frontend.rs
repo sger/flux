@@ -2,6 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, types::ErrorType,
+};
 use crate::syntax::{
     Identifier, interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
     program::Program, statement::Statement,
@@ -18,6 +21,70 @@ const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
     ("Flow.IO", "IO.flx"),
     ("Flow.Assert", "Assert.flx"),
 ];
+
+/// User-facing names exported from `Flow.Primops`. The module also declares
+/// compiler-internal `__primop_*` intrinsics used by synthesized default
+/// handlers; those names are deliberately omitted here so they never enter
+/// user scope through the auto-injected prelude. `Flow.Primops` is also
+/// rejected as a direct user import (E083) — see `validate_no_primops_import`.
+const FLOW_PRIMOPS_USER_FACING: &[&str] = &[
+    "print",
+    "println",
+    "read_file",
+    "read_lines",
+    "write_file",
+    "read_stdin",
+    "clock_now",
+    "now_ms",
+    "idiv",
+    "imod",
+    "index",
+    "array_get",
+    "panic",
+];
+
+/// Rejects user-written `import Flow.Primops` statements. `Flow.Primops` is
+/// the intrinsic-backed implementation layer for effectful prelude operations
+/// (`print`, `println`, `read_file`, ...). Those operations are exposed via
+/// other stdlib modules and the auto-injected prelude; users should not
+/// import `Flow.Primops` directly or name it in qualified calls.
+///
+/// Must be called on the parsed program *before* `inject_flow_prelude`, so
+/// the synthesized prelude import is not itself flagged.
+pub(crate) fn validate_no_primops_import(
+    program: &Program,
+    interner: &Interner,
+    file: &str,
+) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for stmt in &program.statements {
+        if let Statement::Import { name, span, .. } = stmt
+            && interner.try_resolve(*name) == Some("Flow.Primops")
+        {
+            let diag = Diagnostic::make_error_dynamic(
+                "E083",
+                "RESERVED PRIMOP MODULE",
+                ErrorType::Compiler,
+                "`Flow.Primops` is reserved for the compiler's intrinsic implementation layer \
+                 and is not user-importable."
+                    .to_string(),
+                Some(
+                    "Remove this import. Effectful prelude operations like `print`, \
+                     `println`, `read_file`, and `now_ms` are available without an explicit \
+                     import."
+                        .to_string(),
+                ),
+                file.to_string(),
+                *span,
+            )
+            .with_category(DiagnosticCategory::NameResolution)
+            .with_phase(DiagnosticPhase::Parse)
+            .with_primary_label(*span, "reserved internal module import");
+            out.push(diag);
+        }
+    }
+    out
+}
 
 /// Injects Flow prelude imports for standard modules that are present but not explicitly imported.
 pub(crate) fn inject_flow_prelude(program: &mut Program, parser: &mut Parser, native_mode: bool) {
@@ -48,7 +115,12 @@ pub(crate) fn inject_flow_prelude(program: &mut Program, parser: &mut Parser, na
         if !flow_dir.join(file_name).exists() {
             continue;
         }
-        imports.push(format!("import {module_name} exposing (..)"));
+        let exposing = if module_name == "Flow.Primops" {
+            format!("({})", FLOW_PRIMOPS_USER_FACING.join(", "))
+        } else {
+            "(..)".to_string()
+        };
+        imports.push(format!("import {module_name} exposing {exposing}"));
     }
 
     if imports.is_empty() {
