@@ -1,0 +1,16 @@
+// Reader-style handlers keep the same parameter when resuming.
+
+effect Config {
+    ask: () -> String
+}
+
+fn describe_service() -> String with Config {
+    "service=" + perform Config.ask()
+}
+
+fn main() {
+    let result = describe_service() handle Config("flux-api") {
+        ask(resume, env) -> resume(env, env)
+    }
+    println(result)
+}

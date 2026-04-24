@@ -7,6 +7,7 @@ This directory shows the current effect system surface:
 - modules with effectful public functions
 - row-polymorphic callbacks
 - user handlers
+- parameterized handlers for state, reader-style environments, and captured output
 - sealing
 - intentional failures for missing effects, denied sealing, and reserved primop names
 

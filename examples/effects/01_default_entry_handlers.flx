@@ -1,3 +1,4 @@
+// parity: vm
 // Entry functions get default handlers for the built-in operational effects.
 // This program performs Console and Clock without spelling handlers manually.
 

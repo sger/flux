@@ -1,0 +1,17 @@
+// A parameterized arm may return the handled result directly instead of
+// resuming. This is useful when the operation is the final answer.
+
+effect Pick {
+    pick: () -> Int
+}
+
+fn choose() -> Int with Pick {
+    perform Pick.pick()
+}
+
+fn main() {
+    let result = choose() handle Pick(41) {
+        pick(_resume, state) -> state
+    }
+    println("picked=" + to_string(result))
+}

@@ -1,3 +1,4 @@
+// parity: vm
 import Telemetry
 
 fn main() with Console, Clock {

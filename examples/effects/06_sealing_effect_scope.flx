@@ -1,3 +1,4 @@
+// parity: vm
 // Sealing checks that the expression only performs effects from the allowed row.
 
 fn console_only() -> Unit with Console {

@@ -92,7 +92,6 @@ pub fn run_parity_check(args: &[String]) {
 
     // Run parity checks
     let default_ways = vec![Way::Vm, Way::Llvm];
-    let compile_ways = vec![Way::VmCached, Way::LlvmCached];
     let mut results = Vec::new();
     let mut saved_first_failure = false;
 
@@ -104,10 +103,12 @@ pub fn run_parity_check(args: &[String]) {
         });
         let fixture_meta = parse_fixture_meta(file);
         let extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
+        let compile_ways;
         let effective_ways = if config.ways.is_some() {
             ways
         } else if config.compile_first {
             // --compile: run against warmed caches instead of fresh ways.
+            compile_ways = cached_equivalent_ways(&fixture_meta.ways);
             &compile_ways
         } else {
             &fixture_meta.ways
@@ -168,6 +169,17 @@ pub fn run_parity_check(args: &[String]) {
     if has_mismatch || !has_pass {
         std::process::exit(1);
     }
+}
+
+fn cached_equivalent_ways(ways: &[Way]) -> Vec<Way> {
+    ways.iter()
+        .copied()
+        .map(|way| match way {
+            Way::Vm => Way::VmCached,
+            Way::Llvm => Way::LlvmCached,
+            other => other,
+        })
+        .collect()
 }
 
 struct CheckOpts<'a> {

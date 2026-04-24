@@ -1,3 +1,4 @@
+// parity: vm
 // Ordinary helpers still declare the effects they require.
 // IO expands to Console | FileSystem | Stdin; Time expands to Clock.
 
