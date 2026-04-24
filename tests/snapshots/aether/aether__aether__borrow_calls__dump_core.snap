@@ -2438,42 +2438,48 @@ let %t463 = (λ__resume_default.
       __resume_default(%t469))
     let %t470 = (λ__resume_default, __arg0, __arg1.
       let %t471 = __primop_write_file(__arg0, __arg1)
-      __resume_default(%t471))
+      let %t472 = MakeTuple()
+      __resume_default(%t472))
     handle FileSystem {
       read_file(__arg0; __resume_default) →
-        let %t472 = __primop_read_file(__arg0)
-        __resume_default(%t472)
-      read_lines(__arg0; __resume_default) →
-        let %t473 = __primop_read_lines(__arg0)
+        let %t473 = __primop_read_file(__arg0)
         __resume_default(%t473)
-      write_file(__arg0, __arg1; __resume_default) →
-        let %t474 = __primop_write_file(__arg0, __arg1)
+      read_lines(__arg0; __resume_default) →
+        let %t474 = __primop_read_lines(__arg0)
         __resume_default(%t474)
+      write_file(__arg0, __arg1; __resume_default) →
+        let %t471 = __primop_write_file(__arg0, __arg1)
+        let %t475 = MakeTuple()
+        __resume_default(%t475)
     } with
-      let %t475 = (λ__resume_default, __arg0.
-        let %t476 = __primop_print(__arg0)
-        __resume_default(%t476))
-      let %t477 = (λ__resume_default, __arg0.
-        let %t478 = __primop_println(__arg0)
+      let %t476 = (λ__resume_default, __arg0.
+        let %t477 = __primop_print(__arg0)
+        let %t478 = MakeTuple()
         __resume_default(%t478))
+      let %t479 = (λ__resume_default, __arg0.
+        let %t480 = __primop_println(__arg0)
+        let %t481 = MakeTuple()
+        __resume_default(%t481))
       handle Console {
         print(__arg0; __resume_default) →
-          let %t479 = __primop_print(__arg0)
-          __resume_default(%t479)
+          let %t477 = __primop_print(__arg0)
+          let %t482 = MakeTuple()
+          __resume_default(%t482)
         println(__arg0; __resume_default) →
           let %t480 = __primop_println(__arg0)
-          __resume_default(%t480)
+          let %t483 = MakeTuple()
+          __resume_default(%t483)
       } with
-        let %t481 = (let %t482 = (λ%t483.
-          %t483)
-        let %t484 = (let %t485 = MakeList(1, 2, 3)
-        len_twice(%t485))
-        %t475(%t482, %t484))
-        let %t486 = (λ%t487.
-          %t487)
-        let %t488 = (let %t489 = MakeList(1, 2, 3)
-        borrow_then_return(%t489, 42))
-        %t475(%t486, %t488)
+        let %t484 = (let %t485 = (λ%t486.
+          %t486)
+        let %t487 = (let %t488 = MakeList(1, 2, 3)
+        len_twice(%t488))
+        %t476(%t485, %t487))
+        let %t489 = (λ%t490.
+          %t490)
+        let %t491 = (let %t492 = MakeList(1, 2, 3)
+        borrow_then_return(%t492, 42))
+        %t476(%t489, %t491)
 
 [ 1 of 11] Compiling  Assert
 [ 2 of 11] Compiling  Array

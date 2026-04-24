@@ -788,7 +788,15 @@ fn collect_aether_debug_details(
                     walk(arg, interner, details);
                 }
             }
-            AetherExpr::Handle { body, handlers, .. } => {
+            AetherExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                if let Some(parameter) = parameter {
+                    walk(parameter, interner, details);
+                }
                 walk(body, interner, details);
                 for handler in handlers {
                     walk(&handler.body, interner, details);
@@ -3668,7 +3676,11 @@ impl Compiler {
                 effects
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
                 let mut effects = self.infer_effects_from_expr(
                     expr,
@@ -3677,6 +3689,15 @@ impl Compiler {
                     io_effect,
                     time_effect,
                 );
+                if let Some(parameter) = parameter {
+                    effects.extend(self.infer_effects_from_expr(
+                        parameter,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
                 effects.remove(effect);
                 for arm in arms {
                     effects.extend(self.infer_effects_from_expr(
@@ -5528,6 +5549,7 @@ impl Compiler {
                         .map(|name| self.interner.intern(name))
                         .collect(),
                     op_names: desc.op_names.clone(),
+                    has_state: desc.has_state,
                     is_discard: desc.is_discard,
                 },
             )),

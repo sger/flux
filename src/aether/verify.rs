@@ -134,7 +134,15 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 check_contract(arg, errors);
             }
         }
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_contract(parameter, errors);
+            }
             check_contract(body, errors);
             for handler in handlers {
                 check_contract(&handler.body, errors);
@@ -353,7 +361,15 @@ fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
                 check_diagnostics(a, diags);
             }
         }
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_diagnostics(parameter, diags);
+            }
             check_diagnostics(body, diags);
             for h in handlers {
                 check_diagnostics(&h.body, diags);
@@ -451,8 +467,15 @@ fn invalid_drop_specialized_uses_aether(
             .iter()
             .map(|arg| invalid_drop_specialized_uses_aether(arg, scrutinee_id, count_reuse_token))
             .sum(),
-        AetherExpr::Handle { body, handlers, .. } => {
-            invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter.as_ref().map_or(0, |parameter| {
+                invalid_drop_specialized_uses_aether(parameter, scrutinee_id, count_reuse_token)
+            }) + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
                 + handlers
                     .iter()
                     .map(|h| {

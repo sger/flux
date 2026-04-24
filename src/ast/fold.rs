@@ -436,12 +436,14 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
         Expression::Handle {
             expr,
             effect,
+            parameter,
             arms,
             span,
             id,
         } => Expression::Handle {
             expr: Box::new(folder.fold_expr(*expr)),
             effect: folder.fold_identifier(effect),
+            parameter: parameter.map(|p| Box::new(folder.fold_expr(*p))),
             arms: arms
                 .into_iter()
                 .map(|a| HandleArm {

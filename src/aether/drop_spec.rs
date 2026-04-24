@@ -171,11 +171,13 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(transform(*body)),
             effect,
+            parameter: parameter.map(|p| Box::new(transform(*p))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
@@ -687,17 +689,23 @@ fn rewrite_mode(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
             effect: *effect,
+            parameter: parameter
+                .as_ref()
+                .map(|p| Box::new(rewrite_mode(p, mode, scrutinee_id, duped_fields))),
             handlers: handlers
                 .iter()
                 .map(|handler| AetherHandler {
                     operation: handler.operation,
                     params: handler.params.clone(),
                     param_types: handler.param_types.clone(),
+                    state: handler.state,
+                    state_ty: handler.state_ty.clone(),
                     resume: handler.resume,
                     resume_ty: handler.resume_ty.clone(),
                     body: rewrite_mode(&handler.body, mode, scrutinee_id, duped_fields),
@@ -844,8 +852,16 @@ mod tests {
                     .sum::<usize>()
             }
             CoreExpr::Return { value, .. } => here + count_matching(value, predicate),
-            CoreExpr::Handle { body, handlers, .. } => {
-                here + count_matching(body, predicate)
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                here + parameter
+                    .as_ref()
+                    .map_or(0, |parameter| count_matching(parameter, predicate))
+                    + count_matching(body, predicate)
                     + handlers
                         .iter()
                         .map(|handler| count_matching(&handler.body, predicate))

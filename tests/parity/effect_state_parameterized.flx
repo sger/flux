@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// expect: success
+// bug: Proposal 0169 parameterized handlers implement a State-like pattern by
+//      threading the current parameter through resume(result, next_state).
+// parity-expected-stdout-begin
+// "1"
+// parity-expected-stdout-end
+
+effect Counter {
+    next : () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let _first = perform Counter.next()
+    perform Counter.next()
+}
+
+fn main() with IO {
+    let result = count_twice() handle Counter(0) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+    print(to_string(result))
+}

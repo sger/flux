@@ -1161,12 +1161,15 @@ mod tests {
                     body: Box::new(CoreExpr::Handle {
                         body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                         effect: effect_name,
+                        parameter: None,
                         handlers: vec![CoreHandler {
                             operation: op_name,
                             params: vec![arg_binder],
                             param_types: vec![],
                             resume: resume_binder,
                             resume_ty: None,
+                            state: None,
+                            state_ty: None,
                             body: CoreExpr::App {
                                 func: Box::new(var_expr(resume_binder)),
                                 args: vec![var_expr(x_binder)],

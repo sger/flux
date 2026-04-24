@@ -107,11 +107,22 @@ fn resolve_expr_binders(expr: &mut CoreExpr, scopes: &mut Vec<BinderScope>) {
                 resolve_expr_binders(arg, scopes);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                resolve_expr_binders(parameter, scopes);
+            }
             resolve_expr_binders(body, scopes);
             for handler in handlers {
                 let mut handler_scope = scope_for_binders(&handler.params);
                 handler_scope.insert(handler.resume.name, handler.resume.id);
+                if let Some(state) = handler.state {
+                    handler_scope.insert(state.name, state.id);
+                }
                 scopes.push(handler_scope);
                 resolve_expr_binders(&mut handler.body, scopes);
                 scopes.pop();
@@ -192,13 +203,27 @@ fn validate_expr_binders(expr: &CoreExpr, scopes: &mut Vec<BinderScope>) -> bool
         CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
             args.iter().all(|arg| validate_expr_binders(arg, scopes))
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if parameter
+                .as_ref()
+                .is_some_and(|parameter| !validate_expr_binders(parameter, scopes))
+            {
+                return false;
+            }
             if !validate_expr_binders(body, scopes) {
                 return false;
             }
             handlers.iter().all(|handler| {
                 let mut handler_scope = scope_for_binders(&handler.params);
                 handler_scope.insert(handler.resume.name, handler.resume.id);
+                if let Some(state) = handler.state {
+                    handler_scope.insert(state.name, state.id);
+                }
                 scopes.push(handler_scope);
                 let ok = validate_expr_binders(&handler.body, scopes);
                 scopes.pop();

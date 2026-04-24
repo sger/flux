@@ -409,9 +409,11 @@ impl<'a> FnCtx<'a> {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => {
+                let initial_state = parameter.as_ref().map(|p| self.lower_expr(p));
                 // Compile each handler arm as a separate closure function.
                 let mut scope_arms = Vec::new();
                 for h in handlers {
@@ -420,6 +422,7 @@ impl<'a> FnCtx<'a> {
                         operation_name: h.operation,
                         function_id: fn_id,
                         capture_vars,
+                        parameterized: h.state.is_some(),
                     });
                 }
 
@@ -445,6 +448,7 @@ impl<'a> FnCtx<'a> {
                 self.emit(IrInstr::HandleScope {
                     effect: *effect,
                     arms: scope_arms,
+                    initial_state,
                     body_entry: body_block_id,
                     body_result: dest, // will be set below via jump arg
                     dest,
@@ -777,9 +781,11 @@ impl<'a> FnCtx<'a> {
             AetherExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => {
+                let initial_state = parameter.as_ref().map(|p| self.lower_expr_aether(p));
                 let mut scope_arms = Vec::new();
                 for h in handlers {
                     let (fn_id, capture_vars) = self.lower_handler_arm_aether(h);
@@ -787,6 +793,7 @@ impl<'a> FnCtx<'a> {
                         operation_name: h.operation,
                         function_id: fn_id,
                         capture_vars,
+                        parameterized: h.state.is_some(),
                     });
                 }
                 let body_block_idx = self.new_block();
@@ -805,6 +812,7 @@ impl<'a> FnCtx<'a> {
                 self.emit(IrInstr::HandleScope {
                     effect: *effect,
                     arms: scope_arms,
+                    initial_state,
                     body_entry: body_block_id,
                     body_result: dest,
                     dest,

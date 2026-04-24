@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// bug: Proposal 0169 parameterized handlers thread state through resume.
+// parity-expected-stdout-begin
+// "1"
+// parity-expected-stdout-end
+
+effect Counter {
+    next : () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let _ = perform Counter.next()
+    perform Counter.next()
+}
+
+fn main() with IO {
+    let result = count_twice() handle Counter(0) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+    print(to_string(result))
+}

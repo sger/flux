@@ -1,0 +1,20 @@
+// parity: vm, llvm
+// expect: success
+// bug: Proposal 0169 parameterized handlers must compose with Proposal 0165's
+//      routed builtin Console operations. The local handler captures the
+//      helper's println call, so only the final print should reach stdout.
+// parity-expected-stdout-begin
+// "visible"
+// parity-expected-stdout-end
+
+fn emit_hidden() with Console {
+    println("hidden")
+}
+
+fn main() with IO {
+    let _captured = emit_hidden() handle Console(0) {
+        println(resume, _value, count) -> resume((), count + 1),
+        print(resume, _value, count) -> resume((), count)
+    }
+    print("visible")
+}

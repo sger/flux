@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// bug: Proposal 0169 parameterized handlers implement Reader by preserving the
+//      same parameter through resume(result, state).
+// parity-expected-stdout-begin
+// "flux-server"
+// parity-expected-stdout-end
+
+effect Config {
+    ask : () -> String
+}
+
+fn describe() -> String with Config {
+    perform Config.ask()
+}
+
+fn main() with IO {
+    let result = describe() handle Config("flux-server") {
+        ask(resume, env) -> resume(env, env)
+    }
+    print(result)
+}

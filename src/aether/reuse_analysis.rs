@@ -1083,10 +1083,13 @@ fn rewrite_nested_drop_sites(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => {
             let body_inner = rewrite_nested_drop_sites(*body, env, blocked_outer_token);
+            let parameter = parameter
+                .map(|p| Box::new(rewrite_nested_drop_sites(*p, env, blocked_outer_token).expr));
             let handlers = handlers
                 .into_iter()
                 .map(|mut handler| {
@@ -1102,6 +1105,7 @@ fn rewrite_nested_drop_sites(
             let expr = CoreExpr::Handle {
                 body: Box::new(body_inner.expr),
                 effect,
+                parameter,
                 handlers,
                 span,
             };
@@ -1829,7 +1833,15 @@ mod tests {
                     collect_reuses(arg, out);
                 }
             }
-            CoreExpr::Handle { body, handlers, .. } => {
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                if let Some(parameter) = parameter {
+                    collect_reuses(parameter, out);
+                }
                 collect_reuses(body, out);
                 for handler in handlers {
                     collect_reuses(&handler.body, out);

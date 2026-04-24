@@ -462,12 +462,15 @@ fn inline_trivial_substitutes_inside_handler_body() {
         body: Box::new(CoreExpr::Handle {
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             effect,
+            parameter: None,
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![],
                 param_types: vec![],
                 resume: resume_binder,
                 resume_ty: None,
+                state: None,
+                state_ty: None,
                 body: var_ref(x_binder),
                 span: s(),
             }],
@@ -505,12 +508,15 @@ fn inline_trivial_respects_handler_shadowing() {
         body: Box::new(CoreExpr::Handle {
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             effect,
+            parameter: None,
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![handler_x],
                 param_types: vec![],
                 resume: resume_binder,
                 resume_ty: None,
+                state: None,
+                state_ty: None,
                 body: var_ref(handler_x),
                 span: s(),
             }],

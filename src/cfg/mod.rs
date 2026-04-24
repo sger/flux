@@ -392,6 +392,7 @@ pub struct HandleScopeArm {
     pub operation_name: Identifier,
     pub function_id: FunctionId,
     pub capture_vars: Vec<IrVar>,
+    pub parameterized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -563,6 +564,7 @@ pub enum IrInstr {
     HandleScope {
         effect: Identifier,
         arms: Vec<HandleScopeArm>,
+        initial_state: Option<IrVar>,
         /// Entry block for the handled body.
         body_entry: BlockId,
         /// Var holding the body's result (set in the body blocks).

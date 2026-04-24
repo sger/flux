@@ -476,6 +476,7 @@ fn promote_expr(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
@@ -487,6 +488,15 @@ fn promote_expr(
                 binder_qualified_names,
             )),
             effect,
+            parameter: parameter.map(|p| {
+                Box::new(promote_expr(
+                    *p,
+                    table,
+                    interner,
+                    def_arities,
+                    binder_qualified_names,
+                ))
+            }),
             handlers: handlers
                 .into_iter()
                 .map(|h| crate::core::CoreHandler {

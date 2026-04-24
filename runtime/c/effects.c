@@ -30,6 +30,7 @@ int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
 int32_t  flux_yield_marker      = 0;   /* target handler's marker */
 int64_t  flux_yield_clause      = 0;   /* operation clause closure */
 int64_t  flux_yield_op_arg      = 0;   /* performed argument (unused for 0-arity) */
+int64_t  flux_yield_op_state    = 0;   /* current handler parameter, or 0 when absent */
 int32_t  flux_yield_op_arity    = 0;   /* user-visible arity of the op (0 or 1) */
 int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
 int32_t  flux_yield_conts_count = 0;
@@ -39,21 +40,23 @@ int64_t  flux_yield_evv         = 0;   /* current_evv at yield time (slice 5-tr-
 
 /*
  * Evidence vector: a heap-allocated array of evidence entries.
- * Each entry is 4 pointer-tagged words (32 bytes):
+ * Each entry is 5 pointer-tagged words (40 bytes):
  *   [0] htag       — effect tag (tagged int)
  *   [1] marker     — handler instance id (tagged int)
  *   [2] handler    — handler clause closure (tagged pointer)
  *   [3] parent_evv — saved evidence vector
+ *   [4] state      — parameterized handler state, or 0 when absent
  *
  * The vector itself is stored as a FluxArray (obj_tag FLUX_OBJ_EVIDENCE)
  * with length = number of entries * 4 words.
  */
 
-#define EVV_ENTRY_WORDS  4
+#define EVV_ENTRY_WORDS  5
 #define EVV_HTAG_OFF     0
 #define EVV_MARKER_OFF   1
 #define EVV_HANDLER_OFF  2
 #define EVV_PARENT_OFF   3
+#define EVV_STATE_OFF    4
 
 /* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
 typedef struct {
@@ -104,7 +107,7 @@ int64_t flux_fresh_marker(void) {
  * Returns a new evidence vector with the entry added.
  * Entries are appended (not sorted) for simplicity — linear lookup by htag.
  */
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler) {
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state) {
     EvvArray *old = evv_unbox(evv);
     int32_t old_count = old ? old->count : 0;
     int32_t new_count = old_count + 1;
@@ -123,6 +126,7 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_MARKER_OFF]  = marker;
     entry[EVV_HANDLER_OFF] = handler;
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
+    entry[EVV_STATE_OFF]   = state;
 
     return evv_box(arr);
 }
@@ -193,6 +197,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_yield_marker      = m;
     flux_yield_clause      = clause;
     flux_yield_op_arg      = arg;
+    flux_yield_op_state    = entry[EVV_STATE_OFF];
     flux_yield_op_arity    = (int32_t)flux_untag_int(arity);
     flux_yield_conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
@@ -245,6 +250,15 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  * Single-threaded today, fits the rest of the runtime's global-state model.
  */
 int32_t flux_resume_called = 0;
+int32_t flux_direct_resume_marker = 0;
+
+static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
+    EvvArray *arr = evv_unbox(current_evv);
+    int idx = evv_lookup_by_marker(arr, marker);
+    if (idx >= 0) {
+        arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF] = next_state;
+    }
+}
 
 /*
  * Called by the compiler-emitted identity-resume closure. Bumps the counter
@@ -282,7 +296,9 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 
 int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
     (void)closure_raw;
-    (void)nargs;  /* always 1 for an arity-1 closure */
+    if (nargs >= 2 && flux_direct_resume_marker != 0) {
+        flux_update_state_for_marker(flux_direct_resume_marker, args_ptr[1]);
+    }
     return flux_resume_mark_called(args_ptr[0]);
 }
 
@@ -299,11 +315,15 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     }
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
+    int32_t marker = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
+    int64_t state = entry[EVV_STATE_OFF];
 
     /* Save & reset the counter so nested performs don't confuse the detector. */
     int32_t saved_count = flux_resume_called;
+    int32_t saved_direct_marker = flux_direct_resume_marker;
     flux_resume_called = 0;
+    flux_direct_resume_marker = marker;
 
     /*
      * Direct call: clause(resume, arg0, ..., argN).
@@ -315,7 +335,13 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
      */
     int64_t argc = flux_untag_int(arity);
     int64_t result;
-    if (argc <= 0) {
+    if (state != 0 && argc <= 0) {
+        int64_t args[2] = { resume, state };
+        result = flux_call_closure_c(clause, args, 2);
+    } else if (state != 0) {
+        int64_t args[3] = { resume, arg, state };
+        result = flux_call_closure_c(clause, args, 3);
+    } else if (argc <= 0) {
         int64_t args[1] = { resume };
         result = flux_call_closure_c(clause, args, 1);
     } else {
@@ -369,6 +395,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
 
     /* Restore the outer counter; we're now unwinding past this perform. */
     flux_resume_called = saved_count;
+    flux_direct_resume_marker = saved_direct_marker;
 
     return result;
 }
@@ -420,11 +447,16 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
 int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
     (void)nargs; /* always 1 for a resume(v) call */
 
-    /* Unpack the single capture: the conts array. FluxClosure layout mirrors
+    /* Unpack captures: conts array plus target marker. FluxClosure layout mirrors
      * flux_rt.c / llvm/codegen/closure.rs — 24-byte header then payload. */
     void *clo_ptr = flux_untag_ptr(closure_raw);
     int64_t *payload = (int64_t *)((char *)clo_ptr + 24);
     int64_t conts_arr = payload[0];
+    int32_t marker = (int32_t)flux_untag_int(payload[1]);
+
+    if (nargs >= 2) {
+        flux_update_state_for_marker(marker, args_ptr[1]);
+    }
 
     int64_t count = flux_untag_int(flux_array_len(conts_arr));
     int64_t result = args_ptr[0];
@@ -452,7 +484,7 @@ int64_t flux_compose_conts(void) {
     if (flux_yield_conts_count == 0) {
         return flux_make_none();
     }
-    if (flux_yield_conts_count == 1) {
+    if (flux_yield_conts_count == 1 && flux_yield_op_state == 0) {
         int64_t result = flux_yield_conts[0];
         flux_yield_conts_count = 0;
         return result;
@@ -470,9 +502,10 @@ int64_t flux_compose_conts(void) {
      *     int32_t applied_count; int32_t _pad; int64_t payload[]; }
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
-    uint32_t payload_bytes = (uint32_t)sizeof(int64_t); /* one capture */
+    int64_t marker = flux_tag_int((int64_t)flux_yield_marker);
+    uint32_t payload_bytes = (uint32_t)(2 * sizeof(int64_t)); /* conts + marker */
     uint32_t size = 24 + payload_bytes;
-    void *mem = flux_gc_alloc_header(size, 1 /* scan_fsize = 1 capture */,
+    void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
                                      FLUX_OBJ_CLOSURE);
     struct FluxClosureLayout {
         void   *fn_ptr;
@@ -484,11 +517,12 @@ int64_t flux_compose_conts(void) {
     };
     struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
     clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
-    clo->remaining_arity = 1;   /* user-visible: resume(v) */
-    clo->capture_count   = 1;
+    clo->remaining_arity = (flux_yield_op_state != 0) ? 2 : 1;
+    clo->capture_count   = 2;
     clo->applied_count   = 0;
     clo->_pad            = 0;
     clo->payload[0]      = arr;
+    clo->payload[1]      = marker;
 
     return flux_tag_ptr(mem);
 }
@@ -549,6 +583,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
 
         int64_t clause   = flux_yield_clause;
         int64_t op_arg   = flux_yield_op_arg;
+        int64_t op_state = flux_yield_op_state;
         int32_t op_arity = flux_yield_op_arity;
         int64_t yield_evv = yield_evv_local;
 
@@ -560,6 +595,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         flux_yield_marker      = 0;
         flux_yield_clause      = 0;
         flux_yield_op_arg      = 0;
+        flux_yield_op_state    = 0;
         flux_yield_op_arity    = 0;
         flux_yield_conts_count = 0;
         flux_yield_evv         = 0;
@@ -571,8 +607,14 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * have unwound before the outer prompt decides to resume). */
         current_evv = yield_evv;
 
-        /* Call the handler clause: clause(resume, [arg]). */
-        if (op_arity <= 0) {
+        /* Call the handler clause: clause(resume, [arg], [state]). */
+        if (op_state != 0 && op_arity <= 0) {
+            int64_t args[2] = { resume_cont, op_state };
+            result = flux_call_closure_c(clause, args, 2);
+        } else if (op_state != 0) {
+            int64_t args[3] = { resume_cont, op_arg, op_state };
+            result = flux_call_closure_c(clause, args, 3);
+        } else if (op_arity <= 0) {
             int64_t args[1] = { resume_cont };
             result = flux_call_closure_c(clause, args, 1);
         } else {
