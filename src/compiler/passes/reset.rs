@@ -22,6 +22,7 @@ impl Compiler {
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
         self.effect_alias_scopes.push(HashMap::new());
+        self.routed_call_perform_ids.clear();
         #[cfg(test)]
         {
             self.hm_infer_runs = 0;
