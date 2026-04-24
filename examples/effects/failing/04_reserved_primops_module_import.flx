@@ -1,0 +1,9 @@
+// `Flow.Primops` is the compiler's intrinsic implementation layer for
+// effectful prelude operations. It is not user-importable. Calls like
+// `println` and `read_file` work without any explicit import.
+
+import Flow.Primops
+
+fn main() {
+    println("should not compile")
+}
