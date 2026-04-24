@@ -561,12 +561,13 @@ fn effectful_prelude_call_routes_to_perform_before_inference() {
         parser.errors
     );
     let mut interner = parser.take_interner();
-    let (routed, changed) =
+    let routing =
         flux::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
             &program,
             &mut interner,
         );
-    assert!(changed, "expected 0165 routing to change the AST");
+    assert!(routing.changed, "expected 0165 routing to change the AST");
+    let routed = routing.program;
     let Statement::Function { body, .. } = &routed.statements[0] else {
         panic!("expected main function");
     };

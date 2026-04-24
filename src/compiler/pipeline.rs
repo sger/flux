@@ -33,8 +33,9 @@ impl Compiler {
         // Phase 0b (Proposal 0165): route effectful prelude primop calls
         // through `perform` and wrap entrypoints with compiler-provided
         // default handlers before collection/inference see the program.
-        let (routed_program, _) =
-            route_effectful_primops_and_synthesize_handlers(program, &mut self.interner);
+        let routing = route_effectful_primops_and_synthesize_handlers(program, &mut self.interner);
+        self.routed_call_perform_ids = routing.routed_call_perform_ids;
+        let routed_program = routing.program;
         let program = &routed_program;
 
         // Phase 1: Collect definitions + validate structure

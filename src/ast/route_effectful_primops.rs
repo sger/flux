@@ -8,7 +8,7 @@ use crate::syntax::{
     Identifier,
     block::Block,
     builtin_effects as be,
-    expression::{ExprIdGen, Expression, HandleArm, StringPart},
+    expression::{ExprId, ExprIdGen, Expression, HandleArm, StringPart},
     interner::Interner,
     program::Program,
     statement::Statement,
@@ -83,17 +83,31 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
     },
 ];
 
+/// Result of the routing + handler synthesis pass.
+///
+/// `routed_call_perform_ids` captures the `ExprId`s of `Perform` nodes that
+/// were synthesized from direct user calls (e.g. `println(x)` rewritten to
+/// `perform Console.println(x)`). Downstream diagnostics use this set to
+/// render errors in call-shape terminology instead of the lowered
+/// `perform`-shape terminology.
+pub struct RoutingResult {
+    pub program: Program,
+    pub changed: bool,
+    pub routed_call_perform_ids: std::collections::HashSet<ExprId>,
+}
+
 pub fn route_effectful_primops_and_synthesize_handlers(
     program: &Program,
     interner: &mut Interner,
-) -> (Program, bool) {
+) -> RoutingResult {
     let mut owned = program.clone();
     let user_effect_ops = collect_user_effect_ops(&owned, interner);
     let function_effects = collect_function_effects(&owned, interner);
     let mut ids = ExprIdGen::resuming_past_program(&owned);
     let mut changed = false;
+    let mut routed_call_perform_ids: HashSet<ExprId> = HashSet::new();
     for stmt in &mut owned.statements {
-        changed |= route_stmt(stmt, interner, false);
+        changed |= route_stmt(stmt, interner, false, &mut routed_call_perform_ids);
     }
     for stmt in &mut owned.statements {
         changed |= synthesize_stmt_entry_handlers(
@@ -104,7 +118,11 @@ pub fn route_effectful_primops_and_synthesize_handlers(
             &function_effects,
         );
     }
-    (owned, changed)
+    RoutingResult {
+        program: owned,
+        changed,
+        routed_call_perform_ids,
+    }
 }
 
 fn collect_user_effect_ops(
@@ -275,16 +293,23 @@ fn type_expr_is_named(type_expr: &TypeExpr, expected: &str, interner: &Interner)
     )
 }
 
-fn route_stmt(stmt: &mut Statement, interner: &mut Interner, skip: bool) -> bool {
+fn route_stmt(
+    stmt: &mut Statement,
+    interner: &mut Interner,
+    skip: bool,
+    routed_ids: &mut HashSet<ExprId>,
+) -> bool {
     match stmt {
         Statement::Let { value, .. }
         | Statement::LetDestructure { value, .. }
-        | Statement::Assign { value, .. } => route_expr(value, interner, skip),
+        | Statement::Assign { value, .. } => route_expr(value, interner, skip, routed_ids),
         Statement::Return {
             value: Some(value), ..
-        } => route_expr(value, interner, skip),
+        } => route_expr(value, interner, skip, routed_ids),
         Statement::Return { value: None, .. } => false,
-        Statement::Expression { expression, .. } => route_expr(expression, interner, skip),
+        Statement::Expression { expression, .. } => {
+            route_expr(expression, interner, skip, routed_ids)
+        }
         Statement::Function {
             intrinsic,
             body,
@@ -296,11 +321,11 @@ fn route_stmt(stmt: &mut Statement, interner: &mut Interner, skip: bool) -> bool
                 || interner
                     .try_resolve(*name)
                     .is_some_and(|name| name.starts_with("__primop_"));
-            route_block(body, interner, skip_body)
+            route_block(body, interner, skip_body, routed_ids)
         }
         Statement::Module { name, body, .. } => {
             let skip_module = skip || interner.try_resolve(*name) == Some("Flow.Primops");
-            route_block(body, interner, skip_module)
+            route_block(body, interner, skip_module, routed_ids)
         }
         Statement::Import { .. }
         | Statement::Data { .. }
@@ -311,15 +336,25 @@ fn route_stmt(stmt: &mut Statement, interner: &mut Interner, skip: bool) -> bool
     }
 }
 
-fn route_block(block: &mut Block, interner: &mut Interner, skip: bool) -> bool {
+fn route_block(
+    block: &mut Block,
+    interner: &mut Interner,
+    skip: bool,
+    routed_ids: &mut HashSet<ExprId>,
+) -> bool {
     let mut changed = false;
     for stmt in &mut block.statements {
-        changed |= route_stmt(stmt, interner, skip);
+        changed |= route_stmt(stmt, interner, skip, routed_ids);
     }
     changed
 }
 
-fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> bool {
+fn route_expr(
+    expr: &mut Expression,
+    interner: &mut Interner,
+    skip: bool,
+    routed_ids: &mut HashSet<ExprId>,
+) -> bool {
     if skip {
         return false;
     }
@@ -331,24 +366,26 @@ fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> boo
             span,
             id,
         } => {
-            changed |= route_expr(function, interner, false);
+            changed |= route_expr(function, interner, false, routed_ids);
             for arg in arguments.iter_mut() {
-                changed |= route_expr(arg, interner, false);
+                changed |= route_expr(arg, interner, false, routed_ids);
             }
             if let Some(routed) = routed_call(function, arguments.len(), interner) {
                 let args = std::mem::take(arguments);
+                let perform_id = *id;
                 *expr = Expression::Perform {
                     effect: interner.intern(routed.effect),
                     operation: interner.intern(routed.operation),
                     args,
                     span: *span,
-                    id: *id,
+                    id: perform_id,
                 };
+                routed_ids.insert(perform_id);
                 changed = true;
             }
         }
         Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
-            changed |= route_block(body, interner, false);
+            changed |= route_block(body, interner, false, routed_ids);
         }
         Expression::If {
             condition,
@@ -356,31 +393,33 @@ fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> boo
             alternative,
             ..
         } => {
-            changed |= route_expr(condition, interner, false);
-            changed |= route_block(consequence, interner, false);
+            changed |= route_expr(condition, interner, false, routed_ids);
+            changed |= route_block(consequence, interner, false, routed_ids);
             if let Some(alt) = alternative {
-                changed |= route_block(alt, interner, false);
+                changed |= route_block(alt, interner, false, routed_ids);
             }
         }
         Expression::Match {
             scrutinee, arms, ..
         } => {
-            changed |= route_expr(scrutinee, interner, false);
+            changed |= route_expr(scrutinee, interner, false, routed_ids);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_mut() {
-                    changed |= route_expr(guard, interner, false);
+                    changed |= route_expr(guard, interner, false, routed_ids);
                 }
-                changed |= route_expr(&mut arm.body, interner, false);
+                changed |= route_expr(&mut arm.body, interner, false, routed_ids);
             }
         }
         Expression::Infix { left, right, .. } => {
-            changed |= route_expr(left, interner, false);
-            changed |= route_expr(right, interner, false);
+            changed |= route_expr(left, interner, false, routed_ids);
+            changed |= route_expr(right, interner, false, routed_ids);
         }
-        Expression::Prefix { right, .. } => changed |= route_expr(right, interner, false),
+        Expression::Prefix { right, .. } => {
+            changed |= route_expr(right, interner, false, routed_ids)
+        }
         Expression::Perform { args, .. } => {
             for arg in args {
-                changed |= route_expr(arg, interner, false);
+                changed |= route_expr(arg, interner, false, routed_ids);
             }
         }
         Expression::Handle {
@@ -389,12 +428,12 @@ fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> boo
             arms,
             ..
         } => {
-            changed |= route_expr(handled, interner, false);
+            changed |= route_expr(handled, interner, false, routed_ids);
             if let Some(parameter) = parameter {
-                changed |= route_expr(parameter, interner, false);
+                changed |= route_expr(parameter, interner, false, routed_ids);
             }
             for arm in arms {
-                changed |= route_expr(&mut arm.body, interner, false);
+                changed |= route_expr(&mut arm.body, interner, false, routed_ids);
             }
         }
         Expression::Sealing { expr, .. }
@@ -402,49 +441,51 @@ fn route_expr(expr: &mut Expression, interner: &mut Interner, skip: bool) -> boo
         | Expression::TupleFieldAccess { object: expr, .. }
         | Expression::Some { value: expr, .. }
         | Expression::Left { value: expr, .. }
-        | Expression::Right { value: expr, .. } => changed |= route_expr(expr, interner, false),
+        | Expression::Right { value: expr, .. } => {
+            changed |= route_expr(expr, interner, false, routed_ids)
+        }
         Expression::Index { left, index, .. } => {
-            changed |= route_expr(left, interner, false);
-            changed |= route_expr(index, interner, false);
+            changed |= route_expr(left, interner, false, routed_ids);
+            changed |= route_expr(index, interner, false, routed_ids);
         }
         Expression::ListLiteral { elements, .. }
         | Expression::ArrayLiteral { elements, .. }
         | Expression::TupleLiteral { elements, .. } => {
             for elem in elements {
-                changed |= route_expr(elem, interner, false);
+                changed |= route_expr(elem, interner, false, routed_ids);
             }
         }
         Expression::Hash { pairs, .. } => {
             for (key, value) in pairs {
-                changed |= route_expr(key, interner, false);
-                changed |= route_expr(value, interner, false);
+                changed |= route_expr(key, interner, false, routed_ids);
+                changed |= route_expr(value, interner, false, routed_ids);
             }
         }
         Expression::Cons { head, tail, .. } => {
-            changed |= route_expr(head, interner, false);
-            changed |= route_expr(tail, interner, false);
+            changed |= route_expr(head, interner, false, routed_ids);
+            changed |= route_expr(tail, interner, false, routed_ids);
         }
         Expression::InterpolatedString { parts, .. } => {
             for part in parts {
                 if let StringPart::Interpolation(expr) = part {
-                    changed |= route_expr(expr, interner, false);
+                    changed |= route_expr(expr, interner, false, routed_ids);
                 }
             }
         }
         Expression::NamedConstructor { fields, .. } => {
             for field in fields {
                 if let Some(value) = field.value.as_mut() {
-                    changed |= route_expr(value, interner, false);
+                    changed |= route_expr(value, interner, false, routed_ids);
                 }
             }
         }
         Expression::Spread {
             base, overrides, ..
         } => {
-            changed |= route_expr(base, interner, false);
+            changed |= route_expr(base, interner, false, routed_ids);
             for field in overrides {
                 if let Some(value) = field.value.as_mut() {
-                    changed |= route_expr(value, interner, false);
+                    changed |= route_expr(value, interner, false, routed_ids);
                 }
             }
         }

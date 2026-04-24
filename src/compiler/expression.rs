@@ -1142,9 +1142,10 @@ impl Compiler {
                 effect,
                 operation,
                 args,
+                id,
                 ..
             } => {
-                self.compile_perform(*effect, *operation, args)?;
+                self.compile_perform(*effect, *operation, args, *id)?;
             }
             Expression::Handle {
                 expr,
@@ -3314,11 +3315,17 @@ impl Compiler {
     }
 
     /// Compile `perform Effect.op(args)` — push args, then `OpPerform`.
+    ///
+    /// `perform_id` identifies the Perform node for origin-aware diagnostics.
+    /// When the id matches an entry in `routed_call_perform_ids`, the node
+    /// was synthesized from a direct user call (e.g. `println(x)`); E400
+    /// then renders call-shape terminology.
     fn compile_perform(
         &mut self,
         effect: Symbol,
         op: Symbol,
         args: &[Expression],
+        perform_id: crate::syntax::expression::ExprId,
     ) -> CompileResult<()> {
         let span = self
             .current_span
