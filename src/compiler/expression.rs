@@ -3415,16 +3415,32 @@ impl Compiler {
 
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
-            return Err(Self::boxed(
-                Diagnostic::make_error_dynamic(
-                    "E400",
-                    "MISSING EFFECT",
-                    ErrorType::Compiler,
+            let lowered_from_call = self.routed_call_perform_ids.contains(&perform_id);
+            let (message, label) = if lowered_from_call {
+                (
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        self.sym(op),
+                        effect_name
+                    ),
+                    "effectful call occurs here",
+                )
+            } else {
+                (
                     format!(
                         "Performing `{}` requires effect `{}` in this function signature.",
                         self.sym(op),
                         effect_name
                     ),
+                    "effectful perform occurs here",
+                )
+            };
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    message,
                     Some(format!(
                         "Add `with {}` to the enclosing function.",
                         effect_name
@@ -3435,7 +3451,7 @@ impl Compiler {
                 .with_display_title("Missing Ambient Effect")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "effectful perform occurs here"),
+                .with_primary_label(span, label),
             ));
         }
 
@@ -3557,6 +3573,67 @@ impl Compiler {
                 .collect::<Vec<_>>()
                 .join(", ");
             let effect_name = self.sym(effect).to_string();
+
+            // Build a copy-pasteable arm skeleton for each missing operation.
+            // Parameterized handlers thread a `state` as the final arm
+            // parameter; stateless handlers do not. The resume value is
+            // `()` for `Unit`-returning ops (discard-style handler) and a
+            // typed placeholder for other return types.
+            let is_parameterized = parameter.is_some();
+            let mut skeleton_lines: Vec<String> = Vec::new();
+            for op in &missing {
+                let op_name = self.sym(*op).to_string();
+                let (op_params, op_ret) = match self.effect_operation_function_parts(
+                    effect,
+                    *op,
+                    expr.span(),
+                    "missing-arm skeleton",
+                ) {
+                    Ok(parts) => parts,
+                    Err(_) => {
+                        // Signature unavailable — fall back to a minimal
+                        // placeholder rather than aborting the whole
+                        // diagnostic.
+                        skeleton_lines.push(format!("    {op_name}(resume, ...) -> resume(...)"));
+                        continue;
+                    }
+                };
+
+                let mut params: Vec<String> = vec!["resume".to_string()];
+                for i in 0..op_params.len() {
+                    params.push(format!("_arg{}", i + 1));
+                }
+                if is_parameterized {
+                    params.push("_state".to_string());
+                }
+
+                use crate::types::type_constructor::TypeConstructor;
+                let returns_unit =
+                    matches!(op_ret, InferType::Con(TypeConstructor::Unit));
+                let resume_arg = if returns_unit {
+                    "()".to_string()
+                } else {
+                    format!("/* : {} */ todo!()", op_ret)
+                };
+                let body = if is_parameterized {
+                    format!("resume({resume_arg}, _state)")
+                } else {
+                    format!("resume({resume_arg})")
+                };
+
+                skeleton_lines
+                    .push(format!("    {}({}) -> {}", op_name, params.join(", "), body));
+            }
+
+            let skeleton = skeleton_lines.join(",\n");
+            let hint = format!(
+                "Add {} arm(s) to the handle block:\n\n{}\n\nTip: `resume(())` consumes the \
+                 operation and discards its effect; use it when the handler only cares about \
+                 observing the call.",
+                missing.len(),
+                skeleton,
+            );
+
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E402",
@@ -3566,7 +3643,7 @@ impl Compiler {
                         "Handler for `{}` is missing operations: {}.",
                         effect_name, missing_names
                     ),
-                    Some("Add handler arms for all declared operations of the effect.".to_string()),
+                    Some(hint),
                     self.file_path.clone(),
                     expr.span(),
                 )

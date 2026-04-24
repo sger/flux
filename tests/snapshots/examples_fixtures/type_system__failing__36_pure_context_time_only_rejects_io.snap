@@ -7,13 +7,13 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Performing `print` requires effect `Console` in this function signature.
+Call to `print` requires effect `Console` in this function signature.
 
   examples/type_system/failing/36_pure_context_time_only_rejects_io.flx:4:5
   |
 4 |     print("tick")
   |     ^^^^^^^^^^^^^
-  |     ------------- effectful perform occurs here
+  |     ------------- effectful call occurs here
 
 Hint:
   Add `with Console` to the enclosing function.

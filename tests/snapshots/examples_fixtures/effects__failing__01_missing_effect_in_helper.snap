@@ -7,13 +7,13 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Performing `println` requires effect `Console` in this function signature.
+Call to `println` requires effect `Console` in this function signature.
 
-  examples/effects/failing/01_missing_effect_in_helper.flx:4:5
+  examples/effects/failing/01_missing_effect_in_helper.flx:8:5
   |
-4 |     println("missing Console")
+8 |     println("missing Console")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     -------------------------- effectful perform occurs here
+  |     -------------------------- effectful call occurs here
 
 Hint:
   Add `with Console` to the enclosing function.

@@ -7,13 +7,13 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Performing `now_ms` requires effect `Clock` in this function signature.
+Call to `now_ms` requires effect `Clock` in this function signature.
 
   examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:4:5
   |
 4 |     now_ms()
   |     ^^^^^^^^
-  |     -------- effectful perform occurs here
+  |     -------- effectful call occurs here
 
 Hint:
   Add `with Clock` to the enclosing function.

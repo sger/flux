@@ -16,6 +16,10 @@ Handler for `Console` is missing operations: read.
   | ---------------------- handled expression
 
 Hint:
-  Add handler arms for all declared operations of the effect.
+  Add 1 arm(s) to the handle block:
+
+    read(resume) -> resume(/* : String */ todo!())
+
+Tip: `resume(())` consumes the operation and discards its effect; use it when the handler only cares about observing the call.
 == stdout ==
 <not executed>
