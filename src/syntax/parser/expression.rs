@@ -1672,9 +1672,27 @@ impl Parser {
                 span: self.current_token.span(),
             });
 
-            if self.is_peek_token(TokenType::Bar) || self.is_peek_token(TokenType::Comma) {
+            if self.is_peek_token(TokenType::Bar) {
                 self.next_token();
                 continue;
+            }
+            if self.is_peek_token(TokenType::Comma) {
+                // Historical laxity: the parser used to accept both `|` and
+                // `,` inside `sealing { ... }`. Reject `,` with a targeted
+                // hint so examples stay consistent with the alias-body form
+                // `<E1 | E2>` that sealing mirrors.
+                self.next_token(); // consume the stray `,`
+                self.emit_parser_diagnostic(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "Sealing rows separate effects with `|`, not `,`.".to_string(),
+                    )
+                    .with_hint_text(
+                        "Write `sealing { Console | Clock }`. Commas separate top-level \
+                         `with` clauses; sealing rows use `|` like alias bodies.",
+                    ),
+                );
+                return None;
             }
             break;
         }
