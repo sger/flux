@@ -4,7 +4,7 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0104 (Flux Core IR), 0119 (Typed LLVM Codegen), 0134 (Shared Low-Level IR), 0153 (Decouple Aether from Core IR), 0156 (Static Typing Completion Roadmap)
-- Delivery notes: `CoreType::Dynamic` removed from [src/core/mod.rs](../../src/core/mod.rs) (explicit `Var` / polymorphic / `Adt` forms in place); `IrType::Dynamic` removed from [src/cfg/mod.rs](../../src/cfg/mod.rs) (replaced by `Tagged` per Track 3 Option A). Execution recorded in [Proposal 0158](implemented/0158_core_semantic_types_and_backend_rep_split_execution.md).
+- Delivery notes: `CoreType::Dynamic` removed from [src/core/mod.rs](../../src/core/mod.rs) (explicit `Var` / polymorphic / `Adt` forms in place); `IrType::Dynamic` removed from [src/cfg/mod.rs](../../src/cfg/mod.rs) (replaced by `Tagged` per Track 3 Option A). Execution recorded in [Proposal 0158](0158_core_semantic_types_and_backend_rep_split_execution.md).
 
 # Proposal 0157: Explicit Core Types and Runtime Representation Split
 
