@@ -1,0 +1,21 @@
+// Ordinary helpers still declare the effects they require.
+// IO expands to Console | FileSystem | Stdin; Time expands to Clock.
+
+fn announce(label: String) -> Unit with Console {
+    println("label=" + label)
+}
+
+fn load_text(path: String) -> String with IO {
+    read_file(path)
+}
+
+fn timestamp() -> Int with Time {
+    now_ms()
+}
+
+fn main() {
+    announce("effects")
+    let contents = load_text("examples/effects/data.txt")
+    println("bytes=" + to_string(len(contents)))
+    println("time=" + to_string(timestamp()))
+}

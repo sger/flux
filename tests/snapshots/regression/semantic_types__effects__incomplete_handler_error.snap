@@ -1,6 +1,5 @@
 ---
 source: tests/integration/regression_snapshots.rs
-assertion_line: 132
 ---
 $ flux --no-cache tests/fixtures/semantic_types/effects/incomplete_handler_error.flx
 exit_code: 1
@@ -20,11 +19,11 @@ error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: read.
 
-  tests/fixtures/semantic_types/effects/incomplete_handler_error.flx:7:5
+  tests/fixtures/semantic_types/effects/incomplete_handler_error.flx:6:1
   |
-7 |     print("hello") handle Console {
-  |     ^^^^^^^^^^^^^^
-  |     -------------- handled expression
+6 | fn main() {
+  | ^^^^^^^^^
+  | --------- handled expression
 
 Hint:
   Add handler arms for all declared operations of the effect.

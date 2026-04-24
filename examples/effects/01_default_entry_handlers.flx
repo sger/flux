@@ -1,0 +1,7 @@
+// Entry functions get default handlers for the built-in operational effects.
+// This program performs Console and Clock without spelling handlers manually.
+
+fn main() {
+    println("default Console handler")
+    println("clock=" + to_string(now_ms()))
+}

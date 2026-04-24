@@ -1,6 +1,6 @@
 use flux::compiler::Compiler;
 use flux::diagnostics::{Diagnostic, LabelStyle, render_diagnostics};
-use flux::syntax::{lexer::Lexer, parser::Parser};
+use flux::syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement};
 
 fn compile_ok_in(file_path: &str, input: &str) {
     let lexer = Lexer::new(input);
@@ -548,6 +548,132 @@ fn flow_primops_surface_compiles() {
     let source =
         std::fs::read_to_string("lib/Flow/Primops.flx").expect("expected Flow.Primops fixture");
     compile_ok_in("lib/Flow/Primops.flx", &source);
+}
+
+#[test]
+fn effectful_prelude_call_routes_to_perform_before_inference() {
+    let lexer = Lexer::new("fn main() { println(1) }");
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let mut interner = parser.take_interner();
+    let (routed, changed) =
+        flux::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
+            &program,
+            &mut interner,
+        );
+    assert!(changed, "expected 0165 routing to change the AST");
+    let Statement::Function { body, .. } = &routed.statements[0] else {
+        panic!("expected main function");
+    };
+    let Statement::Expression { expression, .. } = &body.statements[0] else {
+        panic!("expected synthesized handler expression");
+    };
+    assert!(
+        expression_contains_perform(expression, "Console", "println", &interner),
+        "expected routed AST to contain perform Console.println, got {expression:#?}"
+    );
+}
+
+#[test]
+fn reserved_internal_primop_call_is_rejected_in_user_source() {
+    let rendered = compile_err_rendered("fn main() { __primop_println(\"nope\") }");
+    assert!(
+        rendered.contains("Reserved Primop Name"),
+        "unexpected diagnostics:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("__primop_println"),
+        "unexpected diagnostics:\n{rendered}"
+    );
+}
+
+fn expression_contains_perform(
+    expression: &Expression,
+    effect: &str,
+    operation: &str,
+    interner: &flux::syntax::interner::Interner,
+) -> bool {
+    match expression {
+        Expression::Perform {
+            effect: e,
+            operation: op,
+            args,
+            ..
+        } => {
+            (interner.resolve(*e) == effect && interner.resolve(*op) == operation)
+                || args
+                    .iter()
+                    .any(|arg| expression_contains_perform(arg, effect, operation, interner))
+        }
+        Expression::Handle { expr, arms, .. } => {
+            expression_contains_perform(expr, effect, operation, interner)
+                || arms
+                    .iter()
+                    .any(|arm| expression_contains_perform(&arm.body, effect, operation, interner))
+        }
+        Expression::DoBlock { block, .. } => block.statements.iter().any(|stmt| match stmt {
+            Statement::Expression { expression, .. }
+            | Statement::Let {
+                value: expression, ..
+            }
+            | Statement::LetDestructure {
+                value: expression, ..
+            }
+            | Statement::Assign {
+                value: expression, ..
+            } => expression_contains_perform(expression, effect, operation, interner),
+            Statement::Return { value: Some(v), .. } => {
+                expression_contains_perform(v, effect, operation, interner)
+            }
+            Statement::Function { body, .. } | Statement::Module { body, .. } => {
+                body.statements.iter().any(|stmt| match stmt {
+                    Statement::Expression { expression, .. } => {
+                        expression_contains_perform(expression, effect, operation, interner)
+                    }
+                    _ => false,
+                })
+            }
+            _ => false,
+        }),
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            expression_contains_perform(function, effect, operation, interner)
+                || arguments
+                    .iter()
+                    .any(|arg| expression_contains_perform(arg, effect, operation, interner))
+        }
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            expression_contains_perform(condition, effect, operation, interner)
+                || consequence.statements.iter().any(|stmt| match stmt {
+                    Statement::Expression { expression, .. } => {
+                        expression_contains_perform(expression, effect, operation, interner)
+                    }
+                    _ => false,
+                })
+                || alternative.as_ref().is_some_and(|block| {
+                    block.statements.iter().any(|stmt| match stmt {
+                        Statement::Expression { expression, .. } => {
+                            expression_contains_perform(expression, effect, operation, interner)
+                        }
+                        _ => false,
+                    })
+                })
+        }
+        _ => false,
+    }
 }
 
 #[test]
@@ -2575,8 +2701,12 @@ fn log_event(msg: String) with Observable {
     println(msg)
 }
 
-fn main() with IO {
+fn caller() with IO {
     log_event("x")
+}
+
+fn main() {
+    caller()
 }
 "#,
     );

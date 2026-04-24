@@ -1,0 +1,19 @@
+// The callback effect row `|e` flows through the higher-order helper.
+
+fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
+    f(f(x))
+}
+
+fn pure_inc(x: Int) -> Int {
+    x + 1
+}
+
+fn logged_inc(x: Int) -> Int with Console {
+    println("x=" + to_string(x))
+    x + 1
+}
+
+fn main() {
+    println("pure=" + to_string(apply_twice(pure_inc, 1)))
+    println("logged=" + to_string(apply_twice(logged_inc, 1)))
+}

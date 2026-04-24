@@ -32,4 +32,20 @@ module Flow.Primops {
 
     public intrinsic fn panic<a>(message: String) -> a with Panic = primop Panic
 
+    public intrinsic fn __primop_print<a>(x: a) -> Unit = primop Print
+
+    public intrinsic fn __primop_println<a>(x: a) -> Unit = primop Println
+
+    public intrinsic fn __primop_read_file(path: String) -> String = primop ReadFile
+
+    public intrinsic fn __primop_read_lines(path: String) -> Array<String> = primop ReadLines
+
+    public intrinsic fn __primop_write_file(path: String, contents: String) -> Unit = primop WriteFile
+
+    public intrinsic fn __primop_read_stdin() -> String = primop ReadStdin
+
+    public intrinsic fn __primop_clock_now() -> Int = primop ClockNow
+
+    public intrinsic fn __primop_now_ms() -> Int = primop ClockNow
+
 }

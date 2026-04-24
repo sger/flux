@@ -43,25 +43,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/diagnostics_demos/errors/pattern_validation_error_path.flx:9:1
-   |
- 9 | print(match value {
-   | ^^^^^^^^^^^^^^^^^^^
-10 |     _ -> "any",
-   | ^^^^^^^^^^^^^^^
-11 |     2 -> "two",
-   | ^^^^^^^^^^^^^^^
-12 | });
-   | ^^
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E016]: Invalid Pattern
 
 Catch-all patterns must be the final match arm.
@@ -104,25 +85,6 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/diagnostics_demos/errors/pattern_validation_error_path.flx:14:1
-   |
-14 | print(match value {
-   | ^^^^^^^^^^^^^^^^^^^
-15 |     1 -> "one",
-   | ^^^^^^^^^^^^^^^
-16 |     2 -> "two",
-   | ^^^^^^^^^^^^^^^
-17 | });
-   | ^^
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
@@ -156,20 +118,6 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/diagnostics_demos/errors/pattern_validation_error_path.flx:19:1
-   |
-19 | print(match value { });
-   | ^^^^^^^^^^^^^^^^^^^^^^
-   | ---------------------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E014]: Empty Match
 
 Match expression must have at least one arm.
@@ -182,6 +130,6 @@ Match expression must have at least one arm.
 Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
-Found 10 errors and 1 warning.
+Found 7 errors and 1 warning.
 == stdout ==
 <not executed>

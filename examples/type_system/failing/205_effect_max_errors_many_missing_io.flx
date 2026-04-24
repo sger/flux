@@ -1,305 +1,309 @@
 // More than 50 independent effect diagnostics in one file.
 //
-// Each function is explicitly pure by annotation and calls `print`, producing
-// one stable E400 missing-effect diagnostic. This fixture is intended for
-// targeted max-error-cap tests rather than ordinary snapshots.
+// Each function declares only `Time` but calls `print`, producing one stable
+// E400 missing-effect diagnostic. This fixture is intended for targeted
+// max-error-cap tests rather than ordinary snapshots.
 
-fn bad00() -> Int {
+fn bad00() -> Int with Time {
     print(0)
     0
 }
 
-fn bad01() -> Int {
+fn bad01() -> Int with Time {
     print(1)
     1
 }
 
-fn bad02() -> Int {
+fn bad02() -> Int with Time {
     print(2)
     2
 }
 
-fn bad03() -> Int {
+fn bad03() -> Int with Time {
     print(3)
     3
 }
 
-fn bad04() -> Int {
+fn bad04() -> Int with Time {
     print(4)
     4
 }
 
-fn bad05() -> Int {
+fn bad05() -> Int with Time {
     print(5)
     5
 }
 
-fn bad06() -> Int {
+fn bad06() -> Int with Time {
     print(6)
     6
 }
 
-fn bad07() -> Int {
+fn bad07() -> Int with Time {
     print(7)
     7
 }
 
-fn bad08() -> Int {
+fn bad08() -> Int with Time {
     print(8)
     8
 }
 
-fn bad09() -> Int {
+fn bad09() -> Int with Time {
     print(9)
     9
 }
 
-fn bad10() -> Int {
+fn bad10() -> Int with Time {
     print(10)
     10
 }
 
-fn bad11() -> Int {
+fn bad11() -> Int with Time {
     print(11)
     11
 }
 
-fn bad12() -> Int {
+fn bad12() -> Int with Time {
     print(12)
     12
 }
 
-fn bad13() -> Int {
+fn bad13() -> Int with Time {
     print(13)
     13
 }
 
-fn bad14() -> Int {
+fn bad14() -> Int with Time {
     print(14)
     14
 }
 
-fn bad15() -> Int {
+fn bad15() -> Int with Time {
     print(15)
     15
 }
 
-fn bad16() -> Int {
+fn bad16() -> Int with Time {
     print(16)
     16
 }
 
-fn bad17() -> Int {
+fn bad17() -> Int with Time {
     print(17)
     17
 }
 
-fn bad18() -> Int {
+fn bad18() -> Int with Time {
     print(18)
     18
 }
 
-fn bad19() -> Int {
+fn bad19() -> Int with Time {
     print(19)
     19
 }
 
-fn bad20() -> Int {
+fn bad20() -> Int with Time {
     print(20)
     20
 }
 
-fn bad21() -> Int {
+fn bad21() -> Int with Time {
     print(21)
     21
 }
 
-fn bad22() -> Int {
+fn bad22() -> Int with Time {
     print(22)
     22
 }
 
-fn bad23() -> Int {
+fn bad23() -> Int with Time {
     print(23)
     23
 }
 
-fn bad24() -> Int {
+fn bad24() -> Int with Time {
     print(24)
     24
 }
 
-fn bad25() -> Int {
+fn bad25() -> Int with Time {
     print(25)
     25
 }
 
-fn bad26() -> Int {
+fn bad26() -> Int with Time {
     print(26)
     26
 }
 
-fn bad27() -> Int {
+fn bad27() -> Int with Time {
     print(27)
     27
 }
 
-fn bad28() -> Int {
+fn bad28() -> Int with Time {
     print(28)
     28
 }
 
-fn bad29() -> Int {
+fn bad29() -> Int with Time {
     print(29)
     29
 }
 
-fn bad30() -> Int {
+fn bad30() -> Int with Time {
     print(30)
     30
 }
 
-fn bad31() -> Int {
+fn bad31() -> Int with Time {
     print(31)
     31
 }
 
-fn bad32() -> Int {
+fn bad32() -> Int with Time {
     print(32)
     32
 }
 
-fn bad33() -> Int {
+fn bad33() -> Int with Time {
     print(33)
     33
 }
 
-fn bad34() -> Int {
+fn bad34() -> Int with Time {
     print(34)
     34
 }
 
-fn bad35() -> Int {
+fn bad35() -> Int with Time {
     print(35)
     35
 }
 
-fn bad36() -> Int {
+fn bad36() -> Int with Time {
     print(36)
     36
 }
 
-fn bad37() -> Int {
+fn bad37() -> Int with Time {
     print(37)
     37
 }
 
-fn bad38() -> Int {
+fn bad38() -> Int with Time {
     print(38)
     38
 }
 
-fn bad39() -> Int {
+fn bad39() -> Int with Time {
     print(39)
     39
 }
 
-fn bad40() -> Int {
+fn bad40() -> Int with Time {
     print(40)
     40
 }
 
-fn bad41() -> Int {
+fn bad41() -> Int with Time {
     print(41)
     41
 }
 
-fn bad42() -> Int {
+fn bad42() -> Int with Time {
     print(42)
     42
 }
 
-fn bad43() -> Int {
+fn bad43() -> Int with Time {
     print(43)
     43
 }
 
-fn bad44() -> Int {
+fn bad44() -> Int with Time {
     print(44)
     44
 }
 
-fn bad45() -> Int {
+fn bad45() -> Int with Time {
     print(45)
     45
 }
 
-fn bad46() -> Int {
+fn bad46() -> Int with Time {
     print(46)
     46
 }
 
-fn bad47() -> Int {
+fn bad47() -> Int with Time {
     print(47)
     47
 }
 
-fn bad48() -> Int {
+fn bad48() -> Int with Time {
     print(48)
     48
 }
 
-fn bad49() -> Int {
+fn bad49() -> Int with Time {
     print(49)
     49
 }
 
-fn bad50() -> Int {
+fn bad50() -> Int with Time {
     print(50)
     50
 }
 
-fn bad51() -> Int {
+fn bad51() -> Int with Time {
     print(51)
     51
 }
 
-fn bad52() -> Int {
+fn bad52() -> Int with Time {
     print(52)
     52
 }
 
-fn bad53() -> Int {
+fn bad53() -> Int with Time {
     print(53)
     53
 }
 
-fn bad54() -> Int {
+fn bad54() -> Int with Time {
     print(54)
     54
 }
 
-fn bad55() -> Int {
+fn bad55() -> Int with Time {
     print(55)
     55
 }
 
-fn bad56() -> Int {
+fn bad56() -> Int with Time {
     print(56)
     56
 }
 
-fn bad57() -> Int {
+fn bad57() -> Int with Time {
     print(57)
     57
 }
 
-fn bad58() -> Int {
+fn bad58() -> Int with Time {
     print(58)
     58
 }
 
-fn bad59() -> Int {
+fn bad59() -> Int with Time {
     print(59)
     59
+}
+
+fn main() -> Unit with Time {
+    let _ = bad00()+bad01()+bad02()+bad03()+bad04()+bad05()+bad06()+bad07()+bad08()+bad09()+bad10()+bad11()+bad12()+bad13()+bad14()+bad15()+bad16()+bad17()+bad18()+bad19()+bad20()+bad21()+bad22()+bad23()+bad24()+bad25()+bad26()+bad27()+bad28()+bad29()+bad30()+bad31()+bad32()+bad33()+bad34()+bad35()+bad36()+bad37()+bad38()+bad39()+bad40()+bad41()+bad42()+bad43()+bad44()+bad45()+bad46()+bad47()+bad48()+bad49()+bad50()+bad51()+bad52()+bad53()+bad54()+bad55()+bad56()+bad57()+bad58()+bad59()
 }

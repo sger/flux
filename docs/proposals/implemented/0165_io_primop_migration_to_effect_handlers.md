@@ -1,20 +1,22 @@
 - Feature Name: IO Primop Migration to Effect Handlers
 - Start Date: 2026-04-20
-- Status: Blocked (spike completed 2026-04-23 — see "Spike findings" below; 0170 has since landed, remaining blockers are 0161 and 0162 Phase 1)
+- Status: Implemented (2026-04-24)
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0099](0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) Phase 1 (Unified Effect Handler Runtime — evidence passing), [0170](implemented/0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations — surfaced by this proposal's spike)
+- Depends on: [0099](../0099_static_purity_completion.md) (Static Purity Completion — umbrella), [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0170](0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations — surfaced by this proposal's spike)
+- Follow-up: [0171](../0171_effect_system_polish_and_hardening.md) (Effect System Polish and Hardening)
 
 # Proposal 0165: IO Primop Migration to Effect Handlers
 
 ## Summary
 [summary]: #summary
 
-Rewire Flux's IO primops (`println`, `print`, `read_file`, `write_file`,
-`read_stdin`) so they are lowered to `Perform` nodes against the
-decomposed effect labels declared by 0161, and wrap every program
-entry point in a compiler-synthesized default handler stack whose
-handler bodies delegate to the existing C runtime entry points.
+Rewire Flux's effectful prelude primops (`println`, `print`, `read_file`,
+`read_lines`, `write_file`, `read_stdin`, `clock_now`, `now_ms`) so they are
+lowered to `Perform` nodes against the decomposed effect labels declared by
+0161, and wrap every program entry point in a compiler-synthesized default
+handler stack whose handler bodies delegate to intrinsic-backed
+`Flow.Primops.__primop_*` implementations.
 
 This is the concrete execution of Part 1 of 0099. Scope is Core
 lowering + a new synthesis pass + test-harness integration. No new
@@ -24,9 +26,27 @@ user-visible syntax. No runtime-representation changes. No new labels
 ## Status
 [status]: #status
 
-Draft. Blocked on 0161 landing and 0162 Phase 1 landing.
-The polymorphic effect-operation blocker identified by the spike is now
-closed by [0170](implemented/0170_polymorphic_effect_operations.md).
+Implemented. The original blockers are closed:
+[0161](0161_effect_system_decomposition_and_capabilities.md)
+landed effect decomposition and `Flow.Primops`,
+[0162](0162_unified_effect_handler_runtime.md) landed the unified
+handler runtime, and
+[0170](0170_polymorphic_effect_operations.md) landed polymorphic
+effect operations.
+
+The implemented slice routes all effectful prelude primops
+(`print`, `println`, `read_file`, `read_lines`, `write_file`,
+`read_stdin`, `clock_now`, `now_ms`) through `Perform`, synthesizes
+default handlers around `main` and `test_*` entrypoints, keeps
+`Flow.Primops.__primop_*` as the intrinsic-backed implementation layer,
+and rejects user calls/definitions of reserved `__primop_*` names.
+
+Validation evidence:
+
+- `cargo test --all --all-features` passed on 2026-04-24.
+- `cargo run -- parity-check tests/parity` remained at the known 44/48
+  backend-specific mismatch baseline; `primop_io.flx` passed.
+- `examples/effects/` now documents the user-facing behavior.
 
 ## Motivation
 [motivation]: #motivation
@@ -109,15 +129,19 @@ After this proposal:
       println (resume, s) -> { __primop_println(s); resume(()) }
   } handle FileSystem {
       read_file  (resume, p)      -> resume(__primop_read_file(p))
+      read_lines (resume, p)      -> resume(__primop_read_lines(p))
       write_file (resume, p, c)   -> { __primop_write_file(p, c); resume(()) }
   } handle Stdin {
-      read_line (resume, _) -> resume(__primop_read_line())
+      read_stdin (resume) -> resume(__primop_read_stdin())
+  } handle Clock {
+      clock_now (resume) -> resume(__primop_clock_now())
+      now_ms    (resume) -> resume(__primop_now_ms())
   }
   ```
 
-- The `__primop_*` names are compiler-internal and reach the existing
-  C runtime entry points (`flux_println`, `flux_read_file`, …). User
-  code cannot name them.
+- The `__primop_*` names are compiler-internal intrinsic functions in
+  `Flow.Primops` and reach the existing retained `CorePrimOp` / runtime
+  implementations. User code cannot define or call them.
 - A test that wants to capture output writes its own `handle Console`
   block around the call site — same syntax as any other effect.
 
@@ -178,8 +202,11 @@ system instead:
 App(Var("println"),  [s]) → Perform("Console",   "println",   [s])
 App(Var("print"),    [s]) → Perform("Console",   "print",     [s])
 App(Var("read_file"),[p]) → Perform("FileSystem","read_file", [p])
+App(Var("read_lines"),[p]) → Perform("FileSystem","read_lines", [p])
 App(Var("write_file"),[p,c]) → Perform("FileSystem","write_file",[p,c])
-App(Var("read_stdin"),[]) → Perform("Stdin",     "read_line", [])
+App(Var("read_stdin"),[]) → Perform("Stdin",     "read_stdin", [])
+App(Var("clock_now"),[]) → Perform("Clock",      "clock_now", [])
+App(Var("now_ms"),[]) → Perform("Clock",         "now_ms", [])
 ```
 
 The table driving this mapping lives alongside the existing promotion
@@ -187,10 +214,11 @@ table so adding a new IO primitive touches one file.
 
 #### 2. Retained-primop names for handler bodies
 
-The `CorePrimOp::Println`, `::Print`, `::ReadFile`, `::WriteFile`,
-`::ReadStdin` variants do **not** disappear. They remain as the
-implementation the compiler-synthesized default handler calls. They
-become unreachable from user surface code.
+The `CorePrimOp::Println`, `::Print`, `::ReadFile`, `::ReadLines`,
+`::WriteFile`, `::ReadStdin`, and `::ClockNow` variants do **not** disappear.
+They remain as the implementation the compiler-synthesized default handler
+calls. They become unreachable from user surface code except through reserved
+compiler-generated `__primop_*` calls.
 
 Naming convention: existing variant names are retained. The internal
 callable name used by the synthesized handler is
@@ -207,16 +235,13 @@ shown above. Entry points:
 - `main` in a normal program build
 - every `test_*` function when invoked via `--test`
 
-The synthesis is skipped when:
+This slice does not add a user-visible escape hatch. Dump modes show the
+actual synthesized handlers because they are now part of the semantic program
+shape.
 
-- a `#[no_implicit_handlers]` attribute is present on the function
-  (escape hatch for low-level tests that want the raw runtime)
-- `--dump-core`, `--dump-aether`, `--trace-aether` are active, to keep
-  dumps readable (matches existing auto-prelude policy in `main.rs`)
-
-The pass is implemented in a new file, e.g.
-`src/ast/passes/synthesize_default_handlers.rs`, and registered in
-the driver pipeline alongside the auto-prelude injection step.
+The pass lives in `src/ast/route_effectful_primops.rs` and is registered before
+collection/type inference in both normal compilation and Core/Aether dump
+preparation paths.
 
 #### 4. `lib/Flow/IO.flx` migration
 
@@ -231,10 +256,10 @@ effect system automatically via step 1.
 Both backends already lower `Perform`/`Handle` via the unified handler
 runtime 0162 defines. Routing IO through `Perform` means both backends
 call the same path they already use for user-defined effects. No
-backend-specific work. The existing C runtime functions
-(`flux_println`, etc.) continue to be the final implementation — they
-are simply called from the synthesized handler body rather than
-directly from primop lowering.
+backend-specific work. The retained intrinsic-backed `CorePrimOp` functions
+(`__primop_println`, etc.) continue to be the final implementation — they are
+called from synthesized handler bodies rather than from user-surface primop
+promotion.
 
 ### Non-goals
 
@@ -244,17 +269,10 @@ directly from primop lowering.
   retained as the internal handler body.
 - No change to NaN-box layout, Aether RC, or memory model.
 
-### Error codes
+### Diagnostics
 
-Two new diagnostics, registered in
-[src/diagnostics/compiler_errors.rs](../../src/diagnostics/compiler_errors.rs):
-
-- **E4xx — implicit handler shadowing**: a user `handle Console { … }`
-  that omits operations the synthesized default installs emits a
-  warning unless the user's handler is inside a function annotated
-  `with Console` (in which case they own the row).
-- **E4xx — reserved primop name**: user-defined function named
-  `__primop_*` is rejected.
+- **Reserved primop name**: user-defined or user-called `__primop_*` names are
+  rejected. This preserves the internal handler implementation namespace.
 
 ## Test plan
 [test-plan]: #test-plan
@@ -269,7 +287,7 @@ or `tests/effects/`:
 3. **Passthrough test** — code without a user handler prints to real
    stdout; verifies the synthesized default handler is wired up.
 4. **Mixed test** — `with Console` but not `with FileSystem`; attempt
-   to call `read_file` fails to type-check.
+   to call `read_file` fails to type-check in an ordinary non-entry function.
 5. **Parity test** — the same program under `cargo run -- parity-check`
    produces identical stdout on VM and native backends.
 
@@ -278,14 +296,14 @@ or `tests/effects/`:
 
 This proposal is complete when:
 
-- calls to `println` / `print` / `read_file` / `write_file` /
-  `read_stdin` in user code lower to `Perform` against the
-  labels declared by 0161
+- calls to `println` / `print` / `read_file` / `read_lines` /
+  `write_file` / `read_stdin` / `clock_now` / `now_ms` in user code lower to
+  `Perform` against the labels declared by 0161
 - every `main` and every `test_*` function runs inside a synthesized
   default-handler wrapper
 - the five acceptance tests above pass on both VM and native backends
-- the five retained primop variants are not directly reachable from
-  user source code
+- the retained effectful primop variants are reachable only through reserved
+  compiler-generated `__primop_*` implementation calls
 - 0099's Part 1 status row can be updated to "Delegated to 0165 —
   Implemented"
 
@@ -324,9 +342,11 @@ through the rewritten pipeline: stdlib (`Flow.Assert`, `Flow.IO`)
 compiled, `main`'s body was wrapped in the synthesized `handle`, and
 runtime reached `flux_println`.
 
-### The blocker: polymorphic effect operations
+### Former blocker: polymorphic effect operations
 
-User-space `println` is polymorphic (`a -> ()`) — callers write
+This blocker is now closed by
+[0170](0170_polymorphic_effect_operations.md). User-space
+`println` is polymorphic (`a -> ()`) — callers write
 `println(42)`, `println(true)`, `println(some_list)`. An effect
 operation signature must be monomorphic in today's compiler:
 `Compiler::effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>`.
@@ -361,15 +381,14 @@ effect-operation generalization. Path 2 demands a second print surface
 in the runtime (or moving the printf-style formatting into Flux stdlib,
 which changes the value-printing behavior programs depend on).
 
-### What this implies for 0165
+### Historical implication for 0165
 
-The proposal is coherent as a design, but it silently assumes
-polymorphic effect operations. That assumption deserves its own
-proposal — call it **"Polymorphic effect operations"** — that
-generalizes effect-op signatures the way function schemes are
-generalized today. 0165 should be re-marked as depending on it, and
-the "after 0161 lands" note in the header is insufficient: 0161 does
-not supply op polymorphism.
+The proposal was coherent as a design, but it silently assumed
+polymorphic effect operations. That assumption became
+[0170](0170_polymorphic_effect_operations.md), which generalized
+effect-op signatures the way function schemes are generalized today.
+With 0170 implemented, the full 0165 slice became mechanical and has
+now landed.
 
 Alternative workable scopes if polymorphic ops remain unavailable:
 

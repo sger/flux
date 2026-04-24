@@ -1,0 +1,5 @@
+// Internal primop names are implementation details for synthesized handlers.
+
+fn main() {
+    __primop_println("not user-callable")
+}

@@ -1,0 +1,16 @@
+// A user handler captures Console before the entrypoint default handler sees it.
+
+fn captured_total() -> Int {
+    do {
+        println("captured: one")
+        println("captured: two")
+        2
+    } handle Console {
+        print(resume, _msg) -> resume(())
+        println(resume, _msg) -> resume(())
+    }
+}
+
+fn main() {
+    println("captured_count=" + to_string(captured_total()))
+}

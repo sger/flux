@@ -53,20 +53,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
-   |
-14 | print("#{label}: #{add(answer, 8)}")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------ requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
@@ -80,20 +66,6 @@ Effectful operation is not allowed at top level (requires: Console).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
-   |
-15 | print(distance_tag(point))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-Found 6 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

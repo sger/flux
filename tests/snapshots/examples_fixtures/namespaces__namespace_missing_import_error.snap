@@ -33,20 +33,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/namespaces/namespace_missing_import_error.flx:1:1
-  |
-1 | print(Modules.Data.MyFile.value());
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ---------------------------------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E013]: Module Not Imported
 
 Module `Modules.Data.MyFile` is not imported.
@@ -59,6 +45,6 @@ Module `Modules.Data.MyFile` is not imported.
 Hint:
   Add an import statement at the top of your file: `import Modules.Data.MyFile`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
 
-Found 4 errors.
+Found 3 errors.
 == stdout ==
 <not executed>
