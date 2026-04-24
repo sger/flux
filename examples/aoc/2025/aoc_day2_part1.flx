@@ -59,9 +59,9 @@ fn main() with IO, Time {
         (start, end)
     }
 
-    // Parse all range records from the input file.
-    fn parse_ranges(path) with IO {
-        read_file(path)
+    // Parse all range records from input text.
+    fn parse_ranges_text(content) {
+        content
         |> trim
         |> split(",")
         |> Array.filter(\t -> trim(t) != "")
@@ -94,7 +94,8 @@ fn main() with IO, Time {
         )
     }
 
-    let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")
+    let content = read_file("examples/aoc/2025/aoc_day2.txt")
+    let ranges = parse_ranges_text(content)
     let total = solve_part1(ranges)
     print(total)
 }

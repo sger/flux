@@ -1,3 +1,4 @@
+// parity: vm, llvm
 // parity-expected-stdout-begin
 // "=== Student Grade Analysis ==="
 // "Alice: avg=91.5, grade=A, passed=true"
@@ -108,12 +109,12 @@ fn format_result_line(name, r) {
     }
 }
 
-// Helper for show.
-fn show(results, name) with IO {
+// Helper for lookup result line.
+fn result_line(results, name) {
     let maybe_result = results[name]
     match maybe_result {
-        Some(r) -> print(format_result_line(name, r)),
-        _ -> print(name + ": not found"),
+        Some(r) -> format_result_line(name, r),
+        _ -> name + ": not found",
     }
 }
 
@@ -130,11 +131,11 @@ fn main() with IO {
     print("=== Student Grade Analysis ===")
     let results = analyze(students)
 
-    show(results, "Alice")
-    show(results, "Bob")
-    show(results, "Charlie")
-    show(results, "Diana")
-    show(results, "Eve")
+    print(result_line(results, "Alice"))
+    print(result_line(results, "Bob"))
+    print(result_line(results, "Charlie"))
+    print(result_line(results, "Diana"))
+    print(result_line(results, "Eve"))
 
     print("=== Summary ===")
     print("Passed: " + to_string(count_passed(results)))

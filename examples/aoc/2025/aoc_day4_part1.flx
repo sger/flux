@@ -60,9 +60,17 @@ fn main() with IO, Time {
         }
     }
 
+    // Count all rows without materializing an intermediate list.
+    fn count_rows(lines, rows, cols, r, acc) {
+        if r >= rows {
+            acc
+        } else {
+            count_rows(lines, rows, cols, r + 1, acc + count_row(lines, rows, cols, r, 0, 0))
+        }
+    }
+
     let lines = read_lines("examples/aoc/2025/aoc_day4.txt")
     let rows = len(lines)
     let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-    let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
-    print(sum(row_counts))
+    print(count_rows(lines, rows, cols, 0, 0))
 }

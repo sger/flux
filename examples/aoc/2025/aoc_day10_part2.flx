@@ -1,3 +1,4 @@
+// parity: llvm
 // parity-expected-stdout-begin
 // 14677
 // parity-expected-stdout-end
@@ -442,10 +443,10 @@ fn main() with IO, Time {
     //   cur_col  — column currently being processed
     //   pivot_cols — accumulator of columns that received a pivot
 
-    // Returns [| reduced_matrix, pivot_cols_array |].
+    // Returns (reduced_matrix, pivot_cols_array).
     fn ge_step(mat, nrows, nbtn, cur_row, cur_col, pivot_cols) {
         if cur_col >= nbtn {
-            [|mat, pivot_cols|]
+            (mat, pivot_cols)
         } else {
             if cur_row >= nrows {
                 // All rows used — remaining columns are free variables.
@@ -744,8 +745,8 @@ fn main() with IO, Time {
             let mt = arr_max(target, 0, 0)
             let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
             let result = ge_step(mat, npos, nbtn, 0, 0, [||])
-            let rmat = button_at(result, 0)
-            let pivots = button_at(result, 1)
+            let rmat = result.0
+            let pivots = result.1
             let rmat2 = fix_pivot_signs(rmat, pivots, 0)
             let fcols = get_free_cols(nbtn, pivots, 0, [||])
             let ans = search_free_bounded(rmat2, pivots, fcols, nbtn, 0, [||], 1000000000, mt)

@@ -66,9 +66,17 @@ const OBJ_TAG_CLOSURE: u8 = 5;
 fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     // Strip module prefix (e.g. "Flow.List.first" → "first")
     let short = name.rsplit('.').next().unwrap_or(name);
-    match (short, arity) {
-        ("safe_div", 2) => Some(CorePrimOp::SafeDiv),
-        ("safe_mod", 2) => Some(CorePrimOp::SafeMod),
+    match (name, short, arity) {
+        ("Flow.Map.get", _, 2) | (_, "map_get", 2) => Some(CorePrimOp::HamtGet),
+        ("Flow.Map.set", _, 3) | (_, "map_set", 3) => Some(CorePrimOp::HamtSet),
+        ("Flow.Map.delete", _, 2) | (_, "map_delete", 2) => Some(CorePrimOp::HamtDelete),
+        ("Flow.Map.merge", _, 2) | (_, "map_merge", 2) => Some(CorePrimOp::HamtMerge),
+        ("Flow.Map.keys", _, 1) | (_, "map_keys", 1) => Some(CorePrimOp::HamtKeys),
+        ("Flow.Map.values", _, 1) | (_, "map_values", 1) => Some(CorePrimOp::HamtValues),
+        ("Flow.Map.size", _, 1) | (_, "map_size", 1) => Some(CorePrimOp::HamtSize),
+        ("Flow.Map.has", _, 2) | (_, "map_has", 2) => Some(CorePrimOp::HamtContains),
+        (_, "safe_div", 2) => Some(CorePrimOp::SafeDiv),
+        (_, "safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,
     }
 }
