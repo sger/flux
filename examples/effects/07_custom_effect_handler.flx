@@ -1,0 +1,16 @@
+// Custom effects use the same perform/handle mechanism as built-in effects.
+
+effect Audit {
+    log: String -> Int
+}
+
+fn audited_value() -> Int with Audit {
+    perform Audit.log("started") + 1
+}
+
+fn main() {
+    let value = audited_value() handle Audit {
+        log(resume, message) -> resume(len(message))
+    }
+    println("audit_value=" + to_string(value))
+}

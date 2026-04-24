@@ -5,17 +5,17 @@ Fixture: examples/type_system/failing/31_direct_time_builtin_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Effect
+error[E400]: Missing Ambient Effect
 
-requires effect `Clock` but the enclosing context does not provide it
+Performing `now_ms` requires effect `Clock` in this function signature.
 
   examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:4:5
   |
 4 |     now_ms()
   |     ^^^^^^^^
-  |     -------- requires `Clock`
+  |     -------- effectful perform occurs here
 
 Hint:
-  annotate the enclosing function with `with Clock`
+  Add `with Clock` to the enclosing function.
 == stdout ==
 <not executed>

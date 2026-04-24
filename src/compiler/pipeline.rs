@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
+use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 use crate::types::class_dispatch::generate_dispatch_functions;
@@ -26,6 +27,15 @@ impl Compiler {
     pub(super) fn run_pipeline(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Phase 0: Reset per-file state
         self.phase_reset();
+
+        self.validate_reserved_primop_names(program);
+
+        // Phase 0b (Proposal 0165): route effectful prelude primop calls
+        // through `perform` and wrap entrypoints with compiler-provided
+        // default handlers before collection/inference see the program.
+        let (routed_program, _) =
+            route_effectful_primops_and_synthesize_handlers(program, &mut self.interner);
+        let program = &routed_program;
 
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);

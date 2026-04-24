@@ -3,8 +3,19 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E400]: Missing Ambient Effect
+
+Performing `print` requires effect `Console` in this function signature.
+
+  examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx:4:5
+  |
+4 |     print(x)
+  |     ^^^^^^^^
+  |     -------- effectful perform occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>

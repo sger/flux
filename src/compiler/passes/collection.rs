@@ -54,6 +54,242 @@ impl Compiler {
         CollectionResult { main_state }
     }
 
+    pub(in crate::compiler) fn validate_reserved_primop_names(&mut self, program: &Program) {
+        if self
+            .file_path
+            .replace('\\', "/")
+            .ends_with("lib/Flow/Primops.flx")
+        {
+            return;
+        }
+        for statement in &program.statements {
+            self.validate_reserved_primop_statement(statement);
+        }
+    }
+
+    fn validate_reserved_primop_statement(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Function {
+                name, body, span, ..
+            } => {
+                if self.sym(*name).starts_with("__primop_") {
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E034",
+                            "RESERVED PRIMOP NAME",
+                            ErrorType::Compiler,
+                            format!(
+                                "`{}` is reserved for compiler-synthesized effect handlers.",
+                                self.sym(*name)
+                            ),
+                            Some("Choose a non-reserved function name.".to_string()),
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_category(DiagnosticCategory::NameResolution)
+                        .with_phase(DiagnosticPhase::Validation)
+                        .with_primary_label(*span, "reserved internal primop name"),
+                    );
+                }
+                self.validate_reserved_primop_block(body);
+            }
+            Statement::Let {
+                name, value, span, ..
+            } => {
+                if self.sym(*name).starts_with("__primop_") {
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E034",
+                            "RESERVED PRIMOP NAME",
+                            ErrorType::Compiler,
+                            format!(
+                                "`{}` is reserved for compiler-synthesized effect handlers.",
+                                self.sym(*name)
+                            ),
+                            Some("Choose a non-reserved binding name.".to_string()),
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_category(DiagnosticCategory::NameResolution)
+                        .with_phase(DiagnosticPhase::Validation)
+                        .with_primary_label(*span, "reserved internal primop name"),
+                    );
+                }
+                self.validate_reserved_primop_expression(value);
+            }
+            Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
+                self.validate_reserved_primop_expression(value);
+            }
+            Statement::Return {
+                value: Some(value), ..
+            } => {
+                self.validate_reserved_primop_expression(value);
+            }
+            Statement::Return { value: None, .. } => {}
+            Statement::Expression { expression, .. } => {
+                self.validate_reserved_primop_expression(expression);
+            }
+            Statement::Module { body, .. } => self.validate_reserved_primop_block(body),
+            Statement::Import { .. }
+            | Statement::Data { .. }
+            | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
+            | Statement::Class { .. }
+            | Statement::Instance { .. } => {}
+        }
+    }
+
+    fn validate_reserved_primop_block(&mut self, block: &Block) {
+        for statement in &block.statements {
+            self.validate_reserved_primop_statement(statement);
+        }
+    }
+
+    fn validate_reserved_primop_expression(&mut self, expression: &Expression) {
+        match expression {
+            Expression::Identifier { name, span, .. }
+                if self.sym(*name).starts_with("__primop_") =>
+            {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E034",
+                        "RESERVED PRIMOP NAME",
+                        ErrorType::Compiler,
+                        format!(
+                            "`{}` is reserved for compiler-synthesized effect handlers.",
+                            self.sym(*name)
+                        ),
+                        Some("Call the public effectful operation instead.".to_string()),
+                        self.file_path.clone(),
+                        *span,
+                    )
+                    .with_category(DiagnosticCategory::NameResolution)
+                    .with_phase(DiagnosticPhase::Validation)
+                    .with_primary_label(*span, "reserved internal primop call"),
+                );
+            }
+            _ => {}
+        }
+        self.validate_reserved_primop_expression_children(expression);
+    }
+
+    fn validate_reserved_primop_expression_children(&mut self, expression: &Expression) {
+        match expression {
+            Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
+                self.validate_reserved_primop_block(body);
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.validate_reserved_primop_expression(condition);
+                self.validate_reserved_primop_block(consequence);
+                if let Some(alt) = alternative {
+                    self.validate_reserved_primop_block(alt);
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.validate_reserved_primop_expression(function);
+                for argument in arguments {
+                    self.validate_reserved_primop_expression(argument);
+                }
+            }
+            Expression::Infix { left, right, .. } => {
+                self.validate_reserved_primop_expression(left);
+                self.validate_reserved_primop_expression(right);
+            }
+            Expression::Prefix { right, .. } => self.validate_reserved_primop_expression(right),
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.validate_reserved_primop_expression(scrutinee);
+                for arm in arms {
+                    if let Some(guard) = arm.guard.as_ref() {
+                        self.validate_reserved_primop_expression(guard);
+                    }
+                    self.validate_reserved_primop_expression(&arm.body);
+                }
+            }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.validate_reserved_primop_expression(arg);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.validate_reserved_primop_expression(expr);
+                for arm in arms {
+                    self.validate_reserved_primop_expression(&arm.body);
+                }
+            }
+            Expression::Sealing { expr, .. }
+            | Expression::MemberAccess { object: expr, .. }
+            | Expression::TupleFieldAccess { object: expr, .. }
+            | Expression::Some { value: expr, .. }
+            | Expression::Left { value: expr, .. }
+            | Expression::Right { value: expr, .. } => {
+                self.validate_reserved_primop_expression(expr);
+            }
+            Expression::Index { left, index, .. } => {
+                self.validate_reserved_primop_expression(left);
+                self.validate_reserved_primop_expression(index);
+            }
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
+                for element in elements {
+                    self.validate_reserved_primop_expression(element);
+                }
+            }
+            Expression::Hash { pairs, .. } => {
+                for (key, value) in pairs {
+                    self.validate_reserved_primop_expression(key);
+                    self.validate_reserved_primop_expression(value);
+                }
+            }
+            Expression::Cons { head, tail, .. } => {
+                self.validate_reserved_primop_expression(head);
+                self.validate_reserved_primop_expression(tail);
+            }
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let StringPart::Interpolation(expr) = part {
+                        self.validate_reserved_primop_expression(expr);
+                    }
+                }
+            }
+            Expression::NamedConstructor { fields, .. } => {
+                for field in fields {
+                    if let Some(value) = field.value.as_ref() {
+                        self.validate_reserved_primop_expression(value);
+                    }
+                }
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                self.validate_reserved_primop_expression(base);
+                for field in overrides {
+                    if let Some(value) = field.value.as_ref() {
+                        self.validate_reserved_primop_expression(value);
+                    }
+                }
+            }
+            Expression::Identifier { .. }
+            | Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::Boolean { .. }
+            | Expression::EmptyList { .. }
+            | Expression::None { .. } => {}
+        }
+    }
+
     fn warn_on_legacy_builtin_helper_surface(&mut self, program: &Program) {
         if matches!(
             self.legacy_helper_surface_policy(),

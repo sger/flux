@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/18_handle_incomplete_operation_set.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: read.
 
-  examples/type_system/failing/18_handle_incomplete_operation_set.flx:9:5
+  examples/type_system/failing/18_handle_incomplete_operation_set.flx:8:1
   |
-9 |     perform Console.print("hello") handle Console {
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     ------------------------------ handled expression
+8 | fn main() with Console {
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- handled expression
 
 Hint:
   Add handler arms for all declared operations of the effect.

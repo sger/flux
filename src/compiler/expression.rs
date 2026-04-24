@@ -1647,6 +1647,9 @@ impl Compiler {
     }
 
     pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
+        if base_name.starts_with("__primop_") {
+            return None;
+        }
         for arity in 0..=3 {
             let Some(primop) = CorePrimOp::from_name(base_name, arity) else {
                 continue;
@@ -3269,6 +3272,7 @@ impl Compiler {
             .filter(|label| {
                 // Control-flow labels (Panic) do not yet require a `with` clause.
                 *label != crate::syntax::builtin_effects::PANIC
+                    && !self.sym(*name).starts_with("__primop_")
             });
         if let Some(required_name) = required_name
             && !self.is_effect_available_name(required_name)
@@ -3394,7 +3398,7 @@ impl Compiler {
                 "perform argument type is known at compile time",
                 "argument does not match effect operation signature".to_string(),
                 "perform argument",
-                true,
+                false,
             )?;
         }
 

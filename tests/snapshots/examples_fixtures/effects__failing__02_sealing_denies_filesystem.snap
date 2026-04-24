@@ -1,0 +1,24 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/effects/failing/02_sealing_denies_filesystem.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E427]: Sealed Effect Violation
+
+This expression was sealed to allow {Console}, but it performs {FileSystem}.
+
+  examples/effects/failing/02_sealing_denies_filesystem.flx:4:5
+  |
+4 |     read_file("examples/effects/data.txt") sealing { Console }
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ---------------------------------------------------------- sealed expression exceeds its allowed effects
+
+Hint:
+  Remove the sealed call or include these effects in the sealing row: FileSystem.
+
+Note:
+  missing sealed effects: FileSystem
+== stdout ==
+<not executed>

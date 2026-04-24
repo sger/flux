@@ -576,7 +576,10 @@ impl Compiler {
             Expression::Match { arms, .. } => arms.iter().any(|arm| {
                 self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)
             }),
-            // Check perform for unknown effects/operations (E404/E405)
+            // Check perform for unknown effects/operations and missing ambient
+            // effects. Routed 0165 primops reach this path as `perform`, so the
+            // CFG pre-validator must preserve the same E400 boundary that direct
+            // builtin calls had before routing.
             Expression::Perform {
                 effect, operation, ..
             } => {
@@ -584,6 +587,7 @@ impl Compiler {
                 let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
                 self.effect_op_signature(resolved_effect, *operation)
                     .is_none()
+                    || !Self::is_effect_in_declared(resolved_effect, declared_effects)
             }
             // Don't recurse into nested function bodies — they have their own effect context
             _ => false,

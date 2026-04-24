@@ -1252,6 +1252,7 @@ impl Compiler {
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
         self.seed_builtin_effect_aliases();
+        self.seed_builtin_effect_operations();
     }
 
     pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
@@ -1523,6 +1524,19 @@ impl Compiler {
         self.hm_expr_types.clear();
         self.effect_ops_registry = preloaded_effect_ops;
         self.effect_op_signatures = preloaded_effect_sigs;
+        self.seed_builtin_effect_operations();
+
+        self.validate_reserved_primop_names(program);
+        let (routed_program, routed_changed) =
+            crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
+                program,
+                &mut self.interner,
+            );
+        let program = if routed_changed {
+            &routed_program
+        } else {
+            program
+        };
 
         self.collect_module_function_visibility(program);
         if matches!(mode, LoweringPreparationMode::WithPreloaded) {
@@ -1552,7 +1566,11 @@ impl Compiler {
                 &additional_reserved_names,
             );
             if extra.is_empty() {
-                self.infer_final_program(program)
+                let final_inference = self.infer_final_program(program);
+                FinalInferenceResult {
+                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                    hm_final: final_inference.hm_final,
+                }
             } else {
                 let class_augmented = self.inject_generated_dispatch_functions(program, extra);
                 let final_inference = self.infer_final_program(&class_augmented);
@@ -1562,7 +1580,11 @@ impl Compiler {
                 }
             }
         } else {
-            self.infer_final_program(program)
+            let final_inference = self.infer_final_program(program);
+            FinalInferenceResult {
+                effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                hm_final: final_inference.hm_final,
+            }
         }
     }
 
@@ -2209,6 +2231,7 @@ impl Compiler {
     fn collect_effect_declarations(&mut self, program: &Program) {
         self.effect_ops_registry = self.preloaded_effect_ops_registry.clone();
         self.effect_op_signatures = self.preloaded_effect_op_signatures.clone();
+        self.seed_builtin_effect_operations();
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
         }
@@ -2251,6 +2274,9 @@ impl Compiler {
         match statement {
             Statement::EffectDecl { name, ops, .. } => {
                 let entry = self.effect_ops_registry.entry(*name).or_default();
+                entry.clear();
+                self.effect_op_signatures
+                    .retain(|(effect, _), _| *effect != *name);
                 for op in ops {
                     entry.insert(op.name);
                     self.effect_op_signatures.insert(
@@ -2321,6 +2347,56 @@ impl Compiler {
         self.effect_row_aliases
             .entry(time_sym)
             .or_insert(named(clock_sym));
+    }
+
+    pub(in crate::compiler) fn seed_builtin_effect_operations(&mut self) {
+        use crate::syntax::builtin_effects as be;
+        use crate::types::type_constructor::TypeConstructor as TC;
+
+        let mut add_op = |effect: &str, op: &str, scheme: Scheme| {
+            let effect = self.interner.intern(effect);
+            let op = self.interner.intern(op);
+            self.effect_ops_registry
+                .entry(effect)
+                .or_default()
+                .insert(op);
+            self.effect_op_signatures
+                .entry((effect, op))
+                .or_insert(scheme);
+        };
+
+        let unit = || InferType::Con(TC::Unit);
+        let string = || InferType::Con(TC::String);
+        let int = || InferType::Con(TC::Int);
+        let array_string = || InferType::App(TC::Array, vec![InferType::Con(TC::String)]);
+        let pure = InferEffectRow::closed_empty();
+        let poly_print = || Scheme {
+            forall: vec![9000],
+            constraints: vec![],
+            infer_type: InferType::Fun(vec![InferType::Var(9000)], Box::new(unit()), pure.clone()),
+        };
+        let mono = |params: Vec<InferType>, ret: InferType| Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: InferType::Fun(params, Box::new(ret), pure.clone()),
+        };
+
+        add_op(be::CONSOLE, "print", poly_print());
+        add_op(be::CONSOLE, "println", poly_print());
+        add_op(be::FILESYSTEM, "read_file", mono(vec![string()], string()));
+        add_op(
+            be::FILESYSTEM,
+            "read_lines",
+            mono(vec![string()], array_string()),
+        );
+        add_op(
+            be::FILESYSTEM,
+            "write_file",
+            mono(vec![string(), string()], unit()),
+        );
+        add_op(be::STDIN, "read_stdin", mono(vec![], string()));
+        add_op(be::CLOCK, "clock_now", mono(vec![], int()));
+        add_op(be::CLOCK, "now_ms", mono(vec![], int()));
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -2786,6 +2862,14 @@ impl Compiler {
                 | "index"
                 | "array_get"
                 | "panic"
+                | "__primop_print"
+                | "__primop_println"
+                | "__primop_read_file"
+                | "__primop_read_lines"
+                | "__primop_write_file"
+                | "__primop_read_stdin"
+                | "__primop_clock_now"
+                | "__primop_now_ms"
         )
     }
 
@@ -2804,6 +2888,14 @@ impl Compiler {
             "index",
             "array_get",
             "panic",
+            "__primop_print",
+            "__primop_println",
+            "__primop_read_file",
+            "__primop_read_lines",
+            "__primop_write_file",
+            "__primop_read_stdin",
+            "__primop_clock_now",
+            "__primop_now_ms",
         ]
     }
 
@@ -2869,7 +2961,7 @@ impl Compiler {
         let console = || InferEffectRow::closed_from_symbols(vec![console_sym]);
         let filesystem = || InferEffectRow::closed_from_symbols(vec![filesystem_sym]);
         let stdin = || InferEffectRow::closed_from_symbols(vec![stdin_sym]);
-        let _clock = || InferEffectRow::closed_from_symbols(vec![clock_sym]);
+        let clock = || InferEffectRow::closed_from_symbols(vec![clock_sym]);
         // Type variables for polymorphic primop signatures.
         // IDs are arbitrary — schemes are instantiated with fresh vars at each use.
         let var_a = || InferType::Var(9000);
@@ -2879,8 +2971,8 @@ impl Compiler {
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
             // I/O — decomposed (Proposal 0161 Phase 1)
-            ("print", vec![var_a()], con(TC::Unit), console(), 0),
-            ("println", vec![var_a()], con(TC::Unit), console(), 0),
+            ("print", vec![var_a()], con(TC::Unit), console(), 1),
+            ("println", vec![var_a()], con(TC::Unit), console(), 1),
             (
                 "read_file",
                 vec![con(TC::String)],
@@ -2903,6 +2995,34 @@ impl Compiler {
                 filesystem(),
                 0,
             ),
+            ("clock_now", vec![], con(TC::Int), clock(), 0),
+            ("now_ms", vec![], con(TC::Int), clock(), 0),
+            ("__primop_print", vec![var_a()], con(TC::Unit), pure(), 1),
+            ("__primop_println", vec![var_a()], con(TC::Unit), pure(), 1),
+            (
+                "__primop_read_file",
+                vec![con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "__primop_read_lines",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "__primop_write_file",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Unit),
+                pure(),
+                0,
+            ),
+            ("__primop_read_stdin", vec![], con(TC::String), pure(), 0),
+            ("__primop_clock_now", vec![], con(TC::Int), pure(), 0),
+            ("__primop_now_ms", vec![], con(TC::Int), pure(), 0),
             // `panic` stays pure at the HM level — it diverges rather than
             // returning, so no `with Panic` annotation is required today.
             // The registry still classifies it as `Panic` for the optimizer.
@@ -4290,6 +4410,9 @@ impl Compiler {
             function_name,
             arity,
         };
+        if self.sym(function_name).starts_with("__primop_") {
+            return Vec::new();
+        }
         let inferred = self
             .inferred_function_effects
             .get(&key)
@@ -4313,6 +4436,18 @@ impl Compiler {
         for effect in inferred {
             let effect_name = self.sym(effect);
             if effect_name == crate::syntax::builtin_effects::PANIC {
+                continue;
+            }
+            let function_display = self.sym(function_name);
+            if (function_display == "main" || function_display.starts_with("test_"))
+                && matches!(
+                    effect_name,
+                    crate::syntax::builtin_effects::CONSOLE
+                        | crate::syntax::builtin_effects::FILESYSTEM
+                        | crate::syntax::builtin_effects::STDIN
+                        | crate::syntax::builtin_effects::CLOCK
+                )
+            {
                 continue;
             }
             if !declared.contains(&effect) {

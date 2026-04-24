@@ -58,20 +58,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/diagnostics_demos/errors/empty_match_error.flx:3:1
-  |
-3 | print(x);
-  | ^^^^^^^^
-  | -------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-Found 5 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

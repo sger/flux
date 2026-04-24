@@ -1,6 +1,6 @@
 - Feature Name: Static Purity Completion
 - Start Date: 2026-03-11
-- Status: **Part 2 complete, Parts 1 and 3 open**
+- Status: **Parts 1 and 2 complete, Part 3 open**
 - Last Updated: 2026-04-20
 - Proposal PR:
 - Flux Issue:
@@ -30,7 +30,7 @@ This proposal is no longer the active static-typing roadmap. That role moved to
 
 | Part | Status | Notes |
 |---|---|---|
-| Part 1: IO as algebraic effect | Delegated to 0161 + 0162 Phase 1 + 0165 | execution lives in 0165; this row closes when 0165 is Implemented |
+| Part 1: IO as algebraic effect | Complete | closed by `0161`, `0162` Phase 1, `0170`, and implemented `0165` |
 | Part 2: `Any` elimination | Complete | closed by `0145`, `0146`, `0149`, and `0156`; downstream semantic-`Dynamic` cleanup moved to `0157`/`0158` |
 | Part 3: Monomorphization | Open | now unblocked by the static-typing closure |
 

@@ -372,6 +372,30 @@ module Flow.Primops {
 }
 
 #[test]
+fn internal_primop_intrinsic_lowers_directly_to_retained_primop() {
+    let src = r#"
+module Flow.Primops {
+    public intrinsic fn __primop_println<a>(x: a) -> Unit = primop Println
+}
+"#;
+    let mut parser = Parser::new(Lexer::new(src));
+    let program = parser.parse_program();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("lib/Flow/Primops.flx", interner.clone());
+    let hm_expr_types = compiler.infer_expr_types_for_program(&program);
+    let core = lower_program_ast(&program, &hm_expr_types);
+    let println_def = core
+        .defs
+        .iter()
+        .find(|def| interner.resolve(def.name) == "__primop_println")
+        .expect("expected internal println intrinsic def");
+    assert!(
+        has_primop(&println_def.expr, &CorePrimOp::Println),
+        "expected internal intrinsic wrapper to lower to PrimOp(Println), got: {println_def:#?}"
+    );
+}
+
+#[test]
 fn intrinsic_module_call_executes_bound_primop() {
     let src = r#"
 module Flow.Primops {
