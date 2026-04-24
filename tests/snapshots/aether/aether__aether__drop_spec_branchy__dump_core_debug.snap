@@ -36,12 +36,12 @@ letrec __tc_Eq_Bool_neq : (Bool, Bool) -> Bool =
 letrec __tc_Ord_Int_compare : (Int, Int) -> Int =
 λ__x0#25:Int, __x1#26:Int.
     let %t1:Bool = ICmpLt(__x0#25, __x1#26)
-    case #4001082[synthetic]#1082 of
+    case #4001095[synthetic]#1095 of
       true →
         -1
       _ →
         let %t2:Bool = ICmpGt(__x0#25, __x1#26)
-        case #4001083[synthetic]#1083 of
+        case #4001096[synthetic]#1096 of
           true →
             1
           _ →
@@ -66,12 +66,12 @@ letrec __tc_Ord_Int_gte : (Int, Int) -> Bool =
 letrec __tc_Ord_Float_compare : (Float, Float) -> Int =
 λ__x0#40:Float, __x1#41:Float.
     let %t3:Bool = FCmpLt(__x0#40, __x1#41)
-    case #4001084[synthetic]#1084 of
+    case #4001097[synthetic]#1097 of
       true →
         -1
       _ →
         let %t4:Bool = FCmpGt(__x0#40, __x1#41)
-        case #4001085[synthetic]#1085 of
+        case #4001098[synthetic]#1098 of
           true →
             1
           _ →
@@ -96,12 +96,12 @@ letrec __tc_Ord_Float_gte : (Float, Float) -> Bool =
 letrec __tc_Ord_String_compare : (String, String) -> Int =
 λ__x0#55:Box, __x1#56:Box.
     let %t5:Bool = Lt(__x0#55, __x1#56)
-    case #4001086[synthetic]#1086 of
+    case #4001099[synthetic]#1099 of
       true →
         -1
       _ →
         let %t6:Bool = Gt(__x0#55, __x1#56)
-        case #4001087[synthetic]#1087 of
+        case #4001100[synthetic]#1100 of
           true →
             1
           _ →
@@ -173,79 +173,79 @@ letrec __tc_Show_Bool_show : (Bool) -> String =
 
 letrec __tc_Semigroup_String_append : (String, String) -> String =
 λ__x0#102:Box, __x1#103:Box.
-    string_concat#1037(__x0#102, __x1#103)
+    string_concat#1050(__x0#102, __x1#103)
 
 letrec eq : forall a. (a, a) -> Bool =
 λ__x0#105, __x1#106.
-    panic#999("No instance of Eq.eq for the given type")
+    panic#1010("No instance of Eq.eq for the given type")
 
 letrec neq : forall a. (a, a) -> Bool =
 λ__x0#108, __x1#109.
-    panic#999("No instance of Eq.neq for the given type")
+    panic#1010("No instance of Eq.neq for the given type")
 
 letrec compare : forall a. (a, a) -> Int =
 λ__x0#111, __x1#112.
-    panic#999("No instance of Ord.compare for the given type")
+    panic#1010("No instance of Ord.compare for the given type")
 
 letrec lt : forall a. (a, a) -> Bool =
 λ__x0#114, __x1#115.
-    panic#999("No instance of Ord.lt for the given type")
+    panic#1010("No instance of Ord.lt for the given type")
 
 letrec lte : forall a. (a, a) -> Bool =
 λ__x0#117, __x1#118.
-    panic#999("No instance of Ord.lte for the given type")
+    panic#1010("No instance of Ord.lte for the given type")
 
 letrec gt : forall a. (a, a) -> Bool =
 λ__x0#120, __x1#121.
-    panic#999("No instance of Ord.gt for the given type")
+    panic#1010("No instance of Ord.gt for the given type")
 
 letrec gte : forall a. (a, a) -> Bool =
 λ__x0#123, __x1#124.
-    panic#999("No instance of Ord.gte for the given type")
+    panic#1010("No instance of Ord.gte for the given type")
 
 letrec add : forall a. (a, a) -> a =
 λ__x0#126, __x1#127.
-    panic#999("No instance of Num.add for the given type")
+    panic#1010("No instance of Num.add for the given type")
 
 letrec sub : forall a. (a, a) -> a =
 λ__x0#129, __x1#130.
-    panic#999("No instance of Num.sub for the given type")
+    panic#1010("No instance of Num.sub for the given type")
 
 letrec mul : forall a. (a, a) -> a =
 λ__x0#132, __x1#133.
-    panic#999("No instance of Num.mul for the given type")
+    panic#1010("No instance of Num.mul for the given type")
 
 letrec show : forall a. (a) -> String =
 λ__x0#135.
-    panic#999("No instance of Show.show for the given type")
+    panic#1010("No instance of Show.show for the given type")
 
 letrec assert_failed =
 λname#137.
     let %t7 = Add("ASSERTION FAILED: ", name#137)
-    perform Console.println(#4001088[synthetic]#1088)
+    perform Console.println(#4001101[synthetic]#1101)
 
 letrec assert_eq =
 λa#139, b#140.
     let %t8 = (let %t9 = CmpEq(a#139, b#140)
-    case #4001089[synthetic]#1089 of
+    case #4001102[synthetic]#1102 of
       true →
         MakeTuple()
       _ →
         let %t10 = assert_failed#136("assert_eq")
         let %t11 = perform Console.println(a#139)
         let %t12 = perform Console.println(b#140)
-        panic#999("assert_eq failed"))
+        panic#1010("assert_eq failed"))
     ()
 
 letrec assert_neq =
 λa#146, b#147.
     let %t13 = (let %t14 = CmpNe(a#146, b#147)
-    case #4001090[synthetic]#1090 of
+    case #4001103[synthetic]#1103 of
       true →
         MakeTuple()
       _ →
         let %t15 = assert_failed#136("assert_neq")
-        panic#999("assert_neq failed"))
+        panic#1010("assert_neq failed"))
     ()
 
 letrec assert_true =
@@ -254,68 +254,68 @@ letrec assert_true =
       true →
         MakeTuple()
       _ →
-        panic#999("assert_true failed"))
+        panic#1010("assert_true failed"))
     ()
 
 letrec assert_false =
 λx#154:Bool.
     let %t17 = (let %t18:Bool = Not(x#154)
-    case #4001091[synthetic]#1091 of
+    case #4001104[synthetic]#1104 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_false failed"))
+        panic#1010("assert_false failed"))
     ()
 
 letrec assert_gt =
 λa#157, b#158.
     let %t19 = (let %t20:Bool = Gt(a#157, b#158)
-    case #4001092[synthetic]#1092 of
+    case #4001105[synthetic]#1105 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_gt failed"))
+        panic#1010("assert_gt failed"))
     ()
 
 letrec assert_lt =
 λa#161, b#162.
     let %t21 = (let %t22:Bool = Lt(a#161, b#162)
-    case #4001093[synthetic]#1093 of
+    case #4001106[synthetic]#1106 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_lt failed"))
+        panic#1010("assert_lt failed"))
     ()
 
 letrec assert_gte =
 λa#165, b#166.
     let %t23 = (let %t24:Bool = Ge(a#165, b#166)
-    case #4001094[synthetic]#1094 of
+    case #4001107[synthetic]#1107 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_gte failed"))
+        panic#1010("assert_gte failed"))
     ()
 
 letrec assert_lte =
 λa#169, b#170.
     let %t25 = (let %t26:Bool = Le(a#169, b#170)
-    case #4001095[synthetic]#1095 of
+    case #4001108[synthetic]#1108 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_lte failed"))
+        panic#1010("assert_lte failed"))
     ()
 
 letrec assert_len =
 λcollection#173, expected#174:Int.
     let actual#176:Int = Len(collection#173)
     let %t27 = (let %t28:Bool = Eq(actual#176, expected#174)
-    case #4001096[synthetic]#1096 of
+    case #4001109[synthetic]#1109 of
       true →
         MakeTuple()
       _ →
-        panic#999("assert_len failed"))
+        panic#1010("assert_len failed"))
     ()
 
 letrec assert_msg =
@@ -324,1172 +324,1192 @@ letrec assert_msg =
       true →
         MakeTuple()
       _ →
-        panic#999(message#179))
+        panic#1010(message#179))
     ()
 
+letrec debug =
+λx#182.
+    let %t30 = (let %t31:Box = ToString(x#182)
+    perform Debug.trace(#4001110[synthetic]#1110))
+    x#182
+
+letrec debug_labeled =
+λlabel#185:Box, x#186.
+    let %t32 = (let %t33 = (let %t34 = Add(label#185, " = ")
+    let %t35:Box = ToString(x#186)
+    Add(#4001111[synthetic]#1111, #4001112[synthetic]#1112))
+    perform Debug.trace(#4001113[synthetic]#1113))
+    x#186
+
+letrec debug_with =
+λf#189, x#190.
+    let %t36 = (let %t37 = f#189(x#190)
+    perform Debug.trace(#4001114[synthetic]#1114))
+    x#190
+
 letrec map =
-λarr#182:Box, f#183.
-    letrec map_go#184 = (λidx#185, acc#186.
-      let %t30:Bool = (let %t31 = Len(arr#182)
-      Ge(idx#185, #4001097[synthetic]#1097))
-      case #4001098[synthetic]#1098 of
+λarr#193:Box, f#194.
+    letrec map_go#195 = (λidx#196, acc#197.
+      let %t38:Bool = (let %t39 = Len(arr#193)
+      Ge(idx#196, #4001115[synthetic]#1115))
+      case #4001116[synthetic]#1116 of
         true →
-          acc#186
+          acc#197
         _ →
-          let %t32 = Index(arr#182, idx#185)
-          case #4001099[synthetic]#1099 of
-            Some(v#187) →
-              let %t33 = Add(idx#185, 1)
-              let %t34 = (let %t35 = f#183(v#187)
-              push#269(acc#186, #4001101[synthetic]#1101))
-              map_go#184(#4001100[synthetic]#1100, #4001102[synthetic]#1102)
+          let %t40 = Index(arr#193, idx#196)
+          case #4001117[synthetic]#1117 of
+            Some(v#198) →
+              let %t41 = Add(idx#196, 1)
+              let %t42 = (let %t43 = f#194(v#198)
+              push#280(acc#197, #4001119[synthetic]#1119))
+              map_go#195(#4001118[synthetic]#1118, #4001120[synthetic]#1120)
             _ →
-              let %t36 = Add(idx#185, 1)
-              map_go#184(#4001103[synthetic]#1103, acc#186))
-    let %t37:Box = MakeArray()
-    map_go#184(0, #4001104[synthetic]#1104)
+              let %t44 = Add(idx#196, 1)
+              map_go#195(#4001121[synthetic]#1121, acc#197))
+    let %t45:Box = MakeArray()
+    map_go#195(0, #4001122[synthetic]#1122)
 
 letrec filter =
-λarr#189:Box, pred#190.
-    letrec filter_go#191 = (λidx#192, acc#193.
-      let %t38:Bool = (let %t39 = Len(arr#189)
-      Ge(idx#192, #4001105[synthetic]#1105))
-      case #4001106[synthetic]#1106 of
+λarr#200:Box, pred#201.
+    letrec filter_go#202 = (λidx#203, acc#204.
+      let %t46:Bool = (let %t47 = Len(arr#200)
+      Ge(idx#203, #4001123[synthetic]#1123))
+      case #4001124[synthetic]#1124 of
         true →
-          acc#193
+          acc#204
         _ →
-          let %t40 = Index(arr#189, idx#192)
-          case #4001107[synthetic]#1107 of
-            Some(v#194) →
-              let %t41 = pred#190(v#194)
-              case #4001108[synthetic]#1108 of
+          let %t48 = Index(arr#200, idx#203)
+          case #4001125[synthetic]#1125 of
+            Some(v#205) →
+              let %t49 = pred#201(v#205)
+              case #4001126[synthetic]#1126 of
                 true →
-                  let %t42 = Add(idx#192, 1)
-                  let %t43 = push#269(acc#193, v#194)
-                  filter_go#191(#4001109[synthetic]#1109, #4001110[synthetic]#1110)
+                  let %t50 = Add(idx#203, 1)
+                  let %t51 = push#280(acc#204, v#205)
+                  filter_go#202(#4001127[synthetic]#1127, #4001128[synthetic]#1128)
                 _ →
-                  let %t44 = Add(idx#192, 1)
-                  filter_go#191(#4001111[synthetic]#1111, acc#193)
+                  let %t52 = Add(idx#203, 1)
+                  filter_go#202(#4001129[synthetic]#1129, acc#204)
             _ →
-              let %t45 = Add(idx#192, 1)
-              filter_go#191(#4001112[synthetic]#1112, acc#193))
-    let %t46:Box = MakeArray()
-    filter_go#191(0, #4001113[synthetic]#1113)
+              let %t53 = Add(idx#203, 1)
+              filter_go#202(#4001130[synthetic]#1130, acc#204))
+    let %t54:Box = MakeArray()
+    filter_go#202(0, #4001131[synthetic]#1131)
 
 letrec fold =
-λarr#196:Box, acc#197, f#198.
-    letrec fold_go#199 = (λidx#200, a#201.
-      let %t47:Bool = (let %t48 = Len(arr#196)
-      Ge(idx#200, #4001114[synthetic]#1114))
-      case #4001115[synthetic]#1115 of
+λarr#207:Box, acc#208, f#209.
+    letrec fold_go#210 = (λidx#211, a#212.
+      let %t55:Bool = (let %t56 = Len(arr#207)
+      Ge(idx#211, #4001132[synthetic]#1132))
+      case #4001133[synthetic]#1133 of
         true →
-          a#201
+          a#212
         _ →
-          let %t49 = Index(arr#196, idx#200)
-          case #4001116[synthetic]#1116 of
-            Some(v#202) →
-              let %t50 = Add(idx#200, 1)
-              let %t51 = f#198(a#201, v#202)
-              fold_go#199(#4001117[synthetic]#1117, #4001118[synthetic]#1118)
+          let %t57 = Index(arr#207, idx#211)
+          case #4001134[synthetic]#1134 of
+            Some(v#213) →
+              let %t58 = Add(idx#211, 1)
+              let %t59 = f#209(a#212, v#213)
+              fold_go#210(#4001135[synthetic]#1135, #4001136[synthetic]#1136)
             _ →
-              let %t52 = Add(idx#200, 1)
-              fold_go#199(#4001119[synthetic]#1119, a#201))
-    fold_go#199(0, acc#197)
+              let %t60 = Add(idx#211, 1)
+              fold_go#210(#4001137[synthetic]#1137, a#212))
+    fold_go#210(0, acc#208)
 
 letrec each =
-λarr#204:Box, f#205.
-    letrec each_go#206 = (λidx#207.
-      let %t53:Bool = (let %t54 = Len(arr#204)
-      Ge(idx#207, #4001120[synthetic]#1120))
-      case #4001121[synthetic]#1121 of
+λarr#215:Box, f#216.
+    letrec each_go#217 = (λidx#218.
+      let %t61:Bool = (let %t62 = Len(arr#215)
+      Ge(idx#218, #4001138[synthetic]#1138))
+      case #4001139[synthetic]#1139 of
         true →
           MakeTuple()
         _ →
-          let %t55 = Index(arr#204, idx#207)
-          case #4001122[synthetic]#1122 of
-            Some(v#208) →
-              let %t56 = f#205(v#208)
-              let %t57 = Add(idx#207, 1)
-              each_go#206(#4001123[synthetic]#1123)
+          let %t63 = Index(arr#215, idx#218)
+          case #4001140[synthetic]#1140 of
+            Some(v#219) →
+              let %t64 = f#216(v#219)
+              let %t65 = Add(idx#218, 1)
+              each_go#217(#4001141[synthetic]#1141)
             _ →
-              let %t58 = Add(idx#207, 1)
-              each_go#206(#4001124[synthetic]#1124))
-    each_go#206(0)
+              let %t66 = Add(idx#218, 1)
+              each_go#217(#4001142[synthetic]#1142))
+    each_go#217(0)
 
 letrec any =
-λarr#211:Box, pred#212.
-    letrec any_go#213 = (λidx#214.
-      let %t59:Bool = (let %t60 = Len(arr#211)
-      Ge(idx#214, #4001125[synthetic]#1125))
-      case #4001126[synthetic]#1126 of
+λarr#222:Box, pred#223.
+    letrec any_go#224 = (λidx#225.
+      let %t67:Bool = (let %t68 = Len(arr#222)
+      Ge(idx#225, #4001143[synthetic]#1143))
+      case #4001144[synthetic]#1144 of
         true →
           false
         _ →
-          let %t61 = Index(arr#211, idx#214)
-          case #4001127[synthetic]#1127 of
-            Some(v#215) →
-              let %t62 = pred#212(v#215)
-              case #4001128[synthetic]#1128 of
+          let %t69 = Index(arr#222, idx#225)
+          case #4001145[synthetic]#1145 of
+            Some(v#226) →
+              let %t70 = pred#223(v#226)
+              case #4001146[synthetic]#1146 of
                 true →
                   true
                 _ →
-                  let %t63 = Add(idx#214, 1)
-                  any_go#213(#4001129[synthetic]#1129)
+                  let %t71 = Add(idx#225, 1)
+                  any_go#224(#4001147[synthetic]#1147)
             _ →
-              let %t64 = Add(idx#214, 1)
-              any_go#213(#4001130[synthetic]#1130))
-    any_go#213(0)
+              let %t72 = Add(idx#225, 1)
+              any_go#224(#4001148[synthetic]#1148))
+    any_go#224(0)
 
 letrec all =
-λarr#217:Box, pred#218.
-    letrec all_go#219 = (λidx#220.
-      let %t65:Bool = (let %t66 = Len(arr#217)
-      ICmpGe(idx#220, #4001131[synthetic]#1131))
-      case #4001132[synthetic]#1132 of
+λarr#228:Box, pred#229.
+    letrec all_go#230 = (λidx#231.
+      let %t73:Bool = (let %t74 = Len(arr#228)
+      ICmpGe(idx#231, #4001149[synthetic]#1149))
+      case #4001150[synthetic]#1150 of
         true →
           true
         _ →
-          let %t67 = Index(arr#217, idx#220)
-          case #4001133[synthetic]#1133 of
-            Some(v#221) →
-              let %t68 = pred#218(v#221)
-              case #4001134[synthetic]#1134 of
+          let %t75 = Index(arr#228, idx#231)
+          case #4001151[synthetic]#1151 of
+            Some(v#232) →
+              let %t76 = pred#229(v#232)
+              case #4001152[synthetic]#1152 of
                 true →
-                  let %t69 = Add(idx#220, 1)
-                  all_go#219(#4001135[synthetic]#1135)
+                  let %t77 = Add(idx#231, 1)
+                  all_go#230(#4001153[synthetic]#1153)
                 _ →
                   false
             _ →
-              let %t70 = Add(idx#220, 1)
-              all_go#219(#4001136[synthetic]#1136))
-    all_go#219(0)
+              let %t78 = Add(idx#231, 1)
+              all_go#230(#4001154[synthetic]#1154))
+    all_go#230(0)
 
 letrec find =
-λarr#223:Box, pred#224.
-    letrec find_go#225 = (λidx#226.
-      let %t71:Bool = (let %t72 = Len(arr#223)
-      Ge(idx#226, #4001137[synthetic]#1137))
-      case #4001138[synthetic]#1138 of
+λarr#234:Box, pred#235.
+    letrec find_go#236 = (λidx#237.
+      let %t79:Bool = (let %t80 = Len(arr#234)
+      Ge(idx#237, #4001155[synthetic]#1155))
+      case #4001156[synthetic]#1156 of
         true →
           None
         _ →
-          let %t73 = Index(arr#223, idx#226)
-          case #4001139[synthetic]#1139 of
-            Some(v#227) →
-              let %t74 = pred#224(v#227)
-              case #4001140[synthetic]#1140 of
+          let %t81 = Index(arr#234, idx#237)
+          case #4001157[synthetic]#1157 of
+            Some(v#238) →
+              let %t82 = pred#235(v#238)
+              case #4001158[synthetic]#1158 of
                 true →
-                  Some(v#227)
+                  Some(v#238)
                 _ →
-                  let %t75 = Add(idx#226, 1)
-                  find_go#225(#4001141[synthetic]#1141)
+                  let %t83 = Add(idx#237, 1)
+                  find_go#236(#4001159[synthetic]#1159)
             _ →
-              let %t76 = Add(idx#226, 1)
-              find_go#225(#4001142[synthetic]#1142))
-    find_go#225(0)
+              let %t84 = Add(idx#237, 1)
+              find_go#236(#4001160[synthetic]#1160))
+    find_go#236(0)
 
 letrec count =
-λarr#229:Box, pred#230.
-    letrec count_go#231 = (λidx#232, n#233.
-      let %t77:Bool = (let %t78 = Len(arr#229)
-      Ge(idx#232, #4001143[synthetic]#1143))
-      case #4001144[synthetic]#1144 of
+λarr#240:Box, pred#241.
+    letrec count_go#242 = (λidx#243, n#244.
+      let %t85:Bool = (let %t86 = Len(arr#240)
+      Ge(idx#243, #4001161[synthetic]#1161))
+      case #4001162[synthetic]#1162 of
         true →
-          n#233
+          n#244
         _ →
-          let %t79 = Index(arr#229, idx#232)
-          case #4001145[synthetic]#1145 of
-            Some(v#234) →
-              let %t80 = pred#230(v#234)
-              case #4001146[synthetic]#1146 of
+          let %t87 = Index(arr#240, idx#243)
+          case #4001163[synthetic]#1163 of
+            Some(v#245) →
+              let %t88 = pred#241(v#245)
+              case #4001164[synthetic]#1164 of
                 true →
-                  let %t81 = Add(idx#232, 1)
-                  let %t82 = Add(n#233, 1)
-                  count_go#231(#4001147[synthetic]#1147, #4001148[synthetic]#1148)
+                  let %t89 = Add(idx#243, 1)
+                  let %t90 = Add(n#244, 1)
+                  count_go#242(#4001165[synthetic]#1165, #4001166[synthetic]#1166)
                 _ →
-                  let %t83 = Add(idx#232, 1)
-                  count_go#231(#4001149[synthetic]#1149, n#233)
+                  let %t91 = Add(idx#243, 1)
+                  count_go#242(#4001167[synthetic]#1167, n#244)
             _ →
-              let %t84 = Add(idx#232, 1)
-              count_go#231(#4001150[synthetic]#1150, n#233))
-    count_go#231(0, 0)
+              let %t92 = Add(idx#243, 1)
+              count_go#242(#4001168[synthetic]#1168, n#244))
+    count_go#242(0, 0)
 
 letrec flat_map =
-λarr#236:Box, f#237.
-    letrec flat_map_go#238 = (λidx#239, acc#240.
-      let %t85:Bool = (let %t86 = Len(arr#236)
-      Ge(idx#239, #4001151[synthetic]#1151))
-      case #4001152[synthetic]#1152 of
+λarr#247:Box, f#248.
+    letrec flat_map_go#249 = (λidx#250, acc#251.
+      let %t93:Bool = (let %t94 = Len(arr#247)
+      Ge(idx#250, #4001169[synthetic]#1169))
+      case #4001170[synthetic]#1170 of
         true →
-          acc#240
+          acc#251
         _ →
-          let %t87 = Index(arr#236, idx#239)
-          case #4001153[synthetic]#1153 of
-            Some(v#241) →
-              let %t88 = Add(idx#239, 1)
-              let %t89 = (let %t90 = f#237(v#241)
-              concat#455(acc#240, #4001155[synthetic]#1155))
-              flat_map_go#238(#4001154[synthetic]#1154, #4001156[synthetic]#1156)
+          let %t95 = Index(arr#247, idx#250)
+          case #4001171[synthetic]#1171 of
+            Some(v#252) →
+              let %t96 = Add(idx#250, 1)
+              let %t97 = (let %t98 = f#248(v#252)
+              concat#466(acc#251, #4001173[synthetic]#1173))
+              flat_map_go#249(#4001172[synthetic]#1172, #4001174[synthetic]#1174)
             _ →
-              let %t91 = Add(idx#239, 1)
-              flat_map_go#238(#4001157[synthetic]#1157, acc#240))
-    let %t92:Box = MakeArray()
-    flat_map_go#238(0, #4001158[synthetic]#1158)
+              let %t99 = Add(idx#250, 1)
+              flat_map_go#249(#4001175[synthetic]#1175, acc#251))
+    let %t100:Box = MakeArray()
+    flat_map_go#249(0, #4001176[synthetic]#1176)
 
 letrec flatten =
-λarr#243:Box.
-    letrec flatten_go#244 = (λidx#245, acc#246.
-      let %t93:Bool = (let %t94 = Len(arr#243)
-      Ge(idx#245, #4001159[synthetic]#1159))
-      case #4001160[synthetic]#1160 of
+λarr#254:Box.
+    letrec flatten_go#255 = (λidx#256, acc#257.
+      let %t101:Bool = (let %t102 = Len(arr#254)
+      Ge(idx#256, #4001177[synthetic]#1177))
+      case #4001178[synthetic]#1178 of
         true →
-          acc#246
+          acc#257
         _ →
-          let %t95 = Index(arr#243, idx#245)
-          case #4001161[synthetic]#1161 of
-            Some(v#247) →
-              let %t96 = Add(idx#245, 1)
-              let %t97 = concat#455(acc#246, v#247)
-              flatten_go#244(#4001162[synthetic]#1162, #4001163[synthetic]#1163)
+          let %t103 = Index(arr#254, idx#256)
+          case #4001179[synthetic]#1179 of
+            Some(v#258) →
+              let %t104 = Add(idx#256, 1)
+              let %t105 = concat#466(acc#257, v#258)
+              flatten_go#255(#4001180[synthetic]#1180, #4001181[synthetic]#1181)
             _ →
-              let %t98 = Add(idx#245, 1)
-              flatten_go#244(#4001164[synthetic]#1164, acc#246))
-    let %t99:Box = MakeArray()
-    flatten_go#244(0, #4001165[synthetic]#1165)
+              let %t106 = Add(idx#256, 1)
+              flatten_go#255(#4001182[synthetic]#1182, acc#257))
+    let %t107:Box = MakeArray()
+    flatten_go#255(0, #4001183[synthetic]#1183)
 
 letrec zip =
-λa_arr#249:Box, b_arr#250:Box.
-    let min_len#256:Box = (let %t100:Bool = (let %t101 = Len(a_arr#249)
-    let %t102 = Len(b_arr#250)
-    Lt(#4001166[synthetic]#1166, #4001167[synthetic]#1167))
-    case #4001168[synthetic]#1168 of
+λa_arr#260:Box, b_arr#261:Box.
+    let min_len#267:Box = (let %t108:Bool = (let %t109 = Len(a_arr#260)
+    let %t110 = Len(b_arr#261)
+    Lt(#4001184[synthetic]#1184, #4001185[synthetic]#1185))
+    case #4001186[synthetic]#1186 of
       true →
-        Len(a_arr#249)
+        Len(a_arr#260)
       _ →
-        Len(b_arr#250))
-    letrec zip_go#251 = (λidx#252, acc#253.
-      let %t103:Bool = Ge(idx#252, min_len#256)
-      case #4001169[synthetic]#1169 of
+        Len(b_arr#261))
+    letrec zip_go#262 = (λidx#263, acc#264.
+      let %t111:Bool = Ge(idx#263, min_len#267)
+      case #4001187[synthetic]#1187 of
         true →
-          acc#253
+          acc#264
         _ →
-          let %t104 = Index(a_arr#249, idx#252)
-          case #4001170[synthetic]#1170 of
-            Some(va#254) →
-              let %t105 = Index(b_arr#250, idx#252)
-              case #4001171[synthetic]#1171 of
-                Some(vb#255) →
-                  let %t106 = Add(idx#252, 1)
-                  let %t107 = (let %t108:Box = MakeTuple(va#254, vb#255)
-                  push#269(acc#253, #4001173[synthetic]#1173))
-                  zip_go#251(#4001172[synthetic]#1172, #4001174[synthetic]#1174)
+          let %t112 = Index(a_arr#260, idx#263)
+          case #4001188[synthetic]#1188 of
+            Some(va#265) →
+              let %t113 = Index(b_arr#261, idx#263)
+              case #4001189[synthetic]#1189 of
+                Some(vb#266) →
+                  let %t114 = Add(idx#263, 1)
+                  let %t115 = (let %t116:Box = MakeTuple(va#265, vb#266)
+                  push#280(acc#264, #4001191[synthetic]#1191))
+                  zip_go#262(#4001190[synthetic]#1190, #4001192[synthetic]#1192)
                 _ →
-                  acc#253
+                  acc#264
             _ →
-              acc#253)
-    let %t109:Box = MakeArray()
-    zip_go#251(0, #4001175[synthetic]#1175)
+              acc#264)
+    let %t117:Box = MakeArray()
+    zip_go#262(0, #4001193[synthetic]#1193)
 
 letrec contains =
-λarr#258:Box, x#259.
-    let %t110:Box = (λv#260:Box.
-      eq#104(v#260, x#259))
-    any#457(arr#258, #4001176[synthetic]#1176)
+λarr#269:Box, x#270.
+    let %t118:Box = (λv#271:Box.
+      eq#104(v#271, x#270))
+    any#468(arr#269, #4001194[synthetic]#1194)
 
 letrec concat =
-λleft#262, right#263.
-    ArrayConcat(left#262, right#263)
+λleft#273, right#274.
+    ArrayConcat(left#273, right#274)
 
 letrec get =
-λarr#265, i#266.
-    ArrayGet(arr#265, i#266)
+λarr#276, i#277.
+    ArrayGet(arr#276, i#277)
 
 letrec length =
-λarr#268:Box.
-    ArrayLen(arr#268)
+λarr#279:Box.
+    ArrayLen(arr#279)
 
 letrec push =
-λarr#270, value#271.
-    ArrayPush(arr#270, value#271)
+λarr#281, value#282.
+    ArrayPush(arr#281, value#282)
 
 letrec reverse =
-λarr#273:Box.
-    let %t111:Bool = (let %t112 = Len(arr#273)
-    Eq(#4001177[synthetic]#1177, 0))
-    case #4001178[synthetic]#1178 of
+λarr#284:Box.
+    let %t119:Bool = (let %t120 = Len(arr#284)
+    Eq(#4001195[synthetic]#1195, 0))
+    case #4001196[synthetic]#1196 of
       true →
         MakeArray()
       _ →
-        let %t113 = Index(arr#273, 0)
-        case #4001179[synthetic]#1179 of
-          Some(v#274) →
-            let %t114 = (let %t115 = (let %t116 = Len(arr#273)
-            slice#275(arr#273, 1, #4001180[synthetic]#1180))
-            reverse#580(#4001181[synthetic]#1181))
-            let %t117:Box = MakeArray(v#274)
-            concat#455(#4001182[synthetic]#1182, #4001183[synthetic]#1183)
+        let %t121 = Index(arr#284, 0)
+        case #4001197[synthetic]#1197 of
+          Some(v#285) →
+            let %t122 = (let %t123 = (let %t124 = Len(arr#284)
+            slice#286(arr#284, 1, #4001198[synthetic]#1198))
+            reverse#591(#4001199[synthetic]#1199))
+            let %t125:Box = MakeArray(v#285)
+            concat#466(#4001200[synthetic]#1200, #4001201[synthetic]#1201)
           _ →
             MakeArray()
 
 letrec slice =
-λarr#276, start#277, end#278.
-    ArraySlice(arr#276, start#277, end#278)
+λarr#287, start#288, end#289.
+    ArraySlice(arr#287, start#288, end#289)
 
 letrec update =
-λarr#280, index#281, value#282.
-    ArraySet(arr#280, index#281, value#282)
+λarr#291, index#292, value#293.
+    ArraySet(arr#291, index#292, value#293)
 
 letrec sum =
-λarr#284:Box.
-    let %t118:Box = (λa#285, x#286.
-      Add(a#285, x#286))
-    fold#420(arr#284, 0, #4001184[synthetic]#1184)
+λarr#295:Box.
+    let %t126:Box = (λa#296, x#297.
+      Add(a#296, x#297))
+    fold#431(arr#295, 0, #4001202[synthetic]#1202)
 
 letrec product =
-λarr#288:Box.
-    let %t119:Box = (λa#289, x#290.
-      Mul(a#289, x#290))
-    fold#420(arr#288, 1, #4001185[synthetic]#1185)
+λarr#299:Box.
+    let %t127:Box = (λa#300, x#301.
+      Mul(a#300, x#301))
+    fold#431(arr#299, 1, #4001203[synthetic]#1203)
 
 letrec maximum =
-λarr#292:Box.
-    letrec maximum_go#294 = (λi#295, best#296.
-      let %t120:Bool = (let %t121 = Len(arr#292)
-      Ge(i#295, #4001186[synthetic]#1186))
-      case #4001187[synthetic]#1187 of
+λarr#303:Box.
+    letrec maximum_go#305 = (λi#306, best#307.
+      let %t128:Bool = (let %t129 = Len(arr#303)
+      Ge(i#306, #4001204[synthetic]#1204))
+      case #4001205[synthetic]#1205 of
         true →
-          best#296
+          best#307
         _ →
-          let %t122 = Index(arr#292, i#295)
-          case #4001188[synthetic]#1188 of
-            Some(v#297) →
-              let %t123 = Add(i#295, 1)
-              let %t124 = (let %t125:Bool = Gt(v#297, best#296)
-              case #4001190[synthetic]#1190 of
+          let %t130 = Index(arr#303, i#306)
+          case #4001206[synthetic]#1206 of
+            Some(v#308) →
+              let %t131 = Add(i#306, 1)
+              let %t132 = (let %t133:Bool = Gt(v#308, best#307)
+              case #4001208[synthetic]#1208 of
                 true →
-                  v#297
+                  v#308
                 _ →
-                  best#296)
-              maximum_go#294(#4001189[synthetic]#1189, #4001191[synthetic]#1191)
+                  best#307)
+              maximum_go#305(#4001207[synthetic]#1207, #4001209[synthetic]#1209)
             _ →
-              let %t126 = Add(i#295, 1)
-              maximum_go#294(#4001192[synthetic]#1192, best#296))
-    let %t127:Bool = (let %t128 = Len(arr#292)
-    Eq(#4001193[synthetic]#1193, 0))
-    case #4001194[synthetic]#1194 of
+              let %t134 = Add(i#306, 1)
+              maximum_go#305(#4001210[synthetic]#1210, best#307))
+    let %t135:Bool = (let %t136 = Len(arr#303)
+    Eq(#4001211[synthetic]#1211, 0))
+    case #4001212[synthetic]#1212 of
       true →
         0
       _ →
-        let %t129 = Index(arr#292, 0)
-        case #4001195[synthetic]#1195 of
-          Some(first#293) →
-            maximum_go#294(1, first#293)
+        let %t137 = Index(arr#303, 0)
+        case #4001213[synthetic]#1213 of
+          Some(first#304) →
+            maximum_go#305(1, first#304)
           _ →
             0
 
 letrec minimum =
-λarr#299:Box.
-    letrec minimum_go#301 = (λi#302, best#303.
-      let %t130:Bool = (let %t131 = Len(arr#299)
-      Ge(i#302, #4001196[synthetic]#1196))
-      case #4001197[synthetic]#1197 of
+λarr#310:Box.
+    letrec minimum_go#312 = (λi#313, best#314.
+      let %t138:Bool = (let %t139 = Len(arr#310)
+      Ge(i#313, #4001214[synthetic]#1214))
+      case #4001215[synthetic]#1215 of
         true →
-          best#303
+          best#314
         _ →
-          let %t132 = Index(arr#299, i#302)
-          case #4001198[synthetic]#1198 of
-            Some(v#304) →
-              let %t133 = Add(i#302, 1)
-              let %t134 = (let %t135:Bool = Lt(v#304, best#303)
-              case #4001200[synthetic]#1200 of
+          let %t140 = Index(arr#310, i#313)
+          case #4001216[synthetic]#1216 of
+            Some(v#315) →
+              let %t141 = Add(i#313, 1)
+              let %t142 = (let %t143:Bool = Lt(v#315, best#314)
+              case #4001218[synthetic]#1218 of
                 true →
-                  v#304
+                  v#315
                 _ →
-                  best#303)
-              minimum_go#301(#4001199[synthetic]#1199, #4001201[synthetic]#1201)
+                  best#314)
+              minimum_go#312(#4001217[synthetic]#1217, #4001219[synthetic]#1219)
             _ →
-              let %t136 = Add(i#302, 1)
-              minimum_go#301(#4001202[synthetic]#1202, best#303))
-    let %t137:Bool = (let %t138 = Len(arr#299)
-    Eq(#4001203[synthetic]#1203, 0))
-    case #4001204[synthetic]#1204 of
+              let %t144 = Add(i#313, 1)
+              minimum_go#312(#4001220[synthetic]#1220, best#314))
+    let %t145:Bool = (let %t146 = Len(arr#310)
+    Eq(#4001221[synthetic]#1221, 0))
+    case #4001222[synthetic]#1222 of
       true →
         0
       _ →
-        let %t139 = Index(arr#299, 0)
-        case #4001205[synthetic]#1205 of
-          Some(first#300) →
-            minimum_go#301(1, first#300)
+        let %t147 = Index(arr#310, 0)
+        case #4001223[synthetic]#1223 of
+          Some(first#311) →
+            minimum_go#312(1, first#311)
           _ →
             0
 
 letrec first =
-λarr#306.
-    Index(arr#306, 0)
+λarr#317.
+    Index(arr#317, 0)
 
 letrec last =
-λarr#308:Box.
-    let n#309 = Len(arr#308)
-    let %t140:Bool = Eq(n#309, 0)
-    case #4001206[synthetic]#1206 of
+λarr#319:Box.
+    let n#320 = Len(arr#319)
+    let %t148:Bool = Eq(n#320, 0)
+    case #4001224[synthetic]#1224 of
       true →
         None
       _ →
-        let %t141 = Sub(n#309, 1)
-        Index(arr#308, #4001207[synthetic]#1207)
+        let %t149 = Sub(n#320, 1)
+        Index(arr#319, #4001225[synthetic]#1225)
 
 letrec range =
-λstart#311:Int, stop#312:Int.
-    letrec range_go#313 = (λi#314, acc#315.
-      let %t142:Bool = Ge(i#314, stop#312)
-      case #4001208[synthetic]#1208 of
+λstart#322:Int, stop#323:Int.
+    letrec range_go#324 = (λi#325, acc#326.
+      let %t150:Bool = Ge(i#325, stop#323)
+      case #4001226[synthetic]#1226 of
         true →
-          acc#315
+          acc#326
         _ →
-          let %t143 = Add(i#314, 1)
-          let %t144 = push#269(acc#315, i#314)
-          range_go#313(#4001209[synthetic]#1209, #4001210[synthetic]#1210))
-    let %t145:Box = MakeArray()
-    range_go#313(start#311, #4001211[synthetic]#1211)
+          let %t151 = Add(i#325, 1)
+          let %t152 = push#280(acc#326, i#325)
+          range_go#324(#4001227[synthetic]#1227, #4001228[synthetic]#1228))
+    let %t153:Box = MakeArray()
+    range_go#324(start#322, #4001229[synthetic]#1229)
 
 letrec sort =
-λarr#317:Box.
-    let %t146:Box = (λv#318.
-      v#318)
-    sort_by#540(arr#317, #4001212[synthetic]#1212)
+λarr#328:Box.
+    let %t154:Box = (λv#329.
+      v#329)
+    sort_by#551(arr#328, #4001230[synthetic]#1230)
 
 letrec sort_by =
-λarr#320:Box, f#321.
-    letrec insert_tagged#327 = (λsorted#328, pair#329, idx#330.
-      let %t147:Bool = (let %t148 = Len(sorted#328)
-      Ge(idx#330, #4001213[synthetic]#1213))
-      case #4001214[synthetic]#1214 of
+λarr#331:Box, f#332.
+    letrec insert_tagged#338 = (λsorted#339, pair#340, idx#341.
+      let %t155:Bool = (let %t156 = Len(sorted#339)
+      Ge(idx#341, #4001231[synthetic]#1231))
+      case #4001232[synthetic]#1232 of
         true →
-          push#269(sorted#328, pair#329)
+          push#280(sorted#339, pair#340)
         _ →
-          let %t149 = Index(sorted#328, idx#330)
-          case #4001215[synthetic]#1215 of
-            Some(current#331) →
-              let %t150:Bool = (let %t151 = pair#329.0
-              let %t152 = current#331.0
-              Le(#4001216[synthetic]#1216, #4001217[synthetic]#1217))
-              case #4001218[synthetic]#1218 of
+          let %t157 = Index(sorted#339, idx#341)
+          case #4001233[synthetic]#1233 of
+            Some(current#342) →
+              let %t158:Bool = (let %t159 = pair#340.0
+              let %t160 = current#342.0
+              Le(#4001234[synthetic]#1234, #4001235[synthetic]#1235))
+              case #4001236[synthetic]#1236 of
                 true →
-                  let left#333:Int = slice#275(sorted#328, 0, idx#330)
-                  let right#332:Int = (let %t153 = Len(sorted#328)
-                  slice#275(sorted#328, idx#330, #4001219[synthetic]#1219))
-                  let %t154 = (let %t155:Box = MakeArray(pair#329)
-                  concat#455(left#333, #4001220[synthetic]#1220))
-                  concat#455(#4001221[synthetic]#1221, right#332)
+                  let left#344:Int = slice#286(sorted#339, 0, idx#341)
+                  let right#343:Int = (let %t161 = Len(sorted#339)
+                  slice#286(sorted#339, idx#341, #4001237[synthetic]#1237))
+                  let %t162 = (let %t163:Box = MakeArray(pair#340)
+                  concat#466(left#344, #4001238[synthetic]#1238))
+                  concat#466(#4001239[synthetic]#1239, right#343)
                 _ →
-                  let %t156 = Add(idx#330, 1)
-                  insert_tagged#327(sorted#328, pair#329, #4001222[synthetic]#1222)
+                  let %t164 = Add(idx#341, 1)
+                  insert_tagged#338(sorted#339, pair#340, #4001240[synthetic]#1240)
             _ →
-              push#269(sorted#328, pair#329))
-    letrec sort_by_go#323 = (λidx#324, pairs#325.
-      let %t157:Bool = (let %t158 = Len(arr#320)
-      Ge(idx#324, #4001223[synthetic]#1223))
-      case #4001224[synthetic]#1224 of
+              push#280(sorted#339, pair#340))
+    letrec sort_by_go#334 = (λidx#335, pairs#336.
+      let %t165:Bool = (let %t166 = Len(arr#331)
+      Ge(idx#335, #4001241[synthetic]#1241))
+      case #4001242[synthetic]#1242 of
         true →
-          pairs#325
+          pairs#336
         _ →
-          let %t159 = Index(arr#320, idx#324)
-          case #4001225[synthetic]#1225 of
-            Some(v#326) →
-              let %t160 = Add(idx#324, 1)
-              let %t161 = (let %t162:Box = (let %t163 = f#321(v#326)
-              MakeTuple(#4001227[synthetic]#1227, v#326))
-              insert_tagged#327(pairs#325, #4001228[synthetic]#1228, 0))
-              sort_by_go#323(#4001226[synthetic]#1226, #4001229[synthetic]#1229)
+          let %t167 = Index(arr#331, idx#335)
+          case #4001243[synthetic]#1243 of
+            Some(v#337) →
+              let %t168 = Add(idx#335, 1)
+              let %t169 = (let %t170:Box = (let %t171 = f#332(v#337)
+              MakeTuple(#4001245[synthetic]#1245, v#337))
+              insert_tagged#338(pairs#336, #4001246[synthetic]#1246, 0))
+              sort_by_go#334(#4001244[synthetic]#1244, #4001247[synthetic]#1247)
             _ →
-              let %t164 = Add(idx#324, 1)
-              sort_by_go#323(#4001230[synthetic]#1230, pairs#325))
-    let %t165 = (let %t166:Box = MakeArray()
-    sort_by_go#323(0, #4001231[synthetic]#1231))
-    let %t167:Box = (λp#322.
-      p#322.1)
-    map#404(#4001232[synthetic]#1232, #4001233[synthetic]#1233)
+              let %t172 = Add(idx#335, 1)
+              sort_by_go#334(#4001248[synthetic]#1248, pairs#336))
+    let %t173 = (let %t174:Box = MakeArray()
+    sort_by_go#334(0, #4001249[synthetic]#1249))
+    let %t175:Box = (λp#333.
+      p#333.1)
+    map#415(#4001250[synthetic]#1250, #4001251[synthetic]#1251)
 
 letrec take =
-λarr#335:Box, n#336:Int.
-    let %t168 = (let %t169:Bool = (let %t170 = Len(arr#335)
-    Gt(n#336, #4001234[synthetic]#1234))
-    case #4001235[synthetic]#1235 of
+λarr#346:Box, n#347:Int.
+    let %t176 = (let %t177:Bool = (let %t178 = Len(arr#346)
+    Gt(n#347, #4001252[synthetic]#1252))
+    case #4001253[synthetic]#1253 of
       true →
-        Len(arr#335)
+        Len(arr#346)
       _ →
-        n#336)
-    slice#275(arr#335, 0, #4001236[synthetic]#1236)
+        n#347)
+    slice#286(arr#346, 0, #4001254[synthetic]#1254)
 
 letrec drop =
-λarr#338:Box, n#339:Int.
-    let %t171 = (let %t172:Bool = (let %t173 = Len(arr#338)
-    Gt(n#339, #4001237[synthetic]#1237))
-    case #4001238[synthetic]#1238 of
+λarr#349:Box, n#350:Int.
+    let %t179 = (let %t180:Bool = (let %t181 = Len(arr#349)
+    Gt(n#350, #4001255[synthetic]#1255))
+    case #4001256[synthetic]#1256 of
       true →
-        Len(arr#338)
+        Len(arr#349)
       _ →
-        n#339)
-    let %t174 = Len(arr#338)
-    slice#275(arr#338, #4001239[synthetic]#1239, #4001240[synthetic]#1240)
+        n#350)
+    let %t182 = Len(arr#349)
+    slice#286(arr#349, #4001257[synthetic]#1257, #4001258[synthetic]#1258)
 
 letrec swap =
-λarr#341, i#342, j#343.
-    let %t175 = Index(arr#341, i#342)
-    case #4001241[synthetic]#1241 of
-      Some(vi#344) →
-        let %t176 = Index(arr#341, j#343)
-        case #4001242[synthetic]#1242 of
-          Some(vj#345) →
-            let %t177 = update#279(arr#341, i#342, vj#345)
-            update#279(#4001243[synthetic]#1243, j#343, vi#344)
+λarr#352, i#353, j#354.
+    let %t183 = Index(arr#352, i#353)
+    case #4001259[synthetic]#1259 of
+      Some(vi#355) →
+        let %t184 = Index(arr#352, j#354)
+        case #4001260[synthetic]#1260 of
+          Some(vj#356) →
+            let %t185 = update#290(arr#352, i#353, vj#356)
+            update#290(#4001261[synthetic]#1261, j#354, vi#355)
           _ →
-            arr#341
+            arr#352
       _ →
-        arr#341
+        arr#352
 
 letrec enumerate =
-λarr#347:Box.
-    letrec enumerate_go#348 = (λidx#349, acc#350.
-      let %t178:Bool = (let %t179 = Len(arr#347)
-      Ge(idx#349, #4001244[synthetic]#1244))
-      case #4001245[synthetic]#1245 of
+λarr#358:Box.
+    letrec enumerate_go#359 = (λidx#360, acc#361.
+      let %t186:Bool = (let %t187 = Len(arr#358)
+      Ge(idx#360, #4001262[synthetic]#1262))
+      case #4001263[synthetic]#1263 of
         true →
-          acc#350
+          acc#361
         _ →
-          let %t180 = Index(arr#347, idx#349)
-          case #4001246[synthetic]#1246 of
-            Some(v#351) →
-              let %t181 = Add(idx#349, 1)
-              let %t182 = (let %t183:Box = MakeTuple(idx#349, v#351)
-              push#269(acc#350, #4001248[synthetic]#1248))
-              enumerate_go#348(#4001247[synthetic]#1247, #4001249[synthetic]#1249)
+          let %t188 = Index(arr#358, idx#360)
+          case #4001264[synthetic]#1264 of
+            Some(v#362) →
+              let %t189 = Add(idx#360, 1)
+              let %t190 = (let %t191:Box = MakeTuple(idx#360, v#362)
+              push#280(acc#361, #4001266[synthetic]#1266))
+              enumerate_go#359(#4001265[synthetic]#1265, #4001267[synthetic]#1267)
             _ →
-              let %t184:Int = IAdd(idx#349, 1)
-              enumerate_go#348(#4001250[synthetic]#1250, acc#350))
-    let %t185:Box = MakeArray()
-    enumerate_go#348(0, #4001251[synthetic]#1251)
+              let %t192:Int = IAdd(idx#360, 1)
+              enumerate_go#359(#4001268[synthetic]#1268, acc#361))
+    let %t193:Box = MakeArray()
+    enumerate_go#359(0, #4001269[synthetic]#1269)
 
 letrec tabulate =
-λn#353, f#354.
-    letrec tabulate_go#355 = (λi#356, acc#357.
-      let %t186:Bool = Ge(i#356, n#353)
-      case #4001252[synthetic]#1252 of
+λn#364, f#365.
+    letrec tabulate_go#366 = (λi#367, acc#368.
+      let %t194:Bool = Ge(i#367, n#364)
+      case #4001270[synthetic]#1270 of
         true →
-          acc#357
+          acc#368
         _ →
-          let %t187 = Add(i#356, 1)
-          let %t188 = (let %t189 = f#354(i#356)
-          push#269(acc#357, #4001254[synthetic]#1254))
-          tabulate_go#355(#4001253[synthetic]#1253, #4001255[synthetic]#1255))
-    let %t190:Box = MakeArray()
-    tabulate_go#355(0, #4001256[synthetic]#1256)
+          let %t195 = Add(i#367, 1)
+          let %t196 = (let %t197 = f#365(i#367)
+          push#280(acc#368, #4001272[synthetic]#1272))
+          tabulate_go#366(#4001271[synthetic]#1271, #4001273[synthetic]#1273))
+    let %t198:Box = MakeArray()
+    tabulate_go#366(0, #4001274[synthetic]#1274)
 
 letrec from_list =
-λxs#359.
-    letrec from_list_go#360 = (λys#361, acc#362.
-      case ys#361 of
-        ::(h#363, t#364) →
-          let %t191 = push#269(acc#362, h#363)
-          from_list_go#360(t#364, #4001257[synthetic]#1257)
+λxs#370.
+    letrec from_list_go#371 = (λys#372, acc#373.
+      case ys#372 of
+        ::(h#374, t#375) →
+          let %t199 = push#280(acc#373, h#374)
+          from_list_go#371(t#375, #4001275[synthetic]#1275)
         _ →
-          acc#362)
-    let %t192:Box = MakeArray()
-    from_list_go#360(xs#359, #4001258[synthetic]#1258)
+          acc#373)
+    let %t200:Box = MakeArray()
+    from_list_go#371(xs#370, #4001276[synthetic]#1276)
 
 letrec find_index =
-λarr#366, pred#367.
-    letrec find_index_go#368 = (λidx#369.
-      let %t193:Bool = (let %t194 = Len(arr#366)
-      Ge(idx#369, #4001259[synthetic]#1259))
-      case #4001260[synthetic]#1260 of
+λarr#377, pred#378.
+    letrec find_index_go#379 = (λidx#380.
+      let %t201:Bool = (let %t202 = Len(arr#377)
+      Ge(idx#380, #4001277[synthetic]#1277))
+      case #4001278[synthetic]#1278 of
         true →
           None
         _ →
-          let %t195 = Index(arr#366, idx#369)
-          case #4001261[synthetic]#1261 of
-            Some(v#370) →
-              let %t196 = pred#367(v#370)
-              case #4001262[synthetic]#1262 of
+          let %t203 = Index(arr#377, idx#380)
+          case #4001279[synthetic]#1279 of
+            Some(v#381) →
+              let %t204 = pred#378(v#381)
+              case #4001280[synthetic]#1280 of
                 true →
-                  Some(idx#369)
+                  Some(idx#380)
                 _ →
-                  let %t197 = Add(idx#369, 1)
-                  find_index_go#368(#4001263[synthetic]#1263)
+                  let %t205 = Add(idx#380, 1)
+                  find_index_go#379(#4001281[synthetic]#1281)
             _ →
-              let %t198 = Add(idx#369, 1)
-              find_index_go#368(#4001264[synthetic]#1264))
-    find_index_go#368(0)
+              let %t206 = Add(idx#380, 1)
+              find_index_go#379(#4001282[synthetic]#1282))
+    find_index_go#379(0)
 
 letrec each_indexed =
-λarr#372, f#373.
-    letrec each_indexed_go#374 = (λidx#375.
-      let %t199:Bool = (let %t200 = Len(arr#372)
-      Ge(idx#375, #4001265[synthetic]#1265))
-      case #4001266[synthetic]#1266 of
+λarr#383, f#384.
+    letrec each_indexed_go#385 = (λidx#386.
+      let %t207:Bool = (let %t208 = Len(arr#383)
+      Ge(idx#386, #4001283[synthetic]#1283))
+      case #4001284[synthetic]#1284 of
         true →
           MakeTuple()
         _ →
-          let %t201 = Index(arr#372, idx#375)
-          case #4001267[synthetic]#1267 of
-            Some(v#376) →
-              let %t202 = f#373(idx#375, v#376)
-              let %t203 = Add(idx#375, 1)
-              each_indexed_go#374(#4001268[synthetic]#1268)
+          let %t209 = Index(arr#383, idx#386)
+          case #4001285[synthetic]#1285 of
+            Some(v#387) →
+              let %t210 = f#384(idx#386, v#387)
+              let %t211 = Add(idx#386, 1)
+              each_indexed_go#385(#4001286[synthetic]#1286)
             _ →
-              let %t204 = Add(idx#375, 1)
-              each_indexed_go#374(#4001269[synthetic]#1269))
-    each_indexed_go#374(0)
+              let %t212 = Add(idx#386, 1)
+              each_indexed_go#385(#4001287[synthetic]#1287))
+    each_indexed_go#385(0)
 
 letrec update_many =
-λarr#379, pairs#380.
-    letrec update_many_go#381 = (λa#382, ps#383.
-      case ps#383 of
-        ::(p#384, rest#385) →
-          let %t205 = (let %t206 = p#384.0
-          let %t207 = p#384.1
-          update#279(a#382, #4001270[synthetic]#1270, #4001271[synthetic]#1271))
-          update_many_go#381(#4001272[synthetic]#1272, rest#385)
+λarr#390, pairs#391.
+    letrec update_many_go#392 = (λa#393, ps#394.
+      case ps#394 of
+        ::(p#395, rest#396) →
+          let %t213 = (let %t214 = p#395.0
+          let %t215 = p#395.1
+          update#290(a#393, #4001288[synthetic]#1288, #4001289[synthetic]#1289))
+          update_many_go#392(#4001290[synthetic]#1290, rest#396)
         _ →
-          a#382)
-    update_many_go#381(arr#379, pairs#380)
+          a#393)
+    update_many_go#392(arr#390, pairs#391)
 
 letrec accum =
-λsize#387, init#388, pairs#389, f#390.
-    let base#397:Box = (let %t208:Box = (λ_#398.
-      init#388)
-    tabulate#352(size#387, #4001273[synthetic]#1273))
-    letrec accum_go#391 = (λa#392, ps#393.
-      case ps#393 of
-        ::(p#394, rest#395) →
-          let %t209 = (let %t210 = p#394.0
-          Index(a#392, #4001274[synthetic]#1274))
-          case #4001275[synthetic]#1275 of
-            Some(cur#396) →
-              let %t211 = (let %t212 = p#394.0
-              let %t213 = (let %t214 = p#394.1
-              f#390(cur#396, #4001277[synthetic]#1277))
-              update#279(a#392, #4001276[synthetic]#1276, #4001278[synthetic]#1278))
-              accum_go#391(#4001279[synthetic]#1279, rest#395)
+λsize#398, init#399, pairs#400, f#401.
+    let base#408:Box = (let %t216:Box = (λ_#409.
+      init#399)
+    tabulate#363(size#398, #4001291[synthetic]#1291))
+    letrec accum_go#402 = (λa#403, ps#404.
+      case ps#404 of
+        ::(p#405, rest#406) →
+          let %t217 = (let %t218 = p#405.0
+          Index(a#403, #4001292[synthetic]#1292))
+          case #4001293[synthetic]#1293 of
+            Some(cur#407) →
+              let %t219 = (let %t220 = p#405.0
+              let %t221 = (let %t222 = p#405.1
+              f#401(cur#407, #4001295[synthetic]#1295))
+              update#290(a#403, #4001294[synthetic]#1294, #4001296[synthetic]#1296))
+              accum_go#402(#4001297[synthetic]#1297, rest#406)
             _ →
-              accum_go#391(a#392, rest#395)
+              accum_go#402(a#403, rest#406)
         _ →
-          a#392)
-    accum_go#391(base#397, pairs#389)
+          a#403)
+    accum_go#402(base#408, pairs#400)
 
 letrec to_list =
-λarr#400.
-    letrec to_list_go#401 = (λidx#402.
-      let %t215:Bool = (let %t216 = Len(arr#400)
-      Ge(idx#402, #4001280[synthetic]#1280))
-      case #4001281[synthetic]#1281 of
+λarr#411.
+    letrec to_list_go#412 = (λidx#413.
+      let %t223:Bool = (let %t224 = Len(arr#411)
+      Ge(idx#413, #4001298[synthetic]#1298))
+      case #4001299[synthetic]#1299 of
         true →
           []
         _ →
-          let %t217 = Index(arr#400, idx#402)
-          case #4001282[synthetic]#1282 of
-            Some(v#403) →
-              let %t218 = (let %t219 = Add(idx#402, 1)
-              to_list_go#401(#4001283[synthetic]#1283))
-              ::(v#403, #4001284[synthetic]#1284)
+          let %t225 = Index(arr#411, idx#413)
+          case #4001300[synthetic]#1300 of
+            Some(v#414) →
+              let %t226 = (let %t227 = Add(idx#413, 1)
+              to_list_go#412(#4001301[synthetic]#1301))
+              ::(v#414, #4001302[synthetic]#1302)
             _ →
-              let %t220 = Add(idx#402, 1)
-              to_list_go#401(#4001285[synthetic]#1285))
-    to_list_go#401(0)
+              let %t228 = Add(idx#413, 1)
+              to_list_go#412(#4001303[synthetic]#1303))
+    to_list_go#412(0)
 
 letrec map =
-λxs#405:Box, f#406.
-    letrec map_acc#407 = (λys#408, acc#409.
-      case ys#408 of
-        ::(h#410:Int, t#411:Box) →
-          let %t221:Box = (let %t222 = f#406(h#410)
-          ::(#4001286[synthetic]#1286, acc#409))
-          map_acc#407(t#411, #4001287[synthetic]#1287)
+λxs#416:Box, f#417.
+    letrec map_acc#418 = (λys#419, acc#420.
+      case ys#419 of
+        ::(h#421:Int, t#422:Box) →
+          let %t229:Box = (let %t230 = f#417(h#421)
+          ::(#4001304[synthetic]#1304, acc#420))
+          map_acc#418(t#422, #4001305[synthetic]#1305)
         _ →
-          reverse#580(acc#409))
-    let %t223:Unit = []
-    map_acc#407(xs#405, #4001288[synthetic]#1288)
+          reverse#591(acc#420))
+    let %t231:Unit = []
+    map_acc#418(xs#416, #4001306[synthetic]#1306)
 
 letrec filter =
-λxs#413:Box, pred#414.
-    letrec filter_acc#415 = (λys#416, acc#417.
-      case ys#416 of
-        ::(h#418, t#419:Box) →
-          let %t224 = pred#414(h#418)
-          case #4001289[synthetic]#1289 of
+λxs#424:Box, pred#425.
+    letrec filter_acc#426 = (λys#427, acc#428.
+      case ys#427 of
+        ::(h#429, t#430:Box) →
+          let %t232 = pred#425(h#429)
+          case #4001307[synthetic]#1307 of
             true →
-              let %t225:Box = ::(h#418, acc#417)
-              filter_acc#415(t#419, #4001290[synthetic]#1290)
+              let %t233:Box = ::(h#429, acc#428)
+              filter_acc#426(t#430, #4001308[synthetic]#1308)
             _ →
-              filter_acc#415(t#419, acc#417)
+              filter_acc#426(t#430, acc#428)
         _ →
-          reverse#580(acc#417))
-    let %t226:Unit = []
-    filter_acc#415(xs#413, #4001291[synthetic]#1291)
+          reverse#591(acc#428))
+    let %t234:Unit = []
+    filter_acc#426(xs#424, #4001309[synthetic]#1309)
 
 letrec fold =
-λxs#421:Box, acc#422, f#423.
-    letrec fold_list#424 = (λys#425, a#426.
-      case ys#425 of
-        ::(h#427, t#428:Box) →
-          let %t227 = f#423(a#426, h#427)
-          fold_list#424(t#428, #4001292[synthetic]#1292)
+λxs#432:Box, acc#433, f#434.
+    letrec fold_list#435 = (λys#436, a#437.
+      case ys#436 of
+        ::(h#438, t#439:Box) →
+          let %t235 = f#434(a#437, h#438)
+          fold_list#435(t#439, #4001310[synthetic]#1310)
         _ →
-          a#426)
-    fold_list#424(xs#421, acc#422)
+          a#437)
+    fold_list#435(xs#432, acc#433)
 
 letrec foldr =
-λxs#430:Box, acc#431, f#432.
-    case xs#430 of
-      ::(h#433, t#434:Int) →
-        let %t228 = foldr#429(t#434, acc#431, f#432)
-        f#432(h#433, #4001293[synthetic]#1293)
+λxs#441:Box, acc#442, f#443.
+    case xs#441 of
+      ::(h#444, t#445:Int) →
+        let %t236 = foldr#440(t#445, acc#442, f#443)
+        f#443(h#444, #4001311[synthetic]#1311)
       _ →
-        acc#431
+        acc#442
 
 letrec fold1 =
-λxs#436:Box, f#437.
-    case xs#436 of
-      ::(h#438, t#439:Box) →
-        fold#420(t#439, h#438, f#437)
+λxs#447:Box, f#448.
+    case xs#447 of
+      ::(h#449, t#450:Box) →
+        fold#431(t#450, h#449, f#448)
       _ →
-        panic#999("fold1 called on empty list")
+        panic#1010("fold1 called on empty list")
 
 letrec flat_map =
-λxs#441:Box, f#442.
-    letrec flat_map_acc#443 = (λys#444, acc#445.
-      case ys#444 of
-        ::(h#446, t#447:Box) →
-          let %t229 = (let %t230 = (let %t231 = f#442(h#446)
-          reverse#580(#4001294[synthetic]#1294))
-          __tc_Semigroup_String_append#101(#4001295[synthetic]#1295, acc#445))
-          flat_map_acc#443(t#447, #4001296[synthetic]#1296)
+λxs#452:Box, f#453.
+    letrec flat_map_acc#454 = (λys#455, acc#456.
+      case ys#455 of
+        ::(h#457, t#458:Box) →
+          let %t237 = (let %t238 = (let %t239 = f#453(h#457)
+          reverse#591(#4001312[synthetic]#1312))
+          __tc_Semigroup_String_append#101(#4001313[synthetic]#1313, acc#456))
+          flat_map_acc#454(t#458, #4001314[synthetic]#1314)
         _ →
-          reverse#580(acc#445))
-    let %t232:Unit = []
-    flat_map_acc#443(xs#441, #4001297[synthetic]#1297)
+          reverse#591(acc#456))
+    let %t240:Unit = []
+    flat_map_acc#454(xs#452, #4001315[synthetic]#1315)
 
 letrec flatten =
-λxs#449:Box.
-    letrec flatten_acc#450 = (λys#451, acc#452.
-      case ys#451 of
-        ::(h#453, t#454:Box) →
-          let %t233 = (let %t234 = reverse#580(h#453)
-          append#698(#4001298[synthetic]#1298, acc#452))
-          flatten_acc#450(t#454, #4001299[synthetic]#1299)
+λxs#460:Box.
+    letrec flatten_acc#461 = (λys#462, acc#463.
+      case ys#462 of
+        ::(h#464, t#465:Box) →
+          let %t241 = (let %t242 = reverse#591(h#464)
+          append#709(#4001316[synthetic]#1316, acc#463))
+          flatten_acc#461(t#465, #4001317[synthetic]#1317)
         _ →
-          reverse#580(acc#452))
-    let %t235:Unit = []
-    flatten_acc#450(xs#449, #4001300[synthetic]#1300)
+          reverse#591(acc#463))
+    let %t243:Unit = []
+    flatten_acc#461(xs#460, #4001318[synthetic]#1318)
 
 letrec concat =
-λxss#456:Box.
-    flatten#448(xss#456)
+λxss#467:Box.
+    flatten#459(xss#467)
 
 letrec any =
-λxs#458:Box, pred#459.
-    case xs#458 of
-      ::(h#460, t#461:Int) →
-        let %t236 = pred#459(h#460)
-        case #4001301[synthetic]#1301 of
+λxs#469:Box, pred#470.
+    case xs#469 of
+      ::(h#471, t#472:Int) →
+        let %t244 = pred#470(h#471)
+        case #4001319[synthetic]#1319 of
           true →
             true
           _ →
-            any#457(t#461, pred#459)
+            any#468(t#472, pred#470)
       _ →
         false
 
 letrec all =
-λxs#463:Box, pred#464.
-    case xs#463 of
-      ::(h#465, t#466:Bool) →
-        let %t237 = pred#464(h#465)
-        case #4001302[synthetic]#1302 of
+λxs#474:Box, pred#475.
+    case xs#474 of
+      ::(h#476, t#477:Bool) →
+        let %t245 = pred#475(h#476)
+        case #4001320[synthetic]#1320 of
           true →
-            all#462(t#466, pred#464)
+            all#473(t#477, pred#475)
           _ →
             false
       _ →
         true
 
 letrec find =
-λxs#468:Box, pred#469.
-    case xs#468 of
-      ::(h#470, t#471:Int) →
-        let %t238 = pred#469(h#470)
-        case #4001303[synthetic]#1303 of
+λxs#479:Box, pred#480.
+    case xs#479 of
+      ::(h#481, t#482:Int) →
+        let %t246 = pred#480(h#481)
+        case #4001321[synthetic]#1321 of
           true →
-            Some(h#470)
+            Some(h#481)
           _ →
-            find#467(t#471, pred#469)
+            find#478(t#482, pred#480)
       _ →
         None
 
 letrec count =
-λxs#473:Box, pred#474.
-    letrec count_go#475 = (λys#476, n#477.
-      case ys#476 of
-        ::(h#478, t#479:Int) →
-          let %t239 = pred#474(h#478)
-          case #4001304[synthetic]#1304 of
+λxs#484:Box, pred#485.
+    letrec count_go#486 = (λys#487, n#488.
+      case ys#487 of
+        ::(h#489, t#490:Int) →
+          let %t247 = pred#485(h#489)
+          case #4001322[synthetic]#1322 of
             true →
-              let %t240:Int = IAdd(n#477, 1)
-              count_go#475(t#479, #4001305[synthetic]#1305)
+              let %t248:Int = IAdd(n#488, 1)
+              count_go#486(t#490, #4001323[synthetic]#1323)
             _ →
-              count_go#475(t#479, n#477)
+              count_go#486(t#490, n#488)
         _ →
-          n#477)
-    count_go#475(xs#473, 0)
+          n#488)
+    count_go#486(xs#484, 0)
 
 letrec each =
-λxs#481:Box, f#482.
-    case xs#481 of
-      ::(h#483, t#484:Box) →
-        let %t241 = f#482(h#483)
-        let %t242 = Flow.List#?[external].each
-        #4001306[synthetic]#1306(t#484, f#482)
+λxs#492:Box, f#493.
+    case xs#492 of
+      ::(h#494, t#495:Box) →
+        let %t249 = f#493(h#494)
+        let %t250 = Flow.List#?[external].each
+        #4001324[synthetic]#1324(t#495, f#493)
       _ →
         MakeTuple()
 
 letrec take =
-λxs#487:Box, n#488:Int.
-    letrec take_acc#489 = (λys#490, remaining#491, acc#492.
-      let %t243:Bool = ICmpLe(remaining#491, 0)
-      case #4001307[synthetic]#1307 of
+λxs#498:Box, n#499:Int.
+    letrec take_acc#500 = (λys#501, remaining#502, acc#503.
+      let %t251:Bool = ICmpLe(remaining#502, 0)
+      case #4001325[synthetic]#1325 of
         true →
-          reverse#580(acc#492)
+          reverse#591(acc#503)
         _ →
-          case ys#490 of
-            ::(h#493, t#494:Box) →
-              let %t244:Int = ISub(remaining#491, 1)
-              let %t245:Box = ::(h#493, acc#492)
-              take_acc#489(t#494, #4001308[synthetic]#1308, #4001309[synthetic]#1309)
+          case ys#501 of
+            ::(h#504, t#505:Box) →
+              let %t252:Int = ISub(remaining#502, 1)
+              let %t253:Box = ::(h#504, acc#503)
+              take_acc#500(t#505, #4001326[synthetic]#1326, #4001327[synthetic]#1327)
             _ →
-              reverse#580(acc#492))
-    let %t246:Unit = []
-    take_acc#489(xs#487, n#488, #4001310[synthetic]#1310)
+              reverse#591(acc#503))
+    let %t254:Unit = []
+    take_acc#500(xs#498, n#499, #4001328[synthetic]#1328)
 
 letrec drop =
-λxs#496:Box, n#497:Int.
-    let %t247:Bool = ICmpLe(n#497, 0)
-    case #4001311[synthetic]#1311 of
+λxs#507:Box, n#508:Int.
+    let %t255:Bool = ICmpLe(n#508, 0)
+    case #4001329[synthetic]#1329 of
       true →
-        xs#496
+        xs#507
       _ →
-        case xs#496 of
-          ::(h#498, t#499:Box) →
-            let %t248:Int = ISub(n#497, 1)
-            drop#495(t#499, #4001312[synthetic]#1312)
+        case xs#507 of
+          ::(h#509, t#510:Box) →
+            let %t256:Int = ISub(n#508, 1)
+            drop#506(t#510, #4001330[synthetic]#1330)
           _ →
             []
 
 letrec take_while =
-λxs#501:Box, pred#502.
-    letrec take_while_acc#503 = (λys#504, acc#505.
-      case ys#504 of
-        ::(h#506, t#507:Box) →
-          let %t249 = pred#502(h#506)
-          case #4001313[synthetic]#1313 of
+λxs#512:Box, pred#513.
+    letrec take_while_acc#514 = (λys#515, acc#516.
+      case ys#515 of
+        ::(h#517, t#518:Box) →
+          let %t257 = pred#513(h#517)
+          case #4001331[synthetic]#1331 of
             true →
-              let %t250:Box = ::(h#506, acc#505)
-              take_while_acc#503(t#507, #4001314[synthetic]#1314)
+              let %t258:Box = ::(h#517, acc#516)
+              take_while_acc#514(t#518, #4001332[synthetic]#1332)
             _ →
-              reverse#580(acc#505)
+              reverse#591(acc#516)
         _ →
-          reverse#580(acc#505))
-    let %t251:Unit = []
-    take_while_acc#503(xs#501, #4001315[synthetic]#1315)
+          reverse#591(acc#516))
+    let %t259:Unit = []
+    take_while_acc#514(xs#512, #4001333[synthetic]#1333)
 
 letrec drop_while =
-λxs#509:Box, pred#510.
-    case xs#509 of
-      ::(h#511, t#512:Box) →
-        let %t252 = pred#510(h#511)
-        case #4001316[synthetic]#1316 of
+λxs#520:Box, pred#521.
+    case xs#520 of
+      ::(h#522, t#523:Box) →
+        let %t260 = pred#521(h#522)
+        case #4001334[synthetic]#1334 of
           true →
-            drop_while#508(t#512, pred#510)
+            drop_while#519(t#523, pred#521)
           _ →
-            xs#509
+            xs#520
       _ →
         []
 
 letrec split_at =
-λxs#514:Box, n#515:Int.
-    let %t253:Bool = ICmpLe(n#515, 0)
-    case #4001317[synthetic]#1317 of
+λxs#525:Box, n#526:Int.
+    let %t261:Bool = ICmpLe(n#526, 0)
+    case #4001335[synthetic]#1335 of
       true →
-        let %t254:Unit = []
-        MakeTuple(#4001318[synthetic]#1318, xs#514)
+        let %t262:Unit = []
+        MakeTuple(#4001336[synthetic]#1336, xs#525)
       _ →
-        case xs#514 of
-          ::(h#516, t#517:Box) →
-            let %t255 = (let %t256:Int = ISub(n#515, 1)
-            split_at#513(t#517, #4001319[synthetic]#1319))
-            case #4001320[synthetic]#1320 of
-              (left#518:Box, right#519:Box) →
-                let %t257:Box = ::(h#516, left#518)
-                MakeTuple(#4001321[synthetic]#1321, right#519)
+        case xs#525 of
+          ::(h#527, t#528:Box) →
+            let %t263 = (let %t264:Int = ISub(n#526, 1)
+            split_at#524(t#528, #4001337[synthetic]#1337))
+            case #4001338[synthetic]#1338 of
+              (left#529:Box, right#530:Box) →
+                let %t265:Box = ::(h#527, left#529)
+                MakeTuple(#4001339[synthetic]#1339, right#530)
           _ →
-            let %t258:Unit = []
-            let %t259:Unit = []
-            MakeTuple(#4001322[synthetic]#1322, #4001323[synthetic]#1323)
+            let %t266:Unit = []
+            let %t267:Unit = []
+            MakeTuple(#4001340[synthetic]#1340, #4001341[synthetic]#1341)
 
 letrec span =
-λxs#521:Box, pred#522.
-    case xs#521 of
-      ::(h#523, t#524:Box) →
-        let %t260 = pred#522(h#523)
-        case #4001324[synthetic]#1324 of
+λxs#532:Box, pred#533.
+    case xs#532 of
+      ::(h#534, t#535:Box) →
+        let %t268 = pred#533(h#534)
+        case #4001342[synthetic]#1342 of
           true →
-            let %t261 = span#520(t#524, pred#522)
-            case #4001325[synthetic]#1325 of
-              (left#525:Box, right#526:Box) →
-                let %t262:Box = ::(h#523, left#525)
-                MakeTuple(#4001326[synthetic]#1326, right#526)
+            let %t269 = span#531(t#535, pred#533)
+            case #4001343[synthetic]#1343 of
+              (left#536:Box, right#537:Box) →
+                let %t270:Box = ::(h#534, left#536)
+                MakeTuple(#4001344[synthetic]#1344, right#537)
           _ →
-            let %t263:Unit = []
-            MakeTuple(#4001327[synthetic]#1327, xs#521)
+            let %t271:Unit = []
+            MakeTuple(#4001345[synthetic]#1345, xs#532)
       _ →
-        let %t264:Unit = []
-        let %t265:Unit = []
-        MakeTuple(#4001328[synthetic]#1328, #4001329[synthetic]#1329)
+        let %t272:Unit = []
+        let %t273:Unit = []
+        MakeTuple(#4001346[synthetic]#1346, #4001347[synthetic]#1347)
 
 letrec scanl =
-λxs#528:Box, acc#529, f#530.
-    let %t266 = scanl_rest#731(xs#528, acc#529, f#530)
-    ::(acc#529, #4001330[synthetic]#1330)
+λxs#539:Box, acc#540, f#541.
+    let %t274 = scanl_rest#742(xs#539, acc#540, f#541)
+    ::(acc#540, #4001348[synthetic]#1348)
 
 letrec scanr =
-λxs#532:Box, acc#533, f#534.
-    let %t267 = scanr_go#755(xs#532, acc#533, f#534)
-    case #4001331[synthetic]#1331 of
-      (result#535:Box, last_acc#536) →
-        result#535
+λxs#543:Box, acc#544, f#545.
+    let %t275 = scanr_go#766(xs#543, acc#544, f#545)
+    case #4001349[synthetic]#1349 of
+      (result#546:Box, last_acc#547) →
+        result#546
 
 letrec sort =
-λxs#538:Box.
-    let %t268:Box = (λx#539.
-      x#539)
-    merge_sort_by#774(xs#538, #4001332[synthetic]#1332)
+λxs#549:Box.
+    let %t276:Box = (λx#550.
+      x#550)
+    merge_sort_by#785(xs#549, #4001350[synthetic]#1350)
 
 letrec sort_by =
-λxs#541:Box, f#542.
-    merge_sort_by#774(xs#541, f#542)
+λxs#552:Box, f#553.
+    merge_sort_by#785(xs#552, f#553)
 
 letrec first =
-λxs#544.
-    case xs#544 of
-      ::(h#545, t#546) →
-        h#545
+λxs#555.
+    case xs#555 of
+      ::(h#556, t#557) →
+        h#556
       _ →
         None
 
 letrec last =
-λxs#548:Box.
-    case xs#548 of
-      ::(h#549:Box, t#550:Box) →
-        case t#550 of
-          ::(h2#551:Box, t2#552:Box) →
-            last#547(t#550)
+λxs#559:Box.
+    case xs#559 of
+      ::(h#560:Box, t#561:Box) →
+        case t#561 of
+          ::(h2#562:Box, t2#563:Box) →
+            last#558(t#561)
           _ →
-            h#549
+            h#560
       _ →
         None
 
 letrec rest =
-λxs#554:Box.
-    case xs#554 of
-      ::(h#555, t#556:Box) →
-        t#556
+λxs#565:Box.
+    case xs#565 of
+      ::(h#566, t#567:Box) →
+        t#567
       _ →
         []
 
 letrec length =
-λxs#558:Box.
-    letrec length_go#559 = (λys#560, acc#561.
-      case ys#560 of
-        ::(h#562, t#563:Box) →
-          let %t269:Int = IAdd(acc#561, 1)
-          length_go#559(t#563, #4001333[synthetic]#1333)
+λxs#569:Box.
+    letrec length_go#570 = (λys#571, acc#572.
+      case ys#571 of
+        ::(h#573, t#574:Box) →
+          let %t277:Int = IAdd(acc#572, 1)
+          length_go#570(t#574, #4001351[synthetic]#1351)
         _ →
-          acc#561)
-    length_go#559(xs#558, 0)
+          acc#572)
+    length_go#570(xs#569, 0)
 
 letrec init =
-λxs#565:Box.
-    case xs#565 of
-      ::(h#566, t#567:Box) →
-        case t#567 of
-          ::(h2#568, t2#569:Box) →
-            let %t270 = init#564(t#567)
-            ::(h#566, #4001334[synthetic]#1334)
+λxs#576:Box.
+    case xs#576 of
+      ::(h#577, t#578:Box) →
+        case t#578 of
+          ::(h2#579, t2#580:Box) →
+            let %t278 = init#575(t#578)
+            ::(h#577, #4001352[synthetic]#1352)
           _ →
             []
       _ →
-        panic#999("init called on empty list")
+        panic#1010("init called on empty list")
 
 letrec null =
-λxs#571:Box.
-    case xs#571 of
-      ::(h#572, t#573:Box) →
+λxs#582:Box.
+    case xs#582 of
+      ::(h#583, t#584:Box) →
         false
       _ →
         true
 
 letrec range =
-λstart#575:Int, stop#576:Int.
-    letrec range_go#577 = (λcurrent#578, acc#579.
-      let %t271:Bool = ICmpGe(current#578, stop#576)
-      case #4001335[synthetic]#1335 of
+λstart#586:Int, stop#587:Int.
+    letrec range_go#588 = (λcurrent#589, acc#590.
+      let %t279:Bool = ICmpGe(current#589, stop#587)
+      case #4001353[synthetic]#1353 of
         true →
-          reverse#580(acc#579)
+          reverse#591(acc#590)
         _ →
-          let %t272:Int = IAdd(current#578, 1)
-          let %t273:Box = ::(current#578, acc#579)
-          range_go#577(#4001336[synthetic]#1336, #4001337[synthetic]#1337))
-    let %t274:Unit = []
-    range_go#577(start#575, #4001338[synthetic]#1338)
+          let %t280:Int = IAdd(current#589, 1)
+          let %t281:Box = ::(current#589, acc#590)
+          range_go#588(#4001354[synthetic]#1354, #4001355[synthetic]#1355))
+    let %t282:Unit = []
+    range_go#588(start#586, #4001356[synthetic]#1356)
 
 letrec reverse =
-λxs#581:Box.
-    letrec rev_acc#582 = (λys#583, acc#584.
-      case ys#583 of
-        ::(h#585, t#586:Box) →
-          let %t275:Box = ::(h#585, acc#584)
-          rev_acc#582(t#586, #4001339[synthetic]#1339)
+λxs#592:Box.
+    letrec rev_acc#593 = (λys#594, acc#595.
+      case ys#594 of
+        ::(h#596, t#597:Box) →
+          let %t283:Box = ::(h#596, acc#595)
+          rev_acc#593(t#597, #4001357[synthetic]#1357)
         _ →
-          acc#584)
-    let %t276:Unit = []
-    rev_acc#582(xs#581, #4001340[synthetic]#1340)
+          acc#595)
+    let %t284:Unit = []
+    rev_acc#593(xs#592, #4001358[synthetic]#1358)
 
 letrec zip =
-λxs#588:Box, ys#589:Box.
-    let %t277 = (let %t278:Unit = []
-    zip_go#792(xs#588, ys#589, #4001341[synthetic]#1341))
-    reverse#580(#4001342[synthetic]#1342)
+λxs#599:Box, ys#600:Box.
+    let %t285 = (let %t286:Unit = []
+    zip_go#803(xs#599, ys#600, #4001359[synthetic]#1359))
+    reverse#591(#4001360[synthetic]#1360)
 
 letrec zip_with =
-λxs#591:Box, ys#592:Box, f#593.
-    let %t279 = (let %t280:Unit = []
-    zip_with_go#800(xs#591, ys#592, f#593, #4001343[synthetic]#1343))
-    reverse#580(#4001344[synthetic]#1344)
+λxs#602:Box, ys#603:Box, f#604.
+    let %t287 = (let %t288:Unit = []
+    zip_with_go#811(xs#602, ys#603, f#604, #4001361[synthetic]#1361))
+    reverse#591(#4001362[synthetic]#1362)
 
 letrec unzip =
-λxs#595:Box.
-    case xs#595 of
-      ::((a#596, b#597), t#598:Box) →
-        let %t281 = unzip#594(t#598)
-        case #4001345[synthetic]#1345 of
-          (left#599:Box, right#600:Box) →
-            let %t282:Box = ::(a#596, left#599)
-            let %t283:Box = ::(b#597, right#600)
-            MakeTuple(#4001346[synthetic]#1346, #4001347[synthetic]#1347)
+λxs#606:Box.
+    case xs#606 of
+      ::((a#607, b#608), t#609:Box) →
+        let %t289 = unzip#605(t#609)
+        case #4001363[synthetic]#1363 of
+          (left#610:Box, right#611:Box) →
+            let %t290:Box = ::(a#607, left#610)
+            let %t291:Box = ::(b#608, right#611)
+            MakeTuple(#4001364[synthetic]#1364, #4001365[synthetic]#1365)
       _ →
-        let %t284:Unit = []
-        let %t285:Unit = []
-        MakeTuple(#4001348[synthetic]#1348, #4001349[synthetic]#1349)
+        let %t292:Unit = []
+        let %t293:Unit = []
+        MakeTuple(#4001366[synthetic]#1366, #4001367[synthetic]#1367)
 
 letrec enumerate =
-λxs#602:Box.
-    enumerate_go#716(xs#602, 0)
+λxs#613:Box.
+    enumerate_go#727(xs#613, 0)
 
 letrec contains =
-λxs#604:Box, x#605.
-    case xs#604 of
-      ::(h#606, t#607:Box) →
-        let %t286 = eq#104(h#606, x#605)
-        case #4001350[synthetic]#1350 of
+λxs#615:Box, x#616.
+    case xs#615 of
+      ::(h#617, t#618:Box) →
+        let %t294 = eq#104(h#617, x#616)
+        case #4001368[synthetic]#1368 of
           true →
             true
           _ →
-            contains#603(t#607, x#605)
+            contains#614(t#618, x#616)
       _ →
         false
 
 letrec nub =
-λxs#609:Box.
-    let %t287:Box = (λx#610.
-      x#610)
-    unique_by#673(xs#609, #4001351[synthetic]#1351)
+λxs#620:Box.
+    let %t295:Box = (λx#621.
+      x#621)
+    unique_by#684(xs#620, #4001369[synthetic]#1369)
 
 letrec partition =
-λxs#612:Box, pred#613.
-    case xs#612 of
-      ::(h#614, t#615:Box) →
-        let %t288 = partition#611(t#615, pred#613)
-        case #4001352[synthetic]#1352 of
-          (yes#616:Box, no#617:Box) →
-            let %t289 = pred#613(h#614)
-            case #4001353[synthetic]#1353 of
+λxs#623:Box, pred#624.
+    case xs#623 of
+      ::(h#625, t#626:Box) →
+        let %t296 = partition#622(t#626, pred#624)
+        case #4001370[synthetic]#1370 of
+          (yes#627:Box, no#628:Box) →
+            let %t297 = pred#624(h#625)
+            case #4001371[synthetic]#1371 of
               true →
-                let %t290:Box = ::(h#614, yes#616)
-                MakeTuple(#4001354[synthetic]#1354, no#617)
+                let %t298:Box = ::(h#625, yes#627)
+                MakeTuple(#4001372[synthetic]#1372, no#628)
               _ →
-                let %t291:Box = ::(h#614, no#617)
-                MakeTuple(yes#616, #4001355[synthetic]#1355)
+                let %t299:Box = ::(h#625, no#628)
+                MakeTuple(yes#627, #4001373[synthetic]#1373)
       _ →
-        let %t292:Unit = []
-        let %t293:Unit = []
-        MakeTuple(#4001356[synthetic]#1356, #4001357[synthetic]#1357)
+        let %t300:Unit = []
+        let %t301:Unit = []
+        MakeTuple(#4001374[synthetic]#1374, #4001375[synthetic]#1375)
 
 letrec delete =
-λxs#619:Box, x#620.
-    delete_go#621(xs#619, x#620)
+λxs#630:Box, x#631.
+    delete_go#632(xs#630, x#631)
 
 letrec delete_go =
-λxs#622, x#623.
-    let %t294:Unit = []
-    delete_go_acc#624(xs#622, x#623, #4001358[synthetic]#1358)
+λxs#633, x#634.
+    let %t302:Unit = []
+    delete_go_acc#635(xs#633, x#634, #4001376[synthetic]#1376)
 
 letrec delete_go_acc =
-λxs#625, x#626, acc#627.
-    case xs#625 of
-      ::(h#628, t#629:Box) →
-        let %t295:Bool = Eq(h#628, x#626)
-        case #4001359[synthetic]#1359 of
+λxs#636, x#637, acc#638.
+    case xs#636 of
+      ::(h#639, t#640:Box) →
+        let %t303:Bool = Eq(h#639, x#637)
+        case #4001377[synthetic]#1377 of
           true →
-            let %t296 = reverse#580(acc#627)
-            let %t297 = clone_list#630(t#629)
-            append#698(#4001360[synthetic]#1360, #4001361[synthetic]#1361)
+            let %t304 = reverse#591(acc#638)
+            let %t305 = clone_list#641(t#640)
+            append#709(#4001378[synthetic]#1378, #4001379[synthetic]#1379)
           _ →
-            let %t298:Box = ::(h#628, acc#627)
-            delete_go_acc#624(t#629, x#626, #4001362[synthetic]#1362)
+            let %t306:Box = ::(h#639, acc#638)
+            delete_go_acc#635(t#640, x#637, #4001380[synthetic]#1380)
       _ →
-        reverse#580(acc#627)
+        reverse#591(acc#638)
 
 letrec clone_list =
-λxs#631.
-    case xs#631 of
-      ::(h#632, t#633:Box) →
-        let %t299 = clone_list#630(t#633)
-        ::(h#632, #4001363[synthetic]#1363)
+λxs#642.
+    case xs#642 of
+      ::(h#643, t#644:Box) →
+        let %t307 = clone_list#641(t#644)
+        ::(h#643, #4001381[synthetic]#1381)
       _ →
         []
 
 letrec intersperse =
-λxs#635:Box, sep#636.
-    case xs#635 of
-      ::(h#637, t#638:Box) →
-        let %t300 = intersperse_rest#721(t#638, sep#636)
-        ::(h#637, #4001364[synthetic]#1364)
+λxs#646:Box, sep#647.
+    case xs#646 of
+      ::(h#648, t#649:Box) →
+        let %t308 = intersperse_rest#732(t#649, sep#647)
+        ::(h#648, #4001382[synthetic]#1382)
       _ →
         []
 
 letrec intercalate =
-λxss#640:Box, sep#641:Box.
-    let %t301 = intersperse#634(xss#640, sep#641)
-    concat#455(#4001365[synthetic]#1365)
+λxss#651:Box, sep#652:Box.
+    let %t309 = intersperse#645(xss#651, sep#652)
+    concat#466(#4001383[synthetic]#1383)
 
 letrec is_prefix =
-λprefix#643:Box, xs#644:Box.
-    case prefix#643 of
-      ::(p#645, pt#646:Box) →
-        case xs#644 of
-          ::(x#647, xt#648:Box) →
-            let %t302 = eq#104(p#645, x#647)
-            case #4001366[synthetic]#1366 of
+λprefix#654:Box, xs#655:Box.
+    case prefix#654 of
+      ::(p#656, pt#657:Box) →
+        case xs#655 of
+          ::(x#658, xt#659:Box) →
+            let %t310 = eq#104(p#656, x#658)
+            case #4001384[synthetic]#1384 of
               true →
-                is_prefix#642(pt#646, xt#648)
+                is_prefix#653(pt#657, xt#659)
               _ →
                 false
           _ →
@@ -1498,730 +1518,730 @@ letrec is_prefix =
         true
 
 letrec is_suffix =
-λsuffix#650:Box, xs#651:Box.
-    let %t303 = reverse#580(suffix#650)
-    let %t304 = reverse#580(xs#651)
-    is_prefix#642(#4001367[synthetic]#1367, #4001368[synthetic]#1368)
+λsuffix#661:Box, xs#662:Box.
+    let %t311 = reverse#591(suffix#661)
+    let %t312 = reverse#591(xs#662)
+    is_prefix#653(#4001385[synthetic]#1385, #4001386[synthetic]#1386)
 
 letrec nth =
-λxs#653:Box, n#654:Int.
-    let %t305:Bool = ICmpLt(n#654, 0)
-    case #4001369[synthetic]#1369 of
+λxs#664:Box, n#665:Int.
+    let %t313:Bool = ICmpLt(n#665, 0)
+    case #4001387[synthetic]#1387 of
       true →
         None
       _ →
-        case xs#653 of
-          ::(h#655, t#656:Box) →
-            let %t306:Bool = ICmpEq(n#654, 0)
-            case #4001370[synthetic]#1370 of
+        case xs#664 of
+          ::(h#666, t#667:Box) →
+            let %t314:Bool = ICmpEq(n#665, 0)
+            case #4001388[synthetic]#1388 of
               true →
-                Some(h#655)
+                Some(h#666)
               _ →
-                let %t307:Int = ISub(n#654, 1)
-                nth#652(t#656, #4001371[synthetic]#1371)
+                let %t315:Int = ISub(n#665, 1)
+                nth#663(t#667, #4001389[synthetic]#1389)
           _ →
             None
 
 letrec replicate =
-λn#658:Int, x#659.
-    let %t308:Bool = ICmpLe(n#658, 0)
-    case #4001372[synthetic]#1372 of
+λn#669:Int, x#670.
+    let %t316:Bool = ICmpLe(n#669, 0)
+    case #4001390[synthetic]#1390 of
       true →
         []
       _ →
-        let %t309 = (let %t310:Int = ISub(n#658, 1)
-        replicate#657(#4001373[synthetic]#1373, x#659))
-        ::(x#659, #4001374[synthetic]#1374)
+        let %t317 = (let %t318:Int = ISub(n#669, 1)
+        replicate#668(#4001391[synthetic]#1391, x#670))
+        ::(x#670, #4001392[synthetic]#1392)
 
 letrec iterate =
-λx#661, f#662, n#663:Int.
-    let %t311:Bool = ICmpLe(n#663, 0)
-    case #4001375[synthetic]#1375 of
+λx#672, f#673, n#674:Int.
+    let %t319:Bool = ICmpLe(n#674, 0)
+    case #4001393[synthetic]#1393 of
       true →
         []
       _ →
-        let %t312 = (let %t313 = f#662(x#661)
-        let %t314:Int = ISub(n#663, 1)
-        iterate#660(#4001376[synthetic]#1376, f#662, #4001377[synthetic]#1377))
-        ::(x#661, #4001378[synthetic]#1378)
+        let %t320 = (let %t321 = f#673(x#672)
+        let %t322:Int = ISub(n#674, 1)
+        iterate#671(#4001394[synthetic]#1394, f#673, #4001395[synthetic]#1395))
+        ::(x#672, #4001396[synthetic]#1396)
 
 letrec unfold =
-λseed#665, f#666.
-    let %t315 = f#666(seed#665)
-    case #4001379[synthetic]#1379 of
-      Some(step#667:Box) →
-        let %t316 = step#667.0
-        let %t317 = (let %t318 = step#667.1
-        unfold#664(#4001381[synthetic]#1381, f#666))
-        ::(#4001380[synthetic]#1380, #4001382[synthetic]#1382)
+λseed#676, f#677.
+    let %t323 = f#677(seed#676)
+    case #4001397[synthetic]#1397 of
+      Some(step#678:Box) →
+        let %t324 = step#678.0
+        let %t325 = (let %t326 = step#678.1
+        unfold#675(#4001399[synthetic]#1399, f#677))
+        ::(#4001398[synthetic]#1398, #4001400[synthetic]#1400)
       _ →
         []
 
 letrec group_by =
-λxs#669:Box, eq#670.
-    case xs#669 of
-      ::(h#671, t#672:Box) →
-        group_by_head#809(h#671, t#672, eq#670)
+λxs#680:Box, eq#681.
+    case xs#680 of
+      ::(h#682, t#683:Box) →
+        group_by_head#820(h#682, t#683, eq#681)
       _ →
         []
 
 letrec unique_by =
-λxs#674:Box, f#675.
-    let %t319 = (let %t320:Unit = []
-    let %t321:Unit = []
-    unique_by_go#741(xs#674, f#675, #4001383[synthetic]#1383, #4001384[synthetic]#1384))
-    reverse#580(#4001385[synthetic]#1385)
+λxs#685:Box, f#686.
+    let %t327 = (let %t328:Unit = []
+    let %t329:Unit = []
+    unique_by_go#752(xs#685, f#686, #4001401[synthetic]#1401, #4001402[synthetic]#1402))
+    reverse#591(#4001403[synthetic]#1403)
 
 letrec maximum =
-λxs#677:Box.
-    case xs#677 of
-      ::(h#678, t#679:Box) →
-        let %t322 = maximum_go#816(t#679, h#678)
-        Some(#4001386[synthetic]#1386)
+λxs#688:Box.
+    case xs#688 of
+      ::(h#689, t#690:Box) →
+        let %t330 = maximum_go#827(t#690, h#689)
+        Some(#4001404[synthetic]#1404)
       _ →
         None
 
 letrec minimum =
-λxs#681:Box.
-    case xs#681 of
-      ::(h#682, t#683:Box) →
-        let %t323 = minimum_go#821(t#683, h#682)
-        Some(#4001387[synthetic]#1387)
+λxs#692:Box.
+    case xs#692 of
+      ::(h#693, t#694:Box) →
+        let %t331 = minimum_go#832(t#694, h#693)
+        Some(#4001405[synthetic]#1405)
       _ →
         None
 
 letrec sum =
-λxs#685:Box.
-    letrec sum_go#686 = (λys#687, acc#688.
-      case ys#687 of
-        ::(h#689:Int, t#690:Box) →
-          let %t324:Int = IAdd(acc#688, h#689)
-          sum_go#686(t#690, #4001388[synthetic]#1388)
+λxs#696:Box.
+    letrec sum_go#697 = (λys#698, acc#699.
+      case ys#698 of
+        ::(h#700:Int, t#701:Box) →
+          let %t332:Int = IAdd(acc#699, h#700)
+          sum_go#697(t#701, #4001406[synthetic]#1406)
         _ →
-          acc#688)
-    sum_go#686(xs#685, 0)
+          acc#699)
+    sum_go#697(xs#696, 0)
 
 letrec product =
-λxs#692:Box.
-    letrec product_go#693 = (λys#694, acc#695.
-      case ys#694 of
-        ::(h#696:Int, t#697:Box) →
-          let %t325:Int = IMul(acc#695, h#696)
-          product_go#693(t#697, #4001389[synthetic]#1389)
+λxs#703:Box.
+    letrec product_go#704 = (λys#705, acc#706.
+      case ys#705 of
+        ::(h#707:Int, t#708:Box) →
+          let %t333:Int = IMul(acc#706, h#707)
+          product_go#704(t#708, #4001407[synthetic]#1407)
         _ →
-          acc#695)
-    product_go#693(xs#692, 1)
+          acc#706)
+    product_go#704(xs#703, 1)
 
 letrec append =
-λxs#699, ys#700.
-    case xs#699 of
-      ::(h#701, t#702:Box) →
-        let %t326 = append#698(t#702, ys#700)
-        ::(h#701, #4001390[synthetic]#1390)
+λxs#710, ys#711.
+    case xs#710 of
+      ::(h#712, t#713:Box) →
+        let %t334 = append#709(t#713, ys#711)
+        ::(h#712, #4001408[synthetic]#1408)
       _ →
-        ys#700
+        ys#711
 
 letrec break_at =
-λxs#704:Box, pred#705.
-    let %t327:Box = (λx#706.
-      let %t328 = pred#705(x#706)
-      Not(#4001391[synthetic]#1391))
-    span#520(xs#704, #4001392[synthetic]#1392)
+λxs#715:Box, pred#716.
+    let %t335:Box = (λx#717.
+      let %t336 = pred#716(x#717)
+      Not(#4001409[synthetic]#1409))
+    span#531(xs#715, #4001410[synthetic]#1410)
 
 letrec lookup =
-λxs#708:Box, key#709.
-    case xs#708 of
-      ::((k#710, v#711), t#712:Box) →
-        let %t329 = eq#104(k#710, key#709)
-        case #4001393[synthetic]#1393 of
+λxs#719:Box, key#720.
+    case xs#719 of
+      ::((k#721, v#722), t#723:Box) →
+        let %t337 = eq#104(k#721, key#720)
+        case #4001411[synthetic]#1411 of
           true →
-            Some(v#711)
+            Some(v#722)
           _ →
-            lookup#707(t#712, key#709)
+            lookup#718(t#723, key#720)
       _ →
         None
 
 letrec not_elem =
-λxs#714:Box, x#715.
-    let %t330 = contains#603(xs#714, x#715)
-    Not(#4001394[synthetic]#1394)
+λxs#725:Box, x#726.
+    let %t338 = contains#614(xs#725, x#726)
+    Not(#4001412[synthetic]#1412)
 
 letrec enumerate_go =
-λxs#717, i#718.
-    case xs#717 of
-      ::(h#719, t#720:Box) →
-        let %t331:Box = MakeTuple(i#718, h#719)
-        let %t332 = (let %t333:Int = IAdd(i#718, 1)
-        enumerate_go#716(t#720, #4001396[synthetic]#1396))
-        ::(#4001395[synthetic]#1395, #4001397[synthetic]#1397)
+λxs#728, i#729.
+    case xs#728 of
+      ::(h#730, t#731:Box) →
+        let %t339:Box = MakeTuple(i#729, h#730)
+        let %t340 = (let %t341:Int = IAdd(i#729, 1)
+        enumerate_go#727(t#731, #4001414[synthetic]#1414))
+        ::(#4001413[synthetic]#1413, #4001415[synthetic]#1415)
       _ →
         []
 
 letrec intersperse_rest =
-λxs#722, sep#723.
-    case xs#722 of
-      ::(h#724, t#725:Box) →
-        let %t334:Box = (let %t335 = intersperse_rest#721(t#725, sep#723)
-        ::(h#724, #4001398[synthetic]#1398))
-        ::(sep#723, #4001399[synthetic]#1399)
+λxs#733, sep#734.
+    case xs#733 of
+      ::(h#735, t#736:Box) →
+        let %t342:Box = (let %t343 = intersperse_rest#732(t#736, sep#734)
+        ::(h#735, #4001416[synthetic]#1416))
+        ::(sep#734, #4001417[synthetic]#1417)
       _ →
         []
 
 letrec intercalate_rest =
-λxss#727, sep#728.
-    case xss#727 of
-      ::(h#729:Box, t#730:Box) →
-        let %t336 = (let %t337 = intercalate_rest#726(t#730, sep#728)
-        append#698(h#729, #4001400[synthetic]#1400))
-        append#698(sep#728, #4001401[synthetic]#1401)
+λxss#738, sep#739.
+    case xss#738 of
+      ::(h#740:Box, t#741:Box) →
+        let %t344 = (let %t345 = intercalate_rest#737(t#741, sep#739)
+        append#709(h#740, #4001418[synthetic]#1418))
+        append#709(sep#739, #4001419[synthetic]#1419)
       _ →
         []
 
 letrec scanl_rest =
-λxs#732, acc#733, f#734.
-    case xs#732 of
-      ::(h#735, t#736) →
-        let %t338 = f#734(acc#733, h#735)
-        scanl_emit#737(t#736, #4001402[synthetic]#1402, f#734)
+λxs#743, acc#744, f#745.
+    case xs#743 of
+      ::(h#746, t#747) →
+        let %t346 = f#745(acc#744, h#746)
+        scanl_emit#748(t#747, #4001420[synthetic]#1420, f#745)
       _ →
         []
 
 letrec scanl_emit =
-λxs#738, next#739, f#740.
-    let %t339 = scanl_rest#731(xs#738, next#739, f#740)
-    ::(next#739, #4001403[synthetic]#1403)
+λxs#749, next#750, f#751.
+    let %t347 = scanl_rest#742(xs#749, next#750, f#751)
+    ::(next#750, #4001421[synthetic]#1421)
 
 letrec unique_by_go =
-λxs#742, f#743, seen#744, acc#745.
-    case xs#742 of
-      ::(h#746, t#747) →
-        let %t340 = f#743(h#746)
-        unique_by_step#748(t#747, h#746, #4001404[synthetic]#1404, f#743, seen#744, acc#745)
+λxs#753, f#754, seen#755, acc#756.
+    case xs#753 of
+      ::(h#757, t#758) →
+        let %t348 = f#754(h#757)
+        unique_by_step#759(t#758, h#757, #4001422[synthetic]#1422, f#754, seen#755, acc#756)
       _ →
-        acc#745
+        acc#756
 
 letrec unique_by_step =
-λxs#749, value#750, key#751, f#752, seen#753, acc#754.
-    let %t341 = contains#603(seen#753, key#751)
-    case #4001405[synthetic]#1405 of
+λxs#760, value#761, key#762, f#763, seen#764, acc#765.
+    let %t349 = contains#614(seen#764, key#762)
+    case #4001423[synthetic]#1423 of
       true →
-        unique_by_go#741(xs#749, f#752, seen#753, acc#754)
+        unique_by_go#752(xs#760, f#763, seen#764, acc#765)
       _ →
-        let %t342:Box = ::(key#751, seen#753)
-        let %t343:Box = ::(value#750, acc#754)
-        unique_by_go#741(xs#749, f#752, #4001406[synthetic]#1406, #4001407[synthetic]#1407)
+        let %t350:Box = ::(key#762, seen#764)
+        let %t351:Box = ::(value#761, acc#765)
+        unique_by_go#752(xs#760, f#763, #4001424[synthetic]#1424, #4001425[synthetic]#1425)
 
 letrec scanr_go =
-λxs#756, acc#757, f#758.
-    case xs#756 of
-      ::(h#759, t#760:Box) →
-        let %t344 = scanr_go#755(t#760, acc#757, f#758)
-        scanr_step#761(h#759, #4001408[synthetic]#1408, acc#757, f#758)
+λxs#767, acc#768, f#769.
+    case xs#767 of
+      ::(h#770, t#771:Box) →
+        let %t352 = scanr_go#766(t#771, acc#768, f#769)
+        scanr_step#772(h#770, #4001426[synthetic]#1426, acc#768, f#769)
       _ →
-        let %t345:Box = MakeList(acc#757)
-        MakeTuple(#4001409[synthetic]#1409, acc#757)
+        let %t353:Box = MakeList(acc#768)
+        MakeTuple(#4001427[synthetic]#1427, acc#768)
 
 letrec scanr_step =
-λh#762, state#763, acc#764, f#765.
-    case state#763 of
-      (rest#766, next_acc#767) →
-        scanr_finish#768(rest#766, next_acc#767, h#762, f#765)
+λh#773, state#774, acc#775, f#776.
+    case state#774 of
+      (rest#777, next_acc#778) →
+        scanr_finish#779(rest#777, next_acc#778, h#773, f#776)
 
 letrec scanr_finish =
-λrest#769, next_acc#770, h#771, f#772.
-    let current#773 = f#772(h#771, next_acc#770)
-    let %t346:Box = ::(current#773, rest#769)
-    MakeTuple(#4001410[synthetic]#1410, current#773)
+λrest#780, next_acc#781, h#782, f#783.
+    let current#784 = f#783(h#782, next_acc#781)
+    let %t354:Box = ::(current#784, rest#780)
+    MakeTuple(#4001428[synthetic]#1428, current#784)
 
 letrec merge_sort_by =
-λxs#775, key_fn#776.
-    case xs#775 of
-      ::(_, t#777:Box) →
-        case t#777 of
+λxs#786, key_fn#787.
+    case xs#786 of
+      ::(_, t#788:Box) →
+        case t#788 of
           ::(_, _) →
-            merge_sort_do#778(xs#775, key_fn#776)
+            merge_sort_do#789(xs#786, key_fn#787)
           _ →
-            xs#775
+            xs#786
       _ →
-        xs#775
+        xs#786
 
 letrec merge_sort_do =
-λxs#779, key_fn#780.
-    let mid#783:Int = (let %t347 = length#557(xs#779)
-    IDiv(#4001411[synthetic]#1411, 2))
-    let %t348 = split_at#513(xs#779, mid#783)
-    case #4001412[synthetic]#1412 of
-      (left#781:Box, right#782:Box) →
-        let %t349 = merge_sort_by#774(left#781, key_fn#780)
-        let %t350 = merge_sort_by#774(right#782, key_fn#780)
-        merge_by_key#784(#4001413[synthetic]#1413, #4001414[synthetic]#1414, key_fn#780)
+λxs#790, key_fn#791.
+    let mid#794:Int = (let %t355 = length#568(xs#790)
+    IDiv(#4001429[synthetic]#1429, 2))
+    let %t356 = split_at#524(xs#790, mid#794)
+    case #4001430[synthetic]#1430 of
+      (left#792:Box, right#793:Box) →
+        let %t357 = merge_sort_by#785(left#792, key_fn#791)
+        let %t358 = merge_sort_by#785(right#793, key_fn#791)
+        merge_by_key#795(#4001431[synthetic]#1431, #4001432[synthetic]#1432, key_fn#791)
 
 letrec merge_by_key =
-λleft#785, right#786, key_fn#787.
-    case left#785 of
-      ::(a#788, at#789:Box) →
-        case right#786 of
-          ::(b#790, bt#791:Box) →
-            let %t351:Bool = (let %t352 = key_fn#787(a#788)
-            let %t353 = key_fn#787(b#790)
-            Le(#4001415[synthetic]#1415, #4001416[synthetic]#1416))
-            case #4001417[synthetic]#1417 of
+λleft#796, right#797, key_fn#798.
+    case left#796 of
+      ::(a#799, at#800:Box) →
+        case right#797 of
+          ::(b#801, bt#802:Box) →
+            let %t359:Bool = (let %t360 = key_fn#798(a#799)
+            let %t361 = key_fn#798(b#801)
+            Le(#4001433[synthetic]#1433, #4001434[synthetic]#1434))
+            case #4001435[synthetic]#1435 of
               true →
-                let %t354 = merge_by_key#784(at#789, right#786, key_fn#787)
-                ::(a#788, #4001418[synthetic]#1418)
+                let %t362 = merge_by_key#795(at#800, right#797, key_fn#798)
+                ::(a#799, #4001436[synthetic]#1436)
               _ →
-                let %t355 = merge_by_key#784(left#785, bt#791, key_fn#787)
-                ::(b#790, #4001419[synthetic]#1419)
+                let %t363 = merge_by_key#795(left#796, bt#802, key_fn#798)
+                ::(b#801, #4001437[synthetic]#1437)
           _ →
-            left#785
+            left#796
       _ →
-        right#786
+        right#797
 
 letrec zip_go =
-λxs#793, ys#794, acc#795.
-    case xs#793 of
-      ::(a#796, at#797:Box) →
-        case ys#794 of
-          ::(b#798, bt#799:Box) →
-            let %t356:Box = (let %t357:Box = MakeTuple(a#796, b#798)
-            ::(#4001420[synthetic]#1420, acc#795))
-            zip_go#792(at#797, bt#799, #4001421[synthetic]#1421)
+λxs#804, ys#805, acc#806.
+    case xs#804 of
+      ::(a#807, at#808:Box) →
+        case ys#805 of
+          ::(b#809, bt#810:Box) →
+            let %t364:Box = (let %t365:Box = MakeTuple(a#807, b#809)
+            ::(#4001438[synthetic]#1438, acc#806))
+            zip_go#803(at#808, bt#810, #4001439[synthetic]#1439)
           _ →
-            acc#795
+            acc#806
       _ →
-        acc#795
+        acc#806
 
 letrec zip_with_go =
-λxs#801, ys#802, f#803, acc#804.
-    case xs#801 of
-      ::(a#805, at#806:Box) →
-        case ys#802 of
-          ::(b#807, bt#808:Box) →
-            let %t358:Box = (let %t359 = f#803(a#805, b#807)
-            ::(#4001422[synthetic]#1422, acc#804))
-            zip_with_go#800(at#806, bt#808, f#803, #4001423[synthetic]#1423)
+λxs#812, ys#813, f#814, acc#815.
+    case xs#812 of
+      ::(a#816, at#817:Box) →
+        case ys#813 of
+          ::(b#818, bt#819:Box) →
+            let %t366:Box = (let %t367 = f#814(a#816, b#818)
+            ::(#4001440[synthetic]#1440, acc#815))
+            zip_with_go#811(at#817, bt#819, f#814, #4001441[synthetic]#1441)
           _ →
-            acc#804
+            acc#815
       _ →
-        acc#804
+        acc#815
 
 letrec group_by_head =
-λh#810, t#811, eq#812.
-    let %t360 = (let %t361:Box = (λx#813.
-      eq#812(h#810, x#813))
-    span#520(t#811, #4001424[synthetic]#1424))
-    case #4001425[synthetic]#1425 of
-      (prefix#814:Box, rest#815:Box) →
-        let %t362:Box = ::(h#810, prefix#814)
-        let %t363 = group_by#668(rest#815, eq#812)
-        ::(#4001426[synthetic]#1426, #4001427[synthetic]#1427)
+λh#821, t#822, eq#823.
+    let %t368 = (let %t369:Box = (λx#824.
+      eq#823(h#821, x#824))
+    span#531(t#822, #4001442[synthetic]#1442))
+    case #4001443[synthetic]#1443 of
+      (prefix#825:Box, rest#826:Box) →
+        let %t370:Box = ::(h#821, prefix#825)
+        let %t371 = group_by#679(rest#826, eq#823)
+        ::(#4001444[synthetic]#1444, #4001445[synthetic]#1445)
 
 letrec maximum_go =
-λxs#817, best#818.
-    case xs#817 of
-      ::(h#819, t#820:Box) →
-        let %t364 = (let %t365:Bool = Gt(h#819, best#818)
-        case #4001428[synthetic]#1428 of
+λxs#828, best#829.
+    case xs#828 of
+      ::(h#830, t#831:Box) →
+        let %t372 = (let %t373:Bool = Gt(h#830, best#829)
+        case #4001446[synthetic]#1446 of
           true →
-            h#819
+            h#830
           _ →
-            best#818)
-        maximum_go#816(t#820, #4001429[synthetic]#1429)
+            best#829)
+        maximum_go#827(t#831, #4001447[synthetic]#1447)
       _ →
-        best#818
+        best#829
 
 letrec minimum_go =
-λxs#822, best#823.
-    case xs#822 of
-      ::(h#824, t#825:Box) →
-        let %t366 = (let %t367:Bool = Lt(h#824, best#823)
-        case #4001430[synthetic]#1430 of
+λxs#833, best#834.
+    case xs#833 of
+      ::(h#835, t#836:Box) →
+        let %t374 = (let %t375:Bool = Lt(h#835, best#834)
+        case #4001448[synthetic]#1448 of
           true →
-            h#824
+            h#835
           _ →
-            best#823)
-        minimum_go#821(t#825, #4001431[synthetic]#1431)
+            best#834)
+        minimum_go#832(t#836, #4001449[synthetic]#1449)
       _ →
-        best#823
+        best#834
 
 letrec to_array =
-λxs#827:Box.
-    letrec to_array_go#828 = (λys#829, acc#830.
-      case ys#829 of
-        ::(h#831, t#832:Box) →
-          let %t368 = (let %t369 = Array#?[external].push
-          #4001432[synthetic]#1432(acc#830, h#831))
-          to_array_go#828(t#832, #4001433[synthetic]#1433)
+λxs#838:Box.
+    letrec to_array_go#839 = (λys#840, acc#841.
+      case ys#840 of
+        ::(h#842, t#843:Box) →
+          let %t376 = (let %t377 = Array#?[external].push
+          #4001450[synthetic]#1450(acc#841, h#842))
+          to_array_go#839(t#843, #4001451[synthetic]#1451)
         _ →
-          acc#830)
-    let %t370:Box = MakeArray()
-    to_array_go#828(xs#827, #4001434[synthetic]#1434)
+          acc#841)
+    let %t378:Box = MakeArray()
+    to_array_go#839(xs#838, #4001452[synthetic]#1452)
 
 letrec either =
-λe#834:Box, on_left#835, on_right#836.
-    case e#834 of
-      Left(x#837) →
-        on_left#835(x#837)
-      Right(y#838) →
-        on_right#836(y#838)
+λe#845:Box, on_left#846, on_right#847.
+    case e#845 of
+      Left(x#848) →
+        on_left#846(x#848)
+      Right(y#849) →
+        on_right#847(y#849)
 
 letrec lefts =
-λxs#840:Box.
-    letrec lefts_acc#841 = (λys#842, acc#843.
-      case ys#842 of
-        ::(Left(x#844), t#845:Box) →
-          let %t371:Box = ::(x#844, acc#843)
-          lefts_acc#841(t#845, #4001435[synthetic]#1435)
-        ::(Right(_), t#846:Box) →
-          lefts_acc#841(t#846, acc#843)
+λxs#851:Box.
+    letrec lefts_acc#852 = (λys#853, acc#854.
+      case ys#853 of
+        ::(Left(x#855), t#856:Box) →
+          let %t379:Box = ::(x#855, acc#854)
+          lefts_acc#852(t#856, #4001453[synthetic]#1453)
+        ::(Right(_), t#857:Box) →
+          lefts_acc#852(t#857, acc#854)
         _ →
-          let %t372 = List#?[external].reverse
-          #4001436[synthetic]#1436(acc#843))
-    let %t373:Unit = []
-    lefts_acc#841(xs#840, #4001437[synthetic]#1437)
+          let %t380 = List#?[external].reverse
+          #4001454[synthetic]#1454(acc#854))
+    let %t381:Unit = []
+    lefts_acc#852(xs#851, #4001455[synthetic]#1455)
 
 letrec rights =
-λxs#848:Box.
-    letrec rights_acc#849 = (λys#850, acc#851.
-      case ys#850 of
-        ::(Right(y#852), t#853:Box) →
-          let %t374:Box = ::(y#852, acc#851)
-          rights_acc#849(t#853, #4001438[synthetic]#1438)
-        ::(Left(_), t#854:Box) →
-          rights_acc#849(t#854, acc#851)
+λxs#859:Box.
+    letrec rights_acc#860 = (λys#861, acc#862.
+      case ys#861 of
+        ::(Right(y#863), t#864:Box) →
+          let %t382:Box = ::(y#863, acc#862)
+          rights_acc#860(t#864, #4001456[synthetic]#1456)
+        ::(Left(_), t#865:Box) →
+          rights_acc#860(t#865, acc#862)
         _ →
-          let %t375 = List#?[external].reverse
-          #4001439[synthetic]#1439(acc#851))
-    let %t376:Unit = []
-    rights_acc#849(xs#848, #4001440[synthetic]#1440)
+          let %t383 = List#?[external].reverse
+          #4001457[synthetic]#1457(acc#862))
+    let %t384:Unit = []
+    rights_acc#860(xs#859, #4001458[synthetic]#1458)
 
 letrec partition_eithers =
-λxs#856:Box.
-    letrec partition_acc#857 = (λys#858, ls#859, rs#860.
-      case ys#858 of
-        ::(Left(x#861), t#862:Box) →
-          let %t377:Box = ::(x#861, ls#859)
-          partition_acc#857(t#862, #4001441[synthetic]#1441, rs#860)
-        ::(Right(y#863), t#864:Box) →
-          let %t378:Box = ::(y#863, rs#860)
-          partition_acc#857(t#864, ls#859, #4001442[synthetic]#1442)
+λxs#867:Box.
+    letrec partition_acc#868 = (λys#869, ls#870, rs#871.
+      case ys#869 of
+        ::(Left(x#872), t#873:Box) →
+          let %t385:Box = ::(x#872, ls#870)
+          partition_acc#868(t#873, #4001459[synthetic]#1459, rs#871)
+        ::(Right(y#874), t#875:Box) →
+          let %t386:Box = ::(y#874, rs#871)
+          partition_acc#868(t#875, ls#870, #4001460[synthetic]#1460)
         _ →
-          let %t379 = (let %t380 = List#?[external].reverse
-          #4001443[synthetic]#1443(ls#859))
-          let %t381 = (let %t382 = List#?[external].reverse
-          #4001445[synthetic]#1445(rs#860))
-          MakeTuple(#4001444[synthetic]#1444, #4001446[synthetic]#1446))
-    let %t383:Unit = []
-    let %t384:Unit = []
-    partition_acc#857(xs#856, #4001447[synthetic]#1447, #4001448[synthetic]#1448)
+          let %t387 = (let %t388 = List#?[external].reverse
+          #4001461[synthetic]#1461(ls#870))
+          let %t389 = (let %t390 = List#?[external].reverse
+          #4001463[synthetic]#1463(rs#871))
+          MakeTuple(#4001462[synthetic]#1462, #4001464[synthetic]#1464))
+    let %t391:Unit = []
+    let %t392:Unit = []
+    partition_acc#868(xs#867, #4001465[synthetic]#1465, #4001466[synthetic]#1466)
 
 letrec print_all =
-λarr#866:Box.
-    letrec pa_go#868 = (λi#869.
-      let %t385:Bool = (let %t386 = Len(arr#866)
-      Lt(i#869, #4001449[synthetic]#1449))
-      case #4001450[synthetic]#1450 of
+λarr#877:Box.
+    letrec pa_go#879 = (λi#880.
+      let %t393:Bool = (let %t394 = Len(arr#877)
+      Lt(i#880, #4001467[synthetic]#1467))
+      case #4001468[synthetic]#1468 of
         true →
-          let %t387 = (let %t388 = Index(arr#866, i#869)
-          case #4001451[synthetic]#1451 of
-            Some(v#871) →
-              perform Console.print(v#871)
+          let %t395 = (let %t396 = Index(arr#877, i#880)
+          case #4001469[synthetic]#1469 of
+            Some(v#882) →
+              perform Console.print(v#882)
             _ →
               perform Console.print(""))
-          let %t389 = Add(i#869, 1)
-          pa_go#868(#4001452[synthetic]#1452)
+          let %t397 = Add(i#880, 1)
+          pa_go#879(#4001470[synthetic]#1470)
         _ →
           MakeTuple())
-    let %t390 = pa_go#868(0)
+    let %t398 = pa_go#879(0)
     ()
 
 letrec println_all =
-λarr#873:Box.
-    letrec pla_go#875 = (λi#876.
-      let %t391:Bool = (let %t392 = Len(arr#873)
-      Lt(i#876, #4001453[synthetic]#1453))
-      case #4001454[synthetic]#1454 of
+λarr#884:Box.
+    letrec pla_go#886 = (λi#887.
+      let %t399:Bool = (let %t400 = Len(arr#884)
+      Lt(i#887, #4001471[synthetic]#1471))
+      case #4001472[synthetic]#1472 of
         true →
-          let %t393 = (let %t394 = Index(arr#873, i#876)
-          case #4001455[synthetic]#1455 of
-            Some(v#878) →
-              perform Console.println(v#878)
+          let %t401 = (let %t402 = Index(arr#884, i#887)
+          case #4001473[synthetic]#1473 of
+            Some(v#889) →
+              perform Console.println(v#889)
             _ →
               perform Console.println(""))
-          let %t395 = Add(i#876, 1)
-          pla_go#875(#4001456[synthetic]#1456)
+          let %t403 = Add(i#887, 1)
+          pla_go#886(#4001474[synthetic]#1474)
         _ →
           MakeTuple())
-    let %t396 = pla_go#875(0)
+    let %t404 = pla_go#886(0)
     ()
 
 letrec read_lines =
-λpath#880:Box.
-    let content#881:Int = perform FileSystem.read_file(path#880)
-    Split(content#881, "\n")
+λpath#891:Box.
+    let content#892:Int = perform FileSystem.read_file(path#891)
+    Split(content#892, "\n")
 
 letrec parse_ints =
-λarr#883:Box.
-    letrec pi_go#884 = (λi#885, result#886.
-      let %t397:Bool = (let %t398 = Len(arr#883)
-      Ge(i#885, #4001457[synthetic]#1457))
-      case #4001458[synthetic]#1458 of
+λarr#894:Box.
+    letrec pi_go#895 = (λi#896, result#897.
+      let %t405:Bool = (let %t406 = Len(arr#894)
+      Ge(i#896, #4001475[synthetic]#1475))
+      case #4001476[synthetic]#1476 of
         true →
-          result#886
+          result#897
         _ →
-          let %t399 = Index(arr#883, i#885)
-          case #4001459[synthetic]#1459 of
-            Some(s#887) →
-              let %t400 = Add(i#885, 1)
-              let %t401 = (let %t402 = Array#?[external].push
-              let %t403 = ParseInt(s#887)
-              #4001461[synthetic]#1461(result#886, #4001462[synthetic]#1462))
-              pi_go#884(#4001460[synthetic]#1460, #4001463[synthetic]#1463)
+          let %t407 = Index(arr#894, i#896)
+          case #4001477[synthetic]#1477 of
+            Some(s#898) →
+              let %t408 = Add(i#896, 1)
+              let %t409 = (let %t410 = Array#?[external].push
+              let %t411 = ParseInt(s#898)
+              #4001479[synthetic]#1479(result#897, #4001480[synthetic]#1480))
+              pi_go#895(#4001478[synthetic]#1478, #4001481[synthetic]#1481)
             _ →
-              let %t404 = Add(i#885, 1)
-              pi_go#884(#4001464[synthetic]#1464, result#886))
-    let %t405:Box = MakeArray()
-    pi_go#884(0, #4001465[synthetic]#1465)
+              let %t412 = Add(i#896, 1)
+              pi_go#895(#4001482[synthetic]#1482, result#897))
+    let %t413:Box = MakeArray()
+    pi_go#895(0, #4001483[synthetic]#1483)
 
 letrec split_ints =
-λs#889:Box, sep#890:Box.
-    let parts#891:Box = Split(s#889, sep#890)
-    parse_ints#882(parts#891)
+λs#900:Box, sep#901:Box.
+    let parts#902:Box = Split(s#900, sep#901)
+    parse_ints#893(parts#902)
 
 def pi : List<Int> =
 3.141592653589793
 
 letrec sqrt =
-λx#894:Float.
-    FSqrt(x#894)
+λx#905:Float.
+    FSqrt(x#905)
 
 letrec exp =
-λx#896:Float.
-    FExp(x#896)
+λx#907:Float.
+    FExp(x#907)
 
 letrec log =
-λx#898:Float.
-    FLog(x#898)
+λx#909:Float.
+    FLog(x#909)
 
 letrec sin =
-λx#900:Float.
-    FSin(x#900)
+λx#911:Float.
+    FSin(x#911)
 
 letrec cos =
-λx#902:Float.
-    FCos(x#902)
+λx#913:Float.
+    FCos(x#913)
 
 letrec tan =
-λx#904:Float.
-    FTan(x#904)
+λx#915:Float.
+    FTan(x#915)
 
 letrec asin =
-λx#906:Float.
-    FAsin(x#906)
+λx#917:Float.
+    FAsin(x#917)
 
 letrec acos =
-λx#908:Float.
-    FAcos(x#908)
+λx#919:Float.
+    FAcos(x#919)
 
 letrec atan =
-λx#910:Float.
-    FAtan(x#910)
+λx#921:Float.
+    FAtan(x#921)
 
 letrec sinh =
-λx#912:Float.
-    FSinh(x#912)
+λx#923:Float.
+    FSinh(x#923)
 
 letrec cosh =
-λx#914:Float.
-    FCosh(x#914)
+λx#925:Float.
+    FCosh(x#925)
 
 letrec tanh =
-λx#916:Float.
-    FTanh(x#916)
+λx#927:Float.
+    FTanh(x#927)
 
 letrec floor =
-λx#918:Float.
-    FFloor(x#918)
+λx#929:Float.
+    FFloor(x#929)
 
 letrec ceil =
-λx#920:Float.
-    FCeil(x#920)
+λx#931:Float.
+    FCeil(x#931)
 
 letrec round =
-λx#922:Float.
-    FRound(x#922)
+λx#933:Float.
+    FRound(x#933)
 
 letrec truncate =
-λx#924:Float.
-    FTruncate(x#924)
+λx#935:Float.
+    FTruncate(x#935)
 
 letrec even =
-λn#926:Int.
-    let %t406 = Mod(n#926, 2)
-    Eq(#4001466[synthetic]#1466, 0)
+λn#937:Int.
+    let %t414 = Mod(n#937, 2)
+    Eq(#4001484[synthetic]#1484, 0)
 
 letrec odd =
-λn#928:Int.
-    let %t407 = Mod(n#928, 2)
-    NEq(#4001467[synthetic]#1467, 0)
+λn#939:Int.
+    let %t415 = Mod(n#939, 2)
+    NEq(#4001485[synthetic]#1485, 0)
 
 letrec gcd =
-λa#930:Int, b#931:Int.
-    let aa#936:Box = (let %t408:Bool = Lt(a#930, 0)
-    case #4001468[synthetic]#1468 of
+λa#941:Int, b#942:Int.
+    let aa#947:Box = (let %t416:Bool = Lt(a#941, 0)
+    case #4001486[synthetic]#1486 of
       true →
-        Sub(0, a#930)
+        Sub(0, a#941)
       _ →
-        a#930)
-    let bb#935:Box = (let %t409:Bool = Lt(b#931, 0)
-    case #4001469[synthetic]#1469 of
+        a#941)
+    let bb#946:Box = (let %t417:Bool = Lt(b#942, 0)
+    case #4001487[synthetic]#1487 of
       true →
-        Sub(0, b#931)
+        Sub(0, b#942)
       _ →
-        b#931)
-    letrec gcd_go#932 = (λx#933, y#934.
-      let %t410:Bool = Eq(y#934, 0)
-      case #4001470[synthetic]#1470 of
+        b#942)
+    letrec gcd_go#943 = (λx#944, y#945.
+      let %t418:Bool = Eq(y#945, 0)
+      case #4001488[synthetic]#1488 of
         true →
-          x#933
+          x#944
         _ →
-          let %t411:Int = IMod(x#933, y#934)
-          gcd_go#932(y#934, #4001471[synthetic]#1471))
-    gcd_go#932(aa#936, bb#935)
+          let %t419:Int = IMod(x#944, y#945)
+          gcd_go#943(y#945, #4001489[synthetic]#1489))
+    gcd_go#943(aa#947, bb#946)
 
 letrec lcm =
-λa#938:Int, b#939:Int.
-    let %t412:Bool = Eq(a#938, 0)
-    case #4001472[synthetic]#1472 of
+λa#949:Int, b#950:Int.
+    let %t420:Bool = Eq(a#949, 0)
+    case #4001490[synthetic]#1490 of
       true →
         0
       _ →
-        let %t413:Bool = Eq(b#939, 0)
-        case #4001473[synthetic]#1473 of
+        let %t421:Bool = Eq(b#950, 0)
+        case #4001491[synthetic]#1491 of
           true →
             0
           _ →
-            let g#942:Int = gcd#929(a#938, b#939)
-            let q#941:Int = IDiv(a#938, g#942)
-            let p#940:Box = Mul(q#941, b#939)
-            let %t414:Bool = Lt(p#940, 0)
-            case #4001474[synthetic]#1474 of
+            let g#953:Int = gcd#940(a#949, b#950)
+            let q#952:Int = IDiv(a#949, g#953)
+            let p#951:Box = Mul(q#952, b#950)
+            let %t422:Bool = Lt(p#951, 0)
+            case #4001492[synthetic]#1492 of
               true →
-                Sub(0, p#940)
+                Sub(0, p#951)
               _ →
-                p#940
+                p#951
 
 letrec signum =
-λn#944:Int.
-    let %t415:Bool = Gt(n#944, 0)
-    case #4001475[synthetic]#1475 of
+λn#955:Int.
+    let %t423:Bool = Gt(n#955, 0)
+    case #4001493[synthetic]#1493 of
       true →
         1
       _ →
-        let %t416:Bool = Lt(n#944, 0)
-        case #4001476[synthetic]#1476 of
+        let %t424:Bool = Lt(n#955, 0)
+        case #4001494[synthetic]#1494 of
           true →
             -1
           _ →
             0
 
 letrec div =
-λa#946:Int, b#947:Int.
-    let q#949:Box = Div(a#946, b#947)
-    let r#948:Box = Mod(a#946, b#947)
-    let %t417:Bool = (let %t418:Bool = NEq(r#948, 0)
-    let %t419:Bool = (let %t420:Bool = ICmpLt(a#946, 0)
-    let %t421:Bool = Lt(b#947, 0)
-    NEq(#4001478[synthetic]#1478, #4001479[synthetic]#1479))
-    And(#4001477[synthetic]#1477, #4001480[synthetic]#1480))
-    case #4001481[synthetic]#1481 of
+λa#957:Int, b#958:Int.
+    let q#960:Box = Div(a#957, b#958)
+    let r#959:Box = Mod(a#957, b#958)
+    let %t425:Bool = (let %t426:Bool = NEq(r#959, 0)
+    let %t427:Bool = (let %t428:Bool = ICmpLt(a#957, 0)
+    let %t429:Bool = Lt(b#958, 0)
+    NEq(#4001496[synthetic]#1496, #4001497[synthetic]#1497))
+    And(#4001495[synthetic]#1495, #4001498[synthetic]#1498))
+    case #4001499[synthetic]#1499 of
       true →
-        Sub(q#949, 1)
+        Sub(q#960, 1)
       _ →
-        q#949
+        q#960
 
 letrec mod =
-λa#951:Int, b#952:Int.
-    let r#953:Box = Mod(a#951, b#952)
-    let %t422:Bool = (let %t423:Bool = NEq(r#953, 0)
-    let %t424:Bool = (let %t425:Bool = Lt(r#953, 0)
-    let %t426:Bool = Lt(b#952, 0)
-    NEq(#4001483[synthetic]#1483, #4001484[synthetic]#1484))
-    And(#4001482[synthetic]#1482, #4001485[synthetic]#1485))
-    case #4001486[synthetic]#1486 of
+λa#962:Int, b#963:Int.
+    let r#964:Box = Mod(a#962, b#963)
+    let %t430:Bool = (let %t431:Bool = NEq(r#964, 0)
+    let %t432:Bool = (let %t433:Bool = Lt(r#964, 0)
+    let %t434:Bool = Lt(b#963, 0)
+    NEq(#4001501[synthetic]#1501, #4001502[synthetic]#1502))
+    And(#4001500[synthetic]#1500, #4001503[synthetic]#1503))
+    case #4001504[synthetic]#1504 of
       true →
-        Add(r#953, b#952)
+        Add(r#964, b#963)
       _ →
-        r#953
+        r#964
 
 letrec unwrap =
-λopt#955:Box.
-    case opt#955 of
-      Some(v#956) →
-        v#956
+λopt#966:Box.
+    case opt#966 of
+      Some(v#967) →
+        v#967
       _ →
-        panic#999("unwrap called on None")
+        panic#1010("unwrap called on None")
 
 letrec unwrap_or =
-λopt#958:Box, default#959.
-    case opt#958 of
-      Some(v#960) →
-        v#960
+λopt#969:Box, default#970.
+    case opt#969 of
+      Some(v#971) →
+        v#971
       _ →
-        default#959
+        default#970
 
 letrec map_option =
-λopt#962:Box, f#963.
-    case opt#962 of
-      Some(v#964) →
-        let %t427 = f#963(v#964)
-        Some(#4001487[synthetic]#1487)
+λopt#973:Box, f#974.
+    case opt#973 of
+      Some(v#975) →
+        let %t435 = f#974(v#975)
+        Some(#4001505[synthetic]#1505)
       _ →
         None
 
 letrec flat_map_option =
-λopt#966:Box, f#967.
-    case opt#966 of
-      Some(v#968) →
-        f#967(v#968)
+λopt#977:Box, f#978.
+    case opt#977 of
+      Some(v#979) →
+        f#978(v#979)
       _ →
         None
 
 letrec is_some =
-λopt#970:Box.
-    case opt#970 of
+λopt#981:Box.
+    case opt#981 of
       Some(_) →
         true
       _ →
         false
 
 letrec is_none_opt =
-λopt#972:Box.
-    case opt#972 of
+λopt#983:Box.
+    case opt#983 of
       Some(_) →
         false
       _ →
         true
 
 letrec print =
-λx#974.
-    Print(x#974)
+λx#985.
+    Print(x#985)
 
 letrec println =
-λx#976.
-    Println(x#976)
+λx#987.
+    Println(x#987)
 
 letrec read_file =
-λpath#978:Box.
-    ReadFile(path#978)
+λpath#989:Box.
+    ReadFile(path#989)
 
 letrec read_lines =
-λpath#980:Box.
-    ReadLines(path#980)
+λpath#991:Box.
+    ReadLines(path#991)
 
 letrec write_file =
-λpath#982:Box, contents#983:Box.
-    WriteFile(path#982, contents#983)
+λpath#993:Box, contents#994:Box.
+    WriteFile(path#993, contents#994)
 
 letrec read_stdin =
 λ.
@@ -2236,44 +2256,44 @@ letrec now_ms =
     ClockNow()
 
 letrec idiv =
-λa#988:Int, b#989:Int.
-    IDiv(a#988, b#989)
+λa#999:Int, b#1000:Int.
+    IDiv(a#999, b#1000)
 
 letrec imod =
-λa#991:Int, b#992:Int.
-    IMod(a#991, b#992)
+λa#1002:Int, b#1003:Int.
+    IMod(a#1002, b#1003)
 
 letrec index =
-λxs#994:Box, i#995:Int.
-    Index(xs#994, i#995)
+λxs#1005:Box, i#1006:Int.
+    Index(xs#1005, i#1006)
 
 letrec array_get =
-λarr#997:Box, i#998:Int.
-    ArrayGet(arr#997, i#998)
+λarr#1008:Box, i#1009:Int.
+    ArrayGet(arr#1008, i#1009)
 
 letrec panic =
-λmessage#1000:Box.
-    Panic(message#1000)
+λmessage#1011:Box.
+    Panic(message#1011)
 
 letrec __primop_print =
-λx#1002.
-    Print(x#1002)
+λx#1013.
+    Print(x#1013)
 
 letrec __primop_println =
-λx#1004.
-    Println(x#1004)
+λx#1015.
+    Println(x#1015)
 
 letrec __primop_read_file =
-λpath#1006:Box.
-    ReadFile(path#1006)
+λpath#1017:Box.
+    ReadFile(path#1017)
 
 letrec __primop_read_lines =
-λpath#1008:Box.
-    ReadLines(path#1008)
+λpath#1019:Box.
+    ReadLines(path#1019)
 
 letrec __primop_write_file =
-λpath#1010:Box, contents#1011:Box.
-    WriteFile(path#1010, contents#1011)
+λpath#1021:Box, contents#1022:Box.
+    WriteFile(path#1021, contents#1022)
 
 letrec __primop_read_stdin =
 λ.
@@ -2287,214 +2307,219 @@ letrec __primop_now_ms =
 λ.
     ClockNow()
 
+letrec __primop_debug_trace =
+λmsg#1027:Box.
+    DebugTrace(msg#1027)
+
 letrec starts_with =
-λs#1016:Box, prefix#1017:Box.
-    let plen#1018 = Len(prefix#1017)
-    let %t428:Bool = (let %t429 = Len(s#1016)
-    Gt(plen#1018, #4001488[synthetic]#1488))
-    case #4001489[synthetic]#1489 of
+λs#1029:Box, prefix#1030:Box.
+    let plen#1031 = Len(prefix#1030)
+    let %t436:Bool = (let %t437 = Len(s#1029)
+    Gt(plen#1031, #4001506[synthetic]#1506))
+    case #4001507[synthetic]#1507 of
       true →
         false
       _ →
-        let %t430:Box = Substring(s#1016, 0, plen#1018)
-        Eq(#4001490[synthetic]#1490, prefix#1017)
+        let %t438:Box = Substring(s#1029, 0, plen#1031)
+        Eq(#4001508[synthetic]#1508, prefix#1030)
 
 letrec ends_with =
-λs#1020:Box, suffix#1021:Box.
-    let slen#1023:Box = Len(s#1020)
-    let plen#1022:Box = Len(suffix#1021)
-    let %t431:Bool = Gt(plen#1022, slen#1023)
-    case #4001491[synthetic]#1491 of
+λs#1033:Box, suffix#1034:Box.
+    let slen#1036:Box = Len(s#1033)
+    let plen#1035:Box = Len(suffix#1034)
+    let %t439:Bool = Gt(plen#1035, slen#1036)
+    case #4001509[synthetic]#1509 of
       true →
         false
       _ →
-        let %t432:Box = (let %t433 = Sub(slen#1023, plen#1022)
-        Substring(s#1020, #4001492[synthetic]#1492, slen#1023))
-        ICmpEq(#4001493[synthetic]#1493, suffix#1021)
+        let %t440:Box = (let %t441 = Sub(slen#1036, plen#1035)
+        Substring(s#1033, #4001510[synthetic]#1510, slen#1036))
+        ICmpEq(#4001511[synthetic]#1511, suffix#1034)
 
 letrec chars =
-λs#1025:Box.
-    letrec chars_go#1026 = (λi#1027, result#1028.
-      let %t434:Bool = (let %t435 = Len(s#1025)
-      Ge(i#1027, #4001494[synthetic]#1494))
-      case #4001495[synthetic]#1495 of
+λs#1038:Box.
+    letrec chars_go#1039 = (λi#1040, result#1041.
+      let %t442:Bool = (let %t443 = Len(s#1038)
+      Ge(i#1040, #4001512[synthetic]#1512))
+      case #4001513[synthetic]#1513 of
         true →
-          result#1028
+          result#1041
         _ →
-          let %t436 = Add(i#1027, 1)
-          let %t437 = (let %t438 = Array#?[external].push
-          let %t439:Box = (let %t440:Int = IAdd(i#1027, 1)
-          Substring(s#1025, i#1027, #4001498[synthetic]#1498))
-          #4001497[synthetic]#1497(result#1028, #4001499[synthetic]#1499))
-          chars_go#1026(#4001496[synthetic]#1496, #4001500[synthetic]#1500))
-    let %t441:Box = MakeArray()
-    chars_go#1026(0, #4001501[synthetic]#1501)
+          let %t444 = Add(i#1040, 1)
+          let %t445 = (let %t446 = Array#?[external].push
+          let %t447:Box = (let %t448:Int = IAdd(i#1040, 1)
+          Substring(s#1038, i#1040, #4001516[synthetic]#1516))
+          #4001515[synthetic]#1515(result#1041, #4001517[synthetic]#1517))
+          chars_go#1039(#4001514[synthetic]#1514, #4001518[synthetic]#1518))
+    let %t449:Box = MakeArray()
+    chars_go#1039(0, #4001519[synthetic]#1519)
 
 letrec join =
-λarr#1030:Box, sep#1031:Box.
-    let %t442:Bool = (let %t443 = Len(arr#1030)
-    ICmpEq(#4001502[synthetic]#1502, 0))
-    case #4001503[synthetic]#1503 of
+λarr#1043:Box, sep#1044:Box.
+    let %t450:Bool = (let %t451 = Len(arr#1043)
+    ICmpEq(#4001520[synthetic]#1520, 0))
+    case #4001521[synthetic]#1521 of
       true →
         ""
       _ →
-        letrec join_go#1033 = (λi#1034, result#1035.
-          let %t444:Bool = (let %t445 = Len(arr#1030)
-          ICmpGe(i#1034, #4001504[synthetic]#1504))
-          case #4001505[synthetic]#1505 of
+        letrec join_go#1046 = (λi#1047, result#1048.
+          let %t452:Bool = (let %t453 = Len(arr#1043)
+          ICmpGe(i#1047, #4001522[synthetic]#1522))
+          case #4001523[synthetic]#1523 of
             true →
-              result#1035
+              result#1048
             _ →
-              let %t446 = Index(arr#1030, i#1034)
-              case #4001506[synthetic]#1506 of
-                Some(v#1036:Box) →
-                  let %t447:Int = IAdd(i#1034, 1)
-                  let %t448 = (let %t449 = Add(result#1035, sep#1031)
-                  Add(#4001508[synthetic]#1508, v#1036))
-                  join_go#1033(#4001507[synthetic]#1507, #4001509[synthetic]#1509)
+              let %t454 = Index(arr#1043, i#1047)
+              case #4001524[synthetic]#1524 of
+                Some(v#1049:Box) →
+                  let %t455:Int = IAdd(i#1047, 1)
+                  let %t456 = (let %t457 = Add(result#1048, sep#1044)
+                  Add(#4001526[synthetic]#1526, v#1049))
+                  join_go#1046(#4001525[synthetic]#1525, #4001527[synthetic]#1527)
                 _ →
-                  let %t450:Int = IAdd(i#1034, 1)
-                  join_go#1033(#4001510[synthetic]#1510, result#1035))
-        let %t451 = Index(arr#1030, 0)
-        case #4001511[synthetic]#1511 of
-          Some(first_val#1032:Box) →
-            join_go#1033(1, first_val#1032)
+                  let %t458:Int = IAdd(i#1047, 1)
+                  join_go#1046(#4001528[synthetic]#1528, result#1048))
+        let %t459 = Index(arr#1043, 0)
+        case #4001529[synthetic]#1529 of
+          Some(first_val#1045:Box) →
+            join_go#1046(1, first_val#1045)
           _ →
             ""
 
 letrec string_concat =
-λleft#1038:Box, right#1039:Box.
-    StringConcat(left#1038, right#1039)
+λleft#1051:Box, right#1052:Box.
+    StringConcat(left#1051, right#1052)
 
 letrec string_len =
-λs#1041:Box.
-    StringLength(s#1041)
+λs#1054:Box.
+    StringLength(s#1054)
 
 letrec string_slice =
-λs#1043:Box, start#1044:Int, end#1045:Int.
-    StringSlice(s#1043, start#1044, end#1045)
+λs#1056:Box, start#1057:Int, end#1058:Int.
+    StringSlice(s#1056, start#1057, end#1058)
 
 letrec str_contains =
-λs#1047:Box, needle#1048:Box.
-    let slen#1052:Int = Len(s#1047)
-    let nlen#1051:Int = Len(needle#1048)
-    let %t452:Bool = ICmpGt(nlen#1051, slen#1052)
-    case #4001512[synthetic]#1512 of
+λs#1060:Box, needle#1061:Box.
+    let slen#1065:Int = Len(s#1060)
+    let nlen#1064:Int = Len(needle#1061)
+    let %t460:Bool = ICmpGt(nlen#1064, slen#1065)
+    case #4001530[synthetic]#1530 of
       true →
         false
       _ →
-        letrec sc_go#1049 = (λi#1050.
-          let %t453:Bool = (let %t454:Int = IAdd(i#1050, nlen#1051)
-          ICmpGt(#4001513[synthetic]#1513, slen#1052))
-          case #4001514[synthetic]#1514 of
+        letrec sc_go#1062 = (λi#1063.
+          let %t461:Bool = (let %t462:Int = IAdd(i#1063, nlen#1064)
+          ICmpGt(#4001531[synthetic]#1531, slen#1065))
+          case #4001532[synthetic]#1532 of
             true →
               false
             _ →
-              let %t455:Bool = (let %t456:Box = (let %t457:Int = IAdd(i#1050, nlen#1051)
-              Substring(s#1047, i#1050, #4001515[synthetic]#1515))
-              Eq(#4001516[synthetic]#1516, needle#1048))
-              case #4001517[synthetic]#1517 of
+              let %t463:Bool = (let %t464:Box = (let %t465:Int = IAdd(i#1063, nlen#1064)
+              Substring(s#1060, i#1063, #4001533[synthetic]#1533))
+              Eq(#4001534[synthetic]#1534, needle#1061))
+              case #4001535[synthetic]#1535 of
                 true →
                   true
                 _ →
-                  let %t458:Int = IAdd(i#1050, 1)
-                  sc_go#1049(#4001518[synthetic]#1518))
-        sc_go#1049(0)
+                  let %t466:Int = IAdd(i#1063, 1)
+                  sc_go#1062(#4001536[synthetic]#1536))
+        sc_go#1062(0)
 
 letrec copy_or_keep_head : forall a, b. (a, Bool) -> List<b> =
-λxs#1054, copy#1055:Bool.
-    case xs#1054 of
-      ::(h#1056:Int, t#1057:Box) →
-        case copy#1055 of
+λxs#1067, copy#1068:Bool.
+    case xs#1067 of
+      ::(h#1069:Int, t#1070:Box) →
+        case copy#1068 of
           true →
-            let %t459:Box = ::(h#1056, t#1057)
-            ::(h#1056, #4001519[synthetic]#1519)
+            let %t467:Box = ::(h#1069, t#1070)
+            ::(h#1069, #4001537[synthetic]#1537)
           _ →
-            ::(h#1056, t#1057)
+            ::(h#1069, t#1070)
       _ →
         []
 
 letrec keep_or_dup_left : (Tree, Bool) -> Tree =
-λt#1059:Box, keep#1060:Bool.
-    case t#1059 of
-      Node(color#1061, left#1062, key#1063, right#1064) →
-        case keep#1060 of
+λt#1072:Box, keep#1073:Bool.
+    case t#1072 of
+      Node(color#1074, left#1075, key#1076, right#1077) →
+        case keep#1073 of
           true →
-            Node#?[external](color#1061, left#1062, key#1063, right#1064)
+            Node#?[external](color#1074, left#1075, key#1076, right#1077)
           _ →
-            Node#?[external](color#1061, left#1062, key#1063, left#1062)
+            Node#?[external](color#1074, left#1075, key#1076, left#1075)
       _ →
-        t#1059
+        t#1072
 
 letrec main : () -> Unit =
 λ.
-    let %t460:Box = (λ__resume_default#1081:Box.
-      let %t461 = __primop_read_stdin#1012()
-      __resume_default#1081(#4001528[synthetic]#1528))
+    let %t468:Box = (λ__resume_default#1094:Box.
+      let %t469 = __primop_read_stdin#1023()
+      __resume_default#1094(#4001546[synthetic]#1546))
     handle Stdin {
-      read_stdin(; __resume_default#1081:Box) →
-        let %t462 = __primop_read_stdin#1012()
-        __resume_default#1081(#4001545[synthetic]#1545)
+      read_stdin(; __resume_default#1094:Box) →
+        let %t470 = __primop_read_stdin#1023()
+        __resume_default#1094(#4001563[synthetic]#1563)
     } with
-      let %t463:Box = (λ__resume_default#1074:Box, __arg0#1073.
-        let %t464 = __primop_read_file#1005(__arg0#1073)
-        __resume_default#1074(#4001529[synthetic]#1529))
-      let %t465:Box = (λ__resume_default#1076:Box, __arg0#1075.
-        let %t466 = __primop_read_lines#1007(__arg0#1075)
-        __resume_default#1076(#4001530[synthetic]#1530))
-      let %t467:Box = (λ__resume_default#1079:Box, __arg0#1077, __arg1#1078.
-        let %t468 = __primop_write_file#1009(__arg0#1077, __arg1#1078)
-        let %t469:Box = MakeTuple()
-        __resume_default#1079(#4001531[synthetic]#1531))
+      let %t471:Box = (λ__resume_default#1087:Box, __arg0#1086.
+        let %t472 = __primop_read_file#1016(__arg0#1086)
+        __resume_default#1087(#4001547[synthetic]#1547))
+      let %t473:Box = (λ__resume_default#1089:Box, __arg0#1088.
+        let %t474 = __primop_read_lines#1018(__arg0#1088)
+        __resume_default#1089(#4001548[synthetic]#1548))
+      let %t475:Box = (λ__resume_default#1092:Box, __arg0#1090, __arg1#1091.
+        let %t476 = __primop_write_file#1020(__arg0#1090, __arg1#1091)
+        let %t477:Box = MakeTuple()
+        __resume_default#1092(#4001549[synthetic]#1549))
       handle FileSystem {
-        read_file(__arg0#1073; __resume_default#1074:Box) →
-          let %t470 = __primop_read_file#1005(__arg0#1073)
-          __resume_default#1074(#4001542[synthetic]#1542)
-        read_lines(__arg0#1075; __resume_default#1076:Box) →
-          let %t471 = __primop_read_lines#1007(__arg0#1075)
-          __resume_default#1076(#4001543[synthetic]#1543)
-        write_file(__arg0#1077, __arg1#1078; __resume_default#1079:Box) →
-          let %t468 = __primop_write_file#1009(__arg0#1077, __arg1#1078)
-          let %t472:Box = MakeTuple()
-          __resume_default#1079(#4001544[synthetic]#1544)
+        read_file(__arg0#1086; __resume_default#1087:Box) →
+          let %t478 = __primop_read_file#1016(__arg0#1086)
+          __resume_default#1087(#4001560[synthetic]#1560)
+        read_lines(__arg0#1088; __resume_default#1089:Box) →
+          let %t479 = __primop_read_lines#1018(__arg0#1088)
+          __resume_default#1089(#4001561[synthetic]#1561)
+        write_file(__arg0#1090, __arg1#1091; __resume_default#1092:Box) →
+          let %t476 = __primop_write_file#1020(__arg0#1090, __arg1#1091)
+          let %t480:Box = MakeTuple()
+          __resume_default#1092(#4001562[synthetic]#1562)
       } with
-        let %t473:Box = (λ__resume_default#1068:Box, __arg0#1067.
-          let %t474 = __primop_print#1001(__arg0#1067)
-          let %t475:Box = MakeTuple()
-          __resume_default#1068(#4001532[synthetic]#1532))
-        let %t476:Box = (λ__resume_default#1071:Box, __arg0#1070.
-          let %t477 = __primop_println#1003(__arg0#1070)
-          let %t478:Box = MakeTuple()
-          __resume_default#1071(#4001533[synthetic]#1533))
+        let %t481:Box = (λ__resume_default#1081:Box, __arg0#1080.
+          let %t482 = __primop_print#1012(__arg0#1080)
+          let %t483:Box = MakeTuple()
+          __resume_default#1081(#4001550[synthetic]#1550))
+        let %t484:Box = (λ__resume_default#1084:Box, __arg0#1083.
+          let %t485 = __primop_println#1014(__arg0#1083)
+          let %t486:Box = MakeTuple()
+          __resume_default#1084(#4001551[synthetic]#1551))
         handle Console {
-          print(__arg0#1067; __resume_default#1068:Box) →
-            let %t474 = __primop_print#1001(__arg0#1067)
-            let %t479:Box = MakeTuple()
-            __resume_default#1068(#4001540[synthetic]#1540)
-          println(__arg0#1070; __resume_default#1071:Box) →
-            let %t477 = __primop_println#1003(__arg0#1070)
-            let %t480:Box = MakeTuple()
-            __resume_default#1071(#4001541[synthetic]#1541)
+          print(__arg0#1080; __resume_default#1081:Box) →
+            let %t482 = __primop_print#1012(__arg0#1080)
+            let %t487:Box = MakeTuple()
+            __resume_default#1081(#4001558[synthetic]#1558)
+          println(__arg0#1083; __resume_default#1084:Box) →
+            let %t485 = __primop_println#1014(__arg0#1083)
+            let %t488:Box = MakeTuple()
+            __resume_default#1084(#4001559[synthetic]#1559)
         } with
-          let %t481 = (let %t482:Box = (λ%t483:Box.
-            #6001526[synthetic]#1526)
-          let %t484 = (let %t485:Box = MakeList(1, 2, 3)
-          copy_or_keep_head#1053(#4001535[synthetic]#1535, true))
-          #6001524[synthetic]#1524(#4001534[synthetic]#1534, #4001536[synthetic]#1536))
-          let %t486:Box = (λ%t487:Box.
-            #6001527[synthetic]#1527)
-          let %t488 = (let %t489 = Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
-          keep_or_dup_left#1058(#4001538[synthetic]#1538, false))
-          #6001524[synthetic]#1524(#4001537[synthetic]#1537, #4001539[synthetic]#1539)
+          let %t489 = (let %t490:Box = (λ%t491:Box.
+            #6001544[synthetic]#1544)
+          let %t492 = (let %t493:Box = MakeList(1, 2, 3)
+          copy_or_keep_head#1066(#4001553[synthetic]#1553, true))
+          #6001542[synthetic]#1542(#4001552[synthetic]#1552, #4001554[synthetic]#1554))
+          let %t494:Box = (λ%t495:Box.
+            #6001545[synthetic]#1545)
+          let %t496 = (let %t497 = Node#?[external](Red#?[external], Leaf#?[external], 5, Leaf#?[external])
+          keep_or_dup_left#1071(#4001556[synthetic]#1556, false))
+          #6001542[synthetic]#1542(#4001555[synthetic]#1555, #4001557[synthetic]#1557)
 
-[ 1 of 11] Compiling  Assert
-[ 2 of 11] Compiling  Array
-[ 3 of 11] Compiling  List
-[ 4 of 11] Compiling  Either
-[ 5 of 11] Compiling  IO
-[ 6 of 11] Compiling  Math
-[ 7 of 11] Compiling  Numeric
-[ 8 of 11] Compiling  Option
-[ 9 of 11] Compiling  Primops
-[10 of 11] Compiling  String
-[11 of 11] Compiling  drop_spec_branchy
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
+[12 of 12] Compiling  drop_spec_branchy

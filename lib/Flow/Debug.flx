@@ -1,0 +1,41 @@
+// Flow.Debug — developer tracing helpers.
+//
+// Inspired by Haskell's `Debug.Trace` and Rust's `dbg!` macro. The three
+// helpers here cover the common cases:
+//
+//   debug(x)              — print to_string(x), return x. Inline inspection.
+//   debug_labeled("n", x) — print "n = " ++ to_string(x), return x.
+//   debug_with(f, x)      — print f(x), return x. Custom formatter.
+//
+// All three route through the `Debug` effect and emit to stderr, so they
+// do not corrupt stdout pipelines. Helpers that want to call them must
+// declare `with Debug` in their signature; `main` and `test_*` get a
+// default Debug handler that writes to stderr directly.
+//
+// Debug output is a development aid — rely on it while iterating on a
+// problem, strip it before shipping.
+//
+// `to_string` is the built-in value-to-string conversion that the `Show`
+// class's `show` method desugars to. Calling it directly keeps Flow.Debug
+// dependency-free while still giving every primitive type a sensible
+// rendering (see `Flow.Numeric` / `Flow.String` for the underlying
+// implementations).
+
+module Flow.Debug {
+
+    public fn debug<a>(x: a) -> a with Debug {
+        perform Debug.trace(to_string(x))
+        x
+    }
+
+    public fn debug_labeled<a>(label: String, x: a) -> a with Debug {
+        perform Debug.trace(label + " = " + to_string(x))
+        x
+    }
+
+    public fn debug_with<a>(f: (a) -> String, x: a) -> a with Debug {
+        perform Debug.trace(f(x))
+        x
+    }
+
+}

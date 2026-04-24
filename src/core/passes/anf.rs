@@ -190,7 +190,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         CorePrimOp::StringLength | CorePrimOp::ArrayLen => FluxRep::IntRep,
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
-        CorePrimOp::Print | CorePrimOp::Println | CorePrimOp::WriteFile => FluxRep::UnitRep,
+        CorePrimOp::Print
+        | CorePrimOp::Println
+        | CorePrimOp::DebugTrace
+        | CorePrimOp::WriteFile => FluxRep::UnitRep,
         CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep

@@ -9,6 +9,7 @@ This directory shows the current effect system surface:
 - user handlers
 - parameterized handlers for state, reader-style environments, and captured output
 - sealing
+- developer tracing via `Flow.Debug` (stderr-routed, modeled on GHC's `Debug.Trace`)
 - intentional failures for missing effects, denied sealing, reserved primop names, and reserved primop module imports
 
 The user-facing operations are effect operations. Compiler-synthesized default

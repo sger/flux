@@ -499,6 +499,7 @@ pub enum CorePrimOp {
     // ── I/O ───────────────────────────────────────────────────────────
     Print = 48,
     Println = 49,
+    DebugTrace = 154,
     ReadFile = 50,
     WriteFile = 51,
     ReadStdin = 52,
@@ -664,6 +665,7 @@ impl CorePrimOp {
             "FCosh" => return Some(Self::FCosh),
             "FTanh" => return Some(Self::FTanh),
             "FTruncate" => return Some(Self::FTruncate),
+            "DebugTrace" => return Some(Self::DebugTrace),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -706,6 +708,7 @@ impl CorePrimOp {
             Self::ToString => Some("to_string"),
             Self::Print => Some("print"),
             Self::Println => Some("println"),
+            Self::DebugTrace => Some("__primop_debug_trace"),
             Self::ReadFile => Some("read_file"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
@@ -885,6 +888,7 @@ impl CorePrimOp {
             151 => FCosh,
             152 => FTanh,
             153 => FTruncate,
+            154 => DebugTrace,
             _ => return None,
         };
         Some(op)
@@ -913,6 +917,7 @@ impl CorePrimOp {
             ("cmp_eq", 2, CorePrimOp::CmpEq),
             ("cmp_ne", 2, CorePrimOp::CmpNe),
             ("__primop_clock_now", 0, CorePrimOp::ClockNow),
+            ("__primop_debug_trace", 1, CorePrimOp::DebugTrace),
             ("__primop_now_ms", 0, CorePrimOp::ClockNow),
             ("__primop_print", 1, CorePrimOp::Print),
             ("__primop_println", 1, CorePrimOp::Println),
@@ -1034,12 +1039,12 @@ impl CorePrimOp {
         use CorePrimOp::*;
         match self {
             ClockNow | ReadStdin | Time => 0,
-            Abs | ArrayLen | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap | IsNone
-            | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println | ReadFile
-            | ReadLines | StringLength | ToString | Trim | Try | AssertThrows | TypeOf | Upper
-            | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt | FSin | FCos
-            | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos | FAtan | FSinh
-            | FCosh | FTanh | FTruncate => 1,
+            Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
+            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
+            | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
+            | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
+            | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
+            | FAtan | FSinh | FCosh | FTanh | FTruncate => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe

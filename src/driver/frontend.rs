@@ -19,6 +19,7 @@ const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
     ("Flow.Math", "Math.flx"),
     ("Flow.Primops", "Primops.flx"),
     ("Flow.IO", "IO.flx"),
+    ("Flow.Debug", "Debug.flx"),
     ("Flow.Assert", "Assert.flx"),
 ];
 

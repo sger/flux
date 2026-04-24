@@ -14,6 +14,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
     match op {
         CorePrimOp::Print => "print",
         CorePrimOp::Println => "println",
+        CorePrimOp::DebugTrace => "__primop_debug_trace",
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
@@ -223,6 +224,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             // resolve_primop_call / OpCallBase dispatch.
             CorePrimOp::Print
             | CorePrimOp::Println
+            | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin

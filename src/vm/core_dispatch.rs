@@ -379,6 +379,15 @@ pub fn execute_core_primop(
             println!("{}", format_value(&args[0]));
             Ok(Value::None)
         }
+        DebugTrace => {
+            // Debug output goes to stderr so program stdout stays clean for
+            // piping to other tools. Matches GHC `Debug.Trace`, Rust `dbg!`,
+            // Python's default logging behavior. The argument is expected to
+            // be a pre-formatted string (the Flow.Debug wrappers call
+            // `show()` on values before perform-ing the effect operation).
+            eprintln!("{}", format_value(&args[0]));
+            Ok(Value::None)
+        }
         ReadFile => {
             let path = estr(&args[0], "read_file")?;
             let content = fs::read_to_string(path)
