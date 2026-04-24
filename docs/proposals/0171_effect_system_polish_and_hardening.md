@@ -130,6 +130,48 @@ may be refactored or marked VM-only while that backend gap is being fixed, but
 the language semantics should remain `perform`/`handle` based rather than
 introducing backend-specific behavior.
 
+Current forced parity status for `examples/effects`:
+
+- `cargo run --features llvm -- parity-check examples/effects --ways vm,llvm`
+  currently reports 6 passing examples and 7 mismatches.
+- The VM-only examples are intentional markers for the remaining native effect
+  gaps, not language semantics: `01_default_entry_handlers`,
+  `02_explicit_effect_rows_and_aliases`, `04_modules_and_rows`,
+  `05_row_polymorphic_callbacks`, `06_sealing_effect_scope`,
+  `08_filesystem_and_clock`, and `11_parameterized_console_capture`.
+- Known mismatch classes include native/default-handler output ordering, native
+  state threading for parameterized captures, VM runtime failures in some
+  default-handler helper shapes, and unstable clock output normalization.
+- Low-level runtime coverage now includes a dedicated `flux_yield_conts >= 8`
+  overflow/composition fixture (`tests/parity/effect_yield_conts_overflow.flx`).
+  Keep this fixture in both VM/native parity because it protects the native
+  continuation compression path.
+
+### Track 5b: Native effect runtime hardening
+
+Track the C native effect runtime separately from source-level effect semantics:
+
+- Evidence vectors must own and release their handler closures, parent EVVs,
+  and parameterized state values through RC.
+- Parameterized handler state replacement must drop the previous state.
+- Yield payload globals (`flux_yield_clause`, `flux_yield_op_arg`,
+  `flux_yield_op_state`, `flux_yield_evv`) must either become explicit RC
+  roots or have a documented/proven lowering invariant that keeps borrowed
+  values alive until `flux_yield_prompt` consumes them.
+- `flux_resume_called`, `flux_direct_resume_marker`, evidence state, and yield
+  state are process-global today. This is a blocker for future threads/fibers;
+  any concurrency work must make this state thread/fiber-local or move it into
+  an explicit scheduler context.
+- Closure-entry symbol names that rely on GNU/Clang `asm` labels need a
+  Windows/MSVC-compatible export strategy before Windows native is considered
+  supported.
+- VM and native still enforce unsupported/multi-shot resume shapes through
+  different mechanisms: the VM uses one-shot continuation guards, while native
+  default yield handling supports multi-shot and the legacy
+  `FLUX_YIELD_CHECKS=0` direct path reports E1200/E1201. This divergence is
+  documented in `tests/native_llvm/effect_multi_shot_tests.rs` and should be
+  revisited before declaring one cross-backend handler semantics story.
+
 ### Track 6: Default-handler policy
 
 Decide whether default handlers remain always-on for entrypoints or become

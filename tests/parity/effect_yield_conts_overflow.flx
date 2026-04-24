@@ -1,0 +1,59 @@
+// parity: vm, llvm
+// expect: success
+// bug: Native yield continuation accumulation compresses at 8 frames.
+//      This fixture performs through 10 post-perform continuation frames so
+//      flux_yield_extend must exercise its overflow/composition path.
+// parity-expected-stdout-begin
+// "11"
+// parity-expected-stdout-end
+
+effect Ask {
+    value : () -> Int
+}
+
+fn level10() -> Int with Ask {
+    perform Ask.value() + 1
+}
+
+fn level9() -> Int with Ask {
+    level10() + 1
+}
+
+fn level8() -> Int with Ask {
+    level9() + 1
+}
+
+fn level7() -> Int with Ask {
+    level8() + 1
+}
+
+fn level6() -> Int with Ask {
+    level7() + 1
+}
+
+fn level5() -> Int with Ask {
+    level6() + 1
+}
+
+fn level4() -> Int with Ask {
+    level5() + 1
+}
+
+fn level3() -> Int with Ask {
+    level4() + 1
+}
+
+fn level2() -> Int with Ask {
+    level3() + 1
+}
+
+fn level1() -> Int with Ask {
+    level2() + 1
+}
+
+fn main() with IO {
+    let result = level1() handle Ask {
+        value(resume) -> resume(1)
+    }
+    print(to_string(result))
+}
