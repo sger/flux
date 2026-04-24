@@ -49,6 +49,11 @@ fn effect_deep_nesting_parity() {
 }
 
 #[test]
+fn effect_yield_conts_overflow_parity() {
+    assert_parity_with_yield_checks("effect_yield_conts_overflow.flx", "\"11\"");
+}
+
+#[test]
 fn effect_tr_loop_parity() {
     assert_parity_with_yield_checks("effect_tr_loop.flx", "\"done\"");
 }
