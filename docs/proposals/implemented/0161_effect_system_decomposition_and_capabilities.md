@@ -134,7 +134,12 @@ module Flow.Effects {
 
 This file is documentation in the current implementation. The compiler seeds
 the builtin aliases and label registry programmatically, and the stdlib file is
-kept as the user-facing spec.
+kept as the user-facing spec. Drift between the two is prevented by the
+integration test `tests/integration/flow_effects_spec_drift.rs`, which
+parses `lib/Flow/Effects.flx` on every test run and fails CI if the declared
+labels, operations, or alias expansions diverge from
+`Compiler::seed_builtin_effect_aliases` /
+`Compiler::seed_builtin_effect_operations`.
 
 **Stdlib primop surface: `lib/Flow/Primops.flx`**
 
