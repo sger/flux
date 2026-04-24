@@ -1,0 +1,31 @@
+// parity: vm
+// Developer tracing via `Flow.Debug`. Three forms, all writing to stderr:
+//
+//   debug(x)              — prints to_string(x), returns x unchanged
+//   debug_labeled("n", x) — prints "n = to_string(x)", returns x
+//   debug_with(f, x)      — prints f(x), returns x (custom formatter)
+//
+// The debug calls return their argument, so they drop cleanly into any
+// expression without changing values or control flow. Stdout output is
+// unchanged — only stderr receives the trace lines.
+//
+// Ordinary helpers that want to call `debug` must declare `with Debug` in
+// their signature. The `main` / `test_*` entrypoint gets a default
+// `Debug` handler automatically when any call site names a `debug*`
+// wrapper.
+
+fn double(n: Int) -> Int with Debug {
+    debug_labeled("double_input", n)
+    n * 2
+}
+
+fn describe_squared(n: Int) -> String {
+    "squared=" + to_string(n * n)
+}
+
+fn main() {
+    let x = debug(42)
+    let y = double(x)
+    let z = debug_with(describe_squared, y)
+    println("result=" + to_string(z))
+}

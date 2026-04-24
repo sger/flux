@@ -1,20 +1,20 @@
 ---
 source: tests/integration/regression_snapshots.rs
-assertion_line: 132
 ---
 $ flux --no-cache tests/fixtures/recovery/unterminated_string_then_continue.flx
 exit_code: 1
 
-[ 1 of 11] Compiling  Assert
-[ 2 of 11] Compiling  Array
-[ 3 of 11] Compiling  List
-[ 4 of 11] Compiling  Either
-[ 5 of 11] Compiling  IO
-[ 6 of 11] Compiling  Math
-[ 7 of 11] Compiling  Numeric
-[ 8 of 11] Compiling  Option
-[ 9 of 11] Compiling  Primops
-[10 of 11] Compiling  String
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
 • 1 error • tests/fixtures/recovery/unterminated_string_then_continue.flx
 error[E071]: Unterminated String
 

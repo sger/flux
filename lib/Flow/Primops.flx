@@ -48,4 +48,6 @@ module Flow.Primops {
 
     public intrinsic fn __primop_now_ms() -> Int = primop ClockNow
 
+    public intrinsic fn __primop_debug_trace(msg: String) -> Unit = primop DebugTrace
+
 }

@@ -42,6 +42,12 @@ pub const PANIC: &str = "Panic";
 /// `idiv` / `imod` / indexing — recoverable failure (div-by-zero, OOB).
 pub const DIV: &str = "Div";
 
+/// `debug` / `debug_labeled` / `debug_with` — developer tracing to stderr.
+/// Separate from `Console` so debug output does not compete with the
+/// stdout channel and can be handled independently (captured in tests,
+/// redirected, or silenced). See proposal 0171 and `lib/Flow/Debug.flx`.
+pub const DEBUG: &str = "Debug";
+
 /// Reserved non-determinism label. Documented in `Flow.Effects`, not
 /// operationally emitted by compiler primops in this slice.
 pub const NONDET: &str = "NonDet";
@@ -84,7 +90,7 @@ pub fn time_effect_symbol_opt(interner: &Interner) -> Option<Identifier> {
 pub fn is_known_function_effect_annotation_name(name: &str) -> bool {
     matches!(
         name,
-        IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV
+        IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV | DEBUG
     )
 }
 
@@ -102,6 +108,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
     use CorePrimOp::*;
     match op {
         Println | Print => Some(CONSOLE),
+        DebugTrace => Some(DEBUG),
         ReadFile | WriteFile | ReadLines => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
         ClockNow | Time => Some(CLOCK),
@@ -122,7 +129,7 @@ pub fn primop_coarse_effect_label(op: CorePrimOp) -> Option<&'static str> {
     match primop_fine_effect_label(op)? {
         CONSOLE | FILESYSTEM | STDIN => Some(IO),
         CLOCK => Some(TIME),
-        // Panic and Div stay as themselves — no coarse alias.
+        // Panic, Div, and Debug stay as themselves — no coarse alias.
         other => Some(other),
     }
 }

@@ -1,0 +1,48 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/effects/13_debug_tracing.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `debug_labeled`.
+
+  examples/effects/13_debug_tracing.flx:18:5
+   |
+18 |     debug_labeled("double_input", n)
+   |     ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let debug_labeled = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `debug`.
+
+  examples/effects/13_debug_tracing.flx:27:13
+   |
+27 |     let x = debug(42)
+   |             ^^^^^
+
+Hint:
+  Define it first: let debug = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `debug_with`.
+
+  examples/effects/13_debug_tracing.flx:29:13
+   |
+29 |     let z = debug_with(describe_squared, y)
+   |             ^^^^^^^^^^
+
+Hint:
+  Define it first: let debug_with = ...;
+
+Found 3 errors.
+== stdout ==
+<not executed>

@@ -51,6 +51,8 @@ fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     out.insert("Div", BTreeSet::new());
     out.insert("Exn", BTreeSet::new());
     out.insert("Panic", BTreeSet::new());
+    // Developer tracing — one operation backed by the DebugTrace primop.
+    out.insert("Debug", BTreeSet::from(["trace"]));
     out
 }
 

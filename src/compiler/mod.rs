@@ -2413,6 +2413,13 @@ impl Compiler {
         add_op(be::STDIN, "read_stdin", mono(vec![], string()));
         add_op(be::CLOCK, "clock_now", mono(vec![], int()));
         add_op(be::CLOCK, "now_ms", mono(vec![], int()));
+        // Debug effect: single low-level `trace` operation takes a
+        // pre-formatted String and returns Unit. User-facing `debug`,
+        // `debug_labeled`, and `debug_with` wrappers in `Flow.Debug`
+        // apply `show()` / label formatting / user formatters before
+        // performing this operation. Output goes to stderr via the
+        // DebugTrace primop.
+        add_op(be::DEBUG, "trace", mono(vec![string()], unit()));
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -2886,6 +2893,7 @@ impl Compiler {
                 | "__primop_read_stdin"
                 | "__primop_clock_now"
                 | "__primop_now_ms"
+                | "__primop_debug_trace"
         )
     }
 
@@ -2912,6 +2920,7 @@ impl Compiler {
             "__primop_read_stdin",
             "__primop_clock_now",
             "__primop_now_ms",
+            "__primop_debug_trace",
         ]
     }
 
@@ -3039,6 +3048,17 @@ impl Compiler {
             ("__primop_read_stdin", vec![], con(TC::String), pure(), 0),
             ("__primop_clock_now", vec![], con(TC::Int), pure(), 0),
             ("__primop_now_ms", vec![], con(TC::Int), pure(), 0),
+            // Debug trace intrinsic — takes a pre-formatted String, writes
+            // it to stderr. Pure at the HM level (the Debug effect is
+            // tracked via the `perform Debug.trace(...)` call shape, not
+            // the intrinsic signature itself).
+            (
+                "__primop_debug_trace",
+                vec![con(TC::String)],
+                con(TC::Unit),
+                pure(),
+                0,
+            ),
             // `panic` stays pure at the HM level — it diverges rather than
             // returning, so no `with Panic` annotation is required today.
             // The registry still classifies it as `Panic` for the optimizer.
@@ -4183,6 +4203,9 @@ impl Compiler {
 
         let residual =
             self.infer_effects_from_block(main_body, None, &inferred, io_effect, time_effect);
+        let debug_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::DEBUG);
         let mut disallowed: Vec<Symbol> = residual
             .into_iter()
             .filter(|effect| {
@@ -4192,6 +4215,7 @@ impl Compiler {
                     && *effect != filesystem_effect
                     && *effect != stdin_effect
                     && *effect != clock_effect
+                    && *effect != debug_effect
             })
             .collect();
         if disallowed.is_empty() {
