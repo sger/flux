@@ -1,6 +1,14 @@
 // parity: vm
-// Entry functions get default handlers for the built-in operational effects.
-// This program performs Console and Clock without spelling handlers manually.
+// Entry functions (`main`, `test_*`) get compiler-synthesized default
+// handlers for the built-in operational effects (Console, FileSystem,
+// Stdin, Clock). That is why this `main` can call `println` and `now_ms`
+// without any explicit `with` clause or `handle` block.
+//
+// This magic ONLY applies at entrypoints. Ordinary helpers still need
+// `with Console` / `with Clock` annotations — see
+// `failing/01_missing_effect_in_helper.flx` for the symmetric failure
+// case, where the same body in a non-entry function is rejected with
+// E400.
 
 fn main() {
     println("default Console handler")

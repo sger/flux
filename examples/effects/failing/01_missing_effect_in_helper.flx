@@ -1,4 +1,8 @@
-// Missing effect in an ordinary helper. Entry defaults do not make helpers ambiently effectful.
+// Missing effect in an ordinary helper. Entry defaults do not make helpers
+// ambiently effectful. Contrast with `../01_default_entry_handlers.flx`:
+// that file has the same `println` call inside `main`, which gets
+// compiler-synthesized default handlers; this `helper` is an ordinary
+// function and must declare `with Console` explicitly.
 
 fn helper() -> Unit {
     println("missing Console")

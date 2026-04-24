@@ -74,18 +74,175 @@ Call to `println` requires effect `Console` in this function signature.
 The compiler may still lower to `Perform`; diagnostics should carry enough
 origin information to render the user-facing call shape.
 
+**Status (2026-04-24):** delivered for `E400`. The 0165 routing pass now
+records the `ExprId` of each `Perform` node synthesized from a direct user
+call in `Compiler::routed_call_perform_ids`; `compile_perform` consults the
+set when emitting `E400` and renders "Call to `foo`" + label "effectful
+call occurs here" for call-origin Performs, preserving the existing
+"Performing `foo`" / "effectful perform occurs here" phrasing for
+user-written `perform` expressions. Other effect diagnostics
+(`E402`/`E403`/`E404`/`E419`…) have not yet been audited for the same
+treatment.
+
 ### Track 2: Handler coverage ergonomics
 
 Today a handler for `Console` must cover every declared operation, including
 both `print` and `println`, even if the handled expression only performs one
 operation. This is strict and simple, but it is not always ergonomic.
 
-Investigate one of:
+**Status (2026-04-24):** the conservative half of this track has shipped.
+`E402` (`INCOMPLETE EFFECT HANDLER`) now emits a copy-pasteable arm
+skeleton for every missing operation, with correct shape for both
+stateless and parameterized handlers (`op(resume, _argN) -> resume(())`
+for `Unit`-returning ops; `op(resume, _argN, _state) -> resume(todo!(),
+_state)` for parameterized handlers; typed placeholders for non-`Unit`
+return types). The effects README's new *Handler coverage is total*
+section documents the handle-and-discard idiom so the pattern is
+recognizable when reading examples. Full coverage is still required; the
+language-level question of whether to relax it is unresolved — see the
+three alternatives below.
 
-- keep full coverage and improve diagnostics/examples
-- allow partial handlers when unhandled operations provably do not occur
-- allow explicit passthrough/default arms if the language wants partial
-  interception with clear runtime behavior
+#### Option A — keep full coverage, invest in ergonomics (chosen baseline, delivered)
+
+Status: **delivered on the `feature/effects` branch** as described above.
+
+What: handlers remain total; the compiler helps the user satisfy coverage
+instead of allowing partial handlers. E402 prints arm skeletons; docs
+show the idiom; `Flow.Effects` stays the single source of truth for what
+a handler must cover.
+
+Pros:
+
+- **No new semantics.** Handle continues to be a *total* interpretation
+  of an effect, matching Koka, OCaml 5, and Eff.
+- **Predictable.** Whether a handler compiles depends only on its
+  syntactic arms, not on flow-sensitive effect analysis or catch-all
+  resolution order.
+- **Stable under effect decomposition.** Splitting an effect into
+  fine-grained labels (proposal 0161) doesn't silently change which
+  arms a handler needs; every new op is a visible compile error.
+- **Cheap to deliver.** Already shipped.
+
+Cons:
+
+- The `handle Console { print(..) -> .., println(..) -> .. }` kind of
+  "handle-and-discard" duplication is still syntactically present.
+  Readers have to learn that identical-looking arms are *intentional*
+  rather than copy-paste sloppiness.
+- Adding an operation to an effect is a breaking change for every
+  existing handler of that effect. The diagnostic is good, but the
+  churn still happens.
+
+#### Option B — explicit passthrough / default arm (deferred)
+
+What: accept a single catch-all arm that matches any declared operation
+not mentioned explicitly. A strawman shape:
+
+```flux
+do { ... } handle Console {
+    println(resume, msg) -> { count := count + 1; resume(()) }
+    _(resume, _args, _state?) -> resume(())   // applies to `print`
+}
+```
+
+Design decisions that would need to be resolved before shipping:
+
+- **Arm shape under heterogeneous signatures.** Different ops of one
+  effect can have different arities and different return types. A
+  catch-all arm has to either (a) be typed polymorphically and require
+  `resume` to accept a value whose type the compiler proves matches the
+  current op's return type at each call site, or (b) be restricted to
+  effects whose ops uniformly return `Unit`, or (c) receive args as an
+  untyped tuple / existentially-typed value. Each choice locks in a
+  piece of semantics.
+- **Name/arg exposure.** Does the arm see the operation's name (for
+  logging / routing)? As a string? An enum of declared ops? If so,
+  extending the effect adds a new enum variant — arguably the same
+  churn Option A has today, just moved behind a discriminator.
+- **Interaction with explicit arms.** Does the catch-all match only
+  ops not mentioned, or does it shadow explicit arms when listed last?
+  Koka requires explicit enumeration; OCaml 5 allows a default
+  effect-handler clause but with very constrained typing.
+- **Parameterized handlers.** Does the catch-all thread `state` the
+  same way explicit arms do? If yes, the arm body is obligated to call
+  `resume(value, new_state)` — but `value`'s type depends on which op
+  was caught.
+
+Pros:
+
+- Handle-and-discard boilerplate disappears for the common case.
+- Library authors can extend an effect without breaking every handler
+  that doesn't care about the new op.
+
+Cons:
+
+- Every one of the design decisions above is semantic surface area.
+  Once shipped, each becomes a compatibility constraint.
+- Weakens the "handler is a total interpretation" guarantee: a handler
+  author can silently forget an operation.
+- Discovery cost: reading a handler no longer tells you which ops it
+  actually treats specially vs. discards. Tooling would have to
+  synthesize the catch-all's matched set for LSP / docs.
+
+Open questions for a follow-up proposal:
+
+1. Polymorphic `resume` typing vs. restricting catch-all to `Unit`-only
+   effects.
+2. Whether the catch-all sees operation identity and args, and in what
+   shape.
+3. Whether catch-all is allowed as the *only* arm (handle-any) or only
+   alongside at least one explicit arm.
+4. Whether the catch-all participates in Option A's E402 coverage
+   check at all — i.e. does its presence satisfy coverage, or does the
+   compiler still print a skeleton so the user can choose explicit
+   arms?
+
+#### Option C — statically-inferred partial handlers (deferred, lower priority)
+
+What: the compiler runs effect-row analysis on the handled expression,
+proves that some operations of the handled effect *cannot* occur, and
+silently accepts a handler that omits those ops.
+
+Pros:
+
+- No new syntax at all; a handler that happens to be complete for the
+  flow it actually handles just compiles.
+- Most ergonomic in the immediate case.
+
+Cons:
+
+- **Fragile under row polymorphism.** The analysis depends on the
+  handled expression's inferred effect row, which for code involving
+  callbacks, HKT, or `with |e` parameters can widen based on how the
+  function is called from elsewhere. A handler can compile in one call
+  context and fail in another — a "spooky action at a distance"
+  failure mode Flux has otherwise avoided.
+- **Invisible coupling between handler and body.** Editing the body of
+  a handled expression — e.g. adding a new `perform` behind a
+  conditional — can turn a previously-accepted handler into a compile
+  error far from the edit site.
+- **Analysis is nontrivial to trust.** "Provably cannot occur" in the
+  presence of effect-row subtraction, aliasing, and row variables is
+  exactly the kind of check whose false negatives and false positives
+  are both costly to explain to users.
+- Koka, OCaml 5, and Eff all reject this direction for these reasons.
+
+Open questions for a follow-up proposal:
+
+1. Whether the analysis runs before or after effect-row alias
+   expansion.
+2. How row variables in the handled expression's row are treated —
+   conservatively (require coverage) or optimistically (assume absent).
+3. How the diagnostic reads when the analysis flips between
+   "complete" and "incomplete" on a re-infer.
+
+#### Recommendation for a future decision
+
+Ship Option A's improvements (done), **keep full coverage as the default**,
+and if and when relaxation lands it should be Option B with a narrow,
+deliberate design — not Option C. The invisible-analysis failure mode in
+C is the kind of thing that is very hard to walk back once users depend
+on it.
 
 ### Track 3: `Flow.Primops` documentation boundary
 
@@ -185,6 +342,58 @@ Options:
 
 This proposal does not choose the policy; it requires documenting the current
 policy and recording a deliberate decision before any behavior change.
+
+### Track 7: Effect-row delimiter rationalization (pre-1.0 question, deferred)
+
+Flux currently writes effect-row collections with three distinct delimiters
+depending on context:
+
+| Context | Shape | Separator |
+|---|---|---|
+| `with` clause | bare list | `,` |
+| Effect expression | algebraic, no delimiter | `+` / `-` / `\| e` |
+| Alias body | `< ... >` | `\|` |
+| Sealing allow-set | `{ ... }` | `\|` |
+| Sealing algebraic | `( ... )` | `ambient - E` |
+
+The `<>` / `{}` split between alias bodies and sealing allow-sets is
+syntactically meaningful — `alias IO = <Console | FileSystem>` declares a
+new name whereas `f() sealing { Console }` restricts an expression — and
+the enclosing punctuation is what disambiguates them at a glance. But for
+a pre-1.0 language it is worth asking whether one collapsed form (e.g.
+angle brackets for both, or braces for both) would simplify teaching
+without losing precision.
+
+**Status (2026-04-24):** deferred. Two small latent inconsistencies have
+been closed on the `feature/effects` branch without touching the larger
+delimiter question:
+
+- `parse_sealing_brace_row` used to silently accept both `|` and `,` as
+  separators; it now rejects `,` with a targeted hint pointing at the
+  `|` form, so examples stay consistent and the canonical form is
+  unambiguous.
+- The effects README gained an *Effect-row syntax at a glance* section
+  that documents all four contexts in one table, making the surface
+  explicit teaching material.
+
+The `<>` vs `{}` collapse itself is recorded here as a pre-1.0 design
+consideration rather than a polish item. Any move on it should be a
+deliberate proposal covering:
+
+1. Which delimiter survives (`<>` has historical ML/Haskell resonance
+   for row types; `{}` reads as "set of labels" more naturally and
+   matches some ML-family effect-handler papers).
+2. The migration cost — every alias body or sealing site has to be
+   rewritten, and every doc page, proposal, and example file with it.
+3. Whether the change is tied to a broader row-syntax cleanup (for
+   example, unifying `with A, B` and `with A + B` on `,` in all
+   positions, at which point `+` becomes exclusively an algebraic
+   operator used with `-`).
+
+Recommendation: **do not change** the delimiter surface on this polish
+track. Revisit only if a broader pre-1.0 syntax pass is planned, and
+pair it with the `with`-clause separator question so users learn one
+coherent story rather than two piecemeal changes.
 
 ## Drawbacks
 [drawbacks]: #drawbacks

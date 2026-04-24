@@ -2,9 +2,15 @@
 //
 // This file is **documentation**. It is not compiled or auto-imported; the
 // labels and aliases declared below are seeded programmatically by the
-// compiler in `Compiler::seed_builtin_effect_aliases`, which is the
-// operational source of truth. Editing the seed without also updating this
-// file — or vice versa — will cause the spec and the compiler to drift.
+// compiler in `Compiler::seed_builtin_effect_aliases` and
+// `Compiler::seed_builtin_effect_operations`, which are the operational
+// source of truth.
+//
+// **Drift protection:** the integration test
+// `tests/integration/flow_effects_spec_drift.rs` parses this file on every
+// `cargo test` run and fails if the declared labels, their operations, or
+// the alias expansions diverge from the compiler seed. Editing one side
+// without the other will break CI with a clear diff.
 //
 // The operational labels below are compiler-seeded. Console/FileSystem/Stdin/
 // Clock have builtin operations used by the effectful primop migration; the
