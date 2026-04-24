@@ -1040,6 +1040,11 @@ pub struct Compiler {
     /// Imported monomorphic `__tc_*` schemes rebuilt from public instance metadata.
     imported_instance_method_schemes: HashMap<Symbol, Scheme>,
     imported_instance_method_native_symbols: HashMap<Symbol, String>,
+    /// `ExprId`s of `Perform` nodes that were synthesized from direct user
+    /// calls via the 0165 routing pass. Used by E400 / other effect
+    /// diagnostics to render the user's call shape instead of the lowered
+    /// `perform` shape.
+    pub(super) routed_call_perform_ids: HashSet<ExprId>,
     #[cfg(test)]
     pub(super) hm_infer_runs: usize,
 }
@@ -1209,6 +1214,7 @@ impl Compiler {
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
             imported_instance_method_native_symbols: HashMap::new(),
+            routed_call_perform_ids: HashSet::new(),
             #[cfg(test)]
             hm_infer_runs: 0,
         }
@@ -1535,12 +1541,14 @@ impl Compiler {
         self.seed_builtin_effect_operations();
 
         self.validate_reserved_primop_names(program);
-        let (routed_program, routed_changed) =
+        let routing =
             crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
                 program,
                 &mut self.interner,
             );
-        let program = if routed_changed {
+        self.routed_call_perform_ids = routing.routed_call_perform_ids;
+        let routed_program = routing.program;
+        let program = if routing.changed {
             &routed_program
         } else {
             program
