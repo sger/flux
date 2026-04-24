@@ -386,11 +386,13 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(anf_expr(*body, next_id)),
             effect,
+            parameter: parameter.map(|p| Box::new(anf_expr(*p, next_id))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {

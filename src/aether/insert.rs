@@ -612,9 +612,12 @@ fn plan_expr(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => {
+            let parameter_plan = parameter
+                .map(|p| plan_expr(*p, tail_env.clone(), demand, registry, scope, field_parents));
             let body_plan = plan_expr(
                 *body,
                 tail_env.clone(),
@@ -632,6 +635,10 @@ fn plan_expr(
                 for param in &handler.params {
                     scope.insert(param.id, *param);
                     shadow_ids.push(param.id);
+                }
+                if let Some(state) = handler.state {
+                    scope.insert(state.id, state);
+                    shadow_ids.push(state.id);
                 }
 
                 let handler_plan = plan_expr(
@@ -654,6 +661,8 @@ fn plan_expr(
                     operation: handler.operation,
                     params: handler.params,
                     param_types: handler.param_types,
+                    state: handler.state,
+                    state_ty: handler.state_ty,
                     resume: handler.resume,
                     resume_ty: handler.resume_ty,
                     body: handler_plan.expr,
@@ -667,6 +676,7 @@ fn plan_expr(
                 expr: CoreExpr::Handle {
                     body: Box::new(body_plan.expr),
                     effect,
+                    parameter: parameter_plan.map(|p| Box::new(p.expr)),
                     handlers: planned_handlers,
                     span,
                 },
@@ -1058,8 +1068,16 @@ fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         | CoreExpr::Perform { args: fields, .. } => {
             fields.iter().any(|field| expr_drops_binder(field, binder))
         }
-        CoreExpr::Handle { body, handlers, .. } => {
-            expr_drops_binder(body, binder)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter
+                .as_ref()
+                .is_some_and(|parameter| expr_drops_binder(parameter, binder))
+                || expr_drops_binder(body, binder)
                 || handlers
                     .iter()
                     .any(|handler| expr_drops_binder(&handler.body, binder))
@@ -1148,8 +1166,15 @@ mod tests {
             CoreExpr::Return { value, .. }
             | CoreExpr::Dup { body: value, .. }
             | CoreExpr::Drop { body: value, .. } => count_binder_nodes(value, binder, predicate),
-            CoreExpr::Handle { body, handlers, .. } => {
-                count_binder_nodes(body, binder, predicate)
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                parameter.as_ref().map_or(0, |parameter| {
+                    count_binder_nodes(parameter, binder, predicate)
+                }) + count_binder_nodes(body, binder, predicate)
                     + handlers
                         .iter()
                         .map(|handler| count_binder_nodes(&handler.body, binder, predicate))
@@ -1286,12 +1311,15 @@ mod tests {
             body: Box::new(CoreExpr::Handle {
                 body: Box::new(CoreExpr::Lit(CoreLit::Unit, Span::default())),
                 effect,
+                parameter: None,
                 handlers: vec![CoreHandler {
                     operation: op,
                     params: vec![shadow],
                     param_types: vec![],
                     resume,
                     resume_ty: None,
+                    state: None,
+                    state_ty: None,
                     body: var(shadow),
                     span: Span::default(),
                 }],

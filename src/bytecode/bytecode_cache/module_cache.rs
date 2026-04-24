@@ -602,6 +602,7 @@ mod tests {
                     effect_name: "Console".into(),
                     ops: vec![Identifier::new(11), Identifier::new(12)],
                     op_names: vec!["print".into(), "flush".into()],
+                    has_state: false,
                     is_discard: true,
                 })),
                 Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {

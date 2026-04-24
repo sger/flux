@@ -2478,69 +2478,75 @@ let %t468 = (λ__resume_default.
       __resume_default(%t474))
     let %t475 = (λ__resume_default, __arg0, __arg1.
       let %t476 = __primop_write_file(__arg0, __arg1)
-      __resume_default(%t476))
+      let %t477 = MakeTuple()
+      __resume_default(%t477))
     handle FileSystem {
       read_file(__arg0; __resume_default) →
-        let %t477 = __primop_read_file(__arg0)
-        __resume_default(%t477)
-      read_lines(__arg0; __resume_default) →
-        let %t478 = __primop_read_lines(__arg0)
+        let %t478 = __primop_read_file(__arg0)
         __resume_default(%t478)
-      write_file(__arg0, __arg1; __resume_default) →
-        let %t479 = __primop_write_file(__arg0, __arg1)
+      read_lines(__arg0; __resume_default) →
+        let %t479 = __primop_read_lines(__arg0)
         __resume_default(%t479)
+      write_file(__arg0, __arg1; __resume_default) →
+        let %t476 = __primop_write_file(__arg0, __arg1)
+        let %t480 = MakeTuple()
+        __resume_default(%t480)
     } with
-      let %t480 = (λ__resume_default, __arg0.
-        let %t481 = __primop_print(__arg0)
-        __resume_default(%t481))
-      let %t482 = (λ__resume_default, __arg0.
-        let %t483 = __primop_println(__arg0)
+      let %t481 = (λ__resume_default, __arg0.
+        let %t482 = __primop_print(__arg0)
+        let %t483 = MakeTuple()
         __resume_default(%t483))
+      let %t484 = (λ__resume_default, __arg0.
+        let %t485 = __primop_println(__arg0)
+        let %t486 = MakeTuple()
+        __resume_default(%t486))
       handle Console {
         print(__arg0; __resume_default) →
-          let %t484 = __primop_print(__arg0)
-          __resume_default(%t484)
+          let %t482 = __primop_print(__arg0)
+          let %t487 = MakeTuple()
+          __resume_default(%t487)
         println(__arg0; __resume_default) →
           let %t485 = __primop_println(__arg0)
-          __resume_default(%t485)
+          let %t488 = MakeTuple()
+          __resume_default(%t488)
       } with
-        let result = (let %t486 = MakeList(1, 2, 3)
-        let %t487 = (λx.
+        let result = (let %t489 = MakeList(1, 2, 3)
+        let %t490 = (λx.
           IMul(x, 2))
-        my_map(%t486, %t487))
-        let %t488 = (let %t489 = (λ%t490.
-          %t490)
-        %t480(%t489, result))
-        let opt = (let %t491 = Some(42)
-        let %t492 = (λx.
+        my_map(%t489, %t490))
+        let %t491 = (let %t492 = (λ%t493.
+          %t493)
+        %t481(%t492, result))
+        let opt = (let %t494 = Some(42)
+        let %t495 = (λx.
           IAdd(x, 1))
-        option_map(%t491, %t492))
-        let %t493 = (let %t494 = (λ%t495.
-          %t495)
-        %t480(%t494, opt))
-        let tree = Node(Red, Leaf, 5, Leaf)
-        let blk = set_black(tree)
+        option_map(%t494, %t495))
         let %t496 = (let %t497 = (λ%t498.
           %t498)
-        %t480(%t497, blk))
-        let n = (let %t499 = MakeList(1, 2, 3, 4, 5)
-        my_len(%t499))
-        let %t500 = (let %t501 = (λ%t502.
-          %t502)
-        %t480(%t501, n))
-        let evens = (let %t503 = MakeList(1, 2, 3, 4, 5, 6)
-        let %t504 = (λx.
-          let %t505 = IMod(x, 2)
-          ICmpEq(%t505, 0))
-        my_filter(%t503, %t504))
-        let %t506 = (let %t507 = (λ%t508.
-          %t508)
-        %t480(%t507, evens))
-        let total = (let %t509 = MakeList(1, 2, 3, 4, 5)
-        my_sum(%t509))
-        let %t510 = (λ%t511.
+        %t481(%t497, opt))
+        let tree = Node(Red, Leaf, 5, Leaf)
+        let blk = set_black(tree)
+        let %t499 = (let %t500 = (λ%t501.
+          %t501)
+        %t481(%t500, blk))
+        let n = (let %t502 = MakeList(1, 2, 3, 4, 5)
+        my_len(%t502))
+        let %t503 = (let %t504 = (λ%t505.
+          %t505)
+        %t481(%t504, n))
+        let evens = (let %t506 = MakeList(1, 2, 3, 4, 5, 6)
+        let %t507 = (λx.
+          let %t508 = IMod(x, 2)
+          ICmpEq(%t508, 0))
+        my_filter(%t506, %t507))
+        let %t509 = (let %t510 = (λ%t511.
           %t511)
-        %t480(%t510, total)
+        %t481(%t510, evens))
+        let total = (let %t512 = MakeList(1, 2, 3, 4, 5)
+        my_sum(%t512))
+        let %t513 = (λ%t514.
+          %t514)
+        %t481(%t513, total)
 
 [ 1 of 11] Compiling  Assert
 [ 2 of 11] Compiling  Array

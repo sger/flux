@@ -1054,7 +1054,7 @@ impl CorePrimOp {
             EvvGet | IsYielding => 0,
             EvvSet | YieldExtend | FreshMarker => 1,
             YieldTo => 3,
-            EvvInsert => 4,
+            EvvInsert => 5,
             YieldPrompt => 3,
             PerformDirect => 5,
         }
@@ -1178,6 +1178,8 @@ pub struct CoreHandler {
     pub operation: Identifier,
     pub params: Vec<CoreBinder>,
     pub param_types: Vec<Option<CoreType>>,
+    pub state: Option<CoreBinder>,
+    pub state_ty: Option<CoreType>,
     pub resume: CoreBinder,
     pub resume_ty: Option<CoreType>,
     pub body: CoreExpr,
@@ -1274,6 +1276,7 @@ pub enum CoreExpr {
     Handle {
         body: Box<CoreExpr>,
         effect: Identifier,
+        parameter: Option<Box<CoreExpr>>,
         handlers: Vec<CoreHandler>,
         span: Span,
     },

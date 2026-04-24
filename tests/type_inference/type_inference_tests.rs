@@ -1319,6 +1319,167 @@ fn main() -> Unit with Console {
 }
 
 #[test]
+fn infer_parameterized_state_handler_is_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect State {
+    get: () -> Int,
+    set: Int -> Unit
+}
+
+fn program() -> Int with State {
+    perform State.set(10)
+    let x = perform State.get()
+    perform State.set(x + 5)
+    perform State.get()
+}
+
+fn main() -> Unit {
+    let _ = program() handle State(0) {
+        get(resume, state) -> resume(state, state),
+        set(resume, value, _state) -> resume((), value)
+    }
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected parameterized State handler to be HM-clean, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_parameterized_reader_handler_is_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Config {
+    ask: () -> String
+}
+
+fn describe() -> String with Config {
+    perform Config.ask()
+}
+
+fn main() -> Unit {
+    let _ = describe() handle Config("flux-server") {
+        ask(resume, env) -> resume(env, env)
+    }
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected parameterized Reader handler to be HM-clean, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_parameterized_handler_missing_state_binder_reports_e428() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn main() -> Unit {
+    let _ = program() handle State(0) {
+        get(resume) -> resume(0, 0)
+    }
+}
+"#,
+    );
+    assert!(
+        has_diagnostic_code(&result, "E428"),
+        "expected E428 for missing state binder, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_parameterized_handler_one_arg_resume_reports_e428() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn main() -> Unit {
+    let _ = program() handle State(0) {
+        get(resume, state) -> resume(state)
+    }
+}
+"#,
+    );
+    assert!(
+        has_diagnostic_code(&result, "E428"),
+        "expected E428 for one-argument resume in parameterized handler, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_non_parameterized_handler_two_arg_resume_reports_e428() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect State {
+    get: () -> Int
+}
+
+fn program() -> Int with State {
+    perform State.get()
+}
+
+fn main() -> Unit {
+    let _ = program() handle State {
+        get(resume) -> resume(0, 0)
+    }
+}
+"#,
+    );
+    assert!(
+        has_diagnostic_code(&result, "E428"),
+        "expected E428 for two-argument resume in non-parameterized handler, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_parameterized_handler_fallthrough_is_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Pick {
+    pick: () -> Int
+}
+
+fn choose() -> Int with Pick {
+    perform Pick.pick()
+}
+
+fn main() -> Unit {
+    let _ = choose() handle Pick(41) {
+        pick(_resume, state) -> state
+    }
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected parameterized handler fallthrough to remain HM-clean, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
 fn infer_polymorphic_effect_op_instantiates_per_perform_site() {
     let (result, _program) = infer_program_from_source(
         r#"

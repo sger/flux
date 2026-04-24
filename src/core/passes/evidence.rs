@@ -40,6 +40,19 @@ pub fn evidence_pass(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
 /// Evidence map: maps (effect, operation) → CoreBinder of the evidence variable.
 type EvidenceMap = HashMap<(Identifier, Identifier), CoreBinder>;
 
+fn shadow_effect_evidence(evidence: &EvidenceMap, effect: Identifier) -> EvidenceMap {
+    evidence
+        .iter()
+        .filter_map(|(key @ (entry_effect, _operation), binder)| {
+            if *entry_effect == effect {
+                None
+            } else {
+                Some((*key, *binder))
+            }
+        })
+        .collect()
+}
+
 fn fresh_binder(next_id: &mut u32, name_hint: Identifier) -> CoreBinder {
     let id = *next_id;
     *next_id += 1;
@@ -76,6 +89,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => {
@@ -90,6 +104,9 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                     // Build the evidence lambda: Lam([resume, params...], body)
                     let mut lam_params = vec![handler.resume];
                     lam_params.extend_from_slice(&handler.params);
+                    if let Some(state) = handler.state {
+                        lam_params.push(state);
+                    }
 
                     let ev_lam = CoreExpr::Lam {
                         params: lam_params,
@@ -108,11 +125,14 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                 // Called functions may still Perform at runtime — the Handle
                 // node is preserved as fallback for cross-function performs.
                 let transformed_body = evidence_transform(*body, next_id, &new_evidence);
+                let parameter =
+                    parameter.map(|p| Box::new(evidence_transform(*p, next_id, evidence)));
 
                 // Wrap the Handle (preserved for runtime fallback) with evidence Let bindings.
                 let handle_with_evidence = CoreExpr::Handle {
                     body: Box::new(transformed_body),
                     effect,
+                    parameter,
                     handlers,
                     span,
                 };
@@ -127,10 +147,13 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                         span,
                     })
             } else {
+                let body_evidence = shadow_effect_evidence(evidence, effect);
                 // Non-TR: recurse into body and handler bodies, but don't transform.
                 CoreExpr::Handle {
-                    body: Box::new(evidence_transform(*body, next_id, evidence)),
+                    body: Box::new(evidence_transform(*body, next_id, &body_evidence)),
                     effect,
+                    parameter: parameter
+                        .map(|p| Box::new(evidence_transform(*p, next_id, evidence))),
                     handlers: handlers
                         .into_iter()
                         .map(|mut h| {

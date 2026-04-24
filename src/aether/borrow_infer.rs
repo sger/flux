@@ -448,7 +448,15 @@ fn collect_local_callees(
                 collect_local_callees(arg, def_ids, out);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_local_callees(parameter, def_ids, out);
+            }
             collect_local_callees(body, def_ids, out);
             for handler in handlers {
                 collect_local_callees(&handler.body, def_ids, out);
@@ -615,10 +623,21 @@ fn collect_param_constraints(
                 collect_param_constraints(target, body, registry, group_set, constraint);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_param_constraints(target, parameter, registry, group_set, constraint);
+            }
             collect_param_constraints(target, body, registry, group_set, constraint);
             for handler in handlers {
-                if handler.resume.id == target || handler.params.iter().any(|p| p.id == target) {
+                if handler.resume.id == target
+                    || handler.params.iter().any(|p| p.id == target)
+                    || handler.state.as_ref().is_some_and(|s| s.id == target)
+                {
                     continue;
                 }
                 collect_param_constraints(target, &handler.body, registry, group_set, constraint);
@@ -757,7 +776,15 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(arg, unresolved);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_unresolved_callees(parameter, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
             for handler in handlers {
                 collect_unresolved_callees(&handler.body, unresolved);

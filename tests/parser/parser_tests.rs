@@ -2206,6 +2206,47 @@ let w = match x { Some(n) -> n, None -> 0 };
     }
 
     #[test]
+    fn parameterized_handle_parses_initializer_and_state_param_shape() {
+        let (program, interner) = parse(
+            r#"
+let result = program() handle State(0) {
+    get(resume, state) -> resume(state, state),
+    set(resume, value, state) -> resume((), value)
+};
+"#,
+        );
+
+        let Statement::Let { value, .. } = &program.statements[0] else {
+            panic!("expected let statement");
+        };
+        let Expression::Handle {
+            expr,
+            effect,
+            parameter,
+            arms,
+            ..
+        } = value
+        else {
+            panic!("expected handle expression, got {value:?}");
+        };
+
+        assert!(matches!(expr.as_ref(), Expression::Call { .. }));
+        assert_eq!(interner.resolve(*effect), "State");
+        assert!(matches!(
+            parameter.as_deref(),
+            Some(Expression::Integer { value: 0, .. })
+        ));
+        assert_eq!(arms.len(), 2);
+        assert_eq!(interner.resolve(arms[0].operation_name), "get");
+        assert_eq!(arms[0].params.len(), 1);
+        assert_eq!(interner.resolve(arms[0].params[0]), "state");
+        assert_eq!(interner.resolve(arms[1].operation_name), "set");
+        assert_eq!(arms[1].params.len(), 2);
+        assert_eq!(interner.resolve(arms[1].params[0]), "value");
+        assert_eq!(interner.resolve(arms[1].params[1]), "state");
+    }
+
+    #[test]
     fn missing_function_return_arrow_has_targeted_message() {
         let input = "fn f() Int { 1 }\nlet ok = 1;";
         let lexer = Lexer::new(input);

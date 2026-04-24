@@ -437,3 +437,36 @@ fn parser_dispatch_is_compatible_with_registered_infix_and_postfix_operators() {
         );
     }
 }
+
+#[test]
+fn parser_dispatch_accepts_parameterized_handle_postfix_shape() {
+    let (program, errors, interner) = parse_program_no_panic(
+        "a handle Console(0) { print(resume, x, state) -> resume((), state) };",
+    );
+    assert!(
+        errors.is_empty(),
+        "expected no parser diagnostics for parameterized handle, got {:?}",
+        errors
+    );
+
+    let expr = first_expression(&program);
+    let Expression::Handle {
+        effect,
+        parameter,
+        arms,
+        ..
+    } = expr
+    else {
+        panic!("expected handle expression, got {expr:?}");
+    };
+
+    assert_eq!(interner.resolve(*effect), "Console");
+    assert!(matches!(
+        parameter.as_deref(),
+        Some(Expression::Integer { value: 0, .. })
+    ));
+    assert_eq!(arms.len(), 1);
+    assert_eq!(interner.resolve(arms[0].operation_name), "print");
+    assert_eq!(arms[0].params.len(), 2);
+    assert_eq!(interner.resolve(arms[0].params[1]), "state");
+}

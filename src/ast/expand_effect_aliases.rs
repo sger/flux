@@ -161,8 +161,16 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
                 expand_expr(arg, aliases);
             }
         }
-        Expression::Handle { expr, arms, .. } => {
+        Expression::Handle {
+            expr,
+            parameter,
+            arms,
+            ..
+        } => {
             expand_expr(expr, aliases);
+            if let Some(parameter) = parameter {
+                expand_expr(parameter, aliases);
+            }
             for arm in arms {
                 expand_expr(&mut arm.body, aliases);
             }

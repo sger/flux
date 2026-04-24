@@ -1164,10 +1164,13 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops, desc_is_discard) = match &const_val {
-                    Value::HandlerDescriptor(desc) => {
-                        (desc.effect, desc.ops.clone(), desc.is_discard)
-                    }
+                let (effect, ops, has_state, desc_is_discard) = match &const_val {
+                    Value::HandlerDescriptor(desc) => (
+                        desc.effect,
+                        desc.ops.clone(),
+                        desc.has_state,
+                        desc.is_discard,
+                    ),
                     other => {
                         return Err(format!(
                             "OpHandle: expected HandlerDescriptor constant, got {}",
@@ -1176,6 +1179,11 @@ impl VM {
                     }
                 };
                 let n = ops.len();
+                let state = if has_state {
+                    Some(self.pop_untracked()?)
+                } else {
+                    None
+                };
                 // Pop closures in reverse (last pushed = last arm)
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -1206,6 +1214,7 @@ impl VM {
                     arms,
                     marker,
                     saved_evv,
+                    state,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1218,8 +1227,10 @@ impl VM {
                 // Identical to OpHandle but marks the handler as tail-resumptive.
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops) = match &const_val {
-                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                let (effect, ops, has_state) = match &const_val {
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.has_state)
+                    }
                     other => {
                         return Err(format!(
                             "OpHandleDirect: expected HandlerDescriptor constant, got {}",
@@ -1228,6 +1239,11 @@ impl VM {
                     }
                 };
                 let n = ops.len();
+                let state = if has_state {
+                    Some(self.pop_untracked()?)
+                } else {
+                    None
+                };
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
                     let v = self.pop_untracked()?;
@@ -1256,6 +1272,7 @@ impl VM {
                     arms,
                     marker,
                     saved_evv,
+                    state,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1328,6 +1345,8 @@ impl VM {
                     })?;
                 let is_direct = self.handler_stack[handler_pos].is_direct;
                 let is_discard = self.handler_stack[handler_pos].is_discard;
+                let handler_state = self.handler_stack[handler_pos].state.clone();
+                let has_handler_state = handler_state.is_some();
                 let arm_closure = evidence
                     .arms
                     .iter()
@@ -1352,7 +1371,10 @@ impl VM {
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    if let Some(state) = handler_state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 } else if is_discard {
                     // Discard handler: never resumes. Skip continuation capture
@@ -1375,7 +1397,10 @@ impl VM {
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    if let Some(state) = handler_state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 } else {
                     let handler = self.handler_stack[handler_pos].clone();
@@ -1406,7 +1431,12 @@ impl VM {
                         }
                     }
 
-                    let cont_val = Continuation::compose(&self.yield_state.conts, inner_handlers)?;
+                    let state_marker = handler.state.as_ref().map(|_| handler.marker);
+                    let cont_val = Continuation::compose(
+                        &self.yield_state.conts,
+                        inner_handlers,
+                        state_marker,
+                    )?;
                     self.handler_stack.truncate(handler_pos + 1);
                     self.reset_sp(handler.entry_sp)?;
                     self.yield_state.clear();
@@ -1416,7 +1446,11 @@ impl VM {
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    let has_handler_state = state_marker.is_some();
+                    if let Some(state) = handler.state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 }
             }
@@ -1468,6 +1502,8 @@ impl VM {
                         )
                     })?;
 
+                let handler_state = self.handler_stack[handler_pos].state.clone();
+                let has_handler_state = handler_state.is_some();
                 let arm_closure = {
                     let handler = &self.handler_stack[handler_pos];
                     let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
@@ -1490,7 +1526,10 @@ impl VM {
                 for arg in perform_args {
                     self.push(arg)?;
                 }
-                self.execute_call(1 + arity)?;
+                if let Some(state) = handler_state {
+                    self.push(state)?;
+                }
+                self.execute_call(1 + arity + usize::from(has_handler_state))?;
 
                 Ok(0)
             }
@@ -1510,6 +1549,8 @@ impl VM {
 
                 // Direct index into handler stack — no search.
                 let handler_idx = self.handler_stack.len() - 1 - handler_depth;
+                let handler_state = self.handler_stack[handler_idx].state.clone();
+                let has_handler_state = handler_state.is_some();
                 let arm_closure = self.handler_stack[handler_idx].arms[arm_index]
                     .closure
                     .clone();
@@ -1522,7 +1563,10 @@ impl VM {
                 for arg in perform_args {
                     self.push(arg)?;
                 }
-                self.execute_call(1 + arity)?;
+                if let Some(state) = handler_state {
+                    self.push(state)?;
+                }
+                self.execute_call(1 + arity + usize::from(has_handler_state))?;
 
                 Ok(0)
             }

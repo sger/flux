@@ -177,9 +177,15 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
             }
         }
         Expression::Handle {
-            expr: inner, arms, ..
+            expr: inner,
+            parameter,
+            arms,
+            ..
         } => {
             desugar_expr(inner, ctx);
+            if let Some(parameter) = parameter {
+                desugar_expr(parameter, ctx);
+            }
             for arm in arms {
                 desugar_expr(&mut arm.body, ctx);
             }

@@ -364,8 +364,16 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(arg);
             }
         }
-        Expression::Handle { expr, arms, .. } => {
+        Expression::Handle {
+            expr,
+            parameter,
+            arms,
+            ..
+        } => {
             visitor.visit_expr(expr);
+            if let Some(parameter) = parameter {
+                visitor.visit_expr(parameter);
+            }
             for arm in arms {
                 visitor.visit_expr(&arm.body);
             }

@@ -1147,9 +1147,13 @@ impl Compiler {
                 self.compile_perform(*effect, *operation, args)?;
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
-                self.compile_handle(expr, *effect, arms)?;
+                self.compile_handle(expr, *effect, parameter.as_deref(), arms)?;
             }
             Expression::Sealing {
                 expr,
@@ -3477,6 +3481,7 @@ impl Compiler {
         &mut self,
         expr: &Expression,
         effect: Symbol,
+        parameter: Option<&Expression>,
         arms: &[HandleArm],
     ) -> CompileResult<()> {
         let mut operations = Vec::new();
@@ -3577,7 +3582,8 @@ impl Compiler {
                 arm.span,
                 "handle arm checks",
             )?;
-            if arm.params.len() != op_params.len() {
+            let expected_param_count = op_params.len() + usize::from(parameter.is_some());
+            if arm.params.len() != expected_param_count {
                 return Err(Self::boxed(
                     Diagnostic::make_error_dynamic(
                         "E300",
@@ -3586,7 +3592,7 @@ impl Compiler {
                         format!(
                             "Handle arm `{}` expects {} parameter(s), got {}.",
                             self.sym(arm.operation_name),
-                            op_params.len(),
+                            expected_param_count,
                             arm.params.len()
                         ),
                         Some(
@@ -3621,9 +3627,12 @@ impl Compiler {
             params.push(arm.resume_param);
             params.extend_from_slice(&arm.params);
             let mut parameter_types: Vec<Option<TypeExpr>> =
-                Vec::with_capacity(1 + op_params.len());
+                Vec::with_capacity(1 + expected_param_count);
             parameter_types.push(None);
             for _ in op_params {
+                parameter_types.push(None);
+            }
+            if parameter.is_some() {
                 parameter_types.push(None);
             }
 
@@ -3642,8 +3651,13 @@ impl Compiler {
             self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
         }
 
+        if let Some(parameter) = parameter {
+            self.compile_expression(parameter)?;
+        }
+
         // Detect tail-resumptive handlers and emit the optimized opcode.
-        let is_direct = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        let is_direct = parameter.is_none()
+            && crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
@@ -3668,7 +3682,9 @@ impl Compiler {
             None
         };
 
-        let is_discard = !is_direct && crate::compiler::tail_resumptive::is_handler_discard(arms);
+        let is_discard = parameter.is_none()
+            && !is_direct
+            && crate::compiler::tail_resumptive::is_handler_discard(arms);
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
@@ -3678,6 +3694,7 @@ impl Compiler {
                 .iter()
                 .map(|op| self.interner.resolve(*op).to_string().into_boxed_str())
                 .collect(),
+            has_state: parameter.is_some(),
             is_discard,
         }));
 
@@ -3923,8 +3940,16 @@ impl Compiler {
                     self.collect_consumable_param_uses(arg, counts);
                 }
             }
-            Expression::Handle { expr, arms, .. } => {
+            Expression::Handle {
+                expr,
+                parameter,
+                arms,
+                ..
+            } => {
                 self.collect_consumable_param_uses(expr, counts);
+                if let Some(parameter) = parameter {
+                    self.collect_consumable_param_uses(parameter, counts);
+                }
 
                 for arm in arms {
                     self.collect_consumable_param_uses(&arm.body, counts);

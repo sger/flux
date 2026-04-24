@@ -161,6 +161,7 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
                 write_symbol(writer, *op)?;
                 write_string(writer, op_name)?;
             }
+            writer.write_all(&[u8::from(desc.has_state)])?;
             writer.write_all(&[u8::from(desc.is_discard)])
         }
         Value::PerformDescriptor(desc) => {
@@ -258,6 +259,8 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
                 ops.push(read_symbol(reader)?);
                 op_names.push(read_string(reader)?.into_boxed_str());
             }
+            let mut has_state = [0u8; 1];
+            reader.read_exact(&mut has_state).ok()?;
             let mut is_discard = [0u8; 1];
             reader.read_exact(&mut is_discard).ok()?;
             Some(Value::HandlerDescriptor(std::rc::Rc::new(
@@ -266,6 +269,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
                     effect_name,
                     ops,
                     op_names,
+                    has_state: has_state[0] != 0,
                     is_discard: is_discard[0] != 0,
                 },
             )))
