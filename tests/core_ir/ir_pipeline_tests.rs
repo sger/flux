@@ -723,7 +723,15 @@ fn main() {
 
     let remaining_panic = collect_core_exprs(&core.defs[0].expr)
         .iter()
-        .filter(|e| matches!(e, CoreExpr::PrimOp { op: CorePrimOp::Panic, .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                CoreExpr::PrimOp {
+                    op: CorePrimOp::Panic,
+                    ..
+                }
+            )
+        })
         .count();
     assert!(
         remaining_panic >= 1,
