@@ -1,6 +1,6 @@
 - Feature Name: Parameterized Effect Handlers
 - Start Date: 2026-04-22
-- Status: Active
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0084](implemented/0084_aether_memory_model.md) (Aether memory model), [0086](implemented/0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)

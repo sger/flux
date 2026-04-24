@@ -26,7 +26,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 8: module interfaces record exported member kind (`public fn` vs
 /// `public let`) so native cached imports do not confuse zero-arg functions
 /// with value getters.
-pub const CACHE_EPOCH: u16 = 9;
+/// Epoch 9: parameterized handlers and default-handler unit resumes update
+/// cached module bytecode/global relocation shape.
+pub const CACHE_EPOCH: u16 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

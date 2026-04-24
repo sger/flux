@@ -1,3 +1,4 @@
+// parity: vm
 // FileSystem and Clock are independent operational effects.
 
 fn read_demo_lines() -> Array<String> with FileSystem {

@@ -1,0 +1,22 @@
+// parity: vm
+// A parameterized handler can accumulate state and expose it through an
+// operation. The state is still immutable; each resume supplies the next value.
+
+effect Capture {
+    log: String -> Unit,
+    total: () -> Int
+}
+
+fn emit_and_count() -> Int with Capture {
+    perform Capture.log("hidden one")
+    perform Capture.log("hidden two")
+    perform Capture.total()
+}
+
+fn main() {
+    let captured = emit_and_count() handle Capture(0) {
+        log(resume, _message, count) -> resume((), count + 1),
+        total(_resume, count) -> count
+    }
+    println("captured=" + to_string(captured))
+}
