@@ -430,6 +430,10 @@ name = "cross_module_function_tests"
 path = "tests/integration/cross_module_function_tests.rs"
 
 [[test]]
+name = "flow_effects_spec_drift"
+path = "tests/integration/flow_effects_spec_drift.rs"
+
+[[test]]
 name = "flow_prelude_module_tests"
 path = "tests/integration/flow_prelude_module_tests.rs"
 
