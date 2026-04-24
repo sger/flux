@@ -1,3 +1,4 @@
+// parity: vm
 // parity-expected-stdout-begin
 // "circle"
 // "square"

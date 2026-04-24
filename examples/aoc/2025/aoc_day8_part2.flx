@@ -1,3 +1,4 @@
+// parity: llvm
 // parity-expected-stdout-begin
 // 8141888143
 // parity-expected-stdout-end

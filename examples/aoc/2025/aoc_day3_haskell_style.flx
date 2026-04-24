@@ -91,15 +91,16 @@ fn main() with IO, Time {
     }
 
     // Compute DAY03.
-    fn day03(n, path) with IO {
-        match sum_values(Array.to_list(read_lines(path)), n, 0) {
+    fn day03(n, lines) {
+        match sum_values(lines, n, 0) {
             Some(total) -> total,
             _ -> 0
         }
     }
 
-    let day03a = day03(2, "examples/aoc/2025/aoc_day3.txt")
-    let day03b = day03(12, "examples/aoc/2025/aoc_day3.txt")
+    let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day3.txt"))
+    let day03a = day03(2, lines)
+    let day03b = day03(12, lines)
 
     print(day03a)
     print(day03b)

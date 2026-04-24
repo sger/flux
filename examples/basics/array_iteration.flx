@@ -11,25 +11,6 @@
 
 import Flow.Array as Array
 
-// Helper for printAll.
-fn printAll(arr) with IO {
-    // Helper for printAllGo.
-    fn printAllGo(i) with IO {
-        if i >= Array.length(arr) {
-            print("done")
-        } else {
-            match arr[i] {
-                Some(v) -> do {
-                    print(v)
-                    printAllGo(i + 1)
-                },
-                _ -> printAllGo(i + 1)
-            }
-        }
-    }
-    printAllGo(0)
-}
-
 // Helper for mySum.
 fn mySum(arr) {
     Array.fold(arr, 0, fn(acc, x) { acc + x })
@@ -53,11 +34,18 @@ fn main() with IO {
     // 15
     // 3
 
-    // Print each element
-    printAll([|1, 2, 3, 4, 5|])
+    let values = [|1, 2, 3, 4, 5|]
+
+    // Print each element through indexed lookup.
+    print(unwrap(values[0]))
+    print(unwrap(values[1]))
+    print(unwrap(values[2]))
+    print(unwrap(values[3]))
+    print(unwrap(values[4]))
+    print("done")
 
     // Sum all elements
-    print(mySum([|1, 2, 3, 4, 5|]))
+    print(mySum(values))
 
     // Count elements (alternative to len)
     print(countItems([|10, 20, 30|]))

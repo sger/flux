@@ -8,6 +8,8 @@ Parse vertical problems separated by all-space columns.
 Input: examples/aoc/2025/aoc_day6.txt
 */
 
+import Flow.Array as Array
+
 // Program entry point.
 fn main() with IO, Time {
     // Return the line at the given index or a default.
@@ -91,18 +93,25 @@ fn main() with IO, Time {
         }
     }
 
+    // Build problem values as an array.
+    fn problem_values(lines, row, num_rows, start, stop, acc) {
+        if row >= num_rows {
+            acc
+        } else {
+            let value = parse_int(trim(slice_padded(line_at(lines, row), start, stop)))
+            problem_values(lines, row + 1, num_rows, start, stop, Array.push(acc, value))
+        }
+    }
+
     // Helper for eval problem.
     fn eval_problem(lines, num_rows, start, stop) {
         let op_line = line_at(lines, num_rows)
         let op = trim(slice_padded(op_line, start, stop))
-        let values = [
-            parse_int(trim(slice_padded(line_at(lines, row), start, stop)))
-            | row <- range(0, num_rows)
-        ]
+        let values = problem_values(lines, 0, num_rows, start, stop, [||])
         if op == "*" {
-            product(values)
+            Array.product(values)
         } else {
-            sum(values)
+            Array.sum(values)
         }
     }
 
