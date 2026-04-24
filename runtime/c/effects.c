@@ -24,7 +24,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ── Yield state (global, single-threaded) ─────────────────────────── */
+/*
+ * Yield state (global, single-threaded).
+ *
+ * This runtime is not concurrency-ready: yield state, evidence state, and the
+ * legacy direct-resume counter are process globals. Any future actor/thread
+ * runtime must make these thread/fiber-local or move them into an explicit
+ * scheduler context.
+ *
+ * The yield payload globals below currently hold borrowed tagged values while
+ * the native yield path unwinds. Correctness depends on LIR continuation
+ * lowering preserving those values until flux_yield_prompt consumes them; they
+ * are not explicit RC roots yet.
+ */
 
 int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
 int32_t  flux_yield_marker      = 0;   /* target handler's marker */
@@ -81,10 +93,18 @@ static int64_t evv_box(EvvArray *arr) {
 
 static EvvArray *evv_alloc(int32_t count) {
     uint32_t size = (uint32_t)(sizeof(int32_t) + (size_t)count * EVV_ENTRY_WORDS * sizeof(int64_t));
-    /* Use scan_fsize=0 since evidence entries are managed explicitly. */
+    /* Use scan_fsize=0: evidence entries have a custom scanner in rc.c
+     * because the payload starts with a 32-bit count and each packed entry
+     * mixes tagged ints with owned heap references. */
     EvvArray *arr = (EvvArray *)flux_gc_alloc_header(size, 0, FLUX_OBJ_EVIDENCE);
     arr->count = count;
     return arr;
+}
+
+static void evv_dup_owned_fields(const int64_t *entry) {
+    flux_dup(entry[EVV_HANDLER_OFF]);
+    flux_dup(entry[EVV_PARENT_OFF]);
+    flux_dup(entry[EVV_STATE_OFF]);
 }
 
 /* ── Public API ────────────────────────────────────────────────────── */
@@ -118,6 +138,9 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     if (old && old_count > 0) {
         memcpy(arr->data, old->data,
                (size_t)old_count * EVV_ENTRY_WORDS * sizeof(int64_t));
+        for (int32_t i = 0; i < old_count; i++) {
+            evv_dup_owned_fields(&arr->data[i * EVV_ENTRY_WORDS]);
+        }
     }
 
     /* Append new entry at the end (most recent = highest priority). */
@@ -127,6 +150,7 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_HANDLER_OFF] = handler;
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
     entry[EVV_STATE_OFF]   = state;
+    evv_dup_owned_fields(entry);
 
     return evv_box(arr);
 }
@@ -220,7 +244,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  * This is correct when the handler always calls resume in tail position.
  * For the general case (non-tail-resumptive), use flux_yield_to + yield checks.
  *
- * Proposal 0162 Phase 3 (partial): when the handler clause short-circuits
+ * Legacy direct-perform fallback: when the handler clause short-circuits
  * (returns without invoking `resume`), naive direct-perform silently returns
  * the clause's value to the perform site — producing wrong answers because
  * the short-circuit should unwind the entire handle-block, not feed the
@@ -234,8 +258,9 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  * the direct-perform path wraps the clause call in a shared-flag check:
  * short-circuit detection currently reports a structured runtime error so
  * the failure is loud and diagnosable, rather than silently corrupting the
- * result. Full non-TR support requires the yield-check emission described
- * in Proposal 0162 Phase 3 proper, which depends on LIR liveness analysis.
+ * result. The default native path uses yield checks for full continuation
+ * support; this direct path remains as an opt-out/legacy fast path and keeps
+ * loud diagnostics for handler shapes it cannot represent.
  */
 
 /*
@@ -248,6 +273,8 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  *   - counter >= 2 : multi-shot                              → E1201
  *
  * Single-threaded today, fits the rest of the runtime's global-state model.
+ * This is a concurrency blocker until resume/effect state becomes fiber-local
+ * or is threaded through an explicit runtime context.
  */
 int32_t flux_resume_called = 0;
 int32_t flux_direct_resume_marker = 0;
@@ -256,7 +283,10 @@ static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
     EvvArray *arr = evv_unbox(current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
     if (idx >= 0) {
-        arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF] = next_state;
+        int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
+        flux_dup(next_state);
+        flux_drop(*slot);
+        *slot = next_state;
     }
 }
 
@@ -265,9 +295,9 @@ static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
  * and returns its argument. When flux_perform_direct sees the counter in an
  * unsupported band after the clause returns, it reports a structured error.
  *
- * TODO(0162 Phase 3 proper): replace this detection with proper yield-based
- * unwinding + multi-shot composition, so non-TR and multi-shot handlers
- * return the correct value instead of erroring.
+ * Kept for the legacy direct-perform path. The default native lowering routes
+ * performs through flux_yield_to + prompt handling, which supports non-TR
+ * unwinding and native multi-shot composition.
  */
 int64_t flux_resume_mark_called(int64_t value) {
     flux_resume_called += 1;
@@ -284,6 +314,10 @@ int64_t flux_resume_mark_called(int64_t value) {
  * an asm() label to give it the required LLVM symbol name.  On Mach-O the
  * assembler prefixes an underscore to C symbols; the asm() label must match
  * what the LLVM backend emits, including that platform-specific prefix.
+ *
+ * Portability note: this GNU/Clang asm-label spelling is only covered by the
+ * Unix-like native toolchains used today. Windows/MSVC native support needs a
+ * dedicated symbol-export strategy for closure-entry names containing dots.
  */
 #if defined(__APPLE__)
 #  define FLUX_CLOSURE_ENTRY_SYMBOL "_flux_resume_mark_called.closure_entry"
@@ -434,6 +468,9 @@ int64_t flux_yield_extend(int64_t cont) {
  * so flux_make_closure can install it as a function pointer. The `.entry`
  * token can't appear in a C identifier, so we follow the same pattern as
  * flux_resume_mark_called_closure_entry in this file.
+ *
+ * See the portability note above: Windows/MSVC needs a separate spelling for
+ * these exported closure-entry symbols.
  */
 #if defined(__APPLE__)
 #  define FLUX_COMPOSE_TRAMPOLINE_SYMBOL "_flux_compose_trampoline.closure_entry"
