@@ -4,7 +4,7 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: Proposal 0123 Phase 1–2 (done), Option A typed primops (done)
-- Delivery notes: [0146](implemented/0146_type_class_hardening.md) (hardening: E445 superclasses, E446 extra methods, structural dedup, multi-param mangling), [0147](implemented/0147_constrained_type_params_and_instance_contexts.md) (constrained type param runtime dispatch + instance context enforcement, 2026-04-14), [0149](implemented/0149_operator_desugaring.md) (operator desugaring — removes `Any`-typed primop fallback), [0150](implemented/0150_hkt_instance_resolution.md) (HKT instance resolution, 2026-04-09), [0127 Phase 3](implemented/0127_type_inference_ghc_parity.md) (Num defaulting, commit `457eae2d`). Remaining: method arity validation (small polish), `Monoid` registration (deferred — awaits `Foldable`), `Flow.Foldable` consumer-surface migration (library work).
+- Delivery notes: [0146](0146_type_class_hardening.md) (hardening: E445 superclasses, E446 extra methods, structural dedup, multi-param mangling), [0147](0147_constrained_type_params_and_instance_contexts.md) (constrained type param runtime dispatch + instance context enforcement, 2026-04-14), [0149](0149_operator_desugaring.md) (operator desugaring — removes `Any`-typed primop fallback), [0150](0150_hkt_instance_resolution.md) (HKT instance resolution, 2026-04-09), [0127 Phase 3](0127_type_inference_ghc_parity.md) (Num defaulting, commit `457eae2d`). Remaining: method arity validation (small polish), `Monoid` registration (deferred — awaits `Foldable`), `Flow.Foldable` consumer-surface migration (library work).
 
 ## Summary
 
@@ -36,13 +36,13 @@ Last updated: 2026-04-09
 
 | Step | Feature | Delivered by |
 |------|---------|--------------|
-| **4** | Num defaulting: unconstrained `Num` variables default to `Int` | ✅ [0127 Phase 3](implemented/0127_type_inference_ghc_parity.md) (commit `457eae2d`) |
-| **6** | Complete operator desugaring — remove Any-typed primop fallback | ✅ [0149 Operator Desugaring](implemented/0149_operator_desugaring.md) |
+| **4** | Num defaulting: unconstrained `Num` variables default to `Int` | ✅ [0127 Phase 3](0127_type_inference_ghc_parity.md) (commit `457eae2d`) |
+| **6** | Complete operator desugaring — remove Any-typed primop fallback | ✅ [0149 Operator Desugaring](0149_operator_desugaring.md) |
 | **7a** | Stdlib migration: split `Flow.List`/`Flow.Array` into typed modules | ✅ Step 7a landed; see `lib/Flow/List.flx`, `lib/Flow/Array.flx` |
-| — | Constrained type param runtime dispatch: `fn f<a: Eq>(...)` | ✅ [0147](implemented/0147_constrained_type_params_and_instance_contexts.md) |
-| — | Instance context enforcement: evidence inside instance body | ✅ [0147](implemented/0147_constrained_type_params_and_instance_contexts.md) |
-| — | HKT instance resolution (compile-time dispatch for `Functor<List>` etc.) | ✅ [0150](implemented/0150_hkt_instance_resolution.md) |
-| **Hardening** | Superclass enforcement, structural dedup, extra method validation, multi-param mangling | ✅ [0146](implemented/0146_type_class_hardening.md) |
+| — | Constrained type param runtime dispatch: `fn f<a: Eq>(...)` | ✅ [0147](0147_constrained_type_params_and_instance_contexts.md) |
+| — | Instance context enforcement: evidence inside instance body | ✅ [0147](0147_constrained_type_params_and_instance_contexts.md) |
+| — | HKT instance resolution (compile-time dispatch for `Functor<List>` etc.) | ✅ [0150](0150_hkt_instance_resolution.md) |
+| **Hardening** | Superclass enforcement, structural dedup, extra method validation, multi-param mangling | ✅ [0146](0146_type_class_hardening.md) |
 
 ### Remaining (not blocking closure)
 

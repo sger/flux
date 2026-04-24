@@ -3,8 +3,8 @@
 - Status: Implemented
 - Proposal PR:
 - Flux Issue:
-- Depends on: [0084](implemented/0084_aether_memory_model.md) (Aether memory model), [0086](implemented/0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)
-- Related: [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect decomposition), [0162](implemented/0162_unified_effect_handler_runtime.md) (Unified handler runtime), [0165](implemented/0165_io_primop_migration_to_effect_handlers.md) (effectful primops through handlers), [0170](implemented/0170_effect_op_scheme_instantiation.md) (effect op scheme instantiation)
+- Depends on: [0084](0084_aether_memory_model.md) (Aether memory model), [0086](0086_backend_neutral_core_ir.md) (Backend-neutral Core IR)
+- Related: [0161](0161_effect_system_decomposition_and_capabilities.md) (Effect decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified handler runtime), [0165](0165_io_primop_migration_to_effect_handlers.md) (effectful primops through handlers), [0170](0170_polymorphic_effect_operations.md) (polymorphic effect operations)
 
 # Proposal 0169: Parameterized Effect Handlers
 
