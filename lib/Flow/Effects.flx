@@ -41,6 +41,12 @@ module Flow.Effects {
     effect Exn           // recoverable exceptions
     effect Panic         // intentional crash — cannot be discarded
 
+    // ── Developer tracing ──────────────────────────────────────
+    // Routed to stderr so it does not corrupt stdout pipelines.
+    // Users typically interact via `Flow.Debug.debug` /
+    // `debug_labeled` / `debug_with`, which perform `Debug.trace`.
+    effect Debug { trace: String -> Unit }
+
     // ── Aliases for ergonomics and backward compatibility ──────
     alias IO   = <Console | FileSystem | Stdin>
     alias Time = <Clock>

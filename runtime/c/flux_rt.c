@@ -235,6 +235,27 @@ void flux_print(int64_t val) {
 void flux_println(int64_t val) {
     flux_print(val);
 }
+
+/* Debug-trace output. Routed to stderr so it does not corrupt stdout
+ * pipelines — matches GHC Debug.Trace, Rust dbg!, and Python logging.
+ *
+ * The Flow.Debug wrappers always pass a pre-formatted String (produced by
+ * `show()` / `to_string()` / a caller-supplied formatter), so the fast
+ * path just writes the string's bytes directly to stderr. Non-string
+ * fallback is provided for direct tests and primop-level callers. */
+void flux_debug_trace(int64_t val) {
+    if (flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
+        fwrite(flux_string_data(val), 1, flux_string_len(val), stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Defensive fallback: temporarily redirect value-print to stderr
+         * by flushing stdout, printing, and flushing stderr. Not used by
+         * the Flow.Debug wrappers, but keeps primop-level calls honest. */
+        fflush(stdout);
+        fprintf(stderr, "<debug non-string value=%lld>\n", (long long)val);
+    }
+    fflush(stderr);
+}
 /* Print value without newline, followed by a space — used for multi-arg print. */
 void flux_print_space(int64_t val) {
     flux_print_value(val);

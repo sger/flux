@@ -3281,6 +3281,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
     let flux_name = match op {
         CorePrimOp::Print => "print",
         CorePrimOp::Println => "println",
+        // Emit the unprefixed Flux name; the lower loop prepends `flux_`.
+        // Keeps the C symbol as `flux_debug_trace` to match `flux_print` /
+        // `flux_println` rather than carrying the internal `__primop_` mangling.
+        CorePrimOp::DebugTrace => "debug_trace",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",

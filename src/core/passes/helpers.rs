@@ -534,6 +534,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         // Pure type-inspection primops could be true, but conservatively false.
         CorePrimOp::Print
         | CorePrimOp::Println
+        | CorePrimOp::DebugTrace
         | CorePrimOp::ReadFile
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin

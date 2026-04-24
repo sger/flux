@@ -175,6 +175,7 @@ size_t flux_gc_num_allocs(void);
 
 void    flux_print(int64_t value);
 void    flux_println(int64_t value);
+void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
 int64_t flux_write_file(int64_t path, int64_t content);

@@ -37,6 +37,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
         ("__primop_read_lines", 1, CorePrimOp::ReadLines),
         ("__primop_clock_now", 0, CorePrimOp::ClockNow),
+        ("__primop_debug_trace", 1, CorePrimOp::DebugTrace),
         ("__primop_now_ms", 0, CorePrimOp::ClockNow),
         // String memory operations
         ("to_string", 1, CorePrimOp::ToString),

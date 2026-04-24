@@ -81,6 +81,13 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
         arity: 0,
         returns_unit: false,
     },
+    RoutedPrimop {
+        effect: be::DEBUG,
+        operation: "trace",
+        internal_name: "__primop_debug_trace",
+        arity: 1,
+        returns_unit: true,
+    },
 ];
 
 /// Result of the routing + handler synthesis pass.
@@ -190,6 +197,9 @@ fn collect_default_effects_from_annotation(
                 }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
+                }
+                Some(be::DEBUG) => {
+                    out.insert(be::DEBUG);
                 }
                 Some(be::IO) => {
                     out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN]);
@@ -505,6 +515,14 @@ fn routed_call(function: &Expression, arity: usize, interner: &Interner) -> Opti
     ROUTED_PRIMOPS
         .iter()
         .copied()
+        // Debug.trace is not a routed *call* — users never write `trace(x)`
+        // at the value level. They call `debug` / `debug_labeled` /
+        // `debug_with` in Flow.Debug, which in turn `perform` the
+        // operation. Leaving Debug here for `default_handler_arms` to
+        // synthesize the entrypoint arm, but excluding it from call-site
+        // routing so user code containing a plain `fn trace(...)` is not
+        // silently rewritten to a perform.
+        .filter(|entry| entry.effect != be::DEBUG)
         .find(|entry| entry.operation == name && entry.arity == arity)
 }
 
@@ -618,7 +636,7 @@ fn wrap_block_with_default_handlers(
         id: ids.next_id(),
     };
 
-    for effect in [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::CLOCK] {
+    for effect in [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::CLOCK, be::DEBUG] {
         if !required_effects.contains(effect) {
             continue;
         }
@@ -706,10 +724,21 @@ fn collect_default_effects_expr(
             ..
         } => {
             collect_default_effects_expr(function, interner, function_effects, out);
-            if let Expression::Identifier { name, .. } = function.as_ref()
-                && let Some(effects) = function_effects.get(name)
-            {
-                out.extend(effects.iter().copied());
+            if let Expression::Identifier { name, .. } = function.as_ref() {
+                if let Some(effects) = function_effects.get(name) {
+                    out.extend(effects.iter().copied());
+                }
+                // Flow.Debug wrappers (debug / debug_labeled / debug_with)
+                // are ordinary user functions declared `with Debug`, so
+                // they don't appear in `function_effects` when the
+                // calling module hasn't locally imported their body.
+                // Detect their names directly so entrypoints that call
+                // them get the default Debug handler wrapped in.
+                if let Some(name_str) = interner.try_resolve(*name)
+                    && matches!(name_str, "debug" | "debug_labeled" | "debug_with")
+                {
+                    out.insert(be::DEBUG);
+                }
             }
             for arg in arguments {
                 collect_default_effects_expr(arg, interner, function_effects, out);
@@ -767,6 +796,9 @@ fn collect_default_effects_expr(
                 }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
+                }
+                Some(be::DEBUG) => {
+                    out.insert(be::DEBUG);
                 }
                 _ => {}
             }
