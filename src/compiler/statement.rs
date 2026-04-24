@@ -928,9 +928,7 @@ impl Compiler {
         // annotations (`with Console`, `with FileSystem`, `with Clock`, …).
         let effect_name = self.sym(effect);
         effect_name == "State"
-            || crate::syntax::builtin_effects::is_known_function_effect_annotation_name(
-                effect_name,
-            )
+            || crate::syntax::builtin_effects::is_known_function_effect_annotation_name(effect_name)
     }
 
     fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {
@@ -1554,7 +1552,7 @@ impl Compiler {
                 parameters.len(),
                 effects,
                 param_effect_rows,
-                |compiler| compiler.compile_block_with_tail_collect_errors(body),
+                |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true),
             );
             if body_errors.is_empty() {
                 if self.block_has_value_tail(body) {
@@ -1777,7 +1775,7 @@ impl Compiler {
 
             // Compile the function body.
             let body_errors = self.with_tail_position(true, |c| {
-                c.compile_block_with_tail_collect_errors(entry.body)
+                c.compile_block_with_tail_mode_collect_errors(entry.body, true)
             });
             if self.block_has_value_tail(entry.body) {
                 if !self.is_last_instruction(OpCode::OpReturnValue)
@@ -2311,7 +2309,11 @@ impl Compiler {
     }
 
     #[allow(clippy::vec_box)]
-    fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
+    fn compile_block_with_tail_mode_collect_errors(
+        &mut self,
+        block: &Block,
+        allow_tail: bool,
+    ) -> Vec<Box<Diagnostic>> {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level pass 1).
         if self.scope_index > 0 {
@@ -2365,9 +2367,22 @@ impl Compiler {
                     } | Statement::Return { .. }
                 );
 
-                let result = if is_last && tail_eligible {
+                let result = if allow_tail && is_last && tail_eligible {
                     compiler
                         .with_tail_position(true, |compiler| compiler.compile_statement(statement))
+                } else if is_last && tail_eligible {
+                    match statement {
+                        Statement::Expression {
+                            expression,
+                            has_semicolon: false,
+                            ..
+                        } => compiler.with_tail_position(false, |compiler| {
+                            compiler.compile_expression(expression)
+                        }),
+                        _ => compiler.with_tail_position(false, |compiler| {
+                            compiler.compile_statement(statement)
+                        }),
+                    }
                 } else {
                     compiler
                         .with_tail_position(false, |compiler| compiler.compile_statement(statement))
@@ -2445,8 +2460,18 @@ impl Compiler {
 
     /// Compile a block with tail position awareness for the last statement
     pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+        self.compile_block_with_tail_mode(block, true)
+    }
+
+    /// Compile a block using the tail-aware block machinery, optionally
+    /// suppressing tail position for the final statement.
+    pub(super) fn compile_block_with_tail_mode(
+        &mut self,
+        block: &Block,
+        allow_tail: bool,
+    ) -> CompileResult<()> {
         let mut errors = self
-            .compile_block_with_tail_collect_errors(block)
+            .compile_block_with_tail_mode_collect_errors(block, allow_tail)
             .into_iter();
         if let Some(first) = errors.next() {
             for err in errors {

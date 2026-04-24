@@ -734,7 +734,7 @@ impl Compiler {
                 self.compile_if_expression(condition, consequence, alternative)?;
             }
             Expression::DoBlock { block, .. } => {
-                self.compile_block_with_tail(block)?;
+                self.compile_block_with_tail_mode(block, self.in_tail_position)?;
                 if !self.block_has_value_tail(block) {
                     self.emit(OpCode::OpNone, &[]);
                 }

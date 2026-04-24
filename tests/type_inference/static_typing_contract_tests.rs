@@ -8,8 +8,7 @@ use flux::core::to_ir::lower_core_to_ir;
 use flux::core::{display::CoreDisplayMode, lower_ast::lower_program_ast};
 use flux::diagnostics::render_diagnostics;
 use flux::syntax::{
-    expression::ExprId, interner::Interner, lexer::Lexer, module_graph::ModuleGraph,
-    parser::Parser,
+    expression::ExprId, interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
 };
 use flux::types::infer_type::InferType;
 
@@ -98,8 +97,12 @@ fn compile_module_fixture_strict(rel_path: &str) {
     );
 
     let roots = vec![temp_dir.clone(), workspace_root.join("lib")];
-    let graph_result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, parser.take_interner(), &roots);
+    let graph_result = ModuleGraph::build_with_entry_and_roots(
+        &entry_path,
+        &program,
+        parser.take_interner(),
+        &roots,
+    );
     assert!(
         graph_result.diagnostics.is_empty(),
         "module graph diagnostics for {} via {}:\n{}",
@@ -108,8 +111,10 @@ fn compile_module_fixture_strict(rel_path: &str) {
         render_diagnostics(&graph_result.diagnostics, Some(&entry_source), None)
     );
 
-    let mut compiler =
-        Compiler::new_with_interner(entry_path.to_string_lossy().to_string(), graph_result.interner);
+    let mut compiler = Compiler::new_with_interner(
+        entry_path.to_string_lossy().to_string(),
+        graph_result.interner,
+    );
     let entry_module_path = graph_result
         .graph
         .entry_node()
@@ -124,8 +129,8 @@ fn compile_module_fixture_strict(rel_path: &str) {
         compiler.set_strict_mode(strict_for_node);
         compiler.set_strict_require_main(node.path == entry_module_path);
         if let Err(diags) = compiler.compile(&node.program) {
-            let node_source = std::fs::read_to_string(&node.path)
-                .unwrap_or_else(|_| entry_source.clone());
+            let node_source =
+                std::fs::read_to_string(&node.path).unwrap_or_else(|_| entry_source.clone());
             panic!(
                 "strict compile failed for {}:\n{}",
                 node.path.display(),
