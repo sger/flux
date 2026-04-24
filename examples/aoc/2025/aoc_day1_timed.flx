@@ -70,14 +70,14 @@ fn main() with IO, Time {
     }
 
     // Run DAY1.
-    fn run_day1() {
-        let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+    fn run_day1(lines) {
         let steps = parse_rotations(lines, None)
         solve_steps(steps, 50, 0)
     }
 
     let t0 = now_ms()
-    let password = run_day1()
+    let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+    let password = run_day1(lines)
     let t1 = now_ms()
 
     print("AoC Day 1 password:")

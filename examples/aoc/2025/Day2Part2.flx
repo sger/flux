@@ -135,12 +135,16 @@ module Day2Part2 {
         }
     }
 
-    public fn parse_ranges(path) with IO {
-        read_file(path)
+    public fn parse_ranges_text(content) {
+        content
         |> trim
         |> split(",")
         |> Array.filter(\t -> trim(t) != "")
         |> Array.map(\t -> parse_range_token(t))
+    }
+
+    public fn parse_ranges(path) with IO {
+        parse_ranges_text(read_file(path))
     }
 
     // Compute the maximum end.
@@ -155,7 +159,7 @@ module Day2Part2 {
         sum_for_all_chunk_lens(1, limits.1, limits.0, parsed_ranges)
     }
 
-    public fn solve_file(path) {
+    public fn solve_file(path) with IO {
         let parsed_ranges = parse_ranges(path)
         solve_parsed_ranges(parsed_ranges)
     }

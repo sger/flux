@@ -597,13 +597,13 @@ fn collect_mismatch_details(
 
 // ── Fixture collection ─────────────────────────────────────────────────────
 
-/// `--compile` phase: compile every fixture via both backends, populating
-/// their caches. Returns true if all fixtures compiled successfully; false if
-/// any failed (reported inline). Callers should abort the parity phase on
-/// false.
+/// `--compile` phase: compile every fixture through its declared parity
+/// backends, populating their caches. Returns true if all requested fixture
+/// backends compiled successfully; false if any failed (reported inline).
+/// Callers should abort the parity phase on false.
 fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
     eprintln!(
-        "[parity] --compile: compiling {} fixture(s) with VM and LLVM backends",
+        "[parity] --compile: compiling {} fixture(s) with fixture-declared backends",
         files.len()
     );
     let mut all_ok = true;
@@ -611,7 +611,23 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
         let meta = parse_fixture_meta(file);
         let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
         let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
-        for (way, label) in [(Way::Vm, "vm"), (Way::Llvm, "llvm")] {
+        let mut compile_ways = meta
+            .ways
+            .iter()
+            .copied()
+            .map(Way::base_way)
+            .collect::<Vec<_>>();
+        compile_ways.sort_by_key(|way| match way {
+            Way::Vm => 0,
+            Way::Llvm => 1,
+            Way::VmCached => 2,
+            Way::LlvmCached => 3,
+            Way::VmStrict => 4,
+            Way::LlvmStrict => 5,
+        });
+        compile_ways.dedup();
+        for way in compile_ways {
+            let label = way.to_string();
             let outcome = compile_fixture(
                 &config.vm_binary,
                 &config.llvm_binary,
@@ -626,7 +642,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                     eprintln!(
                         "\x1b[0;31mCOMPILE UNEXPECTED OK\x1b[0m {} ({}) — fixture declares `expect: {}` but compiled successfully",
                         file.display(),
-                        label,
+                        label.as_str(),
                         match meta.expect {
                             Expect::CompileError => "compile_error",
                             Expect::RuntimeError => "runtime_error",
@@ -638,7 +654,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                     eprintln!(
                         "\x1b[0;33mCOMPILE EXPECTED FAIL\x1b[0m {} ({}) — matches `expect: {}`",
                         file.display(),
-                        label,
+                        label.as_str(),
                         match meta.expect {
                             Expect::CompileError => "compile_error",
                             Expect::RuntimeError => "runtime_error",
@@ -652,7 +668,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 eprintln!(
                     "\x1b[0;32mCOMPILE OK\x1b[0m   {} ({})",
                     file.display(),
-                    label
+                    label.as_str()
                 );
                 continue;
             }
@@ -664,14 +680,14 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 eprintln!(
                     "\x1b[0;33mCOMPILE SKIP\x1b[0m {} ({}) — native unsupported",
                     file.display(),
-                    label
+                    label.as_str()
                 );
                 continue;
             }
             eprintln!(
                 "\x1b[0;31mCOMPILE FAIL\x1b[0m {} ({}) exit={}",
                 file.display(),
-                label,
+                label.as_str(),
                 outcome.exit_code
             );
             if !outcome.stderr.trim().is_empty() {

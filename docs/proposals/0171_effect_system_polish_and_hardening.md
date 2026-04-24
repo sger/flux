@@ -30,6 +30,9 @@ rough edges remain:
 - effect availability checks are duplicated across HM, strict audit, CFG
   pre-validation, routing, and lowering
 - entrypoint default handlers are convenient but subtle
+- the VM path and LLVM/native path still need explicit parity hardening for
+  effectful helper calls that are discharged by synthesized entrypoint
+  default handlers
 - the language has not decided whether default handlers are permanently
   always-on or controlled by explicit capability policy
 
@@ -120,6 +123,13 @@ Add negative tests and examples around:
 - user handlers intercepting before defaults
 - nested handler/default interactions
 
+Also track the current implementation gap: effectful helper calls under
+synthesized entrypoint default handlers are reliable on the VM path, but the
+LLVM/native path has shown continuation/default-handler parity issues. Examples
+may be refactored or marked VM-only while that backend gap is being fixed, but
+the language semantics should remain `perform`/`handle` based rather than
+introducing backend-specific behavior.
+
 ### Track 6: Default-handler policy
 
 Decide whether default handlers remain always-on for entrypoints or become
@@ -178,6 +188,9 @@ line between the implemented semantic migration and the next usability pass.
 - `Flow.Primops` / `Flow.Effects` docs clearly separate user and intrinsic
   layers.
 - New tests cover entry defaults versus ordinary helper requirements.
+- Native parity coverage exists for effectful helper calls discharged through
+  synthesized entrypoint default handlers, or the remaining backend gap is
+  documented with focused failing/VM-only fixtures.
 - Effect availability checks share a central helper or documented invariant
   with regression tests for HM/strict/CFG parity.
 - Handler coverage policy is either retained with better docs/diagnostics or
