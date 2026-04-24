@@ -6,7 +6,7 @@
 - Flux Issue:
 - Depends on: —
 
-# Proposal 0169: Test Suite Reorganization by Compiler Phase
+# Proposal 0172: Test Suite Reorganization by Compiler Phase
 
 ## Summary
 [summary]: #summary

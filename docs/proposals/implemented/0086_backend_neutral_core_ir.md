@@ -36,7 +36,7 @@ execution formats is becoming a structural liability.
 
 Current and near-future pressure points:
 
-- typed AST and explicit typing artifacts ([0046](implemented/0046_typed_ast_hm_architecture.md))
+- typed AST and explicit typing artifacts ([0046](0046_typed_ast_hm_architecture.md))
 - compiler phase modularization ([0044](0044_compiler_phase_pipeline_refactor.md))
 - actor concurrency ([0065](0065_actor_effect_stdlib.md),
   [0066](0066_thread_per_actor_handler.md))
