@@ -93,6 +93,30 @@ impl EffectExpr {
         }
     }
 
+    /// Returns `true` if this expression contains at least one `Add` node.
+    pub fn contains_add(&self) -> bool {
+        match self {
+            EffectExpr::Add { .. } => true,
+            EffectExpr::Named { .. } | EffectExpr::RowVar { .. } => false,
+            EffectExpr::Subtract { left, right, .. } => {
+                left.contains_add() || right.contains_add()
+            }
+        }
+    }
+
+    /// Returns `true` if this expression contains at least one `Subtract` node.
+    /// Used by the linter to distinguish genuine row arithmetic (which keeps
+    /// `+`) from a `+`-only list that should use `,` in `with` clauses.
+    pub fn contains_subtract(&self) -> bool {
+        match self {
+            EffectExpr::Subtract { .. } => true,
+            EffectExpr::Named { .. } | EffectExpr::RowVar { .. } => false,
+            EffectExpr::Add { left, right, .. } => {
+                left.contains_subtract() || right.contains_subtract()
+            }
+        }
+    }
+
     pub fn referenced_names(&self) -> HashSet<Identifier> {
         let mut out = HashSet::new();
         self.collect_referenced_names(&mut out);
@@ -239,6 +263,40 @@ mod tests {
         assert!(names.contains(&io));
         assert!(names.contains(&time));
         assert!(!names.contains(&console));
+    }
+
+    #[test]
+    fn contains_add_and_subtract_detect_row_arithmetic() {
+        let mut interner = Interner::new();
+        let console = interner.intern("Console");
+        let clock = interner.intern("Clock");
+        let span = Span::default();
+
+        let atom = EffectExpr::Named {
+            name: console,
+            span,
+        };
+        assert!(!atom.contains_add());
+        assert!(!atom.contains_subtract());
+
+        let add = EffectExpr::Add {
+            left: Box::new(EffectExpr::Named {
+                name: console,
+                span,
+            }),
+            right: Box::new(EffectExpr::Named { name: clock, span }),
+            span,
+        };
+        assert!(add.contains_add());
+        assert!(!add.contains_subtract());
+
+        let add_sub = EffectExpr::Subtract {
+            left: Box::new(add.clone()),
+            right: Box::new(EffectExpr::Named { name: clock, span }),
+            span,
+        };
+        assert!(add_sub.contains_add());
+        assert!(add_sub.contains_subtract());
     }
 
     #[test]
