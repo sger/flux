@@ -1,24 +1,10 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/14_unhandled_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E403]: Unknown Effect
-
-Effect `Console` is not declared.
-
-  examples/type_system/failing/14_unhandled_effect.flx:2:1
-  |
-2 | perform Console.print("hello")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------------ unknown effect in perform
-
-Hint:
-  Declare the effect before using `perform`.
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
@@ -46,6 +32,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

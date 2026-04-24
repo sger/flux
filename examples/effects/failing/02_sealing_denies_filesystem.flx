@@ -1,0 +1,5 @@
+// The seal allows Console, but the expression performs FileSystem.
+
+fn main() {
+    read_file("examples/effects/data.txt") sealing { Console }
+}

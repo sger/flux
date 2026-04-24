@@ -17,21 +17,5 @@ Effectful operation is not allowed at top level (requires: Console).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
-
-
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  examples/type_system/failing/49_top_level_effect_with_existing_main.flx:3:1
-  |
-3 | print("top-level")
-  | ^^^^^^^^^^^^^^^^^^
-  | ------------------ requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-Found 2 errors.
 == stdout ==
 <not executed>

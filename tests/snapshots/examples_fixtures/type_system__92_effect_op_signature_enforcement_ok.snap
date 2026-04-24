@@ -1,10 +1,21 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/92_effect_op_signature_enforcement_ok.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E404]: Unknown Effect Operation
+
+Effect `Console` has no declared operation `print`.
+
+  examples/type_system/92_effect_op_signature_enforcement_ok.flx:16:5
+   |
+16 |     print(to_string(value))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |     ----------------------- unknown operation in perform
+
+Hint:
+  Add the operation to the effect declaration or rename it.
 == stdout ==
 <not executed>

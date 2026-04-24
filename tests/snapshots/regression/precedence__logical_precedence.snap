@@ -1,6 +1,5 @@
 ---
 source: tests/integration/regression_snapshots.rs
-assertion_line: 132
 ---
 $ flux --no-cache tests/fixtures/precedence/logical_precedence.flx
 exit_code: 1
@@ -15,7 +14,7 @@ exit_code: 1
 [ 8 of 11] Compiling  Option
 [ 9 of 11] Compiling  Primops
 [10 of 11] Compiling  String
-• 5 errors • tests/fixtures/precedence/logical_precedence.flx
+• 3 errors • tests/fixtures/precedence/logical_precedence.flx
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
@@ -44,20 +43,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  tests/fixtures/precedence/logical_precedence.flx:1:1
-  |
-1 | print(true || false && false);
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
@@ -71,18 +56,4 @@ Effectful operation is not allowed at top level (requires: Console).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-
-error[E400]: Missing Effect
-
-requires effect `Console` but the enclosing context does not provide it
-
-  tests/fixtures/precedence/logical_precedence.flx:2:1
-  |
-2 | print(!true == false);
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- requires `Console`
-
-Hint:
-  annotate the enclosing function with `with Console`
-
-Found 5 errors.
+Found 3 errors.

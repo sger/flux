@@ -1,0 +1,9 @@
+// Missing effect in an ordinary helper. Entry defaults do not make helpers ambiently effectful.
+
+fn helper() -> Unit {
+    println("missing Console")
+}
+
+fn main() {
+    helper()
+}

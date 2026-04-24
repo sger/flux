@@ -7,13 +7,13 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `print` requires effect `Console` in this function signature.
+Performing `print` requires effect `Console` in this function signature.
 
   examples/compiler_errors/adversarial/stage_all_errors/EffectBroken.flx:3:9
   |
 3 |         print("hi")
-  |         ^^^^^
-  |         ----- effectful call occurs here
+  |         ^^^^^^^^^^^
+  |         ----------- effectful perform occurs here
 
 Hint:
   Add `with Console` to the enclosing function.

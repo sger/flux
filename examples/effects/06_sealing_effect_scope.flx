@@ -1,0 +1,10 @@
+// Sealing checks that the expression only performs effects from the allowed row.
+
+fn console_only() -> Unit with Console {
+    println("inside Console seal")
+}
+
+fn main() {
+    console_only() sealing { Console }
+    println("ambient minus FileSystem still allows Console") sealing (ambient - FileSystem)
+}

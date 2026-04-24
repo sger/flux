@@ -63,7 +63,6 @@ module Flow.Assert {
         let actual = len(collection)
         if actual == expected { () }
         else {
-            assert_failed("assert_len")
             panic("assert_len failed")
         };
     }

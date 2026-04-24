@@ -858,8 +858,8 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         text
     );
     assert!(
-        text.contains("print(3)"),
-        "expected readable Core dump to include the prelude print call, output:\n{}",
+        text.contains("handle Console") && text.contains("__primop_print"),
+        "expected readable Core dump to include the default Console handler, output:\n{}",
         text
     );
     assert!(
@@ -1673,7 +1673,7 @@ fn example_base_hof_effect_missing_e400_201() {
     assert_example_error(
         "examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx",
         &[],
-        "E400",
+        "E300",
     );
 }
 

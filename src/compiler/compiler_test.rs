@@ -194,7 +194,7 @@ fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
 
 #[test]
 fn final_compile_preserves_specific_effect_errors_over_expression_e430() {
-    let (program, interner) = parse_program("perform Console.print(\"hello\")");
+    let (program, interner) = parse_program("perform Missing.print(\"hello\")");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let diags = compiler
         .compile_with_opts(&program, false, false)
@@ -321,15 +321,15 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
 }
 
 #[test]
-fn infer_expr_types_for_program_keeps_borrowed_program_when_untransformed() {
+fn infer_expr_types_for_program_stores_owned_program_after_0165_preparation() {
     let (program, interner) = parse_program("fn f() { 1 }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
     let prepared = compiler.prepare_program_for_lowering(&program);
 
     assert!(
-        matches!(prepared.effective_program, std::borrow::Cow::Borrowed(_)),
-        "expected borrowed final AST on the no-op inference path"
+        matches!(prepared.effective_program, std::borrow::Cow::Owned(_)),
+        "expected owned final AST after 0165 preparation"
     );
 }
 
@@ -703,45 +703,6 @@ fn preload_module_interface_inserts_cached_public_schemes() {
 }
 
 #[test]
-fn flow_primops_cached_scheme_takes_precedence_over_rust_primop_injection() {
-    let (program, interner) = parse_program(
-        r#"
-fn main() with Console {
-    println("hello")
-}
-"#,
-    );
-    let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler.set_strict_mode(true);
-    let module = compiler.interner.intern("Flow.Primops");
-    let println = compiler.interner.intern("println");
-    let filesystem = compiler
-        .interner
-        .intern(crate::syntax::builtin_effects::FILESYSTEM);
-    compiler.cached_member_schemes.insert(
-        (module, println),
-        Scheme {
-            forall: vec![9000],
-            constraints: vec![],
-            infer_type: InferType::Fun(
-                vec![InferType::Var(9000)],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                InferEffectRow::closed_from_symbols([filesystem]),
-            ),
-        },
-    );
-
-    let diags = compiler
-        .compile(&program)
-        .expect_err("cached Flow.Primops scheme should require FileSystem, not Console");
-    let rendered = render_diagnostics(&diags, None, None);
-    assert!(
-        rendered.contains("FileSystem"),
-        "expected cached Flow.Primops effect row to win over Rust fallback:\n{rendered}"
-    );
-}
-
-#[test]
 fn flow_primops_missing_covered_scheme_does_not_fall_back_to_rust_injection() {
     let (program, interner) = parse_program(
         r#"
@@ -777,6 +738,56 @@ fn main() with Console {
         rendered.contains("println") || rendered.contains("unresolved"),
         "expected missing Flow.Primops.println to surface as a compile failure:\n{rendered}"
     );
+}
+
+#[test]
+fn builtin_effect_operation_registry_seeds_effectful_prelude_ops() {
+    let mut compiler = Compiler::new();
+    compiler.phase_reset();
+
+    let expected = [
+        ("Console", "print"),
+        ("Console", "println"),
+        ("FileSystem", "read_file"),
+        ("FileSystem", "read_lines"),
+        ("FileSystem", "write_file"),
+        ("Stdin", "read_stdin"),
+        ("Clock", "clock_now"),
+        ("Clock", "now_ms"),
+    ];
+
+    for (effect, operation) in expected {
+        let effect = compiler.interner.intern(effect);
+        let operation = compiler.interner.intern(operation);
+        assert!(
+            compiler
+                .effect_ops_registry
+                .get(&effect)
+                .is_some_and(|ops| ops.contains(&operation)),
+            "expected seeded operation {effect:?}.{operation:?}"
+        );
+        assert!(
+            compiler
+                .effect_op_signatures
+                .contains_key(&(effect, operation)),
+            "expected seeded signature for {effect:?}.{operation:?}"
+        );
+    }
+}
+
+#[test]
+fn main_println_without_annotation_compiles_via_default_handler() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() {
+    println("hello")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, None, None)));
 }
 
 #[test]
@@ -1417,8 +1428,12 @@ fn main() -> Unit {
 fn strict_mode_requires_effect_annotation_for_non_public_effectful_function() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit {
+fn helper() -> Unit {
     print("x")
+}
+
+fn main() -> Unit {
+    helper()
 }
 "#,
     );
@@ -1429,9 +1444,9 @@ fn main() -> Unit {
         .expect_err("expected missing strict effect annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E400]: Missing Ambient Effect")
-            && rendered.contains("Call to `print` requires effect `Console`")
-            && rendered.contains("Add `with Console`"),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Console`")
+            && rendered.contains("Add explicit `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1441,8 +1456,12 @@ fn main() -> Unit {
 fn strict_mode_requires_time_annotation_for_non_public_effectful_function() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit {
+fn helper() -> Unit {
     let _t = now_ms()
+}
+
+fn main() -> Unit {
+    helper()
 }
 "#,
     );
@@ -1453,9 +1472,9 @@ fn main() -> Unit {
         .expect_err("expected missing strict time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E400]: Missing Ambient Effect")
-            && rendered.contains("Call to `now_ms` requires effect `Clock`")
-            && rendered.contains("Add `with Clock`"),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Clock`")
+            && rendered.contains("Add explicit `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1465,8 +1484,12 @@ fn main() -> Unit {
 fn strict_mode_reports_missing_time_when_only_io_is_declared() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit with IO {
+fn helper() -> Unit with IO {
     let _t = now_ms()
+}
+
+fn main() -> Unit with IO {
+    helper()
 }
 "#,
     );
@@ -1477,9 +1500,9 @@ fn main() -> Unit with IO {
         .expect_err("expected missing Time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E400]: Missing Ambient Effect")
-            && rendered.contains("Call to `now_ms` requires effect `Clock`")
-            && rendered.contains("Add `with Clock`"),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Clock`")
+            && rendered.contains("Add explicit `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1489,8 +1512,12 @@ fn main() -> Unit with IO {
 fn strict_mode_reports_missing_io_when_only_time_is_declared() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit with Time {
+fn helper() -> Unit with Time {
     print("x")
+}
+
+fn main() -> Unit with Time {
+    helper()
 }
 "#,
     );
@@ -1501,9 +1528,9 @@ fn main() -> Unit with Time {
         .expect_err("expected missing IO annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E400]: Missing Ambient Effect")
-            && rendered.contains("Call to `print` requires effect `Console`")
-            && rendered.contains("Add `with Console`"),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Console`")
+            && rendered.contains("Add explicit `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );

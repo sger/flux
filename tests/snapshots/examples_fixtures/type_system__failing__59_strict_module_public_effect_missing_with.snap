@@ -3,8 +3,19 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/59_strict_module_public_effect_missing_with.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E400]: Missing Ambient Effect
+
+Performing `print` requires effect `Console` in this function signature.
+
+  examples/type_system/failing/59_strict_module_public_effect_missing_with.flx:2:5
+  |
+2 |     print(msg)
+  |     ^^^^^^^^^^
+  |     ---------- effectful perform occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>
