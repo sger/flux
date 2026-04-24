@@ -285,7 +285,11 @@ impl VM {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;
                 let val = self.pop()?;
-                self.stack_set(bp + idx, val);
+                let slot = bp + idx;
+                self.stack_set(slot, val);
+                if self.sp <= slot {
+                    self.reset_sp(slot + 1)?;
+                }
                 Ok(2)
             }
             OpCode::OpSetLocalPop => {

@@ -615,7 +615,10 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 |binder| ctx.summaries.contains_key(&binder),
                 |name| match builtin_runtime_provenance(ctx.interner, name) {
                     Some(provenance) => Some(provenance),
-                    None => ctx.summaries_by_name.get(&name).map(|entry| entry.provenance),
+                    None => ctx
+                        .summaries_by_name
+                        .get(&name)
+                        .map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
@@ -642,10 +645,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         self_recursive: false,
                     }),
                 ),
-                AetherCalleeKind::BaseRuntime => (
-                    None,
-                    builtin_runtime_call_detail(&callee_name),
-                ),
+                AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
                     ctx.summaries_by_name
                         .get(&var.name)
@@ -727,7 +727,10 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 |binder| ctx.summaries.contains_key(&binder),
                 |name| match builtin_runtime_provenance(ctx.interner, name) {
                     Some(provenance) => Some(provenance),
-                    None => ctx.summaries_by_name.get(&name).map(|entry| entry.provenance),
+                    None => ctx
+                        .summaries_by_name
+                        .get(&name)
+                        .map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
@@ -754,10 +757,7 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         self_recursive: false,
                     }),
                 ),
-                AetherCalleeKind::BaseRuntime => (
-                    None,
-                    builtin_runtime_call_detail(&callee_name),
-                ),
+                AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
                     ctx.summaries_by_name
                         .get(&var.name)
