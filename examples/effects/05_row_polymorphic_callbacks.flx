@@ -1,3 +1,4 @@
+// parity: vm
 // The callback effect row `|e` flows through the higher-order helper.
 
 fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
