@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate as flux;
-use crate::driver::frontend::{collect_roots, inject_flow_prelude};
+use crate::driver::frontend::{collect_roots, inject_flow_prelude, validate_no_primops_import};
 use crate::driver::shared::tag_and_attach_file;
 use flux::{
     diagnostics::Diagnostic,
@@ -66,6 +66,16 @@ pub(crate) fn build_program_context(
     }
 
     let mut program = program;
+    let mut primops_import_diags =
+        validate_no_primops_import(&program, parser.interner(), path);
+    if !primops_import_diags.is_empty() {
+        tag_and_attach_file(
+            &mut primops_import_diags,
+            flux::diagnostics::DiagnosticPhase::Parse,
+            path,
+        );
+        all_diagnostics.append(&mut primops_import_diags);
+    }
     if !trace_aether {
         inject_flow_prelude(&mut program, &mut parser, use_native_backend);
     }
