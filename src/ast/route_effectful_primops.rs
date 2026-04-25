@@ -103,9 +103,16 @@ pub struct RoutingResult {
     pub routed_call_perform_ids: std::collections::HashSet<ExprId>,
 }
 
+/// `user_redefined_builtin_effects`: effect names that have a user-written
+/// `effect E { ... }` declaration somewhere in the compilation set (this
+/// module or any preloaded dependency). When a user effect shadows one of
+/// the builtin fine-grained effects (`Console`, `FileSystem`, ...), the
+/// synthesized default-handler wrap skips that effect — otherwise it would
+/// emit arms for builtin operations the user never declared (E401).
 pub fn route_effectful_primops_and_synthesize_handlers(
     program: &Program,
     interner: &mut Interner,
+    user_redefined_builtin_effects: &HashSet<Identifier>,
 ) -> RoutingResult {
     let mut owned = program.clone();
     let user_effect_ops = collect_user_effect_ops(&owned, interner);
@@ -123,6 +130,7 @@ pub fn route_effectful_primops_and_synthesize_handlers(
             &mut ids,
             &user_effect_ops,
             &function_effects,
+            user_redefined_builtin_effects,
         );
     }
     RoutingResult {
@@ -562,6 +570,7 @@ fn synthesize_stmt_entry_handlers(
     ids: &mut ExprIdGen,
     user_effect_ops: &HashMap<Identifier, HashSet<Identifier>>,
     function_effects: &HashMap<Identifier, HashSet<&'static str>>,
+    user_redefined_builtin_effects: &HashSet<Identifier>,
 ) -> bool {
     match stmt {
         Statement::Function {
@@ -583,6 +592,7 @@ fn synthesize_stmt_entry_handlers(
                 user_effect_ops,
                 function_effects,
                 &entry_effects,
+                user_redefined_builtin_effects,
             )
         }
         Statement::Module { body, .. } => {
@@ -594,6 +604,7 @@ fn synthesize_stmt_entry_handlers(
                     ids,
                     user_effect_ops,
                     function_effects,
+                    user_redefined_builtin_effects,
                 );
             }
             changed
@@ -616,9 +627,20 @@ fn wrap_block_with_default_handlers(
     user_effect_ops: &HashMap<Identifier, HashSet<Identifier>>,
     function_effects: &HashMap<Identifier, HashSet<&'static str>>,
     entry_effects: &HashSet<&'static str>,
+    user_redefined_builtin_effects: &HashSet<Identifier>,
 ) -> bool {
     let mut required_effects = default_effects_in_block(block, interner, function_effects);
     required_effects.extend(entry_effects.iter().copied());
+    // If the user has redefined a builtin effect (e.g. their own
+    // `effect Console { print: String -> () }`), don't synthesize a default
+    // handler for it — the user is responsible for handling their own effect,
+    // and our default arms reference builtin operations the user never
+    // declared (which would E401 in handler exhaustiveness).
+    required_effects.retain(|effect_name| {
+        interner
+            .lookup(effect_name)
+            .is_none_or(|sym| !user_redefined_builtin_effects.contains(&sym))
+    });
     if required_effects.is_empty() {
         return false;
     }
