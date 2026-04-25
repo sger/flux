@@ -1537,6 +1537,7 @@ mod tests {
                 known_flow_names: std::collections::HashSet::new(),
                 flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
+                effect_row_aliases: HashMap::new(),
                 class_env: None,
             },
         );
