@@ -274,6 +274,9 @@ impl<'a> InferCtx<'a> {
         let mut missing: Vec<Identifier> = callee
             .concrete()
             .iter()
+            .filter(|effect| {
+                self.interner.resolve(**effect) != crate::syntax::builtin_effects::PANIC
+            })
             .filter(|effect| !ambient.concrete().contains(effect))
             .copied()
             .collect();
@@ -290,6 +293,7 @@ impl<'a> InferCtx<'a> {
         self.report_effect_mismatch(&callee, &ambient, span);
     }
 
+    /// Expand any concrete effect aliases in an inferred row before subset checks.
     fn expand_effect_row_aliases(&self, row: InferEffectRow) -> InferEffectRow {
         let mut concrete = std::collections::HashSet::new();
         for effect in row.concrete() {
@@ -371,6 +375,7 @@ impl<'a> InferCtx<'a> {
         let mut missing: Vec<Identifier> = callee
             .concrete()
             .iter()
+            .filter(|e| self.interner.resolve(**e) != crate::syntax::builtin_effects::PANIC)
             .filter(|e| !ambient.concrete().contains(e))
             .copied()
             .collect();
