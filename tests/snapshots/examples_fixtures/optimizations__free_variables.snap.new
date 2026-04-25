@@ -1,0 +1,36 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 33
+---
+Fixture: examples/optimizations/free_variables.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `undefined_var`.
+
+  examples/optimizations/free_variables.flx:11:19
+   |
+11 | let result1 = x + undefined_var;
+   |                   ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let undefined_var = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `missing`.
+
+  examples/optimizations/free_variables.flx:18:21
+   |
+18 |     let c = a + b + missing;
+   |                     ^^^^^^^
+
+Hint:
+  Define it first: let missing = ...;
+
+Found 2 errors.
+== stdout ==
+<not executed>

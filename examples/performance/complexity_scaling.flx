@@ -1,3 +1,5 @@
+// parity: vm
+
 // Complexity probe: verify O(1) vs O(n) trends by scaling input size.
 //
 // Expected trend:
@@ -7,11 +9,25 @@
 import Flow.Array as Array
 
 fn main() with IO, Time {
+    fn list_head_or_zero(lst) {
+        match lst {
+            [h | _] -> h,
+            _ -> 0,
+        }
+    }
+
+    fn array_head_or_zero(arr) {
+        match Array.first(arr) {
+            Some(x) -> x,
+            _ -> 0,
+        }
+    }
+
     fn bench_list_head(lst, reps, acc) {
         if reps <= 0 {
             acc
         } else {
-            bench_list_head(lst, reps - 1, acc + first(lst))
+            bench_list_head(lst, reps - 1, acc + list_head_or_zero(lst))
         }
     }
 
@@ -19,7 +35,7 @@ fn main() with IO, Time {
         if reps <= 0 {
             acc
         } else {
-            bench_array_first(arr, reps - 1, acc + first(arr))
+            bench_array_first(arr, reps - 1, acc + array_head_or_zero(arr))
         }
     }
 
@@ -35,7 +51,7 @@ fn main() with IO, Time {
         if reps <= 0 {
             acc
         } else {
-            let out = concat(arr, [|1|])
+            let out = Array.concat(arr, [|1|])
             bench_array_concat(arr, reps - 1, acc + len(out))
         }
     }
@@ -52,7 +68,7 @@ fn value_at(arr, idx) {
             None
         } else {
             let n = value_at(sizes, idx)
-            let arr = range(0, n)
+            let arr = Array.range(0, n)
             let lst = Array.to_list(arr)
 
             let t0 = now_ms()

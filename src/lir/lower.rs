@@ -157,6 +157,51 @@ fn native_yield_checks_enabled() -> bool {
     }
 }
 
+fn native_builtin_effect_uses_direct_path(
+    interner: Option<&Interner>,
+    effect: Identifier,
+    parameterized_effects_in_program: &HashSet<Identifier>,
+) -> bool {
+    let Some(interner) = interner else {
+        return false;
+    };
+    if parameterized_effects_in_program.contains(&effect) {
+        return false;
+    }
+    let Some(name) = interner.try_resolve(effect) else {
+        return false;
+    };
+    let parameterized_name_covers_effect = |parameterized: Identifier| {
+        let Some(parameterized_name) = interner.try_resolve(parameterized) else {
+            return false;
+        };
+        match name {
+            crate::syntax::builtin_effects::CONSOLE
+            | crate::syntax::builtin_effects::FILESYSTEM
+            | crate::syntax::builtin_effects::STDIN => {
+                parameterized_name == crate::syntax::builtin_effects::IO
+            }
+            crate::syntax::builtin_effects::CLOCK => {
+                parameterized_name == crate::syntax::builtin_effects::TIME
+            }
+            _ => false,
+        }
+    };
+    if parameterized_effects_in_program
+        .iter()
+        .any(|effect| parameterized_name_covers_effect(*effect))
+    {
+        return false;
+    }
+    matches!(
+        name,
+        crate::syntax::builtin_effects::CONSOLE
+            | crate::syntax::builtin_effects::FILESYSTEM
+            | crate::syntax::builtin_effects::STDIN
+            | crate::syntax::builtin_effects::CLOCK
+    )
+}
+
 // ── Qualified name resolution ────────────────────────────────────────────────
 
 /// Walk the `CoreTopLevelItem` tree to build a module-qualified name for each
@@ -485,6 +530,7 @@ pub fn lower_program_with_interner_and_externs(
         .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
         .map(|def| def.binder.id)
         .collect();
+    let parameterized_effects_in_program = collect_parameterized_effects(program);
 
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
@@ -501,6 +547,7 @@ pub fn lower_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_def(def, ctx);
         lir.push_function(func);
@@ -520,6 +567,7 @@ pub fn lower_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_def(main_def, ctx);
         lir.push_function(func);
@@ -534,6 +582,7 @@ pub fn lower_program_with_interner_and_externs(
             &binder_func_map,
             &qualified_names,
             &int_return_binders,
+            &parameterized_effects_in_program,
         );
         lir.push_function(func);
     }
@@ -614,6 +663,7 @@ pub fn lower_aether_program_with_interner_and_externs(
         .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
         .map(|def| def.binder.id)
         .collect();
+    let parameterized_effects_in_program = collect_parameterized_effects_aether(program);
 
     for (i, def) in program.defs().iter().enumerate() {
         if main_idx.is_some_and(|idx| i == idx) {
@@ -629,6 +679,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_aether_def(def, ctx);
         lir.push_function(func);
@@ -646,6 +697,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_aether_def(main_def, ctx);
         lir.push_function(func);
@@ -660,6 +712,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             &binder_func_map,
             &qualified_names,
             &int_return_binders,
+            &parameterized_effects_in_program,
         );
         lir.push_function(func);
     }
@@ -867,6 +920,10 @@ struct FnLower<'a> {
     /// must use the yield path for these even when FLUX_YIELD_CHECKS is off,
     /// because the direct identity-resume fallback has no state slot.
     active_parameterized_effects: HashSet<Identifier>,
+    /// Effects that have any parameterized handler in the whole program.
+    /// Helper functions called from those handlers are lowered outside the
+    /// handler's lexical body, so they need this broader guard too.
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 struct FnLowerCtx<'a> {
@@ -880,6 +937,7 @@ struct FnLowerCtx<'a> {
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
     /// Function binders known to return Int (from `CoreDef::result_ty`).
     int_return_binders: &'a HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 impl<'a> FnLower<'a> {
@@ -919,6 +977,7 @@ impl<'a> FnLower<'a> {
             int_return_binders: ctx.int_return_binders,
             bool_raw_source: HashMap::new(),
             active_parameterized_effects: HashSet::new(),
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         }
     }
 
@@ -1356,6 +1415,8 @@ impl<'a> FnLower<'a> {
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
                                 int_return_binders: self.int_return_binders,
+                                parameterized_effects_in_program: self
+                                    .parameterized_effects_in_program,
                             },
                         );
 
@@ -1534,6 +1595,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
 
@@ -1673,6 +1735,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
 
@@ -1953,6 +2016,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -2087,6 +2151,8 @@ impl<'a> FnLower<'a> {
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
                                 int_return_binders: self.int_return_binders,
+                                parameterized_effects_in_program: self
+                                    .parameterized_effects_in_program,
                             },
                         );
                         for &(binder_id, _) in &entry.outer_captures {
@@ -2233,6 +2299,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -3338,10 +3405,16 @@ impl<'a> FnLower<'a> {
 
         let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        // Prefix handler exports with the enclosing function's qualified name to
+        // avoid cross-module symbol collisions. The synthetic-id allocator counts
+        // down from u32::MAX per module, so two modules independently producing
+        // their N-th handler would otherwise emit identical `handler_<id>` exports
+        // and the linker would reject the duplicate.
+        let qualified_name = format!("{}_handler_{}", self.func.qualified_name, synthetic_id.0);
         let mut inner = FnLower::new(
             func_name,
             synthetic_id,
-            format!("handler_{}", synthetic_id.0),
+            qualified_name,
             FnLowerCtx {
                 program: &mut temp_program,
                 interner: self.interner,
@@ -3352,6 +3425,7 @@ impl<'a> FnLower<'a> {
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
+                parameterized_effects_in_program: self.parameterized_effects_in_program,
             },
         );
 
@@ -3436,10 +3510,13 @@ impl<'a> FnLower<'a> {
 
         let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        // See lower_handler_clause: prefix with the enclosing qualified name so
+        // handler exports do not collide across modules.
+        let qualified_name = format!("{}_handler_{}", self.func.qualified_name, synthetic_id.0);
         let mut inner = FnLower::new(
             func_name,
             synthetic_id,
-            format!("handler_{}", synthetic_id.0),
+            qualified_name,
             FnLowerCtx {
                 program: &mut temp_program,
                 interner: self.interner,
@@ -3450,6 +3527,7 @@ impl<'a> FnLower<'a> {
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
+                parameterized_effects_in_program: self.parameterized_effects_in_program,
             },
         );
 
@@ -3556,7 +3634,14 @@ impl<'a> FnLower<'a> {
         });
 
         let result = self.fresh_var();
-        if native_yield_checks_enabled() || self.active_parameterized_effects.contains(&effect) {
+        let use_yield_path = (native_yield_checks_enabled()
+            && !native_builtin_effect_uses_direct_path(
+                self.interner,
+                effect,
+                self.parameterized_effects_in_program,
+            ))
+            || self.active_parameterized_effects.contains(&effect);
+        if use_yield_path {
             // Slice 5-tr-fix: emit the YieldTo PrimCall inline (its return
             // value is the sentinel and isn't used), then close the current
             // block with a Call-shaped terminator so `cont_split` synthesizes
@@ -3640,7 +3725,14 @@ impl<'a> FnLower<'a> {
         });
 
         let result = self.fresh_var();
-        if native_yield_checks_enabled() || self.active_parameterized_effects.contains(&effect) {
+        let use_yield_path = (native_yield_checks_enabled()
+            && !native_builtin_effect_uses_direct_path(
+                self.interner,
+                effect,
+                self.parameterized_effects_in_program,
+            ))
+            || self.active_parameterized_effects.contains(&effect);
+        if use_yield_path {
             // Slice 5-tr-fix: see `lower_perform` above for the shape.
             let sink = self.fresh_var();
             self.emit(LirInstr::PrimCall {
@@ -4933,6 +5025,7 @@ struct LowerDefCtx<'a> {
     extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
     int_return_binders: &'a HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 fn lir_symbol_name_for_def(
@@ -4973,6 +5066,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
 
@@ -5038,6 +5132,7 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
 
@@ -5081,6 +5176,7 @@ fn lower_synthetic_main_core(
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
     int_return_binders: &HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
         program
@@ -5106,6 +5202,7 @@ fn lower_synthetic_main_core(
             qualified_names,
             top_level_value_map: &empty_values,
             int_return_binders,
+            parameterized_effects_in_program,
         },
     );
 
@@ -5144,6 +5241,7 @@ fn lower_synthetic_main_aether(
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
     int_return_binders: &HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
         program
@@ -5169,6 +5267,7 @@ fn lower_synthetic_main_aether(
             qualified_names,
             top_level_value_map: &empty_values,
             int_return_binders,
+            parameterized_effects_in_program,
         },
     );
 
@@ -5480,6 +5579,170 @@ fn collect_free_vars(expr: &CoreExpr) -> HashSet<CoreBinderId> {
     let mut bound = HashSet::new();
     free_vars_rec(expr, &mut bound, &mut free);
     free
+}
+
+fn collect_parameterized_effects(program: &CoreProgram) -> HashSet<Identifier> {
+    let mut effects = HashSet::new();
+    for def in &program.defs {
+        collect_parameterized_effects_rec(&def.expr, &mut effects);
+    }
+    effects
+}
+
+fn collect_parameterized_effects_aether(
+    program: &crate::aether::AetherProgram,
+) -> HashSet<Identifier> {
+    let mut effects = HashSet::new();
+    for def in program.defs() {
+        collect_parameterized_effects_aether_rec(&def.expr, &mut effects);
+    }
+    effects
+}
+
+fn collect_parameterized_effects_rec(expr: &CoreExpr, effects: &mut HashSet<Identifier>) {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::App { func, args, .. } => {
+            collect_parameterized_effects_rec(func, effects);
+            for arg in args {
+                collect_parameterized_effects_rec(arg, effects);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_parameterized_effects_rec(rhs, effects);
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_parameterized_effects_rec(rhs, effects);
+            }
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_parameterized_effects_rec(scrutinee, effects);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_parameterized_effects_rec(guard, effects);
+                }
+                collect_parameterized_effects_rec(&alt.rhs, effects);
+            }
+        }
+        CoreExpr::Con { fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_rec(field, effects);
+            }
+        }
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_parameterized_effects_rec(arg, effects);
+            }
+        }
+        CoreExpr::Handle {
+            body,
+            effect,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                effects.insert(*effect);
+                collect_parameterized_effects_rec(parameter, effects);
+            }
+            collect_parameterized_effects_rec(body, effects);
+            for handler in handlers {
+                collect_parameterized_effects_rec(&handler.body, effects);
+            }
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_parameterized_effects_rec(object, effects);
+        }
+    }
+}
+
+fn collect_parameterized_effects_aether_rec(expr: &AetherExpr, effects: &mut HashSet<Identifier>) {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            collect_parameterized_effects_aether_rec(func, effects);
+            for arg in args {
+                collect_parameterized_effects_aether_rec(arg, effects);
+            }
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            collect_parameterized_effects_aether_rec(rhs, effects);
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_parameterized_effects_aether_rec(rhs, effects);
+            }
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_parameterized_effects_aether_rec(scrutinee, effects);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_parameterized_effects_aether_rec(guard, effects);
+                }
+                collect_parameterized_effects_aether_rec(&alt.rhs, effects);
+            }
+        }
+        AetherExpr::Con { fields, .. } | AetherExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_aether_rec(field, effects);
+            }
+        }
+        AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_parameterized_effects_aether_rec(arg, effects);
+            }
+        }
+        AetherExpr::Handle {
+            body,
+            effect,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                effects.insert(*effect);
+                collect_parameterized_effects_aether_rec(parameter, effects);
+            }
+            collect_parameterized_effects_aether_rec(body, effects);
+            for handler in handlers {
+                collect_parameterized_effects_aether_rec(&handler.body, effects);
+            }
+        }
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            collect_parameterized_effects_aether_rec(object, effects);
+        }
+        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::Reuse { fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_aether_rec(field, effects);
+            }
+        }
+        AetherExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_parameterized_effects_aether_rec(unique_body, effects);
+            collect_parameterized_effects_aether_rec(shared_body, effects);
+        }
+    }
 }
 
 fn free_vars_rec(

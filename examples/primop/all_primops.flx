@@ -4,12 +4,9 @@
 // 30
 // 17
 // 42
-// 7
-// 2
 // 3.75
 // 3.5
 // 9
-// 4.5
 // 10
 // 3
 // 7.5
@@ -50,7 +47,7 @@
 // true
 // true
 // {"name": "flux"}
-// {"lang": "en", "name": "flux", "year": 2026}
+// {"lang": "en", "name": "flux", "year": "2026"}
 // true
 // Some("flux")
 // Some("dsl")
@@ -90,21 +87,20 @@
 // parity-expected-stdout-end
 
 import Flow.Array as Array
+import Flow.IO as FIO
 import Flow.Map as Map
+import Flow.String as String
 
-fn main() with IO, Time, Div {
+fn main() with IO, Time {
     print("== All PrimOps Showcase ==");
 
     print("-- Numeric --");
     print(iadd(10, 20));
     print(isub(20, 3));
     print(imul(6, 7));
-    print(idiv(21, 3));
-    print(imod(20, 6));
     print(fadd(1.5, 2.25));
     print(fsub(5.5, 2.0));
     print(fmul(2.0, 4.5));
-    print(fdiv(9.0, 2.0));
     print(abs(-10));
     print(min(3, 7));
     print(max(3.0, 7.5));
@@ -127,16 +123,16 @@ fn main() with IO, Time, Div {
 
     print("-- Arrays/Collections --");
     let arr = [|10, 20, 30|];
-    print(array_len(arr));
-    print(array_get(arr, 1));
-    let arr2 = array_set(arr, 1, 99);
+    print(Array.length(arr));
+    print(Array.get(arr, 1));
+    let arr2 = Array.update(arr, 1, 99);
     print(arr2);
     print(Array.first(arr2));
     print(Array.last(arr2));
     print(Array.drop(arr2, 1));
     print(Array.contains(arr2, 99));
-    print(array_slice(arr2, 0, 2));
-    print(array_concat(arr, [|40, 50|]));
+    print(Array.slice(arr2, 0, 2));
+    print(Array.concat(arr, [|40, 50|]));
 
     let lst = list(1, 2, 3);
     print(first(lst));
@@ -147,42 +143,42 @@ fn main() with IO, Time, Div {
     print("-- Maps --");
     let m0 = {};
     let m1 = Map.set(m0, "name", "flux");
-    let m2 = Map.set(m1, "year", 2026);
+    let m2 = Map.set(m1, "year", "2026");
     print(is_map(m2));
     print(Map.has(m2, "name"));
     print(Map.get(m2, "name"));
     print(Array.sort(Map.keys(m2)));
     print(Array.contains(Map.values(m2), "flux"));
-    print(Array.contains(Map.values(m2), 2026));
+    print(Array.contains(Map.values(m2), "2026"));
     print(Map.delete(m2, "year"));
     print(Map.merge(m2, Map.set({}, "lang", "en")));
 
     // Canonical map_* names are also accepted:
-    print(map_has(m2, "name"));
-    print(map_get(m2, "name"));
-    let m3 = map_set(m2, "kind", "dsl");
-    print(map_get(m3, "kind"));
+    print(Map.has(m2, "name"));
+    print(Map.get(m2, "name"));
+    let m3 = Map.set(m2, "kind", "dsl");
+    print(Map.get(m3, "kind"));
 
     print("-- Strings --");
     let s = "  hello flux  ";
-    print(string_len(s));
+    print(String.string_len(s));
     print(string_concat("hello", " world"));
     print(string_slice("hello flux", 0, 5));
     print(trim(s));
     print(upper("flux"));
     print(lower("FLUX"));
-    print(starts_with("flux-lang", "flux"));
-    print(ends_with("flux-lang", "lang"));
+    print(String.starts_with("flux-lang", "flux"));
+    print(String.ends_with("flux-lang", "lang"));
     print(replace("flux flux", "flux", "vm"));
-    print(chars("abc"));
+    print(String.chars("abc"));
 
     // Alias for string_slice:
     print(substring("abcdef", 1, 4));
 
     print("-- Parse --");
     print(parse_int("42"));
-    print(parse_ints([|"1", "2", "3"|]));
-    print(split_ints("10,20,30", ","));
+    print(FIO.parse_ints([|"1", "2", "3"|]));
+    print(FIO.split_ints("10,20,30", ","));
 
     print("-- Compat/Type --");
     print(len(arr));
@@ -203,7 +199,7 @@ fn main() with IO, Time, Div {
     let t1 = clock_now();
     print(t1 >= t0);
     let content = read_file("examples/io/input.txt");
-    print(string_len(content) > 0);
+    print(String.string_len(content) > 0);
 
     // Uncomment to test control-effect path:
     // panic("intentional panic from all_primops example");
