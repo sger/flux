@@ -1,60 +1,63 @@
 // Tail Recursion Examples
 // Shows the difference between tail-recursive and non-tail-recursive functions
 
-// ✓ TAIL RECURSIVE - Last operation is the recursive call
-fn main() with IO, Time {
-    fn factorial_tail(n, acc) {
-        if n == 0 {
-            acc;
-        } else {
-        factorial_tail(n - 1, n * acc);  // TAIL CALL (last operation)
+// Tail recursive: the last operation is the recursive call.
+fn factorial_tail(n, acc) {
+    if n == 0 {
+        acc
+    } else {
+        factorial_tail(n - 1, n * acc)
     }
 }
 
-// ✓ TAIL RECURSIVE - Both branches end with tail calls or returns
+// Tail recursive: both branches end with tail calls or returned values.
 fn fibonacci_tail(n, a, b) {
     if n == 0 {
-        a;  // Return value
+        a
     } else {
-    if n == 1 {
-        b;  // Return value
-    } else {
-    fibonacci_tail(n - 1, b, a + b);  // TAIL CALL
-}
-}
+        if n == 1 {
+            b
+        } else {
+            fibonacci_tail(n - 1, b, a + b)
+        }
+    }
 }
 
-// ✗ NOT TAIL RECURSIVE - Multiplication happens AFTER the call
+// Not tail recursive: multiplication happens after the recursive call.
 fn factorial_non_tail(n) {
     if n == 0 {
-        1;
+        1
     } else {
-    n * factorial_non_tail(n - 1);  // NOT tail (multiplication after)
-}
+        n * factorial_non_tail(n - 1)
+    }
 }
 
-// ✗ NOT TAIL RECURSIVE - Addition happens AFTER the call
+// Not tail recursive: addition happens after the recursive calls.
 fn fibonacci_non_tail(n) {
     if n <= 1 {
-        n;
+        n
     } else {
-    fibonacci_non_tail(n - 1) + fibonacci_non_tail(n - 2);  // NOT tail
-}
+        fibonacci_non_tail(n - 1) + fibonacci_non_tail(n - 2)
+    }
 }
 
-// Test the functions
-let result1 = factorial_tail(5, 1);
-let result2 = fibonacci_tail(10, 0, 1);
+fn main() with IO, Time {
+    let result1 = factorial_tail(5, 1);
+    let result2 = fibonacci_tail(10, 0, 1);
+    let check1 = factorial_non_tail(5);
+    let check2 = fibonacci_non_tail(10);
 
-print("Factorial(5):", result1);
-print("Fibonacci(10):", result2);
+    print("Factorial(5): " + to_string(result1));
+    print("Fibonacci(10): " + to_string(result2));
+    print("Non-tail factorial(5): " + to_string(check1));
+    print("Non-tail fibonacci(10): " + to_string(check2));
+}
 
 // Try the analysis:
 // cargo run -- analyze-tail-calls examples/optimizations/tail_recursion.flx
 //
 // Output will show:
-//   ✓ factorial_tail - TAIL CALL FOUND
-//   ✓ fibonacci_tail - TAIL CALL FOUND
-//   ✗ factorial_non_tail - NOT in tail position
-//   ✗ fibonacci_non_tail - NOT in tail position
-}
+//   factorial_tail - tail call found
+//   fibonacci_tail - tail call found
+//   factorial_non_tail - not in tail position
+//   fibonacci_non_tail - not in tail position

@@ -4259,11 +4259,12 @@ impl Compiler {
         // resolve directly to the mangled instance function.
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _)) = self.class_env.resolve_instance_with_subst(
-                class_name,
-                std::slice::from_ref(first_arg_type),
-                &self.interner,
-            )
+            && let Some((instance, _concrete_type_args)) =
+                self.class_env.resolve_method_call_instance_from_first_arg(
+                    class_name,
+                    first_arg_type,
+                    &self.interner,
+                )
         {
             // Build mangled name from all instance type args (multi-param support).
             let type_key = instance
@@ -4336,11 +4337,14 @@ impl Compiler {
         };
 
         self.class_env
-            .resolve_instance_context_dictionaries(
-                class_name,
-                std::slice::from_ref(first_arg_ty),
-                &self.interner,
-            )
+            .resolve_method_call_instance_from_first_arg(class_name, first_arg_ty, &self.interner)
+            .and_then(|(_instance, concrete_type_args)| {
+                self.class_env.resolve_instance_context_dictionaries(
+                    class_name,
+                    &concrete_type_args,
+                    &self.interner,
+                )
+            })
             .map(|dicts| {
                 dicts
                     .iter()

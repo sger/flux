@@ -1740,3 +1740,93 @@ fn bad() -> Int {
         "function compile error should not leak symbol table scope"
     );
 }
+
+mod unqualified_runtime_contract_resolution {
+    //! Resolution rule for unqualified function names whose contracts live in
+    //! multiple modules: an explicit user import beats the auto-injected
+    //! `Flow.*` prelude. Without this, `sum` (defined in both `Flow.List` and
+    //! `Flow.Array`) would resolve via non-deterministic HashMap iteration.
+
+    use crate::compiler::Compiler;
+    use crate::runtime::function_contract::FunctionContract;
+    use crate::runtime::runtime_type::RuntimeType;
+    use crate::syntax::interner::Interner;
+
+    fn list_sum_contract() -> FunctionContract {
+        FunctionContract {
+            params: vec![Some(RuntimeType::List(Box::new(RuntimeType::Int)))],
+            ret: Some(RuntimeType::Int),
+            effects: vec![],
+        }
+    }
+
+    fn array_sum_contract() -> FunctionContract {
+        FunctionContract {
+            params: vec![Some(RuntimeType::Array(Box::new(RuntimeType::Int)))],
+            ret: Some(RuntimeType::Int),
+            effects: vec![],
+        }
+    }
+
+    fn make_compiler_with_sum_contracts() -> Compiler {
+        let mut compiler = Compiler::new_with_interner("<test>", Interner::new());
+        let list_mod = compiler.interner.intern("Flow.List");
+        let array_mod = compiler.interner.intern("Flow.Array");
+        let sum_member = compiler.interner.intern("sum");
+        compiler
+            .cached_member_runtime_contracts
+            .insert((list_mod, sum_member), list_sum_contract());
+        compiler
+            .cached_member_runtime_contracts
+            .insert((array_mod, sum_member), array_sum_contract());
+        compiler
+    }
+
+    #[test]
+    fn prelude_only_resolves_to_prelude_contract() {
+        // Only Flow.List is imported (as it would be from the auto-prelude).
+        // `sum` must resolve to Flow.List.sum even though Flow.Array.sum is
+        // present in the contract cache (loaded transitively as a dependency).
+        let mut compiler = make_compiler_with_sum_contracts();
+        let list_mod = compiler.interner.intern("Flow.List");
+        let sum_member = compiler.interner.intern("sum");
+        compiler.imported_modules.insert(list_mod);
+
+        let resolved = compiler
+            .lookup_unqualified_runtime_contract(sum_member)
+            .expect("expected to resolve sum");
+        assert_eq!(resolved, &list_sum_contract());
+    }
+
+    #[test]
+    fn explicit_import_beats_prelude() {
+        // Both Flow.List (prelude) and Flow.Array (explicit) are imported.
+        // `sum` must resolve to Flow.Array.sum — the explicit import wins.
+        let mut compiler = make_compiler_with_sum_contracts();
+        let list_mod = compiler.interner.intern("Flow.List");
+        let array_mod = compiler.interner.intern("Flow.Array");
+        let sum_member = compiler.interner.intern("sum");
+        compiler.imported_modules.insert(list_mod);
+        compiler.imported_modules.insert(array_mod);
+
+        let resolved = compiler
+            .lookup_unqualified_runtime_contract(sum_member)
+            .expect("expected to resolve sum");
+        assert_eq!(resolved, &array_sum_contract());
+    }
+
+    #[test]
+    fn cached_contract_for_unimported_module_is_ignored() {
+        // Flow.Array.sum is in the contract cache but not in imported_modules,
+        // and no other module exposes `sum`. Resolution must return None
+        // rather than leaking the unimported module's contract.
+        let mut compiler = make_compiler_with_sum_contracts();
+        let sum_member = compiler.interner.intern("sum");
+        // No imports at all.
+        assert!(
+            compiler
+                .lookup_unqualified_runtime_contract(sum_member)
+                .is_none()
+        );
+    }
+}

@@ -118,12 +118,7 @@ pub fn run_core_passes_with_class_env(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     // Stage 0.5: Dictionary elaboration (before standard passes).
     if !class_env.classes.is_empty() {
-        let mut max_binder_id: u32 = 0;
-        for def in &program.defs {
-            max_binder_id = max_binder_id.max(def.binder.id.0);
-            collect_max_binder_id(&def.expr, &mut max_binder_id);
-        }
-        let mut next_id = max_binder_id + 1;
+        let mut next_id = next_fresh_binder_id(program);
         elaborate_dictionaries(program, class_env, type_env, interner, &mut next_id);
     }
     // Run the standard semantic pipeline first, then explicit Aether passes.
@@ -147,12 +142,7 @@ fn run_semantic_core_passes_with_optional_interner(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let mut warnings: Vec<Diagnostic> = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
-    let mut max_binder_id: u32 = 0;
-    for def in &program.defs {
-        max_binder_id = max_binder_id.max(def.binder.id.0);
-        collect_max_binder_id(&def.expr, &mut max_binder_id);
-    }
-    let mut next_id = max_binder_id + 1;
+    let mut next_id = next_fresh_binder_id(program);
 
     // ── Stage 0: Promote known builtin calls to PrimOp ─────────────────
     // Must run after binder resolution (so `binder: None` is reliable) and
@@ -308,6 +298,15 @@ pub fn check_fbip_annotations(
 }
 
 /// Walk an expression tree to find the maximum `CoreBinderId` in use.
+pub(crate) fn next_fresh_binder_id(program: &CoreProgram) -> u32 {
+    let mut max_binder_id: u32 = 0;
+    for def in &program.defs {
+        max_binder_id = max_binder_id.max(def.binder.id.0);
+        collect_max_binder_id(&def.expr, &mut max_binder_id);
+    }
+    max_binder_id + 1
+}
+
 fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
     use crate::core::CoreExpr::*;
     match expr {
