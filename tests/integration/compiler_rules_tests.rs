@@ -561,10 +561,12 @@ fn effectful_prelude_call_routes_to_perform_before_inference() {
         parser.errors
     );
     let mut interner = parser.take_interner();
+    let no_user_effects = std::collections::HashSet::new();
     let routing =
         flux::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
             &program,
             &mut interner,
+            &no_user_effects,
         );
     assert!(routing.changed, "expected 0165 routing to change the AST");
     let routed = routing.program;

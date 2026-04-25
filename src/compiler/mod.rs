@@ -1021,6 +1021,13 @@ pub struct Compiler {
     pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
+    /// Effect names that have at least one user-written `effect E { ... }`
+    /// declaration anywhere in the compilation set (this module or one of its
+    /// transitive dependencies). When a name in this set collides with one of
+    /// the builtin fine-grained effects (`Console`, `FileSystem`, ...),
+    /// `seed_builtin_effect_operations` skips that builtin so the user's
+    /// declaration is the sole source of truth for the effect's op set.
+    user_declared_effect_names: HashSet<Symbol>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
@@ -1213,6 +1220,7 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             effect_row_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
+            user_declared_effect_names: HashSet::new(),
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
@@ -1560,6 +1568,7 @@ impl Compiler {
             crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
                 program,
                 &mut self.interner,
+                &self.user_declared_effect_names,
             );
         self.routed_call_perform_ids = routing.routed_call_perform_ids;
         let routed_program = routing.program;
@@ -2288,6 +2297,7 @@ impl Compiler {
     fn collect_effect_declarations_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::EffectDecl { name, ops, .. } => {
+                self.user_declared_effect_names.insert(*name);
                 let entry = self.effect_ops_registry.entry(*name).or_default();
                 entry.clear();
                 self.effect_op_signatures
@@ -2368,8 +2378,16 @@ impl Compiler {
         use crate::syntax::builtin_effects as be;
         use crate::types::type_constructor::TypeConstructor as TC;
 
+        let user_declared: HashSet<Symbol> = self.user_declared_effect_names.clone();
         let mut add_op = |effect: &str, op: &str, scheme: Scheme| {
             let effect = self.interner.intern(effect);
+            // If a user `effect E { ... }` declaration shares this builtin's
+            // name, the user's declaration is authoritative — don't merge our
+            // builtin op set into theirs (it would falsely require the user's
+            // `handle` blocks to cover ops the user never declared).
+            if user_declared.contains(&effect) {
+                return;
+            }
             let op = self.interner.intern(op);
             self.effect_ops_registry
                 .entry(effect)

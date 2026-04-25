@@ -889,6 +889,24 @@ fn generate_polymorphic_stub(
         id: synth_expr_ids.next_id(),
     };
 
+    // The stub body unconditionally calls `panic(...)`, which carries the
+    // `Panic` effect. The class method's declared row does not include
+    // `Panic` (it is a no-instance fallback, never executed), so we add it
+    // to the synthesized stub's row to satisfy the effect checker. Without
+    // this, classes whose methods declare a non-empty effect row (e.g.
+    // `with Audit`) would emit a spurious E400 for the synthesized stub.
+    let mut stub_effects = method_sig.effects.clone();
+    let panic_effect_sym = interner.intern(crate::syntax::builtin_effects::PANIC);
+    let already_has_panic = stub_effects
+        .iter()
+        .any(|effect| effect.normalized_names().contains(&panic_effect_sym));
+    if !already_has_panic {
+        stub_effects.push(crate::syntax::effect_expr::EffectExpr::Named {
+            name: panic_effect_sym,
+            span,
+        });
+    }
+
     Statement::Function {
         is_public: false,
         intrinsic: None,
@@ -898,7 +916,7 @@ fn generate_polymorphic_stub(
         parameters: params,
         parameter_types,
         return_type,
-        effects: method_sig.effects.clone(),
+        effects: stub_effects,
         body: Block {
             statements: vec![Statement::Expression {
                 expression: body_expr,
