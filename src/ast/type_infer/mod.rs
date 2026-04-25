@@ -162,6 +162,7 @@ struct InferCtx<'a> {
     /// `adt_constructor_types` when only per-ADT metadata is needed.
     adt_type_params: HashMap<Identifier, Vec<Identifier>>,
     effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    effect_row_aliases: HashMap<Identifier, EffectExpr>,
     ambient_effect_rows: Vec<InferEffectRow>,
     handled_effects: Vec<Identifier>,
     /// Deduplication set for unification diagnostics. Keyed by a hash of
@@ -243,6 +244,7 @@ impl<'a> InferCtx<'a> {
         known_flow_names: HashSet<Identifier>,
         flow_module_symbol: Identifier,
         preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+        effect_row_aliases: HashMap<Identifier, EffectExpr>,
     ) -> Self {
         let mut env = TypeEnv::new();
         advance_counter_past_preloaded_schemes(
@@ -268,6 +270,7 @@ impl<'a> InferCtx<'a> {
             adt_constructor_types: HashMap::new(),
             adt_type_params: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
+            effect_row_aliases,
             ambient_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             seen_error_keys: HashSet::new(),
@@ -480,6 +483,7 @@ pub struct InferProgramConfig {
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
     pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    pub effect_row_aliases: HashMap<Identifier, EffectExpr>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
 }
@@ -523,6 +527,7 @@ pub fn infer_program(
         config.known_flow_names,
         config.flow_module_symbol,
         config.preloaded_effect_op_signatures,
+        config.effect_row_aliases,
     );
     init_class_env(&mut ctx, config.class_env, interner);
     ctx.infer_program(program);

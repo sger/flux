@@ -200,6 +200,7 @@ pub fn infer_fixture(rel: &str) -> InferredFixture {
             known_flow_names: HashSet::new(),
             flow_module_symbol,
             preloaded_effect_op_signatures: effect_op_sigs,
+            effect_row_aliases: HashMap::new(),
             class_env: Some(class_env),
         },
     );

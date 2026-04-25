@@ -2863,6 +2863,7 @@ impl Compiler {
             flow_module_symbol,
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+            effect_row_aliases: self.effect_row_aliases.clone(),
         }
     }
 

@@ -77,6 +77,7 @@ fn infer_scheme(source: &str, name: &str) -> (String, String) {
             known_flow_names: HashSet::new(),
             flow_module_symbol,
             preloaded_effect_op_signatures: HashMap::new(),
+            effect_row_aliases: HashMap::new(),
             class_env: Some(class_env),
         },
     );
