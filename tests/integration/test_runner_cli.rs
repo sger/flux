@@ -494,7 +494,7 @@ fn test_native_sort_by_string_len_repro_prints_sorted_strings() {
         eprintln!("skipping native CLI test: binary does not advertise --native");
         return;
     }
-    let file = example_path("repros/sort_by_string_len.flx");
+    let file = example_path("guide/sort_by_string_len.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native"]);
     let text = combined_output(&output);
 
@@ -517,7 +517,7 @@ fn test_native_list_map_filter_example_preserves_list_zip_output() {
         eprintln!("skipping native CLI test: binary does not advertise --native");
         return;
     }
-    let file = example_path("advanced/list_map_filter.flx");
+    let file = example_path("guide/list_map_filter.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
 
@@ -535,7 +535,7 @@ fn test_native_list_map_filter_example_preserves_list_zip_output() {
 
 #[test]
 fn test_vm_higher_order_builtins_example_sorts_arrays() {
-    let file = example_path("basics/higher_order_builtins.flx");
+    let file = example_path("guide/higher_order_builtins.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--no-cache"]);
     let text = combined_output(&output);
 
@@ -563,7 +563,7 @@ fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
         eprintln!("skipping LLVM dump CLI test: binary does not advertise --dump-lir-llvm");
         return;
     }
-    let file = example_path("repros/sort_by_string_len.flx");
+    let file = example_path("guide/sort_by_string_len.flx");
     let output = run_flux(&["--dump-lir-llvm", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
@@ -843,7 +843,7 @@ fn test_syntax_comprehensions() {
 
 #[test]
 fn dump_core_prints_core_ir_and_exits_before_execution() {
-    let file = example_path("basics/arithmetic.flx");
+    let file = example_path("guide/arithmetic.flx");
     let output = run_flux(&["--dump-core", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
@@ -886,7 +886,7 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
 
 #[test]
 fn dump_core_debug_preserves_raw_identity_details() {
-    let file = example_path("basics/arithmetic.flx");
+    let file = example_path("guide/arithmetic.flx");
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
@@ -924,7 +924,7 @@ fn dump_core_debug_preserves_raw_identity_details() {
 
 #[test]
 fn dump_cfg_prints_cfg_ir_and_exits_before_execution() {
-    let file = example_path("basics/arithmetic.flx");
+    let file = example_path("guide/arithmetic.flx");
     let output = run_flux(&["--dump-cfg", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
@@ -1204,7 +1204,7 @@ fn test_native_using_modules_program_links_without_user_adts() {
         eprintln!("skipping native CLI test: binary does not advertise --native");
         return;
     }
-    let file = example_path("advanced/using_modules.flx");
+    let file = example_path("guide/using_modules.flx");
     let output = run_flux(&[file.to_str().unwrap(), "--native", "--no-cache"]);
     let text = combined_output(&output);
 

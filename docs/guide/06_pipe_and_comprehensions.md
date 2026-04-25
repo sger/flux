@@ -1,6 +1,6 @@
 # Chapter 6 — Pipe Operator and List Comprehensions
 
-> Full examples: [`examples/basics/pipe_operator.flx`](../../examples/basics/pipe_operator.flx), [`examples/basics/list_comprehension.flx`](../../examples/basics/list_comprehension.flx), [`examples/advanced/functional_pipeline.flx`](../../examples/advanced/functional_pipeline.flx)
+> Full examples: [`examples/guide/pipe_operator.flx`](../../examples/guide/pipe_operator.flx), [`examples/guide/list_comprehension.flx`](../../examples/guide/list_comprehension.flx), [`examples/guide/functional_pipeline.flx`](../../examples/guide/functional_pipeline.flx)
 
 ## The Pipe Operator
 
@@ -131,7 +131,7 @@ print(triples)  // [|3,4,5, 6,8,10|]
 
 Both `[x | xs]` (cons) and `[x * 2 | x <- xs]` (comprehension) use `|`. The parser disambiguates by lookahead: if after `|` there is `Identifier LeftArrow (<-)`, it is a comprehension; otherwise it is a cons cell.
 
-> See [`examples/basics/list_comprehension.flx`](../../examples/basics/list_comprehension.flx).
+> See [`examples/guide/list_comprehension.flx`](../../examples/guide/list_comprehension.flx).
 
 ## Combining Pipe and Comprehensions
 

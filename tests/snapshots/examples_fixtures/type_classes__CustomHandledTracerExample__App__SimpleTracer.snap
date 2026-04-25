@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/CustomHandledTracerExample/App/SimpleTracer.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `CustomHandledTracerExample.App.SimpleTracer` doesn't match file path `examples/type_classes/CustomHandledTracerExample/App/SimpleTracer.flx`.
+
+  examples/type_classes/CustomHandledTracerExample/App/SimpleTracer.flx:5:1
+  |
+5 | module CustomHandledTracerExample.App.SimpleTracer {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

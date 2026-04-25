@@ -930,10 +930,14 @@ pub(super) struct HandlerScope {
     pub effect: Symbol,
     pub is_direct: bool,
     pub ops: Vec<Symbol>,
-    /// Local variable indices holding arm closures for evidence-passing.
-    /// `evidence_locals[i]` is the local index for `ops[i]`.
-    /// `None` when evidence-passing is not applicable (non-TR handler).
-    pub evidence_locals: Option<Vec<usize>>,
+    /// Named symbols holding the arm closures for evidence-passing. Each
+    /// `evidence_symbols[i]` is the interned `__ev_<Effect>_<Op>` symbol
+    /// bound to a local in the enclosing scope. Performs resolve through
+    /// the symbol table so nested closures capture the evidence binding via
+    /// the normal free-variable promotion path (`SymbolTable::resolve`
+    /// → `SymbolScope::Free`). `None` when evidence-passing is not applicable
+    /// (non-TR handler).
+    pub evidence_symbols: Option<Vec<Symbol>>,
 }
 
 pub struct Compiler {
@@ -6274,23 +6278,25 @@ impl Compiler {
         None
     }
 
-    /// Try to resolve a perform target to an evidence local variable.
+    /// Try to resolve a perform target to an evidence binding.
     ///
-    /// Returns `Some(local_index)` if the target handler has evidence locals
-    /// for this operation, enabling direct `OpGetLocal` + `OpCall` dispatch.
-    pub(super) fn resolve_evidence_local(&self, effect: Symbol, op: Symbol) -> Option<usize> {
-        for scope in self.handler_scopes.iter().rev() {
-            if scope.effect == effect {
-                if let (Some(ev_locals), Some(arm_idx)) = (
-                    &scope.evidence_locals,
-                    scope.ops.iter().position(|&o| o == op),
-                ) {
-                    return Some(ev_locals[arm_idx]);
-                }
-                return None;
-            }
-        }
-        None
+    /// Returns the resolved binding for the synthetic `__ev_<Effect>_<Op>`
+    /// symbol that holds the arm closure. When the matching handler scope sits
+    /// in an enclosing function frame, `SymbolTable::resolve` promotes the
+    /// binding to `SymbolScope::Free` so the nested closure captures it via
+    /// the normal free-variable mechanism instead of trying to read an outer
+    /// frame's local index directly.
+    pub(super) fn resolve_evidence_binding(
+        &mut self,
+        effect: Symbol,
+        op: Symbol,
+    ) -> Option<crate::compiler::binding::Binding> {
+        let ev_symbol = {
+            let scope = self.handler_scopes.iter().rev().find(|s| s.effect == effect)?;
+            let arm_idx = scope.ops.iter().position(|&o| o == op)?;
+            scope.evidence_symbols.as_ref()?.get(arm_idx).copied()?
+        };
+        self.symbol_table.resolve(ev_symbol)
     }
 
     /// Emit bytecode that pushes an identity closure `fn(x) -> x` onto the stack.
@@ -6315,6 +6321,38 @@ impl Compiler {
         self.emit(OpCode::OpClosure, &[fn_idx, 0]);
     }
 
+    /// Effect-availability predicate consulted during the AST → bytecode
+    /// pipeline (expression lowering, CFG primop emission, etc).
+    ///
+    /// **Three-way invariant** (proposal 0171, Track 4). Three passes ask
+    /// "is effect E available here?" against three distinct data shapes:
+    ///
+    /// 1. **HM inference** — row algebra over `InferEffectRow`, source of
+    ///    truth during type checking. Lives in
+    ///    [`crate::ast::type_infer::effects`].
+    /// 2. **CFG pre-validator** — `CompilerPhase::is_effect_in_declared`
+    ///    in `statement.rs`, declared-only static check that intentionally
+    ///    ignores synthesized handlers. Pre-pass safety gate.
+    /// 3. **This predicate** — runtime view that walks
+    ///    `current_function_effects()` *and* `handled_effects`. Used by
+    ///    the lowering / bytecode emission paths.
+    ///
+    /// The directional contract: if HM unification succeeds for a fixture
+    /// **and** the pre-validator accepts it, this predicate must accept
+    /// the same effect. The pre-validator may reject earlier than HM /
+    /// lowering would (it is conservative on declared-only state); it
+    /// must never accept what this predicate later rejects. The 0165 bug
+    /// where CFG pre-validation accepted a routed `perform` that lowering
+    /// then rejected with E400 was a violation of this contract; it was
+    /// closed by routing `Expression::Perform` through the same
+    /// pre-validator entry that direct builtin calls use (see
+    /// `expr_has_effect_row_error` in `statement.rs`).
+    ///
+    /// `current_function_effects()` returning `None` means we are at
+    /// top-level / not inside a tracked function; the predicate returns
+    /// `true` so module-level effectful expressions are not policed by
+    /// this gate. `Some(&[])` means a function explicitly declared zero
+    /// effects, which correctly returns `false` for any required effect.
     pub(super) fn is_effect_available(&self, required: Symbol) -> bool {
         if self.current_function_effects().is_none() && self.handled_effects.is_empty() {
             return true;
@@ -6324,18 +6362,21 @@ impl Compiler {
             || self.handled_effects.contains(&required)
     }
 
+    /// Name-keyed view onto [`Self::is_effect_available`].
+    ///
+    /// Resolves the name to a `Symbol` via the read-only interner lookup
+    /// and delegates. If the name has never been interned, no declared
+    /// effect or handler could match it, so the predicate returns
+    /// `false` directly. Keeping a single source-of-truth implementation
+    /// avoids the drift this track was created to prevent.
     pub(super) fn is_effect_available_name(&self, required_name: &str) -> bool {
         if self.current_function_effects().is_none() && self.handled_effects.is_empty() {
             return true;
         }
-        self.current_function_effects().is_some_and(|effects| {
-            effects
-                .iter()
-                .any(|effect| self.sym(*effect) == required_name)
-        }) || self
-            .handled_effects
-            .iter()
-            .any(|handled| self.sym(*handled) == required_name)
+        match self.interner.lookup(required_name) {
+            Some(symbol) => self.is_effect_available(symbol),
+            None => false,
+        }
     }
 
     pub(super) fn current_function_captured_locals(&self) -> Option<&HashSet<usize>> {

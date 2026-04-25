@@ -1097,7 +1097,7 @@ fn maintained_either_match_fixture_still_emits_reuse_sites() {
 
 #[test]
 fn maintained_list_map_filter_fixture_still_emits_reuse_sites() {
-    let src = std::fs::read_to_string("examples/advanced/list_map_filter.flx")
+    let src = std::fs::read_to_string("examples/guide/list_map_filter.flx")
         .expect("list_map_filter fixture should exist");
     let core = lowered_core(src);
     assert!(
@@ -1111,7 +1111,7 @@ fn maintained_list_map_filter_fixture_still_emits_reuse_sites() {
 
 #[test]
 fn maintained_using_list_module_fixture_still_emits_reuse_sites() {
-    let src = std::fs::read_to_string("examples/advanced/using_list_module.flx")
+    let src = std::fs::read_to_string("examples/guide/using_list_module.flx")
         .expect("using_list_module fixture should exist");
     let core = lowered_core(src);
     assert!(

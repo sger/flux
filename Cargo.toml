@@ -390,12 +390,8 @@ name = "error_codes_registry_tests"
 path = "tests/diagnostics/error_codes_registry_tests.rs"
 
 [[test]]
-name = "examples_basics_snapshots"
-path = "tests/examples/examples_basics_snapshots.rs"
-
-[[test]]
-name = "examples_advanced_snapshots"
-path = "tests/examples/examples_advanced_snapshots.rs"
+name = "examples_guide_snapshots"
+path = "tests/examples/examples_guide_snapshots.rs"
 
 [[test]]
 name = "examples_fixtures_snapshots"

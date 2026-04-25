@@ -47,13 +47,13 @@ mod tests {
     #[test]
     fn run_target_clone_preserves_path_and_mode() {
         let target = RunTarget {
-            path: "examples/basics/arithmetic.flx".to_string(),
+            path: "examples/guide/arithmetic.flx".to_string(),
             mode: RunMode::Program,
         };
 
         let cloned = target.clone();
 
-        assert_eq!(cloned.path, "examples/basics/arithmetic.flx");
+        assert_eq!(cloned.path, "examples/guide/arithmetic.flx");
         assert_eq!(cloned.mode, RunMode::Program);
     }
 }
