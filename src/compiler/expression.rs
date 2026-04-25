@@ -3318,8 +3318,9 @@ impl Compiler {
     ///
     /// `perform_id` identifies the Perform node for origin-aware diagnostics.
     /// When the id matches an entry in `routed_call_perform_ids`, the node
-    /// was synthesized from a direct user call (e.g. `println(x)`); E400
-    /// then renders call-shape terminology.
+    /// was synthesized from a direct user call (e.g. `println(x)`); E400,
+    /// E403, and E404 then render call-shape terminology rather than
+    /// `perform`-shape terminology.
     fn compile_perform(
         &mut self,
         effect: Symbol,
@@ -3331,13 +3332,32 @@ impl Compiler {
             .current_span
             .unwrap_or_else(|| Span::new(Position::default(), Position::default()));
 
+        let lowered_from_call = self.routed_call_perform_ids.contains(&perform_id);
+
         let Some(has_operation) = self
             .effect_declared_ops(effect)
             .map(|ops| ops.contains(&op))
         else {
             let effect_name = self.sym(effect).to_string();
-            let hint = suggest_effect_name(&effect_name)
-                .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string());
+            let op_name = self.sym(op).to_string();
+            let suggestion = suggest_effect_name(&effect_name);
+            let hint = if lowered_from_call {
+                suggestion.clone().unwrap_or_else(|| {
+                    format!(
+                        "Declare effect `{effect_name}` (with operation `{op_name}`) before \
+                         calling `{op_name}`."
+                    )
+                })
+            } else {
+                suggestion
+                    .clone()
+                    .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string())
+            };
+            let label = if lowered_from_call {
+                "unknown effect in call"
+            } else {
+                "unknown effect in perform"
+            };
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E403",
@@ -3351,12 +3371,17 @@ impl Compiler {
                 .with_display_title("Unknown Effect")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "unknown effect in perform"),
+                .with_primary_label(span, label),
             ));
         };
         if !has_operation {
             let effect_name = self.sym(effect).to_string();
             let op_name = self.sym(op).to_string();
+            let label = if lowered_from_call {
+                "unknown operation in call"
+            } else {
+                "unknown operation in perform"
+            };
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E404",
@@ -3373,7 +3398,7 @@ impl Compiler {
                 .with_display_title("Unknown Effect Operation")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "unknown operation in perform"),
+                .with_primary_label(span, label),
             ));
         }
         let (op_params, _op_ret) =
@@ -3415,7 +3440,6 @@ impl Compiler {
 
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
-            let lowered_from_call = self.routed_call_perform_ids.contains(&perform_id);
             let (message, label) = if lowered_from_call {
                 (
                     format!(
@@ -3456,11 +3480,12 @@ impl Compiler {
         }
 
         // Evidence-passing path: if the handler has evidence locals, emit a
-        // direct function call (OpGetLocal + identity resume + args + OpCall)
-        // instead of handler stack access.
-        if let Some(ev_local) = self.resolve_evidence_local(effect, op) {
-            // Push arm closure from evidence local.
-            self.emit(OpCode::OpGetLocal, &[ev_local]);
+        // direct function call (load arm closure + identity resume + args +
+        // OpCall) instead of handler stack access. We resolve through the
+        // symbol table so nested closures automatically capture the evidence
+        // binding via free-variable promotion.
+        if let Some(ev_binding) = self.resolve_evidence_binding(effect, op) {
+            self.load_symbol(&ev_binding);
             // Push identity closure as resume parameter.
             self.emit_identity_closure();
             // Compile arguments.
@@ -3745,23 +3770,31 @@ impl Compiler {
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
-        // Evidence-passing: for TR handlers, store arm closures in local variables
-        // so that performs can load them directly instead of indexing handler_stack.
-        let evidence_locals = if is_direct {
+        // Evidence-passing: for TR handlers, store arm closures in local
+        // variables under interned `__ev_<Effect>_<Op>` names so that performs
+        // resolve them through the symbol table, picking up free-variable
+        // capture for nested closures automatically.
+        let evidence_symbols = if is_direct {
             let n = arms.len();
             let mut ev_locals = vec![0usize; n];
+            let mut ev_symbols = vec![Symbol::new(0); n];
+            let effect_name = self.sym(effect).to_string();
             // Stack has [c0, c1, ..., cN-1]. Pop in reverse order into locals.
             for i in (0..n).rev() {
-                let temp = self.symbol_table.define_temp();
-                self.emit(OpCode::OpSetLocal, &[temp.index]);
-                ev_locals[i] = temp.index;
+                let op_name = self.sym(scope_ops[i]).to_string();
+                let ev_name = format!("__ev_{}_{}", effect_name, op_name);
+                let ev_symbol = self.interner.intern(&ev_name);
+                let binding = self.symbol_table.define(ev_symbol, Span::default());
+                self.emit(OpCode::OpSetLocal, &[binding.index]);
+                ev_locals[i] = binding.index;
+                ev_symbols[i] = ev_symbol;
             }
             // Reload closures onto stack for OpHandleDirect fallback
             // (needed for cross-function performs that use handler_stack).
             for ev_local in &ev_locals {
                 self.emit(OpCode::OpGetLocal, &[*ev_local]);
             }
-            Some(ev_locals)
+            Some(ev_symbols)
         } else {
             None
         };
@@ -3795,7 +3828,7 @@ impl Compiler {
             effect,
             is_direct,
             ops: scope_ops,
-            evidence_locals,
+            evidence_symbols,
         });
 
         // Compile the handled expression with the effect available in scope.

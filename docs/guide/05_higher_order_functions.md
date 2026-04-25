@@ -1,6 +1,6 @@
 # Chapter 5 — Higher-Order Functions
 
-> Full examples: [`examples/basics/higher_order_base_functions.flx`](../../examples/basics/higher_order_base_functions.flx), [`examples/advanced/functional_pipeline.flx`](../../examples/advanced/functional_pipeline.flx)
+> Full examples: [`examples/guide/higher_order_base_functions.flx`](../../examples/guide/higher_order_base_functions.flx), [`examples/guide/functional_pipeline.flx`](../../examples/guide/functional_pipeline.flx)
 
 Higher-order functions take or return functions. Flux ships them as base functions — no imports needed.
 
@@ -147,7 +147,7 @@ let transform = compose(add_ten, compose(double, square))
 print(transform(5))  // 60
 ```
 
-> See [`examples/advanced/functional_pipeline.flx`](../../examples/advanced/functional_pipeline.flx).
+> See [`examples/guide/functional_pipeline.flx`](../../examples/guide/functional_pipeline.flx).
 
 ## Next
 

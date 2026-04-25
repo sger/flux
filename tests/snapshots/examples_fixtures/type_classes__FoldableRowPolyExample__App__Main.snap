@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/FoldableRowPolyExample/App/Main.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `FoldableRowPolyExample.App.Main` doesn't match file path `examples/type_classes/FoldableRowPolyExample/App/Main.flx`.
+
+  examples/type_classes/FoldableRowPolyExample/App/Main.flx:4:1
+  |
+4 | module FoldableRowPolyExample.App.Main {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

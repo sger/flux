@@ -1,6 +1,6 @@
 # Chapter 4 — Pattern Matching
 
-> Full examples: [`examples/patterns/`](../../examples/patterns/), [`examples/basics/either_and_option.flx`](../../examples/basics/either_and_option.flx)
+> Full examples: [`examples/patterns/`](../../examples/patterns/), [`examples/guide/either_and_option.flx`](../../examples/guide/either_and_option.flx)
 
 ## Basic match
 

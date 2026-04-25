@@ -1,0 +1,15 @@
+// Entry default handlers do not propagate into helper functions even
+// when the entry is a `test_*` function. The default handler synthesis
+// wraps only the entry's body; helpers called from it must still
+// declare `with Console` (or whatever effect they perform) explicitly.
+//
+// Symmetric with `01_missing_effect_in_helper.flx`, but rooted in a
+// `test_*` entry so the rule is shown to apply to both entry shapes.
+
+fn helper() -> Unit {
+    println("missing Console")
+}
+
+fn test_helper_does_not_inherit_entry_default() {
+    helper()
+}

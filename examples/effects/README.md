@@ -78,6 +78,44 @@ explicit capability grant) is tracked in proposal
 [0171](../../docs/proposals/0171_effect_system_polish_and_hardening.md)
 under the *default-handler policy* heading.
 
+## `Flow.Primops` is the intrinsic layer
+
+`Flow.Primops` is the compiler's intrinsic implementation layer for
+effectful prelude operations. It exists so that synthesized default
+handlers at entrypoints have a stable target to delegate to — every
+`Flow.Primops.__primop_*` is the in-runtime implementation behind a
+user-facing call like `println`, `read_file`, or `now_ms`. **User
+code does not interact with this module directly.**
+
+What you should learn instead, in order:
+
+1. **Prelude calls.** `println`, `read_file`, `write_file`,
+   `delete_file`, `read_line`, `now_ms` — these are auto-imported and
+   are what your code actually writes.
+2. **`Flow.Effects` labels.** `Console`, `FileSystem`, `Stdin`,
+   `Clock`, `Debug` — the effects those calls require, the labels you
+   put in `with` clauses, and the targets of `handle` blocks.
+3. **`perform` / `handle`.** For user-defined effects (`effect E { ...
+   }`) and for intercepting / shadowing the built-in operations
+   inside your own scope.
+
+The compiler enforces this boundary in two places:
+
+| Attempt | File | Result |
+|---|---|---|
+| User function named `__primop_println` | [failing/03_reserved_internal_primop.flx](failing/03_reserved_internal_primop.flx) | ✗ Reserved-name diagnostic — `__primop_*` names cannot appear in user source |
+| `import Flow.Primops` from user code | [failing/04_reserved_primops_module_import.flx](failing/04_reserved_primops_module_import.flx) | ✗ Reserved-module diagnostic — `Flow.Primops` is not user-importable |
+
+If you find yourself wanting `Flow.Primops`, you almost certainly
+want one of: a prelude call (just write `println(...)`), a `with`
+clause on your function, or — for genuinely new behaviour — a
+user-defined effect with `perform` and `handle`.
+
+The decision to keep `Flow.Primops` *visible-but-discouraged* (rather
+than relocate or hide the module) is recorded in proposal
+[0171](../../docs/proposals/0171_effect_system_polish_and_hardening.md)
+under Track 3.
+
 ## Handler coverage is total
 
 Every `handle E { ... }` block must cover **every** operation declared by `E`,

@@ -429,7 +429,7 @@ fn direct_string_len_emits_legacy_helper_warning() {
 #[test]
 fn direct_array_len_is_rejected_in_normal_example_files() {
     let rendered = compile_err_rendered_in(
-        "examples/basics/test.flx",
+        "examples/guide/test.flx",
         "fn main() { array_len([|1, 2, 3|]) }",
     );
     assert!(rendered.contains("error[E034]"));

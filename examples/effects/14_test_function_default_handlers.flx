@@ -1,0 +1,14 @@
+// parity: vm
+// Test functions (`test_*`) are entrypoints too, and receive the same
+// compiler-synthesized default handlers as `main` for the built-in
+// operational effects. This file demonstrates a `test_*` calling
+// `println` and `now_ms` without any `with` clause — symmetric with
+// `01_default_entry_handlers.flx` but for the test-runner entry shape.
+//
+// Ordinary helpers do NOT get this treatment; the matching negative is
+// `failing/05_test_helper_no_default.flx`.
+
+fn test_default_handlers_apply_to_test_entry() {
+    println("inside test_*: default Console handler")
+    println("inside test_*: clock=" + to_string(now_ms()))
+}

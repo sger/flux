@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_guide_snapshots.rs
+---
+Fixture: examples/guide/pipe_operator.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

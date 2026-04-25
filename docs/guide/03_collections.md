@@ -1,6 +1,6 @@
 # Chapter 3 — Collections
 
-> Full examples: [`examples/basics/`](../../examples/basics/)
+> Full examples: [`examples/guide/`](../../examples/guide/)
 
 Flux has three collection types with distinct trade-offs: **arrays** (indexed, `Rc`-backed), **cons lists** (linked, GC-managed), and **hash maps** (persistent HAMT). **Tuples** group heterogeneous values.
 
@@ -40,7 +40,7 @@ print(sum(nums))                           // 23
 print(range(1, 5))                         // [|1, 2, 3, 4|]
 ```
 
-> See [`examples/basics/arrays_basic.flx`](../../examples/basics/arrays_basic.flx) and [`examples/basics/array_base_functions.flx`](../../examples/basics/array_base_functions.flx).
+> See [`examples/guide/arrays_basic.flx`](../../examples/guide/arrays_basic.flx) and [`examples/guide/array_base_functions.flx`](../../examples/guide/array_base_functions.flx).
 
 ## Cons Lists
 
@@ -82,7 +82,7 @@ fn sum(lst) {
 print(sum(list(1, 2, 3, 4)))  // 10
 ```
 
-> See [`examples/basics/list_basic.flx`](../../examples/basics/list_basic.flx).
+> See [`examples/guide/list_basic.flx`](../../examples/guide/list_basic.flx).
 
 ## Hash Maps
 
@@ -117,7 +117,7 @@ print(h["a"])   // Some(1)
 print(h["z"])   // None
 ```
 
-> See [`examples/basics/hash_basic.flx`](../../examples/basics/hash_basic.flx) and [`examples/basics/hash_base_functions.flx`](../../examples/basics/hash_base_functions.flx).
+> See [`examples/guide/hash_basic.flx`](../../examples/guide/hash_basic.flx) and [`examples/guide/hash_base_functions.flx`](../../examples/guide/hash_base_functions.flx).
 
 ## Tuples
 
@@ -152,7 +152,7 @@ fn swap((a, b)) { (b, a) }
 print(swap((1, 2)))   // (2, 1)
 ```
 
-> See [`examples/basics/tuples.flx`](../../examples/basics/tuples.flx).
+> See [`examples/guide/tuples.flx`](../../examples/guide/tuples.flx).
 
 ## Next
 

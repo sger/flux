@@ -360,11 +360,11 @@ mod tests {
 
     #[test]
     fn parses_implicit_file_run() {
-        let command = parse_args(cli(&["flux", "examples/basics/arithmetic.flx"])).unwrap();
+        let command = parse_args(cli(&["flux", "examples/guide/arithmetic.flx"])).unwrap();
         match command {
             CliCommand::Run { target, .. } => {
                 assert_eq!(target.mode, RunMode::Program);
-                assert_eq!(target.path, "examples/basics/arithmetic.flx");
+                assert_eq!(target.path, "examples/guide/arithmetic.flx");
             }
             other => panic!("expected run mode, got {other:?}"),
         }
@@ -374,7 +374,7 @@ mod tests {
     fn parses_dump_modes() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--dump-core=debug",
             "--dump-aether",
         ]))
@@ -392,7 +392,7 @@ mod tests {
     fn rejects_trace_aether_with_dump() {
         let err = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--trace-aether",
             "--dump-core",
         ]))
@@ -404,7 +404,7 @@ mod tests {
     fn rejects_dump_lir_without_native() {
         let err = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--dump-lir",
         ]))
         .unwrap_err();
@@ -422,7 +422,7 @@ mod tests {
     fn emit_llvm_implies_native_backend() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--emit-llvm",
         ]));
         #[cfg(feature = "llvm")]
@@ -448,7 +448,7 @@ mod tests {
         let command = parse_args(cli(&[
             "flux",
             "run",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--native",
             "--dump-cfg",
             "--cache-dir",
@@ -498,12 +498,12 @@ mod tests {
     #[test]
     fn subcommands_store_input_path_in_grouped_input_flags() {
         let command =
-            parse_args(cli(&["flux", "tokens", "examples/basics/arithmetic.flx"])).unwrap();
+            parse_args(cli(&["flux", "tokens", "examples/guide/arithmetic.flx"])).unwrap();
         match command {
             CliCommand::Tokens { flags } => {
                 assert_eq!(
                     flags.input.input_path.as_deref(),
-                    Some("examples/basics/arithmetic.flx")
+                    Some("examples/guide/arithmetic.flx")
                 );
             }
             other => panic!("expected tokens mode, got {other:?}"),
@@ -514,7 +514,7 @@ mod tests {
     fn test_filter_is_stored_in_grouped_input_flags() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--test",
             "--test-filter",
             "arith",
@@ -531,14 +531,14 @@ mod tests {
 
     #[test]
     fn parses_native_program_run_path() {
-        let command = parse_args(cli(&["flux", "examples/basics/arithmetic.flx", "--native"]));
+        let command = parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--native"]));
 
         #[cfg(feature = "llvm")]
         {
             match command.unwrap() {
                 CliCommand::Run { flags, target } => {
                     assert_eq!(target.mode, RunMode::Program);
-                    assert_eq!(target.path, "examples/basics/arithmetic.flx");
+                    assert_eq!(target.path, "examples/guide/arithmetic.flx");
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
                     assert!(flags.backend.use_llvm);
@@ -558,7 +558,7 @@ mod tests {
     fn rejects_removed_core_to_llvm_flag() {
         let err = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--core-to-llvm",
         ]))
         .unwrap_err();
@@ -570,7 +570,7 @@ mod tests {
     fn parses_native_test_run_path() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--native",
             "--test",
         ]));
@@ -580,7 +580,7 @@ mod tests {
             match command.unwrap() {
                 CliCommand::Run { flags, target } => {
                     assert_eq!(target.mode, RunMode::Tests);
-                    assert_eq!(target.path, "examples/basics/arithmetic.flx");
+                    assert_eq!(target.path, "examples/guide/arithmetic.flx");
                     assert_eq!(flags.backend.selected, Backend::Native);
                     assert!(flags.is_native_backend());
                 }
@@ -599,7 +599,7 @@ mod tests {
     fn dump_lir_llvm_is_recognized_but_needs_backend_support() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--dump-lir-llvm",
         ]));
 
@@ -620,7 +620,7 @@ mod tests {
     fn parses_emit_binary_as_native_path() {
         let command = parse_args(cli(&[
             "flux",
-            "examples/basics/arithmetic.flx",
+            "examples/guide/arithmetic.flx",
             "--emit-binary",
         ]));
 
@@ -651,12 +651,12 @@ mod tests {
             "flux".into(),
             "fmt".into(),
             "--check".into(),
-            "examples/basics/arithmetic.flx".into(),
+            "examples/guide/arithmetic.flx".into(),
         ])
         .unwrap();
 
         assert!(check);
-        assert_eq!(path, "examples/basics/arithmetic.flx");
+        assert_eq!(path, "examples/guide/arithmetic.flx");
     }
 
     #[test]

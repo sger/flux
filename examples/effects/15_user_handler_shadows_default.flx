@@ -1,0 +1,29 @@
+// parity: vm
+// A user-written `handle Console { ... }` at the entrypoint top level
+// intercepts Console operations before the compiler-synthesized default
+// handler sees them. This fixture exercises the layering rule: the
+// user handler is the innermost handler around the body, and the
+// default handler (if any) wraps it on the outside but is never
+// reached for Console operations.
+//
+// The user handler counts `println` invocations and discards their
+// payloads; the final printed line uses an outer `println` that runs
+// after the user handler has already returned a value, and is itself
+// dispatched by the synthesized default handler — confirming that
+// defaults still apply outside a user `handle` block.
+
+fn captured_total() -> Int {
+    do {
+        println("captured: one")
+        println("captured: two")
+        2
+    } handle Console {
+        print(resume, _msg) -> resume(())
+        println(resume, _msg) -> resume(())
+    }
+}
+
+fn main() {
+    let n = captured_total()
+    println("captured_count=" + to_string(n))
+}

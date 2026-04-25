@@ -1,6 +1,6 @@
 # Chapter 2 — Functions and Closures
 
-> Full examples: [`examples/basics/`](../../examples/basics/), [`examples/functions/`](../../examples/functions/)
+> Full examples: [`examples/guide/`](../../examples/guide/), [`examples/functions/`](../../examples/functions/)
 
 ## Named Functions
 
@@ -64,7 +64,7 @@ fn applyTwice(f, x) { f(f(x)) }
 print(applyTwice(\x -> x * 2, 3))  // 12
 ```
 
-> See [`examples/basics/lambda.flx`](../../examples/basics/lambda.flx).
+> See [`examples/guide/lambda.flx`](../../examples/guide/lambda.flx).
 
 ## Closures
 
@@ -115,7 +115,7 @@ do {
 }
 ```
 
-> See [`examples/basics/do_block.flx`](../../examples/basics/do_block.flx).
+> See [`examples/guide/do_block.flx`](../../examples/guide/do_block.flx).
 
 ## Where Clauses
 

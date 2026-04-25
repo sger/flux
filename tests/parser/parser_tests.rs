@@ -1978,7 +1978,7 @@ let w = match x { Some(n) -> n, None -> 0 };
     // - Semicolons are optional for top-level statements.
     // - Statements are separated by parser progress; semicolons are accepted but
     //   not required for the cases covered below.
-    // See: examples/basics/semicolons.flx for comprehensive examples
+    // See: examples/guide/semicolons.flx for comprehensive examples
     // ========================================================================
 
     #[test]

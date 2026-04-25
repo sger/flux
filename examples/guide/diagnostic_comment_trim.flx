@@ -1,0 +1,18 @@
+// parity-expected-stdout-begin
+// 3
+// [|1, 2, 3|]
+// parity-expected-stdout-end
+
+fn main() with IO {
+    // Diagnostic comment-trimming demo
+    //
+    // This file intentionally contains an error to demonstrate how
+    // diagnostics strip trailing comments from source-line display,
+    // keeping the output clean and focused on the real problem.
+    //
+    // Run with:  cargo run -- run examples/guide/diagnostic_comment_trim.flx
+
+    let arr = [|1, 2, 3|];
+    print(len(arr))      // 3
+    print(arr)
+}

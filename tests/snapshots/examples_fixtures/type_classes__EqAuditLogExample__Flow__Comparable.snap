@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/EqAuditLogExample/Flow/Comparable.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `EqAuditLogExample.Flow.Comparable` doesn't match file path `examples/type_classes/EqAuditLogExample/Flow/Comparable.flx`.
+
+  examples/type_classes/EqAuditLogExample/Flow/Comparable.flx:1:1
+  |
+1 | module EqAuditLogExample.Flow.Comparable {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

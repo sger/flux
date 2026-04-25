@@ -1,0 +1,48 @@
+// parity-expected-stdout-begin
+// Some("Alice")
+// None
+// {"age": "30", "email": "alice@example.com", "name": "Alice"}
+// Some("alice@example.com")
+// {"age": "30", "name": "Alice"}
+// true
+// false
+// true
+// "Immutability check:"
+// Some("Alice")
+// None
+// parity-expected-stdout-end
+
+import Flow.Map as Map
+
+// Program entry point.
+fn main() with IO {
+    // Persistent Map / HAMT demo. Keys and values are String so the type
+    // system can infer `Map<String, String>` without divergence. For
+    // heterogeneous fields, use a named-field data type instead — see
+    // `examples/guide/records.flx` and proposal 0152.
+
+    let person = {"name": "Alice", "age": "30"}
+
+    // get returns Some(value) or None.
+    print(Map.get(person, "name"))
+    print(Map.get(person, "email"))
+
+    // set returns a new map; the original is unchanged.
+    let updated = Map.set(person, "email", "alice@example.com")
+    print(updated)
+    print(Map.get(updated, "email"))
+
+    // delete returns a new map without the key.
+    let smaller = Map.delete(updated, "email")
+    print(smaller)
+
+    // Type predicates.
+    print(is_map(person))
+    print(is_map([|"a", "b"|]))
+    print(is_map({}))
+
+    // Original map is unchanged after `set`.
+    print("Immutability check:")
+    print(Map.get(person, "name"))
+    print(Map.get(person, "email"))
+}
