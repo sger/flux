@@ -53,6 +53,7 @@ fn infer_program_perf_guard() {
                 known_flow_names: HashSet::new(),
                 flow_module_symbol: base_symbol,
                 preloaded_effect_op_signatures: HashMap::new(),
+                effect_row_aliases: HashMap::new(),
                 class_env: None,
             },
         );

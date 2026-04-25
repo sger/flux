@@ -176,6 +176,7 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
             known_flow_names: HashSet::new(),
             flow_module_symbol: flow_sym,
             preloaded_effect_op_signatures: effect_op_sigs,
+            effect_row_aliases: HashMap::new(),
             class_env: Some(class_env),
         },
     );
@@ -229,6 +230,7 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
             known_flow_names: HashSet::new(),
             flow_module_symbol: flow_sym,
             preloaded_effect_op_signatures: HashMap::new(),
+            effect_row_aliases: HashMap::new(),
             class_env: Some(class_env),
         },
     );
