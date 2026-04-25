@@ -1,3 +1,5 @@
+// expect: compile_error
+
 fn main() with IO {
     read_file("missing.txt") sealing { Console }
 }

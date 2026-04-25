@@ -922,6 +922,21 @@ pub(super) struct MainValidationState {
     pub(super) is_valid_signature: bool,
 }
 
+/// Flow library modules whose public members are auto-exposed (no explicit
+/// `import ... exposing` required). Mirrors the set injected by the driver's
+/// `inject_flow_prelude`. Notably excludes `Flow.Array` and `Flow.Map`, which
+/// must be imported explicitly. Explicit user imports always take priority
+/// over this prelude when resolving unqualified names.
+pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
+    "Flow.Option",
+    "Flow.List",
+    "Flow.String",
+    "Flow.Numeric",
+    "Flow.Primops",
+    "Flow.IO",
+    "Flow.Assert",
+];
+
 /// Compile-time handler scope entry for static handler resolution.
 ///
 /// Tracks an active `handle` block's effect, operations, and whether it's
@@ -1353,11 +1368,7 @@ impl Compiler {
         );
 
         if elaborate_dictionaries && !self.class_env.classes.is_empty() {
-            let mut max_id: u32 = 0;
-            for def in &core.defs {
-                max_id = max_id.max(def.binder.id.0);
-            }
-            let mut next_id = max_id + 1;
+            let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
             crate::core::passes::elaborate_dictionaries(
                 &mut core,
                 &self.class_env,
@@ -1628,15 +1639,7 @@ impl Compiler {
     /// gets unqualified access to `map`, `filter`, `assert_eq`, etc.
     /// from `lib/Flow/*.flx` without needing explicit `import ... exposing`.
     fn auto_expose_flow_modules(&mut self) {
-        let flow_prefixes: Vec<&str> = vec![
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.Primops",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prefixes: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         let skip_flow_auto_expose: Vec<(&str, &str)> = vec![];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
@@ -1904,15 +1907,7 @@ impl Compiler {
             import_bindings.entry(module).or_insert(module);
         }
         let mut symbols = HashMap::new();
-        let flow_prefixes = [
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.Primops",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prefixes: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         let skip_flow_auto_expose: [(&str, &str); 0] = [];
         let mut local_function_names = HashSet::new();
         collect_local_function_names(
@@ -2807,15 +2802,7 @@ impl Compiler {
         // every module has access to the intended implicit Prelude surface
         // without leaking non-prelude namespaces like Flow.Array/Flow.Map
         // into unqualified HM resolution.
-        let flow_prelude_modules = [
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.Primops",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prelude_modules: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         for ((mod_name, member), scheme) in &self.cached_member_schemes {
             let mod_str = self.interner.resolve(*mod_name);
             if flow_prelude_modules.contains(&mod_str) {
@@ -4600,9 +4587,24 @@ impl Compiler {
             return Some(contract);
         }
 
-        self.cached_member_runtime_contracts
-            .iter()
-            .find_map(|((_, member), contract)| (*member == function_name).then_some(contract))
+        // Resolve unqualified names with "explicit imports beat prelude" semantics:
+        // a user-written `import Flow.Array exposing (..)` shadows the auto-injected
+        // `Flow.List` for ambiguous names like `sum` (defined in both modules).
+        // Without this, HashMap iteration order would non-deterministically pick
+        // either module's contract.
+        let mut prelude_match: Option<&FunctionContract> = None;
+        for ((module, member), contract) in &self.cached_member_runtime_contracts {
+            if *member != function_name || !self.imported_modules.contains(module) {
+                continue;
+            }
+            let module_str = self.interner.try_resolve(*module).unwrap_or("");
+            if FLOW_PRELUDE_MODULE_NAMES.contains(&module_str) {
+                prelude_match = Some(contract);
+            } else {
+                return Some(contract);
+            }
+        }
+        prelude_match
     }
 
     pub(super) fn module_member_function_is_public(
@@ -5011,15 +5013,7 @@ impl Compiler {
         // qualified/alias-qualified only.
         let mut globals = self.symbol_table.global_definitions();
         globals.sort_by_key(|&(_, idx)| idx);
-        let flow_prelude_modules = [
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.Primops",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prelude_modules: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         for (sym, idx) in globals {
             let name = self
                 .interner
