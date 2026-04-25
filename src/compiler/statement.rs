@@ -172,7 +172,7 @@ impl Compiler {
                 let name_str = self.sym(*name);
                 if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
                     let required_sym = self.interner.intern(required_effect);
-                    !Self::is_effect_in_declared(required_sym, declared_effects)
+                    !self.is_effect_in_declared(required_sym, declared_effects)
                 } else {
                     false
                 }
@@ -587,7 +587,7 @@ impl Compiler {
                 let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
                 self.effect_op_signature(resolved_effect, *operation)
                     .is_none()
-                    || !Self::is_effect_in_declared(resolved_effect, declared_effects)
+                    || !self.is_effect_in_declared(resolved_effect, declared_effects)
             }
             // Don't recurse into nested function bodies — they have their own effect context
             _ => false,
@@ -610,7 +610,7 @@ impl Compiler {
             let name_str = self.sym(*name);
             if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
                 let required_sym = self.interner.intern(required_effect);
-                if !Self::is_effect_in_declared(required_sym, declared_effects) {
+                if !self.is_effect_in_declared(required_sym, declared_effects) {
                     return true;
                 }
             }
@@ -641,7 +641,7 @@ impl Compiler {
         let unresolved: Vec<Symbol> = required_row
             .unresolved_vars(&solution)
             .into_iter()
-            .filter(|effect_var| !Self::is_effect_in_declared(*effect_var, declared_effects))
+            .filter(|effect_var| !self.is_effect_in_declared(*effect_var, declared_effects))
             .collect();
         if !unresolved.is_empty() {
             return true;
@@ -650,7 +650,7 @@ impl Compiler {
         // Check for missing concrete effects (E400)
         let required_effects = required_row.concrete_effects(&solution);
         for required_name in required_effects {
-            if !Self::is_effect_in_declared(required_name, declared_effects) {
+            if !self.is_effect_in_declared(required_name, declared_effects) {
                 return true;
             }
         }
@@ -743,10 +743,29 @@ impl Compiler {
     /// available — matching the AST path's behavior where
     /// `current_function_effects()` returns `Some(&[])` and
     /// `is_effect_available()` returns false.
-    fn is_effect_in_declared(effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
-        declared_effects
+    fn is_effect_in_declared(&self, effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
+        let required: Vec<String> = if let Some(expansion) = self.effect_row_aliases.get(&effect) {
+            expansion
+                .expand_aliases(&self.effect_row_aliases)
+                .normalized_concrete_names()
+                .into_iter()
+                .map(|name| self.sym(name).to_owned())
+                .collect()
+        } else {
+            vec![self.sym(effect).to_owned()]
+        };
+        let declared: HashSet<String> = declared_effects
             .iter()
-            .any(|e| e.normalized_names().contains(&effect))
+            .flat_map(|effect_expr| {
+                effect_expr
+                    .expand_aliases(&self.effect_row_aliases)
+                    .normalized_names()
+            })
+            .map(|name| self.sym(name).to_owned())
+            .collect();
+        required
+            .iter()
+            .all(|required_name| declared.contains(required_name))
     }
 
     fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
