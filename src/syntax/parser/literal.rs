@@ -20,6 +20,14 @@ impl Parser {
         let mut chars = raw.chars();
 
         while let Some(ch) = chars.next() {
+            if ch == '\r' {
+                if chars.as_str().starts_with('\n') {
+                    chars.next();
+                }
+                out.push('\n');
+                continue;
+            }
+
             if ch != '\\' {
                 out.push(ch);
                 continue;

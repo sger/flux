@@ -432,6 +432,39 @@ fn t(x) {
     }
 
     #[test]
+    fn test_multiline_string_normalizes_crlf_line_endings() {
+        let (program, _interner) = parse("\"\"\"alpha\r\nbeta\r\ngamma\"\"\"");
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::String { value, .. },
+                ..
+            } => assert_eq!(value, "alpha\nbeta\ngamma"),
+            other => panic!("expected string expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_interpolated_multiline_string_normalizes_crlf_line_endings() {
+        let (program, _interner) = parse("\"\"\"alpha\r\n#{name}\r\nomega\"\"\"");
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::InterpolatedString { parts, .. },
+                ..
+            } => {
+                assert!(
+                    matches!(&parts[0], flux::syntax::expression::StringPart::Literal(s) if s == "alpha\n")
+                );
+                assert!(
+                    matches!(&parts[2], flux::syntax::expression::StringPart::Literal(s) if s == "\nomega")
+                );
+            }
+            other => panic!("expected interpolated string expression, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_unterminated_string_error_uses_lexer_end_position() {
         let input = "\"http://example.com";
         let lexer = Lexer::new(input);
