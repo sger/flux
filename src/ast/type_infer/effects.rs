@@ -47,7 +47,12 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> InferEffectRow {
         let mut row_var_counter = self.env.counter;
-        let result = InferEffectRow::from_effect_exprs(effects, row_var_env, &mut row_var_counter);
+        let expanded_effects: Vec<EffectExpr> = effects
+            .iter()
+            .map(|effect| effect.expand_aliases(&self.effect_row_aliases))
+            .collect();
+        let result =
+            InferEffectRow::from_effect_exprs(&expanded_effects, row_var_env, &mut row_var_counter);
         self.env.counter = row_var_counter;
         match result {
             Ok(row) => row,
@@ -264,8 +269,8 @@ impl<'a> InferCtx<'a> {
             available: ambient_effects.clone(),
             span,
         });
-        let callee = callee_effects.apply_row_subst(&self.subst);
-        let ambient = ambient_effects.apply_row_subst(&self.subst);
+        let callee = self.expand_effect_row_aliases(callee_effects.apply_row_subst(&self.subst));
+        let ambient = self.expand_effect_row_aliases(ambient_effects.apply_row_subst(&self.subst));
         let mut missing: Vec<Identifier> = callee
             .concrete()
             .iter()
@@ -283,6 +288,25 @@ impl<'a> InferCtx<'a> {
         }
 
         self.report_effect_mismatch(&callee, &ambient, span);
+    }
+
+    fn expand_effect_row_aliases(&self, row: InferEffectRow) -> InferEffectRow {
+        let mut concrete = std::collections::HashSet::new();
+        for effect in row.concrete() {
+            if let Some(expansion) = self.effect_row_aliases.get(effect) {
+                concrete.extend(
+                    expansion
+                        .expand_aliases(&self.effect_row_aliases)
+                        .normalized_concrete_names(),
+                );
+            } else {
+                concrete.insert(*effect);
+            }
+        }
+        match row.tail() {
+            Some(tail) => InferEffectRow::open_from_symbols(concrete, tail),
+            None => InferEffectRow::closed_from_symbols(concrete),
+        }
     }
 
     /// Link row tails when no concrete effects are missing.
