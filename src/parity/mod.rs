@@ -14,8 +14,8 @@
 //!
 //! ```bash
 //! cargo run -- parity-check tests/parity
-//! cargo run -- parity-check examples/basics
-//! cargo run -- parity-check examples/basics/fibonacci.flx
+//! cargo run -- parity-check examples/guide
+//! cargo run -- parity-check examples/guide/fibonacci.flx
 //! cargo run -- parity-check tests/parity --ways vm,llvm
 //! cargo run -- parity-check tests/parity --ways vm,vm_cached
 //! cargo run -- parity-check tests/parity --ways vm,vm_strict
@@ -25,9 +25,10 @@
 //! cargo run -- parity-check tests/parity --capture-aether
 //! cargo run -- parity-check tests/parity --capture-repr
 //! cargo run -- parity-check tests/parity --capture-core --capture-aether --capture-repr
-//! cargo run -- parity-check examples/advanced --root lib --root examples
+//! cargo run -- parity-check examples/guide --root lib --root examples
 //! cargo run -- parity-check tests/parity --ways vm,llvm
-//! cargo run -- parity-check examples/basics --ways vm,llvm
+//! cargo run -- parity-check examples/guide --ways vm,llvm
+//! cargo run -- parity-check examples/effects --ways vm,llvm
 //! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 //! ```
 

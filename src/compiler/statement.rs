@@ -718,10 +718,31 @@ impl Compiler {
         }
     }
 
-    /// Check if an effect is available in the declared effects list.
-    /// When no effects are declared (empty slice), no effects are available —
-    /// matching the AST path's behavior where `current_function_effects()` returns
-    /// `Some(&[])` and `is_effect_available()` returns false.
+    /// Declared-only static effect-availability predicate, consulted by
+    /// the CFG pre-validator before AST → CFG lowering.
+    ///
+    /// **Three-way invariant** (proposal 0171, Track 4). This is the
+    /// pre-pass safety gate that runs *before* the lowering-time predicate
+    /// [`super::Compiler::is_effect_available`]. It intentionally checks
+    /// only the function's syntactic `with` clause and ignores any
+    /// synthesized or user-installed handlers — those become visible
+    /// later, in the lowering pass.
+    ///
+    /// Directional contract: if this predicate accepts an effect, the
+    /// later lowering predicate must also accept it (or the function's
+    /// declared effects shrunk between passes, which is a bug). The
+    /// inverse does not hold — lowering may legitimately accept effects
+    /// this predicate rejects, because handlers are not visible here.
+    /// The 0165 bug where a routed `perform` slipped past this check and
+    /// was then rejected at lowering was a violation of the *forward*
+    /// direction; it was closed by routing `Expression::Perform` through
+    /// `expr_has_effect_row_error`, the same entry direct builtin calls
+    /// use.
+    ///
+    /// When no effects are declared (empty slice), no effects are
+    /// available — matching the AST path's behavior where
+    /// `current_function_effects()` returns `Some(&[])` and
+    /// `is_effect_available()` returns false.
     fn is_effect_in_declared(effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
         declared_effects
             .iter()

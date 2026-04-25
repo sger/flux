@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/eq_auditlog_example.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E407]: Unknown Effect
+
+Function effect annotation references unknown effect `AuditLog`.
+
+  examples/type_classes/EqAuditLogExample/App/Users.flx:23:62
+   |
+23 |     public fn users_equal(a: UserId, b: UserId) -> Bool with AuditLog {
+   |                                                              ^^^^^^^^
+   |                                                              -------- unknown effect in function annotation
+
+Hint:
+  Use a declared effect name in `with ...` or declare the effect first.
+== stdout ==
+<not executed>

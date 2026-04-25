@@ -74,15 +74,28 @@ Call to `println` requires effect `Console` in this function signature.
 The compiler may still lower to `Perform`; diagnostics should carry enough
 origin information to render the user-facing call shape.
 
-**Status (2026-04-24):** delivered for `E400`. The 0165 routing pass now
-records the `ExprId` of each `Perform` node synthesized from a direct user
-call in `Compiler::routed_call_perform_ids`; `compile_perform` consults the
-set when emitting `E400` and renders "Call to `foo`" + label "effectful
-call occurs here" for call-origin Performs, preserving the existing
-"Performing `foo`" / "effectful perform occurs here" phrasing for
-user-written `perform` expressions. Other effect diagnostics
-(`E402`/`E403`/`E404`/`E419`…) have not yet been audited for the same
-treatment.
+**Status (2026-04-25):** delivered for `E400`, `E403`, and `E404`. The
+0165 routing pass records the `ExprId` of each `Perform` node synthesized
+from a direct user call in `Compiler::routed_call_perform_ids`;
+`compile_perform` consults the set when emitting effect diagnostics:
+
+- `E400` (missing ambient effect): "Call to `foo`" + label "effectful
+  call occurs here" for call-origin Performs; "Performing `foo`" /
+  "effectful perform occurs here" preserved for user-written
+  `perform` expressions.
+- `E403` (unknown effect) and `E404` (unknown effect operation): label
+  toggles between "unknown effect/operation in call" and
+  "unknown effect/operation in perform" with the same origin signal.
+  The detail message is unchanged in both shapes.
+
+Audit of the remaining effect diagnostics:
+
+- `E402` (incomplete handler) is emitted from `handle` blocks, not
+  from routed calls — out of scope.
+- `E419` (unresolved effect variable) and `E420`/`E421`/`E422` are
+  already emitted on the function-call path and already use
+  call-shaped wording ("this call leaves an effect variable
+  unconstrained", etc.) — no rewording needed.
 
 ### Track 2: Handler coverage ergonomics
 
@@ -256,6 +269,40 @@ normally learn:
 They should not learn `__primop_*` as an API. User calls and definitions of
 reserved `__primop_*` names remain rejected.
 
+**Status (2026-04-25):** delivered. The decision is to keep
+`Flow.Primops` **visible-but-discouraged** rather than hide or
+relocate the module. The boundary is enforced by the compiler in
+two places — `__primop_*` names cannot appear in user source, and
+`Flow.Primops` cannot be imported from user code — pinned by
+`examples/effects/failing/03_reserved_internal_primop.flx` and
+`failing/04_reserved_primops_module_import.flx` respectively.
+
+The `examples/effects/README.md` gained a new section,
+*`Flow.Primops` is the intrinsic layer*, that:
+
+- explains the module's role as the delegation target for
+  synthesized entrypoint default handlers,
+- lists, in order, what users *should* learn instead (prelude
+  calls → `Flow.Effects` labels → `perform`/`handle`),
+- references the two failing fixtures that make the rejection
+  visible.
+
+Why visible-but-discouraged was chosen:
+
+- The compiler already enforces the *hard* rule: reserved-name and
+  reserved-module rejections gate any actual misuse. What was
+  missing was a *teaching* boundary, not a *safety* one.
+- Hiding the module would either require relocating/renaming it
+  (large churn for a cosmetic win) or gating its visibility behind
+  a compiler flag (more machinery for the same teaching outcome).
+  Either way `Flow.Primops` itself stays needed, since synthesized
+  default handlers reference it.
+- A README note plus the existing failing fixtures composes
+  cleanly: discoverability without breaking the pipeline.
+
+This resolves the *Unresolved questions* item on `Flow.Primops`
+visibility.
+
 ### Track 4: Shared effect availability checker
 
 Audit duplicate effect availability logic across:
@@ -270,6 +317,87 @@ The goal is a shared helper or shared data contract that prevents drift like
 the 0165 bug where CFG pre-validation accepted a routed `perform` that should
 have remained compile-time `E400`.
 
+#### Status (2026-04-25): documented invariant + targeted regression tests
+
+The audit (proposal 0171, Track 4) found that the five sites above are
+**not** reading the same logic written five times — they are three
+genuinely distinct representations, each tied to a specific pass:
+
+1. **HM inference** — row algebra over `InferEffectRow`, the source
+   of truth during type checking. Lives in
+   `src/ast/type_infer/effects.rs`.
+2. **CFG pre-validator** — `CompilerPhase::is_effect_in_declared` in
+   `src/compiler/statement.rs`, declared-only static check that
+   intentionally ignores synthesized handlers. Pre-pass safety gate.
+3. **Lowering / bytecode emission** —
+   `Compiler::is_effect_available` in `src/compiler/mod.rs`, the
+   runtime view that walks `current_function_effects()` *and*
+   `handled_effects`. The four call sites in `expression.rs`,
+   `cfg_bytecode.rs`, and `statement.rs` all funnel through it.
+
+Forcing a single helper across these would either lose information
+(rows collapsed to symbols) or push complexity into every caller.
+The 0165 bug was a *coordination* failure — the pre-validator did
+not look at `Expression::Perform` shapes that the routing pass had
+just synthesized, so a routed `println` slipped past it and was
+caught only at lowering. The fix routes `Expression::Perform`
+through the same pre-validator entry direct builtin calls use
+(`expr_has_effect_row_error` in `statement.rs`), and that contract
+is now made explicit in code.
+
+What shipped on this track:
+
+- **Single source of truth for the runtime predicate.**
+  `Compiler::is_effect_available_name(&str)` no longer reimplements
+  the symbol predicate; it does an `Interner::lookup` (read-only
+  name → Symbol) and delegates to
+  `Compiler::is_effect_available(Symbol)`. If the name has never
+  been interned, no declared effect or handler can match it, so the
+  predicate returns `false` directly. One implementation, two
+  signatures.
+
+- **Doc-block invariants on both sides.** Both
+  `Compiler::is_effect_available` (lowering view, `mod.rs`) and
+  `CompilerPhase::is_effect_in_declared` (pre-validator view,
+  `statement.rs`) now carry parallel doc comments stating the
+  three-way invariant explicitly:
+  - **forward direction:** if HM unification accepts a fixture and
+    the pre-validator accepts it, the lowering predicate must accept
+    the same effect — pre-validator passing implies lowering
+    passing.
+  - **inverse direction does not hold:** lowering may legitimately
+    accept effects the pre-validator rejects, because installed
+    handlers (synthesized or user-written) become visible only at
+    lowering. The pre-validator is conservative on declared-only
+    state by design.
+  - **regression anchor:** the comment names the 0165 bug and the
+    `expr_has_effect_row_error` entry that closed it, so the next
+    contributor reading either function sees the same story.
+
+- **Three-way regression tests** in
+  `src/compiler/compiler_test.rs`:
+  - `helper_routed_prelude_is_caught_by_pre_validator_not_just_lowering`
+    — pins the forward contract by asserting a 0165-style routed
+    prelude in a helper without `with Console` produces *exactly
+    one* E400. Two would indicate the suppression contract between
+    pre-validator and lowering has drifted.
+  - `helper_with_explicit_effect_is_accepted_by_all_three_passes` —
+    positive control: same fixture with `with Console` declared
+    must compile cleanly through all three passes.
+  - `handled_effect_inside_helper_is_accepted_at_lowering_only` —
+    pins the inverse-direction case: a routed `perform` inside a
+    user `handle Console { ... }` is rejected by the pre-validator
+    in spirit (handlers invisible) but accepted at lowering via
+    `handled_effects`. A regression where lowering stopped
+    consulting handlers would break this test.
+
+This satisfies the proposal's acceptance criterion *"Effect
+availability checks share a central helper or documented invariant
+with regression tests for HM/strict/CFG parity"* via the
+**documented-invariant + regression-tests** branch of that "or",
+which the audit found to be the correct framing for these five
+sites.
+
 ### Track 5: Entry default coverage
 
 Add negative tests and examples around:
@@ -279,6 +407,43 @@ Add negative tests and examples around:
 - module-qualified effectful calls from entrypoints
 - user handlers intercepting before defaults
 - nested handler/default interactions
+
+**Status (2026-04-25):** the example-fixture corpus for these scenarios
+has been filled in. New positive fixtures (VM-only):
+
+- `examples/effects/14_test_function_default_handlers.flx` — `test_*`
+  entry exercises the same default Console + Clock handlers as `main`;
+  symmetric with the long-standing `01_default_entry_handlers.flx`.
+- `examples/effects/15_user_handler_shadows_default.flx` — `main`
+  contains a user `handle Console { ... }` that intercepts inner
+  `println`s while a Console call outside the user handler still
+  falls through to the synthesized default.
+- `examples/effects/16_nested_user_default.flx` — a helper-scoped user
+  handler captures Console for its body while sibling `println` calls
+  in `main` are discharged by the entry default, documenting the
+  lexical-scoping rule for handler/default interaction.
+
+New negative fixture:
+
+- `examples/effects/failing/05_test_helper_no_default.flx` — a helper
+  called from a `test_*` entry without `with Console` is rejected with
+  E400, mirroring `failing/01_missing_effect_in_helper.flx` for the
+  `main` case. Together they pin the rule that defaults wrap only the
+  entry's body, never propagating into helpers.
+
+Module-qualified calls from entrypoints are already covered by the
+existing `04_modules_and_rows.flx` fixture.
+
+Compiler-level unit tests in `src/compiler/compiler_test.rs`:
+
+- `main_println_without_annotation_compiles_via_default_handler`
+  (pre-existing) — confirms `main` defaults work.
+- `test_function_println_without_annotation_compiles_via_default_handler`
+  — same proof for `test_*` entries.
+- `helper_called_from_main_does_not_inherit_default_handler` — pins
+  the `main`-side helper rule with a direct E400 assertion.
+- `helper_called_from_test_entry_does_not_inherit_default_handler` —
+  pins the `test_*`-side helper rule symmetrically.
 
 Also track the current implementation gap: effectful helper calls under
 synthesized entrypoint default handlers are reliable on the VM path, but the
@@ -329,19 +494,223 @@ Track the C native effect runtime separately from source-level effect semantics:
   documented in `tests/native_llvm/effect_multi_shot_tests.rs` and should be
   revisited before declaring one cross-backend handler semantics story.
 
+#### Status (2026-04-25): item-by-item disposition
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Evidence vector RC ownership | ✅ closed |
+| 2 | Parameterized state replacement drops prior state | ✅ closed |
+| 3 | Yield payload globals: RC roots or documented invariant | ✅ documented invariant |
+| 4 | Process-global state vs. concurrency | ⚠ documented limitation, deferred |
+| 5 | Windows/MSVC closure-entry symbol export | ⚠ deferred (Windows native blocker) |
+| 6 | VM/native multi-shot resume divergence | ⚠ documented as deliberate, not a bug |
+
+**Item 1 (closed by commit `7a342513`, 2026-04-24).** `EvvArray` entries
+hold five tagged words per entry: htag, marker, handler, parent_evv,
+state. Insertion (`flux_evv_insert`, `runtime/c/effects.c:130`) `flux_dup`s
+all three owned fields (handler, parent_evv, state) for both copied
+entries (line 142, via `evv_dup_owned_fields`) and the newly appended
+entry (line 153). Teardown is the custom `flux_drop_evidence` scanner in
+`runtime/c/rc.c:221-239`, which `flux_drop`s the same three fields per
+entry before freeing the array. The `scan_fsize=0` choice on
+`flux_gc_alloc_header` (line 99 of effects.c) is deliberate: evidence
+arrays use the custom scanner because the payload mixes a 32-bit count
+header with packed entries that interleave tagged ints (htag, marker)
+and owned heap references.
+
+**Item 2 (closed by commit `7a342513`).** State replacement now goes
+through `flux_update_state_for_marker` (`runtime/c/effects.c`, around
+line 290) with the dup-then-drop-then-assign ordering. The function now
+carries a doc-block calling out why the ordering is safety-critical: the
+operation must be safe when `next_state` aliases the current slot
+(`resume(value, current_state)`); reordering to drop-then-dup would risk
+freeing the new value before the dup. Both call sites
+(`flux_resume_mark_called_closure_entry` at line ~340 and
+`flux_compose_trampoline_closure_entry` at ~510) now use this helper.
+
+**Item 3 (documented invariant).** The yield payload globals
+(`flux_yield_clause`, `flux_yield_op_arg`, `flux_yield_op_state`,
+`flux_yield_evv`, `flux_yield_conts[8]`) remain *borrowed* references —
+they are not RC-rooted. Correctness depends on the LIR continuation
+lowering keeping the source values alive across the unwind window. The
+top-of-file comment block in `runtime/c/effects.c:27-55` now states this
+as an explicit producer/consumer invariant with three named obligations:
+(a) the LIR generator writes borrowed tagged values just before
+unwinding to the prompt; (b) `flux_yield_prompt` reads each global into
+a local and clears the slot before invoking handler clauses, breaking
+the alias; (c) the LIR generator must not insert a `flux_drop` between
+the yield write and the prompt consume. Switching to explicit RC roots
+would require a `flux_dup` on every yield write and a `flux_drop` on
+the prompt consume — deferred until concurrency lands, since the cost
+is per-yield and the current invariant is sound on a single thread.
+
+**Item 4 (concurrency blocker, deferred).** The full inventory of
+process-global mutable state in the effect runtime: `flux_yield_*`
+globals (yield path), `current_evv`, `marker_counter` (EVV state),
+`flux_resume_called`, `flux_direct_resume_marker` (legacy direct-perform
+counters). All would need to become thread/fiber-local before Flux can
+support concurrency. The runtime header now states this explicitly
+("This runtime is not concurrency-ready") and references this proposal
+as the tracking location. Migration deferred — it is a systematic
+change touching every yield and evidence path, justified only when an
+actor/thread/fiber model is on the roadmap.
+
+**Item 5 (Windows/MSVC, deferred).** Closure-entry symbols
+(`flux_resume_mark_called.closure_entry`,
+`flux_compose_trampoline.closure_entry`) use the GNU/Clang `__asm__`
+label spelling because C identifiers cannot contain `.` and the LLVM
+backend emits the dotted name. The current macro
+(`runtime/c/effects.c:322-326`) handles Mach-O underscore prefixing and
+falls through to the bare label on ELF; both are GNU/Clang-only.
+Windows/MSVC requires a different mechanism (DEF file,
+`__pragma(comment(linker, "/EXPORT:..."))`, or renaming the symbols to
+MSVC-friendly forms and updating the LIR generator to match). This is a
+real Windows-native blocker and is best handled as part of a dedicated
+Windows porting workstream rather than retrofitted onto this polish
+track.
+
+**Item 6 (multi-shot divergence, deliberate).** The divergence is still
+present and is by design, not a bug:
+
+- VM: enforces one-shot via continuation guard slots (E1009 on second
+  resume).
+- Native default (yield-based): supports multi-shot natively because the
+  prompt loop re-runs continuations; matches the proposal-0162 slice
+  5-tr-fix path.
+- Native legacy (`FLUX_YIELD_CHECKS=0`, direct-perform fast path):
+  reports E1200/E1201 via the `flux_resume_called` counter for non-TR
+  and multi-shot shapes respectively.
+
+`tests/native_llvm/effect_multi_shot_tests.rs` exercises all three
+configurations. The cross-backend parity suite
+(`effect_runtime_parity_tests.rs`) deliberately excludes multi-shot
+because the divergence is documented and intentional. Convergence (one
+unified semantics across VM and native default) would be a policy
+choice, not a bug fix; it is not tackled by this proposal.
+
+#### What did *not* ship on this track
+
+This track deliberately does not:
+
+- Migrate process-global state to thread-local storage (item 4 deferral).
+- Add MSVC export plumbing (item 5 deferral).
+- Force VM/native convergence on multi-shot semantics (item 6 is a
+  design choice, not a hardening item).
+- Switch yield payload globals to RC roots (item 3 — the borrowed
+  invariant is sound and the cost would be per-yield).
+
+These remain known, documented limitations rather than blockers.
+
 ### Track 6: Default-handler policy
 
-Decide whether default handlers remain always-on for entrypoints or become
-controlled by explicit capability policy in a later edition/syntax.
+#### Current policy (recorded 2026-04-25)
 
-Options:
+Default handlers are **always-on for entrypoints** — `main` and any
+`test_*` function — and only for the four built-in **operational**
+effects:
 
-- keep always-on defaults permanently
-- add a per-function/module opt-out
-- require explicit capability imports/config in a future edition
+- `Console` (`print`, `println`)
+- `FileSystem` (`read_file`, `write_file`, `delete_file`, …)
+- `Stdin` (`read_line`)
+- `Clock` (`now_ms`)
 
-This proposal does not choose the policy; it requires documenting the current
-policy and recording a deliberate decision before any behavior change.
+`Flow.Debug` participates only on the synthesis side: the entry's
+default handler set still includes a `Debug` arm so a routed
+`perform Debug.trace(...)` from `debug` / `debug_labeled` /
+`debug_with` is discharged inside an entrypoint, but `Debug` is
+**not** part of call-site routing — users never write `trace(x)`
+at the value level, and the routing pass deliberately excludes
+`Debug` from `routed_call` so a user-defined `fn trace(...)` is
+never silently rewritten to a `perform`. See the comment block at
+`src/ast/route_effectful_primops.rs:518` for the rationale.
+
+The synthesis is purely lexical: the routing pass wraps the
+entrypoint's body in `handle E { ... }` blocks for each required
+effect that the body actually uses. Helpers, closures, lambdas, and
+non-entry module functions never receive defaults — they must
+declare `with E` (or be called from a context that already has it).
+
+User effects (anything declared with `effect E { ... }`) **never**
+get defaults. Only the four built-in operational effects above.
+
+#### Decision: keep always-on for now
+
+This proposal **records the current always-on policy as the
+deliberate baseline** rather than treating it as a placeholder
+pending a future capability system.
+
+Why this is the right baseline today:
+
+- **Script-style ergonomics.** A one-file Flux program that prints
+  a value should compile without effect ceremony. Requiring `with
+  Console` on `main` for `println("hello")` is the kind of
+  paper-cut that keeps newcomers out.
+- **Test ergonomics.** Test bodies frequently mix `assert_eq` with
+  trace prints, clock reads, and file I/O during debugging. Asking
+  every `test_*` to enumerate its effects is friction that does
+  not buy correctness.
+- **Helpers stay strict.** Because defaults are scoped to the
+  entrypoint body and never propagate into helpers, the *interesting*
+  effect-tracking surface — function signatures across module
+  boundaries — is unaffected. The convenience is limited to the
+  outermost frame, where there is no caller whose signature could
+  be polluted.
+- **Reversibility.** Always-on is the *most* permissive policy. Any
+  future tightening (opt-out flag, capability grant, edition gate)
+  can land without breaking helper code, because helpers were
+  already strict. Only entrypoint top-level code has to migrate, and
+  the migration is mechanical (`fn main() with Console, Clock,
+  FileSystem, Stdin`).
+
+Why not the alternatives — yet:
+
+- **Per-function/module opt-out** (e.g. `fn main() #[no_default_handlers]`)
+  is plausible but has no current motivating use case. The kind of
+  program that wants to *deny* `Console` to its own `main` typically
+  also wants to deny it to its imported libraries, which opt-out
+  attributes do not solve.
+- **Explicit capability imports/config in a future edition** is the
+  long-term direction if Flux ever pursues capability-secure
+  execution. It is a much larger design surface (effect-as-capability,
+  granted-by-runtime, possibly per-thread) and should ride with that
+  larger story rather than being grafted onto this polish track.
+
+#### When to revisit
+
+Revisit the always-on policy when *any* of these hold:
+
+1. A use case appears where a Flux program embeds another Flux
+   program and needs to deny operational effects to the inner
+   `main`/`test_*` (e.g. sandboxed eval, plugin host).
+2. Capability-style permissions become a project goal — at which
+   point default handlers should be unified with whatever grant
+   mechanism is chosen, not retained as a parallel system.
+3. A real-world program is observed where the entrypoint default
+   handler hides a bug that an explicit `with` clause would have
+   surfaced. (None has been reported as of 2026-04-25.)
+4. Someone wants to add a fifth operational effect to the default
+   set; that is the moment to ask whether *all* of them should
+   still be implicit.
+
+Until one of those triggers, the always-on policy is documented as
+deliberate, and changes to it require a follow-up proposal that
+addresses migration (`with`-clause inference for entrypoint bodies)
+and tooling (the linter should emit a guided-fix when the policy
+flips).
+
+#### Documentation surface
+
+The user-facing teaching of this rule lives in
+`examples/effects/README.md` ("Entrypoint default handlers") and in
+the example pair `01_default_entry_handlers.flx` /
+`failing/01_missing_effect_in_helper.flx`. The 2026-04-25 Track 5
+fixtures (`14_test_function_default_handlers.flx`,
+`failing/05_test_helper_no_default.flx`) extend that pair to the
+`test_*` entry shape so the rule is visibly symmetric across both
+entrypoint kinds.
+
+The README points at this section as the rationale-of-record;
+keep that link intact when editing either document.
 
 ### Track 7: Effect-row delimiter rationalization (pre-1.0 question, deferred)
 
@@ -425,12 +794,23 @@ line between the implemented semantic migration and the next usability pass.
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Should partial handlers be allowed, or should full operation coverage remain
-  the language invariant?
+- **Resolved (2026-04-25):** Should partial handlers be allowed, or should
+  full operation coverage remain the language invariant? — Full operation
+  coverage remains the invariant. See Track 2's *Recommendation for a future
+  decision*: Option A is the baseline, and any future relaxation should be a
+  narrow Option B proposal, not the flow-sensitive Option C.
 - If default handlers ever become configurable, should the switch be syntax,
-  module metadata, CLI policy, or edition policy?
-- Should `Flow.Primops` stay public but discouraged, or become hidden once all
-  compiler entry paths reliably preload its declarations?
+  module metadata, CLI policy, or edition policy? — Track 6 records the
+  current always-on policy as deliberate and lists the triggers that would
+  motivate revisiting it; the *form* of any future switch is left to that
+  follow-up proposal.
+- **Resolved (2026-04-25):** Should `Flow.Primops` stay public but
+  discouraged, or become hidden once all compiler entry paths reliably
+  preload its declarations? — Visible-but-discouraged. The compiler
+  already enforces the hard rule (reserved-name and reserved-module
+  rejections); Track 3 adds the teaching boundary in
+  `examples/effects/README.md` and records the rationale. Revisit
+  only if relocation/hiding gains a concrete motivating use case.
 
 ## Acceptance criteria
 [acceptance-criteria]: #acceptance-criteria

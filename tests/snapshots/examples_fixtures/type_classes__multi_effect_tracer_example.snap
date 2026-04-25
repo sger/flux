@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/multi_effect_tracer_example.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E012]: Unknown Module Member
+
+Module `MultiEffectTracerExample.Flow.Tracer` has no member named `trace`.
+
+  examples/type_classes/MultiEffectTracerExample/App/Main.flx:7:9
+  |
+7 |         Tracer.trace(h, "starting up")
+  |         ^^^^^^^^^^^^
+
+Hint:
+  Check the module's public members or import the correct module.
+== stdout ==
+<not executed>

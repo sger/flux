@@ -47,12 +47,12 @@ Skip:     0
 ### 3. Check an example directory
 
 ```bash
-cargo run -- parity-check examples/basics
+cargo run -- parity-check examples/guide
 ```
 
 ```
-PASS examples/basics/arithmetic.flx
-MISMATCH examples/basics/array_builtins.flx
+PASS examples/guide/arithmetic.flx
+MISMATCH examples/guide/array_builtins.flx
   stdout differs:
     --- vm
     +++ llvm
@@ -69,15 +69,15 @@ MISMATCH examples/basics/array_builtins.flx
      [|5, 4, 3, 2, 1|]
      true
     ... (8 more lines)
-PASS examples/basics/array_hash_combo.flx
-PASS examples/basics/array_iteration.flx
+PASS examples/guide/array_hash_combo.flx
+PASS examples/guide/array_iteration.flx
 ...
 ```
 
 ### 4. Check a single file
 
 ```bash
-cargo run -- parity-check examples/basics/fibonacci.flx
+cargo run -- parity-check examples/guide/fibonacci.flx
 ```
 
 ## Ways
@@ -225,11 +225,11 @@ Strict mode may produce additional compile errors that normal mode doesn't. This
 
 ### CI (every push/PR)
 
-The CI workflow runs parity on `tests/parity` and `examples/basics` with `vm,llvm`:
+The CI workflow runs parity on `tests/parity` and `examples/guide` with `vm,llvm`:
 
 ```bash
 cargo run -- parity-check tests/parity --ways vm,llvm
-cargo run -- parity-check examples/basics --ways vm,llvm
+cargo run -- parity-check examples/guide --ways vm,llvm
 ```
 
 ### Release preflight
@@ -238,7 +238,7 @@ Before releases, the extended suite adds `vm_cached`, `vm_strict`, `llvm_strict`
 
 ```bash
 cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
-cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+cargo run -- parity-check examples/guide --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 ```
 
 This is included in `scripts/release/release_check.sh`.

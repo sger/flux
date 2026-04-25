@@ -27,15 +27,32 @@
 /*
  * Yield state (global, single-threaded).
  *
- * This runtime is not concurrency-ready: yield state, evidence state, and the
- * legacy direct-resume counter are process globals. Any future actor/thread
- * runtime must make these thread/fiber-local or move them into an explicit
- * scheduler context.
+ * Concurrency: this runtime is not concurrency-ready. Yield state, evidence
+ * state (current_evv, marker_counter — see below), and the legacy
+ * direct-resume counters (flux_resume_called, flux_direct_resume_marker) are
+ * all process globals. Any future actor / thread / fiber runtime must make
+ * these state-local, either by moving them into an explicit scheduler
+ * context or by switching to thread-local storage with appropriate
+ * scheduling-point save/restore. This is tracked under proposal 0171
+ * Track 5b as a known limitation, not a bug.
  *
- * The yield payload globals below currently hold borrowed tagged values while
- * the native yield path unwinds. Correctness depends on LIR continuation
- * lowering preserving those values until flux_yield_prompt consumes them; they
- * are not explicit RC roots yet.
+ * Yield-payload borrowing invariant (proposal 0171 Track 5b, item 3):
+ *
+ *   - Producer: the LIR continuation lowering writes into these globals via
+ *     flux_yield_to / OpYield-equivalent paths just before unwinding to the
+ *     prompt. The values written are tagged Flux values borrowed from the
+ *     producing frame's locals.
+ *   - Consumer: flux_yield_prompt reads each global into a local and clears
+ *     the slot before invoking the handler clause or rethreading the
+ *     continuation. After clearing, the global no longer aliases the
+ *     borrowed value.
+ *   - Lifetime: the LIR lowering must keep the source value alive across
+ *     the unwind window (no flux_drop between the write and the prompt
+ *     consume). This is not enforced by the runtime — it is a directed
+ *     invariant on the LIR generator. Switching these to explicit RC roots
+ *     would require flux_dup on every yield write and flux_drop on the
+ *     consume; deferred until the cost/benefit shifts (typically when
+ *     concurrency lands).
  */
 
 int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
@@ -279,6 +296,17 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
 int32_t flux_resume_called = 0;
 int32_t flux_direct_resume_marker = 0;
 
+/*
+ * Replace the parameterized handler state stored against `marker` in the
+ * current evidence vector. Both the previous state and the new state are
+ * RC-managed.
+ *
+ * Ordering matters (proposal 0171 Track 5b, item 2). We dup the new value
+ * before dropping the old one so the operation is safe even when
+ * next_state aliases *slot — i.e. resume(value, current_state). Reordering
+ * to drop-then-dup would risk freeing the new value before the dup if the
+ * caller happened to pass the same tagged pointer.
+ */
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
     EvvArray *arr = evv_unbox(current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
