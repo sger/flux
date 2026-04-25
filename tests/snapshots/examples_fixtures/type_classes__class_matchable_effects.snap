@@ -5,19 +5,33 @@ Fixture: examples/type_classes/class_matchable_effects.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Effect
+error[E407]: Unknown Effect
 
-requires effect `Panic` but the enclosing context does not provide it
+Function effect annotation references unknown effect `Audit`.
 
-  examples/type_classes/ClassMatchableEffects/Flow/Matchable.flx:0:1
+  examples/type_classes/ClassMatchableEffects/Flow/Matchable.flx:5:42
   |
+5 |         fn same(x: a, y: a) -> Bool with Audit
+  |                                          ^^^^^
+  |                                          ----- unknown effect in function annotation
 
 Hint:
-  annotate the enclosing function with `with Panic`
+  Use a declared effect name in `with ...` or declare the effect first.
 
 
-Note: Downstream Errors Suppressed
+error[E407]: Unknown Effect
 
-I hid 2 later-stage diagnostics (2 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+Function effect annotation references unknown effect `Audit`.
+
+  examples/type_classes/ClassMatchableEffects/Flow/Matchable.flx:9:28
+  |
+9 |         fn same(x, y) with Audit {
+  |                            ^^^^^
+  |                            ----- unknown effect in function annotation
+
+Hint:
+  Use a declared effect name in `with ...` or declare the effect first.
+
+Found 2 errors.
 == stdout ==
 <not executed>

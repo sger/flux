@@ -5,9 +5,9 @@ Fixture: examples/type_classes/custom_handled_tracer_example.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E402]: Missing Effect Handler Arm
+error[E405]: Unknown Effect
 
-Handler for `Console` is missing operations: println.
+Effect `Console` is not declared for this handle block.
 
   examples/type_classes/CustomHandledTracerExample/App/Main.flx:9:9
    |
@@ -21,10 +21,6 @@ Handler for `Console` is missing operations: println.
    | ^^^^^^^^^^^^^
 
 Hint:
-  Add 1 arm(s) to the handle block:
-
-    println(resume, _arg1) -> resume(())
-
-Tip: `resume(())` consumes the operation and discards its effect; use it when the handler only cares about observing the call.
+  Declare the effect before using `handle`, or fix the effect name.
 == stdout ==
 <not executed>

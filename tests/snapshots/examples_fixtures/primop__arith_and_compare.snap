@@ -3,19 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/arith_and_compare.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E406]: Unhandled Root Effect
-
-`fn main` has undischarged effects: Div.
-
-  examples/primop/arith_and_compare.flx:19:1
-   |
-19 | fn main() with IO, Div {
-   | ^^^^^^^^^^^^^^^^^^^^^^
-   | ---------------------- undischarged effects at root boundary
-
-Hint:
-  Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
+<none>
 == stdout ==
 <not executed>

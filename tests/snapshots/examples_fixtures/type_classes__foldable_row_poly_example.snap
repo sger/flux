@@ -5,46 +5,17 @@ Fixture: examples/type_classes/foldable_row_poly_example.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Return Type Mismatch
+error[E403]: Unknown Effect
 
-The body of `__tc_Foldable_List_fold` does not match its declared return type.
+Effect `Console` is not declared.
 
-  examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx:12:13
-   |
- 7 |         ) -> b with |e
-   |              - `__tc_Foldable_List_fold` was declared to return `b`
- 8 |     }
- 9 | 
-10 |     public instance Foldable<List> {
-11 |         fn fold(xs, init, step) {
-12 |             match xs {
-   |             ^^^^^^^^^^
-13 |                 []         -> init,
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-14 |                 [h | t]    -> fold(t, step(init, h), step),
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-15 |                 _          -> init
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |             }
-   | ^^^^^^^^^^^^^
+  examples/type_classes/FoldableRowPolyExample/App/Reports.flx:6:9
+  |
+6 |         perform Console.print(line)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         --------------------------- unknown effect in perform
 
-Note:
-  declared return type: b
-  body type: Bool
-
-Help:
-  Return a `b` value from `__tc_Foldable_List_fold` or change its annotation.
-
-
-Warning: Redundant Match Arm
-
-this arm is unreachable — earlier arms already cover it
-
-  examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx:15:17
-   |
-15 |                 _          -> init
-   |                 ^^^^^^^^^^^^^^^^^^
-
-Found 1 error and 1 warning.
+Hint:
+  Declare the effect before using `perform`.
 == stdout ==
 <not executed>
