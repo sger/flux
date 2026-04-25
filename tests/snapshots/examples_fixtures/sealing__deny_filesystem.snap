@@ -9,9 +9,9 @@ error[E427]: Sealed Effect Violation
 
 This expression was sealed to allow {Console}, but it performs {FileSystem}.
 
-  examples/sealing/deny_filesystem.flx:2:5
+  examples/sealing/deny_filesystem.flx:4:5
   |
-2 |     read_file("missing.txt") sealing { Console }
+4 |     read_file("missing.txt") sealing { Console }
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |     -------------------------------------------- sealed expression exceeds its allowed effects
 

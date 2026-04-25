@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/optimizations/free_variables.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `undefined_var`.
 
-  examples/optimizations/free_variables.flx:9:19
-  |
-9 | let result1 = x + undefined_var;
-  |                   ^^^^^^^^^^^^^
+  examples/optimizations/free_variables.flx:11:19
+   |
+11 | let result1 = x + undefined_var;
+   |                   ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let undefined_var = ...;
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `missing`.
 
-  examples/optimizations/free_variables.flx:16:21
+  examples/optimizations/free_variables.flx:18:21
    |
-16 |     let c = a + b + missing;
+18 |     let c = a + b + missing;
    |                     ^^^^^^^
 
 Hint:
