@@ -365,10 +365,10 @@ impl VM {
             }
 
             let result = self.pop()?;
-            if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller) {
-                if let Some(handler) = caller_handlers.iter_mut().rfind(|h| h.marker == marker) {
-                    handler.state = Some(next_state);
-                }
+            if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller)
+                && let Some(handler) = caller_handlers.iter_mut().rfind(|h| h.marker == marker)
+            {
+                handler.state = Some(next_state);
             }
 
             self.ensure_stack_capacity(caller_stack.len() + 1)?;
