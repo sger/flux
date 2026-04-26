@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `println` requires effect `Console` in this function signature.
 
-  examples/effects/failing/05_test_helper_no_default.flx:10:5
+  examples/effects/failing/05_test_helper_no_default.flx:30:5
    |
-10 |     println("missing Console")
+30 |     println("missing Console")
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     -------------------------- effectful call occurs here
 

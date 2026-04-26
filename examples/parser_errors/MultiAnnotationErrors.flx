@@ -1,3 +1,80 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 5 errors • examples/parser_errors/MultiAnnotationErrors.flx
+// error[E034]: Missing Type Annotation Colon
+//
+// Missing `:` in function parameter type annotation. Write it as `name: Type`.
+//
+//   examples/parser_errors/MultiAnnotationErrors.flx:79:23
+//    |
+// 79 |     fn bad_param(name String) -> String { name }
+//    |                       ^^^^^^
+//
+// Hint:
+//   Type annotations use `name: Type`.
+//
+//
+// error[E034]: Missing Return Type Arrow
+//
+// Missing `->` before function return type. Write it as `fn name(...) -> Type`.
+//
+//   examples/parser_errors/MultiAnnotationErrors.flx:80:27
+//    |
+// 80 |     fn bad_return(x: Int) String { x }
+//    |                           ^^^^^^
+//
+// Note:
+//   while parsing module `MultiAnnotationErrors` > function `bad_return`
+//
+//
+// error[E034]: Missing Type Annotation Colon
+//
+// Missing `:` in let binding type annotation. Write it as `value: Type`.
+//
+//   examples/parser_errors/MultiAnnotationErrors.flx:83:19
+//    |
+// 83 |         let value Int = 1
+//    |                   ^^^
+//
+// Hint:
+//   Type annotations use `name: Type`.
+//
+//
+// error[E034]: Missing Type Annotation Colon
+//
+// Missing `:` in function parameter type annotation. Write it as `x: Type`.
+//
+//   examples/parser_errors/MultiAnnotationErrors.flx:84:21
+//    |
+// 84 |         let f = \(x Int, y String) -> x
+//    |                     ^^^
+//
+// Hint:
+//   Type annotations use `name: Type`.
+//
+//
+// error[E034]: Missing Type Annotation Colon
+//
+// Missing `:` in function parameter type annotation. Write it as `y: Type`.
+//
+//   examples/parser_errors/MultiAnnotationErrors.flx:84:28
+//    |
+// 84 |         let f = \(x Int, y String) -> x
+//    |                            ^^^^^^
+//
+// Hint:
+//   Type annotations use `name: Type`.
+//
+// Found 5 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+
 module MultiAnnotationErrors {
     fn bad_param(name String) -> String { name }
     fn bad_return(x: Int) String { x }
@@ -7,3 +84,4 @@ module MultiAnnotationErrors {
         let f = \(x Int, y String) -> x
     }
 }
+

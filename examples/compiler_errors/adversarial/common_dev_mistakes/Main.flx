@@ -1,3 +1,12 @@
+// expect: compile_error
+// expect-error: E300
+// expect-error: E011
+// expect-error: E011
+// expect-error: E013
+// expect-error: E407
+// expect-error: E004
+// expect-error: E056
+
 import MissingPublicAccess
 import PrivateMemberAccess
 import CollectionsConfusion

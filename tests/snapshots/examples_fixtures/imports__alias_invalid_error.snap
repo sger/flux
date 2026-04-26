@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/alias_invalid_error.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E026]: Invalid Module Alias
 
 Invalid module alias: `myfile`.
 
-  examples/imports/alias_invalid_error.flx:4:1
+  examples/imports/alias_invalid_error.flx:5:1
   |
-4 | import Modules.Data.MyFile as myfile
+5 | import Modules.Data.MyFile as myfile
   | ^
 
 Hint:

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/pipe_with_modules.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  examples/Modules/pipe_with_modules.flx:4:1
+  examples/Modules/pipe_with_modules.flx:8:1
   |
-4 | import Modules.Math as Math
+8 | import Modules.Math as Math
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.StringUtils` to import.
 
-  examples/Modules/pipe_with_modules.flx:5:1
+  examples/Modules/pipe_with_modules.flx:9:1
   |
-5 | import Modules.StringUtils as StringUtils
+9 | import Modules.StringUtils as StringUtils
   | ^
 
 Hint:

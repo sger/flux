@@ -1,5 +1,5 @@
 ---
-source: tests/parser_error_fixtures_snapshots.rs
+source: tests/error_fixtures/parser_error_fixtures_snapshots.rs
 ---
 Fixture: examples/parser_errors/eof_after_module_name.flx
 == compile ==
@@ -9,7 +9,7 @@ error[E034]: Missing Module Body
 
 This module body needs to start with `{`.
 
-  examples/parser_errors/eof_after_module_name.flx:2:1
+  examples/parser_errors/eof_after_module_name.flx:3:1
   |
 
 Hint:

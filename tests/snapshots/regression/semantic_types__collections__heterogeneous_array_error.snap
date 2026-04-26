@@ -16,7 +16,7 @@ exit_code: 1
 [10 of 12] Compiling  Primops
 [11 of 12] Compiling  String
 • 2 errors • tests/fixtures/semantic_types/collections/heterogeneous_array_error.flx
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
 Could not determine a concrete type for `main` at the public function signature. Inferred type: `() -> Array<_>`.
 

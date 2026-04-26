@@ -199,7 +199,7 @@ How to see it:
   ```
   cargo run -- run examples/patterns/option_match.flx
   ```
-- For a demo, use `examples/Debug/IceDemo.flx` and force an ICE temporarily in the compiler.
+- For a demo, use `examples/diagnostics/ice_demo.flx` and force an ICE temporarily in the compiler.
 - If you hit the bytecode cache, remove it first: `rm -rf target/flux`.
 - ICEs should be rare; if you see one, it points directly at the Rust file/line.
 

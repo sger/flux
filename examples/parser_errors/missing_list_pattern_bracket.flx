@@ -1,6 +1,29 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_list_pattern_bracket.flx
+// error[E034]: Unexpected Token
+//
+// Expected `]` to close list pattern.
+//
+//   examples/parser_errors/missing_list_pattern_bracket.flx:25:22
+//    |
+// 25 |         [head | tail -> head,
+//    |                      ^^
+//
+// Hint:
+//   List patterns use `[]` or `[head | tail]`.
+//
+// Note:
+//   while parsing function `main` > `match` expression
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Int {
     match [1, 2] {
         [head | tail -> head,
         _ -> 0
     }
 }
+

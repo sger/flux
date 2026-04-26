@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_with_row_tail.flx
+// error[E034]: Unexpected Token
+//
+// Expected row variable name after `|` in effect expression.
+//
+//   examples/parser_errors/missing_with_row_tail.flx:23:28
+//    |
+// 23 | fn main() -> Int with IO | {
+//    |                            ^
+//
+// Hint:
+//   Write row tails as `... | e` where `e` is a lowercase identifier.
+//
+// Note:
+//   while parsing function `main`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Int with IO | {
     1
 }
+

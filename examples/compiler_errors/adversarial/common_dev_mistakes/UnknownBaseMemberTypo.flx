@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E013
+
 module UnknownBaseMemberTypo {
     fn bad() -> Unit with IO {
         Flow.prnit("x")

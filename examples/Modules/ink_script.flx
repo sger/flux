@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E018
+
 import Modules.Amber.Ink
 
 print(Modules.Amber.Ink.greet_twice("Flux"));

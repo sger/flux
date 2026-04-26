@@ -1,2 +1,19 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/stray_top_level_arrow.flx
+// error[E031]: Expected Expression
+//
+// Expected expression, found `->`.
+//
+//   examples/parser_errors/stray_top_level_arrow.flx:17:1
+//    |
+// 17 | ->
+//    | ^^
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E031
+
 ->
 fn main() -> Unit {}
+

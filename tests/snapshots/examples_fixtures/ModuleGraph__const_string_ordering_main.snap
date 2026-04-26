@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/ModuleGraph/const_string_ordering_main.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ConstStringOrdering` to import.
 
-  examples/ModuleGraph/const_string_ordering_main.flx:2:1
+  examples/ModuleGraph/const_string_ordering_main.flx:5:1
   |
-2 | import ModuleGraph.ConstStringOrdering
+5 | import ModuleGraph.ConstStringOrdering
   | ^
 
 Hint:

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/166_self_recursive_guard_stable_unresolved
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
 Could not determine a concrete type for `loop_unknown` at the public function signature. Inferred type: `(Int) -> _`.
 

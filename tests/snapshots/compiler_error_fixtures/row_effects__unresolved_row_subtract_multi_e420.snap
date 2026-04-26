@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E304]: Invalid Effect Row
 
 Cannot interpret this effect row: `e` and `t` are distinct row variables in the same row.
 
-  examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx:1:41
+  examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx:4:41
   |
-1 | fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
+4 | fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
   |                                         ^^^^^^
   |                                         ------ conflicting row variables in this effect row
 

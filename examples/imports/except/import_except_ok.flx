@@ -1,4 +1,7 @@
 // root: examples/imports/except
+// expect: compile_error
+// expect-error: E011
+
 // Run with:
 // cargo run -- --root examples/imports/except examples/imports/except/import_except_ok.flx
 

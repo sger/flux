@@ -1,3 +1,98 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 5 errors • examples/parser_errors/MultiDelimiterErrors.flx
+// error[E034]: Missing Closing Delimiter
+//
+// Expected `)` to close this tuple literal.
+//
+//   examples/parser_errors/MultiDelimiterErrors.flx:98:25
+//    |
+// 98 |         let pair = (1, 2]
+//    |                         ^
+//
+// Hint:
+//   Add `)` after the last tuple element.
+//
+// Note:
+//   while parsing module `MultiDelimiterErrors` > function `delimiters`
+//
+//
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `]` to match this opening `[`.
+//
+//   examples/parser_errors/MultiDelimiterErrors.flx:99:18
+//    |
+// 99 |         let xs = [1, 2, 3
+//    |                  ^
+//
+// Note:
+//   while parsing module `MultiDelimiterErrors` > function `delimiters`
+//
+// note: Expected `]` before this token.
+//   examples/parser_errors/MultiDelimiterErrors.flx:100:9
+//     |
+// 100 |         let h = { "a" 1 }
+//     |         ^^^
+//
+//
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/MultiDelimiterErrors.flx:100:23
+//     |
+// 100 |         let h = { "a" 1 }
+//     |                       ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing module `MultiDelimiterErrors` > function `delimiters`
+//
+//
+// error[E073]: Missing Comma
+//
+// Missing comma between arguments.
+//
+//   examples/parser_errors/MultiDelimiterErrors.flx:101:23
+//     |
+// 101 |         let r = add(1 2)
+//     |                       ^
+//
+// Hint:
+//   Add a comma between items, e.g. `f(a, b)`.
+//
+// Note:
+//   while parsing module `MultiDelimiterErrors` > function `delimiters`
+//
+//
+// error[E034]: Missing Closing Delimiter
+//
+// Expected `)` to close this grouped expression.
+//
+//   examples/parser_errors/MultiDelimiterErrors.flx:102:23
+//     |
+// 102 |         let g = (1 + 2]
+//     |                       ^
+//
+// Hint:
+//   Add `)` after the expression.
+//
+// Note:
+//   while parsing module `MultiDelimiterErrors` > function `delimiters`
+//
+// Found 5 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E076
+// expect-error: E034
+// expect-error: E073
+// expect-error: E034
+
 module MultiDelimiterErrors {
     fn delimiters() -> Unit {
         let pair = (1, 2]
@@ -7,3 +102,4 @@ module MultiDelimiterErrors {
         let g = (1 + 2]
     }
 }
+

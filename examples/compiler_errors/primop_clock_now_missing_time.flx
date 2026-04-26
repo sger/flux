@@ -1,3 +1,5 @@
+// skip: support or non-error companion fixture for compiler diagnostics
+
 fn main() -> Unit {
     let ignored = clock_now()
 }

@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:2:27
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:5:27
   |
-2 |     fn bad() -> Unit with I {
+5 |     fn bad() -> Unit with I {
   |                           ^
   |                           - unknown effect in function annotation
 

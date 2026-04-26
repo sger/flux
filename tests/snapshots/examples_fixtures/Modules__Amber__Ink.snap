@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/Amber/Ink.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Amber.Ink` doesn't match file path `examples/Modules/Amber/Ink.flx`.
 
-  examples/Modules/Amber/Ink.flx:4:1
+  examples/Modules/Amber/Ink.flx:7:1
   |
-4 | module Modules.Amber.Ink {
+7 | module Modules.Amber.Ink {
   | ^
 
 Hint:

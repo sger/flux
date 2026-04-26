@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_if_brace.flx
+// error[E034]: Missing If Body
+//
+// This `if` branch needs to start with `{`.
+//
+//   examples/parser_errors/missing_if_brace.flx:31:12
+//    |
+// 31 |     if x > 3
+//    |            ^
+//    |            - this `if` branch starts here
+//
+// Note:
+//   while parsing function `main` > `if` expression
+//
+// Help:
+//   Try adding `{` after the `if` condition.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `{` in if body.
 //
 // Expected: E034 contextual error about if body.
@@ -8,3 +31,4 @@ fn main() -> Unit {
     if x > 3
         print("big")
 }
+

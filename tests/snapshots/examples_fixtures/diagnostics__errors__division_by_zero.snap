@@ -1,0 +1,37 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics/errors/division_by_zero.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E413]: Top-Level Effect
+
+Effectful operation is not allowed at top level (requires: Console).
+
+  examples/diagnostics/errors/division_by_zero.flx:8:1
+  |
+8 | print(x / y)
+  | ^^^^^^^^^^^^
+  | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+error[E414]: Missing Main Function
+
+Effectful program is missing `fn main` root effect handler.
+
+  examples/diagnostics/errors/division_by_zero.flx:8:1
+  |
+8 | print(x / y)
+  | ^^^^^^^^^^^^
+  | ------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+Found 2 errors.
+== stdout ==
+<not executed>

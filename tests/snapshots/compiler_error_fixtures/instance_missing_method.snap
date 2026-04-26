@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/instance_missing_method.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E442]: Missing Instance Method
 
 Missing method `value` in instance `Describable`.
 
-  examples/compiler_errors/instance_missing_method.flx:12:1
+  examples/compiler_errors/instance_missing_method.flx:15:1
    |
-12 | instance Describable<Int> {
+15 | instance Describable<Int> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-13 |     fn name(x) { x }
+16 |     fn name(x) { x }
    | ^^^^^^^^^^^^^^^^^^^^
-14 | }
+17 | }
    | ^
 
 Hint:

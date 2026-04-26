@@ -1,0 +1,8 @@
+// expect: compile_error
+// expect-error: E024
+
+module Modules.Data.Other {
+  fn value() {
+    1;
+  }
+}

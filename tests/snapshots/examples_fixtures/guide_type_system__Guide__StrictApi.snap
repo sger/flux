@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/guide_type_system/Guide/StrictApi.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Guide.StrictApi` doesn't match file path `examples/guide_type_system/Guide/StrictApi.flx`.
 
-  examples/guide_type_system/Guide/StrictApi.flx:1:1
+  examples/guide_type_system/Guide/StrictApi.flx:3:1
   |
-1 | module Guide.StrictApi {
+3 | module Guide.StrictApi {
   | ^
 
 Hint:

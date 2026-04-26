@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E462
+
 // Listing the same field name twice in one constructor.
 //
 // Expected: E462 Duplicate Named Field
