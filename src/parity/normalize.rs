@@ -28,7 +28,9 @@ pub fn normalize(raw: &str) -> String {
     }
 
     let joined = lines.join("\n");
-    normalize_temp_paths(&joined).trim().to_string()
+    normalize_type_variable_ids(&normalize_relative_path_prefixes(&normalize_temp_paths(&joined)))
+        .trim()
+        .to_string()
 }
 
 /// Replace absolute temp paths from native compilation with a placeholder.
@@ -45,6 +47,38 @@ fn normalize_temp_paths(s: &str) -> String {
             .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ')' || c == ':')
             .unwrap_or(after.len());
         rest = &after[end..];
+    }
+
+    result.push_str(rest);
+    result
+}
+
+fn normalize_relative_path_prefixes(s: &str) -> String {
+    s.replace("./examples/", "examples/")
+        .replace(".\\examples\\", "examples\\")
+        .replace("./lib/", "lib/")
+        .replace(".\\lib\\", "lib\\")
+        .replace("./src/", "src/")
+        .replace(".\\src\\", "src\\")
+}
+
+fn normalize_type_variable_ids(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+
+    while let Some(idx) = rest.find("var #") {
+        result.push_str(&rest[..idx]);
+        let after = &rest[idx + "var #".len()..];
+        let digit_end = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
+        if digit_end == 0 {
+            result.push_str("var #");
+            rest = after;
+        } else {
+            result.push_str("var #N");
+            rest = &after[digit_end..];
+        }
     }
 
     result.push_str(rest);
@@ -437,6 +471,26 @@ b12(v3):
     fn normalizes_temp_paths() {
         let input = "error at /tmp/flux_native_abc123/main.ll: bad\n";
         assert_eq!(normalize(input), "error at <TMPDIR>: bad");
+    }
+
+    #[test]
+    fn normalizes_relative_project_path_prefixes() {
+        assert_eq!(
+            normalize("error at ./examples/type_system/foo.flx"),
+            "error at examples/type_system/foo.flx"
+        );
+    }
+
+    #[test]
+    fn normalizes_type_variable_ids() {
+        assert_eq!(
+            normalize("unresolved type variable (var #10603)"),
+            "unresolved type variable (var #N)"
+        );
+        assert_eq!(
+            normalize("unresolved type variable (var #N)"),
+            "unresolved type variable (var #N)"
+        );
     }
 
     #[test]

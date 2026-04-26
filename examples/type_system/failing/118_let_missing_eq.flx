@@ -1,6 +1,21 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/118_let_missing_eq.flx
+// error[E034]: Unexpected Token
+//
+// Expected `=` after `let x`. Did you mean `let x = ...`?
+//
+//   examples/type_system/failing/118_let_missing_eq.flx:21:11
+//    |
+// 21 |     let x 1
+//    |           ^
+//
+// Hint:
+//   Let bindings require `=`: `let name = value`
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E034
 
 fn main() -> Unit {
     let x 1

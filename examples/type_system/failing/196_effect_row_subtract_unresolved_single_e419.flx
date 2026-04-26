@@ -1,6 +1,28 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx
+// error[E419]: Unresolved Effect Row
+//
+// I cannot resolve the effect variable `e` introduced by this call.
+//
+//   examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:34:13
+//    |
+// 34 |     let _ = unresolved(1)
+//    |             ^^^^^^^^^^
+//    |             ---------- this call leaves an effect variable unconstrained
+//
+//    |             ---------- this call to `unresolved` creates the effect obligation
+//
+// Note:
+//   unresolved effect variable: e
+//   constraint source: effect-row checking for `unresolved`
+//
+// Help:
+//   Add an explicit effect annotation such as `with e` or pass a callback with concrete effects.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E419
 
 // E419: unresolved single effect variable in subtraction path.
 

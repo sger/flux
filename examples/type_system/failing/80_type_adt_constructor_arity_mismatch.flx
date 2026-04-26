@@ -1,6 +1,41 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 1 missing pattern.
+//
+//   examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:45:5
+//    |
+// 45 |     match x {
+//    |     ^^^^^^^^^
+// 46 |         Pair(a) -> a,
+//    | ^^^^^^^^^^^^^^^^^^^^^
+// 47 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+//
+//
+// error[E085]: Constructor Pattern Arity Mismatch
+//
+// Constructor pattern `Pair` expects 2 argument(s) but got 1.
+//
+//   examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:46:9
+//    |
+// 46 |         Pair(a) -> a,
+//    |         ^^^^^^^
+//
+// Hint:
+//   Check the constructor's declared pattern field count.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E015
+// expect-error: E085
 
 // E082: constructor arity mismatch using `type ... = ... | ...` ADT sugar.
 

@@ -1,6 +1,21 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/116_keyword_alias_end.flx
+// error[E034]: Unexpected Token
+//
+// `end` is not a keyword in Flux. Use `}` to close blocks.
+//
+//   examples/type_system/failing/116_keyword_alias_end.flx:22:1
+//    |
+// 22 | end
+//    | ^^^
+//
+// Hint:
+//   Replace `end` with `}`.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E034
 
 fn foo() -> Int {
     1

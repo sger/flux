@@ -1,6 +1,53 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx
+// error[E421]: Unknown Member in Exposing
+//
+// `print` is not defined in module `Flow.Primops`.
+//
+//   examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx:7:1
+//   |
+// 7 | // `print` is not defined in module `Flow.Primops`.
+//   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the public members of `Flow.Primops` or remove `print` from the exposing list.
+//
+//
+// error[E012]: Unknown Module Member
+//
+// Module `TypeSystem.EffectsChain` has no member named `call_io_step`.
+//
+//   examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx:57:5
+//    |
+// 57 |     TypeSystem.EffectsChain.call_io_step(x)
+//    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the module's public members or import the correct module.
+//
+//
+// • 1 error • examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx
+// error[E018]: Import Not Found
+//
+// Cannot find module `TypeSystem.EffectsChain` to import.
+//
+//   examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx:54:1
+//    |
+// 54 | import TypeSystem.EffectsChain
+//    | ^
+//
+// Hint:
+//   Check that: 1) The module file exists (e.g., `TypeSystem.EffectsChain.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+//   Looked for module `TypeSystem.EffectsChain` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx).
+//
+// Found 3 errors across 2 modules.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E012
+// expect-error: E018
+// expect-error: E421
 
 // E400: module-qualified call requires IO, but caller is declared with Time only.
 

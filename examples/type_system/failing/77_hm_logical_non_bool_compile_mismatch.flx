@@ -1,6 +1,29 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:29:5
+//    |
+// 29 |     a && b
+//    |     ^^^^^^
+//    |     ------ this expression has type `Int and Bool`
+//
+//    |     ------ operator operands are known at compile time
+//
+// Note:
+//   expected type: Bool operands
+//   found type: Int and Bool
+//
+// Help:
+//   These two types are not compatible.
+//   adjust operand types or add explicit conversion
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 fn bad(a: Int, b: Bool) -> Bool {
     a && b

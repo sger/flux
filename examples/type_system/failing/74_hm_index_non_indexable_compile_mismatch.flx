@@ -1,6 +1,29 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx:29:5
+//    |
+// 29 |     x[0]
+//    |     ^
+//    |     - this expression has type `Int`
+//
+//    |     - indexed value is known at compile time
+//
+// Note:
+//   expected type: indexable value (Array/List/Tuple/Map)
+//   found type: Int
+//
+// Help:
+//   These two types are not compatible.
+//   index only arrays, lists, tuples, or maps
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 fn bad(x: Int) -> Int {
     x[0]

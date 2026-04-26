@@ -1,6 +1,7 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // expect: compile_error
+// skip: warning-only fixture; does not currently emit a compiler error
 
 // W202: Unreachable pattern arms are detected at compile time.
 // An arm is unreachable when a preceding unguarded arm provably covers

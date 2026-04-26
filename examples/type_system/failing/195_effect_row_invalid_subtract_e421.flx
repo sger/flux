@@ -1,6 +1,34 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error, 1 note • examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
+// error[E300]: Parameter Type Mismatch
+//
+// Parameter 1 has the wrong type.
+//
+//   examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:50:5
+//    |
+// 50 |     run_filtered(io_console_work)
+//    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
+//
+//    |     ----------------------------- this type mismatch is reported here
+//
+// Note:
+//   expected parameter type: () -> Unit with FileSystem, Stdin
+//   found parameter type: () -> Unit with Console, FileSystem, Stdin
+//   the conflicting types meet at this expression
+//
+// Help:
+//   Change parameter 1 to use `() -> Unit with FileSystem, Stdin` consistently.
+//
+//
+// Note: Downstream Errors Suppressed
+//
+// I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 // E421: concrete subtraction fails when the removed effect is present.
 

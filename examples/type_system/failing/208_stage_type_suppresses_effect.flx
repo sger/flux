@@ -1,6 +1,57 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors, 1 note • examples/type_system/failing/208_stage_type_suppresses_effect.flx
+// error[E406]: Unhandled Root Effect
+//
+// `fn main` has undischarged effects: Mystery.
+//
+//   examples/type_system/failing/208_stage_type_suppresses_effect.flx:68:1
+//    |
+// 68 | fn main() with IO {
+//    | ^^^^^^^^^^^^^^^^^
+//    | ----------------- undischarged effects at root boundary
+//
+// Hint:
+//   Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
+//
+//
+// error[E300]: Argument Type Mismatch
+//
+// I found the wrong type in the 1st argument to `greet`.
+//
+//   examples/type_system/failing/208_stage_type_suppresses_effect.flx:69:17
+//    |
+// 60 | fn greet(name: String) -> String {
+//    | -------------------------------- `greet` expects `String` as the 1st parameter
+// 61 |     "Hello, #{name}!"
+// 62 | }
+// ... |
+// 67 |
+// 68 | fn main() with IO {
+// 69 |     print(greet(42))
+//    |                 ^^
+//    |                 -- this argument has type `Int`
+//
+// Note:
+//   expected argument type: String
+//   found argument type: Int
+//   the actual argument type is inferred from this expression
+//   the expected argument type comes from the function signature
+//
+// Help:
+//   Try `to_string(...)` to convert a `Int` into a `String`.
+//
+//
+// Note: Downstream Errors Suppressed
+//
+// I hid 2 later-stage diagnostics (2 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
+// expect-error: E406
 
 // Type + effect diagnostics in one file.
 // Note: E400 is a TypeCheck diagnostic and remains visible by design.

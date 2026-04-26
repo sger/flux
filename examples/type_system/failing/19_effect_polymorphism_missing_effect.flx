@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/19_effect_polymorphism_missing_effect.flx
+// error[E400]: Missing Ambient Effect
+//
+// Call to `apply_twice` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/19_effect_polymorphism_missing_effect.flx:33:5
+//    |
+// 33 |     apply_twice(log_inc, 3)
+//    |     ^^^^^^^^^^^
+//    |     ----------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E400
 
 // E400: `with |e` resolves to IO from callback, but caller only declares Time.
 

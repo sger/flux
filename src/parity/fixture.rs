@@ -5,6 +5,11 @@
 //! ```text
 //! // parity: vm, llvm
 //! // expect: success
+//! // expect-error: E300
+//! // parity-expected-stderr-begin
+//! // error[E300]: type mismatch
+//! // parity-expected-stderr-end
+//! // skip: reason to skip this fixture
 //! // bug: description of the bug shape
 //! ```
 
@@ -27,12 +32,18 @@ pub struct FixtureMeta {
     pub ways: Vec<Way>,
     /// Expected outcome (defaults to `Success`).
     pub expect: Expect,
+    /// Expected diagnostic error codes for error fixtures.
+    pub expected_errors: Vec<String>,
     /// Extra CLI args forwarded only for this fixture.
     pub extra_args: Vec<String>,
     /// One-line description of the bug shape.
     pub bug: Option<String>,
+    /// Optional reason to skip this fixture while still reporting it.
+    pub skip: Option<String>,
     /// Optional expected normalized stdout block.
     pub expected_stdout: Option<String>,
+    /// Optional expected normalized stderr block.
+    pub expected_stderr: Option<String>,
 }
 
 impl Default for FixtureMeta {
@@ -40,9 +51,12 @@ impl Default for FixtureMeta {
         Self {
             ways: vec![Way::Vm, Way::Llvm],
             expect: Expect::Success,
+            expected_errors: Vec::new(),
             extra_args: Vec::new(),
             bug: None,
+            skip: None,
             expected_stdout: None,
+            expected_stderr: None,
         }
     }
 }
@@ -57,8 +71,8 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
     };
 
     let mut meta = FixtureMeta::default();
-    let mut collecting_expected_stdout = false;
-    let mut expected_stdout_lines: Vec<String> = Vec::new();
+    let mut collecting_block: Option<ExpectedBlockKind> = None;
+    let mut expected_block_lines: Vec<String> = Vec::new();
 
     let mut in_header = true;
 
@@ -74,26 +88,33 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
         };
         let comment_trimmed = comment.trim();
 
-        if collecting_expected_stdout {
-            if comment_trimmed == "parity-expected-stdout-end"
-                || comment_trimmed == "parity-oracle-stdout-end"
-            {
-                collecting_expected_stdout = false;
-                meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
-                expected_stdout_lines.clear();
+        if let Some(kind) = collecting_block {
+            if kind.ends_at(comment_trimmed) {
+                let value = expected_block_lines.join("\n").trim().to_string();
+                match kind {
+                    ExpectedBlockKind::Stdout => meta.expected_stdout = Some(value),
+                    ExpectedBlockKind::Stderr => meta.expected_stderr = Some(value),
+                }
+                collecting_block = None;
+                expected_block_lines.clear();
                 continue;
             }
             // Preserve internal whitespace for multi-line strings in expected
-            // stdout. We only strip the `// ` prefix (one leading space), not
+            // output. We only strip the `// ` prefix (one leading space), not
             // the rest of the content.
             let content_line = comment.strip_prefix(' ').unwrap_or(comment).to_string();
-            expected_stdout_lines.push(content_line);
+            expected_block_lines.push(content_line);
             continue;
         }
         let comment = comment_trimmed;
 
         if comment == "parity-expected-stdout-begin" || comment == "parity-oracle-stdout-begin" {
-            collecting_expected_stdout = true;
+            collecting_block = Some(ExpectedBlockKind::Stdout);
+            continue;
+        }
+
+        if comment == "parity-expected-stderr-begin" {
+            collecting_block = Some(ExpectedBlockKind::Stderr);
             continue;
         }
 
@@ -118,6 +139,12 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
                 "runtime_error" => Expect::RuntimeError,
                 _ => Expect::Success,
             };
+        } else if let Some(code) = comment.strip_prefix("expect-error:") {
+            let code = code.trim();
+            if code.is_empty() {
+                continue;
+            }
+            meta.expected_errors.push(code.to_string());
         } else if let Some(value) = comment.strip_prefix("root:") {
             let value = value.trim();
             if !value.is_empty() {
@@ -126,14 +153,42 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             }
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
+        } else if let Some(value) = comment.strip_prefix("skip:") {
+            let value = value.trim();
+            meta.skip = Some(if value.is_empty() {
+                "fixture metadata requested skip".to_string()
+            } else {
+                value.to_string()
+            });
         }
     }
 
-    if collecting_expected_stdout {
-        meta.expected_stdout = Some(expected_stdout_lines.join("\n").trim().to_string());
+    if let Some(kind) = collecting_block {
+        let value = expected_block_lines.join("\n").trim().to_string();
+        match kind {
+            ExpectedBlockKind::Stdout => meta.expected_stdout = Some(value),
+            ExpectedBlockKind::Stderr => meta.expected_stderr = Some(value),
+        }
     }
 
     meta
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ExpectedBlockKind {
+    Stdout,
+    Stderr,
+}
+
+impl ExpectedBlockKind {
+    fn ends_at(self, comment: &str) -> bool {
+        match self {
+            Self::Stdout => {
+                comment == "parity-expected-stdout-end" || comment == "parity-oracle-stdout-end"
+            }
+            Self::Stderr => comment == "parity-expected-stderr-end",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -149,22 +204,34 @@ mod tests {
         let mut f = std::fs::File::create(&path).unwrap();
         writeln!(f, "// parity: vm, llvm").unwrap();
         writeln!(f, "// expect: runtime_error").unwrap();
+        writeln!(f, "// expect-error: E1004").unwrap();
         writeln!(f, "// bug: division by zero differs across backends").unwrap();
+        writeln!(f, "// skip: temporary backend gap").unwrap();
         writeln!(f, "// parity-expected-stdout-begin").unwrap();
         writeln!(f, "// line 1").unwrap();
         writeln!(f, "// line 2").unwrap();
         writeln!(f, "// parity-expected-stdout-end").unwrap();
+        writeln!(f, "// parity-expected-stderr-begin").unwrap();
+        writeln!(f, "// error[E1004]: boundary violation").unwrap();
+        writeln!(f, "//   label").unwrap();
+        writeln!(f, "// parity-expected-stderr-end").unwrap();
         writeln!(f, "fn main() {{ }}").unwrap();
 
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::RuntimeError);
+        assert_eq!(meta.expected_errors, vec!["E1004"]);
         assert_eq!(meta.extra_args, Vec::<String>::new());
         assert_eq!(
             meta.bug.as_deref(),
             Some("division by zero differs across backends")
         );
+        assert_eq!(meta.skip.as_deref(), Some("temporary backend gap"));
         assert_eq!(meta.expected_stdout.as_deref(), Some("line 1\nline 2"));
+        assert_eq!(
+            meta.expected_stderr.as_deref(),
+            Some("error[E1004]: boundary violation\n  label")
+        );
 
         let _ = std::fs::remove_file(&path);
     }
@@ -183,6 +250,7 @@ mod tests {
         assert_eq!(meta.extra_args, Vec::<String>::new());
         assert!(meta.bug.is_none());
         assert!(meta.expected_stdout.is_none());
+        assert!(meta.expected_stderr.is_none());
 
         let _ = std::fs::remove_file(&path);
     }
@@ -205,6 +273,29 @@ mod tests {
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
         assert_eq!(meta.expect, Expect::Success);
         assert_eq!(meta.extra_args, Vec::<String>::new());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn parses_expected_stderr_block_outside_header() {
+        let dir = std::env::temp_dir().join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_expected_stderr_after_code.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "fn main() {{").unwrap();
+        writeln!(f, "    print(1)").unwrap();
+        writeln!(f, "}}").unwrap();
+        writeln!(f, "// parity-expected-stderr-begin").unwrap();
+        writeln!(f, "// error[E300]: type mismatch").unwrap();
+        writeln!(f, "//   at line 1").unwrap();
+        writeln!(f, "// parity-expected-stderr-end").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        assert_eq!(
+            meta.expected_stderr.as_deref(),
+            Some("error[E300]: type mismatch\n  at line 1")
+        );
 
         let _ = std::fs::remove_file(&path);
     }
