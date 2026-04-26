@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_else_brace.flx
+// error[E034]: Missing Else Body
+//
+// This `else` branch needs to start with `{`.
+//
+//   examples/parser_errors/missing_else_brace.flx:30:33
+//    |
+// 30 |     let _r = if x > 3 { "big" } else "small"
+//    |                                 ^^^^
+//    |                                 ---- `else` starts here
+//
+// Note:
+//   while parsing function `main` > `if` expression
+//
+// Help:
+//   Try adding `{` after `else`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `{` in else body.
 //
 // Expected: E034 contextual error about else body.
@@ -6,3 +29,4 @@ fn main() -> Unit {
     let x = 5
     let _r = if x > 3 { "big" } else "small"
 }
+

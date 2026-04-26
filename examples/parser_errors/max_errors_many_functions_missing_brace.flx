@@ -1,3 +1,5 @@
+// expect: compile_error
+
 // More than 50 independent parser errors in one file.
 //
 // Each function is missing its opening `{`, producing one stable parser error.

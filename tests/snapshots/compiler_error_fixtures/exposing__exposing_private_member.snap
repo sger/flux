@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/exposing/exposing_private_member.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E420]: Private Member in Exposing
 
 Cannot expose `secret` because it is not a public member of `ExposingTarget`.
 
-  examples/compiler_errors/exposing/exposing_private_member.flx:1:1
+  examples/compiler_errors/exposing/exposing_private_member.flx:5:1
   |
-1 | import ExposingTarget exposing (secret)
+5 | import ExposingTarget exposing (secret)
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `secret`.
 
-  examples/compiler_errors/exposing/exposing_private_member.flx:4:11
+  examples/compiler_errors/exposing/exposing_private_member.flx:8:11
   |
-4 |     print(secret())
+8 |     print(secret())
   |           ^^^^^^
 
 Hint:

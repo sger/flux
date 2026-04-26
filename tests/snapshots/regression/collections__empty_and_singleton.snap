@@ -16,9 +16,9 @@ exit_code: 1
 [10 of 12] Compiling  Primops
 [11 of 12] Compiling  String
 • 5 errors • tests/fixtures/collections/empty_and_singleton.flx
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
-Core definition `0` has an unresolved type variable (var #10594) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10594 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:1:1
   |
@@ -26,12 +26,12 @@ Core definition `0` has an unresolved type variable (var #10594) in its HM-infer
   | ^^^
 
 Hint:
-  Add a type annotation or adjust the definition so inference fully resolves its result type.
+  Add a type annotation or make the expression's result type unambiguous.
 
 
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
-Core definition `0` has an unresolved type variable (var #10596) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10596 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:3:1
   |
@@ -39,7 +39,7 @@ Core definition `0` has an unresolved type variable (var #10596) in its HM-infer
   | ^^^^
 
 Hint:
-  Add a type annotation or adjust the definition so inference fully resolves its result type.
+  Add a type annotation or make the expression's result type unambiguous.
 
 
 error[E004]: Undefined Variable
@@ -58,9 +58,9 @@ Help:
   Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
 
 
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
-Core definition `0` has an unresolved type variable (var #10598) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10598 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:4:1
   |
@@ -68,7 +68,7 @@ Core definition `0` has an unresolved type variable (var #10598) in its HM-infer
   | ^^^^^
 
 Hint:
-  Add a type annotation or adjust the definition so inference fully resolves its result type.
+  Add a type annotation or make the expression's result type unambiguous.
 
 
 error[E004]: Undefined Variable

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/StudentGrades.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.StudentGrades` doesn't match file path `examples/Modules/StudentGrades.flx`.
 
-  examples/Modules/StudentGrades.flx:6:1
+  examples/Modules/StudentGrades.flx:9:1
   |
-6 | module Modules.StudentGrades {
+9 | module Modules.StudentGrades {
   | ^
 
 Hint:

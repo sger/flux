@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/MathConstants.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.MathConstants` doesn't match file path `examples/Modules/MathConstants.flx`.
 
-  examples/Modules/MathConstants.flx:4:1
+  examples/Modules/MathConstants.flx:7:1
   |
-4 | module Modules.MathConstants {
+7 | module Modules.MathConstants {
   | ^
 
 Hint:

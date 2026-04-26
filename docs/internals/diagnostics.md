@@ -23,12 +23,12 @@ Output is produced by the diagnostics aggregator, which provides:
 ## Example
 
 ```
---> examples/diagnostics_demos/hint_demos/fn_keyword_error.flx
+--> examples/diagnostics/hint_demos/fn_keyword_error.flx
 -- Compiler error: UNKNOWN KEYWORD [E101]
 
 Flux uses `fn` for function declarations.
 
-  --> examples/diagnostics_demos/hint_demos/fn_keyword_error.flx:3:1
+  --> examples/diagnostics/hint_demos/fn_keyword_error.flx:3:1
   |
 3 | fn add(x, y) {
   | ^^
@@ -67,7 +67,7 @@ Found 3 errors and 2 warnings.
 The CLI supports limiting the number of errors shown:
 
 ```
-flux --max-errors 1 examples/diagnostics_demos/hint_demos/fn_keyword_error.flx
+flux --max-errors 1 examples/diagnostics/hint_demos/fn_keyword_error.flx
 ```
 
 If errors are truncated, a footer appears:

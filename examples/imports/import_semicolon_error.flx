@@ -1,5 +1,6 @@
 // root: examples
 // expect: compile_error
+// expect-error: E031
 
 import Modules.Math;
 

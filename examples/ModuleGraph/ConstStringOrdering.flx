@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E024
+
 // Run with: cargo run -- examples/ModuleGraph/const_string_ordering_main.flx
 // Expected: compile-time evaluation succeeds with true.
 module ModuleGraph.ConstStringOrdering {

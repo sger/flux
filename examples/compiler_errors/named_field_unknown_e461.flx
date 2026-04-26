@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E461
+
 // Using a field name that the variant does not declare.
 //
 // Expected: E461 Unknown Named Field

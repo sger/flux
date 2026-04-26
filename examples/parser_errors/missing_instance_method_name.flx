@@ -1,3 +1,25 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_instance_method_name.flx
+// error[E034]: Missing Method Name
+//
+// Expected method name after `fn` in instance declaration.
+//
+//   examples/parser_errors/missing_instance_method_name.flx:34:8
+//    |
+// 34 |     fn (x) { x }
+//    |        ^
+//
+// Hint:
+//   Instance methods use `fn name(x, y) { body }`.
+//
+// Note:
+//   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing method name after `fn` in instance declaration.
 //
 // Expected: E034 Missing Method Name
@@ -15,3 +37,4 @@ instance Sizeable<Int> {
 fn main() {
     42
 }
+

@@ -121,8 +121,8 @@ fn find_unbound_var(
 
 fn build_violation(def: &CoreDef, var: TypeVarId, span: Span) -> Diagnostic {
     // Reuse the existing "strict unresolved" error code so downstream users
-    // (docs, error-code guides) see consistent surfacing. The message makes
-    // clear this is a Core-layer check rather than an AST one.
+    // (docs, error-code guides) see consistent surfacing. The message keeps
+    // the internal Core detail secondary to the source-level problem.
     //
     // Tagged with [`BoundaryKind::BackendConcreteBoundary`] (Proposal 0167
     // Part 1): by the time Core lowering has run, any residue in a def's
@@ -142,17 +142,15 @@ fn build_violation(def: &CoreDef, var: TypeVarId, span: Span) -> Diagnostic {
     let mut diag = diagnostic_for(&crate::diagnostics::compiler_errors::STRICT_TYPES_ANY_INFERRED)
         .with_span(span)
         .with_message(format!(
-            "Core definition `{}` has an unresolved type variable (var #{}) \
-             in its HM-inferred result type at the {boundary}. The static \
-             typing contract requires every Core-visible boundary to be \
-             concrete before backend lowering.",
+            "Flux could not determine a concrete result type for this definition \
+             before code generation. Internal detail: definition `{}` still has \
+             unresolved type variable #{} at the {boundary}.",
             def.name.as_u32(),
             var,
             boundary = kind.label(),
         ))
         .with_hint_text(
-            "Add a type annotation or adjust the definition so inference \
-             fully resolves its result type.",
+            "Add a type annotation or make the expression's result type unambiguous.",
         );
     diag.severity = Severity::Error;
     diag

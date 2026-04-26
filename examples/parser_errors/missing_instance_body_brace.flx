@@ -1,3 +1,22 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_instance_body_brace.flx
+// error[E034]: Missing Instance Body
+//
+// Expected `{` to begin instance body.
+//
+//   examples/parser_errors/missing_instance_body_brace.flx:31:5
+//    |
+// 31 |     fn size(x) { x }
+//    |     ^^
+//
+// Hint:
+//   Instance declarations use `instance ClassName<Type> { fn method(...) { ... } }`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `{` to begin instance body.
 //
 // Expected: E034 Missing Instance Body
@@ -14,3 +33,4 @@ instance Sizeable<Int>
 fn main() {
     42
 }
+

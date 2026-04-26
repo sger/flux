@@ -29,6 +29,50 @@ let test = "this compiles"
 let test2 = "this compiles";
 "#;
 
+    fn strip_parity_metadata_header(source: &str) -> &str {
+        let mut offset = 0;
+        let mut lines = source.split_inclusive('\n').peekable();
+
+        while let Some(line) = lines.peek().copied() {
+            let trimmed = line.trim();
+            if trimmed == "// parity-expected-stdout-begin" {
+                offset += line.len();
+                lines.next();
+                for block_line in lines.by_ref() {
+                    offset += block_line.len();
+                    if block_line.trim() == "// parity-expected-stdout-end" {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if trimmed == "// parity-expected-stderr-begin" {
+                offset += line.len();
+                lines.next();
+                for block_line in lines.by_ref() {
+                    offset += block_line.len();
+                    if block_line.trim() == "// parity-expected-stderr-end" {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if trimmed.starts_with("// expect:") || trimmed.starts_with("// expect-error:") {
+                offset += line.len();
+                lines.next();
+                continue;
+            }
+            if trimmed.is_empty() {
+                offset += line.len();
+                lines.next();
+                continue;
+            }
+            break;
+        }
+
+        &source[offset..]
+    }
+
     fn parse(input: &str) -> (Program, Interner) {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
@@ -2690,6 +2734,7 @@ let result = program() handle State(0) {
         ];
 
         for (input, fragment) in cases {
+            let input = strip_parity_metadata_header(input);
             let lexer = Lexer::new(input);
             let mut parser = Parser::new(lexer);
             let _ = parser.parse_program();
@@ -2772,6 +2817,7 @@ let result = program() handle State(0) {
         ];
 
         for (input, expected_title, expected_line, expected_label) in cases {
+            let input = strip_parity_metadata_header(input);
             let lexer = Lexer::new(input);
             let mut parser = Parser::new(lexer);
             let _ = parser.parse_program();

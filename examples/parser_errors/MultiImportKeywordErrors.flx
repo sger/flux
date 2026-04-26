@@ -1,3 +1,126 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 7 errors • examples/parser_errors/MultiImportKeywordErrors.flx
+// error[E034]: Missing Import Path
+//
+// This import needs a module path after `import`.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:125:5
+//     |
+// 125 |     import
+//     |     ^^^^^^
+//
+// Hint:
+//   Import statements use `import Module.Name`.
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E034]: Missing Import Alias
+//
+// This import alias needs a name after `as`.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:126:17
+//     |
+// 126 |     import Demo as
+//     |                 ^^
+//
+// Hint:
+//   Import aliases use `import Module as Alias`.
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E034]: Missing Import Except List
+//
+// Expected `[` after `except` in import.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:127:27
+//     |
+// 127 |     import Foo.Bar except x, y ]
+//     |                           ^
+//
+// Hint:
+//   Import exclusions use `import Module except [Name1, Name2]`.
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E030]: Unknown Keyword
+//
+// Unknown keyword `def`. Flux uses `fn` for function declarations.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:129:5
+//     |
+// 129 |     def greet(name) { name }
+//     |     ^^^
+//
+// Hint:
+//   Did you mean `fn`?
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:129:28
+//     |
+// 129 |     def greet(name) { name }
+//     |                            ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E030]: Unknown Keyword
+//
+// Unknown keyword `var`. Flux uses `let` for bindings.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:130:5
+//     |
+// 130 |     var count = 1
+//     |     ^^^
+//
+// Hint:
+//   Did you mean `let`?
+//
+// Note:
+//   while parsing module `MultiImportKeywordErrors`
+//
+//
+// error[E034]: Unexpected Token
+//
+// `end` is not a keyword in Flux. Use `}` to close blocks.
+//
+//   examples/parser_errors/MultiImportKeywordErrors.flx:132:5
+//     |
+// 132 |     end
+//     |     ^^^
+//
+// Hint:
+//   Replace `end` with `}`.
+//
+// Found 7 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+// expect-error: E030
+// expect-error: E034
+// expect-error: E030
+// expect-error: E034
+
 module MultiImportKeywordErrors {
     import
     import Demo as
@@ -8,3 +131,4 @@ module MultiImportKeywordErrors {
     switch count { 0 -> 1 }
     end
 }
+

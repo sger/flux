@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/adversarial/multi_independent_errors.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `first` does not match its type annotation.
 
-  examples/compiler_errors/adversarial/multi_independent_errors.flx:6:22
-  |
-6 |     let first: Int = "oops"
-  |                      ^^^^^^
-  |                      ------ this value has type `String`
+  examples/compiler_errors/adversarial/multi_independent_errors.flx:10:22
+   |
+10 |     let first: Int = "oops"
+   |                      ^^^^^^
+   |                      ------ this value has type `String`
 
-  |                --- but `first` was annotated as `Int`
+   |                --- but `first` was annotated as `Int`
 
 Note:
   annotated type: Int
@@ -29,18 +29,18 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/compiler_errors/adversarial/multi_independent_errors.flx:7:18
-  |
-1 | fn add(a: Int, b: Int) -> Int {
-  | ----------------------------- `add` is defined with 2 parameters
-2 |     a + b
-3 | }
+  examples/compiler_errors/adversarial/multi_independent_errors.flx:11:18
+   |
+ 5 | fn add(a: Int, b: Int) -> Int {
+   | ----------------------------- `add` is defined with 2 parameters
+ 6 |     a + b
+ 7 | }
 ... |
-5 | fn bad() -> Unit {
-6 |     let first: Int = "oops"
-7 |     let second = add(1)
-  |                  ^^^^^^
-  |                  ------ 1 arguments provided here, expected 2
+ 9 | fn bad() -> Unit {
+10 |     let first: Int = "oops"
+11 |     let second = add(1)
+   |                  ^^^^^^
+   |                  ------ 1 arguments provided here, expected 2
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.

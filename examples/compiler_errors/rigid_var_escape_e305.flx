@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E305
+
 // E305: Rigid type variable escape.
 //
 // The declared type parameter `a` is rigid inside the body — it cannot be

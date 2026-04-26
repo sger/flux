@@ -1,6 +1,30 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_tuple_pattern_comma.flx
+// error[E034]: Unexpected Token
+//
+// Expected `,` in tuple pattern.
+//
+//   examples/parser_errors/missing_tuple_pattern_comma.flx:26:12
+//    |
+// 26 |         (a b) -> a,
+//    |            ^
+//
+// Hint:
+//   Tuple patterns use `(a, b, ...)`.
+//
+// Note:
+//   while parsing function `main` > `match` expression
+//   Suppressed 2 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Int {
     match (1, 2) {
         (a b) -> a,
         _ -> 0
     }
 }
+

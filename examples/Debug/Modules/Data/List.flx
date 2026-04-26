@@ -1,5 +1,0 @@
-module Modules.Data.Other {
-  fn value() {
-    1;
-  }
-}

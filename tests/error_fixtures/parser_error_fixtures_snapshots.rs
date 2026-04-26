@@ -10,9 +10,11 @@ fn parser_error_fixtures_snapshot() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let cases =
-        examples_snapshot::run_fixture_dir_snapshots(workspace_root, "examples/parser_errors")
-            .unwrap_or_else(|e| panic!("{e}"));
+    let cases = examples_snapshot::run_fixture_dir_snapshots_stripping_parity_metadata(
+        workspace_root,
+        "examples/parser_errors",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
 
     for case in cases.into_iter().filter(|case| {
         !case.snapshot_name.contains("max_errors")

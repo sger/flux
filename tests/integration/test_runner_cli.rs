@@ -1221,7 +1221,7 @@ fn test_native_using_modules_program_links_without_user_adts() {
 }
 
 #[test]
-fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
+fn all_errors_flag_does_not_cross_entry_parse_failure_in_run_mode() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
     let default_output = run_flux(&["--no-cache", "--strict", file.to_str().unwrap()]);
@@ -1232,8 +1232,13 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         default_text
     );
     assert!(
-        default_text.contains("error[E300]"),
-        "expected type diagnostic to remain visible in a different module, output:\n{}",
+        default_text.contains("error[E071]"),
+        "expected entry parse diagnostic in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        !default_text.contains("error[E300]"),
+        "entry parse failure should stop before imported type diagnostics, output:\n{}",
         default_text
     );
     assert!(
@@ -1250,8 +1255,13 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         all_text
     );
     assert!(
-        all_text.contains("error[E300]"),
-        "expected downstream type diagnostic visible with --all-errors, output:\n{}",
+        all_text.contains("error[E071]"),
+        "expected entry parse diagnostic with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        !all_text.contains("error[E300]"),
+        "--all-errors should not typecheck imports after an entry parse failure, output:\n{}",
         all_text
     );
 }

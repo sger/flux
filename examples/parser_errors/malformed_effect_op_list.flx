@@ -1,6 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/malformed_effect_op_list.flx
+// error[E034]: Invalid Effect Operation
+//
+// I was expecting an operation name in this `effect` declaration, but I found `,`.
+//
+//   examples/parser_errors/malformed_effect_op_list.flx:21:27
+//    |
+// 21 |     print: String -> Unit,,
+//    |                           ^
+//
+// Note:
+//   while parsing effect `Console`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 effect Console {
     print: String -> Unit,,
     read: Unit -> String
 }
 
 fn main() -> Unit {}
+

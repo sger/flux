@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/module_option_hash_array.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.UserUtils` to import.
 
-  examples/Modules/module_option_hash_array.flx:1:1
+  examples/Modules/module_option_hash_array.flx:5:1
   |
-1 | import Modules.UserUtils as UserUtils
+5 | import Modules.UserUtils as UserUtils
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Main` to import.
 
-  examples/Modules/module_option_hash_array.flx:2:1
+  examples/Modules/module_option_hash_array.flx:6:1
   |
-2 | import Modules.Main as Main
+6 | import Modules.Main as Main
   | ^
 
 Hint:
