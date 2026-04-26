@@ -26,7 +26,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install Linux native build toolchain
-        run: sudo apt-get update && sudo apt-get install -y build-essential binutils
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils lld
 
       - name: Format (rustfmt)
         run: cargo fmt --all -- --check
@@ -39,9 +39,6 @@ jobs:
 
       - name: Smoke test (VM --test)
         run: cargo run -- --test examples/tests/array_test.flx
-
-      - name: Install LLVM 18
-        run: sudo apt-get update && sudo apt-get install -y llvm-18 lld-18
 
       - name: Parity gate (extended)
         run: cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
@@ -63,6 +60,9 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux native build toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils lld
 
       - name: Build (release)
         run: cargo build --release
