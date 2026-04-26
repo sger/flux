@@ -110,24 +110,17 @@ fn main() with IO, Time {
 
     // Helper for step res.
     fn step_res(next_counts, finished) {
-        let m = Map.set({}, "next", next_counts)
-        Map.set(m, "done", finished)
+        (next_counts, finished)
     }
 
     // Helper for step next.
     fn step_next(x) {
-        match Map.get(x, "next") {
-            Some(v) -> v,
-            _ -> [||]
-        }
+        x.0
     }
 
     // Helper for step done.
     fn step_done(x) {
-        match Map.get(x, "done") {
-            Some(v) -> v,
-            _ -> 0
-        }
+        x.1
     }
 
     // Helper for process cols.

@@ -293,7 +293,7 @@ pub enum Value {
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
     /// Avoids heap-allocating an `Rc<AdtValue>` + empty `Vec` for nullary constructors.
     AdtUnit(Rc<String>),
-    /// A captured one-shot delimited continuation (result of `OpPerform`).
+    /// A captured delimited continuation (result of `OpPerform`).
     /// Calling this value with one argument resumes the suspended computation.
     Continuation(Rc<RefCell<Continuation>>),
     /// Internal: handler table stored in the constant pool by the compiler.

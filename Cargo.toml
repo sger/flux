@@ -266,6 +266,10 @@ name = "stdlib_list_tail_recursive"
 path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
 
 [[test]]
+name = "map_contract_tests"
+path = "tests/vm_runtime/map_contract_tests.rs"
+
+[[test]]
 name = "llvm_adt"
 path = "tests/native_llvm/llvm_adt.rs"
 

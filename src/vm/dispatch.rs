@@ -584,7 +584,7 @@ impl VM {
                     // `resume(val)` call: restore the captured continuation.
                     // Returns ip_delta = 0 so apply_ip_delta leaves the
                     // newly-restored frame's IP untouched.
-                    self.execute_resume(num_args)?;
+                    self.execute_resume(num_args, Some(2))?;
                     Ok(0)
                 } else {
                     self.execute_call(num_args)?;
@@ -600,17 +600,12 @@ impl VM {
                 };
                 let callee_idx = self.sp - 1 - num_args;
                 if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
-                    self.execute_resume(num_args)?;
+                    self.execute_resume(num_args, Some(1))?;
+                    Ok(0)
                 } else {
                     self.execute_call(num_args)?;
+                    Ok(1)
                 }
-                Ok(
-                    if matches!(op, OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2) {
-                        1
-                    } else {
-                        0
-                    },
-                )
             }
             OpCode::OpGetLocalCall1 => {
                 if self.sp == 0 {
@@ -629,11 +624,12 @@ impl VM {
                 // callees to `execute_resume` so multi-shot / general resume
                 // shapes are handled uniformly.
                 if matches!(callee, Value::Continuation(_)) {
-                    self.execute_resume(1)?;
+                    self.execute_resume(1, Some(2))?;
+                    Ok(0)
                 } else {
                     self.execute_call(1)?;
+                    Ok(2)
                 }
-                Ok(2)
             }
             OpCode::OpCallSelf => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
@@ -658,7 +654,7 @@ impl VM {
                     // `execute_resume` restores the captured continuation state
                     // and wipes the current frame, which is exactly what tail-
                     // position semantics require; no special-case is needed.
-                    self.execute_resume(num_args)?;
+                    self.execute_resume(num_args, None)?;
                 } else {
                     self.execute_tail_call(num_args)?;
                 }
@@ -667,7 +663,7 @@ impl VM {
             OpCode::OpTailCall1 => {
                 let callee_idx = self.sp - 2;
                 if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
-                    self.execute_resume(1)?;
+                    self.execute_resume(1, None)?;
                 } else {
                     self.execute_tail_call(1)?;
                 }

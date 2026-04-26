@@ -28,11 +28,15 @@ pub fn normalize(raw: &str) -> String {
     }
 
     let joined = lines.join("\n");
-    normalize_type_variable_ids(&normalize_relative_path_prefixes(&normalize_temp_paths(
-        &joined,
-    )))
+    normalize_stack_entry_names(&normalize_type_variable_ids(
+        &normalize_relative_path_prefixes(&normalize_temp_paths(&joined)),
+    ))
     .trim()
     .to_string()
+}
+
+fn normalize_stack_entry_names(s: &str) -> String {
+    s.replace("  at <entry>", "  at <main>")
 }
 
 /// Replace absolute temp paths from native compilation with a placeholder.

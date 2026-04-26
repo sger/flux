@@ -1275,12 +1275,29 @@ impl Compiler {
             ) {
                 Ok(runtime) => runtime,
                 Err(err) => {
+                    let static_argument_matches = if let HmExprTypeResult::Known(actual) =
+                        self.hm_expr_type_strict_path(argument)
+                        && let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
+                            self.hm_expr_type_strict_path(function)
+                        && let Some(hm_expected) = hm_params.get(index)
+                        && let Ok(subst) = unify(hm_expected, &actual)
+                    {
+                        hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
+                    } else {
+                        false
+                    };
                     // Function-typed boundaries defer the shape check to the runtime:
                     // `callable_contract` inspects the closure's stored `FunctionContract`
                     // at call time. An unresolvable function type here is therefore not a
                     // strict-mode failure — skip E425 and let the runtime check handle it.
+                    // Generic collection helpers likewise have an unresolved runtime
+                    // contract (`Array<a>`, `List<a>`, ...), but HM can still prove the
+                    // concrete call-site argument type. In that case strict mode should
+                    // accept the statically-validated call instead of requiring an
+                    // impossible runtime boundary for the generic parameter.
                     if self.strict_mode
                         && !matches!(expected_ty, TypeExpr::Function { .. })
+                        && !static_argument_matches
                         && matches!(
                             err,
                             ContractLoweringIssue::GenericParameter

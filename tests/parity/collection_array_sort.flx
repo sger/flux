@@ -15,6 +15,6 @@ fn main() with IO {
     let single = [|42|];
     print(Array.sort(single));
 
-    let empty = [||];
+    let empty: Array<Int> = [||];
     print(Array.sort(empty));
 }

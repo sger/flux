@@ -1,3 +1,7 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: indexing None must be classified as the same runtime-error outcome across backends
+
 fn main() with IO {
     let x = None
     print(x["name"])

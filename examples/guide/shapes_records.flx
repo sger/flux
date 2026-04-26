@@ -19,12 +19,12 @@ data Shape {
 }
 
 // Helper for describe.
-fn describe(s) {
+fn describe(s: Shape) with Console {
     print(s.label)
 }
 
 // Helper for extent.
-fn extent(s) {
+fn extent(s: Shape) -> Int {
     match s {
         Circle { radius, ... } -> radius,
         Square { side, ... } -> side,
