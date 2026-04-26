@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // W201 (non-strict): cross-module constructor access emits warning and continues.
 
 import TypeSystem.BoundaryCtor

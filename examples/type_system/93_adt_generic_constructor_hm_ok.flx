@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 type Result<T, E> = Ok(T) | Err(E)
 
 fn unwrap_or_inc(r: Result<Int, String>) -> Int {

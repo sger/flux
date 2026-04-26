@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.FTest as Test
 import TypeSystem.RealProgramBaseInterop as B
 

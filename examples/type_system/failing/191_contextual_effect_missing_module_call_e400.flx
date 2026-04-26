@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: module-qualified call requires IO, but caller is declared with Time only.
 
 import TypeSystem.EffectsChain

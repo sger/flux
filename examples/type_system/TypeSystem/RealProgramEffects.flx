@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+
 module TypeSystem.RealProgramEffects {
     public fn step_io(x: Int) -> Int with IO {
         print("step=" + to_string(x))

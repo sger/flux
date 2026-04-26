@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "20"
+// parity-expected-stdout-end
+
 fn take(xs: List<Int>) -> Int {
     match xs[1] {
         Some(v) -> v,

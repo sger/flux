@@ -1,2 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 Some(x);
 let after = 1

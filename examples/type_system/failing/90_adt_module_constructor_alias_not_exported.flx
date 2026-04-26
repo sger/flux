@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E084: module ADT constructors are internal API even via alias import.
 import TypeSystem.GenericResultTree as G
 

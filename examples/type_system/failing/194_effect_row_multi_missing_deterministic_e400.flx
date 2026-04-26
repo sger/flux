@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: deterministic first missing effect selection for multi-effect rows.
 // Expected: missing `Clock` is reported first (stable ordering: alphabetical).
 

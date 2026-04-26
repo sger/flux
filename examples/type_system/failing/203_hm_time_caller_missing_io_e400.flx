@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: a `with Time` function calls a function that requires IO.
 // The HM-layer diagnostic should name `IO` as the missing effect and
 // suggest annotating the enclosing function with `with IO`.

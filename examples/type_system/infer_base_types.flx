@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "All inferred type assertions passed!"
+// parity-expected-stdout-end
+
 // Verify that HM type inference correctly resolves types from
 // lib/Flow/ functions WITHOUT explicit type annotations.
 // Every value here is inferred — no annotations at all.

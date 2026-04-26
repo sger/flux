@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: generic higher-order wrapper should propagate callback IO effect.
 
 fn apply<T>(f: ((T) -> T with |e), x: T) -> T with |e {

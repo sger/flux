@@ -1,3 +1,10 @@
+// parity-expected-stdout-begin
+// "5"
+// "x=3"
+// "x=4"
+// "5"
+// parity-expected-stdout-end
+
 // Effect polymorphism (`with |e`) for higher-order functions.
 
 fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {

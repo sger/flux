@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E1004: runtime boundary should reject non-list value for List<Int>.
 import TypeSystem.BoundaryUnknown
 

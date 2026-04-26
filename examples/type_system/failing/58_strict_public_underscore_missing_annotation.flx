@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // `_` prefix does not make a function private in strict mode.
 
 public fn _foo(x) -> Int {

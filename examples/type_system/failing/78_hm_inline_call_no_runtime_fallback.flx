@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 fn main() -> Unit {
     // HM can infer this inline lambda call as Int.
     // Runtime-boundary compatibility typing cannot infer call returns for inline function expressions.

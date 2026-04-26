@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Tuple matches are conservative: explicit unguarded catch-all closes coverage.
 fn main() {
     let t = (1, true)

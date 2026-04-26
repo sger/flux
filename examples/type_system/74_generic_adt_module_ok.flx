@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "7"
+// parity-expected-stdout-end
+
 import TypeSystem.GenericResultTree
 
 fn value() -> Int {

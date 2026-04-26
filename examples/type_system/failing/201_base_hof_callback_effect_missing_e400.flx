@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: Base HOF callback effect requirement must be available in ambient context.
 
 fn noisy_log(n: Int) -> Unit with IO {

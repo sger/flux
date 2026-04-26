@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E015: guarded wildcard does not guarantee exhaustiveness.
 fn main() -> Unit {
     let x = 2

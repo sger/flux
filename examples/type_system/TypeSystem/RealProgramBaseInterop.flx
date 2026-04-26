@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+
 import Flow.Array as Array
 import Flow.Map as Map
 

@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // Same scenario as 150.
 // Verify `--all-errors` via `flux run` to expose downstream diagnostics hidden in default mode.
 

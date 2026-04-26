@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "none return example"
+// parity-expected-stdout-end
+
 // `None` as a return-type alias: accepted as unit-like.
 
 fn no_result() -> None {

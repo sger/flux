@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // General match exhaustiveness: list domain requires [] and [h | t].
 fn main() {
     let xs = [1, 2, 3]

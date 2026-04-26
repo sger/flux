@@ -1,2 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 let xs = [x | <- [1, 2, 3]]
 let after = 1

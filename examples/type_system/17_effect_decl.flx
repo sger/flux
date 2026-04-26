@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "hello"
+// "hello"
+// parity-expected-stdout-end
+
 // Iteration 3: effect keyword — declaration syntax.
 // No enforcement yet; this just parses and is ignored by the compiler.
 

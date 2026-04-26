@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "All typed let with Flow assertions passed!"
+// parity-expected-stdout-end
+
 // Verify that typed let bindings work with lib/Flow/ functions.
 // Covers: primop types, Flow module types, cross-module inference,
 // and polymorphic function return types.

@@ -1,2 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 let ys = [x + 1 | x <- [1, 2]
 let after = 3

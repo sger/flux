@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "1"
+// parity-expected-stdout-end
+
 // Valid custom effect handling at root.
 
 effect Logger {

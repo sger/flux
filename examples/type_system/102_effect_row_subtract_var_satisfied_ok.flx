@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "work"
+// "10"
+// parity-expected-stdout-end
+
 // Row-variable subtraction is satisfiable when callback effects are concrete.
 
 effect MyLog {
