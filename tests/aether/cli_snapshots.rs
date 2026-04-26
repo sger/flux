@@ -1,6 +1,7 @@
 use flux::parity::normalize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 // Native backend CLI runs share cache and output paths for the same fixture, so serialize command
@@ -9,6 +10,7 @@ use std::sync::Mutex;
 // read-only from the runtime's perspective and can run in parallel under cargo's default
 // thread pool.
 static CLI_LOCK: Mutex<()> = Mutex::new(());
+static CACHE_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -23,6 +25,17 @@ fn needs_cli_lock(args: &[&str]) -> bool {
         .any(|a| *a == "--native" || *a == "--emit-binary")
 }
 
+fn isolated_cache_dir() -> PathBuf {
+    let id = CACHE_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    workspace_root()
+        .join("target")
+        .join("test-caches")
+        .join(format!(
+            "aether-cli-snapshots-{}-{id}",
+            std::process::id()
+        ))
+}
+
 fn run_flux_output(args: &[&str]) -> std::process::Output {
     // Acquire the serialization lock only for commands that share on-disk artifact paths.
     let _lock = if needs_cli_lock(args) {
@@ -34,8 +47,11 @@ fn run_flux_output(args: &[&str]) -> std::process::Output {
     } else {
         None
     };
+    let cache_dir = isolated_cache_dir();
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
+        .arg("--cache-dir")
+        .arg(&cache_dir)
         .args(args)
         .env("NO_COLOR", "1")
         .output()
@@ -77,8 +93,11 @@ fn run_flux_trace_snapshot(args: &[&str]) -> String {
     } else {
         None
     };
+    let cache_dir = isolated_cache_dir();
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
+        .arg("--cache-dir")
+        .arg(&cache_dir)
         .args(args)
         .env("NO_COLOR", "1")
         .output()
