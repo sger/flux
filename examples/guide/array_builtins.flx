@@ -28,10 +28,11 @@ fn main() with IO {
     // Test: Array base functions
 
     let arr = [|1, 2, 3, 4, 5|];
+    let empty: Array<Int> = [||];
 
     // len - get array length
     print(len(arr));      // 5
-    print(len([||]));       // 0
+    print(len(empty));       // 0
 
     // first - get first element
     print(Array.first(arr));    // 1
@@ -46,9 +47,9 @@ fn main() with IO {
     print(Array.push(arr, 6));  // [|1, 2, 3, 4, 5, 6|]
 
     // Edge cases with empty array
-    print(Array.first([||]));     // None
-    print(Array.last([||]));      // None
-    print(Array.slice([||], 1, len([||])));      // [||]
+    print(Array.first(empty));     // None
+    print(Array.last(empty));      // None
+    print(Array.slice(empty, 1, len(empty)));      // [||]
 
     // =============================================================================
     // New Array Base Functions (Milestone 5.1)

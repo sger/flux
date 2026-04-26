@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::diagnostics::{MULTI_SHOT_HANDLER, NOT_A_FUNCTION};
+use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::value::format_value;
 use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
@@ -33,7 +33,6 @@ impl VM {
             entry_frame_index: self.frame_index.saturating_sub(1),
             inner_handlers: vec![],
             state_marker: None,
-            used: false,
         })))
     }
 
@@ -143,6 +142,26 @@ impl VM {
         args_start: usize,
         return_slot: usize,
     ) -> Result<(), String> {
+        let mut num_args = num_args;
+        if num_args > closure.function.num_parameters
+            && closure
+                .function
+                .debug_info
+                .as_ref()
+                .and_then(|info| info.name.as_deref())
+                .is_some_and(|name| name.starts_with("__tc_"))
+        {
+            let expected = closure.function.num_parameters;
+            let extras = num_args - expected;
+            if expected > 0 {
+                for i in 1..expected {
+                    let value = self.stack_get(args_start + extras + i);
+                    self.stack_set(args_start + i, value);
+                }
+                self.reset_sp(self.sp - extras)?;
+                num_args = expected;
+            }
+        }
         if num_args != closure.function.num_parameters {
             return Err(format!(
                 "wrong number of arguments: want={}, got={}",
@@ -237,13 +256,24 @@ impl VM {
     ///
     /// Called from the OpCall dispatch when the callee is `Value::Continuation`.
     /// `num_args` must be 1 (the resume value) or 2 for parameterized
-    /// handlers (`resume_value`, `next_state`). Returns `Ok(())` with the VM
-    /// state restored to the captured continuation; ip_delta of 0 is returned by
-    /// the OpCall arm so the restored frame's IP is left unchanged.
-    pub(super) fn execute_resume(&mut self, num_args: usize) -> Result<(), String> {
+    /// handlers (`resume_value`, `next_state`).
+    ///
+    /// Tail-position resume transfers control directly to the captured
+    /// continuation. Non-tail resume runs the captured continuation to the
+    /// handler boundary, restores the caller frame, and pushes the continuation
+    /// result in the ordinary call result slot.
+    pub(super) fn execute_resume(
+        &mut self,
+        num_args: usize,
+        caller_ip_advance: Option<usize>,
+    ) -> Result<(), String> {
         if num_args != 1 && num_args != 2 {
             return Err(format!("resume expects 1 or 2 arguments, got {}", num_args));
         }
+        let return_slot = self
+            .sp
+            .checked_sub(1 + num_args)
+            .ok_or_else(|| "stack underflow".to_string())?;
         let next_state = if num_args == 2 {
             Some(self.pop_untracked()?)
         } else {
@@ -251,6 +281,17 @@ impl VM {
         };
         let resume_val = self.pop_untracked()?;
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
+        let next_state_for_caller = next_state.clone();
+
+        let caller = caller_ip_advance.map(|advance| {
+            let mut frame = self.current_frame().clone();
+            frame.ip += advance;
+            let stack = self.stack[..self.sp]
+                .iter()
+                .map(super::slot::from_slot_ref)
+                .collect::<Vec<_>>();
+            (self.frame_index, frame, stack, self.handler_stack.clone())
+        });
 
         let cont_rc = match cont_val {
             Value::Continuation(rc) => rc,
@@ -258,14 +299,7 @@ impl VM {
         };
 
         let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers, state_marker) = {
-            let mut cont = cont_rc.borrow_mut();
-            if cont.used {
-                // Proposal 0162 Phase 3: match the native backend's E1201
-                // wording so user-visible multi-shot diagnostics are the same
-                // across VM and LLVM. See runtime/c/effects.c's E1201 message.
-                return Err(self.runtime_error_enhanced(&MULTI_SHOT_HANDLER, &[]));
-            }
-            cont.used = true;
+            let cont = cont_rc.borrow();
             (
                 cont.entry_frame_index,
                 cont.entry_sp,
@@ -319,6 +353,37 @@ impl VM {
         // Restore captured frames above the handler boundary.
         for frame in frames {
             self.push_frame(frame);
+        }
+
+        if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller
+        {
+            while self.frame_index > entry_frame_index {
+                if self.current_frame().ip >= self.current_frame().instructions().len() {
+                    return Err("resumed continuation exited without return".to_string());
+                }
+                self.execute_current_instruction(Some(entry_frame_index + 1))?;
+            }
+
+            let result = self.pop()?;
+            if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller) {
+                if let Some(handler) = caller_handlers.iter_mut().rfind(|h| h.marker == marker) {
+                    handler.state = Some(next_state);
+                }
+            }
+
+            self.ensure_stack_capacity(caller_stack.len() + 1)?;
+            for (i, v) in caller_stack.into_iter().enumerate() {
+                self.stack_set(i, v);
+            }
+            self.sp = return_slot;
+            self.handler_stack = caller_handlers;
+            if caller_frame_index >= self.frames.len() {
+                self.frames.push(caller_frame);
+            } else {
+                self.frames[caller_frame_index] = caller_frame;
+            }
+            self.frame_index = caller_frame_index;
+            self.push(result)?;
         }
 
         Ok(())

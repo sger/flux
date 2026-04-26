@@ -14,7 +14,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
-        expression::{ExprIdGen, Expression},
+        expression::{ExprId, ExprIdGen, Expression},
         interner::Interner,
         statement::{FunctionTypeParam, Statement},
         type_class::ClassConstraint,
@@ -388,7 +388,14 @@ fn generate_from_statements(
                     let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
                     let mangled_sym = interner.intern(&mangled);
 
-                    let mut parameters = context_dict_param_names(context, interner);
+                    let context_params = context_dict_param_names(context, interner);
+                    let body = rewrite_instance_self_calls_block(
+                        body,
+                        method_sig.name,
+                        mangled_sym,
+                        &context_params,
+                    );
+                    let mut parameters = context_params.clone();
                     let value_parameters = explicit_method
                         .map(|method| method.params.clone())
                         .unwrap_or_else(|| method_sig.param_names.clone());
@@ -486,6 +493,290 @@ fn context_dict_param_names(
             interner.intern(&format!("__dict_{class_name}{suffix}"))
         })
         .collect()
+}
+
+fn rewrite_instance_self_calls(
+    expr: Expression,
+    method_name: Identifier,
+    mangled_name: Identifier,
+    context_params: &[Identifier],
+) -> Expression {
+    match expr {
+        Expression::Call {
+            function,
+            arguments,
+            span,
+            id,
+        } => {
+            let function =
+                rewrite_instance_self_calls(*function, method_name, mangled_name, context_params);
+            let mut arguments = arguments
+                .into_iter()
+                .map(|arg| {
+                    rewrite_instance_self_calls(arg, method_name, mangled_name, context_params)
+                })
+                .collect::<Vec<_>>();
+            if matches!(function, Expression::Identifier { name, .. } if name == method_name) {
+                let mut rewritten_args = context_params
+                    .iter()
+                    .map(|name| Expression::Identifier {
+                        name: *name,
+                        span,
+                        id: ExprId::UNSET,
+                    })
+                    .collect::<Vec<_>>();
+                rewritten_args.append(&mut arguments);
+                return Expression::Call {
+                    function: Box::new(Expression::Identifier {
+                        name: mangled_name,
+                        span,
+                        id: ExprId::UNSET,
+                    }),
+                    arguments: rewritten_args,
+                    span,
+                    id,
+                };
+            }
+            Expression::Call {
+                function: Box::new(function),
+                arguments,
+                span,
+                id,
+            }
+        }
+        Expression::Infix {
+            left,
+            operator,
+            right,
+            span,
+            id,
+        } => Expression::Infix {
+            left: Box::new(rewrite_instance_self_calls(
+                *left,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            operator,
+            right: Box::new(rewrite_instance_self_calls(
+                *right,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            span,
+            id,
+        },
+        Expression::Match {
+            scrutinee,
+            arms,
+            span,
+            id,
+        } => Expression::Match {
+            scrutinee: Box::new(rewrite_instance_self_calls(
+                *scrutinee,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            arms: arms
+                .into_iter()
+                .map(|mut arm| {
+                    arm.guard = arm.guard.map(|guard| {
+                        rewrite_instance_self_calls(
+                            guard,
+                            method_name,
+                            mangled_name,
+                            context_params,
+                        )
+                    });
+                    arm.body = rewrite_instance_self_calls(
+                        arm.body,
+                        method_name,
+                        mangled_name,
+                        context_params,
+                    );
+                    arm
+                })
+                .collect(),
+            span,
+            id,
+        },
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            span,
+            id,
+        } => Expression::If {
+            condition: Box::new(rewrite_instance_self_calls(
+                *condition,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            consequence: rewrite_instance_self_calls_block(
+                consequence,
+                method_name,
+                mangled_name,
+                context_params,
+            ),
+            alternative: alternative.map(|block| {
+                rewrite_instance_self_calls_block(block, method_name, mangled_name, context_params)
+            }),
+            span,
+            id,
+        },
+        Expression::DoBlock { block, span, id } => Expression::DoBlock {
+            block: rewrite_instance_self_calls_block(
+                block,
+                method_name,
+                mangled_name,
+                context_params,
+            ),
+            span,
+            id,
+        },
+        Expression::ListLiteral { elements, span, id } => Expression::ListLiteral {
+            elements: elements
+                .into_iter()
+                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
+                .collect(),
+            span,
+            id,
+        },
+        Expression::ArrayLiteral { elements, span, id } => Expression::ArrayLiteral {
+            elements: elements
+                .into_iter()
+                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
+                .collect(),
+            span,
+            id,
+        },
+        Expression::TupleLiteral { elements, span, id } => Expression::TupleLiteral {
+            elements: elements
+                .into_iter()
+                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
+                .collect(),
+            span,
+            id,
+        },
+        Expression::Index {
+            left,
+            index,
+            span,
+            id,
+        } => Expression::Index {
+            left: Box::new(rewrite_instance_self_calls(
+                *left,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            index: Box::new(rewrite_instance_self_calls(
+                *index,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            span,
+            id,
+        },
+        Expression::Some { value, span, id } => Expression::Some {
+            value: Box::new(rewrite_instance_self_calls(
+                *value,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            span,
+            id,
+        },
+        Expression::Cons {
+            head,
+            tail,
+            span,
+            id,
+        } => Expression::Cons {
+            head: Box::new(rewrite_instance_self_calls(
+                *head,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            tail: Box::new(rewrite_instance_self_calls(
+                *tail,
+                method_name,
+                mangled_name,
+                context_params,
+            )),
+            span,
+            id,
+        },
+        other => other,
+    }
+}
+
+fn rewrite_instance_self_calls_block(
+    block: Block,
+    method_name: Identifier,
+    mangled_name: Identifier,
+    context_params: &[Identifier],
+) -> Block {
+    Block {
+        statements: block
+            .statements
+            .into_iter()
+            .map(|stmt| {
+                rewrite_instance_self_calls_stmt(stmt, method_name, mangled_name, context_params)
+            })
+            .collect(),
+        span: block.span,
+    }
+}
+
+fn rewrite_instance_self_calls_stmt(
+    stmt: Statement,
+    method_name: Identifier,
+    mangled_name: Identifier,
+    context_params: &[Identifier],
+) -> Statement {
+    match stmt {
+        Statement::Let {
+            is_public,
+            name,
+            type_annotation,
+            value,
+            span,
+        } => Statement::Let {
+            is_public,
+            name,
+            type_annotation,
+            value: rewrite_instance_self_calls(value, method_name, mangled_name, context_params),
+            span,
+        },
+        Statement::Return { value, span } => Statement::Return {
+            value: value.map(|value| {
+                rewrite_instance_self_calls(value, method_name, mangled_name, context_params)
+            }),
+            span,
+        },
+        Statement::Expression {
+            expression,
+            has_semicolon,
+            span,
+        } => Statement::Expression {
+            expression: rewrite_instance_self_calls(
+                expression,
+                method_name,
+                mangled_name,
+                context_params,
+            ),
+            has_semicolon,
+            span,
+        },
+        other => other,
+    }
 }
 
 fn builtin_method_body(

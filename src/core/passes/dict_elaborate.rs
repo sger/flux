@@ -326,16 +326,20 @@ fn rewrite_constrained_functions(
             }
         }
 
-        if dict_params.is_empty() {
-            continue;
-        }
-
         // Rewrite the function body to extract methods from dictionaries.
         let old_expr = std::mem::replace(
             &mut def.expr,
             CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
         );
-        let rewritten = rewrite_body_with_dicts(old_expr, &method_map);
+        let self_call = self_instance_call(
+            def.name,
+            &old_expr,
+            &scheme.constraints,
+            class_env,
+            interner,
+        );
+        let rewritten =
+            rewrite_body_with_dicts_with_self(old_expr, &method_map, self_call.as_ref());
 
         if dict_params.is_empty() {
             def.expr = rewritten;
@@ -447,6 +451,34 @@ fn insert_dict_args_expr(
             if let CoreExpr::Var { ref var, .. } = *func
                 && let Some(callee_constraints) = constrained_fns.get(&var.name)
             {
+                let already_has_dict_args = args.len() >= callee_constraints.len()
+                    && args
+                        .iter()
+                        .take(callee_constraints.len())
+                        .all(|arg| match arg {
+                            CoreExpr::Var { var, .. } => {
+                                interner.resolve(var.name).starts_with("__dict_")
+                            }
+                            _ => false,
+                        });
+                if already_has_dict_args {
+                    return CoreExpr::App {
+                        func,
+                        args: args
+                            .into_iter()
+                            .map(|a| {
+                                insert_dict_args_expr(
+                                    a,
+                                    constrained_fns,
+                                    caller_dicts,
+                                    class_env,
+                                    interner,
+                                )
+                            })
+                            .collect(),
+                        span,
+                    };
+                }
                 // Build dictionary arguments for the callee.
                 let mut dict_args = Vec::new();
                 for constraint in callee_constraints {
@@ -832,14 +864,86 @@ pub fn rewrite_body_with_dicts(
     expr: CoreExpr,
     method_map: &HashMap<Identifier, (CoreBinder, usize)>,
 ) -> CoreExpr {
-    rewrite_expr(expr, method_map)
+    rewrite_body_with_dicts_with_self(expr, method_map, None)
 }
 
-fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, usize)>) -> CoreExpr {
+struct SelfInstanceCall {
+    def_name: Identifier,
+    method_name: Identifier,
+    dict_args: Vec<CoreBinder>,
+}
+
+fn self_instance_call(
+    def_name: Identifier,
+    expr: &CoreExpr,
+    constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Option<SelfInstanceCall> {
+    let def_text = interner.resolve(def_name);
+    if !def_text.starts_with("__tc_") {
+        return None;
+    }
+    let method_name = class_env
+        .classes
+        .values()
+        .flat_map(|class_def| class_def.methods.iter().map(|method| method.name))
+        .filter(|method| def_text.ends_with(&format!("_{}", interner.resolve(*method))))
+        .max_by_key(|method| interner.resolve(*method).len())?;
+    let CoreExpr::Lam { params, .. } = expr else {
+        return None;
+    };
+    let dict_args = params
+        .iter()
+        .take(constraints.len())
+        .copied()
+        .collect::<Vec<_>>();
+    if dict_args.len() != constraints.len() {
+        return None;
+    }
+    Some(SelfInstanceCall {
+        def_name,
+        method_name,
+        dict_args,
+    })
+}
+
+fn rewrite_body_with_dicts_with_self(
+    expr: CoreExpr,
+    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
+    self_call: Option<&SelfInstanceCall>,
+) -> CoreExpr {
+    rewrite_expr(expr, method_map, self_call)
+}
+
+fn rewrite_expr(
+    expr: CoreExpr,
+    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
+    self_call: Option<&SelfInstanceCall>,
+) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
+            if let CoreExpr::Var { ref var, .. } = *func
+                && let Some(self_call) = self_call
+                && var.name == self_call.method_name
+            {
+                let mut rewritten_args = self_call
+                    .dict_args
+                    .iter()
+                    .map(|binder| CoreExpr::bound_var(binder, span))
+                    .collect::<Vec<_>>();
+                rewritten_args.extend(
+                    args.into_iter()
+                        .map(|a| rewrite_expr(a, method_map, Some(self_call))),
+                );
+                return CoreExpr::App {
+                    func: Box::new(CoreExpr::external_var(self_call.def_name, span)),
+                    args: rewritten_args,
+                    span,
+                };
+            }
             if let CoreExpr::Var { ref var, .. } = *func
                 && let Some((dict_binder, index)) = method_map.get(&var.name)
             {
@@ -852,7 +956,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
                 };
                 let rewritten_args = args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
+                    .map(|a| rewrite_expr(a, method_map, self_call))
                     .collect();
                 return CoreExpr::App {
                     func: Box::new(method_extract),
@@ -862,10 +966,10 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             }
             // Not a class method — recurse normally.
             CoreExpr::App {
-                func: Box::new(rewrite_expr(*func, method_map)),
+                func: Box::new(rewrite_expr(*func, method_map, self_call)),
                 args: args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
+                    .map(|a| rewrite_expr(a, method_map, self_call))
                     .collect(),
                 span,
             }
@@ -884,7 +988,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             params,
             param_types,
             result_ty,
-            body: Box::new(rewrite_expr(*body, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map, self_call)),
             span,
         },
 
@@ -895,8 +999,8 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map)),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map, self_call)),
+            body: Box::new(rewrite_expr(*body, method_map, self_call)),
             span,
         },
 
@@ -907,8 +1011,8 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map)),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map, self_call)),
+            body: Box::new(rewrite_expr(*body, method_map, self_call)),
             span,
         },
 
@@ -919,9 +1023,9 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
         } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
-                .map(|(b, rhs)| (b, Box::new(rewrite_expr(*rhs, method_map))))
+                .map(|(b, rhs)| (b, Box::new(rewrite_expr(*rhs, method_map, self_call))))
                 .collect(),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map, self_call)),
             span,
         },
 
@@ -931,12 +1035,12 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             join_ty,
             span,
         } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_expr(*scrutinee, method_map)),
+            scrutinee: Box::new(rewrite_expr(*scrutinee, method_map, self_call)),
             alts: alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = rewrite_expr(alt.rhs, method_map);
-                    alt.guard = alt.guard.map(|g| rewrite_expr(g, method_map));
+                    alt.rhs = rewrite_expr(alt.rhs, method_map, self_call);
+                    alt.guard = alt.guard.map(|g| rewrite_expr(g, method_map, self_call));
                     alt
                 })
                 .collect(),
@@ -948,7 +1052,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_expr(f, method_map))
+                .map(|f| rewrite_expr(f, method_map, self_call))
                 .collect(),
             span,
         },
@@ -957,13 +1061,13 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             op,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map))
+                .map(|a| rewrite_expr(a, method_map, self_call))
                 .collect(),
             span,
         },
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_expr(*value, method_map)),
+            value: Box::new(rewrite_expr(*value, method_map, self_call)),
             span,
         },
 
@@ -977,7 +1081,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             operation,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map))
+                .map(|a| rewrite_expr(a, method_map, self_call))
                 .collect(),
             span,
         },
@@ -989,13 +1093,13 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_expr(*body, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map, self_call)),
             effect,
-            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map))),
+            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map, self_call))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = rewrite_expr(h.body, method_map);
+                    h.body = rewrite_expr(h.body, method_map, self_call);
                     h
                 })
                 .collect(),
@@ -1007,7 +1111,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(rewrite_expr(*object, method_map)),
+            object: Box::new(rewrite_expr(*object, method_map, self_call)),
             member,
             span,
         },
@@ -1017,7 +1121,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, us
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(rewrite_expr(*object, method_map)),
+            object: Box::new(rewrite_expr(*object, method_map, self_call)),
             index,
             span,
         },

@@ -180,6 +180,64 @@ map(scores, fn(x) { x + 1 });
 }
 
 #[test]
+fn non_tail_multishot_resume_reenters_handler_arm() {
+    let result = run(r#"
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+decide() handle Flip {
+    flip(resume) -> resume(true) + resume(false)
+};
+"#);
+
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn tail_resume_still_transfers_control_to_continuation() {
+    let result = run(r#"
+effect Ask {
+    value : () -> Int
+}
+
+fn compute() -> Int with Ask {
+    perform Ask.value() + 2
+}
+
+compute() handle Ask {
+    value(resume) -> resume(40)
+};
+"#);
+
+    assert_eq!(result, Value::Integer(42));
+}
+
+#[test]
+fn parameterized_tail_resume_threads_state() {
+    let result = run(r#"
+effect Counter {
+    next : () -> Int
+}
+
+fn compute() -> Int with Counter {
+    perform Counter.next() + perform Counter.next()
+}
+
+compute() handle Counter(0) {
+    next(resume, state) -> resume(state, state + 1)
+};
+"#);
+
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
 fn unmigrated_runtime_error_maps_not_a_function_code() {
     let instructions = make(OpCode::OpClosure, &[0, 0]);
     let bytecode = Bytecode {

@@ -107,56 +107,37 @@ fn main() with IO, Time {
                 }
 
                 // Helper for dsu state.
-                fn dsu_state(parents, sizes, comps, last_a, last_b) {
-                    let s1 = Map.set({}, "p", parents)
-                    let s2 = Map.set(s1, "sz", sizes)
-                    let s3 = Map.set(s2, "c", comps)
-                    let s4 = Map.set(s3, "a", last_a)
-                    Map.set(s4, "b", last_b)
+                fn dsu_state(parents: Array<Int>, sizes: Array<Int>, comps: Int, last_a: Int, last_b: Int) -> (Array<Int>, Array<Int>, Int, Int, Int) {
+                    (parents, sizes, comps, last_a, last_b)
                 }
 
                 // Helper for dsu parents.
-                fn dsu_parents(state) {
-                    match Map.get(state, "p") {
-                        Some(v) -> v,
-                        _ -> [||]
-                    }
+                fn dsu_parents(state: (Array<Int>, Array<Int>, Int, Int, Int)) -> Array<Int> {
+                    state.0
                 }
 
                 // Helper for dsu sizes.
-                fn dsu_sizes(state) {
-                    match Map.get(state, "sz") {
-                        Some(v) -> v,
-                        _ -> [||]
-                    }
+                fn dsu_sizes(state: (Array<Int>, Array<Int>, Int, Int, Int)) -> Array<Int> {
+                    state.1
                 }
 
                 // Helper for dsu comps.
-                fn dsu_comps(state) {
-                    match Map.get(state, "c") {
-                        Some(v) -> v,
-                        _ -> 0
-                    }
+                fn dsu_comps(state: (Array<Int>, Array<Int>, Int, Int, Int)) -> Int {
+                    state.2
                 }
 
                 // Helper for dsu last a.
-                fn dsu_last_a(state) {
-                    match Map.get(state, "a") {
-                        Some(v) -> v,
-                        _ -> -1
-                    }
+                fn dsu_last_a(state: (Array<Int>, Array<Int>, Int, Int, Int)) -> Int {
+                    state.3
                 }
 
                 // Helper for dsu last b.
-                fn dsu_last_b(state) {
-                    match Map.get(state, "b") {
-                        Some(v) -> v,
-                        _ -> -1
-                    }
+                fn dsu_last_b(state: (Array<Int>, Array<Int>, Int, Int, Int)) -> Int {
+                    state.4
                 }
 
                 // Helper for union key.
-                fn union_key(state, key) {
+                fn union_key(state: (Array<Int>, Array<Int>, Int, Int, Int), key: Int) -> (Array<Int>, Array<Int>, Int, Int, Int) {
                     let parents = dsu_parents(state)
                     let sizes = dsu_sizes(state)
                     let comps = dsu_comps(state)
@@ -167,7 +148,7 @@ fn main() with IO, Time {
                     let rj = root(parents, j)
 
                     if ri == rj {
-                        state
+                        dsu_state(parents, sizes, comps, dsu_last_a(state), dsu_last_b(state))
                     } else {
                         let si = int_at(sizes, ri)
                         let sj = int_at(sizes, rj)
@@ -210,10 +191,7 @@ fn main() with IO, Time {
                     let parents0 = List.to_array(range(0, n))
                     let sizes0 = List.to_array(map(range(0, n), \_ -> 1))
                     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-                    let state1 = Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
-
-                    let out = Map.set({}, "state", state1)
-                    Map.set(out, "keys", sorted_keys)
+                    Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
                 }
 
                 // Run DAY08A.
@@ -243,12 +221,7 @@ fn main() with IO, Time {
 
                 // Solve DAY08B.
                 fn solve_day08b(points, limit, max_limit) {
-                    let run = run_limit(points, limit)
-                    let state = Map.get(run, "state")
-                    let st = match state {
-                        Some(v) -> v,
-                        _ -> dsu_state([||], [||], 0, -1, -1)
-                    }
+                    let st = run_limit(points, limit)
 
                     if dsu_comps(st) == 1 {
                         let a = dsu_last_a(st)

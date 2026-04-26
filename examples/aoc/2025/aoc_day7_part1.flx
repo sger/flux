@@ -106,24 +106,17 @@ fn main() with IO, Time {
 
     // Helper for res.
     fn res(next_mask, split_count) {
-        let m = Map.set({}, "next", next_mask)
-        Map.set(m, "split", split_count)
+        (next_mask, split_count)
     }
 
     // Helper for res next.
     fn res_next(x) {
-        match Map.get(x, "next") {
-            Some(v) -> v,
-            _ -> [||]
-        }
+        x.0
     }
 
     // Helper for res split.
     fn res_split(x) {
-        match Map.get(x, "split") {
-            Some(v) -> v,
-            _ -> 0
-        }
+        x.1
     }
 
     // Helper for process cols.

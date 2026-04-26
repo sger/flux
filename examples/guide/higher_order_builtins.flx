@@ -37,6 +37,7 @@ fn main() with IO {
     let nums    = [|1, 2, 3, 4, 5|]
     let words   = [|"banana", "fig", "apple", "kiwi"|]
     let evens   = [|2, 4, 6, 8|]
+    let empty_nums: Array<Int> = [||]
 
     // =============================================================================
     // any — true if at least one element satisfies the predicate (short-circuits)
@@ -44,7 +45,7 @@ fn main() with IO {
 
     print(Array.any(nums, \x -> x > 3))          // true  (4 and 5 qualify)
     print(Array.any(nums, \x -> x > 10))         // false (none qualify)
-    print(Array.any([||], \x -> true))           // false (empty)
+    print(Array.any(empty_nums, \x -> true))     // false (empty)
 
     // =============================================================================
     // all — true if every element satisfies the predicate (short-circuits)
@@ -52,7 +53,7 @@ fn main() with IO {
 
     print(Array.all(nums, \x -> x > 0))          // true  (all positive)
     print(Array.all(nums, \x -> x > 3))          // false (1, 2, 3 fail)
-    print(Array.all([||], \x -> false))          // true  (vacuous truth)
+    print(Array.all(empty_nums, \x -> false))    // true  (vacuous truth)
 
     // =============================================================================
     // find — first matching element wrapped in Some, or None
@@ -114,7 +115,8 @@ fn main() with IO {
     print(all_words)                       // [|hello, world, foo, bar, baz|]
 
     // Empty inner arrays are harmlessly skipped
-    print(Array.flatten([|[|1|], [||], [|2|]|])) // [|1, 2|]
+    let empty_inner: Array<Int> = [||]
+    print(Array.flatten([|[|1|], empty_inner, [|2|]|])) // [|1, 2|]
 
     // =============================================================================
     // count — count matching elements (no intermediate allocation)
@@ -122,7 +124,7 @@ fn main() with IO {
 
     print(Array.count(nums, \x -> x % 2 == 0))  // 2  (2 and 4)
     print(Array.count(evens, \x -> x > 4))      // 2  (6 and 8)
-    print(Array.count([||], \x -> true))         // 0  (empty)
+    print(Array.count(empty_nums, \x -> true))   // 0  (empty)
 
     // Practical: how many words are longer than 4 characters?
     print(Array.count(words, \w -> len(w) > 4)) // 2  (banana, apple)

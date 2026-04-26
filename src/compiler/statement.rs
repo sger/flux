@@ -1521,7 +1521,7 @@ impl Compiler {
                     "return expression type is known at compile time",
                     "return expression type does not match the declared return type".to_string(),
                     "function return expression",
-                    true,
+                    !self.sym(name).starts_with("__tc_") && expression.span().start.line != 0,
                 )?;
             }
 
