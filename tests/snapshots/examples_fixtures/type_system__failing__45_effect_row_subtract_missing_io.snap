@@ -1,21 +1,49 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/45_effect_row_subtract_missing_io.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E300]: Parameter Type Mismatch
 
-Call to `run_with_row` requires effect `IO` in this function signature.
+Parameter 1 has the wrong type.
 
-  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:17:5
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
    |
-17 |     run_with_row(io_only)
-   |     ^^^^^^^^^^^^
-   |     ------------ effectful call occurs here
+66 |     run_with_row(io_only)
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |     --------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
+
+   |     --------------------- this type mismatch is reported here
+
+Note:
+  expected parameter type: () -> Unit with FileSystem, Stdin
+  found parameter type: () -> Unit with Console, FileSystem, Stdin
+  the conflicting types meet at this expression
+
+Help:
+  Change parameter 1 to use `() -> Unit with FileSystem, Stdin` consistently.
+
+
+error[E400]: Missing Effect
+
+requires effect `FileSystem` but the enclosing context does not provide it
+
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
+   |
+66 |     run_with_row(io_only)
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |     --------------------- requires `FileSystem`
 
 Hint:
-  Add `with IO` to the enclosing function.
+  annotate the enclosing function with `with FileSystem`
+
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+
+Found 2 errors.
 == stdout ==
 <not executed>

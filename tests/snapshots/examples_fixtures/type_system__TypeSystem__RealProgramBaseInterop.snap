@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/RealProgramBaseInterop.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.RealProgramBaseInterop` doesn't match file path `examples/type_system/TypeSystem/RealProgramBaseInterop.flx`.
 
-  examples/type_system/TypeSystem/RealProgramBaseInterop.flx:4:1
+  examples/type_system/TypeSystem/RealProgramBaseInterop.flx:8:1
   |
-4 | module TypeSystem.RealProgramBaseInterop {
+8 | module TypeSystem.RealProgramBaseInterop {
   | ^
 
 Hint:

@@ -1,0 +1,34 @@
+// parity: vm, llvm
+// expect: success
+// bug: Non-tail-resumptive exception-style handler (discard continuation).
+//      The clause returns a value without calling `resume`, so the
+//      captured continuation is dropped and the handle-block evaluates
+//      to the clause value.
+//
+//      Both backends print "-1" (Proposal 0162 Phase 3 slice 5-tr-nested):
+//      VM uses the full continuation-capture path; native uses the
+//      yield-based prompt loop (default since slice 5-gate) whose clause
+//      call returns the clause value directly when resume is never
+//      invoked.
+// parity-expected-stdout-begin
+// "-1"
+// parity-expected-stdout-end
+
+effect Fail {
+    raise : (String) -> Int
+}
+
+fn safe_div(a: Int, b: Int) -> Int with Fail {
+    if b == 0 {
+        perform Fail.raise("division by zero")
+    } else {
+        a / b
+    }
+}
+
+fn main() with IO {
+    let result = safe_div(10, 0) handle Fail {
+        raise(resume, _msg) -> 0 - 1
+    }
+    print(to_string(result))
+}

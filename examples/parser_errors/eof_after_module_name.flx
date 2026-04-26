@@ -1,1 +1,22 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/eof_after_module_name.flx
+// error[E034]: Missing Module Body
+//
+// This module body needs to start with `{`.
+//
+//   examples/parser_errors/eof_after_module_name.flx:23:1
+//    |
+//
+// Hint:
+//   Module declarations use `module Name { ... }`.
+//
+// Note:
+//   while parsing module `Demo`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 module Demo
+

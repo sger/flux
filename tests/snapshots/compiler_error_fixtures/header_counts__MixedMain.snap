@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/header_counts/MixedMain.flx
 == compile ==
@@ -9,9 +9,9 @@ Warning[W201]: Cross-Module Constructor Access
 
 Direct constructor access `SomeInt` from module `MixedBroken` bypasses module API boundaries.
 
-  examples/compiler_errors/header_counts/MixedMain.flx:4:14
+  examples/compiler_errors/header_counts/MixedMain.flx:7:14
   |
-4 |     let _x = MixedBroken.SomeInt(1)
+7 |     let _x = MixedBroken.SomeInt(1)
   |              ^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/compiler_errors/header_counts/MixedMain.flx:5:22
+  examples/compiler_errors/header_counts/MixedMain.flx:8:22
   |
-5 |     let value: Int = "oops"
+8 |     let value: Int = "oops"
   |                      ^^^^^^
   |                      ------ this value has type `String`
 
@@ -36,11 +36,6 @@ Note:
 
 Help:
   Change `value` to a `Int` value or update the annotation.
-
-
-Note: Downstream Errors Suppressed
-
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
 Found 1 error and 1 warning.
 == stdout ==

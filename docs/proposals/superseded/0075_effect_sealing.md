@@ -1,6 +1,6 @@
 - Feature Name: Effect Sealing
 - Start Date: 2026-03-02
-- Status: Superseded (2026-04-18) by [Proposal 0161 — Effect System Decomposition and Capabilities](../0161_effect_system_decomposition_and_capabilities.md) (Phase 2)
+- Status: Superseded (2026-04-18) by [Proposal 0161 — Effect System Decomposition and Capabilities](../implemented/0161_effect_system_decomposition_and_capabilities.md) (Phase 2)
 - Proposal PR:
 - Flux Issue:
 

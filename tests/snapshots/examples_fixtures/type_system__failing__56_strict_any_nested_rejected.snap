@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/56_strict_any_nested_rejected.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:1:26
-  |
-1 | public fn first(xs: List<Any>) -> Any {
-  |                          ^^^
-  |                          --- unknown type used here
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:59:26
+   |
+59 | public fn first(xs: List<Any>) -> Any {
+   |                          ^^^
+   |                          --- unknown type used here
 
 Hint:
   Use a built-in type, an in-scope type parameter, or a declared ADT.
@@ -23,11 +23,11 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:1:35
-  |
-1 | public fn first(xs: List<Any>) -> Any {
-  |                                   ^^^
-  |                                   --- unknown type used here
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:59:35
+   |
+59 | public fn first(xs: List<Any>) -> Any {
+   |                                   ^^^
+   |                                   --- unknown type used here
 
 Hint:
   Use a built-in type, an in-scope type parameter, or a declared ADT.
@@ -37,13 +37,13 @@ error[E300]: Return Type Mismatch
 
 The body of `first` does not match its declared return type.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:2:5
-  |
-1 | public fn first(xs: List<Any>) -> Any {
-  |                                   --- `first` was declared to return `Any`
-2 |     1
-  |     ^
-  |     - this expression has type `Int`
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:60:5
+   |
+59 | public fn first(xs: List<Any>) -> Any {
+   |                                   --- `first` was declared to return `Any`
+60 |     1
+   |     ^
+   |     - this expression has type `Int`
 
 Note:
   declared return type: Any

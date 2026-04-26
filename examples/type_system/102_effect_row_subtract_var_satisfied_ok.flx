@@ -1,18 +1,23 @@
+// parity-expected-stdout-begin
+// "work"
+// "10"
+// parity-expected-stdout-end
+
 // Row-variable subtraction is satisfiable when callback effects are concrete.
 
-effect Console {
-    print: String -> ()
+effect MyLog {
+    log: String -> ()
 }
 
-fn run_filtered(f: (() -> Int with |e - Console)) -> Int with |e - Console {
+fn run_filtered(f: (() -> Int with |e - MyLog)) -> Int with |e - MyLog {
     f()
 }
 
-fn io_work() -> Int with IO {
+fn console_work() -> Int with Console {
     print("work")
     10
 }
 
-fn main() with IO {
-    print(to_string(run_filtered(io_work)))
+fn main() with Console {
+    print(to_string(run_filtered(console_work)))
 }

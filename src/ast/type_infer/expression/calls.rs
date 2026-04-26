@@ -132,6 +132,27 @@ impl<'a> InferCtx<'a> {
         }
 
         if spec.param_tys.len() != spec.input.arguments.len() {
+            if spec.fn_name.as_deref() == Some("resume") {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E428",
+                        "PARAMETERIZED HANDLER SHAPE ERROR",
+                        crate::diagnostics::ErrorType::Compiler,
+                        format!(
+                            "Handler resume expects {} argument(s), got {}.",
+                            spec.param_tys.len(),
+                            spec.input.arguments.len()
+                        ),
+                        Some(
+                            "Use the resume arity required by the enclosing handler arm."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        spec.input.span,
+                    )
+                    .with_primary_label(spec.input.span, "wrong resume arity in handler arm"),
+                );
+            }
             return spec.ret_ty.apply_type_subst(&self.subst);
         }
 

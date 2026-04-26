@@ -1,5 +1,5 @@
 ---
-source: tests/runtime_error_fixtures_snapshots.rs
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/runtime_trace_error.flx
 == vm ==
@@ -7,12 +7,17 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
 • 1 error • examples/runtime_errors/runtime_trace_error.flx
 error[E300]: Type Mismatch
 

@@ -1,3 +1,4 @@
+// parity: llvm
 // parity-expected-stdout-begin
 // 46398
 // 8141888143
@@ -11,12 +12,14 @@ Uses input file: examples/aoc/2025/aoc_day8.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
+import Flow.List as List
 import Flow.Map as Map
 
 // Program entry point.
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
     // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
     // Helper for concat.
@@ -62,7 +65,7 @@ fn main() with IO, Time {
             if s == "" {
                 parse_points(lines, idx + 1, acc)
             } else {
-                parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
+                parse_points(lines, idx + 1, push(acc, IO.split_ints(s, ",")))
             }
         }
     }
@@ -91,7 +94,7 @@ fn main() with IO, Time {
                 fn maybe_push_edge(points, i, j, max_dist, acc) {
                     let d = dist_sq(points, i, j)
                     if d < max_dist {
-                        array_push(acc, edge_key(points, i, j))
+                        push(acc, edge_key(points, i, j))
                     } else {
                         acc
                     }
@@ -186,7 +189,7 @@ fn main() with IO, Time {
                         acc
                     } else {
                         if int_at(parents, i) == i {
-                            root_sizes(parents, sizes, i + 1, array_push(acc, int_at(sizes, i)))
+                            root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
                         } else {
                             root_sizes(parents, sizes, i + 1, acc)
                         }
@@ -204,8 +207,8 @@ fn main() with IO, Time {
                     })
 
                     let sorted_keys = Array.sort(keys)
-                    let parents0 = to_array(range(0, n))
-                    let sizes0 = to_array(map(range(0, n), \_ -> 1))
+                    let parents0 = List.to_array(range(0, n))
+                    let sizes0 = List.to_array(map(range(0, n), \_ -> 1))
                     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
                     let state1 = Array.fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
 
@@ -226,8 +229,8 @@ fn main() with IO, Time {
                     let sorted_keys = Array.sort(keys)
                     let top_keys = slice(sorted_keys, 0, 1000)
 
-                    let parents0 = to_array(range(0, n))
-                    let sizes0 = to_array(map(range(0, n), \_ -> 1))
+                    let parents0 = List.to_array(range(0, n))
+                    let sizes0 = List.to_array(map(range(0, n), \_ -> 1))
                     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
                     let state1 = Array.fold(top_keys, state0, \(st, k) -> union_key(st, k))
 

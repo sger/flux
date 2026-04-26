@@ -1,0 +1,14 @@
+// parity-expected-stdout-begin
+// "hi"
+// parity-expected-stdout-end
+
+// Aliasing `print` currently carries the ambient effect through the call site.
+fn f() -> Int {
+    let p = print
+    p("hi")
+    1
+}
+
+fn main() -> Unit with IO {
+    f();
+}

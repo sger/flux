@@ -1,4 +1,27 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_hash_colon.flx
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/missing_hash_colon.flx:24:19
+//    |
+// 24 |     let h = { "a" 1 }
+//    |                   ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing function `main`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Unit {
     let h = { "a" 1 }
     print(h)
 }
+

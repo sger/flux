@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/import_collision_error.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
-  examples/imports/import_collision_error.flx:6:5
+  examples/imports/import_collision_error.flx:7:5
   |
-6 |     import Modules.Math
+7 |     import Modules.Math
   |     ^^^^^^^^^^^^^^^^^^^
 
 Hint:

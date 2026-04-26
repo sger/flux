@@ -1,1 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/119_fn_missing_parens.flx
+// error[E034]: Missing Function Parameter List
+//
+// This function declaration needs a parameter list after `foo`.
+//
+//   examples/type_system/failing/119_fn_missing_parens.flx:23:8
+//    |
+// 23 | fn foo -> Int { 1 }
+//    |        ^^
+//
+// Note:
+//   while parsing function `foo`
+//
+// Help:
+//   Try `fn foo()` or `fn foo(x: Type)`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn foo -> Int { 1 }

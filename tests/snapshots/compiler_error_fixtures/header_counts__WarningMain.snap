@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/header_counts/WarningMain.flx
 == compile ==
@@ -9,9 +9,9 @@ Warning[W201]: Cross-Module Constructor Access
 
 Direct constructor access `SomeInt` from module `WarningOnly` bypasses module API boundaries.
 
-  examples/compiler_errors/header_counts/WarningMain.flx:4:14
+  examples/compiler_errors/header_counts/WarningMain.flx:6:14
   |
-4 |     let _x = WarningOnly.SomeInt(1)
+6 |     let _x = WarningOnly.SomeInt(1)
   |              ^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

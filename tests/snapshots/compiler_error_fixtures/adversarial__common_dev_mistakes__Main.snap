@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `sum`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:7:13
-  |
-7 |         sum([|1, 2, 3|])
-  |             ^^^^^^^^^^^
-  |             ----------- this argument has type `Array<Int>`
+  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:10:13
+   |
+10 |         sum([|1, 2, 3|])
+   |             ^^^^^^^^^^^
+   |             ----------- this argument has type `Array<Int>`
 
 Note:
   expected argument type: List<Int>
@@ -33,9 +33,9 @@ error[E011]: Private Member
 
 Cannot access private member `secret`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx:5:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx:8:9
   |
-5 |         HiddenApi.secret()
+8 |         HiddenApi.secret()
   |         ^^^^^^^^^^^^^^^^
 
 Hint:
@@ -46,9 +46,9 @@ error[E011]: Private Member
 
 Cannot access private member `_private_secret`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:5:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:8:9
   |
-5 |         HiddenApi._private_secret()
+8 |         HiddenApi._private_secret()
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -59,9 +59,9 @@ error[E013]: Module Not Imported
 
 Module `Flow` is not imported.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:6:9
   |
-3 |         Flow.prnit("x")
+6 |         Flow.prnit("x")
   |         ^^^^^^^^^^
 
 Hint:
@@ -72,9 +72,9 @@ error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:2:27
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:5:27
   |
-2 |     fn bad() -> Unit with I {
+5 |     fn bad() -> Unit with I {
   |                           ^
   |                           - unknown effect in function annotation
 
@@ -86,9 +86,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `prnit`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:3:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:6:9
   |
-3 |         prnit("x")
+6 |         prnit("x")
   |         ^^^^^
 
 Hint:
@@ -99,11 +99,11 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx:7:9
-  |
-7 |         add(1)
-  |         ^^^^^^
-  |         ------ 1 arguments provided here, expected 2
+  examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx:10:9
+   |
+10 |         add(1)
+   |         ^^^^^^
+   |         ------ 1 arguments provided here, expected 2
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.

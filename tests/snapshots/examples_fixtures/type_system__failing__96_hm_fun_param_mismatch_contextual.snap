@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx
 == compile ==
@@ -9,19 +9,19 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:11:14
+  examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:46:14
    |
-11 |     let _f = if true {
+46 |     let _f = if true {
    |              ^^^^^^^^^
-12 |         takes_int
+47 |         takes_int
    | ^^^^^^^^^^^^^^^^^
    |         --------- this branch established the expected type
-13 |     } else {
+48 |     } else {
    | ^^^^^^^^^^^^
-14 |         takes_string
+49 |         takes_string
    | ^^^^^^^^^^^^^^^^^^^^
    |         ------------ this branch conflicts with that type
-15 |     }
+50 |     }
    | ^^^^^
 
 Note:

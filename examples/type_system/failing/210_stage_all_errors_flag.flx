@@ -1,5 +1,24 @@
-// Same scenario as 150.
-// Verify `--all-errors` via `flux run` to expose downstream diagnostics hidden in default mode.
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/210_stage_all_errors_flag.flx
+// error[E071]: Unterminated String
+//
+// String literal is missing closing quote.
+//
+//   examples/type_system/failing/210_stage_all_errors_flag.flx:26:18
+//    |
+// 26 |     let broken = "unterminated
+//    |                  ^^^^^^^^^^^^^
+//
+// Hint:
+//   Add a closing " at the end of the string.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E071
+
+// Entry parse errors stop run-mode compilation before imported modules are typechecked.
+// `--all-errors` should not cross that boundary.
 
 import Stage150Type
 

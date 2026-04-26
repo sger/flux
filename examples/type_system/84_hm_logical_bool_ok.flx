@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "true"
+// parity-expected-stdout-end
+
 fn both(a: Bool, b: Bool) -> Bool {
     a && b || false
 }

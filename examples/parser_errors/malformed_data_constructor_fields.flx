@@ -1,6 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/malformed_data_constructor_fields.flx
+// error[E034]: Missing Constructor Field Separator
+//
+// I was expecting `,` or `)` between constructor fields, but I found an identifier.
+//
+//   examples/parser_errors/malformed_data_constructor_fields.flx:21:12
+//    |
+// 21 |     Ok(Int String),
+//    |            ^^^^^^
+//
+// Note:
+//   while parsing data declaration `Result`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 data Result {
     Ok(Int String),
     Err(String),
 }
 
 fn main() -> Unit {}
+

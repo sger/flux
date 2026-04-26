@@ -1,0 +1,60 @@
+// parity-expected-stdout-begin
+// [|1, 2, 3|]
+// [||]
+// [|1, 2, 3, 4, 5|]
+// "hello"
+// 42
+// true
+// [|1, 2, 3, 4, 5, 6|]
+// [|60, 50, 40, 30, 20, 10|]
+// true
+// false
+// [|10, 20, 30|]
+// [|20, 30, 40, 50, 60, 100|]
+// "1,2,3"
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+import Flow.String as String
+
+// Program entry point.
+fn main() with IO {
+    // Test: Basic arrays
+
+    // Simple array
+    let arr = [|1, 2, 3|];
+    print(arr);
+
+    // Empty array
+    let empty = [||];
+    print(empty);
+
+    // Longer array
+    let nums = [|1, 2, 3, 4, 5|];
+    print(nums);
+
+    // Arrays are homogeneous — each element must share a type
+    print("hello");
+    print(42);
+    print(true);
+
+    let left = [|1, 2, 3|];
+    let right = [|4, 5, 6|];
+
+    print(Array.concat(left, right));
+
+    let reverse_arr = [|10, 20, 30, 40, 50, 60|];
+
+    print(Array.reverse(reverse_arr));
+
+    print(Array.contains(reverse_arr, 10));
+    print(Array.contains(reverse_arr, 0));
+
+    print(Array.slice(reverse_arr, 0, 3));
+
+    let sort_arr = [|100, 20, 30, 40, 50, 60|];
+
+    print(Array.sort(sort_arr));
+
+    print(String.join([|"1", "2", "3"|], ","));
+}

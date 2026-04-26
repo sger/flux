@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_guide_snapshots.rs
+---
+Fixture: examples/guide/rebinding_with_let.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

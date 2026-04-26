@@ -175,6 +175,7 @@ size_t flux_gc_num_allocs(void);
 
 void    flux_print(int64_t value);
 void    flux_println(int64_t value);
+void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
 int64_t flux_write_file(int64_t path, int64_t content);
@@ -234,6 +235,22 @@ int64_t flux_hamt_format(int64_t map);
 int64_t flux_abs(int64_t n);
 int64_t flux_min(int64_t a, int64_t b);
 int64_t flux_max(int64_t a, int64_t b);
+int64_t flux_sqrt(int64_t n);
+int64_t flux_sin(int64_t n);
+int64_t flux_cos(int64_t n);
+int64_t flux_exp(int64_t n);
+int64_t flux_log(int64_t n);
+int64_t flux_floor(int64_t n);
+int64_t flux_ceil(int64_t n);
+int64_t flux_round(int64_t n);
+int64_t flux_tan(int64_t n);
+int64_t flux_asin(int64_t n);
+int64_t flux_acos(int64_t n);
+int64_t flux_atan(int64_t n);
+int64_t flux_sinh(int64_t n);
+int64_t flux_cosh(int64_t n);
+int64_t flux_tanh(int64_t n);
+int64_t flux_truncate(int64_t n);
 
 /* ── Runtime-dispatching arithmetic (int/float/string) ──────────────── */
 
@@ -357,15 +374,26 @@ extern int32_t flux_yield_yielding;
 int64_t flux_evv_get(void);
 void    flux_evv_set(int64_t evv);
 int64_t flux_fresh_marker(void);
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler);
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state);
 
 /* Yield operations. */
-int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg);
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity);
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity);
 int64_t flux_yield_extend(int64_t cont);
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
 int64_t flux_compose_conts(void);
 int32_t flux_is_yielding(void);
+
+/* Proposal 0162 Phase 3 (partial): short-circuit detection for non-TR
+ * handlers on the native backend.  `flux_resume_mark_called` is used as
+ * the `resume` closure passed to `flux_perform_direct`: the compiler
+ * changes its identity-resume synthesis to call this function (which
+ * both marks the flag and returns its argument) instead of the pure
+ * identity.  When a clause returns without having invoked resume, the
+ * flag is still 0 — flux_perform_direct then emits a structured error
+ * instead of silently returning the wrong value. */
+extern int32_t flux_resume_called;
+int64_t flux_resume_mark_called(int64_t value);
 
 #ifdef __cplusplus
 }

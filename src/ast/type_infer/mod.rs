@@ -41,11 +41,14 @@ use crate::{
 };
 
 mod adt;
+pub mod boundary;
 pub mod constraint;
 mod display;
 mod effects;
 mod expression;
 mod function;
+mod pattern_coverage;
+mod pattern_coverage_adapter;
 mod solver;
 mod statement;
 pub mod static_type_validation;
@@ -158,7 +161,8 @@ struct InferCtx<'a> {
     /// Reverse index: ADT name → type parameters. Avoids linear scan over
     /// `adt_constructor_types` when only per-ADT metadata is needed.
     adt_type_params: HashMap<Identifier, Vec<Identifier>>,
-    effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    effect_row_aliases: HashMap<Identifier, EffectExpr>,
     ambient_effect_rows: Vec<InferEffectRow>,
     handled_effects: Vec<Identifier>,
     /// Deduplication set for unification diagnostics. Keyed by a hash of
@@ -229,17 +233,19 @@ impl<'a> InferCtx<'a> {
     ///   members, keyed by `(module, member)`.
     /// - `known_flow_names`: fast-membership set for names belonging to Flow.
     /// - `flow_module_symbol`: canonical symbol identifying the Flow module.
-    /// - `preloaded_effect_op_signatures`: signatures for effect operations,
+    /// - `preloaded_effect_op_signatures`: generalized signatures for effect
+    ///   operations,
     ///   keyed by `(effect, operation)`.
-    fn new(
-        interner: &'a Interner,
-        file_path: Rc<str>,
-        preloaded_base_schemes: HashMap<Identifier, Scheme>,
-        preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
-        known_flow_names: HashSet<Identifier>,
-        flow_module_symbol: Identifier,
-        preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
-    ) -> Self {
+    fn new(interner: &'a Interner, config: InferCtxConfig) -> Self {
+        let InferCtxConfig {
+            file_path,
+            preloaded_base_schemes,
+            preloaded_module_member_schemes,
+            known_flow_names,
+            flow_module_symbol,
+            preloaded_effect_op_signatures,
+            effect_row_aliases,
+        } = config;
         let mut env = TypeEnv::new();
         advance_counter_past_preloaded_schemes(
             &mut env,
@@ -264,6 +270,7 @@ impl<'a> InferCtx<'a> {
             adt_constructor_types: HashMap::new(),
             adt_type_params: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
+            effect_row_aliases,
             ambient_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             seen_error_keys: HashSet::new(),
@@ -450,6 +457,16 @@ impl<'a> InferCtx<'a> {
     }
 }
 
+struct InferCtxConfig {
+    file_path: Rc<str>,
+    preloaded_base_schemes: HashMap<Identifier, Scheme>,
+    preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    known_flow_names: HashSet<Identifier>,
+    flow_module_symbol: Identifier,
+    preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    effect_row_aliases: HashMap<Identifier, EffectExpr>,
+}
+
 pub use display::suggest_type_name;
 
 /// Pre-loaded data arguments required by [`infer_program`].
@@ -475,7 +492,8 @@ pub struct InferProgramConfig {
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
-    pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    pub effect_row_aliases: HashMap<Identifier, EffectExpr>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
 }
@@ -513,12 +531,15 @@ pub fn infer_program(
     let file: Rc<str> = config.file_path.unwrap_or_else(|| "".into());
     let mut ctx = InferCtx::new(
         interner,
-        file,
-        config.preloaded_base_schemes,
-        config.preloaded_module_member_schemes,
-        config.known_flow_names,
-        config.flow_module_symbol,
-        config.preloaded_effect_op_signatures,
+        InferCtxConfig {
+            file_path: file,
+            preloaded_base_schemes: config.preloaded_base_schemes,
+            preloaded_module_member_schemes: config.preloaded_module_member_schemes,
+            known_flow_names: config.known_flow_names,
+            flow_module_symbol: config.flow_module_symbol,
+            preloaded_effect_op_signatures: config.preloaded_effect_op_signatures,
+            effect_row_aliases: config.effect_row_aliases,
+        },
     );
     init_class_env(&mut ctx, config.class_env, interner);
     ctx.infer_program(program);

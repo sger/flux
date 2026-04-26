@@ -1,2 +1,38 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/124_lambda_missing_close_paren.flx
+// error[E034]: Missing Closing Delimiter
+//
+// Expected `)` to close lambda parameter list.
+//
+//   examples/type_system/failing/124_lambda_missing_close_paren.flx:37:18
+//    |
+// 37 | let add = \(x, y -> x + y
+//    |                  ^^
+//
+// Hint:
+//   Use `\(x, y) -> expr` for parenthesized lambda parameters.
+//
+//
+// error[E034]: Missing Lambda Arrow
+//
+// I was expecting `->` after the lambda parameters, but I found the end of the file.
+//
+//   examples/type_system/failing/124_lambda_missing_close_paren.flx:39:1
+//    |
+//
+// Note:
+//   while parsing lambda expression
+//
+// Help:
+//   Use `\x -> expr` or `\(x, y) -> expr`.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+
 let add = \(x, y -> x + y
 let after = 3

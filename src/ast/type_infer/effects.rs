@@ -47,7 +47,12 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> InferEffectRow {
         let mut row_var_counter = self.env.counter;
-        let result = InferEffectRow::from_effect_exprs(effects, row_var_env, &mut row_var_counter);
+        let expanded_effects: Vec<EffectExpr> = effects
+            .iter()
+            .map(|effect| effect.expand_aliases(&self.effect_row_aliases))
+            .collect();
+        let result =
+            InferEffectRow::from_effect_exprs(&expanded_effects, row_var_env, &mut row_var_counter);
         self.env.counter = row_var_counter;
         match result {
             Ok(row) => row,
@@ -185,19 +190,11 @@ impl<'a> InferCtx<'a> {
         result
     }
 
-    /// Resolve an effect operation signature and lower it to inference types.
+    /// Resolve an effect operation signature and instantiate it to inference types.
     ///
-    /// Looks up `(effect, operation)` in `effect_op_signatures`, expects the
-    /// stored type expression to be function-shaped, and lowers its parameter
-    /// and return type expressions into [`InferType`] values.
-    ///
-    /// Lowering details:
-    /// - Uses `TypeEnv::convert_type_expr_rec` for each
-    ///   parameter and the return type.
-    /// - Tracks row-variable symbols through a local `row_var_env` so repeated
-    ///   row vars in one signature map to stable row-variable ids.
-    /// - Advances `self.env.counter` to reserve any fresh ids consumed during
-    ///   lowering.
+    /// Looks up `(effect, operation)` in `effect_op_signatures`, instantiates
+    /// the stored [`Scheme`], and returns the function parameter and return
+    /// types from that fresh monotype.
     ///
     /// Returns:
     /// - `Some((params, ret))` when a well-formed function signature is found
@@ -222,41 +219,20 @@ impl<'a> InferCtx<'a> {
         &mut self,
         effect: Identifier,
         operation: Identifier,
+        span: Span,
     ) -> Option<(Vec<InferType>, InferType)> {
-        let type_expr = self.effect_op_signatures.get(&(effect, operation))?;
-        let TypeExpr::Function {
-            params,
-            ret,
-            effects: _,
-            span: _,
-        } = type_expr
-        else {
+        let scheme = self.effect_op_signatures.get(&(effect, operation))?.clone();
+        let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+        let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
+        for &fresh in &fresh_vars {
+            self.env.record_var_level(fresh);
+        }
+        self.record_instantiated_expr_vars(fresh_vars);
+        self.emit_scheme_constraints(&constraints, span);
+        let InferType::Fun(params, ret, _effects) = ty else {
             return None;
         };
-        let tp_map: HashMap<Identifier, TypeVarId> = HashMap::new();
-        let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
-        let mut fresh = self.env.counter;
-        let param_tys = params
-            .iter()
-            .map(|p| {
-                TypeEnv::convert_type_expr_rec(
-                    p,
-                    &tp_map,
-                    self.interner,
-                    &mut row_var_env,
-                    &mut fresh,
-                )
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let ret_ty = TypeEnv::convert_type_expr_rec(
-            ret,
-            &tp_map,
-            self.interner,
-            &mut row_var_env,
-            &mut fresh,
-        )?;
-        self.env.counter = fresh;
-        Some((param_tys, ret_ty))
+        Some((params, *ret))
     }
 
     /// Constrain callee effects against currently ambient effects at a call-site.
@@ -293,11 +269,14 @@ impl<'a> InferCtx<'a> {
             available: ambient_effects.clone(),
             span,
         });
-        let callee = callee_effects.apply_row_subst(&self.subst);
-        let ambient = ambient_effects.apply_row_subst(&self.subst);
+        let callee = self.expand_effect_row_aliases(callee_effects.apply_row_subst(&self.subst));
+        let ambient = self.expand_effect_row_aliases(ambient_effects.apply_row_subst(&self.subst));
         let mut missing: Vec<Identifier> = callee
             .concrete()
             .iter()
+            .filter(|effect| {
+                self.interner.resolve(**effect) != crate::syntax::builtin_effects::PANIC
+            })
             .filter(|effect| !ambient.concrete().contains(effect))
             .copied()
             .collect();
@@ -312,6 +291,26 @@ impl<'a> InferCtx<'a> {
         }
 
         self.report_effect_mismatch(&callee, &ambient, span);
+    }
+
+    /// Expand any concrete effect aliases in an inferred row before subset checks.
+    fn expand_effect_row_aliases(&self, row: InferEffectRow) -> InferEffectRow {
+        let mut concrete = std::collections::HashSet::new();
+        for effect in row.concrete() {
+            if let Some(expansion) = self.effect_row_aliases.get(effect) {
+                concrete.extend(
+                    expansion
+                        .expand_aliases(&self.effect_row_aliases)
+                        .normalized_concrete_names(),
+                );
+            } else {
+                concrete.insert(*effect);
+            }
+        }
+        match row.tail() {
+            Some(tail) => InferEffectRow::open_from_symbols(concrete, tail),
+            None => InferEffectRow::closed_from_symbols(concrete),
+        }
     }
 
     /// Link row tails when no concrete effects are missing.
@@ -376,6 +375,7 @@ impl<'a> InferCtx<'a> {
         let mut missing: Vec<Identifier> = callee
             .concrete()
             .iter()
+            .filter(|e| self.interner.resolve(**e) != crate::syntax::builtin_effects::PANIC)
             .filter(|e| !ambient.concrete().contains(e))
             .copied()
             .collect();

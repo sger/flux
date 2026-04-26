@@ -12,7 +12,8 @@ module Day06Solver {
     //      → eliminates substring allocations in the hot loop
     //   2. Jump between obstacles/edges for Part B instead of step-by-step replay
     //   3. Pattern matching on Dir ADT for idiomatic direction handling
-    //   4. Primops: array_get for O(1) grid access, explicit Flow.Map APIs
+    //   4. Public collection APIs: Array.push / Flow.Map helpers in setup,
+    //      with O(1)-style indexed access in the hot loop
 
     data Dir {
         Up,
@@ -65,7 +66,7 @@ module Day06Solver {
 
     // Helper for insert sorted.
     fn insert_sorted(m, key, value) {
-        Map.set(m, key, Array.sort(array_push(map_arr_at(m, key), value)))
+        Map.set(m, key, Array.sort(Array.push(map_arr_at(m, key), value)))
     }
 
     // ── Grid pre-processing ───────────────────────────────────────────
@@ -80,7 +81,7 @@ module Day06Solver {
         if c >= len(line) {
             acc
         } else {
-            line_to_row(line, c + 1, array_push(acc, char_to_int(char_at(line, c))))
+            line_to_row(line, c + 1, Array.push(acc, char_to_int(char_at(line, c))))
         }
     }
 
@@ -133,7 +134,7 @@ module Day06Solver {
         }
     }
 
-    // ── Fast grid access (primop array_get, int comparison) ──────────
+    // ── Fast grid access (indexed array lookup + int comparison) ─────
 
     fn is_wall(grid, r, c) {
         int_at(row_at(grid, r), c) == 1

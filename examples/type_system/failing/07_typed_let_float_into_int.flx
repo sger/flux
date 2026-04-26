@@ -1,3 +1,76 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 4 errors • examples/type_system/failing/07_typed_let_float_into_int.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `answer` does not match its type annotation.
+//
+//   examples/type_system/failing/07_typed_let_float_into_int.flx:74:19
+//    |
+// 74 | let answer: Int = 42.5
+//    |                   ^^^^
+//    |                   ---- this value has type `Float`
+//
+//    |             --- but `answer` was annotated as `Int`
+//
+// Note:
+//   annotated type: Int
+//   value type: Float
+//
+// Help:
+//   Try `to_int(...)` if truncating a `Float` to an `Int` is intended.
+//
+//
+// error[E413]: Top-Level Effect
+//
+// Effectful operation is not allowed at top level (requires: Console).
+//
+//   examples/type_system/failing/07_typed_let_float_into_int.flx:87:1
+//    |
+// 87 | print("#{label}: #{add(answer, 8)}")
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    | ------------------------------------ top-level effectful expression
+//
+// Hint:
+//   Move this code into `fn main() with ... { ... }`.
+//
+//
+// error[E414]: Missing Main Function
+//
+// Effectful program is missing `fn main` root effect handler.
+//
+//   examples/type_system/failing/07_typed_let_float_into_int.flx:87:1
+//    |
+// 87 | print("#{label}: #{add(answer, 8)}")
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    | ------------------------------------ effectful top-level execution
+//
+// Hint:
+//   Define `fn main() with ... { ... }` and move execution there.
+//
+//
+// error[E413]: Top-Level Effect
+//
+// Effectful operation is not allowed at top level (requires: Console).
+//
+//   examples/type_system/failing/07_typed_let_float_into_int.flx:88:1
+//    |
+// 88 | print(distance_tag(point))
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    | -------------------------- top-level effectful expression
+//
+// Hint:
+//   Move this code into `fn main() with ... { ... }`.
+//
+// Found 4 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+// expect-error: E413
+// expect-error: E413
+// expect-error: E414
+
 let answer: Int = 42.5
 let label: String = "The answer"
 let point: (Int, Int) = (10, 20)

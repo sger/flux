@@ -1,3 +1,0 @@
-import Debug.ModuleGraphCycleA
-
-Debug.ModuleGraphCycleA.value();

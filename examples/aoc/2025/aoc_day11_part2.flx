@@ -10,6 +10,7 @@ Input: examples/aoc/2025/aoc_day11.txt
 
 import Flow.Array as Array
 import Flow.Map as Map
+import Flow.String as String
 
 // Program entry point.
 fn main() with IO, Time {
@@ -106,7 +107,7 @@ fn main() with IO, Time {
 
         // Helper for state key.
         fn state_key(node, mask) {
-            join([|node, "#", to_string(mask)|], "")
+            String.join([|node, "#", to_string(mask)|], "")
         }
 
         // Sum children2.

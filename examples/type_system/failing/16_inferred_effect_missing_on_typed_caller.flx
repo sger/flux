@@ -1,3 +1,60 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors, 1 note • examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx
+// error[E413]: Top-Level Effect
+//
+// Effectful operation is not allowed at top level (requires: Clock).
+//
+//   examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
+//    |
+// 69 | typed_time_only()
+//    | ^^^^^^^^^^^^^^^^^
+//    | ----------------- top-level effectful expression
+//
+// Hint:
+//   Move this code into `fn main() with ... { ... }`.
+//
+//
+// error[E414]: Missing Main Function
+//
+// Effectful program is missing `fn main` root effect handler.
+//
+//   examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
+//    |
+// 69 | typed_time_only()
+//    | ^^^^^^^^^^^^^^^^^
+//    | ----------------- effectful top-level execution
+//
+// Hint:
+//   Define `fn main() with ... { ... }` and move execution there.
+//
+//
+// error[E400]: Missing Effect
+//
+// requires effect `Clock` but the enclosing context does not provide it
+//
+//   examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
+//    |
+// 69 | typed_time_only()
+//    | ^^^^^^^^^^^^^^^^^
+//    | ----------------- requires `Clock`
+//
+// Hint:
+//   annotate the enclosing function with `with Clock`
+//
+//
+// Note: Downstream Errors Suppressed
+//
+// I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E400
+// expect-error: E413
+// expect-error: E414
+
 // E400: caller declares `with Time` but invokes an IO function.
 
 fn sink(msg: String) -> Unit with IO {

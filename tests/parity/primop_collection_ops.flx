@@ -3,14 +3,17 @@
 // Tests collection primops: array/list/map operations, len, get, put, etc.
 // Note: keys()/values() order is non-deterministic for HAMT maps — avoided here.
 
+import Flow.Array as Array
+import Flow.List as List
+
 fn main() with IO {
     // Array ops
     let arr = [|1, 2, 3|]
     print(len(arr))
     print(arr[0])
     print(array_push(arr, 4))
-    print(to_list(arr))
-    print(to_array([1, 2, 3]))
+    print(Array.to_list(arr))
+    print(List.to_array([1, 2, 3]))
 
     // HAMT map ops
     let m = { "a": 1, "b": 2 }

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/124_lambda_missing_close_paren.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Closing Delimiter
 
 Expected `)` to close lambda parameter list.
 
-  examples/type_system/failing/124_lambda_missing_close_paren.flx:1:18
-  |
-1 | let add = /(x, y -> x + y
-  |                  ^^
+  examples/type_system/failing/124_lambda_missing_close_paren.flx:37:18
+   |
+37 | let add = /(x, y -> x + y
+   |                  ^^
 
 Hint:
   Use `/(x, y) -> expr` for parenthesized lambda parameters.
@@ -22,8 +22,8 @@ error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found the end of the file.
 
-  examples/type_system/failing/124_lambda_missing_close_paren.flx:3:1
-  |
+  examples/type_system/failing/124_lambda_missing_close_paren.flx:39:1
+   |
 
 Note:
   while parsing lambda expression

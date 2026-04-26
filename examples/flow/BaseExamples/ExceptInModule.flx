@@ -1,5 +1,6 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// root: examples/flow
 
 import Flow except [print]
 

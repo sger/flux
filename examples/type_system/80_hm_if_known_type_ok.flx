@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "21"
+// parity-expected-stdout-end
+
 fn expect_int(x: Int) -> Int {
     x
 }

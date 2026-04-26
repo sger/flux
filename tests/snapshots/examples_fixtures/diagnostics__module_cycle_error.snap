@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics/module_cycle_error.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E021]: Import Cycle
+
+Circular import detected: examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleB.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx.
+
+  examples/diagnostics/module_cycle_error.flx:5:1
+  |
+5 | import ModuleGraph.ModuleGraphCycleA
+  | ^
+  | - this import participates in the cycle
+
+Hint:
+  Reorganize your modules to break the circular dependency.
+== stdout ==
+<not executed>

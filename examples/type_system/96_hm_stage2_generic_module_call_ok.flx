@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // 0051 Stage 2: HM fallback for module generic params (convert_type_expr -> None).
 // When a module function has a generic param T, the contract cannot provide a concrete
 // RuntimeType. Stage 2 falls back to the HM-instantiated function type at the call site

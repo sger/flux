@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 type Shape = Circle(Float) | Rect(Float, Float)
 
 fn area(s: Shape) -> Float {

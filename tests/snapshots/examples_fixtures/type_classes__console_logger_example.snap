@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/console_logger_example.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E405]: Unknown Effect
+
+Effect `Console` is not declared for this handle block.
+
+  examples/type_classes/ConsoleLoggerExample/App/Main.flx:7:9
+  |
+7 |         Logger.log(StdLog.stdout(), "ok") handle Console {
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         --------------------------------- unknown effect in handle
+
+Hint:
+  Declare the effect before using `handle`, or fix the effect name.
+== stdout ==
+<not executed>

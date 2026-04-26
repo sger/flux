@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     bytecode::op_code::OpCode,
@@ -285,7 +285,11 @@ impl VM {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.current_frame().base_pointer;
                 let val = self.pop()?;
-                self.stack_set(bp + idx, val);
+                let slot = bp + idx;
+                self.stack_set(slot, val);
+                if self.sp <= slot {
+                    self.reset_sp(slot + 1)?;
+                }
                 Ok(2)
             }
             OpCode::OpSetLocalPop => {
@@ -615,9 +619,20 @@ impl VM {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.frames[self.frame_index].base_pointer;
                 let arg = self.pop_untracked()?;
-                self.push(self.stack_get(bp + idx))?;
+                let callee = self.stack_get(bp + idx);
+                self.push(callee.clone())?;
                 self.push(arg)?;
-                self.execute_call(1)?;
+                // Proposal 0162 Phase 3 (continuation of 2026-04-22 fix):
+                // non-tail `resume(v)` calls can be emitted as `OpGetLocalCall1`
+                // when `resume` is a local and the single argument has been
+                // pushed. Mirror `OpCall` / `OpTailCall1`: dispatch Continuation
+                // callees to `execute_resume` so multi-shot / general resume
+                // shapes are handled uniformly.
+                if matches!(callee, Value::Continuation(_)) {
+                    self.execute_resume(1)?;
+                } else {
+                    self.execute_call(1)?;
+                }
                 Ok(2)
             }
             OpCode::OpCallSelf => {
@@ -635,11 +650,27 @@ impl VM {
             }
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
-                self.execute_tail_call(num_args)?;
+                let callee_idx = self.sp - 1 - num_args;
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
+                    // `resume(v)` in tail position — e.g. a handler arm of the
+                    // shape `pick(resume, n) -> if cond { resume(v) } else { … }`
+                    // where the resume call is tail-emitted by the compiler.
+                    // `execute_resume` restores the captured continuation state
+                    // and wipes the current frame, which is exactly what tail-
+                    // position semantics require; no special-case is needed.
+                    self.execute_resume(num_args)?;
+                } else {
+                    self.execute_tail_call(num_args)?;
+                }
                 Ok(0)
             }
             OpCode::OpTailCall1 => {
-                self.execute_tail_call(1)?;
+                let callee_idx = self.sp - 2;
+                if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
+                    self.execute_resume(1)?;
+                } else {
+                    self.execute_tail_call(1)?;
+                }
                 Ok(0)
             }
             OpCode::OpPop => {
@@ -1133,10 +1164,13 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops, desc_is_discard) = match &const_val {
-                    Value::HandlerDescriptor(desc) => {
-                        (desc.effect, desc.ops.clone(), desc.is_discard)
-                    }
+                let (effect, ops, has_state, desc_is_discard) = match &const_val {
+                    Value::HandlerDescriptor(desc) => (
+                        desc.effect,
+                        desc.ops.clone(),
+                        desc.has_state,
+                        desc.is_discard,
+                    ),
                     other => {
                         return Err(format!(
                             "OpHandle: expected HandlerDescriptor constant, got {}",
@@ -1145,6 +1179,11 @@ impl VM {
                     }
                 };
                 let n = ops.len();
+                let state = if has_state {
+                    Some(self.pop_untracked()?)
+                } else {
+                    None
+                };
                 // Pop closures in reverse (last pushed = last arm)
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -1166,9 +1205,16 @@ impl VM {
                     .zip(arm_closures)
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
+                let arms = Rc::new(arms);
+                let saved_evv = self.evv.clone();
+                let marker = self.yield_state.fresh_marker();
+                self.evv = self.evv.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
+                    marker,
+                    saved_evv,
+                    state,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1181,8 +1227,10 @@ impl VM {
                 // Identical to OpHandle but marks the handler as tail-resumptive.
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops) = match &const_val {
-                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                let (effect, ops, has_state) = match &const_val {
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.has_state)
+                    }
                     other => {
                         return Err(format!(
                             "OpHandleDirect: expected HandlerDescriptor constant, got {}",
@@ -1191,6 +1239,11 @@ impl VM {
                     }
                 };
                 let n = ops.len();
+                let state = if has_state {
+                    Some(self.pop_untracked()?)
+                } else {
+                    None
+                };
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
                     let v = self.pop_untracked()?;
@@ -1210,9 +1263,16 @@ impl VM {
                     .zip(arm_closures)
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
+                let arms = Rc::new(arms);
+                let saved_evv = self.evv.clone();
+                let marker = self.yield_state.fresh_marker();
+                self.evv = self.evv.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
+                    marker,
+                    saved_evv,
+                    state,
                     entry_frame_index: self.frame_index,
                     entry_sp: self.sp,
                     entry_handler_stack_len: self.handler_stack.len(),
@@ -1223,7 +1283,9 @@ impl VM {
             }
             OpCode::OpEndHandle => {
                 // No operands. Pops the top handler from handler_stack.
-                self.handler_stack.pop();
+                if let Some(handler) = self.handler_stack.pop() {
+                    self.evv = handler.saved_evv;
+                }
                 Ok(1)
             }
             OpCode::OpPerform => {
@@ -1258,29 +1320,40 @@ impl VM {
                 }
                 perform_args.reverse();
 
-                // Find matching handler frame (search from top)
+                // Find matching evidence entry (most recent wins).
+                let evv_index = self.evv.lookup(effect).ok_or_else(|| {
+                    format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    )
+                })?;
+                let evidence = self.evv.get(evv_index).cloned().ok_or_else(|| {
+                    format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    )
+                })?;
                 let handler_pos = self
                     .handler_stack
                     .iter()
-                    .rposition(|h| h.effect == effect)
+                    .rposition(|h| h.marker == evidence.marker)
                     .ok_or_else(|| {
                         format!(
-                            "unhandled effect: {} (no matching handle block)",
+                            "unhandled effect: {} (missing handler frame for evidence marker)",
                             effect_name
                         )
                     })?;
-
                 let is_direct = self.handler_stack[handler_pos].is_direct;
-
-                let arm_closure = {
-                    let handler = &self.handler_stack[handler_pos];
-                    let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
-                        format!("unhandled operation: {}.{}", effect_name, op_name)
-                    })?;
-                    arm.closure.clone()
-                };
-
                 let is_discard = self.handler_stack[handler_pos].is_discard;
+                let handler_state = self.handler_stack[handler_pos].state.clone();
+                let has_handler_state = handler_state.is_some();
+                let arm_closure = evidence
+                    .arms
+                    .iter()
+                    .find(|a| a.op == op)
+                    .ok_or_else(|| format!("unhandled operation: {}.{}", effect_name, op_name))?
+                    .closure
+                    .clone();
 
                 if is_direct {
                     // Tail-resumptive fast path: call the arm directly
@@ -1298,7 +1371,10 @@ impl VM {
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    if let Some(state) = handler_state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 } else if is_discard {
                     // Discard handler: never resumes. Skip continuation capture
@@ -1321,51 +1397,69 @@ impl VM {
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    if let Some(state) = handler_state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 } else {
-                    let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
-                    let entry_sp = self.handler_stack[handler_pos].entry_sp;
-
-                    // Capture frames above the handler boundary.
-                    let mut captured_frames: Vec<crate::runtime::frame::Frame> =
-                        self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
-                    if let Some(last) = captured_frames.last_mut() {
-                        last.ip += 4;
-                    }
-
-                    let captured_sp = self.sp;
-                    let captured_stack: Vec<Value> = self.stack[entry_sp..captured_sp]
-                        .iter()
-                        .map(slot::from_slot_ref)
-                        .collect();
-
+                    let handler = self.handler_stack[handler_pos].clone();
                     let inner_handlers: Vec<HandlerFrame> =
                         self.handler_stack[handler_pos + 1..].to_vec();
 
-                    let cont = Continuation {
-                        frames: captured_frames,
-                        stack: captured_stack,
-                        sp: captured_sp,
-                        entry_sp,
-                        entry_frame_index,
-                        inner_handlers,
-                        used: false,
-                    };
-                    let cont_val = Value::Continuation(Rc::new(RefCell::new(cont)));
+                    self.yield_state.yielding = crate::runtime::yield_state::Yielding::Pending;
+                    self.yield_state.marker = evidence.marker;
+                    self.yield_state.clause = Some(Rc::new(HandlerArm {
+                        op,
+                        closure: arm_closure.clone(),
+                    }));
+                    self.yield_state.op_arg = perform_args.first().cloned();
+                    self.yield_state.conts.clear();
 
-                    self.frame_index = entry_frame_index;
+                    // Capture the current frame's post-perform continuation.
+                    self.yield_state
+                        .extend(self.capture_continuation_piece(self.sp, 4));
+
+                    // Unwind outer frames up to the matching handler boundary,
+                    // capturing one continuation piece per frame.
+                    while self.frame_index > handler.entry_frame_index {
+                        let return_slot = self.pop_frame_return_slot();
+                        self.reset_sp(return_slot)?;
+                        if self.frame_index > handler.entry_frame_index {
+                            self.yield_state
+                                .extend(self.capture_continuation_piece(self.sp, 0));
+                        }
+                    }
+
+                    let state_marker = handler.state.as_ref().map(|_| handler.marker);
+                    let cont_val = Continuation::compose(
+                        &self.yield_state.conts,
+                        inner_handlers,
+                        state_marker,
+                    )?;
                     self.handler_stack.truncate(handler_pos + 1);
-                    self.reset_sp(entry_sp)?;
+                    self.reset_sp(handler.entry_sp)?;
+                    self.yield_state.clear();
 
                     self.push(Value::Closure(arm_closure))?;
                     self.push(cont_val)?;
                     for arg in perform_args {
                         self.push(arg)?;
                     }
-                    self.execute_call(1 + arity)?;
+                    let has_handler_state = state_marker.is_some();
+                    if let Some(state) = handler.state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
                     Ok(0)
                 }
+            }
+            OpCode::OpReturnCheck => {
+                if self.yield_state.is_yielding() {
+                    self.yield_state
+                        .extend(self.capture_continuation_piece(self.sp, 0));
+                }
+                Ok(1)
             }
             OpCode::OpPerformDirect => {
                 // Tail-resumptive perform: no continuation capture.
@@ -1408,6 +1502,8 @@ impl VM {
                         )
                     })?;
 
+                let handler_state = self.handler_stack[handler_pos].state.clone();
+                let has_handler_state = handler_state.is_some();
                 let arm_closure = {
                     let handler = &self.handler_stack[handler_pos];
                     let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
@@ -1430,7 +1526,10 @@ impl VM {
                 for arg in perform_args {
                     self.push(arg)?;
                 }
-                self.execute_call(1 + arity)?;
+                if let Some(state) = handler_state {
+                    self.push(state)?;
+                }
+                self.execute_call(1 + arity + usize::from(has_handler_state))?;
 
                 Ok(0)
             }
@@ -1450,6 +1549,8 @@ impl VM {
 
                 // Direct index into handler stack — no search.
                 let handler_idx = self.handler_stack.len() - 1 - handler_depth;
+                let handler_state = self.handler_stack[handler_idx].state.clone();
+                let has_handler_state = handler_state.is_some();
                 let arm_closure = self.handler_stack[handler_idx].arms[arm_index]
                     .closure
                     .clone();
@@ -1462,7 +1563,10 @@ impl VM {
                 for arg in perform_args {
                     self.push(arg)?;
                 }
-                self.execute_call(1 + arity)?;
+                if let Some(state) = handler_state {
+                    self.push(state)?;
+                }
+                self.execute_call(1 + arity + usize::from(has_handler_state))?;
 
                 Ok(0)
             }

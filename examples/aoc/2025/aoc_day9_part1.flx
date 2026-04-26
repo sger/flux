@@ -9,6 +9,7 @@ Input: examples/aoc/2025/aoc_day9.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // Program entry point.
 fn main() with IO, Time {
@@ -66,6 +67,6 @@ fn main() with IO, Time {
     let lines = read_lines("examples/aoc/2025/aoc_day9.txt")
     let points = Array.map(
         Array.filter(Array.map(lines, \line -> trim(line)), \line -> line != ""),
-        \line -> split_ints(line, ","))
+        \line -> IO.split_ints(line, ","))
         print(best_all(points, 0, 0))
     }

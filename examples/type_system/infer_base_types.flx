@@ -1,8 +1,13 @@
+// parity-expected-stdout-begin
+// "All inferred type assertions passed!"
+// parity-expected-stdout-end
+
 // Verify that HM type inference correctly resolves types from
 // lib/Flow/ functions WITHOUT explicit type annotations.
 // Every value here is inferred — no annotations at all.
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 fn main() with IO {
     // Primop return types — all inferred
@@ -41,7 +46,7 @@ fn main() with IO {
     assert_eq(unwrap_or(mapped, 0), 20)
 
     // Flow.IO — inferred
-    let ints = split_ints("10,20,30", ",")
+    let ints = IO.split_ints("10,20,30", ",")
     assert_eq(Array.sum(ints), 60)
 
     // Verify inference through chaining

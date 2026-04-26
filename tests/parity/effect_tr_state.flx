@@ -1,0 +1,25 @@
+// parity: vm, llvm
+// expect: success
+// bug: VM uses one-shot Continuation capture; native uses Koka-style yield.
+//      Proposal 0162 Phase 1 promises behavior to match on this shape.
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
+// Single-shot tail-resumptive handler — the canonical State-like pattern.
+effect Logger {
+    log : (String) -> ()
+}
+
+fn greet(name: String) -> Int with Logger {
+    perform Logger.log("hello")
+    perform Logger.log(name)
+    42
+}
+
+fn main() with IO {
+    let result = greet("world") handle Logger {
+        log(resume, _msg) -> resume(())
+    }
+    print(to_string(result))
+}

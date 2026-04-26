@@ -1,0 +1,16 @@
+module Telemetry {
+    public fn measure(name: String) -> Int with Console, Clock {
+        let started = now_ms()
+        println("measure " + name)
+        let finished = now_ms()
+        finished - started
+    }
+
+    public fn around(f: (() -> Int with Console, Clock)) -> Int with Console, Clock {
+        let before = now_ms()
+        let value = f()
+        let after = now_ms()
+        println("elapsed=" + to_string(after - before))
+        value
+    }
+}

@@ -35,6 +35,16 @@ fn core_type_to_ir_type(ct: &crate::core::CoreType) -> IrType {
 
 use fn_ctx::FnCtx;
 
+fn peel_function_type(
+    ty: &crate::core::CoreType,
+) -> Option<(&[crate::core::CoreType], &crate::core::CoreType)> {
+    match ty {
+        crate::core::CoreType::Function(params, ret) => Some((params.as_slice(), ret.as_ref())),
+        crate::core::CoreType::Forall(_, body) => peel_function_type(body),
+        _ => None,
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Lower a `CoreProgram` into an `IrProgram` ready for backend code generation.
@@ -158,16 +168,16 @@ impl ToIrCtx {
                     fn_ctx.name = Some(def.name);
                     if !param_types.is_empty() {
                         fn_ctx.inferred_param_types = param_types.clone();
-                    } else if let Some(crate::core::CoreType::Function(ref inferred_params, _)) =
-                        def.result_ty
+                    } else if let Some((inferred_params, _)) =
+                        def.result_ty.as_ref().and_then(peel_function_type)
                     {
                         // `CoreDef::result_ty` for named functions is normally the
-                        // function result, not the full function signature. Only
+                        // full function signature when available. Only
                         // reuse it for parameter metadata if it actually matches
                         // the runtime arity.
                         if inferred_params.len() == params.len() {
                             fn_ctx.inferred_param_types =
-                                inferred_params.iter().map(|ty| Some(ty.clone())).collect();
+                                inferred_params.iter().cloned().map(Some).collect();
                         }
                     }
                     if fn_ctx.inferred_param_types.len() != params.len() {
@@ -180,10 +190,10 @@ impl ToIrCtx {
                     }
                     if let Some(ret_ty) = result_ty.clone() {
                         fn_ctx.inferred_return_type = Some(ret_ty);
-                    } else if let Some(crate::core::CoreType::Function(_, ref ret_ty)) =
-                        def.result_ty
+                    } else if let Some((_, ret_ty)) =
+                        def.result_ty.as_ref().and_then(peel_function_type)
                     {
-                        fn_ctx.inferred_return_type = Some((**ret_ty).clone());
+                        fn_ctx.inferred_return_type = Some(ret_ty.clone());
                     } else {
                         fn_ctx.inferred_return_type = def.result_ty.clone();
                     }
@@ -539,6 +549,7 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
     }
 }
 
+#[allow(clippy::collapsible_match)]
 fn bind_function_id_in_items(
     items: &mut [IrTopLevelItem],
     name: Identifier,
@@ -1151,12 +1162,15 @@ mod tests {
                     body: Box::new(CoreExpr::Handle {
                         body: Box::new(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
                         effect: effect_name,
+                        parameter: None,
                         handlers: vec![CoreHandler {
                             operation: op_name,
                             params: vec![arg_binder],
                             param_types: vec![],
                             resume: resume_binder,
                             resume_ty: None,
+                            state: None,
+                            state_ty: None,
                             body: CoreExpr::App {
                                 func: Box::new(var_expr(resume_binder)),
                                 args: vec![var_expr(x_binder)],

@@ -339,7 +339,11 @@ impl Compiler {
                 Ok(())
             }
             IrInstr::HandleScope {
-                effect, arms, dest, ..
+                effect,
+                arms,
+                initial_state,
+                dest,
+                ..
             } => {
                 // 1. Emit arm closures (each arm is a MakeClosure)
                 for arm in arms {
@@ -364,6 +368,13 @@ impl Compiler {
                     })?;
                     this.emit_closure_index(fn_binding.index, arm.capture_vars.len());
                 }
+                if let Some(initial_state) = initial_state {
+                    this.load_symbol(bindings.get(initial_state).ok_or_else(|| {
+                        Self::boxed(Diagnostic::warning(
+                            "missing CFG bytecode handle state binding",
+                        ))
+                    })?);
+                }
 
                 // 2. Create HandlerDescriptor constant and emit OpHandle
                 let ops: Vec<_> = arms.iter().map(|a| a.operation_name).collect();
@@ -375,6 +386,7 @@ impl Compiler {
                         .iter()
                         .map(|a| this.sym(a.operation_name).to_string().into_boxed_str())
                         .collect(),
+                    has_state: initial_state.is_some(),
                     is_discard: false, // TODO: detect from evidence pass
                 };
                 let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
@@ -1033,6 +1045,7 @@ impl Compiler {
                 this.load_symbol(bindings.get(var).ok_or_else(|| {
                     Self::boxed(Diagnostic::warning("missing CFG bytecode return binding"))
                 })?);
+                this.emit(OpCode::OpReturnCheck, &[]);
                 this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
@@ -1049,11 +1062,8 @@ impl Compiler {
                     && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
                         .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
                 {
-                    let required = match primop.effect_kind() {
-                        crate::core::PrimEffect::Io => Some("IO"),
-                        crate::core::PrimEffect::Time => Some("Time"),
-                        _ => None,
-                    };
+                    let required = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                        .filter(|l| *l != crate::syntax::builtin_effects::PANIC);
                     if let Some(required_name) = required
                         && !this.is_effect_available_name(required_name)
                     {
@@ -1082,6 +1092,7 @@ impl Compiler {
                         })?);
                     }
                     this.emit(OpCode::OpPrimOp, &[primop.id() as usize, args.len()]);
+                    this.emit(OpCode::OpReturnCheck, &[]);
                     this.emit(OpCode::OpReturnValue, &[]);
                     return Ok(());
                 }
@@ -1147,6 +1158,7 @@ impl Compiler {
                     }
                 } else {
                     this.emit(OpCode::OpCall, &[args.len()]);
+                    this.emit(OpCode::OpReturnCheck, &[]);
                     this.emit(OpCode::OpReturnValue, &[]);
                 }
                 Ok(())
@@ -1160,6 +1172,7 @@ impl Compiler {
                     OpCode::OpPrimOp,
                     &[crate::core::CorePrimOp::Panic.id() as usize, 1],
                 );
+                this.emit(OpCode::OpReturnCheck, &[]);
                 this.emit(OpCode::OpReturnValue, &[]);
                 Ok(())
             }
@@ -1191,11 +1204,8 @@ impl Compiler {
             && let Some(primop) = Self::resolve_library_primop(name_str, args.len())
                 .or_else(|| crate::core::CorePrimOp::from_name(name_str, args.len()))
         {
-            let required = match primop.effect_kind() {
-                crate::core::PrimEffect::Io => Some("IO"),
-                crate::core::PrimEffect::Time => Some("Time"),
-                _ => None,
-            };
+            let required = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                .filter(|l| *l != crate::syntax::builtin_effects::PANIC);
             if let Some(required_name) = required
                 && !self.is_effect_available_name(required_name)
             {

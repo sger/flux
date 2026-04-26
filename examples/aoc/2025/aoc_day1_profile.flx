@@ -11,6 +11,8 @@ Runs the solver many times in one process to produce richer profiles.
 */
 
 
+import Flow.Array as Array
+
 // Program entry point.
 fn main() with IO, Time {
     // Helper for wrap 100.
@@ -80,7 +82,7 @@ fn main() with IO, Time {
         }
     }
 
-    let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+    let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
     let steps = parse_rotations(lines, None)
     let iterations = 200
 

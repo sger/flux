@@ -1,0 +1,24 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/sealing/ambient_subtraction_denies_filesystem.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E427]: Sealed Effect Violation
+
+This expression was sealed to allow {Console, Stdin}, but it performs {FileSystem}.
+
+  examples/sealing/ambient_subtraction_denies_filesystem.flx:4:5
+  |
+4 |     read_file("missing.txt") sealing (ambient - FileSystem)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ------------------------------------------------------- sealed expression exceeds its allowed effects
+
+Hint:
+  Remove the sealed call or include these effects in the sealing row: FileSystem.
+
+Note:
+  missing sealed effects: FileSystem
+== stdout ==
+<not executed>

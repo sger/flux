@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "alice:HIGH, bob:LOW, carol:MID"
+// "total=215"
+// parity-expected-stdout-end
+
 import TypeSystem.RealProgramDomain as D
 import TypeSystem.Collections as C
 

@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/invalid_type_annotation_e303.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E423]: Unknown Type
 
 I can't find a type named `NotAType`.
 
-  examples/compiler_errors/invalid_type_annotation_e303.flx:7:19
-  |
-7 | fn use_unknown(x: NotAType) -> Int {
-  |                   ^^^^^^^^
-  |                   -------- unknown type used here
+  examples/compiler_errors/invalid_type_annotation_e303.flx:11:19
+   |
+11 | fn use_unknown(x: NotAType) -> Int {
+   |                   ^^^^^^^^
+   |                   -------- unknown type used here
 
 Hint:
   Use a built-in type, an in-scope type parameter, or a declared ADT.
@@ -23,14 +23,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `use_unknown`.
 
-  examples/compiler_errors/invalid_type_annotation_e303.flx:12:25
+  examples/compiler_errors/invalid_type_annotation_e303.flx:16:25
    |
- 7 | fn use_unknown(x: NotAType) -> Int {
- 8 |     0
- 9 | }
-10 | 
-11 | fn main() -> Unit {
-12 |     let _ = use_unknown(1)
+11 | fn use_unknown(x: NotAType) -> Int {
+   | ---------------------------------- `use_unknown` expects `NotAType` as the 1st parameter
+12 |     0
+13 | }
+14 | 
+15 | fn main() -> Unit {
+16 |     let _ = use_unknown(1)
    |                         ^
    |                         - this argument has type `Int`
 

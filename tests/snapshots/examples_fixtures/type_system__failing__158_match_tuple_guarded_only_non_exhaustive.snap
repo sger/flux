@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx
 == compile ==
@@ -7,18 +7,18 @@ failed (compile)
 == diagnostics ==
 error[E015]: Non-Exhaustive Match
 
-Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
+Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx:3:14
-  |
-3 |     let _x = match t {
-  |              ^^^^^^^^^
-4 |         (a, b) if a > 0 && b -> 1,
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
+  examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx:26:14
+   |
+26 |     let _x = match t {
+   |              ^^^^^^^^^
+27 |         (a, b) if a > 0 && b -> 1,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |     }
+   | ^^^^^
 
 Hint:
-  Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 == stdout ==
 <not executed>

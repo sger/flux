@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/foldable_row_poly_example.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E403]: Unknown Effect
+
+Effect `Console` is not declared.
+
+  examples/type_classes/FoldableRowPolyExample/App/Reports.flx:6:9
+  |
+6 |         perform Console.print(line)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         --------------------------- unknown effect in perform
+
+Hint:
+  Declare the effect before using `perform`.
+== stdout ==
+<not executed>

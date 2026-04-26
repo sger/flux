@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/109_fun_return_bool_vs_unit.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Return Type Mismatch
 
 The body of `bad_bool` does not match its declared return type.
 
-  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:2:5
-  |
-1 | fn bad_bool() -> Bool {
-  |                  ---- `bad_bool` was declared to return `Bool`
-2 |     0
-  |     ^
-  |     - this expression has type `Int`
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:51:5
+   |
+50 | fn bad_bool() -> Bool {
+   |                  ---- `bad_bool` was declared to return `Bool`
+51 |     0
+   |     ^
+   |     - this expression has type `Int`
 
 Note:
   declared return type: Bool
@@ -29,13 +29,13 @@ error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 
-  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:6:5
-  |
-5 | fn main() -> Unit {
-  |              ---- `main` was declared to return `Unit`
-6 |     bad_bool()
-  |     ^^^^^^^^^^
-  |     ---------- this expression has type `Bool`
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:55:5
+   |
+54 | fn main() -> Unit {
+   |              ---- `main` was declared to return `Unit`
+55 |     bad_bool()
+   |     ^^^^^^^^^^
+   |     ---------- this expression has type `Bool`
 
 Note:
   declared return type: Unit

@@ -1,2 +1,25 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/175_handle_arm_missing_arrow.flx
+// error[E034]: Missing Handle Arm Arrow
+//
+// Expected `->` in handle arm.
+//
+//   examples/type_system/failing/175_handle_arm_missing_arrow.flx:24:42
+//    |
+// 24 | let x = 1 handle IO { print(resume, msg) resume(msg) }
+//    |                                          ^^^^^^
+//
+// Hint:
+//   Handle arms use `op(resume, arg1, ...) -> body`.
+//
+// Note:
+//   while parsing `handle` expression
+//   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 let x = 1 handle IO { print(resume, msg) resume(msg) }
 let after = 1

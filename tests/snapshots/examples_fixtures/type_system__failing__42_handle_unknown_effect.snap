@@ -1,21 +1,25 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/42_handle_unknown_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E405]: Unknown Effect
+error[E402]: Missing Effect Handler Arm
 
-Effect `Console` is not declared for this handle block.
+Handler for `Console` is missing operations: println.
 
-  examples/type_system/failing/42_handle_unknown_effect.flx:4:13
-  |
-4 |     let _ = 1 handle Console {
-  |             ^
-  |             - unknown effect in handle
+  examples/type_system/failing/42_handle_unknown_effect.flx:28:13
+   |
+28 |     let _ = 1 handle Console {
+   |             ^
+   |             - handled expression
 
 Hint:
-  Declare the effect before using `handle`, or fix the effect name.
+  Add 1 arm(s) to the handle block:
+
+    println(resume, _arg1) -> resume(())
+
+Tip: `resume(())` consumes the operation and discards its effect; use it when the handler only cares about observing the call.
 == stdout ==
 <not executed>

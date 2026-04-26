@@ -1,3 +1,52 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx
+// error[E004]: Undefined Variable
+//
+// I can't find a value named `mystery_value`.
+//
+//   examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:51:13
+//    |
+// 51 |     let x = mystery_value
+//    |             ^^^^^^^^^^^^^
+//
+// Hint:
+//   Define it first: let mystery_value = ...;
+//
+//
+// error[E300]: Match Arm Type Mismatch
+//
+// The arms of this `match` expression do not agree on a type.
+//
+//   examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:55:14
+//    |
+// 53 |         0 -> x,
+//    |              - first arm returns `Int`
+//
+//    |              - this arm established the expected type
+// 54 |         1 -> 10,
+// 55 |         _ -> "oops",
+//    |              ^^^^^^
+//    |              ------ arm 3 has type `String`
+//
+//    |              ------ arm 3 conflicts with that type
+//
+// Note:
+//   first arm type: Int
+//   this arm type: String
+//   the first arm fixes the type expected from the whole `match`
+//   this arm produces the competing type
+//
+// Help:
+//   Change arm 3 so every arm returns the same type.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E004
+// expect-error: E300
+
 fn main() -> Unit {
     let x = mystery_value
     let y: Int = match 1 {

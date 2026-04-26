@@ -1,6 +1,102 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/modules_all_files_broken/Main.flx
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/modules_all_files_broken/Main.flx:101:5
+//     |
+// 100 | fn main() -> Unit
+//     | - `main` starts here
+// 101 |     print("parser torture entry")
+//     |     ^^^^^
+//     |     ----- This looks like the function body
+//
+// Note:
+//   while parsing function `main`
+//
+// Help:
+//   Try adding `{` after the function signature.
+//
+//
+// • 2 errors • examples/parser_errors/modules_all_files_broken/BrokenEffect.flx
+// error[E034]: Missing Effect Operation Colon
+//
+// Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+//
+//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:38:15
+//    |
+// 38 |         print String -> Unit,,
+//    |               ^^^^^^
+//
+// Note:
+//   while parsing module `BrokenEffect` > effect `Console`
+//
+//
+// error[E034]: Invalid Effect Operation
+//
+// I was expecting an operation name in this `effect` declaration, but I found `,`.
+//
+//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:38:30
+//    |
+// 38 |         print String -> Unit,,
+//    |                              ^
+//
+// Note:
+//   while parsing module `BrokenEffect` > effect `Console`
+//
+//
+// • 1 error • examples/parser_errors/modules_all_files_broken/BrokenFn.flx
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/modules_all_files_broken/BrokenFn.flx:28:9
+//    |
+// 27 |     pub fn greet(name: String) -> String
+//    |         - `greet` starts here
+// 28 |         "Hello, " + name
+//    |         ^^^^^^^^^
+//    |         --------- This looks like the function body
+//
+// Note:
+//   while parsing module `BrokenFn` > function `greet`
+//
+// Help:
+//   Try adding `{` after the function signature.
+//
+//
+// • 1 error • examples/parser_errors/modules_all_files_broken/BrokenMatch.flx
+// error[E034]: Missing Match Arm Arrow
+//
+// I was expecting `->` in this match arm, but I found a string literal.
+//
+//   examples/parser_errors/modules_all_files_broken/BrokenMatch.flx:26:15
+//    |
+// 26 |             0 "zero",
+//    |               ^^^^^^
+//
+// Note:
+//   while parsing module `BrokenMatch` > function `classify` > `match` expression
+//
+// Help:
+//   Write match arms as `match x { pattern -> body, ... }`.
+//
+// Found 5 errors across 4 modules.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+// expect-error: E034
+
 import BrokenFn
 import BrokenMatch
 import BrokenEffect
 
 fn main() -> Unit
     print("parser torture entry")
+

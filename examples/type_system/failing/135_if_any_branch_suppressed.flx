@@ -1,3 +1,71 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/135_if_any_branch_suppressed.flx
+// error[E423]: Unknown Type
+//
+// I can't find a type named `Any`.
+//
+//   examples/type_system/failing/135_if_any_branch_suppressed.flx:70:20
+//    |
+// 70 | fn any_param_fn(x: Any) -> Int { 0 }
+//    |                    ^^^
+//    |                    --- unknown type used here
+//
+// Hint:
+//   Use a built-in type, an in-scope type parameter, or a declared ADT.
+//
+//
+// error[E300]: Parameter Type Mismatch
+//
+// Parameter 1 has the wrong type.
+//
+//   examples/type_system/failing/135_if_any_branch_suppressed.flx:75:14
+//    |
+// 75 |     let _f = if true { concrete_fn } else { any_param_fn }
+//    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |              --------------------------------------------- parameter 1 has type `Any`
+//
+//    |                        ----------- this branch established the expected type
+//
+//    |                                             ------------ this branch conflicts with that type
+//
+// Note:
+//   expected parameter type: Int
+//   found parameter type: Any
+//   the `then` branch fixes the type expected from the whole `if`
+//   the `else` branch produces the competing type
+//
+// Help:
+//   Change parameter 1 to use `Int` consistently.
+//   Unknown type `Any` — did you mean `Int`?
+//
+//
+// error[E056]: Wrong Number Of Arguments
+//
+// The `add` function takes 2 arguments, but 1 were provided.
+//
+//   examples/type_system/failing/135_if_any_branch_suppressed.flx:76:14
+//    |
+// 72 | fn add(a: Int, b: Int) -> Int { a + b }
+//    | ----------------------------- `add` is defined with 2 parameters
+// 73 |
+// 74 | fn main() -> Unit {
+// 75 |     let _f = if true { concrete_fn } else { any_param_fn }
+// 76 |     let _x = add(1)
+//    |              ^^^^^^
+//    |              ------ 1 arguments provided here, expected 2
+//
+// Help:
+//   Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E056
+// expect-error: E300
+// expect-error: E423
+
 fn concrete_fn(x: Int) -> Int { x }
 fn any_param_fn(x: Any) -> Int { 0 }
 

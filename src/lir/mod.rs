@@ -12,8 +12,10 @@
 //!         └── LIR → LLVM IR emitter (native)
 //! ```
 
+pub mod cont_split;
 #[cfg(feature = "llvm")]
 pub mod emit_llvm;
+pub mod liveness;
 pub mod lower;
 
 use std::collections::HashMap;
@@ -152,6 +154,16 @@ pub enum LirInstr {
         b: LirVar,
         span: Span,
     },
+    /// Integer bitwise and on raw i64 values.
+    IAnd { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer bitwise or on raw i64 values.
+    IOr { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer bitwise xor on raw i64 values.
+    IXor { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer left shift on raw i64 values.
+    IShl { dst: LirVar, a: LirVar, b: LirVar },
+    /// Integer arithmetic right shift on raw i64 values.
+    IShr { dst: LirVar, a: LirVar, b: LirVar },
     /// Integer comparison on raw i64 values.  Result is 0 or 1.
     ICmp {
         dst: LirVar,
@@ -296,6 +308,13 @@ pub enum LirTerminator {
         args: Vec<LirVar>,
         cont: BlockId,
         kind: CallKind,
+        /// When true, suppress the native backend's post-call yield check for
+        /// this call site even when `FLUX_YIELD_CHECKS=1`.
+        ///
+        /// Proposal 0162 Phase 3 slice 4-prereq: the handle body's final call
+        /// must let the yield sentinel flow into `flux_yield_prompt` instead
+        /// of returning early from the enclosing function.
+        suppress_yield_check: bool,
         /// Optional yield continuation function (Proposal 0134).
         /// When present, the LLVM emitter inserts a yield check after the call:
         /// if `flux_is_yielding()`, build a closure from this function + captured
@@ -371,6 +390,13 @@ pub enum CallKind {
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
     Indirect,
+    /// Proposal 0162 Phase 3 slice 5-tr-fix: a `YieldTo` PrimCall has already
+    /// been emitted inline in this block; the terminator exists purely to
+    /// give `cont_split` + the yield-check machinery a Call-shaped hook so
+    /// the post-perform continuation can be synthesized and the sentinel
+    /// propagated. The LLVM emitter skips call-emission for this kind and
+    /// goes straight to the yield check.
+    YieldTo,
 }
 
 // ── Program structure ────────────────────────────────────────────────────────

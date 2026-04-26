@@ -1,5 +1,5 @@
 ---
-source: tests/regression_snapshots.rs
+source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/semantic_types/primitives/integer_arithmetic.flx
 exit_code: 0
@@ -7,11 +7,16 @@ exit_code: 0
 42
 0
 11
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-[7 of 7] Compiling  integer_arithmetic
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
+[12 of 12] Compiling  integer_arithmetic
 [cfg→vm] Running via CFG → bytecode VM backend...

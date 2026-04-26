@@ -18,19 +18,18 @@ use crate::{
         hm_expr_typer::HmExprTypeResult,
         symbol_scope::SymbolScope,
     },
-    core::{CorePrimOp, PrimEffect},
+    core::CorePrimOp,
     diagnostics::{
-        ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
-        DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
-        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
-        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR,
-        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder,
+        DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
+        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, PRIVATE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
-            UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+            call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
-            guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
+            type_unification_error, wrong_argument_count,
         },
         diagnostic_for, dynamic_explained_diagnostic,
         position::{Position, Span},
@@ -54,16 +53,6 @@ use crate::{
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GeneralCoverageDomain {
-    Bool,
-    Option,
-    Either,
-    ListLike,
-    Tuple(usize),
-    Unknown,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct ConditionalJump {
@@ -455,14 +444,14 @@ impl Compiler {
         origin
     }
 
-    fn effect_operation_function_parts<'a>(
-        &'a self,
+    fn effect_operation_function_parts(
+        &mut self,
         effect: Symbol,
         op: Symbol,
         span: Span,
         context: &str,
-    ) -> CompileResult<(&'a [TypeExpr], &'a TypeExpr)> {
-        let Some(signature) = self.effect_op_signature(effect, op) else {
+    ) -> CompileResult<(Vec<InferType>, InferType)> {
+        let Some(signature) = self.effect_op_signature(effect, op).cloned() else {
             let effect_name = self.sym(effect).to_string();
             let op_name = self.sym(op).to_string();
             return Err(Self::boxed(
@@ -482,13 +471,8 @@ impl Compiler {
             ));
         };
 
-        let TypeExpr::Function {
-            params,
-            ret,
-            effects: _,
-            span: _,
-        } = signature
-        else {
+        let (ty, _mapping, _constraints) = signature.instantiate(&mut self.type_env.counter);
+        let InferType::Fun(params, ret, _effects) = ty else {
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E300",
@@ -508,7 +492,7 @@ impl Compiler {
             ));
         };
 
-        Ok((params, ret))
+        Ok((params, *ret))
     }
 
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
@@ -750,7 +734,7 @@ impl Compiler {
                 self.compile_if_expression(condition, consequence, alternative)?;
             }
             Expression::DoBlock { block, .. } => {
-                self.compile_block_with_tail(block)?;
+                self.compile_block_with_tail_mode(block, self.in_tail_position)?;
                 if !self.block_has_value_tail(block) {
                     self.emit(OpCode::OpNone, &[]);
                 }
@@ -799,7 +783,7 @@ impl Compiler {
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
-                sorted_pairs.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                sorted_pairs.sort_by_key(|a| a.0.to_string());
 
                 for (key, value) in sorted_pairs {
                     self.compile_non_tail_expression(key)?;
@@ -911,6 +895,26 @@ impl Compiler {
                     )
                 {
                     self.compile_non_tail_expression(&dict_call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
+                // Proposal 0168: when the AST path compiles a call to a
+                // user-defined function that has class constraints in its
+                // scheme, prepend the resolved `__dict_{Class}_{Type}` args
+                // so the callee's Core-elaborated dictionary parameters are
+                // filled in. Without this, a CFG→AST fallback (e.g. due to a
+                // closure-lowering hiccup in the argument position) drops the
+                // dict args and the callee crashes with an arity error.
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && let Some(constrained_call) = self.try_build_constrained_user_fn_call_ast(
+                        *name,
+                        function.span(),
+                        arguments,
+                        expression.span(),
+                    )
+                {
+                    self.compile_non_tail_expression(&constrained_call)?;
                     self.current_span = previous_span;
                     return Ok(());
                 }
@@ -1138,14 +1142,28 @@ impl Compiler {
                 effect,
                 operation,
                 args,
+                id,
                 ..
             } => {
-                self.compile_perform(*effect, *operation, args)?;
+                self.compile_perform(*effect, *operation, args, *id)?;
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
-                self.compile_handle(expr, *effect, arms)?;
+                self.compile_handle(expr, *effect, parameter.as_deref(), arms)?;
+            }
+            Expression::Sealing {
+                expr,
+                allowed,
+                span,
+                ..
+            } => {
+                self.check_sealing_expression(expr, allowed, *span)?;
+                self.compile_non_tail_expression(expr)?;
             }
             Expression::NamedConstructor { .. } | Expression::Spread { .. } => {
                 unreachable!(
@@ -1634,11 +1652,121 @@ impl Compiler {
     }
 
     pub(super) fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
-        match base_name {
-            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
-            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
-            _ => None,
+        if base_name.starts_with("__primop_") {
+            return None;
         }
+        for arity in 0..=3 {
+            let Some(primop) = CorePrimOp::from_name(base_name, arity) else {
+                continue;
+            };
+            let Some(label) = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+            else {
+                continue;
+            };
+            if label != crate::syntax::builtin_effects::PANIC {
+                return Some(label);
+            }
+        }
+        None
+    }
+
+    pub(super) fn check_sealing_expression(
+        &mut self,
+        expr: &Expression,
+        allowed: &[EffectExpr],
+        span: Span,
+    ) -> CompileResult<()> {
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        let inferred = self.contract_effect_sets();
+        let actual = self.infer_effects_from_expr(
+            expr,
+            self.current_module_prefix,
+            &inferred,
+            io_effect,
+            time_effect,
+        );
+        let allowed = self.evaluate_sealing_allowed_effects(allowed);
+        let mut missing: Vec<Symbol> = actual.difference(&allowed).copied().collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+
+        missing.sort_by_key(|effect| self.sym(*effect).to_string());
+        let missing_text = missing
+            .iter()
+            .map(|effect| self.sym(*effect).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let allowed_text = self.format_effect_set(&allowed);
+        let actual_text = self.format_effect_set(&actual);
+        Err(Self::boxed(
+            Diagnostic::make_error_dynamic(
+                "E427",
+                "SEALED EFFECT VIOLATION",
+                ErrorType::Compiler,
+                format!(
+                    "This expression was sealed to allow {{{allowed_text}}}, but it performs {{{actual_text}}}."
+                ),
+                Some(format!(
+                    "Remove the sealed call or include these effects in the sealing row: {missing_text}."
+                )),
+                self.file_path.clone(),
+                span,
+            )
+            .with_display_title("Sealed Effect Violation")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+            .with_primary_label(span, "sealed expression exceeds its allowed effects")
+            .with_note(format!("missing sealed effects: {missing_text}")),
+        ))
+    }
+
+    pub(super) fn evaluate_sealing_allowed_effects(
+        &self,
+        allowed: &[EffectExpr],
+    ) -> HashSet<Symbol> {
+        let mut out = HashSet::new();
+        for effect in allowed {
+            out.extend(self.evaluate_sealing_effect_expr(effect));
+        }
+        out
+    }
+
+    fn evaluate_sealing_effect_expr(&self, effect: &EffectExpr) -> HashSet<Symbol> {
+        match effect {
+            EffectExpr::Named { name, .. } => HashSet::from([*name]),
+            EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => {
+                let mut out = HashSet::new();
+                if let Some(effects) = self.current_function_effects() {
+                    out.extend(effects.iter().copied());
+                }
+                out.extend(self.handled_effects.iter().copied());
+                out
+            }
+            EffectExpr::RowVar { .. } => HashSet::new(),
+            EffectExpr::Add { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr(left);
+                out.extend(self.evaluate_sealing_effect_expr(right));
+                out
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr(left);
+                for effect in self.evaluate_sealing_effect_expr(right) {
+                    out.remove(&effect);
+                }
+                out
+            }
+        }
+    }
+
+    fn format_effect_set(&self, effects: &HashSet<Symbol>) -> String {
+        let mut names: Vec<String> = effects
+            .iter()
+            .map(|effect| self.sym(*effect).to_string())
+            .collect();
+        names.sort();
+        names.join(", ")
     }
 
     fn collect_effect_row_constraints(
@@ -2095,15 +2223,16 @@ impl Compiler {
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
                 self.replace_last_pop_with_return();
-            } else if self.replace_last_local_read_with_return() {
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
+                self.emit(OpCode::OpReturnCheck, &[]);
                 self.emit(OpCode::OpReturnValue, &[]);
             }
         } else if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
         {
+            self.emit(OpCode::OpReturnCheck, &[]);
             self.emit(OpCode::OpReturn, &[]);
         }
 
@@ -2275,14 +2404,12 @@ impl Compiler {
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
-        match_span: Span,
+        _match_span: Span,
     ) -> CompileResult<()> {
-        // Exhaustiveness check before compiling arms.
-        self.check_match_exhaustiveness(scrutinee, arms, match_span)?;
-        // Unreachable arm detection: warn on arms provably subsumed by earlier ones.
-        for diag in self.collect_unreachable_arm_warnings(arms) {
-            self.warnings.push(diag);
-        }
+        // Exhaustiveness and redundant-arm checks are handled by the
+        // matrix coverage checker in HM inference (Proposal 0166).
+        // Any diagnostic emitted there reaches this point through
+        // `hm_diagnostics`, so nothing to do here.
         // Optimisation: if the scrutinee is a simple consumable local used exactly once AND
         // every arm is a simple ADT pattern (no guards, arity ≤ 2, all-identifier/wildcard
         // fields, known constructor), skip the temp variable entirely.
@@ -3113,8 +3240,12 @@ impl Compiler {
             return Ok(false);
         };
 
-        // Exposed Flux stdlib functions shadow primops.
-        if self.exposed_bindings.contains_key(name) {
+        // Exposed Flux stdlib functions shadow primops only when the exposed
+        // binding currently resolves to a real value. This keeps stale or
+        // non-value exports from blocking bare primop names.
+        if let Some(&qualified) = self.exposed_bindings.get(name)
+            && self.resolve_visible_symbol(qualified).is_some()
+        {
             return Ok(false);
         }
 
@@ -3142,11 +3273,12 @@ impl Compiler {
             return Ok(false);
         };
 
-        let required_name = match primop.effect_kind() {
-            PrimEffect::Io => Some("IO"),
-            PrimEffect::Time => Some("Time"),
-            PrimEffect::Control | PrimEffect::Pure => None,
-        };
+        let required_name = crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+            .filter(|label| {
+                // Control-flow labels (Panic) do not yet require a `with` clause.
+                *label != crate::syntax::builtin_effects::PANIC
+                    && !self.sym(*name).starts_with("__primop_")
+            });
         if let Some(required_name) = required_name
             && !self.is_effect_available_name(required_name)
         {
@@ -3183,23 +3315,49 @@ impl Compiler {
     }
 
     /// Compile `perform Effect.op(args)` — push args, then `OpPerform`.
+    ///
+    /// `perform_id` identifies the Perform node for origin-aware diagnostics.
+    /// When the id matches an entry in `routed_call_perform_ids`, the node
+    /// was synthesized from a direct user call (e.g. `println(x)`); E400,
+    /// E403, and E404 then render call-shape terminology rather than
+    /// `perform`-shape terminology.
     fn compile_perform(
         &mut self,
         effect: Symbol,
         op: Symbol,
         args: &[Expression],
+        perform_id: crate::syntax::expression::ExprId,
     ) -> CompileResult<()> {
         let span = self
             .current_span
             .unwrap_or_else(|| Span::new(Position::default(), Position::default()));
+
+        let lowered_from_call = self.routed_call_perform_ids.contains(&perform_id);
 
         let Some(has_operation) = self
             .effect_declared_ops(effect)
             .map(|ops| ops.contains(&op))
         else {
             let effect_name = self.sym(effect).to_string();
-            let hint = suggest_effect_name(&effect_name)
-                .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string());
+            let op_name = self.sym(op).to_string();
+            let suggestion = suggest_effect_name(&effect_name);
+            let hint = if lowered_from_call {
+                suggestion.clone().unwrap_or_else(|| {
+                    format!(
+                        "Declare effect `{effect_name}` (with operation `{op_name}`) before \
+                         calling `{op_name}`."
+                    )
+                })
+            } else {
+                suggestion
+                    .clone()
+                    .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string())
+            };
+            let label = if lowered_from_call {
+                "unknown effect in call"
+            } else {
+                "unknown effect in perform"
+            };
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E403",
@@ -3213,12 +3371,17 @@ impl Compiler {
                 .with_display_title("Unknown Effect")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "unknown effect in perform"),
+                .with_primary_label(span, label),
             ));
         };
         if !has_operation {
             let effect_name = self.sym(effect).to_string();
             let op_name = self.sym(op).to_string();
+            let label = if lowered_from_call {
+                "unknown operation in call"
+            } else {
+                "unknown operation in perform"
+            };
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E404",
@@ -3235,7 +3398,7 @@ impl Compiler {
                 .with_display_title("Unknown Effect Operation")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "unknown operation in perform"),
+                .with_primary_label(span, label),
             ));
         }
         let (op_params, _op_ret) =
@@ -3265,35 +3428,43 @@ impl Compiler {
         }
 
         for (arg, expected_ty) in args.iter().zip(op_params.iter()) {
-            let Some(expected) = TypeEnv::infer_type_from_type_expr(
-                expected_ty,
-                &Default::default(),
-                &self.interner,
-            ) else {
-                continue;
-            };
             self.validate_expr_expected_type_with_policy(
-                &expected,
+                expected_ty,
                 arg,
                 "perform argument type is known at compile time",
                 "argument does not match effect operation signature".to_string(),
                 "perform argument",
-                true,
+                false,
             )?;
         }
 
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
-            return Err(Self::boxed(
-                Diagnostic::make_error_dynamic(
-                    "E400",
-                    "MISSING EFFECT",
-                    ErrorType::Compiler,
+            let (message, label) = if lowered_from_call {
+                (
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        self.sym(op),
+                        effect_name
+                    ),
+                    "effectful call occurs here",
+                )
+            } else {
+                (
                     format!(
                         "Performing `{}` requires effect `{}` in this function signature.",
                         self.sym(op),
                         effect_name
                     ),
+                    "effectful perform occurs here",
+                )
+            };
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    message,
                     Some(format!(
                         "Add `with {}` to the enclosing function.",
                         effect_name
@@ -3304,16 +3475,17 @@ impl Compiler {
                 .with_display_title("Missing Ambient Effect")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                .with_primary_label(span, "effectful perform occurs here"),
+                .with_primary_label(span, label),
             ));
         }
 
         // Evidence-passing path: if the handler has evidence locals, emit a
-        // direct function call (OpGetLocal + identity resume + args + OpCall)
-        // instead of handler stack access.
-        if let Some(ev_local) = self.resolve_evidence_local(effect, op) {
-            // Push arm closure from evidence local.
-            self.emit(OpCode::OpGetLocal, &[ev_local]);
+        // direct function call (load arm closure + identity resume + args +
+        // OpCall) instead of handler stack access. We resolve through the
+        // symbol table so nested closures automatically capture the evidence
+        // binding via free-variable promotion.
+        if let Some(ev_binding) = self.resolve_evidence_binding(effect, op) {
+            self.load_symbol(&ev_binding);
             // Push identity closure as resume parameter.
             self.emit_identity_closure();
             // Compile arguments.
@@ -3357,6 +3529,7 @@ impl Compiler {
         &mut self,
         expr: &Expression,
         effect: Symbol,
+        parameter: Option<&Expression>,
         arms: &[HandleArm],
     ) -> CompileResult<()> {
         let mut operations = Vec::new();
@@ -3425,6 +3598,70 @@ impl Compiler {
                 .collect::<Vec<_>>()
                 .join(", ");
             let effect_name = self.sym(effect).to_string();
+
+            // Build a copy-pasteable arm skeleton for each missing operation.
+            // Parameterized handlers thread a `state` as the final arm
+            // parameter; stateless handlers do not. The resume value is
+            // `()` for `Unit`-returning ops (discard-style handler) and a
+            // typed placeholder for other return types.
+            let is_parameterized = parameter.is_some();
+            let mut skeleton_lines: Vec<String> = Vec::new();
+            for op in &missing {
+                let op_name = self.sym(*op).to_string();
+                let (op_params, op_ret) = match self.effect_operation_function_parts(
+                    effect,
+                    *op,
+                    expr.span(),
+                    "missing-arm skeleton",
+                ) {
+                    Ok(parts) => parts,
+                    Err(_) => {
+                        // Signature unavailable — fall back to a minimal
+                        // placeholder rather than aborting the whole
+                        // diagnostic.
+                        skeleton_lines.push(format!("    {op_name}(resume, ...) -> resume(...)"));
+                        continue;
+                    }
+                };
+
+                let mut params: Vec<String> = vec!["resume".to_string()];
+                for i in 0..op_params.len() {
+                    params.push(format!("_arg{}", i + 1));
+                }
+                if is_parameterized {
+                    params.push("_state".to_string());
+                }
+
+                use crate::types::type_constructor::TypeConstructor;
+                let returns_unit = matches!(op_ret, InferType::Con(TypeConstructor::Unit));
+                let resume_arg = if returns_unit {
+                    "()".to_string()
+                } else {
+                    format!("/* : {} */ todo!()", op_ret)
+                };
+                let body = if is_parameterized {
+                    format!("resume({resume_arg}, _state)")
+                } else {
+                    format!("resume({resume_arg})")
+                };
+
+                skeleton_lines.push(format!(
+                    "    {}({}) -> {}",
+                    op_name,
+                    params.join(", "),
+                    body
+                ));
+            }
+
+            let skeleton = skeleton_lines.join(",\n");
+            let hint = format!(
+                "Add {} arm(s) to the handle block:\n\n{}\n\nTip: `resume(())` consumes the \
+                 operation and discards its effect; use it when the handler only cares about \
+                 observing the call.",
+                missing.len(),
+                skeleton,
+            );
+
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E402",
@@ -3434,7 +3671,7 @@ impl Compiler {
                         "Handler for `{}` is missing operations: {}.",
                         effect_name, missing_names
                     ),
-                    Some("Add handler arms for all declared operations of the effect.".to_string()),
+                    Some(hint),
                     self.file_path.clone(),
                     expr.span(),
                 )
@@ -3457,7 +3694,8 @@ impl Compiler {
                 arm.span,
                 "handle arm checks",
             )?;
-            if arm.params.len() != op_params.len() {
+            let expected_param_count = op_params.len() + usize::from(parameter.is_some());
+            if arm.params.len() != expected_param_count {
                 return Err(Self::boxed(
                     Diagnostic::make_error_dynamic(
                         "E300",
@@ -3466,7 +3704,7 @@ impl Compiler {
                         format!(
                             "Handle arm `{}` expects {} parameter(s), got {}.",
                             self.sym(arm.operation_name),
-                            op_params.len(),
+                            expected_param_count,
                             arm.params.len()
                         ),
                         Some(
@@ -3501,10 +3739,13 @@ impl Compiler {
             params.push(arm.resume_param);
             params.extend_from_slice(&arm.params);
             let mut parameter_types: Vec<Option<TypeExpr>> =
-                Vec::with_capacity(1 + op_params.len());
+                Vec::with_capacity(1 + expected_param_count);
             parameter_types.push(None);
-            for ty in op_params {
-                parameter_types.push(Some(ty.clone()));
+            for _ in op_params {
+                parameter_types.push(None);
+            }
+            if parameter.is_some() {
+                parameter_types.push(None);
             }
 
             // Wrap arm body in a synthetic block for compile_function_literal
@@ -3522,33 +3763,48 @@ impl Compiler {
             self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
         }
 
+        if let Some(parameter) = parameter {
+            self.compile_expression(parameter)?;
+        }
+
         // Detect tail-resumptive handlers and emit the optimized opcode.
-        let is_direct = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        let is_direct = parameter.is_none()
+            && crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
-        // Evidence-passing: for TR handlers, store arm closures in local variables
-        // so that performs can load them directly instead of indexing handler_stack.
-        let evidence_locals = if is_direct {
+        // Evidence-passing: for TR handlers, store arm closures in local
+        // variables under interned `__ev_<Effect>_<Op>` names so that performs
+        // resolve them through the symbol table, picking up free-variable
+        // capture for nested closures automatically.
+        let evidence_symbols = if is_direct {
             let n = arms.len();
             let mut ev_locals = vec![0usize; n];
+            let mut ev_symbols = vec![Symbol::new(0); n];
+            let effect_name = self.sym(effect).to_string();
             // Stack has [c0, c1, ..., cN-1]. Pop in reverse order into locals.
             for i in (0..n).rev() {
-                let temp = self.symbol_table.define_temp();
-                self.emit(OpCode::OpSetLocal, &[temp.index]);
-                ev_locals[i] = temp.index;
+                let op_name = self.sym(scope_ops[i]).to_string();
+                let ev_name = format!("__ev_{}_{}", effect_name, op_name);
+                let ev_symbol = self.interner.intern(&ev_name);
+                let binding = self.symbol_table.define(ev_symbol, Span::default());
+                self.emit(OpCode::OpSetLocal, &[binding.index]);
+                ev_locals[i] = binding.index;
+                ev_symbols[i] = ev_symbol;
             }
             // Reload closures onto stack for OpHandleDirect fallback
             // (needed for cross-function performs that use handler_stack).
             for ev_local in &ev_locals {
                 self.emit(OpCode::OpGetLocal, &[*ev_local]);
             }
-            Some(ev_locals)
+            Some(ev_symbols)
         } else {
             None
         };
 
-        let is_discard = !is_direct && crate::compiler::tail_resumptive::is_handler_discard(arms);
+        let is_discard = parameter.is_none()
+            && !is_direct
+            && crate::compiler::tail_resumptive::is_handler_discard(arms);
 
         let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
             effect,
@@ -3558,6 +3814,7 @@ impl Compiler {
                 .iter()
                 .map(|op| self.interner.resolve(*op).to_string().into_boxed_str())
                 .collect(),
+            has_state: parameter.is_some(),
             is_discard,
         }));
 
@@ -3574,7 +3831,7 @@ impl Compiler {
             effect,
             is_direct,
             ops: scope_ops,
-            evidence_locals,
+            evidence_symbols,
         });
 
         // Compile the handled expression with the effect available in scope.
@@ -3693,6 +3950,7 @@ impl Compiler {
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::EffectAlias { .. } => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }
@@ -3802,12 +4060,23 @@ impl Compiler {
                     self.collect_consumable_param_uses(arg, counts);
                 }
             }
-            Expression::Handle { expr, arms, .. } => {
+            Expression::Handle {
+                expr,
+                parameter,
+                arms,
+                ..
+            } => {
                 self.collect_consumable_param_uses(expr, counts);
+                if let Some(parameter) = parameter {
+                    self.collect_consumable_param_uses(parameter, counts);
+                }
 
                 for arm in arms {
                     self.collect_consumable_param_uses(&arm.body, counts);
                 }
+            }
+            Expression::Sealing { expr, .. } => {
+                self.collect_consumable_param_uses(expr, counts);
             }
             Expression::Function {
                 parameters, body, ..
@@ -3975,919 +4244,6 @@ impl Compiler {
 
         Ok(true)
     }
-
-    fn check_match_exhaustiveness(
-        &self,
-        scrutinee: &Expression,
-        arms: &[MatchArm],
-        span: Span,
-    ) -> CompileResult<()> {
-        let constructor_names: Vec<Symbol> = arms
-            .iter()
-            .filter_map(|arm| {
-                if let Pattern::Constructor { name, .. } = &arm.pattern {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if !constructor_names.is_empty()
-            && constructor_names
-                .iter()
-                .all(|name| self.adt_registry.lookup_constructor(*name).is_some())
-        {
-            return self.check_adt_match_exhaustiveness(arms, span);
-        }
-
-        self.check_general_match_exhaustiveness(scrutinee, arms, span)
-    }
-
-    fn check_general_match_exhaustiveness(
-        &self,
-        scrutinee: &Expression,
-        arms: &[MatchArm],
-        span: Span,
-    ) -> CompileResult<()> {
-        if arms.iter().any(|arm| {
-            arm.guard.is_none()
-                && matches!(
-                    arm.pattern,
-                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-                )
-        }) {
-            return Ok(());
-        }
-
-        let domain = self.infer_general_match_domain(scrutinee, arms);
-        match domain {
-            GeneralCoverageDomain::Bool => {
-                let mut seen_true = false;
-                let mut seen_false = false;
-                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
-                    if let Pattern::Literal { expression, .. } = &arm.pattern
-                        && let Expression::Boolean { value, .. } = expression
-                    {
-                        if *value {
-                            seen_true = true;
-                        } else {
-                            seen_false = true;
-                        }
-                    }
-                }
-                if seen_true && seen_false {
-                    return Ok(());
-                }
-                let mut missing = Vec::new();
-                if !seen_true {
-                    missing.push("true");
-                }
-                if !seen_false {
-                    missing.push("false");
-                }
-                let missing_text = missing.join(", ");
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: missing Bool case(s): {}.",
-                            missing_text
-                        ))
-                        .with_hint_text(
-                            "Add missing boolean arms or an unguarded `_ -> ...` catch-all."
-                                .to_string(),
-                        ),
-                ))
-            }
-            GeneralCoverageDomain::Option => {
-                let mut seen_none = false;
-                let mut seen_some = false;
-                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
-                    match &arm.pattern {
-                        Pattern::None { .. } => seen_none = true,
-                        Pattern::Some { .. } => seen_some = true,
-                        _ => {}
-                    }
-                }
-                if seen_none && seen_some {
-                    return Ok(());
-                }
-                let mut missing = Vec::new();
-                if !seen_none {
-                    missing.push("None");
-                }
-                if !seen_some {
-                    missing.push("Some(_)");
-                }
-                let missing_text = missing.join(", ");
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: missing Option case(s): {}.",
-                            missing_text
-                        ))
-                        .with_hint_text(
-                            "Add missing Option arms or an unguarded `_ -> ...` catch-all."
-                                .to_string(),
-                        ),
-                ))
-            }
-            GeneralCoverageDomain::Either => {
-                let mut seen_left = false;
-                let mut seen_right = false;
-                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
-                    match &arm.pattern {
-                        Pattern::Left { .. } => seen_left = true,
-                        Pattern::Right { .. } => seen_right = true,
-                        _ => {}
-                    }
-                }
-                if seen_left && seen_right {
-                    return Ok(());
-                }
-                let mut missing = Vec::new();
-                if !seen_left {
-                    missing.push("Left(_)");
-                }
-                if !seen_right {
-                    missing.push("Right(_)");
-                }
-                let missing_text = missing.join(", ");
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: missing Either case(s): {}.",
-                            missing_text
-                        ))
-                        .with_hint_text(
-                            "Add missing Either arms or an unguarded `_ -> ...` catch-all."
-                                .to_string(),
-                        ),
-                ))
-            }
-            GeneralCoverageDomain::ListLike => {
-                let mut seen_empty = false;
-                let mut seen_cons = false;
-                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
-                    match &arm.pattern {
-                        Pattern::EmptyList { .. } => seen_empty = true,
-                        Pattern::Cons { .. } => seen_cons = true,
-                        _ => {}
-                    }
-                }
-                if seen_empty && seen_cons {
-                    return Ok(());
-                }
-                let mut missing = Vec::new();
-                if !seen_empty {
-                    missing.push("[]");
-                }
-                if !seen_cons {
-                    missing.push("[h | t]");
-                }
-                let missing_text = missing.join(", ");
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: missing list case(s): {}.",
-                            missing_text
-                        ))
-                        .with_hint_text(
-                            "Add missing list arms or an unguarded `_ -> ...` catch-all."
-                                .to_string(),
-                        ),
-                ))
-            }
-            GeneralCoverageDomain::Tuple(_) => {
-                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
-                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
-                }
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(
-                            "Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm."
-                                .to_string(),
-                        )
-                        .with_hint_text(
-                            "Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.".to_string(),
-                        ),
-                ))
-            }
-            GeneralCoverageDomain::Unknown => {
-                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
-                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
-                }
-                Err(Self::boxed(
-                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(
-                            "Match is non-exhaustive without an unguarded catch-all arm."
-                                .to_string(),
-                        )
-                        .with_hint_text(
-                            "Add an unguarded `_ -> ...` arm for conservative exhaustive coverage."
-                                .to_string(),
-                        ),
-                ))
-            }
-        }
-    }
-
-    fn has_guarded_wildcard_without_unguarded_catchall(arms: &[MatchArm]) -> bool {
-        let has_unguarded_catchall = arms.iter().any(|arm| {
-            arm.guard.is_none()
-                && matches!(
-                    arm.pattern,
-                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-                )
-        });
-        if has_unguarded_catchall {
-            return false;
-        }
-
-        arms.iter().any(|arm| {
-            arm.guard.is_some()
-                && matches!(
-                    arm.pattern,
-                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-                )
-        })
-    }
-
-    fn infer_general_match_domain(
-        &self,
-        scrutinee: &Expression,
-        arms: &[MatchArm],
-    ) -> GeneralCoverageDomain {
-        if let crate::compiler::hm_expr_typer::HmExprTypeResult::Known(ty) =
-            self.hm_expr_type_strict_path(scrutinee)
-            && let Some(domain) = Self::domain_from_infer_type(&ty)
-        {
-            return domain;
-        }
-        Self::domain_from_unguarded_patterns(arms)
-    }
-
-    fn domain_from_infer_type(ty: &InferType) -> Option<GeneralCoverageDomain> {
-        match ty {
-            InferType::Con(crate::types::type_constructor::TypeConstructor::Bool) => {
-                Some(GeneralCoverageDomain::Bool)
-            }
-            InferType::App(crate::types::type_constructor::TypeConstructor::Option, _) => {
-                Some(GeneralCoverageDomain::Option)
-            }
-            InferType::App(crate::types::type_constructor::TypeConstructor::Either, _) => {
-                Some(GeneralCoverageDomain::Either)
-            }
-            InferType::App(crate::types::type_constructor::TypeConstructor::List, _)
-            | InferType::App(crate::types::type_constructor::TypeConstructor::Array, _) => {
-                Some(GeneralCoverageDomain::ListLike)
-            }
-            InferType::Tuple(elements) => Some(GeneralCoverageDomain::Tuple(elements.len())),
-            _ => None,
-        }
-    }
-
-    fn domain_from_unguarded_patterns(arms: &[MatchArm]) -> GeneralCoverageDomain {
-        let patterns: Vec<&Pattern> = arms
-            .iter()
-            .filter(|arm| arm.guard.is_none())
-            .map(|arm| &arm.pattern)
-            .collect();
-        if patterns.is_empty() {
-            return GeneralCoverageDomain::Unknown;
-        }
-
-        if patterns.iter().all(|p| {
-            matches!(
-                p,
-                Pattern::Literal {
-                    expression: Expression::Boolean { .. },
-                    ..
-                }
-            )
-        }) {
-            return GeneralCoverageDomain::Bool;
-        }
-        if patterns
-            .iter()
-            .all(|p| matches!(p, Pattern::None { .. } | Pattern::Some { .. }))
-        {
-            return GeneralCoverageDomain::Option;
-        }
-        if patterns
-            .iter()
-            .all(|p| matches!(p, Pattern::Left { .. } | Pattern::Right { .. }))
-        {
-            return GeneralCoverageDomain::Either;
-        }
-        if patterns
-            .iter()
-            .all(|p| matches!(p, Pattern::EmptyList { .. } | Pattern::Cons { .. }))
-        {
-            return GeneralCoverageDomain::ListLike;
-        }
-        if let Some(tuple_arity) = patterns.iter().find_map(|p| match p {
-            Pattern::Tuple { elements, .. } => Some(elements.len()),
-            _ => None,
-        }) && patterns
-            .iter()
-            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_arity))
-        {
-            return GeneralCoverageDomain::Tuple(tuple_arity);
-        }
-
-        GeneralCoverageDomain::Unknown
-    }
-
-    fn check_adt_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
-        // Collect constructor patterns:
-        // - `all_constructor_names`: any constructor arm (guarded or unguarded)
-        // - `constructor_names`: unguarded constructor arms only (these can prove coverage)
-        let all_constructor_names: Vec<Symbol> = arms
-            .iter()
-            .filter_map(|arm| {
-                if let Pattern::Constructor { name, .. } = &arm.pattern {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Guarded constructor arms do not prove exhaustiveness.
-        let constructor_names: Vec<Symbol> = arms
-            .iter()
-            .filter_map(|arm| {
-                if arm.guard.is_none()
-                    && let Pattern::Constructor { name, .. } = &arm.pattern
-                {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // If no constructor patterns at all, nothing to check
-        if all_constructor_names.is_empty() {
-            return Ok(());
-        }
-
-        // Look up the ADT from the first constructor name.
-        let first_constructor = all_constructor_names[0];
-        let Some(constructor_info) = self.adt_registry.lookup_constructor(first_constructor) else {
-            return Ok(()); // Unknown constructor, already reported elsewhere
-        };
-        let adt_name = constructor_info.adt_name;
-        let Some(adt_def) = self.adt_registry.lookup_adt(adt_name) else {
-            return Ok(());
-        };
-
-        // Constructor arms for exhaustiveness must belong to the same ADT.
-        for constructor_name in &all_constructor_names {
-            let Some(info) = self.adt_registry.lookup_constructor(*constructor_name) else {
-                continue;
-            };
-            if info.adt_name != adt_name {
-                let first_adt = self.interner.resolve(adt_name).to_string();
-                let mixed_adt = self.interner.resolve(info.adt_name).to_string();
-                return Err(Self::boxed(
-                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match arms mix constructors from different ADTs: `{}` and `{}`.",
-                            first_adt, mixed_adt
-                        ))
-                        .with_hint_text(
-                            "Use constructors from a single ADT in a given match expression."
-                                .to_string(),
-                        ),
-                ));
-            }
-        }
-
-        // If any arm has a wildcard or identifier (catch-all), it's exhaustive
-        let has_catch_all = arms.iter().any(|arm| {
-            arm.guard.is_none()
-                && matches!(
-                    arm.pattern,
-                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-                )
-        });
-        if has_catch_all {
-            return Ok(());
-        }
-
-        // If all constructor arms are guarded and there is no unguarded catch-all,
-        // the match is non-exhaustive because guards may fail.
-        if constructor_names.is_empty() {
-            let adt_name_str = self.interner.resolve(adt_name).to_string();
-            let missing_list = adt_def
-                .constructors
-                .iter()
-                .map(|(name, ..)| self.interner.resolve(*name))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(Self::boxed(
-                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                    .with_span(span)
-                    .with_message(format!(
-                        "Match on `{}` is non-exhaustive because all constructor arms are guarded.",
-                        adt_name_str
-                    ))
-                    .with_hint_text(format!(
-                        "Add unguarded arms for {} or add a `_ -> ...` catch-all.",
-                        missing_list
-                    )),
-            ));
-        }
-
-        // Check if all constructors are covered
-        let covered: HashSet<Symbol> = constructor_names.into_iter().collect();
-        let missing: Vec<&str> = adt_def
-            .constructors
-            .iter()
-            .filter(|(name, ..)| !covered.contains(name))
-            .map(|(name, ..)| self.interner.resolve(*name))
-            .collect();
-
-        if !missing.is_empty() {
-            let adt_name_str = self.interner.resolve(adt_name).to_string();
-            let missing_list = missing.join(", ");
-            return Err(Self::boxed(
-                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                    .with_span(span)
-                    .with_message(format!(
-                        "Match on `{}` is missing constructors: {}.",
-                        adt_name_str, missing_list
-                    ))
-                    .with_hint_text(format!(
-                        "Add arms for {} or add a `_ -> ...` catch-all.",
-                        missing_list
-                    )),
-            ));
-        }
-
-        // Stronger nested check (v0.0.4 scope):
-        // For unary constructors, verify nested constructor-space coverage when
-        // arms constrain the nested field with constructor patterns.
-        self.check_nested_constructor_exhaustiveness(arms, adt_name, adt_def, span)?;
-
-        Ok(())
-    }
-
-    fn check_nested_constructor_exhaustiveness(
-        &self,
-        arms: &[MatchArm],
-        _adt_name: Symbol,
-        adt_def: &crate::compiler::adt_definition::AdtDefinition,
-        span: Span,
-    ) -> CompileResult<()> {
-        for (outer_ctor_name, outer_arity, _) in &adt_def.constructors {
-            let mut ctor_fields: Vec<&[Pattern]> = Vec::new();
-            for arm in arms {
-                if arm.guard.is_some() {
-                    continue;
-                }
-                let Pattern::Constructor { name, fields, .. } = &arm.pattern else {
-                    continue;
-                };
-                if name != outer_ctor_name {
-                    continue;
-                }
-                ctor_fields.push(fields.as_slice());
-            }
-
-            if ctor_fields.is_empty() || *outer_arity == 0 {
-                continue;
-            }
-
-            for field_idx in 0..*outer_arity {
-                let field_patterns: Vec<&Pattern> = ctor_fields
-                    .iter()
-                    .filter_map(|fields| fields.get(field_idx))
-                    .collect();
-                if field_patterns.is_empty() {
-                    continue;
-                }
-
-                self.check_nested_pattern_set(
-                    &field_patterns,
-                    &format!(
-                        "under constructor `{}` field #{}",
-                        self.interner.resolve(*outer_ctor_name),
-                        field_idx + 1
-                    ),
-                    span,
-                )?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn check_nested_pattern_set(
-        &self,
-        patterns: &[&Pattern],
-        context: &str,
-        span: Span,
-    ) -> CompileResult<()> {
-        if patterns.is_empty() || patterns.iter().any(|p| self.is_irrefutable_pattern(p)) {
-            return Ok(());
-        }
-
-        let ctor_patterns: Vec<(Symbol, &[Pattern])> = patterns
-            .iter()
-            .filter_map(|p| {
-                if let Pattern::Constructor { name, fields, .. } = p {
-                    Some((*name, fields.as_slice()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // If we have constructor patterns and no irrefutable branch, attempt ADT coverage.
-        if !ctor_patterns.is_empty() {
-            if ctor_patterns.len() != patterns.len() {
-                return Ok(());
-            }
-
-            let Some(first_ctor_info) = self.adt_registry.lookup_constructor(ctor_patterns[0].0)
-            else {
-                return Ok(());
-            };
-            let nested_adt_name = first_ctor_info.adt_name;
-            let Some(nested_adt_def) = self.adt_registry.lookup_adt(nested_adt_name) else {
-                return Ok(());
-            };
-
-            for (ctor_name, _) in &ctor_patterns {
-                let Some(info) = self.adt_registry.lookup_constructor(*ctor_name) else {
-                    continue;
-                };
-                if info.adt_name != nested_adt_name {
-                    return Err(Self::boxed(
-                        diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                            .with_span(span)
-                            .with_message(format!(
-                                "Nested constructor patterns {} mix ADTs.",
-                                context
-                            ))
-                            .with_hint_text(
-                                "Use constructors from a single ADT in a nested pattern set."
-                                    .to_string(),
-                            ),
-                    ));
-                }
-            }
-
-            let covered: HashSet<Symbol> = ctor_patterns.iter().map(|(name, _)| *name).collect();
-            let missing: Vec<&str> = nested_adt_def
-                .constructors
-                .iter()
-                .filter(|(name, ..)| !covered.contains(name))
-                .map(|(name, ..)| self.interner.resolve(*name))
-                .collect();
-
-            if !missing.is_empty() {
-                let nested_adt = self.interner.resolve(nested_adt_name);
-                let missing_list = missing.join(", ");
-                return Err(Self::boxed(
-                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: nested `{}` patterns {} miss constructors: {}.",
-                            nested_adt, context, missing_list
-                        ))
-                        .with_hint_text(format!(
-                            "Add nested arms for {} or use a nested catch-all (`_`).",
-                            missing_list
-                        )),
-                ));
-            }
-
-            // Recurse into constructor fields.
-            for (ctor_name, arity, _) in &nested_adt_def.constructors {
-                let ctor_rows: Vec<&[Pattern]> = ctor_patterns
-                    .iter()
-                    .filter_map(|(name, fields)| {
-                        if name == ctor_name {
-                            Some(*fields)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if ctor_rows.is_empty() || *arity == 0 {
-                    continue;
-                }
-                for field_idx in 0..*arity {
-                    let next: Vec<&Pattern> = ctor_rows
-                        .iter()
-                        .filter_map(|fields| fields.get(field_idx))
-                        .collect();
-                    if next.is_empty() {
-                        continue;
-                    }
-                    self.check_nested_pattern_set(
-                        &next,
-                        &format!(
-                            "{} -> `{}` field #{}",
-                            context,
-                            self.interner.resolve(*ctor_name),
-                            field_idx + 1
-                        ),
-                        span,
-                    )?;
-                }
-            }
-
-            return Ok(());
-        }
-
-        // Tuple nested coverage: recurse per position when all nested patterns are tuples
-        // with the same arity.
-        if let Some(tuple_len) = patterns.iter().find_map(|p| {
-            if let Pattern::Tuple { elements, .. } = p {
-                Some(elements.len())
-            } else {
-                None
-            }
-        }) && patterns
-            .iter()
-            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len))
-        {
-            for idx in 0..tuple_len {
-                let next: Vec<&Pattern> = patterns
-                    .iter()
-                    .filter_map(|p| match p {
-                        Pattern::Tuple { elements, .. } => elements.get(idx),
-                        _ => None,
-                    })
-                    .collect();
-                if next.is_empty() {
-                    continue;
-                }
-                self.check_nested_pattern_set(
-                    &next,
-                    &format!("{} -> tuple position #{}", context, idx + 1),
-                    span,
-                )?;
-            }
-        } else if patterns.iter().any(|p| matches!(p, Pattern::Tuple { .. })) {
-            return Err(Self::boxed(
-                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                    .with_span(span)
-                    .with_message(format!(
-                        "Match is non-exhaustive: nested tuple patterns {} are mixed-shape and cannot be proven exhaustive conservatively.",
-                        context
-                    ))
-                    .with_hint_text(
-                        "Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`)."
-                            .to_string(),
-                    ),
-            ));
-        }
-
-        // List nested coverage: enforce empty/non-empty partition when list patterns are used.
-        let mut has_empty = false;
-        let mut has_cons = false;
-        for p in patterns {
-            match p {
-                Pattern::EmptyList { .. } => has_empty = true,
-                Pattern::Cons { .. } => has_cons = true,
-                _ => {}
-            }
-        }
-        if has_empty || has_cons {
-            if !has_empty {
-                return Err(Self::boxed(
-                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: nested list patterns {} miss the empty list case.",
-                            context
-                        ))
-                        .with_hint_text(
-                            "Add a `[]` nested pattern or a nested catch-all (`_`).".to_string(),
-                        ),
-                ));
-            }
-            if !has_cons {
-                return Err(Self::boxed(
-                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
-                        .with_span(span)
-                        .with_message(format!(
-                            "Match is non-exhaustive: nested list patterns {} miss non-empty list cases.",
-                            context
-                        ))
-                        .with_hint_text(
-                            "Add a `[h | t]` nested pattern or a nested catch-all (`_`)."
-                                .to_string(),
-                        ),
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn is_irrefutable_pattern(&self, pattern: &Pattern) -> bool {
-        matches!(
-            pattern,
-            Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-        )
-    }
-
-    // ── Unreachable arm detection ──────────────────────────────────────────
-
-    /// Collect W202 warnings for arms whose patterns are provably subsumed by
-    /// an earlier unguarded arm.  Conservative: only patterns that can be
-    /// structurally proven unreachable are reported.  Guarded arms are never
-    /// considered to subsume later arms (a guard may fail at runtime).
-    fn collect_unreachable_arm_warnings(&self, arms: &[MatchArm]) -> Vec<Diagnostic> {
-        let mut diags = Vec::new();
-        // Build the list of preceding unguarded patterns as we go.
-        let mut covered: Vec<&Pattern> = Vec::new();
-
-        for arm in arms {
-            // A guarded arm can never be proven unreachable — the guard may fail.
-            if arm.guard.is_none() {
-                let is_unreachable = covered
-                    .iter()
-                    .any(|prev| Self::pattern_subsumes(prev, &arm.pattern));
-
-                if is_unreachable {
-                    diags.push(
-                        Diagnostic::make_warning_from_code(
-                            &UNREACHABLE_PATTERN_ARM,
-                            &[],
-                            self.file_path.clone(),
-                            arm.pattern.span(),
-                        )
-                        .with_primary_label(arm.pattern.span(), "unreachable arm"),
-                    );
-                } else {
-                    // Only add to covered set if this arm actually extends coverage.
-                    covered.push(&arm.pattern);
-                }
-            }
-        }
-
-        diags
-    }
-
-    /// Returns `true` if every value matched by `specific` is also matched by
-    /// `general`, meaning `specific` is fully covered when `general` fires first.
-    ///
-    /// Only covers cases that can be determined structurally without type
-    /// information (conservative: returns `false` on ambiguous cases).
-    fn pattern_subsumes(general: &Pattern, specific: &Pattern) -> bool {
-        match general {
-            // Wildcard/identifier catch-alls subsume everything.
-            Pattern::Wildcard { .. } | Pattern::Identifier { .. } => true,
-
-            // None / EmptyList are atomic — only subsume themselves.
-            Pattern::None { .. } => matches!(specific, Pattern::None { .. }),
-            Pattern::EmptyList { .. } => matches!(specific, Pattern::EmptyList { .. }),
-
-            // Wrapper patterns: subsume if the inner pattern subsumes too.
-            Pattern::Some {
-                pattern: inner_g, ..
-            } => {
-                if let Pattern::Some {
-                    pattern: inner_s, ..
-                } = specific
-                {
-                    Self::pattern_subsumes(inner_g, inner_s)
-                } else {
-                    false
-                }
-            }
-            Pattern::Left {
-                pattern: inner_g, ..
-            } => {
-                if let Pattern::Left {
-                    pattern: inner_s, ..
-                } = specific
-                {
-                    Self::pattern_subsumes(inner_g, inner_s)
-                } else {
-                    false
-                }
-            }
-            Pattern::Right {
-                pattern: inner_g, ..
-            } => {
-                if let Pattern::Right {
-                    pattern: inner_s, ..
-                } = specific
-                {
-                    Self::pattern_subsumes(inner_g, inner_s)
-                } else {
-                    false
-                }
-            }
-
-            // Cons: both head and tail must be subsumed.
-            Pattern::Cons {
-                head: hg, tail: tg, ..
-            } => {
-                if let Pattern::Cons {
-                    head: hs, tail: ts, ..
-                } = specific
-                {
-                    Self::pattern_subsumes(hg, hs) && Self::pattern_subsumes(tg, ts)
-                } else {
-                    false
-                }
-            }
-
-            // Tuple: element-wise subsumption (same arity required).
-            Pattern::Tuple {
-                elements: elems_g, ..
-            } => {
-                if let Pattern::Tuple {
-                    elements: elems_s, ..
-                } = specific
-                    && elems_g.len() == elems_s.len()
-                {
-                    elems_g
-                        .iter()
-                        .zip(elems_s.iter())
-                        .all(|(g, s)| Self::pattern_subsumes(g, s))
-                } else {
-                    false
-                }
-            }
-
-            // ADT Constructor: same name and field-wise subsumption.
-            Pattern::Constructor {
-                name: name_g,
-                fields: fields_g,
-                ..
-            } => {
-                if let Pattern::Constructor {
-                    name: name_s,
-                    fields: fields_s,
-                    ..
-                } = specific
-                    && name_g == name_s
-                    && fields_g.len() == fields_s.len()
-                {
-                    fields_g
-                        .iter()
-                        .zip(fields_s.iter())
-                        .all(|(g, s)| Self::pattern_subsumes(g, s))
-                } else {
-                    false
-                }
-            }
-
-            // Literal: subsumes the same literal value only.
-            Pattern::Literal {
-                expression: expr_g, ..
-            } => {
-                if let Pattern::Literal {
-                    expression: expr_s, ..
-                } = specific
-                {
-                    Self::literals_equal(expr_g, expr_s)
-                } else {
-                    false
-                }
-            }
-
-            // Named-field patterns are lowered to positional Constructor
-            // patterns during type inference; this branch is reached only for
-            // patterns that survived to the compiler, which would be a bug.
-            Pattern::NamedConstructor { .. } => false,
-        }
-    }
-
-    fn literals_equal(a: &Expression, b: &Expression) -> bool {
-        match (a, b) {
-            (Expression::Integer { value: v1, .. }, Expression::Integer { value: v2, .. }) => {
-                v1 == v2
-            }
-            (Expression::Float { value: v1, .. }, Expression::Float { value: v2, .. }) => v1 == v2,
-            (Expression::Boolean { value: v1, .. }, Expression::Boolean { value: v2, .. }) => {
-                v1 == v2
-            }
-            (Expression::String { value: v1, .. }, Expression::String { value: v2, .. }) => {
-                v1 == v2
-            }
-            _ => false,
-        }
-    }
-
     /// Try to resolve a class method call at compile time.
     ///
     /// If `name` is a class method and the first argument's HM-inferred type
@@ -4906,11 +4262,12 @@ impl Compiler {
         // resolve directly to the mangled instance function.
         if let Some(first_arg) = arguments.first()
             && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _)) = self.class_env.resolve_instance_with_subst(
-                class_name,
-                std::slice::from_ref(first_arg_type),
-                &self.interner,
-            )
+            && let Some((instance, _concrete_type_args)) =
+                self.class_env.resolve_method_call_instance_from_first_arg(
+                    class_name,
+                    first_arg_type,
+                    &self.interner,
+                )
         {
             // Build mangled name from all instance type args (multi-param support).
             let type_key = instance
@@ -4983,11 +4340,14 @@ impl Compiler {
         };
 
         self.class_env
-            .resolve_instance_context_dictionaries(
-                class_name,
-                std::slice::from_ref(first_arg_ty),
-                &self.interner,
-            )
+            .resolve_method_call_instance_from_first_arg(class_name, first_arg_ty, &self.interner)
+            .and_then(|(_instance, concrete_type_args)| {
+                self.class_env.resolve_instance_context_dictionaries(
+                    class_name,
+                    &concrete_type_args,
+                    &self.interner,
+                )
+            })
             .map(|dicts| {
                 dicts
                     .iter()
@@ -4995,6 +4355,145 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// AST-path analogue of `core/lower_ast::resolve_dict_args_for_call`.
+    ///
+    /// When a user-defined function has class constraints in its scheme,
+    /// Core/dict_elaborate rewrites its body to accept a `__dict_*` parameter
+    /// per constraint. Call sites must supply matching dictionary arguments.
+    /// The Core lowering path does this; when that path fails and we fall
+    /// back to compiling from the AST, this helper recovers the same
+    /// insertion so polymorphic dispatch keeps working.
+    fn try_build_constrained_user_fn_call_ast(
+        &self,
+        callee_name: crate::syntax::Identifier,
+        function_span: Span,
+        arguments: &[Expression],
+        call_span: Span,
+    ) -> Option<Expression> {
+        if self.class_env.classes.is_empty() {
+            return None;
+        }
+        let scheme = self.type_env.lookup(callee_name)?;
+        if scheme.constraints.is_empty() {
+            return None;
+        }
+        // Skip if this is a class method — those are already handled by
+        // `try_resolve_class_method_call` / `try_build_dict_class_method_call`.
+        if self.class_env.method_to_class(callee_name).is_some() {
+            return None;
+        }
+
+        let mut dict_args = Vec::with_capacity(scheme.constraints.len());
+        for constraint in &scheme.constraints {
+            let actual =
+                self.resolve_scheme_constraint_type_args_ast(constraint, scheme, arguments)?;
+            let dict_ref = self.class_env.resolve_dictionary_ref(
+                constraint.class_name,
+                &actual,
+                &self.interner,
+            )?;
+            dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, function_span));
+        }
+
+        let mut all_args = dict_args;
+        all_args.extend(arguments.iter().cloned());
+        Some(Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: callee_name,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: all_args,
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    fn resolve_scheme_constraint_type_args_ast(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        arguments: &[Expression],
+    ) -> Option<Vec<InferType>> {
+        let InferType::Fun(param_tys, _ret_ty, _) = &scheme.infer_type else {
+            return None;
+        };
+        let param_offset = param_tys.len().saturating_sub(arguments.len());
+        let mut resolved = Vec::with_capacity(constraint.type_vars.len());
+        for type_var in &constraint.type_vars {
+            let mut found = None;
+            for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
+                let arg = arguments.get(i - param_offset)?;
+                let arg_ty = self.hm_expr_types.get(&arg.expr_id())?;
+                if let Some(actual) =
+                    Self::match_scheme_constraint_type_var_ast(param_ty, arg_ty, *type_var)
+                {
+                    found = Some(actual);
+                    break;
+                }
+            }
+            resolved.push(found?);
+        }
+        Some(resolved)
+    }
+
+    fn match_scheme_constraint_type_var_ast(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        match pattern {
+            InferType::Var(var) if *var == target => Some(actual.clone()),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems
+                    .iter()
+                    .zip(actual_elems.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            InferType::HktApp(pattern_head, pattern_args) => {
+                let actual_args = match actual {
+                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                    _ => return None,
+                };
+                if pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                if let InferType::Var(var) = pattern_head.as_ref()
+                    && *var == target
+                {
+                    return Some(match actual {
+                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
+                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
+                        _ => return None,
+                    });
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
+            }
+            _ => None,
+        }
     }
 
     fn lower_dictionary_ref_ast(

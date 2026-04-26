@@ -38,11 +38,11 @@ use crate::core::{
 use crate::diagnostics::position::Span;
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AetherBuiltinEffect {
-    Io,
-    Time,
-}
+// Aether's builtin-effect classifier was retired as part of Proposal 0161.
+// The registry at `crate::syntax::builtin_effects::primop_coarse_effect_label`
+// is now the single source of truth. Callers that previously matched on
+// `AetherBuiltinEffect::{Io, Time}` now hold the interned label string
+// (`"IO"` / `"Time"` / fine-grained) directly.
 
 /// Backend-only Aether lowering product.
 ///
@@ -61,6 +61,8 @@ pub struct AetherHandler {
     pub operation: Identifier,
     pub params: Vec<CoreBinder>,
     pub param_types: Vec<Option<CoreType>>,
+    pub state: Option<CoreBinder>,
+    pub state_ty: Option<CoreType>,
     pub resume: CoreBinder,
     pub resume_ty: Option<CoreType>,
     pub body: AetherExpr,
@@ -148,6 +150,7 @@ pub enum AetherExpr {
     Handle {
         body: Box<AetherExpr>,
         effect: Identifier,
+        parameter: Option<Box<AetherExpr>>,
         handlers: Vec<AetherHandler>,
         span: Span,
     },
@@ -385,11 +388,13 @@ impl AetherExpr {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => Self::Handle {
                 body: Box::new(Self::from_core(*body)),
                 effect,
+                parameter: parameter.map(|p| Box::new(Self::from_core(*p))),
                 handlers: handlers.into_iter().map(AetherHandler::from_core).collect(),
                 span,
             },
@@ -509,11 +514,13 @@ impl AetherExpr {
             Self::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 span,
             } => CoreExpr::Handle {
                 body: Box::new(body.into_core()),
                 effect,
+                parameter: parameter.map(|p| Box::new(p.into_core())),
                 handlers: handlers.into_iter().map(AetherHandler::into_core).collect(),
                 span,
             },
@@ -579,6 +586,8 @@ impl AetherHandler {
             operation: handler.operation,
             params: handler.params,
             param_types: handler.param_types,
+            state: handler.state,
+            state_ty: handler.state_ty,
             resume: handler.resume,
             resume_ty: handler.resume_ty,
             body: AetherExpr::from_core(handler.body),
@@ -591,6 +600,8 @@ impl AetherHandler {
             operation: self.operation,
             params: self.params,
             param_types: self.param_types,
+            state: self.state,
+            state_ty: self.state_ty,
             resume: self.resume,
             resume_ty: self.resume_ty,
             body: self.body.into_core(),
@@ -599,12 +610,15 @@ impl AetherHandler {
     }
 }
 
-pub fn builtin_effect_for_name(name: &str) -> Option<AetherBuiltinEffect> {
-    match name {
-        "print" | "read_file" | "read_lines" | "read_stdin" => Some(AetherBuiltinEffect::Io),
-        "now" | "clock_now" | "now_ms" | "time" => Some(AetherBuiltinEffect::Time),
-        _ => None,
-    }
+/// Look up the coarse effect label (`"IO"`, `"Time"`, `"Panic"`) a builtin
+/// function carries, if any. The result routes through the
+/// shared builtin-effect registry so Aether stays aligned with the optimizer's
+/// Phase 3 classification.
+///
+/// Returns `None` when the name does not refer to a known builtin primop
+/// or the primop has no effect (arithmetic, collection access, etc.).
+pub fn builtin_effect_for_name(name: &str) -> Option<&'static str> {
+    crate::syntax::builtin_effects::builtin_effect_for_name(name)
 }
 
 /// Statistics collected from an Aether-transformed Core IR expression.
@@ -616,6 +630,13 @@ pub struct AetherStats {
     pub drop_specs: usize,
     /// Number of heap constructor allocations (Con nodes with heap tags).
     pub allocs: usize,
+    /// Proposal 0162 Phase 3: perform sites (lower to `flux_yield_to`).
+    pub performs: usize,
+    /// Proposal 0162 Phase 3: handle sites (lower to evv insert + yield prompt).
+    pub handles: usize,
+    /// Proposal 0162 Phase 3: handler clauses across all `handle`s (shape
+    /// of the prompt's dispatch table).
+    pub handler_arms: usize,
 }
 
 /// FBIP status auto-detected from Aether stats (Perceus Section 2.6).
@@ -658,10 +679,18 @@ impl std::fmt::Display for AetherStats {
             self.dups, self.drops, self.reuses, self.drop_specs
         )?;
         match self.fbip_status() {
-            FbipStatus::Fip => write!(f, "  FBIP: fip"),
-            FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n),
-            FbipStatus::NotApplicable => Ok(()),
+            FbipStatus::Fip => write!(f, "  FBIP: fip")?,
+            FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n)?,
+            FbipStatus::NotApplicable => {}
         }
+        if self.performs > 0 || self.handles > 0 {
+            write!(
+                f,
+                "  Yields: {}  Handles: {}  HandlerArms: {}",
+                self.performs, self.handles, self.handler_arms
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -733,11 +762,22 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
         }
         AetherExpr::Return { value, .. } => count_nodes(value, stats),
         AetherExpr::Perform { args, .. } => {
+            stats.performs += 1;
             for a in args {
                 count_nodes(a, stats);
             }
         }
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            stats.handles += 1;
+            stats.handler_arms += handlers.len();
+            if let Some(parameter) = parameter {
+                count_nodes(parameter, stats);
+            }
             count_nodes(body, stats);
             for h in handlers {
                 count_nodes(&h.body, stats);

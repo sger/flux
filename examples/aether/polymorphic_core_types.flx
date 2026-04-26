@@ -1,3 +1,4 @@
+// parity: vm
 /*
 Polymorphic Core dump regression fixture.
 Used by --dump-core=debug tests to ensure explicit semantic forms

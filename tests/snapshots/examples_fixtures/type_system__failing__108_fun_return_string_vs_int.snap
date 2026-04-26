@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/108_fun_return_string_vs_int.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 
-  examples/type_system/failing/108_fun_return_string_vs_int.flx:2:5
-  |
-1 | fn bad() -> Int {
-  |             --- `bad` was declared to return `Int`
-2 |     "oops"
-  |     ^^^^^^
-  |     ------ this expression has type `String`
+  examples/type_system/failing/108_fun_return_string_vs_int.flx:51:5
+   |
+50 | fn bad() -> Int {
+   |             --- `bad` was declared to return `Int`
+51 |     "oops"
+   |     ^^^^^^
+   |     ------ this expression has type `String`
 
 Note:
   declared return type: Int
@@ -29,13 +29,13 @@ error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 
-  examples/type_system/failing/108_fun_return_string_vs_int.flx:6:5
-  |
-5 | fn main() -> Unit {
-  |              ---- `main` was declared to return `Unit`
-6 |     bad()
-  |     ^^^^^
-  |     ----- this expression has type `Int`
+  examples/type_system/failing/108_fun_return_string_vs_int.flx:55:5
+   |
+54 | fn main() -> Unit {
+   |              ---- `main` was declared to return `Unit`
+55 |     bad()
+   |     ^^^^^
+   |     ----- this expression has type `Int`
 
 Note:
   declared return type: Unit

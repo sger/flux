@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx
 == compile ==
@@ -9,19 +9,19 @@ error[E300]: Return Type Mismatch
 
 The body of this function does not match its return type.
 
-  examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:11:14
+  examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:46:14
    |
-11 |     let _f = if true {
+46 |     let _f = if true {
    |              ^^^^^^^^^
-12 |         ret_int
+47 |         ret_int
    | ^^^^^^^^^^^^^^^
    |         ------- this branch established the expected type
-13 |     } else {
+48 |     } else {
    | ^^^^^^^^^^^^
-14 |         ret_string
+49 |         ret_string
    | ^^^^^^^^^^^^^^^^^^
    |         ---------- this branch conflicts with that type
-15 |     }
+50 |     }
    | ^^^^^
 
 Note:

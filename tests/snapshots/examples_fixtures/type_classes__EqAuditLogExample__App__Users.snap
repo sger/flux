@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/EqAuditLogExample/App/Users.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `EqAuditLogExample.App.Users` doesn't match file path `examples/type_classes/EqAuditLogExample/App/Users.flx`.
+
+  examples/type_classes/EqAuditLogExample/App/Users.flx:4:1
+  |
+4 | module EqAuditLogExample.App.Users {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

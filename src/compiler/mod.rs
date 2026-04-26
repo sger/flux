@@ -376,6 +376,85 @@ fn build_public_class_method_scheme(
     )
 }
 
+fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if interner
+                .resolve(*name)
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_lowercase())
+            {
+                out.insert(*name);
+            }
+            for arg in args {
+                collect_implicit_type_params(arg, interner, out);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_implicit_type_params(element, interner, out);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_implicit_type_params(param, interner, out);
+            }
+            collect_implicit_type_params(ret, interner, out);
+        }
+    }
+}
+
+fn build_effect_op_scheme(interner: &Interner, ty: &TypeExpr) -> Scheme {
+    let TypeExpr::Function {
+        params,
+        ret,
+        effects,
+        ..
+    } = ty
+    else {
+        panic!("effect operation signature must be function-shaped");
+    };
+    let mut implicit_type_params = HashSet::new();
+    collect_implicit_type_params(ty, interner, &mut implicit_type_params);
+    let mut sorted_type_params = implicit_type_params.into_iter().collect::<Vec<_>>();
+    sorted_type_params.sort_by_key(|sym| sym.as_u32());
+    let type_params = sorted_type_params
+        .into_iter()
+        .enumerate()
+        .map(|(idx, sym)| (sym, idx as TypeVarId))
+        .collect::<HashMap<_, _>>();
+    let mut row_var_env = HashMap::new();
+    let mut next_var: TypeVarId = type_params.len() as TypeVarId;
+    let param_tys: Vec<InferType> = params
+        .iter()
+        .map(|param| {
+            TypeEnv::convert_type_expr_rec(
+                param,
+                &type_params,
+                interner,
+                &mut row_var_env,
+                &mut next_var,
+            )
+            .expect("effect op param type should convert")
+        })
+        .collect();
+    let ret_ty = TypeEnv::convert_type_expr_rec(
+        ret,
+        &type_params,
+        interner,
+        &mut row_var_env,
+        &mut next_var,
+    )
+    .expect("effect op return type should convert");
+    let effect_row = InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
+        .expect("effect op effect row should convert");
+    crate::types::scheme::generalize(
+        &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
+        &HashSet::new(),
+    )
+}
+
 fn substitute_type_expr_for_instance(
     ty: &TypeExpr,
     subst: &HashMap<Identifier, TypeExpr>,
@@ -709,7 +788,15 @@ fn collect_aether_debug_details(
                     walk(arg, interner, details);
                 }
             }
-            AetherExpr::Handle { body, handlers, .. } => {
+            AetherExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                if let Some(parameter) = parameter {
+                    walk(parameter, interner, details);
+                }
                 walk(body, interner, details);
                 for handler in handlers {
                     walk(&handler.body, interner, details);
@@ -835,6 +922,21 @@ pub(super) struct MainValidationState {
     pub(super) is_valid_signature: bool,
 }
 
+/// Flow library modules whose public members are auto-exposed (no explicit
+/// `import ... exposing` required). Mirrors the set injected by the driver's
+/// `inject_flow_prelude`. Notably excludes `Flow.Array` and `Flow.Map`, which
+/// must be imported explicitly. Explicit user imports always take priority
+/// over this prelude when resolving unqualified names.
+pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
+    "Flow.Option",
+    "Flow.List",
+    "Flow.String",
+    "Flow.Numeric",
+    "Flow.Primops",
+    "Flow.IO",
+    "Flow.Assert",
+];
+
 /// Compile-time handler scope entry for static handler resolution.
 ///
 /// Tracks an active `handle` block's effect, operations, and whether it's
@@ -843,10 +945,14 @@ pub(super) struct HandlerScope {
     pub effect: Symbol,
     pub is_direct: bool,
     pub ops: Vec<Symbol>,
-    /// Local variable indices holding arm closures for evidence-passing.
-    /// `evidence_locals[i]` is the local index for `ops[i]`.
-    /// `None` when evidence-passing is not applicable (non-TR handler).
-    pub evidence_locals: Option<Vec<usize>>,
+    /// Named symbols holding the arm closures for evidence-passing. Each
+    /// `evidence_symbols[i]` is the interned `__ev_<Effect>_<Op>` symbol
+    /// bound to a local in the enclosing scope. Performs resolve through
+    /// the symbol table so nested closures capture the evidence binding via
+    /// the normal free-variable promotion path (`SymbolTable::resolve`
+    /// → `SymbolScope::Free`). `None` when evidence-passing is not applicable
+    /// (non-TR handler).
+    pub evidence_symbols: Option<Vec<Symbol>>,
 }
 
 pub struct Compiler {
@@ -908,9 +1014,20 @@ pub struct Compiler {
     pub(super) adt_registry: AdtRegistry,
     pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
-    pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
+    /// Effect-row aliases declared via `alias Name = <E1 | E2 | ...>`
+    /// (Proposal 0161 B1). Populated during statement collection and
+    /// consumed by the pre-inference alias-expansion pass.
+    pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
-    preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
+    preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
+    /// Effect names that have at least one user-written `effect E { ... }`
+    /// declaration anywhere in the compilation set (this module or one of its
+    /// transitive dependencies). When a name in this set collides with one of
+    /// the builtin fine-grained effects (`Console`, `FileSystem`, ...),
+    /// `seed_builtin_effect_operations` skips that builtin so the user's
+    /// declaration is the sole source of truth for the effect's op set.
+    user_declared_effect_names: HashSet<Symbol>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
@@ -949,6 +1066,11 @@ pub struct Compiler {
     /// Imported monomorphic `__tc_*` schemes rebuilt from public instance metadata.
     imported_instance_method_schemes: HashMap<Symbol, Scheme>,
     imported_instance_method_native_symbols: HashMap<Symbol, String>,
+    /// `ExprId`s of `Perform` nodes that were synthesized from direct user
+    /// calls via the 0165 routing pass. Used by E400 / other effect
+    /// diagnostics to render the user's call shape instead of the lowered
+    /// `perform` shape.
+    pub(super) routed_call_perform_ids: HashSet<ExprId>,
     #[cfg(test)]
     pub(super) hm_infer_runs: usize,
 }
@@ -1096,7 +1218,9 @@ impl Compiler {
             field_registry: FieldRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
+            effect_row_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
+            user_declared_effect_names: HashSet::new(),
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
@@ -1117,6 +1241,7 @@ impl Compiler {
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
             imported_instance_method_native_symbols: HashMap::new(),
+            routed_call_perform_ids: HashSet::new(),
             #[cfg(test)]
             hm_infer_runs: 0,
         }
@@ -1166,6 +1291,9 @@ impl Compiler {
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
+        self.effect_row_aliases.clear();
+        self.seed_builtin_effect_aliases();
+        self.seed_builtin_effect_operations();
     }
 
     pub fn set_current_module_kind(&mut self, kind: ModuleKind) {
@@ -1248,11 +1376,7 @@ impl Compiler {
         );
 
         if elaborate_dictionaries && !self.class_env.classes.is_empty() {
-            let mut max_id: u32 = 0;
-            for def in &core.defs {
-                max_id = max_id.max(def.binder.id.0);
-            }
-            let mut next_id = max_id + 1;
+            let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
             crate::core::passes::elaborate_dictionaries(
                 &mut core,
                 &self.class_env,
@@ -1437,6 +1561,22 @@ impl Compiler {
         self.hm_expr_types.clear();
         self.effect_ops_registry = preloaded_effect_ops;
         self.effect_op_signatures = preloaded_effect_sigs;
+        self.seed_builtin_effect_operations();
+
+        self.validate_reserved_primop_names(program);
+        let routing =
+            crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
+                program,
+                &mut self.interner,
+                &self.user_declared_effect_names,
+            );
+        self.routed_call_perform_ids = routing.routed_call_perform_ids;
+        let routed_program = routing.program;
+        let program = if routing.changed {
+            &routed_program
+        } else {
+            program
+        };
 
         self.collect_module_function_visibility(program);
         if matches!(mode, LoweringPreparationMode::WithPreloaded) {
@@ -1466,7 +1606,11 @@ impl Compiler {
                 &additional_reserved_names,
             );
             if extra.is_empty() {
-                self.infer_final_program(program)
+                let final_inference = self.infer_final_program(program);
+                FinalInferenceResult {
+                    effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                    hm_final: final_inference.hm_final,
+                }
             } else {
                 let class_augmented = self.inject_generated_dispatch_functions(program, extra);
                 let final_inference = self.infer_final_program(&class_augmented);
@@ -1476,7 +1620,11 @@ impl Compiler {
                 }
             }
         } else {
-            self.infer_final_program(program)
+            let final_inference = self.infer_final_program(program);
+            FinalInferenceResult {
+                effective_program: Cow::Owned(final_inference.effective_program.into_owned()),
+                hm_final: final_inference.hm_final,
+            }
         }
     }
 
@@ -1500,14 +1648,7 @@ impl Compiler {
     /// gets unqualified access to `map`, `filter`, `assert_eq`, etc.
     /// from `lib/Flow/*.flx` without needing explicit `import ... exposing`.
     fn auto_expose_flow_modules(&mut self) {
-        let flow_prefixes: Vec<&str> = vec![
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prefixes: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         let skip_flow_auto_expose: Vec<(&str, &str)> = vec![];
         // Collect all public members for Flow modules.
         let entries: Vec<(Symbol, Symbol)> = self
@@ -1733,6 +1874,8 @@ impl Compiler {
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_native_constructor_tags(program);
+        // Proposal 0161 B1: populate alias table before contract collection.
+        self.collect_effect_aliases_for_contracts(program);
         self.collect_module_contracts(program);
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
@@ -1773,14 +1916,7 @@ impl Compiler {
             import_bindings.entry(module).or_insert(module);
         }
         let mut symbols = HashMap::new();
-        let flow_prefixes = [
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prefixes: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         let skip_flow_auto_expose: [(&str, &str); 0] = [];
         let mut local_function_names = HashSet::new();
         collect_local_function_names(
@@ -2119,20 +2255,69 @@ impl Compiler {
     fn collect_effect_declarations(&mut self, program: &Program) {
         self.effect_ops_registry = self.preloaded_effect_ops_registry.clone();
         self.effect_op_signatures = self.preloaded_effect_op_signatures.clone();
+        self.seed_builtin_effect_operations();
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
+        }
+    }
+
+    /// Proposal 0161 B1: scan only for `Statement::EffectAlias` and populate
+    /// `effect_row_aliases`. Runs early in `phase_collection` (before
+    /// contract collection) so downstream contract consumers see the same
+    /// expanded rows as the later AST-level expansion pass will produce.
+    pub(in crate::compiler) fn collect_effect_aliases_for_contracts(&mut self, program: &Program) {
+        self.effect_row_aliases.clear();
+        self.seed_builtin_effect_aliases();
+        for statement in &program.statements {
+            self.collect_effect_aliases_for_contracts_from_stmt(statement);
+        }
+    }
+
+    fn collect_effect_aliases_for_contracts_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                // Expand the RHS against already-collected aliases (including
+                // the builtin `IO`/`Time` seeds) so transitive references are
+                // fully decomposed at insert time. The AST expansion pass is
+                // single-pass, so aliases must already be closed when stored.
+                let expanded = expansion.expand_aliases(&self.effect_row_aliases);
+                self.effect_row_aliases.insert(*name, expanded);
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_effect_aliases_for_contracts_from_stmt(nested);
+                }
+            }
+            _ => {}
         }
     }
 
     fn collect_effect_declarations_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::EffectDecl { name, ops, .. } => {
+                self.user_declared_effect_names.insert(*name);
                 let entry = self.effect_ops_registry.entry(*name).or_default();
+                entry.clear();
+                self.effect_op_signatures
+                    .retain(|(effect, _), _| *effect != *name);
                 for op in ops {
                     entry.insert(op.name);
-                    self.effect_op_signatures
-                        .insert((*name, op.name), op.type_expr.clone());
+                    self.effect_op_signatures.insert(
+                        (*name, op.name),
+                        build_effect_op_scheme(&self.interner, &op.type_expr),
+                    );
                 }
+            }
+            // Proposal 0161 B1/B3: capture `alias Name = <E1 | E2 | ...>` and
+            // pre-expand its RHS against existing aliases (including builtin
+            // `IO`/`Time` seeds) so later references see a fully decomposed row.
+            Statement::EffectAlias {
+                name, expansion, ..
+            } => {
+                let expanded = expansion.expand_aliases(&self.effect_row_aliases);
+                self.effect_row_aliases.insert(*name, expanded);
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2141,6 +2326,117 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    /// Proposal 0161 Phase 1: seed `effect_row_aliases` with the builtin
+    /// `IO = <Console | FileSystem | Stdin>` and `Time = <Clock>` aliases so
+    /// every module — entry file or library — sees the same decomposition
+    /// without needing to write the alias explicitly. User-written aliases
+    /// with the same name (processed afterward) will override these seeds.
+    ///
+    /// The canonical user-facing spec for these labels and aliases lives in
+    /// `lib/Flow/Effects.flx`. That file is documentation only — the seed
+    /// here is the operational source of truth. A future phase may flip the
+    /// authority by parsing `Effects.flx` and deriving the seed from it.
+    ///
+    /// Called after every `effect_row_aliases.clear()` so that user code that
+    /// writes `with IO` (and `with Time`) is uniformly expanded before
+    /// downstream phases see it.
+    pub(in crate::compiler) fn seed_builtin_effect_aliases(&mut self) {
+        use crate::diagnostics::position::Span;
+        use crate::syntax::builtin_effects as be;
+        use crate::syntax::effect_expr::EffectExpr;
+
+        let span = Span::default();
+        let console_sym = self.interner.intern(be::CONSOLE);
+        let filesystem_sym = self.interner.intern(be::FILESYSTEM);
+        let stdin_sym = self.interner.intern(be::STDIN);
+        let clock_sym = self.interner.intern(be::CLOCK);
+        let io_sym = self.interner.intern(be::IO);
+        let time_sym = self.interner.intern(be::TIME);
+
+        let named = |name| EffectExpr::Named { name, span };
+        let add = |l, r| EffectExpr::Add {
+            left: Box::new(l),
+            right: Box::new(r),
+            span,
+        };
+
+        let io_expansion = add(
+            add(named(console_sym), named(filesystem_sym)),
+            named(stdin_sym),
+        );
+        self.effect_row_aliases
+            .entry(io_sym)
+            .or_insert(io_expansion);
+        self.effect_row_aliases
+            .entry(time_sym)
+            .or_insert(named(clock_sym));
+    }
+
+    pub(in crate::compiler) fn seed_builtin_effect_operations(&mut self) {
+        use crate::syntax::builtin_effects as be;
+        use crate::types::type_constructor::TypeConstructor as TC;
+
+        let user_declared: HashSet<Symbol> = self.user_declared_effect_names.clone();
+        let mut add_op = |effect: &str, op: &str, scheme: Scheme| {
+            let effect = self.interner.intern(effect);
+            // If a user `effect E { ... }` declaration shares this builtin's
+            // name, the user's declaration is authoritative — don't merge our
+            // builtin op set into theirs (it would falsely require the user's
+            // `handle` blocks to cover ops the user never declared).
+            if user_declared.contains(&effect) {
+                return;
+            }
+            let op = self.interner.intern(op);
+            self.effect_ops_registry
+                .entry(effect)
+                .or_default()
+                .insert(op);
+            self.effect_op_signatures
+                .entry((effect, op))
+                .or_insert(scheme);
+        };
+
+        let unit = || InferType::Con(TC::Unit);
+        let string = || InferType::Con(TC::String);
+        let int = || InferType::Con(TC::Int);
+        let array_string = || InferType::App(TC::Array, vec![InferType::Con(TC::String)]);
+        let pure = InferEffectRow::closed_empty();
+        let poly_print = || Scheme {
+            forall: vec![9000],
+            constraints: vec![],
+            infer_type: InferType::Fun(vec![InferType::Var(9000)], Box::new(unit()), pure.clone()),
+        };
+        let mono = |params: Vec<InferType>, ret: InferType| Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: InferType::Fun(params, Box::new(ret), pure.clone()),
+        };
+
+        add_op(be::CONSOLE, "print", poly_print());
+        add_op(be::CONSOLE, "println", poly_print());
+        add_op(be::FILESYSTEM, "read_file", mono(vec![string()], string()));
+        add_op(
+            be::FILESYSTEM,
+            "read_lines",
+            mono(vec![string()], array_string()),
+        );
+        add_op(
+            be::FILESYSTEM,
+            "write_file",
+            mono(vec![string(), string()], unit()),
+        );
+        add_op(be::STDIN, "read_stdin", mono(vec![], string()));
+        add_op(be::CLOCK, "clock_now", mono(vec![], int()));
+        add_op(be::CLOCK, "now_ms", mono(vec![], int()));
+        // Debug effect: single low-level `trace` operation takes a
+        // pre-formatted String and returns Unit. User-facing `debug`,
+        // `debug_labeled`, and `debug_with` wrappers in `Flow.Debug`
+        // apply `show()` / label formatting / user formatters before
+        // performing this operation. Output goes to stderr via the
+        // DebugTrace primop.
+        add_op(be::DEBUG, "trace", mono(vec![string()], unit()));
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -2295,6 +2591,15 @@ impl Compiler {
                     || !effects.is_empty();
 
                 if has_annotations {
+                    // Proposal 0161 B1: contracts live past the AST expansion
+                    // pass, so eagerly resolve effect-row aliases on the
+                    // captured effect list. This keeps contract consumers
+                    // (E400, E406) seeing the same decomposed row the AST
+                    // gets rewritten to post-expansion.
+                    let expanded_effects: Vec<crate::syntax::effect_expr::EffectExpr> = effects
+                        .iter()
+                        .map(|e| e.expand_aliases(&self.effect_row_aliases))
+                        .collect();
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
@@ -2305,7 +2610,7 @@ impl Compiler {
                             type_params: Statement::function_type_param_names(type_params),
                             params: parameter_types.clone(),
                             ret: return_type.clone(),
-                            effects: effects.clone(),
+                            effects: expanded_effects,
                         },
                     );
                 }
@@ -2511,22 +2816,29 @@ impl Compiler {
         // Exposed import schemes are used as unqualified identifiers by HM inference.
         let mut exposed_schemes = self.build_exposed_hm_schemes(program);
 
-        // Inject primop type schemes so HM can resolve types for functions
-        // that call primops (e.g., lib/Flow/*.flx functions like read_lines).
-        self.inject_primop_hm_schemes(&mut exposed_schemes);
-
-        // Auto-inject all cached Flow module member schemes so that every
-        // module has access to Flow functions without explicit imports
-        // (like Haskell's implicit Prelude import).
+        // Auto-inject only the selected Flow prelude module schemes so that
+        // every module has access to the intended implicit Prelude surface
+        // without leaking non-prelude namespaces like Flow.Array/Flow.Map
+        // into unqualified HM resolution.
+        let flow_prelude_modules: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         for ((mod_name, member), scheme) in &self.cached_member_schemes {
             let mod_str = self.interner.resolve(*mod_name);
-            if mod_str.starts_with("Flow.") {
+            if flow_prelude_modules.contains(&mod_str) {
                 // Only inject if not already present (explicit imports take priority).
                 exposed_schemes
                     .entry(*member)
                     .or_insert_with(|| scheme.clone());
             }
         }
+
+        let flow_primops_loaded = self.flow_primops_schemes_loaded();
+        if flow_primops_loaded {
+            self.validate_flow_primops_covered_schemes(&exposed_schemes);
+        }
+        // Inject primop type schemes only after Flow prelude schemes have had
+        // first refusal. When `Flow.Primops` has been preloaded, names covered
+        // by that module are not supplied by the Rust fallback table.
+        self.inject_primop_hm_schemes(&mut exposed_schemes, flow_primops_loaded);
 
         // Imported instance method schemes are hidden implementation details,
         // but HM needs them in scope so resolved class-call effect propagation
@@ -2551,6 +2863,7 @@ impl Compiler {
             flow_module_symbol,
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+            effect_row_aliases: self.effect_row_aliases.clone(),
         }
     }
 
@@ -2559,11 +2872,119 @@ impl Compiler {
     ///
     /// Only injects schemes for names not already present in the map
     /// (module-defined functions take priority over primops).
-    fn inject_primop_hm_schemes(&mut self, schemes: &mut HashMap<Symbol, Scheme>) {
+    fn flow_primops_schemes_loaded(&mut self) -> bool {
+        let module = self.interner.intern("Flow.Primops");
+        self.cached_member_schemes
+            .keys()
+            .any(|(mod_name, _)| *mod_name == module)
+    }
+
+    fn flow_primops_covers_hm_name(name: &str) -> bool {
+        matches!(
+            name,
+            "print"
+                | "println"
+                | "read_file"
+                | "read_lines"
+                | "write_file"
+                | "read_stdin"
+                | "clock_now"
+                | "now_ms"
+                | "idiv"
+                | "imod"
+                | "index"
+                | "array_get"
+                | "panic"
+                | "__primop_print"
+                | "__primop_println"
+                | "__primop_read_file"
+                | "__primop_read_lines"
+                | "__primop_write_file"
+                | "__primop_read_stdin"
+                | "__primop_clock_now"
+                | "__primop_now_ms"
+                | "__primop_debug_trace"
+        )
+    }
+
+    fn flow_primops_covered_hm_names() -> &'static [&'static str] {
+        &[
+            "print",
+            "println",
+            "read_file",
+            "read_lines",
+            "write_file",
+            "read_stdin",
+            "clock_now",
+            "now_ms",
+            "idiv",
+            "imod",
+            "index",
+            "array_get",
+            "panic",
+            "__primop_print",
+            "__primop_println",
+            "__primop_read_file",
+            "__primop_read_lines",
+            "__primop_write_file",
+            "__primop_read_stdin",
+            "__primop_clock_now",
+            "__primop_now_ms",
+            "__primop_debug_trace",
+        ]
+    }
+
+    fn validate_flow_primops_covered_schemes(&mut self, schemes: &HashMap<Symbol, Scheme>) {
+        for name in Self::flow_primops_covered_hm_names() {
+            let sym = self.interner.intern(name);
+            if schemes.contains_key(&sym) {
+                continue;
+            }
+            let already_reported = self.errors.iter().any(|diag| {
+                diag.title() == "MISSING FLOW PRIMOPS DECLARATION"
+                    && diag.message().is_some_and(|msg| msg.contains(name))
+            });
+            if already_reported {
+                continue;
+            }
+            self.errors.push(
+                Diagnostic::make_error_dynamic(
+                    "E034",
+                    "MISSING FLOW PRIMOPS DECLARATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "`Flow.Primops` is preloaded but does not expose required primop `{name}`."
+                    ),
+                    Some(
+                        "Restore the matching `public intrinsic fn ... = primop ...` declaration in `lib/Flow/Primops.flx`."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    Span::default(),
+                )
+                .with_category(DiagnosticCategory::TypeInference),
+            );
+        }
+    }
+
+    fn inject_primop_hm_schemes(
+        &mut self,
+        schemes: &mut HashMap<Symbol, Scheme>,
+        flow_primops_loaded: bool,
+    ) {
         use crate::types::infer_effect_row::InferEffectRow;
         use crate::types::type_constructor::TypeConstructor as TC;
 
-        let io_sym = self.interner.intern("IO");
+        use crate::syntax::builtin_effects as be;
+
+        // Fine-grained effect labels (Proposal 0161 Phase 1). Primop schemes
+        // emit the decomposed row directly; user-written `with IO` / `with Time`
+        // is expanded to the same row by the alias-seeding pass so row
+        // unification succeeds without coarse↔fine mismatches.
+        let console_sym = self.interner.intern(be::CONSOLE);
+        let filesystem_sym = self.interner.intern(be::FILESYSTEM);
+        let stdin_sym = self.interner.intern(be::STDIN);
+        let clock_sym = self.interner.intern(be::CLOCK);
 
         // Helper closures for common type patterns.
         let con = |tc: TC| InferType::Con(tc);
@@ -2572,7 +2993,10 @@ impl Compiler {
             InferType::Fun(params, Box::new(ret), eff)
         };
         let pure = || InferEffectRow::closed_empty();
-        let io = || InferEffectRow::closed_from_symbols(vec![io_sym]);
+        let console = || InferEffectRow::closed_from_symbols(vec![console_sym]);
+        let filesystem = || InferEffectRow::closed_from_symbols(vec![filesystem_sym]);
+        let stdin = || InferEffectRow::closed_from_symbols(vec![stdin_sym]);
+        let clock = || InferEffectRow::closed_from_symbols(vec![clock_sym]);
         // Type variables for polymorphic primop signatures.
         // IDs are arbitrary — schemes are instantiated with fresh vars at each use.
         let var_a = || InferType::Var(9000);
@@ -2581,25 +3005,73 @@ impl Compiler {
 
         // (name, params, ret, effects, forall_count)
         let primop_sigs: Vec<(&str, Vec<InferType>, InferType, InferEffectRow, usize)> = vec![
-            // I/O
-            ("print", vec![var_a()], con(TC::Unit), io(), 0),
-            ("println", vec![var_a()], con(TC::Unit), io(), 0),
-            ("read_file", vec![con(TC::String)], con(TC::String), io(), 0),
-            ("read_stdin", vec![], con(TC::String), io(), 0),
+            // I/O — decomposed (Proposal 0161 Phase 1)
+            ("print", vec![var_a()], con(TC::Unit), console(), 1),
+            ("println", vec![var_a()], con(TC::Unit), console(), 1),
+            (
+                "read_file",
+                vec![con(TC::String)],
+                con(TC::String),
+                filesystem(),
+                0,
+            ),
+            ("read_stdin", vec![], con(TC::String), stdin(), 0),
             (
                 "read_lines",
                 vec![con(TC::String)],
                 app(TC::Array, vec![con(TC::String)]),
-                io(),
+                filesystem(),
                 0,
             ),
             (
                 "write_file",
                 vec![con(TC::String), con(TC::String)],
                 con(TC::Unit),
-                io(),
+                filesystem(),
                 0,
             ),
+            ("clock_now", vec![], con(TC::Int), clock(), 0),
+            ("now_ms", vec![], con(TC::Int), clock(), 0),
+            ("__primop_print", vec![var_a()], con(TC::Unit), pure(), 1),
+            ("__primop_println", vec![var_a()], con(TC::Unit), pure(), 1),
+            (
+                "__primop_read_file",
+                vec![con(TC::String)],
+                con(TC::String),
+                pure(),
+                0,
+            ),
+            (
+                "__primop_read_lines",
+                vec![con(TC::String)],
+                app(TC::Array, vec![con(TC::String)]),
+                pure(),
+                0,
+            ),
+            (
+                "__primop_write_file",
+                vec![con(TC::String), con(TC::String)],
+                con(TC::Unit),
+                pure(),
+                0,
+            ),
+            ("__primop_read_stdin", vec![], con(TC::String), pure(), 0),
+            ("__primop_clock_now", vec![], con(TC::Int), pure(), 0),
+            ("__primop_now_ms", vec![], con(TC::Int), pure(), 0),
+            // Debug trace intrinsic — takes a pre-formatted String, writes
+            // it to stderr. Pure at the HM level (the Debug effect is
+            // tracked via the `perform Debug.trace(...)` call shape, not
+            // the intrinsic signature itself).
+            (
+                "__primop_debug_trace",
+                vec![con(TC::String)],
+                con(TC::Unit),
+                pure(),
+                0,
+            ),
+            // `panic` stays pure at the HM level — it diverges rather than
+            // returning, so no `with Panic` annotation is required today.
+            // The registry still classifies it as `Panic` for the optimizer.
             ("panic", vec![var_a()], var_b(), pure(), 2),
             // String ops
             (
@@ -2609,41 +3081,13 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            (
-                "join",
-                vec![app(TC::Array, vec![con(TC::String)]), con(TC::String)],
-                con(TC::String),
-                pure(),
-                0,
-            ),
             ("trim", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("upper", vec![con(TC::String)], con(TC::String), pure(), 0),
             ("lower", vec![con(TC::String)], con(TC::String), pure(), 0),
             (
-                "starts_with",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
-                "ends_with",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
-            (
                 "replace",
                 vec![con(TC::String), con(TC::String), con(TC::String)],
                 con(TC::String),
-                pure(),
-                0,
-            ),
-            (
-                "chars",
-                vec![con(TC::String)],
-                app(TC::Array, vec![con(TC::String)]),
                 pure(),
                 0,
             ),
@@ -2654,33 +3098,79 @@ impl Compiler {
                 pure(),
                 0,
             ),
-            (
-                "str_contains",
-                vec![con(TC::String), con(TC::String)],
-                con(TC::Bool),
-                pure(),
-                0,
-            ),
             ("to_string", vec![var_a()], con(TC::String), pure(), 0),
             // Numeric
             ("abs", vec![var_a()], var_a(), pure(), 0),
+            ("sqrt", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("sin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("cos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("exp", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("log", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("floor", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ceil", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("round", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsqrt", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fcos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fexp", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("flog", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ffloor", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fceil", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fround", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("tan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("asin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("acos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("atan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("sinh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("cosh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("tanh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("truncate", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fasin", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("facos", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fatan", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fsinh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("fcosh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftanh", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            ("ftruncate", vec![con(TC::Float)], con(TC::Float), pure(), 0),
+            (
+                "bit_and",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_or",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_xor",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_shl",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
+            (
+                "bit_shr",
+                vec![con(TC::Int), con(TC::Int)],
+                con(TC::Int),
+                pure(),
+                0,
+            ),
             ("min", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("max", vec![var_a(), var_a()], var_a(), pure(), 0),
             ("parse_int", vec![con(TC::String)], con(TC::Int), pure(), 0),
-            (
-                "parse_ints",
-                vec![app(TC::Array, vec![con(TC::String)])],
-                app(TC::Array, vec![con(TC::Int)]),
-                pure(),
-                0,
-            ),
-            (
-                "split_ints",
-                vec![con(TC::String), con(TC::String)],
-                app(TC::Array, vec![con(TC::Int)]),
-                pure(),
-                0,
-            ),
             // Collection ops
             ("len", vec![var_a()], con(TC::Int), pure(), 0),
             ("array_push", vec![var_a(), var_b()], var_a(), pure(), 0),
@@ -2689,14 +3179,6 @@ impl Compiler {
                 "array_slice",
                 vec![var_a(), con(TC::Int), con(TC::Int)],
                 var_a(),
-                pure(),
-                0,
-            ),
-            ("array_reverse", vec![var_a()], var_a(), pure(), 0),
-            (
-                "array_contains",
-                vec![var_a(), var_b()],
-                con(TC::Bool),
                 pure(),
                 0,
             ),
@@ -2713,8 +3195,6 @@ impl Compiler {
             ("is_hash", vec![var_a()], con(TC::Bool), pure(), 0),
             ("is_map", vec![var_a()], con(TC::Bool), pure(), 0),
             // List ops
-            ("to_list", vec![var_a()], var_b(), pure(), 0),
-            ("to_array", vec![var_a()], var_b(), pure(), 0),
             // Map ops
             ("map_keys", vec![var_a()], var_b(), pure(), 0),
             ("map_values", vec![var_a()], var_b(), pure(), 0),
@@ -2760,6 +3240,9 @@ impl Compiler {
         ];
 
         for (name, params, ret, effects, _forall) in primop_sigs {
+            if flow_primops_loaded && Self::flow_primops_covers_hm_name(name) {
+                continue;
+            }
             let sym = self.interner.intern(name);
             // Don't override module-defined functions.
             if schemes.contains_key(&sym) {
@@ -2836,8 +3319,8 @@ impl Compiler {
     }
 
     fn infer_unannotated_function_effects(&mut self, program: &Program) {
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
 
         let seeds = self.collect_function_effect_seeds(program);
         if seeds.is_empty() {
@@ -3231,7 +3714,11 @@ impl Compiler {
                 effects
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
                 let mut effects = self.infer_effects_from_expr(
                     expr,
@@ -3240,6 +3727,15 @@ impl Compiler {
                     io_effect,
                     time_effect,
                 );
+                if let Some(parameter) = parameter {
+                    effects.extend(self.infer_effects_from_expr(
+                        parameter,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
                 effects.remove(effect);
                 for arm in arms {
                     effects.extend(self.infer_effects_from_expr(
@@ -3251,6 +3747,9 @@ impl Compiler {
                     ));
                 }
                 effects
+            }
+            Expression::Sealing { expr, .. } => {
+                self.infer_effects_from_expr(expr, current_module, inferred, io_effect, time_effect)
             }
 
             Expression::NamedConstructor { fields, .. } => {
@@ -3300,8 +3799,8 @@ impl Compiler {
         arguments: &[Expression],
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
-        io_effect: Symbol,
-        time_effect: Symbol,
+        _io_effect: Symbol,
+        _time_effect: Symbol,
     ) -> HashSet<Symbol> {
         let mut effects = HashSet::new();
         let arity = arguments.len();
@@ -3343,10 +3842,13 @@ impl Compiler {
                 }
                 if !resolved {
                     let name = self.sym(*name);
-                    if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
-                        effects.insert(io_effect);
-                    } else if matches!(name, "now" | "clock_now" | "now_ms" | "time") {
-                        effects.insert(time_effect);
+                    if let Some(primop) = Self::resolve_library_primop(name, arity)
+                        .or_else(|| crate::core::CorePrimOp::from_name(name, arity))
+                        && let Some(label) =
+                            crate::syntax::builtin_effects::primop_fine_effect_label(primop)
+                        && label != crate::syntax::builtin_effects::PANIC
+                    {
+                        effects.insert(self.interner.intern(label));
                     }
                 }
             }
@@ -3589,8 +4091,8 @@ impl Compiler {
 
     fn validate_top_level_effectful_code(&mut self, program: &Program, has_main: bool) {
         let inferred = self.contract_effect_sets();
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
         let mut missing_root_reported = false;
 
         for statement in &program.statements {
@@ -3682,8 +4184,18 @@ impl Compiler {
             return;
         }
         let main_symbol = self.interner.intern("main");
-        let io_effect = self.interner.intern("IO");
-        let time_effect = self.interner.intern("Time");
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        // Proposal 0161 B3: the decomposed labels are also root-dischargeable,
+        // since they are exactly what `IO` / `Time` expand to.
+        let console_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::CONSOLE);
+        let filesystem_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::FILESYSTEM);
+        let stdin_effect = self.interner.intern(crate::syntax::builtin_effects::STDIN);
+        let clock_effect = self.interner.intern(crate::syntax::builtin_effects::CLOCK);
         let inferred = self.contract_effect_sets();
 
         let mut main_body = None;
@@ -3701,9 +4213,18 @@ impl Compiler {
 
         let residual =
             self.infer_effects_from_block(main_body, None, &inferred, io_effect, time_effect);
+        let debug_effect = self.interner.intern(crate::syntax::builtin_effects::DEBUG);
         let mut disallowed: Vec<Symbol> = residual
             .into_iter()
-            .filter(|effect| *effect != io_effect && *effect != time_effect)
+            .filter(|effect| {
+                *effect != io_effect
+                    && *effect != time_effect
+                    && *effect != console_effect
+                    && *effect != filesystem_effect
+                    && *effect != stdin_effect
+                    && *effect != clock_effect
+                    && *effect != debug_effect
+            })
             .collect();
         if disallowed.is_empty() {
             return;
@@ -3950,6 +4471,9 @@ impl Compiler {
             function_name,
             arity,
         };
+        if self.sym(function_name).starts_with("__primop_") {
+            return Vec::new();
+        }
         let inferred = self
             .inferred_function_effects
             .get(&key)
@@ -3959,15 +4483,35 @@ impl Compiler {
             return Vec::new();
         }
 
-        let declared: HashSet<Symbol> = declared_effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect();
+        let mut declared: HashSet<Symbol> = HashSet::new();
+        for effect in declared_effects {
+            for name in effect.normalized_names() {
+                declared.insert(name);
+                if let Some(expanded) = self.effect_row_aliases.get(&name) {
+                    declared.extend(expanded.normalized_names());
+                }
+            }
+        }
         let mut missing = Vec::new();
 
         for effect in inferred {
-            let name = self.sym(effect);
-            if matches!(name, "IO" | "Time") && !declared.contains(&effect) {
+            let effect_name = self.sym(effect);
+            if effect_name == crate::syntax::builtin_effects::PANIC {
+                continue;
+            }
+            let function_display = self.sym(function_name);
+            if (function_display == "main" || function_display.starts_with("test_"))
+                && matches!(
+                    effect_name,
+                    crate::syntax::builtin_effects::CONSOLE
+                        | crate::syntax::builtin_effects::FILESYSTEM
+                        | crate::syntax::builtin_effects::STDIN
+                        | crate::syntax::builtin_effects::CLOCK
+                )
+            {
+                continue;
+            }
+            if !declared.contains(&effect) {
                 missing.push(effect);
             }
         }
@@ -4060,9 +4604,24 @@ impl Compiler {
             return Some(contract);
         }
 
-        self.cached_member_runtime_contracts
-            .iter()
-            .find_map(|((_, member), contract)| (*member == function_name).then_some(contract))
+        // Resolve unqualified names with "explicit imports beat prelude" semantics:
+        // a user-written `import Flow.Array exposing (..)` shadows the auto-injected
+        // `Flow.List` for ambiguous names like `sum` (defined in both modules).
+        // Without this, HashMap iteration order would non-deterministically pick
+        // either module's contract.
+        let mut prelude_match: Option<&FunctionContract> = None;
+        for ((module, member), contract) in &self.cached_member_runtime_contracts {
+            if *member != function_name || !self.imported_modules.contains(module) {
+                continue;
+            }
+            let module_str = self.interner.try_resolve(*module).unwrap_or("");
+            if FLOW_PRELUDE_MODULE_NAMES.contains(&module_str) {
+                prelude_match = Some(contract);
+            } else {
+                return Some(contract);
+            }
+        }
+        prelude_match
     }
 
     pub(super) fn module_member_function_is_public(
@@ -4165,7 +4724,7 @@ impl Compiler {
         self.effect_ops_registry.get(&effect)
     }
 
-    pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&TypeExpr> {
+    pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&Scheme> {
         self.effect_op_signatures.get(&(effect, op))
     }
 
@@ -4471,14 +5030,7 @@ impl Compiler {
         // qualified/alias-qualified only.
         let mut globals = self.symbol_table.global_definitions();
         globals.sort_by_key(|&(_, idx)| idx);
-        let flow_prelude_modules = [
-            "Flow.Option",
-            "Flow.List",
-            "Flow.String",
-            "Flow.Numeric",
-            "Flow.IO",
-            "Flow.Assert",
-        ];
+        let flow_prelude_modules: &[&str] = FLOW_PRELUDE_MODULE_NAMES;
         for (sym, idx) in globals {
             let name = self
                 .interner
@@ -4543,6 +5095,8 @@ impl Compiler {
                 && stats.drops == 0
                 && stats.reuses == 0
                 && stats.drop_specs == 0
+                && stats.performs == 0
+                && stats.handles == 0
                 && def.fip.is_none()
             {
                 continue;
@@ -4553,7 +5107,22 @@ impl Compiler {
                 Some(crate::syntax::statement::FipAnnotation::Fbip) => " @fbip",
                 None => "",
             };
-            out.push_str(&format!("── fn {}{} ──\n", name, fip_label));
+            let effect_label = if stats.performs > 0 || stats.handles > 0 {
+                let mut tag = String::from(" [");
+                let mut parts = Vec::new();
+                if stats.performs > 0 {
+                    parts.push(format!("yield×{}", stats.performs));
+                }
+                if stats.handles > 0 {
+                    parts.push(format!("handle×{}", stats.handles));
+                }
+                tag.push_str(&parts.join(" "));
+                tag.push(']');
+                tag
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("── fn {}{}{} ──\n", name, fip_label, effect_label));
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
@@ -4622,6 +5191,9 @@ impl Compiler {
             total.reuses += stats.reuses;
             total.drop_specs += stats.drop_specs;
             total.allocs += stats.allocs;
+            total.performs += stats.performs;
+            total.handles += stats.handles;
+            total.handler_arms += stats.handler_arms;
         }
 
         out.push_str(&format!(
@@ -4708,9 +5280,14 @@ impl Compiler {
     }
 
     fn is_expression_level_e430(diag: &Diagnostic) -> bool {
+        // The message prefix distinguishes expression-level E430 (recursive
+        // walker emission) from binding-level E430 (scheme-level emission).
+        // Proposal 0167 Part 1 added "at the {boundary}" to the message, so
+        // both "this expression." (legacy) and "this expression at" (new)
+        // must match.
         diag.code() == Some("E430")
             && diag.message().is_some_and(|msg| {
-                msg.starts_with("Could not determine a concrete type for this expression.")
+                msg.starts_with("Could not determine a concrete type for this expression")
             })
     }
 
@@ -5019,6 +5596,7 @@ impl Compiler {
                         .map(|name| self.interner.intern(name))
                         .collect(),
                     op_names: desc.op_names.clone(),
+                    has_state: desc.has_state,
                     is_discard: desc.is_discard,
                 },
             )),
@@ -5440,68 +6018,18 @@ impl Compiler {
     pub(super) fn replace_last_pop_with_return(&mut self) {
         let scope = &self.scopes[self.scope_index];
         let pop_pos = scope.last_instruction.position;
-        let prev_op = scope.previous_instruction.opcode;
-        let prev_pos = scope.previous_instruction.position;
-
-        // Superinstruction: GetLocal(n) + Pop → ReturnLocal(n)
-        // Only safe when the previous instruction is adjacent AND no jump targets
-        // pop_pos (which would land on the operand byte after fusion).
-        let adjacent = match prev_op {
-            Some(OpCode::OpGetLocal) => prev_pos + 2 == pop_pos,
-            Some(
-                OpCode::OpGetLocal0
-                | OpCode::OpGetLocal1
-                | OpCode::OpConsumeLocal0
-                | OpCode::OpConsumeLocal1,
-            ) => prev_pos + 1 == pop_pos,
-            Some(OpCode::OpConsumeLocal) => prev_pos + 2 == pop_pos,
-            _ => false,
-        };
-
-        if adjacent && !self.has_jump_target_at(pop_pos) {
-            match prev_op {
-                Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
-                    let local_idx =
-                        self.scopes[self.scope_index].instructions[prev_pos + 1] as usize;
-                    self.replace_instruction(prev_pos, make(OpCode::OpReturnLocal, &[local_idx]));
-                    self.scopes[self.scope_index].instructions.truncate(pop_pos);
-                    while let Some(last) = self.scopes[self.scope_index].locations.last() {
-                        if last.offset >= pop_pos {
-                            self.scopes[self.scope_index].locations.pop();
-                        } else {
-                            break;
-                        }
-                    }
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
-                    self.scopes[self.scope_index].instructions[prev_pos] =
-                        OpCode::OpReturnLocal as u8;
-                    self.scopes[self.scope_index].instructions[pop_pos] = 0u8;
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
-                    self.scopes[self.scope_index].instructions[prev_pos] =
-                        OpCode::OpReturnLocal as u8;
-                    self.scopes[self.scope_index].instructions[pop_pos] = 1u8;
-                    self.scopes[self.scope_index].last_instruction.opcode =
-                        Some(OpCode::OpReturnLocal);
-                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        // Default: just replace Pop with ReturnValue
-        self.replace_instruction(pop_pos, make(OpCode::OpReturnValue, &[]));
+        self.scopes[self.scope_index].instructions.truncate(pop_pos);
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&make(OpCode::OpReturnCheck, &[]));
+        self.scopes[self.scope_index]
+            .instructions
+            .extend_from_slice(&make(OpCode::OpReturnValue, &[]));
+        self.scopes[self.scope_index]
+            .locations
+            .retain(|location| location.offset < pop_pos);
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
+        self.scopes[self.scope_index].last_instruction.position = pop_pos + 1;
     }
 
     pub(super) fn replace_last_local_read_with_return(&mut self) -> bool {
@@ -5761,23 +6289,29 @@ impl Compiler {
         None
     }
 
-    /// Try to resolve a perform target to an evidence local variable.
+    /// Try to resolve a perform target to an evidence binding.
     ///
-    /// Returns `Some(local_index)` if the target handler has evidence locals
-    /// for this operation, enabling direct `OpGetLocal` + `OpCall` dispatch.
-    pub(super) fn resolve_evidence_local(&self, effect: Symbol, op: Symbol) -> Option<usize> {
-        for scope in self.handler_scopes.iter().rev() {
-            if scope.effect == effect {
-                if let (Some(ev_locals), Some(arm_idx)) = (
-                    &scope.evidence_locals,
-                    scope.ops.iter().position(|&o| o == op),
-                ) {
-                    return Some(ev_locals[arm_idx]);
-                }
-                return None;
-            }
-        }
-        None
+    /// Returns the resolved binding for the synthetic `__ev_<Effect>_<Op>`
+    /// symbol that holds the arm closure. When the matching handler scope sits
+    /// in an enclosing function frame, `SymbolTable::resolve` promotes the
+    /// binding to `SymbolScope::Free` so the nested closure captures it via
+    /// the normal free-variable mechanism instead of trying to read an outer
+    /// frame's local index directly.
+    pub(super) fn resolve_evidence_binding(
+        &mut self,
+        effect: Symbol,
+        op: Symbol,
+    ) -> Option<crate::compiler::binding::Binding> {
+        let ev_symbol = {
+            let scope = self
+                .handler_scopes
+                .iter()
+                .rev()
+                .find(|s| s.effect == effect)?;
+            let arm_idx = scope.ops.iter().position(|&o| o == op)?;
+            scope.evidence_symbols.as_ref()?.get(arm_idx).copied()?
+        };
+        self.symbol_table.resolve(ev_symbol)
     }
 
     /// Emit bytecode that pushes an identity closure `fn(x) -> x` onto the stack.
@@ -5802,6 +6336,38 @@ impl Compiler {
         self.emit(OpCode::OpClosure, &[fn_idx, 0]);
     }
 
+    /// Effect-availability predicate consulted during the AST → bytecode
+    /// pipeline (expression lowering, CFG primop emission, etc).
+    ///
+    /// **Three-way invariant** (proposal 0171, Track 4). Three passes ask
+    /// "is effect E available here?" against three distinct data shapes:
+    ///
+    /// 1. **HM inference** — row algebra over `InferEffectRow`, source of
+    ///    truth during type checking. Lives in
+    ///    [`crate::ast::type_infer::effects`].
+    /// 2. **CFG pre-validator** — `CompilerPhase::is_effect_in_declared`
+    ///    in `statement.rs`, declared-only static check that intentionally
+    ///    ignores synthesized handlers. Pre-pass safety gate.
+    /// 3. **This predicate** — runtime view that walks
+    ///    `current_function_effects()` *and* `handled_effects`. Used by
+    ///    the lowering / bytecode emission paths.
+    ///
+    /// The directional contract: if HM unification succeeds for a fixture
+    /// **and** the pre-validator accepts it, this predicate must accept
+    /// the same effect. The pre-validator may reject earlier than HM /
+    /// lowering would (it is conservative on declared-only state); it
+    /// must never accept what this predicate later rejects. The 0165 bug
+    /// where CFG pre-validation accepted a routed `perform` that lowering
+    /// then rejected with E400 was a violation of this contract; it was
+    /// closed by routing `Expression::Perform` through the same
+    /// pre-validator entry that direct builtin calls use (see
+    /// `expr_has_effect_row_error` in `statement.rs`).
+    ///
+    /// `current_function_effects()` returning `None` means we are at
+    /// top-level / not inside a tracked function; the predicate returns
+    /// `true` so module-level effectful expressions are not policed by
+    /// this gate. `Some(&[])` means a function explicitly declared zero
+    /// effects, which correctly returns `false` for any required effect.
     pub(super) fn is_effect_available(&self, required: Symbol) -> bool {
         if self.current_function_effects().is_none() && self.handled_effects.is_empty() {
             return true;
@@ -5811,18 +6377,21 @@ impl Compiler {
             || self.handled_effects.contains(&required)
     }
 
+    /// Name-keyed view onto [`Self::is_effect_available`].
+    ///
+    /// Resolves the name to a `Symbol` via the read-only interner lookup
+    /// and delegates. If the name has never been interned, no declared
+    /// effect or handler could match it, so the predicate returns
+    /// `false` directly. Keeping a single source-of-truth implementation
+    /// avoids the drift this track was created to prevent.
     pub(super) fn is_effect_available_name(&self, required_name: &str) -> bool {
         if self.current_function_effects().is_none() && self.handled_effects.is_empty() {
             return true;
         }
-        self.current_function_effects().is_some_and(|effects| {
-            effects
-                .iter()
-                .any(|effect| self.sym(*effect) == required_name)
-        }) || self
-            .handled_effects
-            .iter()
-            .any(|handled| self.sym(*handled) == required_name)
+        match self.interner.lookup(required_name) {
+            Some(symbol) => self.is_effect_available(symbol),
+            None => false,
+        }
     }
 
     pub(super) fn current_function_captured_locals(&self) -> Option<&HashSet<usize>> {
@@ -5847,14 +6416,13 @@ impl Compiler {
     }
 
     pub(super) fn resolve_library_primop(
-        name: &str,
-        arity: usize,
+        _name: &str,
+        _arity: usize,
     ) -> Option<crate::core::CorePrimOp> {
-        match (name.rsplit('.').next().unwrap_or(name), arity) {
-            ("sort", 1) => Some(crate::core::CorePrimOp::Sort),
-            ("sort_by", 2) => Some(crate::core::CorePrimOp::SortBy),
-            _ => None,
-        }
+        // No library-shaped functions currently lower to a primop. Kept as a
+        // stable hook so future `Flow.*` → primop shortcuts can be added
+        // without changing call sites.
+        None
     }
 }
 

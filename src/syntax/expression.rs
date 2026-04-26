@@ -60,6 +60,45 @@ impl Default for ExprIdGen {
     }
 }
 
+impl ExprIdGen {
+    /// Build an allocator that resumes past the highest [`ExprId`] present in
+    /// `program`. Use this when synthesizing AST nodes after parsing so the
+    /// new nodes cannot collide with any parser-assigned id (Proposal 0167
+    /// Part 6).
+    ///
+    /// Returning an `ExprIdGen` — rather than mutating a parameter — makes
+    /// the call site's intent explicit: "allocate synthetic ids **past
+    /// everything the parser produced**".
+    pub fn resuming_past_program(program: &crate::syntax::program::Program) -> Self {
+        Self::resuming_past_statements(&program.statements)
+    }
+
+    /// Like [`Self::resuming_past_program`], but accepts a bare statement
+    /// slice. Prefer this when the caller already has the slice in hand.
+    pub fn resuming_past_statements(statements: &[crate::syntax::statement::Statement]) -> Self {
+        let mut scanner = MaxExprIdScanner { max: 0 };
+        for stmt in statements {
+            crate::ast::visit::walk_stmt(&mut scanner, stmt);
+        }
+        Self::from_counter(scanner.max.saturating_add(1))
+    }
+}
+
+/// Internal visitor for [`ExprIdGen::resuming_past_program`].
+struct MaxExprIdScanner {
+    max: u32,
+}
+
+impl<'ast> crate::ast::visit::Visitor<'ast> for MaxExprIdScanner {
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        let ExprId(n) = expr.expr_id();
+        if n > self.max {
+            self.max = n;
+        }
+        crate::ast::visit::walk_expr(self, expr);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StringPart {
     Literal(String),
@@ -151,7 +190,7 @@ pub struct MatchArm {
 /// One arm inside a `handle` block.
 ///
 /// ```flux
-/// handle Console {
+/// expr handle Console {
 ///     print(resume, msg) -> body
 /// //         ^^^^^^  ^^^
 /// //   resume_param  params[0]
@@ -325,10 +364,21 @@ pub enum Expression {
         id: ExprId,
     },
     /// `expr handle Effect { op(resume, args) -> body, ... }` — handles an effect.
+    ///
+    /// `parameter` is reserved for proposal 0169's parameterized handler
+    /// syntax: `expr handle Effect(init) { ... }`.
     Handle {
         expr: Box<Expression>,
         effect: Identifier,
+        parameter: Option<Box<Expression>>,
         arms: Vec<HandleArm>,
+        span: Span,
+        id: ExprId,
+    },
+    /// `expr sealing { Effect | ... }` — compile-time effect capability restriction.
+    Sealing {
+        expr: Box<Expression>,
+        allowed: Vec<EffectExpr>,
         span: Span,
         id: ExprId,
     },
@@ -524,9 +574,17 @@ impl fmt::Display for Expression {
                 )
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
-                write!(f, "{} handle {} {{", expr, effect)?;
+                write!(f, "{} handle {}", expr, effect)?;
+                if let Some(parameter) = parameter {
+                    write!(f, "({})", parameter)?;
+                }
+                write!(f, " {{")?;
                 for arm in arms {
                     let param: Vec<String> = std::iter::once(arm.resume_param)
                         .chain(arm.params.iter().copied())
@@ -541,6 +599,10 @@ impl fmt::Display for Expression {
                     )?;
                 }
                 write!(f, " }}")
+            }
+            Expression::Sealing { expr, allowed, .. } => {
+                let effects: Vec<String> = allowed.iter().map(ToString::to_string).collect();
+                write!(f, "{} sealing {{ {} }}", expr, effects.join(" | "))
             }
             Expression::NamedConstructor { name, fields, .. } => {
                 write!(f, "{} {{", name)?;
@@ -603,6 +665,7 @@ impl Expression {
             | Expression::Cons { id, .. }
             | Expression::Perform { id, .. }
             | Expression::Handle { id, .. }
+            | Expression::Sealing { id, .. }
             | Expression::NamedConstructor { id, .. }
             | Expression::Spread { id, .. } => *id,
         }
@@ -638,6 +701,7 @@ impl Expression {
             Expression::Cons { span, .. } => *span,
             Expression::Perform { span, .. } => *span,
             Expression::Handle { span, .. } => *span,
+            Expression::Sealing { span, .. } => *span,
             Expression::NamedConstructor { span, .. } => *span,
             Expression::Spread { span, .. } => *span,
         }
@@ -856,13 +920,21 @@ impl Expression {
                 )
             }
             Expression::Handle {
-                expr, effect, arms, ..
+                expr,
+                effect,
+                parameter,
+                arms,
+                ..
             } => {
                 let mut out = format!(
-                    "{} handle {} {{",
+                    "{} handle {}",
                     expr.display_with(interner),
                     interner.resolve(*effect)
                 );
+                if let Some(parameter) = parameter {
+                    out.push_str(&format!("({})", parameter.display_with(interner)));
+                }
+                out.push_str(" {");
                 for arm in arms {
                     let mut param_names: Vec<&str> = vec![interner.resolve(arm.resume_param)];
                     for p in &arm.params {
@@ -877,6 +949,15 @@ impl Expression {
                 }
                 out.push_str(" }");
                 out
+            }
+            Expression::Sealing { expr, allowed, .. } => {
+                let effects: Vec<String> =
+                    allowed.iter().map(|e| e.display_with(interner)).collect();
+                format!(
+                    "{} sealing {{ {} }}",
+                    expr.display_with(interner),
+                    effects.join(" | ")
+                )
             }
             Expression::NamedConstructor { name, fields, .. } => {
                 let mut out = format!("{} {{", interner.resolve(*name));

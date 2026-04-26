@@ -14,7 +14,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
-        expression::{ExprId, Expression},
+        expression::{ExprIdGen, Expression},
         interner::Interner,
         statement::{FunctionTypeParam, Statement},
         type_class::ClassConstraint,
@@ -41,6 +41,13 @@ pub fn generate_dispatch_functions(
     // Collect instance method info grouped by (class_name, method_name)
     let mut dispatch_table: HashSet<(Identifier, Identifier)> = HashSet::new();
 
+    // Single source of truth for synthetic [`ExprId`] allocation
+    // (Proposal 0167 Part 6). Resuming past the max id already present in
+    // `statements` guarantees no collision with parser-assigned ids, and
+    // the same allocator threaded through every synthesis site below
+    // guarantees no collision *between* generated nodes either.
+    let mut synth_expr_ids = ExprIdGen::resuming_past_statements(statements);
+
     generate_from_statements(
         statements,
         class_env,
@@ -55,6 +62,7 @@ pub fn generate_dispatch_functions(
             &mut generated,
             &mut dispatch_table,
             &mut reserved_names,
+            &mut synth_expr_ids,
         );
     }
 
@@ -81,6 +89,7 @@ pub fn generate_dispatch_functions(
                 class_def,
                 method_sig,
                 interner,
+                &mut synth_expr_ids,
             ));
         }
     }
@@ -143,6 +152,7 @@ fn generate_builtin_instance_functions(
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
     reserved_names: &mut HashSet<Identifier>,
+    builtin_expr_ids: &mut ExprIdGen,
 ) {
     for instance in &class_env.instances {
         if instance.span != Span::default() || !instance.method_names.is_empty() {
@@ -161,9 +171,13 @@ fn generate_builtin_instance_functions(
 
         for method_sig in &class_def.methods {
             let method_name_str = interner.resolve(method_sig.name).to_string();
-            let Some(body) =
-                builtin_method_body(interner, &class_name_str, &type_name, &method_name_str)
-            else {
+            let Some(body) = builtin_method_body(
+                interner,
+                builtin_expr_ids,
+                &class_name_str,
+                &type_name,
+                &method_name_str,
+            ) else {
                 continue;
             };
 
@@ -189,6 +203,7 @@ fn generate_builtin_instance_functions(
 
             generated.push(Statement::Function {
                 is_public: false,
+                intrinsic: None,
                 fip: None,
                 name: mangled_sym,
                 type_params: vec![],
@@ -259,6 +274,7 @@ fn generate_default_method_functions(
                             // implementations at all for this method.
                             generated.push(Statement::Function {
                                 is_public: false,
+                                intrinsic: None,
                                 fip: None,
                                 name: method.name,
                                 type_params: vec![],
@@ -414,6 +430,7 @@ fn generate_from_statements(
 
                     let fn_stmt = Statement::Function {
                         is_public: false,
+                        intrinsic: None,
                         fip: None,
                         name: mangled_sym,
                         type_params,
@@ -473,73 +490,163 @@ fn context_dict_param_names(
 
 fn builtin_method_body(
     interner: &mut Interner,
+    id_gen: &mut ExprIdGen,
     class_name: &str,
     type_name: &str,
     method_name: &str,
 ) -> Option<Block> {
+    fn var(id_gen: &mut ExprIdGen, name: Identifier, span: Span) -> Expression {
+        Expression::Identifier {
+            name,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn int(id_gen: &mut ExprIdGen, value: i64, span: Span) -> Expression {
+        Expression::Integer {
+            value,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn infix(
+        id_gen: &mut ExprIdGen,
+        left: Expression,
+        operator: &str,
+        right: Expression,
+        span: Span,
+    ) -> Expression {
+        Expression::Infix {
+            left: Box::new(left),
+            operator: operator.to_string(),
+            right: Box::new(right),
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
+    fn ret(expression: Expression, span: Span) -> Block {
+        Block {
+            statements: vec![Statement::Expression {
+                expression,
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        }
+    }
+
+    fn call(
+        id_gen: &mut ExprIdGen,
+        interner: &mut Interner,
+        name: &str,
+        arguments: Vec<Expression>,
+        span: Span,
+    ) -> Expression {
+        Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name: interner.intern(name),
+                span,
+                id: id_gen.next_id(),
+            }),
+            arguments,
+            span,
+            id: id_gen.next_id(),
+        }
+    }
+
     let span = Span::default();
     let x = interner.intern("__x0");
     let y = interner.intern("__x1");
-    let id = ExprId::UNSET;
-
-    let var = |name: Identifier| Expression::Identifier { name, span, id };
-    let int = |value| Expression::Integer { value, span, id };
-    let infix = |left, operator: &str, right| Expression::Infix {
-        left: Box::new(left),
-        operator: operator.to_string(),
-        right: Box::new(right),
-        span,
-        id,
-    };
-    let mut call = |name: &str, arguments: Vec<Expression>| Expression::Call {
-        function: Box::new(Expression::Identifier {
-            name: interner.intern(name),
-            span,
-            id,
-        }),
-        arguments,
-        span,
-        id,
-    };
-    let ret = |expression| Block {
-        statements: vec![Statement::Expression {
-            expression,
-            has_semicolon: false,
-            span,
-        }],
-        span,
-    };
 
     let expression = match (class_name, type_name, method_name) {
-        ("Eq", _, "eq") => infix(var(x), "==", var(y)),
-        ("Eq", _, "neq") => infix(var(x), "!=", var(y)),
-        ("Ord", _, "compare") => Expression::If {
-            condition: Box::new(infix(var(x), "<", var(y))),
-            consequence: ret(int(-1)),
-            alternative: Some(ret(Expression::If {
-                condition: Box::new(infix(var(x), ">", var(y))),
-                consequence: ret(int(1)),
-                alternative: Some(ret(int(0))),
+        ("Eq", _, "eq") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "==", rhs, span)
+        }
+        ("Eq", _, "neq") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "!=", rhs, span)
+        }
+        ("Ord", _, "compare") => {
+            let lt_lhs = var(id_gen, x, span);
+            let lt_rhs = var(id_gen, y, span);
+            let gt_lhs = var(id_gen, x, span);
+            let gt_rhs = var(id_gen, y, span);
+            Expression::If {
+                condition: Box::new(infix(id_gen, lt_lhs, "<", lt_rhs, span)),
+                consequence: ret(int(id_gen, -1, span), span),
+                alternative: Some(ret(
+                    Expression::If {
+                        condition: Box::new(infix(id_gen, gt_lhs, ">", gt_rhs, span)),
+                        consequence: ret(int(id_gen, 1, span), span),
+                        alternative: Some(ret(int(id_gen, 0, span), span)),
+                        span,
+                        id: id_gen.next_id(),
+                    },
+                    span,
+                )),
                 span,
-                id,
-            })),
-            span,
-            id,
-        },
-        ("Ord", _, "lt") => infix(var(x), "<", var(y)),
-        ("Ord", _, "lte") => infix(var(x), "<=", var(y)),
-        ("Ord", _, "gt") => infix(var(x), ">", var(y)),
-        ("Ord", _, "gte") => infix(var(x), ">=", var(y)),
-        ("Num", _, "add") => infix(var(x), "+", var(y)),
-        ("Num", _, "sub") => infix(var(x), "-", var(y)),
-        ("Num", _, "mul") => infix(var(x), "*", var(y)),
-        ("Num", _, "div") => infix(var(x), "/", var(y)),
-        ("Show", _, "show") => call("to_string", vec![var(x)]),
-        ("Semigroup", "String", "append") => call("string_concat", vec![var(x), var(y)]),
+                id: id_gen.next_id(),
+            }
+        }
+        ("Ord", _, "lt") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "<", rhs, span)
+        }
+        ("Ord", _, "lte") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "<=", rhs, span)
+        }
+        ("Ord", _, "gt") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, ">", rhs, span)
+        }
+        ("Ord", _, "gte") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, ">=", rhs, span)
+        }
+        ("Num", _, "add") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "+", rhs, span)
+        }
+        ("Num", _, "sub") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "-", rhs, span)
+        }
+        ("Num", _, "mul") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "*", rhs, span)
+        }
+        ("Num", _, "div") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            infix(id_gen, lhs, "/", rhs, span)
+        }
+        ("Show", _, "show") => {
+            let arg = var(id_gen, x, span);
+            call(id_gen, interner, "to_string", vec![arg], span)
+        }
+        ("Semigroup", "String", "append") => {
+            let lhs = var(id_gen, x, span);
+            let rhs = var(id_gen, y, span);
+            call(id_gen, interner, "string_concat", vec![lhs, rhs], span)
+        }
         _ => return None,
     };
 
-    Some(ret(expression))
+    Some(ret(expression, span))
 }
 
 fn build_instance_function_type_params(
@@ -721,6 +828,7 @@ fn generate_polymorphic_stub(
     class_def: &crate::types::class_env::ClassDef,
     method_sig: &crate::types::class_env::MethodSig,
     interner: &mut Interner,
+    synth_expr_ids: &mut ExprIdGen,
 ) -> Statement {
     // Use the class's type parameter plus any per-method type params.
     let mut type_params: Vec<FunctionTypeParam> = class_def
@@ -751,13 +859,15 @@ fn generate_polymorphic_stub(
     let return_type = Some(method_sig.return_type.clone());
 
     let span = Span::default();
-    let id = ExprId::UNSET;
 
     // Body: panic with a descriptive message. This stub exists only to give
     // HM inference a properly typed function signature. Monomorphic calls are
     // resolved directly to __tc_* mangled functions during Core lowering, and
     // polymorphic calls go through dictionary elaboration. The stub body is
     // never executed in well-typed programs.
+    //
+    // Each nested AST node receives its own fresh id so HM inference's
+    // expr-type map keys stay unique (Proposal 0167 Part 6).
     let method_display = interner.resolve(method_name).to_string();
     let class_display = interner.resolve(class_def.name).to_string();
     let panic_sym = interner.intern("panic");
@@ -765,26 +875,45 @@ fn generate_polymorphic_stub(
         function: Box::new(Expression::Identifier {
             name: panic_sym,
             span,
-            id,
+            id: synth_expr_ids.next_id(),
         }),
         arguments: vec![Expression::String {
             value: format!("No instance of {class_display}.{method_display} for the given type"),
             span,
-            id,
+            id: synth_expr_ids.next_id(),
         }],
         span,
-        id,
+        id: synth_expr_ids.next_id(),
     };
+
+    // The stub body unconditionally calls `panic(...)`, which carries the
+    // `Panic` effect. The class method's declared row does not include
+    // `Panic` (it is a no-instance fallback, never executed), so we add it
+    // to the synthesized stub's row to satisfy the effect checker. Without
+    // this, classes whose methods declare a non-empty effect row (e.g.
+    // `with Audit`) would emit a spurious E400 for the synthesized stub.
+    let mut stub_effects = method_sig.effects.clone();
+    let panic_effect_sym = interner.intern(crate::syntax::builtin_effects::PANIC);
+    let already_has_panic = stub_effects
+        .iter()
+        .any(|effect| effect.normalized_names().contains(&panic_effect_sym));
+    if !already_has_panic {
+        stub_effects.push(crate::syntax::effect_expr::EffectExpr::Named {
+            name: panic_effect_sym,
+            span,
+        });
+    }
 
     Statement::Function {
         is_public: false,
+        intrinsic: None,
         fip: None,
         name: method_name,
         type_params,
         parameters: params,
         parameter_types,
         return_type,
-        effects: method_sig.effects.clone(),
+        effects: stub_effects,
         body: Block {
             statements: vec![Statement::Expression {
                 expression: body_expr,

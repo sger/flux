@@ -1,3 +1,25 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_match_brace.flx
+// error[E034]: Missing Match Body
+//
+// Expected `{` to begin match arms.
+//
+//   examples/parser_errors/missing_match_brace.flx:30:9
+//    |
+// 30 |         1 -> "one",
+//    |         ^
+//
+// Hint:
+//   Match expressions use `match value { pattern -> body, ... }`.
+//
+// Note:
+//   while parsing function `main` > `match` expression
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `{` in match expression.
 //
 // Expected: contextual error about match block.
@@ -9,3 +31,4 @@ fn main() -> Unit {
         _ -> "other",
     }
 }
+

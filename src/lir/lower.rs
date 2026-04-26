@@ -66,11 +66,17 @@ const OBJ_TAG_CLOSURE: u8 = 5;
 fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
     // Strip module prefix (e.g. "Flow.List.first" → "first")
     let short = name.rsplit('.').next().unwrap_or(name);
-    match (short, arity) {
-        ("sort", 1) => Some(CorePrimOp::Sort),
-        ("sort_by", 2) => Some(CorePrimOp::SortBy),
-        ("safe_div", 2) => Some(CorePrimOp::SafeDiv),
-        ("safe_mod", 2) => Some(CorePrimOp::SafeMod),
+    match (name, short, arity) {
+        ("Flow.Map.get", _, 2) | (_, "map_get", 2) => Some(CorePrimOp::HamtGet),
+        ("Flow.Map.set", _, 3) | (_, "map_set", 3) => Some(CorePrimOp::HamtSet),
+        ("Flow.Map.delete", _, 2) | (_, "map_delete", 2) => Some(CorePrimOp::HamtDelete),
+        ("Flow.Map.merge", _, 2) | (_, "map_merge", 2) => Some(CorePrimOp::HamtMerge),
+        ("Flow.Map.keys", _, 1) | (_, "map_keys", 1) => Some(CorePrimOp::HamtKeys),
+        ("Flow.Map.values", _, 1) | (_, "map_values", 1) => Some(CorePrimOp::HamtValues),
+        ("Flow.Map.size", _, 1) | (_, "map_size", 1) => Some(CorePrimOp::HamtSize),
+        ("Flow.Map.has", _, 2) | (_, "map_has", 2) => Some(CorePrimOp::HamtContains),
+        (_, "safe_div", 2) => Some(CorePrimOp::SafeDiv),
+        (_, "safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,
     }
 }
@@ -140,6 +146,57 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
         Some(other) => FluxRep::from_core_type(other),
         None => FluxRep::TaggedRep,
     }
+}
+
+/// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
+/// the legacy direct-perform path.
+fn native_yield_checks_enabled() -> bool {
+    !matches!(std::env::var("FLUX_YIELD_CHECKS"), Ok(v) if v == "0")
+}
+
+fn native_builtin_effect_uses_direct_path(
+    interner: Option<&Interner>,
+    effect: Identifier,
+    parameterized_effects_in_program: &HashSet<Identifier>,
+) -> bool {
+    let Some(interner) = interner else {
+        return false;
+    };
+    if parameterized_effects_in_program.contains(&effect) {
+        return false;
+    }
+    let Some(name) = interner.try_resolve(effect) else {
+        return false;
+    };
+    let parameterized_name_covers_effect = |parameterized: Identifier| {
+        let Some(parameterized_name) = interner.try_resolve(parameterized) else {
+            return false;
+        };
+        match name {
+            crate::syntax::builtin_effects::CONSOLE
+            | crate::syntax::builtin_effects::FILESYSTEM
+            | crate::syntax::builtin_effects::STDIN => {
+                parameterized_name == crate::syntax::builtin_effects::IO
+            }
+            crate::syntax::builtin_effects::CLOCK => {
+                parameterized_name == crate::syntax::builtin_effects::TIME
+            }
+            _ => false,
+        }
+    };
+    if parameterized_effects_in_program
+        .iter()
+        .any(|effect| parameterized_name_covers_effect(*effect))
+    {
+        return false;
+    }
+    matches!(
+        name,
+        crate::syntax::builtin_effects::CONSOLE
+            | crate::syntax::builtin_effects::FILESYSTEM
+            | crate::syntax::builtin_effects::STDIN
+            | crate::syntax::builtin_effects::CLOCK
+    )
 }
 
 // ── Qualified name resolution ────────────────────────────────────────────────
@@ -470,6 +527,7 @@ pub fn lower_program_with_interner_and_externs(
         .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
         .map(|def| def.binder.id)
         .collect();
+    let parameterized_effects_in_program = collect_parameterized_effects(program);
 
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
@@ -486,6 +544,7 @@ pub fn lower_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_def(def, ctx);
         lir.push_function(func);
@@ -505,6 +564,7 @@ pub fn lower_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_def(main_def, ctx);
         lir.push_function(func);
@@ -519,6 +579,7 @@ pub fn lower_program_with_interner_and_externs(
             &binder_func_map,
             &qualified_names,
             &int_return_binders,
+            &parameterized_effects_in_program,
         );
         lir.push_function(func);
     }
@@ -599,6 +660,7 @@ pub fn lower_aether_program_with_interner_and_externs(
         .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
         .map(|def| def.binder.id)
         .collect();
+    let parameterized_effects_in_program = collect_parameterized_effects_aether(program);
 
     for (i, def) in program.defs().iter().enumerate() {
         if main_idx.is_some_and(|idx| i == idx) {
@@ -614,6 +676,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_aether_def(def, ctx);
         lir.push_function(func);
@@ -631,6 +694,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             extern_symbols,
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
+            parameterized_effects_in_program: &parameterized_effects_in_program,
         };
         let func = lower_aether_def(main_def, ctx);
         lir.push_function(func);
@@ -645,6 +709,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             &binder_func_map,
             &qualified_names,
             &int_return_binders,
+            &parameterized_effects_in_program,
         );
         lir.push_function(func);
     }
@@ -848,6 +913,14 @@ struct FnLower<'a> {
     bool_raw_source: HashMap<LirVar, LirVar>,
     /// Function binders whose return type is known to be Int.
     int_return_binders: &'a HashSet<CoreBinderId>,
+    /// Effects currently handled by a parameterized handler. Native lowering
+    /// must use the yield path for these even when FLUX_YIELD_CHECKS is off,
+    /// because the direct identity-resume fallback has no state slot.
+    active_parameterized_effects: HashSet<Identifier>,
+    /// Effects that have any parameterized handler in the whole program.
+    /// Helper functions called from those handlers are lowered outside the
+    /// handler's lexical body, so they need this broader guard too.
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 struct FnLowerCtx<'a> {
@@ -861,6 +934,7 @@ struct FnLowerCtx<'a> {
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
     /// Function binders known to return Int (from `CoreDef::result_ty`).
     int_return_binders: &'a HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 impl<'a> FnLower<'a> {
@@ -899,6 +973,8 @@ impl<'a> FnLower<'a> {
             int_vars: HashSet::new(),
             int_return_binders: ctx.int_return_binders,
             bool_raw_source: HashMap::new(),
+            active_parameterized_effects: HashSet::new(),
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         }
     }
 
@@ -938,6 +1014,7 @@ impl<'a> FnLower<'a> {
             args: Vec::new(),
             cont: cont_id,
             kind: CallKind::DirectExtern { symbol },
+            suppress_yield_check: false,
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
@@ -1027,6 +1104,10 @@ impl<'a> FnLower<'a> {
     /// Set the terminator of the current block.
     fn set_terminator(&mut self, term: LirTerminator) {
         self.func.blocks[self.current_block].terminator = term;
+    }
+
+    fn suppress_yield_check_for_calls_into_block(&mut self, target: BlockId) {
+        suppress_yield_check_for_calls_into_block(&mut self.func.blocks, target);
     }
 
     /// Copy `val` into the first parameter of `target_block` (SSA phi-node bridging).
@@ -1331,6 +1412,8 @@ impl<'a> FnLower<'a> {
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
                                 int_return_binders: self.int_return_binders,
+                                parameterized_effects_in_program: self
+                                    .parameterized_effects_in_program,
                             },
                         );
 
@@ -1509,6 +1592,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
 
@@ -1648,6 +1732,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
 
@@ -1871,9 +1956,10 @@ impl<'a> FnLower<'a> {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 ..
-            } => self.lower_handle(body, *effect, handlers),
+            } => self.lower_handle(body, *effect, parameter.as_deref(), handlers),
 
             CoreExpr::Perform {
                 effect,
@@ -1927,6 +2013,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -2061,6 +2148,8 @@ impl<'a> FnLower<'a> {
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
                                 int_return_binders: self.int_return_binders,
+                                parameterized_effects_in_program: self
+                                    .parameterized_effects_in_program,
                             },
                         );
                         for &(binder_id, _) in &entry.outer_captures {
@@ -2207,6 +2296,7 @@ impl<'a> FnLower<'a> {
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
+                            parameterized_effects_in_program: self.parameterized_effects_in_program,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -2301,9 +2391,10 @@ impl<'a> FnLower<'a> {
             AetherExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 ..
-            } => self.lower_handle_aether(body, *effect, handlers),
+            } => self.lower_handle_aether(body, *effect, parameter.as_deref(), handlers),
             AetherExpr::Perform {
                 effect,
                 operation,
@@ -2669,6 +2760,7 @@ impl<'a> FnLower<'a> {
         &mut self,
         body: &CoreExpr,
         effect: Identifier,
+        parameter: Option<&CoreExpr>,
         handlers: &[CoreHandler],
     ) -> LirVar {
         use crate::core::CorePrimOp;
@@ -2709,11 +2801,22 @@ impl<'a> FnLower<'a> {
             value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
         });
 
+        let state = if let Some(parameter) = parameter {
+            self.lower_expr(parameter)
+        } else {
+            let none = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: none,
+                value: LirConst::None,
+            });
+            none
+        };
+
         let new_evv = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure],
+            args: vec![saved_evv, htag, marker, handler_closure, state],
         });
 
         self.emit(LirInstr::PrimCall {
@@ -2723,7 +2826,13 @@ impl<'a> FnLower<'a> {
         });
 
         // 4. Lower the body expression.
+        let inserted_parameterized =
+            parameter.is_some() && self.active_parameterized_effects.insert(effect);
         let body_result = self.lower_expr(body);
+        if inserted_parameterized {
+            self.active_parameterized_effects.remove(&effect);
+        }
+        self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
 
         // 5. Prompt check: restore evv and check for yields.
         let result = self.fresh_var();
@@ -2740,6 +2849,7 @@ impl<'a> FnLower<'a> {
         &mut self,
         body: &AetherExpr,
         effect: Identifier,
+        parameter: Option<&AetherExpr>,
         handlers: &[AetherHandler],
     ) -> LirVar {
         use crate::core::CorePrimOp;
@@ -2766,11 +2876,22 @@ impl<'a> FnLower<'a> {
             value: LirConst::Tagged(crate::lir::nanbox_tag_int(effect.as_u32() as i64)),
         });
 
+        let state = if let Some(parameter) = parameter {
+            self.lower_expr_aether(parameter)
+        } else {
+            let none = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: none,
+                value: LirConst::None,
+            });
+            none
+        };
+
         let new_evv = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure],
+            args: vec![saved_evv, htag, marker, handler_closure, state],
         });
 
         self.emit(LirInstr::PrimCall {
@@ -2779,7 +2900,13 @@ impl<'a> FnLower<'a> {
             args: vec![new_evv],
         });
 
+        let inserted_parameterized =
+            parameter.is_some() && self.active_parameterized_effects.insert(effect);
         let body_result = self.lower_expr_aether(body);
+        if inserted_parameterized {
+            self.active_parameterized_effects.remove(&effect);
+        }
+        self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
@@ -2887,6 +3014,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2919,6 +3047,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::DirectExtern {
                     symbol: extern_fn.symbol,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2949,6 +3078,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -2975,6 +3105,7 @@ impl<'a> FnLower<'a> {
                     func_id: target.func_id,
                     captures: target.captures,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3004,6 +3135,7 @@ impl<'a> FnLower<'a> {
             args: arg_vars,
             cont: cont_id,
             kind: CallKind::Indirect,
+            suppress_yield_check: false,
             yield_cont: None,
         });
 
@@ -3108,6 +3240,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3137,6 +3270,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::DirectExtern {
                     symbol: extern_fn.symbol,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3160,6 +3294,7 @@ impl<'a> FnLower<'a> {
                 args: arg_vars,
                 cont: cont_id,
                 kind: CallKind::Direct { func_id },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3184,6 +3319,7 @@ impl<'a> FnLower<'a> {
                     func_id: target.func_id,
                     captures: target.captures,
                 },
+                suppress_yield_check: false,
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
@@ -3212,6 +3348,7 @@ impl<'a> FnLower<'a> {
             args: arg_vars,
             cont: cont_id,
             kind: CallKind::Indirect,
+            suppress_yield_check: false,
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
@@ -3248,6 +3385,9 @@ impl<'a> FnLower<'a> {
             for p in &handler.params {
                 bound.insert(p.id);
             }
+            if let Some(state) = &handler.state {
+                bound.insert(state.id);
+            }
             free_vars_rec(&handler.body, &mut bound, &mut free);
             free
         };
@@ -3262,10 +3402,16 @@ impl<'a> FnLower<'a> {
 
         let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        // Prefix handler exports with the enclosing function's qualified name to
+        // avoid cross-module symbol collisions. The synthetic-id allocator counts
+        // down from u32::MAX per module, so two modules independently producing
+        // their N-th handler would otherwise emit identical `handler_<id>` exports
+        // and the linker would reject the duplicate.
+        let qualified_name = format!("{}_handler_{}", self.func.qualified_name, synthetic_id.0);
         let mut inner = FnLower::new(
             func_name,
             synthetic_id,
-            format!("handler_{}", synthetic_id.0),
+            qualified_name,
             FnLowerCtx {
                 program: &mut temp_program,
                 interner: self.interner,
@@ -3276,6 +3422,7 @@ impl<'a> FnLower<'a> {
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
+                parameterized_effects_in_program: self.parameterized_effects_in_program,
             },
         );
 
@@ -3302,6 +3449,15 @@ impl<'a> FnLower<'a> {
             inner.func.param_reps.push(rep_from_semantic_type(
                 handler.param_types.get(index).and_then(|ty| ty.as_ref()),
             ));
+        }
+        if let Some(state) = &handler.state {
+            let pv = inner.fresh_var();
+            inner.bind(state.id, pv);
+            inner.func.params.push(pv);
+            inner
+                .func
+                .param_reps
+                .push(rep_from_semantic_type(handler.state_ty.as_ref()));
         }
 
         inner.func.result_rep = handler_resume_result_rep(handler);
@@ -3335,6 +3491,9 @@ impl<'a> FnLower<'a> {
             for p in &handler.params {
                 bound.insert(p.id);
             }
+            if let Some(state) = &handler.state {
+                bound.insert(state.id);
+            }
             crate::aether::free_vars::free_vars_rec_aether(&handler.body, &mut bound, &mut free);
             free
         };
@@ -3348,10 +3507,13 @@ impl<'a> FnLower<'a> {
 
         let synthetic_id = temp_program.alloc_synthetic_func_id();
         let func_name = format!("handler_clause_{}", temp_program.functions.len());
+        // See lower_handler_clause: prefix with the enclosing qualified name so
+        // handler exports do not collide across modules.
+        let qualified_name = format!("{}_handler_{}", self.func.qualified_name, synthetic_id.0);
         let mut inner = FnLower::new(
             func_name,
             synthetic_id,
-            format!("handler_{}", synthetic_id.0),
+            qualified_name,
             FnLowerCtx {
                 program: &mut temp_program,
                 interner: self.interner,
@@ -3362,6 +3524,7 @@ impl<'a> FnLower<'a> {
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
+                parameterized_effects_in_program: self.parameterized_effects_in_program,
             },
         );
 
@@ -3387,6 +3550,15 @@ impl<'a> FnLower<'a> {
                 handler.param_types.get(index).and_then(|ty| ty.as_ref()),
             ));
         }
+        if let Some(state) = &handler.state {
+            let pv = inner.fresh_var();
+            inner.bind(state.id, pv);
+            inner.func.params.push(pv);
+            inner
+                .func
+                .param_reps
+                .push(rep_from_semantic_type(handler.state_ty.as_ref()));
+        }
 
         inner.func.result_rep = aether_handler_resume_result_rep(handler);
 
@@ -3409,13 +3581,16 @@ impl<'a> FnLower<'a> {
 
     /// Lower `perform Effect.operation(args)`.
     ///
-    /// Phase 1 (tail-resumptive fast path): directly calls the handler via
-    /// `flux_perform_direct` with an identity resume closure. No yield flag
-    /// or continuation building needed.
+    /// Proposal 0162 Phase 3 slice 4: when `FLUX_YIELD_CHECKS=1`, native
+    /// handlers enter the yield/prompt path via `flux_yield_to`. The actual
+    /// continuation capture still happens in the after-call yield checks
+    /// emitted by the LLVM backend, and slice 4-prereq suppresses the
+    /// handle-body-final call's check so the yield sentinel reaches
+    /// `flux_yield_prompt` instead of escaping past `main`.
     ///
-    /// The identity closure, when called with a value, simply returns it.
-    /// This is correct for tail-resumptive handlers where `resume(v)` is
-    /// the last thing the handler does.
+    /// With yield checks disabled we intentionally keep the old
+    /// `flux_perform_direct` fallback so default native behavior remains
+    /// unchanged until the full Phase 3 path is always-on.
     fn lower_perform(
         &mut self,
         effect: Identifier,
@@ -3436,9 +3611,6 @@ impl<'a> FnLower<'a> {
             self.lower_expr(&args[0])
         };
 
-        // Build identity resume closure: fn(v) → v
-        let resume = self.make_identity_closure();
-
         // Effect tag and operation tag as NaN-boxed integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
@@ -3458,13 +3630,56 @@ impl<'a> FnLower<'a> {
             value: LirConst::Int(args.len() as i64),
         });
 
-        // Direct perform: calls handler inline with (resume, arg0, ..., argN).
         let result = self.fresh_var();
-        self.emit(LirInstr::PrimCall {
-            dst: Some(result),
-            op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume, arity],
-        });
+        let use_yield_path = (native_yield_checks_enabled()
+            && !native_builtin_effect_uses_direct_path(
+                self.interner,
+                effect,
+                self.parameterized_effects_in_program,
+            ))
+            || self.active_parameterized_effects.contains(&effect);
+        if use_yield_path {
+            // Slice 5-tr-fix: emit the YieldTo PrimCall inline (its return
+            // value is the sentinel and isn't used), then close the current
+            // block with a Call-shaped terminator so `cont_split` synthesizes
+            // a continuation over "the rest of the work" and the emit
+            // pipeline's yield-check branch fires. `result` is bound as a
+            // block param of the cont block — it holds the resume value when
+            // the continuation is invoked.
+            let sink = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(sink),
+                op: CorePrimOp::YieldTo,
+                args: vec![htag, optag, arg, arity],
+            });
+
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy_func = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy_func,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy_func,
+                args: Vec::new(),
+                cont: cont_id,
+                kind: CallKind::YieldTo,
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+        } else {
+            let resume = self.make_identity_closure();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::PerformDirect,
+                args: vec![htag, optag, arg, resume, arity],
+            });
+        }
 
         result
     }
@@ -3488,8 +3703,6 @@ impl<'a> FnLower<'a> {
             self.lower_expr_aether(&args[0])
         };
 
-        let resume = self.make_identity_closure();
-
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -3509,54 +3722,62 @@ impl<'a> FnLower<'a> {
         });
 
         let result = self.fresh_var();
-        self.emit(LirInstr::PrimCall {
-            dst: Some(result),
-            op: CorePrimOp::PerformDirect,
-            args: vec![htag, optag, arg, resume, arity],
-        });
+        let use_yield_path = (native_yield_checks_enabled()
+            && !native_builtin_effect_uses_direct_path(
+                self.interner,
+                effect,
+                self.parameterized_effects_in_program,
+            ))
+            || self.active_parameterized_effects.contains(&effect);
+        if use_yield_path {
+            // Slice 5-tr-fix: see `lower_perform` above for the shape.
+            let sink = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(sink),
+                op: CorePrimOp::YieldTo,
+                args: vec![htag, optag, arg, arity],
+            });
+
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy_func = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy_func,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy_func,
+                args: Vec::new(),
+                cont: cont_id,
+                kind: CallKind::YieldTo,
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+        } else {
+            let resume = self.make_identity_closure();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::PerformDirect,
+                args: vec![htag, optag, arg, resume, arity],
+            });
+        }
 
         result
     }
 
     /// Create an identity closure: a function that returns its argument.
-    /// Used as the `resume` parameter for tail-resumptive effect handlers.
+    /// Retained as the native fallback while `FLUX_YIELD_CHECKS` keeps the
+    /// Phase 3 yield path behind an env gate.
     fn make_identity_closure(&mut self) -> LirVar {
-        let mut temp_program = std::mem::take(self.program);
-
-        let synthetic_id = temp_program.alloc_synthetic_func_id();
-        let func_name = format!("resume_identity_{}", temp_program.functions.len());
-        let mut inner = FnLower::new(
-            func_name,
-            synthetic_id,
-            format!("resume_id_{}", synthetic_id.0),
-            FnLowerCtx {
-                program: &mut temp_program,
-                interner: self.interner,
-                globals_map: self.globals_map,
-                extern_symbols: self.extern_symbols,
-                name_binder_map: self.name_binder_map,
-                binder_func_id_map: self.binder_func_id_map,
-                qualified_names: self.qualified_names,
-                top_level_value_map: self.top_level_value_map,
-                int_return_binders: self.int_return_binders,
-            },
-        );
-
-        // Single parameter: the value to return.
-        let param = inner.fresh_var();
-        inner.func.params.push(param);
-        inner.set_terminator(LirTerminator::Return(param));
-
-        let inner_func = inner.func;
-        *self.program = temp_program;
-        self.program.push_function(inner_func);
-
-        // Emit MakeClosure (no captures).
         let dst = self.fresh_var();
-        self.emit(LirInstr::MakeClosure {
+        self.emit(LirInstr::MakeExternClosure {
             dst,
-            func_id: synthetic_id,
-            captures: vec![],
+            symbol: "flux_resume_mark_called".to_string(),
+            arity: 1,
         });
         dst
     }
@@ -3597,6 +3818,11 @@ impl<'a> FnLower<'a> {
             CorePrimOp::IMul => self.lower_int_binop(LirIntOp::Mul, &arg_vars, span),
             CorePrimOp::IDiv => self.lower_int_binop(LirIntOp::Div, &arg_vars, span),
             CorePrimOp::IMod => self.lower_int_binop(LirIntOp::Rem, &arg_vars, span),
+            CorePrimOp::BitAnd => self.lower_int_binop(LirIntOp::And, &arg_vars, span),
+            CorePrimOp::BitOr => self.lower_int_binop(LirIntOp::Or, &arg_vars, span),
+            CorePrimOp::BitXor => self.lower_int_binop(LirIntOp::Xor, &arg_vars, span),
+            CorePrimOp::BitShl => self.lower_int_binop(LirIntOp::Shl, &arg_vars, span),
+            CorePrimOp::BitShr => self.lower_int_binop(LirIntOp::Shr, &arg_vars, span),
 
             // Typed integer comparisons → inline ICmp.
             CorePrimOp::ICmpEq => self.lower_int_cmp(CmpOp::Eq, &arg_vars),
@@ -3832,6 +4058,31 @@ impl<'a> FnLower<'a> {
                 a: a_raw,
                 b: b_raw,
                 span,
+            },
+            LirIntOp::And => LirInstr::IAnd {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Or => LirInstr::IOr {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Xor => LirInstr::IXor {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Shl => LirInstr::IShl {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
+            },
+            LirIntOp::Shr => LirInstr::IShr {
+                dst: result_raw,
+                a: a_raw,
+                b: b_raw,
             },
         };
         self.emit(instr);
@@ -4747,6 +4998,11 @@ enum LirIntOp {
     Mul,
     Div,
     Rem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
 }
 
 // ── Top-level definition lowering ────────────────────────────────────────────
@@ -4766,6 +5022,7 @@ struct LowerDefCtx<'a> {
     extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
     int_return_binders: &'a HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &'a HashSet<Identifier>,
 }
 
 fn lir_symbol_name_for_def(
@@ -4806,6 +5063,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
 
@@ -4871,6 +5129,7 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
+            parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
 
@@ -4914,6 +5173,7 @@ fn lower_synthetic_main_core(
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
     int_return_binders: &HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
         program
@@ -4939,6 +5199,7 @@ fn lower_synthetic_main_core(
             qualified_names,
             top_level_value_map: &empty_values,
             int_return_binders,
+            parameterized_effects_in_program,
         },
     );
 
@@ -4977,6 +5238,7 @@ fn lower_synthetic_main_aether(
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
     int_return_binders: &HashSet<CoreBinderId>,
+    parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
         program
@@ -5002,6 +5264,7 @@ fn lower_synthetic_main_aether(
             qualified_names,
             top_level_value_map: &empty_values,
             int_return_binders,
+            parameterized_effects_in_program,
         },
     );
 
@@ -5114,6 +5377,11 @@ fn display_instr(instr: &LirInstr) -> String {
         LirInstr::IMul { dst, a, b } => format!("{dst} = imul {a}, {b}"),
         LirInstr::IDiv { dst, a, b, .. } => format!("{dst} = idiv {a}, {b}"),
         LirInstr::IRem { dst, a, b, .. } => format!("{dst} = irem {a}, {b}"),
+        LirInstr::IAnd { dst, a, b } => format!("{dst} = iand {a}, {b}"),
+        LirInstr::IOr { dst, a, b } => format!("{dst} = ior {a}, {b}"),
+        LirInstr::IXor { dst, a, b } => format!("{dst} = ixor {a}, {b}"),
+        LirInstr::IShl { dst, a, b } => format!("{dst} = ishl {a}, {b}"),
+        LirInstr::IShr { dst, a, b } => format!("{dst} = ishr {a}, {b}"),
         LirInstr::ICmp { dst, op, a, b } => format!("{dst} = icmp {op} {a}, {b}"),
         LirInstr::PrimCall { dst, op, args } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
@@ -5213,6 +5481,7 @@ fn display_terminator(term: &LirTerminator) -> String {
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
+                CallKind::YieldTo => " [yield-to]".to_string(),
             };
             format!("tailcall {func}({}){kind_str}", args_str.join(", "))
         }
@@ -5222,6 +5491,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             args,
             cont,
             kind,
+            suppress_yield_check,
             yield_cont: _,
         } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
@@ -5233,10 +5503,16 @@ fn display_terminator(term: &LirTerminator) -> String {
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
                 CallKind::Indirect => String::new(),
+                CallKind::YieldTo => " [yield-to]".to_string(),
+            };
+            let suppress_str = if *suppress_yield_check {
+                " [suppress-yield-check]"
+            } else {
+                ""
             };
             format!(
-                "{dst} = call {func}({}){kind_str} -> {cont}",
-                args_str.join(", ")
+                "{dst} = call {func}({}){kind_str}{suppress_str} -> {cont}",
+                args_str.join(", "),
             )
         }
         LirTerminator::MatchCtor {
@@ -5300,6 +5576,170 @@ fn collect_free_vars(expr: &CoreExpr) -> HashSet<CoreBinderId> {
     let mut bound = HashSet::new();
     free_vars_rec(expr, &mut bound, &mut free);
     free
+}
+
+fn collect_parameterized_effects(program: &CoreProgram) -> HashSet<Identifier> {
+    let mut effects = HashSet::new();
+    for def in &program.defs {
+        collect_parameterized_effects_rec(&def.expr, &mut effects);
+    }
+    effects
+}
+
+fn collect_parameterized_effects_aether(
+    program: &crate::aether::AetherProgram,
+) -> HashSet<Identifier> {
+    let mut effects = HashSet::new();
+    for def in program.defs() {
+        collect_parameterized_effects_aether_rec(&def.expr, &mut effects);
+    }
+    effects
+}
+
+fn collect_parameterized_effects_rec(expr: &CoreExpr, effects: &mut HashSet<Identifier>) {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::App { func, args, .. } => {
+            collect_parameterized_effects_rec(func, effects);
+            for arg in args {
+                collect_parameterized_effects_rec(arg, effects);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_parameterized_effects_rec(rhs, effects);
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_parameterized_effects_rec(rhs, effects);
+            }
+            collect_parameterized_effects_rec(body, effects);
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_parameterized_effects_rec(scrutinee, effects);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_parameterized_effects_rec(guard, effects);
+                }
+                collect_parameterized_effects_rec(&alt.rhs, effects);
+            }
+        }
+        CoreExpr::Con { fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_rec(field, effects);
+            }
+        }
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_parameterized_effects_rec(arg, effects);
+            }
+        }
+        CoreExpr::Handle {
+            body,
+            effect,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                effects.insert(*effect);
+                collect_parameterized_effects_rec(parameter, effects);
+            }
+            collect_parameterized_effects_rec(body, effects);
+            for handler in handlers {
+                collect_parameterized_effects_rec(&handler.body, effects);
+            }
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_parameterized_effects_rec(object, effects);
+        }
+    }
+}
+
+fn collect_parameterized_effects_aether_rec(expr: &AetherExpr, effects: &mut HashSet<Identifier>) {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            collect_parameterized_effects_aether_rec(func, effects);
+            for arg in args {
+                collect_parameterized_effects_aether_rec(arg, effects);
+            }
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            collect_parameterized_effects_aether_rec(rhs, effects);
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_parameterized_effects_aether_rec(rhs, effects);
+            }
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_parameterized_effects_aether_rec(scrutinee, effects);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_parameterized_effects_aether_rec(guard, effects);
+                }
+                collect_parameterized_effects_aether_rec(&alt.rhs, effects);
+            }
+        }
+        AetherExpr::Con { fields, .. } | AetherExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_aether_rec(field, effects);
+            }
+        }
+        AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_parameterized_effects_aether_rec(arg, effects);
+            }
+        }
+        AetherExpr::Handle {
+            body,
+            effect,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                effects.insert(*effect);
+                collect_parameterized_effects_aether_rec(parameter, effects);
+            }
+            collect_parameterized_effects_aether_rec(body, effects);
+            for handler in handlers {
+                collect_parameterized_effects_aether_rec(&handler.body, effects);
+            }
+        }
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            collect_parameterized_effects_aether_rec(object, effects);
+        }
+        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+            collect_parameterized_effects_aether_rec(body, effects);
+        }
+        AetherExpr::Reuse { fields, .. } => {
+            for field in fields {
+                collect_parameterized_effects_aether_rec(field, effects);
+            }
+        }
+        AetherExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            collect_parameterized_effects_aether_rec(unique_body, effects);
+            collect_parameterized_effects_aether_rec(shared_body, effects);
+        }
+    }
 }
 
 fn free_vars_rec(
@@ -5389,7 +5829,15 @@ fn free_vars_rec(
                 free_vars_rec(a, bound, free);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                free_vars_rec(parameter, bound, free);
+            }
             free_vars_rec(body, bound, free);
             for h in handlers {
                 let mut added = vec![];
@@ -5400,6 +5848,11 @@ fn free_vars_rec(
                     if bound.insert(p.id) {
                         added.push(p.id);
                     }
+                }
+                if let Some(state) = &h.state
+                    && bound.insert(state.id)
+                {
+                    added.push(state.id);
                 }
                 free_vars_rec(&h.body, bound, free);
                 for id in added {
@@ -5437,11 +5890,27 @@ fn bind_pat(pat: &CorePat, bound: &mut HashSet<CoreBinderId>) -> Vec<CoreBinderI
     added
 }
 
+fn suppress_yield_check_for_calls_into_block(blocks: &mut [LirBlock], target: BlockId) {
+    for block in blocks {
+        if let LirTerminator::Call {
+            cont,
+            kind,
+            suppress_yield_check,
+            ..
+        } = &mut block.terminator
+            && *cont == target
+            && !matches!(kind, CallKind::YieldTo)
+        {
+            *suppress_yield_check = true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_qualified_names, lir_symbol_name_for_def, result_rep_for_aether_def_expr,
-        result_rep_for_def_expr,
+        result_rep_for_def_expr, suppress_yield_check_for_calls_into_block,
     };
     use crate::aether::AetherExpr;
     use crate::core::{
@@ -5449,6 +5918,7 @@ mod tests {
         CoreType, FluxRep,
     };
     use crate::diagnostics::position::{Position, Span};
+    use crate::lir::{BlockId, CallKind, LirBlock, LirTerminator, LirVar};
     use crate::syntax::Identifier;
 
     fn mk_binder(id: u32, name: Identifier) -> CoreBinder {
@@ -5566,5 +6036,56 @@ mod tests {
             ),
             FluxRep::BoolRep
         );
+    }
+
+    #[test]
+    fn suppress_helper_marks_only_calls_into_target_block() {
+        let mut blocks = vec![
+            LirBlock {
+                id: BlockId(0),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(1),
+                    func: LirVar(0),
+                    args: Vec::new(),
+                    cont: BlockId(2),
+                    kind: CallKind::Indirect,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                },
+            },
+            LirBlock {
+                id: BlockId(1),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(2),
+                    func: LirVar(0),
+                    args: Vec::new(),
+                    cont: BlockId(3),
+                    kind: CallKind::Indirect,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                },
+            },
+        ];
+
+        suppress_yield_check_for_calls_into_block(&mut blocks, BlockId(2));
+
+        match &blocks[0].terminator {
+            LirTerminator::Call {
+                suppress_yield_check,
+                ..
+            } => assert!(*suppress_yield_check),
+            other => panic!("expected call terminator, got {other:?}"),
+        }
+        match &blocks[1].terminator {
+            LirTerminator::Call {
+                suppress_yield_check,
+                ..
+            } => assert!(!*suppress_yield_check),
+            other => panic!("expected call terminator, got {other:?}"),
+        }
     }
 }

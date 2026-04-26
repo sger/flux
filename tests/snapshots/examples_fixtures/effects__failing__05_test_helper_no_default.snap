@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/effects/failing/05_test_helper_no_default.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E400]: Missing Ambient Effect
+
+Call to `println` requires effect `Console` in this function signature.
+
+  examples/effects/failing/05_test_helper_no_default.flx:30:5
+   |
+30 |     println("missing Console")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     -------------------------- effectful call occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
+== stdout ==
+<not executed>

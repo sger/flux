@@ -1,18 +1,20 @@
+// parity-expected-stdout-begin
+// "io-only"
+// "10"
+// parity-expected-stdout-end
+
 // Surface syntax for effect rows with subtraction.
+// `Console + Clock - Clock` normalizes back to `Console`.
 
-effect Console {
-    print: String -> ()
-}
-
-fn run_with_row(f: (() -> Int with IO + Console - Console)) -> Int with IO + Console - Console {
+fn run_with_row(f: (() -> Int with Console + Clock - Clock)) -> Int with Console + Clock - Clock {
     f()
 }
 
-fn io_only() -> Int with IO {
+fn console_only() -> Int with Console {
     print("io-only")
     10
 }
 
 fn main() with IO {
-    print(to_string(run_with_row(io_only)))
+    print(to_string(run_with_row(console_only)))
 }

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/except/import_except_error.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E012]: Unknown Module Member
 
 Module `Lib` has no member named `drop`.
 
-  examples/imports/except/import_except_error.flx:9:1
-  |
-9 | Lib.drop();
-  | ^^^^^^^^
+  examples/imports/except/import_except_error.flx:12:1
+   |
+12 | Lib.drop();
+   | ^^^^^^^^
 
 Hint:
   Check the module's public members or import the correct module.

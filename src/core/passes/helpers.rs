@@ -180,11 +180,13 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(subst(*body, var, replacement)),
             effect,
+            parameter: parameter.map(|p| Box::new(subst(*p, var, replacement))),
             handlers: handlers
                 .into_iter()
                 .map(|handler| subst_handler(handler, var, replacement))
@@ -218,7 +220,10 @@ pub(super) fn subst_handler(
     var: CoreBinderId,
     replacement: &CoreExpr,
 ) -> CoreHandler {
-    if handler.resume.id == var || handler.params.iter().any(|param| param.id == var) {
+    if handler.resume.id == var
+        || handler.params.iter().any(|param| param.id == var)
+        || handler.state.as_ref().is_some_and(|state| state.id == var)
+    {
         handler
     } else {
         CoreHandler {
@@ -330,11 +335,13 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(f(*body)),
             effect,
+            parameter: parameter.map(|p| Box::new(f(*p))),
             handlers: handlers
                 .into_iter()
                 .map(|mut handler| {
@@ -377,13 +384,73 @@ pub(super) fn is_trivially_pure(expr: &CoreExpr) -> bool {
 /// Returns true when `expr` is guaranteed pure (no effects, no calls, cannot fail).
 /// Uses primop-level classification: typed arithmetic on proven types is pure,
 /// generic arithmetic that may fail on type mismatches is not.
-/// Used by dead-binding elimination where the question is "can we drop this?".
+/// Used by passes that speculate — beta, case-of-case, specialize, inliner's
+/// multi-use copy rule — where "is this safe to duplicate or reorder?" needs
+/// the strict answer.
 pub(super) fn is_pure(expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
         CoreExpr::Lam { .. } => true,
         CoreExpr::Con { fields, .. } => fields.iter().all(is_pure),
         CoreExpr::PrimOp { op, args, .. } => is_primop_pure(op) && args.iter().all(is_pure),
+        _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
+    }
+}
+
+/// Proposal 0161 Phase 3: three-level effect classification derived from the
+/// effect-label registry. Drives the "is it safe to discard a dead binding?"
+/// question for `dead_let` and `inliner`'s dead-let rule, where the correct
+/// predicate is `!= HasEffect` rather than `== Pure`:
+///
+/// - `Pure`:      no effects, cannot fail. Speculation-safe. Equivalent to `is_pure`.
+/// - `CanFail`:   no observable effect, but may trap (div-by-zero, OOB,
+///   unwrap failure, generic arithmetic mismatch, etc.).
+///   Safe to *discard* in dead-code elimination (the failure was
+///   never observed), but not safe to *speculate* (duplicating the
+///   op could turn a run-once trap into multiple traps).
+/// - `HasEffect`: observable side effect (I/O, stdout, time, intentional panic).
+///   Must not be dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PrimOpEffectClass {
+    Pure,
+    #[allow(dead_code)] // used by future sealing/optimizer passes
+    CanFail,
+    HasEffect,
+}
+
+pub(super) fn primop_effect_class(op: &CorePrimOp) -> PrimOpEffectClass {
+    // Consult the fine-grained effect registry: any label other than the
+    // failure labels (`Div`) is observable. `Panic` is observable (intentional
+    // crash that must not be discarded). Pure primops return None from the
+    // registry AND pass the narrow `is_primop_pure` gate.
+    match crate::syntax::builtin_effects::primop_fine_effect_label(*op) {
+        Some(crate::syntax::builtin_effects::DIV) => PrimOpEffectClass::CanFail,
+        Some(_) => PrimOpEffectClass::HasEffect,
+        None => {
+            if is_primop_pure(op) {
+                PrimOpEffectClass::Pure
+            } else {
+                // Primop has no fine-grained effect label but `is_primop_pure`
+                // rejected it: generic-arithmetic-may-type-mismatch, Index OOB,
+                // Unwrap-on-None, etc. These are CanFail, not HasEffect.
+                PrimOpEffectClass::CanFail
+            }
+        }
+    }
+}
+
+/// Returns true when `expr` is safe to drop as dead code: it has no observable
+/// side effect. A `CanFail` expression is safe to drop because its failure was
+/// never observed (it's on a dead binding). This is strictly weaker than
+/// `is_pure`, which additionally guarantees the expression cannot trap.
+pub(super) fn can_discard(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Lam { .. } => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(can_discard),
+        CoreExpr::PrimOp { op, args, .. } => {
+            primop_effect_class(op) != PrimOpEffectClass::HasEffect && args.iter().all(can_discard)
+        }
         _ => false, // App, Let, LetRec, Case, Perform, Handle, Return
     }
 }
@@ -434,6 +501,27 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Sub
         | CorePrimOp::Mul
         | CorePrimOp::Abs
+        | CorePrimOp::BitAnd
+        | CorePrimOp::BitOr
+        | CorePrimOp::BitXor
+        | CorePrimOp::BitShl
+        | CorePrimOp::BitShr
+        | CorePrimOp::FSqrt
+        | CorePrimOp::FSin
+        | CorePrimOp::FCos
+        | CorePrimOp::FExp
+        | CorePrimOp::FLog
+        | CorePrimOp::FFloor
+        | CorePrimOp::FCeil
+        | CorePrimOp::FRound
+        | CorePrimOp::FTan
+        | CorePrimOp::FAsin
+        | CorePrimOp::FAcos
+        | CorePrimOp::FAtan
+        | CorePrimOp::FSinh
+        | CorePrimOp::FCosh
+        | CorePrimOp::FTanh
+        | CorePrimOp::FTruncate
         | CorePrimOp::Min
         | CorePrimOp::Max => false,
         // Comparisons — may fail on incomparable types
@@ -446,6 +534,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         // Pure type-inspection primops could be true, but conservatively false.
         CorePrimOp::Print
         | CorePrimOp::Println
+        | CorePrimOp::DebugTrace
         | CorePrimOp::ReadFile
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
@@ -455,16 +544,11 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::StringSlice
         | CorePrimOp::ToString
         | CorePrimOp::Split
-        | CorePrimOp::Join
         | CorePrimOp::Trim
         | CorePrimOp::Upper
         | CorePrimOp::Lower
-        | CorePrimOp::StartsWith
-        | CorePrimOp::EndsWith
         | CorePrimOp::Replace
         | CorePrimOp::Substring
-        | CorePrimOp::Chars
-        | CorePrimOp::StrContains
         | CorePrimOp::ArrayLen
         | CorePrimOp::ArrayGet
         | CorePrimOp::ArraySet
@@ -494,31 +578,11 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ClockNow
         | CorePrimOp::Time
         | CorePrimOp::ParseInt
-        | CorePrimOp::ParseInts
-        | CorePrimOp::SplitInts
-        | CorePrimOp::ToList
-        | CorePrimOp::ToArray
         | CorePrimOp::Len
         | CorePrimOp::CmpEq
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows => false,
-        // Collection operations — pure (no I/O, no side effects)
-        CorePrimOp::ArrayReverse
-        | CorePrimOp::ArrayContains
-        | CorePrimOp::Sort
-        | CorePrimOp::SortBy
-        | CorePrimOp::HoMap
-        | CorePrimOp::HoFilter
-        | CorePrimOp::HoFold
-        | CorePrimOp::HoAny
-        | CorePrimOp::HoAll
-        | CorePrimOp::HoEach
-        | CorePrimOp::HoFind
-        | CorePrimOp::HoCount
-        | CorePrimOp::Zip
-        | CorePrimOp::Flatten
-        | CorePrimOp::HoFlatMap => true,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet
@@ -574,11 +638,18 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| appears_free(var, a)),
         CoreExpr::Return { value, .. } => appears_free(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| appears_free(var, a)),
-        CoreExpr::Handle { body, handlers, .. } => {
-            appears_free(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter.as_ref().is_some_and(|p| appears_free(var, p))
+                || appears_free(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var
                         && !h.params.iter().any(|p| p.id == var)
+                        && h.state.is_none_or(|state| state.id != var)
                         && appears_free(var, &h.body)
                 })
         }
@@ -619,8 +690,15 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         CoreExpr::PrimOp { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
         CoreExpr::Return { value, .. } => 1 + expr_size(value),
         CoreExpr::Perform { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            1 + expr_size(body) + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            1 + expr_size(body)
+                + parameter.as_ref().map_or(0, |p| expr_size(p))
+                + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()
         }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             1 + expr_size(object)

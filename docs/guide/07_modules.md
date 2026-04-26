@@ -1,6 +1,6 @@
 # Chapter 7 — Modules
 
-> Full examples: [`examples/Modules/`](../../examples/Modules/), [`examples/imports/`](../../examples/imports/), [`examples/advanced/using_modules.flx`](../../examples/advanced/using_modules.flx)
+> Full examples: [`examples/Modules/`](../../examples/Modules/), [`examples/imports/`](../../examples/imports/), [`examples/guide/using_modules.flx`](../../examples/guide/using_modules.flx)
 
 ## Declaring a Module
 
@@ -57,10 +57,10 @@ The compiler resolves imports by searching module roots. The entry file's direct
 
 ```bash
 # Resolve imports relative to examples/
-cargo run -- --root examples examples/advanced/using_modules.flx
+cargo run -- --root examples examples/guide/using_modules.flx
 
 # Multiple roots
-cargo run -- --root examples --root lib examples/advanced/using_list_module.flx
+cargo run -- --root examples --root lib examples/guide/using_list_module.flx
 ```
 
 ## Multi-File Projects
@@ -103,7 +103,7 @@ let result = nums
 print(result)  // 4 + 16 = 20
 ```
 
-> See [`examples/advanced/using_modules.flx`](../../examples/advanced/using_modules.flx).
+> See [`examples/guide/using_modules.flx`](../../examples/guide/using_modules.flx).
 
 ## Import Cycle Detection
 

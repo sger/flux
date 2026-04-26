@@ -1,21 +1,27 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/row_effects/missing_ambient_effect_deterministic_e400.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E422]: Effect Requirement Mismatch
 
-Call to `call_requires_io_time` requires effect `IO` in this function signature.
+This call requires effects that are missing from the surrounding effect row: IO, Time.
 
-  examples/compiler_errors/row_effects/missing_ambient_effect_deterministic_e400.flx:11:5
+  examples/compiler_errors/row_effects/missing_ambient_effect_deterministic_e400.flx:14:5
    |
-11 |     call_requires_io_time(worker)
+14 |     call_requires_io_time(worker)
    |     ^^^^^^^^^^^^^^^^^^^^^
-   |     --------------------- effectful call occurs here
+   |     --------------------- this call needs effects that are not currently available
 
-Hint:
-  Add `with IO` to the enclosing function.
+   |     --------------------- this call to `call_requires_io_time` creates the effect obligation
+
+Note:
+  missing required effects: IO, Time
+  constraint source: effect-row checking for `call_requires_io_time`
+
+Help:
+  Add the missing effects to the enclosing function or handle them before this call.
 == stdout ==
 <not executed>

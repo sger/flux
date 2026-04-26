@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx:10:21
+  examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx:36:21
    |
-10 |     let x: String = sum_down(3)
+36 |     let x: String = sum_down(3)
    |                     ^^^^^^^^^^^
    |                     ----------- this value has type `Int`
 

@@ -214,7 +214,9 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             ..
         } => {
             out.push_str(&pad);
-            out.push_str("perform ");
+            // Annotate with the Phase 3 runtime lowering (yield_to) so the
+            // dump makes the evidence-passing vocabulary explicit.
+            out.push_str("perform /*yield_to*/ ");
             out.push_str(&resolve_name(interner, *effect));
             out.push('.');
             out.push_str(&resolve_name(interner, *operation));
@@ -231,14 +233,22 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
         AetherExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             ..
         } => {
             out.push_str(&pad);
-            out.push_str("handle ");
+            // Annotate with the Phase 3 lowering shape:
+            //   evv_insert + fresh_marker → body → yield_prompt
+            out.push_str("handle /*evv_insert+yield_prompt*/ ");
             out.push_str(&single_line_expr(body, interner));
             out.push_str(" with ");
             out.push_str(interner.resolve(*effect));
+            if let Some(parameter) = parameter {
+                out.push('(');
+                out.push_str(&single_line_expr(parameter, interner));
+                out.push(')');
+            }
             for handler in handlers {
                 out.push('\n');
                 fmt_handler(handler, interner, indent + 2, out);
@@ -358,6 +368,10 @@ fn fmt_handler(handler: &AetherHandler, interner: &Interner, indent: usize, out:
     for param in &handler.params {
         out.push_str(", ");
         out.push_str(&resolve_name(interner, param.name));
+    }
+    if let Some(state) = &handler.state {
+        out.push_str(", ");
+        out.push_str(&resolve_name(interner, state.name));
     }
     out.push_str(") ->\n");
     fmt_expr(&handler.body, interner, indent + 2, out);

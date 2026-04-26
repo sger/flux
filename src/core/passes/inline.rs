@@ -120,10 +120,21 @@ fn occurs_as_callee(var: crate::core::CoreBinderId, expr: &CoreExpr) -> bool {
         }
         CoreExpr::Return { value, .. } => occurs_as_callee(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|arg| occurs_as_callee(var, arg)),
-        CoreExpr::Handle { body, handlers, .. } => {
-            occurs_as_callee(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter
+                .as_ref()
+                .is_some_and(|parameter| occurs_as_callee(var, parameter))
+                || occurs_as_callee(var, body)
                 || handlers.iter().any(|handler| {
-                    if handler.params.iter().any(|p| p.id == var) || handler.resume.id == var {
+                    if handler.params.iter().any(|p| p.id == var)
+                        || handler.resume.id == var
+                        || handler.state.as_ref().is_some_and(|state| state.id == var)
+                    {
                         false
                     } else {
                         occurs_as_callee(var, &handler.body)

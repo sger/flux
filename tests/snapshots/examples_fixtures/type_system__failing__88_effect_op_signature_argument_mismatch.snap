@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:9:35
-  |
-9 |     let _ = (perform Console.read(123)) handle Console {
-  |                                   ^^^
-  |                                   --- this expression has type `Int`
+  examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:36:35
+   |
+36 |     let _ = (perform Console.read(123)) handle Console {
+   |                                   ^^^
+   |                                   --- this expression has type `Int`
 
-  |                                   --- perform argument type is known at compile time
+   |                                   --- perform argument type is known at compile time
 
 Note:
   expected type: String

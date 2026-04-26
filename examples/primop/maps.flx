@@ -7,7 +7,7 @@
 // true
 // true
 // {"name": "flux"}
-// {"lang": "en", "name": "flux", "year": 2026}
+// {"lang": "en", "name": "flux", "year": "2026"}
 // true
 // Some("flux")
 // Some("dsl")
@@ -20,13 +20,13 @@ fn main() with IO {
     print("== PrimOps: maps ==");
     let m0 = {};
     let m1 = Map.set(m0, "name", "flux");
-    let m2 = Map.set(m1, "year", 2026);
+    let m2 = Map.set(m1, "year", "2026");
     print(is_map(m2));
     print(Map.has(m2, "name"));
     print(Map.get(m2, "name"));
     print(Array.sort(Map.keys(m2)));
     print(Array.contains(Map.values(m2), "flux"));
-    print(Array.contains(Map.values(m2), 2026));
+    print(Array.contains(Map.values(m2), "2026"));
     print(Map.delete(m2, "year"));
     print(Map.merge(m2, Map.set({}, "lang", "en")));
 

@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 use super::backend_policy::should_run_tests_native;
 use super::{
     flags::DriverFlags,
-    frontend::{collect_roots, inject_flow_prelude},
+    frontend::{collect_roots, inject_flow_prelude, validate_no_primops_import},
     module_compile::{effective_module_strictness, tag_module_diagnostics},
     session::DriverSession,
     shared::{
@@ -333,6 +333,11 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         &mut all_diagnostics,
     );
 
+    let mut primops_import_diags = validate_no_primops_import(&program, parser.interner(), path);
+    if !primops_import_diags.is_empty() {
+        tag_and_attach_file(&mut primops_import_diags, DiagnosticPhase::Parse, path);
+        all_diagnostics.append(&mut primops_import_diags);
+    }
     inject_flow_prelude(&mut program, &mut parser, request.flags.is_native_backend());
     let interner = parser.take_interner();
     let graph_result =

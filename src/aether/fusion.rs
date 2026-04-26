@@ -173,11 +173,13 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(fuse(*body)),
             effect,
+            parameter: parameter.map(|p| Box::new(fuse(*p))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
@@ -475,8 +477,16 @@ mod tests {
                     .sum::<usize>()
             }
             CoreExpr::Return { value, .. } => here + count_matching(value, predicate),
-            CoreExpr::Handle { body, handlers, .. } => {
-                here + count_matching(body, predicate)
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                here + parameter
+                    .as_ref()
+                    .map_or(0, |parameter| count_matching(parameter, predicate))
+                    + count_matching(body, predicate)
                     + handlers
                         .iter()
                         .map(|handler| count_matching(&handler.body, predicate))

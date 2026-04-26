@@ -1,20 +1,39 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E015]: Non-Exhaustive Match
+
+Match is not exhaustive: 1 missing pattern.
+
+  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:47:5
+   |
+47 |     match x {
+   |     ^^^^^^^^^
+48 |         Pair(a) -> a,
+   | ^^^^^^^^^^^^^^^^^^^^^
+49 |     }
+   | ^^^^^
+
+Hint:
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+
+
 error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `Pair` expects 2 argument(s) but got 1.
 
-  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:9:9
-  |
-9 |         Pair(a) -> a,
-  |         ^^^^^^^
+  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:48:9
+   |
+48 |         Pair(a) -> a,
+   |         ^^^^^^^
 
 Hint:
   Check the constructor's declared pattern field count.
+
+Found 2 errors.
 == stdout ==
 <not executed>

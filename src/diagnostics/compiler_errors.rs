@@ -714,14 +714,6 @@ pub const CONSTRUCTOR_ARITY_MISMATCH: ErrorCode = ErrorCode {
     hint: Some("Check the `data` declaration for the correct number of fields."),
 };
 
-pub const ADT_NON_EXHAUSTIVE_MATCH: ErrorCode = ErrorCode {
-    code: "E083",
-    title: "NON-EXHAUSTIVE ADT MATCH",
-    error_type: ErrorType::Compiler,
-    message: "Match expression on `{}` does not cover all constructors.",
-    hint: Some("Add the missing constructors or a wildcard `_` catch-all arm."),
-};
-
 pub const MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED: ErrorCode = ErrorCode {
     code: "E084",
     title: "MODULE ADT CONSTRUCTOR NOT EXPORTED",
@@ -754,14 +746,6 @@ pub const CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Direct constructor access `{}` from module `{}` bypasses module API boundaries.",
     hint: Some("Prefer module `public fn` factory/accessor API for cross-module usage."),
-};
-
-pub const UNREACHABLE_PATTERN_ARM: ErrorCode = ErrorCode {
-    code: "W202",
-    title: "UNREACHABLE PATTERN ARM",
-    error_type: ErrorType::Compiler,
-    message: "This arm is unreachable because an earlier unguarded arm already covers this pattern.",
-    hint: Some("Remove or reorder this arm."),
 };
 
 pub const UNKNOWN_FUNCTION_EFFECT: ErrorCode = ErrorCode {
@@ -834,7 +818,7 @@ pub const RIGID_VAR_ESCAPE: ErrorCode = ErrorCode {
 
 pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     code: "E430",
-    title: "ANY TYPE INFERRED",
+    title: "COULD NOT INFER CONCRETE TYPE",
     error_type: ErrorType::Compiler,
     message: "Could not determine a concrete type for `{}`.",
     hint: Some("Add a type annotation so the compiler can verify type safety."),
@@ -1420,16 +1404,6 @@ pub fn cross_module_constructor_access_warning(span: Span, ctor: &str, module: &
         "<unknown>",
         span,
     )
-}
-
-/// Create a guarded-wildcard non-exhaustive match diagnostic (E015).
-pub fn guarded_wildcard_non_exhaustive(span: Span) -> Diagnostic {
-    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
-        .with_span(span)
-        .with_message(
-            "A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.",
-        )
-        .with_hint_text("Add an unguarded `_ -> ...` fallback arm after guarded arms.")
 }
 
 /// Create an "invalid integer" error

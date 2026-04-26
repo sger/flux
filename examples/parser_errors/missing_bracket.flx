@@ -1,3 +1,28 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_bracket.flx
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `]` to match this opening `[`.
+//
+//   examples/parser_errors/missing_bracket.flx:33:14
+//    |
+// 33 |     let xs = [1, 2, 3
+//    |              ^
+//
+// Note:
+//   while parsing function `main`
+//
+// note: Expected `]` before this token.
+//   examples/parser_errors/missing_bracket.flx:34:5
+//    |
+// 34 |     print(xs)
+//    |     ^^^^^
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E076
+
 // Missing `]` in list literal.
 //
 // Expected: E076 UNCLOSED DELIMITER
@@ -8,3 +33,4 @@ fn main() -> Unit {
     let xs = [1, 2, 3
     print(xs)
 }
+

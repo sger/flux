@@ -3,9 +3,9 @@ use std::collections::{BTreeSet, HashMap};
 use crate::core::{CoreBinderId, CoreDef, CoreExpr, CoreProgram};
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
-use super::{AetherBuiltinEffect, builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 use super::{AetherDef, AetherExpr, AetherProgram};
 use super::{borrow_infer::BorrowProvenance, callee::classify_direct_var_ref};
+use super::{builtin_effect_for_name, callee::AetherCalleeKind, is_heap_tag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FbipCapability {
@@ -65,7 +65,9 @@ pub enum FbipCallKind {
     DirectInternal,
     DirectInferredGlobal,
     DirectImported,
-    Builtin(AetherBuiltinEffect),
+    /// Builtin call carrying a coarse effect label string (`"IO"`, `"Time"`,
+    /// `"Panic"`) from the 0161 effect registry.
+    Builtin(&'static str),
     Indirect,
 }
 
@@ -487,8 +489,16 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        CoreExpr::Handle { body, handlers, .. } => {
-            let mut fact = analyze_expr(body, ctx);
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            let mut fact = parameter
+                .as_ref()
+                .map_or_else(FbipFact::default, |p| analyze_expr(p, ctx));
+            fact = seq(fact, analyze_expr(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr(&handler.body, ctx));
             }
@@ -568,8 +578,16 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        AetherExpr::Handle { body, handlers, .. } => {
-            let mut fact = analyze_expr_aether(body, ctx);
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            let mut fact = parameter
+                .as_ref()
+                .map_or_else(FbipFact::default, |p| analyze_expr_aether(p, ctx));
+            fact = seq(fact, analyze_expr_aether(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr_aether(&handler.body, ctx));
             }
@@ -611,18 +629,12 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             let classified = classify_direct_var_ref(
                 var,
                 |binder| ctx.summaries.contains_key(&binder),
-                |name| {
-                    if ctx
-                        .interner
-                        .try_resolve(name)
-                        .is_some_and(|symbol| builtin_effect_for_name(symbol).is_some())
-                    {
-                        Some(BorrowProvenance::BaseRuntime)
-                    } else {
-                        ctx.summaries_by_name
-                            .get(&name)
-                            .map(|entry| entry.provenance)
-                    }
+                |name| match builtin_runtime_provenance(ctx.interner, name) {
+                    Some(provenance) => Some(provenance),
+                    None => ctx
+                        .summaries_by_name
+                        .get(&name)
+                        .map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
@@ -649,15 +661,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         self_recursive: false,
                     }),
                 ),
-                AetherCalleeKind::BaseRuntime => (
-                    None,
-                    builtin_effect_for_name(&callee_name).map(|effect| FbipCallDetail {
-                        callee: callee_name,
-                        kind: FbipCallKind::Builtin(effect),
-                        outcome: FbipCallOutcome::KnownBuiltin,
-                        self_recursive: false,
-                    }),
-                ),
+                AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
                     ctx.summaries_by_name
                         .get(&var.name)
@@ -737,18 +741,12 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             let classified = classify_direct_var_ref(
                 var,
                 |binder| ctx.summaries.contains_key(&binder),
-                |name| {
-                    if ctx
-                        .interner
-                        .try_resolve(name)
-                        .is_some_and(|symbol| builtin_effect_for_name(symbol).is_some())
-                    {
-                        Some(BorrowProvenance::BaseRuntime)
-                    } else {
-                        ctx.summaries_by_name
-                            .get(&name)
-                            .map(|entry| entry.provenance)
-                    }
+                |name| match builtin_runtime_provenance(ctx.interner, name) {
+                    Some(provenance) => Some(provenance),
+                    None => ctx
+                        .summaries_by_name
+                        .get(&name)
+                        .map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
@@ -775,15 +773,7 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                         self_recursive: false,
                     }),
                 ),
-                AetherCalleeKind::BaseRuntime => (
-                    None,
-                    builtin_effect_for_name(&callee_name).map(|effect| FbipCallDetail {
-                        callee: callee_name,
-                        kind: FbipCallKind::Builtin(effect),
-                        outcome: FbipCallOutcome::KnownBuiltin,
-                        self_recursive: false,
-                    }),
-                ),
+                AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
                     ctx.summaries_by_name
                         .get(&var.name)
@@ -860,6 +850,22 @@ fn safe_symbol_name(interner: &Interner, name: Identifier) -> String {
         .try_resolve(name)
         .map(str::to_string)
         .unwrap_or_else(|| format!("{name:?}"))
+}
+
+fn builtin_runtime_provenance(interner: &Interner, name: Identifier) -> Option<BorrowProvenance> {
+    interner
+        .try_resolve(name)
+        .and_then(builtin_effect_for_name)
+        .map(|_| BorrowProvenance::BaseRuntime)
+}
+
+fn builtin_runtime_call_detail(callee_name: &str) -> Option<FbipCallDetail> {
+    builtin_effect_for_name(callee_name).map(|effect| FbipCallDetail {
+        callee: callee_name.to_string(),
+        kind: FbipCallKind::Builtin(effect),
+        outcome: FbipCallOutcome::KnownBuiltin,
+        self_recursive: false,
+    })
 }
 
 fn fold_all<I>(facts: I) -> FbipFact
@@ -957,7 +963,15 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(arg, unresolved);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                collect_unresolved_callees(parameter, unresolved);
+            }
             collect_unresolved_callees(body, unresolved);
             for handler in handlers {
                 collect_unresolved_callees(&handler.body, unresolved);
@@ -1339,7 +1353,7 @@ mod tests {
     fn perform_boundary_breaks_proof() {
         let mut interner = Interner::new();
         let x = binder(&mut interner, 2, "x");
-        let io = interner.intern("IO");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let print = interner.intern("print");
         let program = CoreProgram {
             defs: vec![def(
@@ -1392,7 +1406,7 @@ mod tests {
             summary
                 .call_details
                 .iter()
-                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin("IO")))
         );
     }
 
@@ -1425,8 +1439,114 @@ mod tests {
             summary
                 .call_details
                 .iter()
-                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(_)))
+                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin("Time")))
         );
+    }
+
+    #[test]
+    fn builtin_panic_call_uses_shared_registry_label() {
+        let mut interner = Interner::new();
+        let panic_name = interner.intern("panic");
+        let msg = binder(&mut interner, 2, "msg");
+        let program = CoreProgram {
+            defs: vec![def(
+                &mut interner,
+                1,
+                "explode",
+                CoreExpr::App {
+                    func: Box::new(CoreExpr::Var {
+                        var: CoreVarRef::unresolved(panic_name),
+                        span: Span::default(),
+                    }),
+                    args: vec![var(msg)],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            )],
+            top_level_items: Vec::new(),
+        };
+        let summaries = analyze_program(&program, &interner);
+        let summary = summaries.values().next().unwrap();
+        assert_eq!(summary.outcome, FbipOutcome::Fip);
+        assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
+        assert!(
+            summary
+                .call_details
+                .iter()
+                .any(|detail| matches!(detail.kind, FbipCallKind::Builtin("Panic")))
+        );
+    }
+
+    #[test]
+    fn aether_builtin_calls_use_shared_registry_labels() {
+        let mut interner = Interner::new();
+        let print = interner.intern("print");
+        let now_ms = interner.intern("now_ms");
+        let panic_name = interner.intern("panic");
+        let msg = binder(&mut interner, 10, "msg");
+
+        let program = aprogram(vec![
+            adef(
+                &mut interner,
+                1,
+                "log_only",
+                AetherExpr::App {
+                    func: Box::new(AetherExpr::Var {
+                        var: CoreVarRef::unresolved(print),
+                        span: Span::default(),
+                    }),
+                    args: vec![AetherExpr::bound_var(msg, Span::default())],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            ),
+            adef(
+                &mut interner,
+                2,
+                "clock",
+                AetherExpr::App {
+                    func: Box::new(AetherExpr::Var {
+                        var: CoreVarRef::unresolved(now_ms),
+                        span: Span::default(),
+                    }),
+                    args: vec![],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            ),
+            adef(
+                &mut interner,
+                3,
+                "explode",
+                AetherExpr::App {
+                    func: Box::new(AetherExpr::Var {
+                        var: CoreVarRef::unresolved(panic_name),
+                        span: Span::default(),
+                    }),
+                    args: vec![AetherExpr::bound_var(msg, Span::default())],
+                    span: Span::default(),
+                },
+                Some(FipAnnotation::Fip),
+            ),
+        ]);
+
+        let summaries = analyze_program_aether(&program, &interner);
+        for (binder_id, expected) in [
+            (CoreBinderId(1), "IO"),
+            (CoreBinderId(2), "Time"),
+            (CoreBinderId(3), "Panic"),
+        ] {
+            let summary = summaries.get(&binder_id).unwrap();
+            assert_eq!(summary.outcome, FbipOutcome::Fip);
+            assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
+            assert!(
+                summary
+                    .call_details
+                    .iter()
+                    .any(|detail| matches!(detail.kind, FbipCallKind::Builtin(label) if label == expected)),
+                "expected builtin label {expected} in {summary:?}"
+            );
+        }
     }
 
     #[test]

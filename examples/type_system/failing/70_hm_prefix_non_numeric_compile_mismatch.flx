@@ -1,3 +1,30 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx:32:14
+//    |
+// 32 |     let y = -x
+//    |              ^
+//    |              - this expression has type `String`
+//
+//    |              - unary '-' operand is known at compile time
+//
+// Note:
+//   expected type: numeric operand (Int or Float)
+//   found type: String
+//
+// Help:
+//   These two types are not compatible.
+//   use a numeric operand or convert the value before applying unary '-'
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 // HM hardening: unary '-' with known non-numeric operand fails at compile time.
 
 fn main() {

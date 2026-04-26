@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
-use crate::diagnostics::NOT_A_FUNCTION;
+use crate::diagnostics::{MULTI_SHOT_HANDLER, NOT_A_FUNCTION};
 use crate::runtime::RuntimeContext;
 use crate::runtime::value::format_value;
-use crate::runtime::{closure::Closure, frame::Frame, value::Value};
+use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
 
 use super::VM;
 
@@ -13,6 +13,30 @@ use super::VM;
 const _OP_PERFORM_SIZE: usize = 3;
 
 impl VM {
+    pub(super) fn capture_continuation_piece(
+        &self,
+        resume_slot: usize,
+        advance_ip: usize,
+    ) -> Value {
+        let mut frame = self.frames[self.frame_index].clone();
+        frame.ip += advance_ip;
+        let entry_sp = frame.base_pointer;
+        let stack: Vec<Value> = self.stack[entry_sp..resume_slot]
+            .iter()
+            .map(super::slot::from_slot_ref)
+            .collect();
+        Value::Continuation(Rc::new(std::cell::RefCell::new(Continuation {
+            frames: vec![frame],
+            stack,
+            sp: resume_slot,
+            entry_sp,
+            entry_frame_index: self.frame_index.saturating_sub(1),
+            inner_handlers: vec![],
+            state_marker: None,
+            used: false,
+        })))
+    }
+
     #[inline]
     fn check_closure_contract_stack_args(
         &self,
@@ -212,13 +236,19 @@ impl VM {
     /// Resume a captured continuation.
     ///
     /// Called from the OpCall dispatch when the callee is `Value::Continuation`.
-    /// `num_args` must be 1 (the resume value). Returns `Ok(())` with the VM
+    /// `num_args` must be 1 (the resume value) or 2 for parameterized
+    /// handlers (`resume_value`, `next_state`). Returns `Ok(())` with the VM
     /// state restored to the captured continuation; ip_delta of 0 is returned by
     /// the OpCall arm so the restored frame's IP is left unchanged.
     pub(super) fn execute_resume(&mut self, num_args: usize) -> Result<(), String> {
-        if num_args != 1 {
-            return Err(format!("resume expects 1 argument, got {}", num_args));
+        if num_args != 1 && num_args != 2 {
+            return Err(format!("resume expects 1 or 2 arguments, got {}", num_args));
         }
+        let next_state = if num_args == 2 {
+            Some(self.pop_untracked()?)
+        } else {
+            None
+        };
         let resume_val = self.pop_untracked()?;
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
 
@@ -227,10 +257,13 @@ impl VM {
             _ => unreachable!("execute_resume called with non-Continuation callee"),
         };
 
-        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers) = {
+        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers, state_marker) = {
             let mut cont = cont_rc.borrow_mut();
             if cont.used {
-                return Err("continuation already resumed (one-shot)".to_string());
+                // Proposal 0162 Phase 3: match the native backend's E1201
+                // wording so user-visible multi-shot diagnostics are the same
+                // across VM and LLVM. See runtime/c/effects.c's E1201 message.
+                return Err(self.runtime_error_enhanced(&MULTI_SHOT_HANDLER, &[]));
             }
             cont.used = true;
             (
@@ -240,6 +273,7 @@ impl VM {
                 cont.stack.clone(),
                 cont.sp,
                 cont.inner_handlers.clone(),
+                cont.state_marker,
             )
         };
 
@@ -252,6 +286,22 @@ impl VM {
         // Restore inner handlers that were nested inside the captured region.
         for h in inner_handlers {
             self.handler_stack.push(h);
+        }
+
+        if let Some(state_marker) = state_marker {
+            let next_state = next_state.ok_or_else(|| {
+                "parameterized handler resume expects next state argument".to_string()
+            })?;
+            let handler = self
+                .handler_stack
+                .iter_mut()
+                .rfind(|h| h.marker == state_marker)
+                .ok_or_else(|| {
+                    "parameterized handler resume could not find handler frame".to_string()
+                })?;
+            handler.state = Some(next_state);
+        } else if next_state.is_some() {
+            return Err("non-parameterized resume received next state argument".to_string());
         }
 
         // Restore the captured stack slice.

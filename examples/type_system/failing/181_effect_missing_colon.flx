@@ -1,2 +1,21 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/181_effect_missing_colon.flx
+// error[E034]: Missing Effect Operation Colon
+//
+// Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+//
+//   examples/type_system/failing/181_effect_missing_colon.flx:20:24
+//    |
+// 20 | effect Console { print String -> None }
+//    |                        ^^^^^^
+//
+// Note:
+//   while parsing effect `Console`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 effect Console { print String -> None }
 let after = 1

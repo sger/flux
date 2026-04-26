@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E013]: Module Not Imported
 
 Module `Flow` is not imported.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:3:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx:6:9
   |
-3 |         Flow.prnit("x")
+6 |         Flow.prnit("x")
   |         ^^^^^^^^^^
 
 Hint:
