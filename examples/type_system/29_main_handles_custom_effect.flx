@@ -1,20 +1,20 @@
 // Valid custom effect handling at root.
 
-effect Console {
+effect Logger {
     print: String -> ()
 }
 
-fn log(msg: String) -> Unit with Console {
-    perform Console.print(msg)
+fn log(msg: String) -> Unit with Logger {
+    perform Logger.print(msg)
 }
 
-fn run() -> Int with Console {
+fn run() -> Int with Logger {
     log("ok")
     1
 }
 
 fn main() -> Unit with IO {
-    let result = run() handle Console {
+    let result = run() handle Logger {
         print(resume, _msg) -> resume(())
     };
     print(to_string(result))

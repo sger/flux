@@ -236,7 +236,10 @@ impl RuntimeType {
             RuntimeType::Float => matches!(value, Value::Float(_)),
             RuntimeType::Bool => matches!(value, Value::Boolean(_)),
             RuntimeType::String => matches!(value, Value::String(_)),
-            RuntimeType::Unit => matches!(value, Value::None),
+            RuntimeType::Unit => {
+                matches!(value, Value::None)
+                    || matches!(value, Value::Tuple(elements) if elements.is_empty())
+            }
             RuntimeType::Option(inner) => match value {
                 Value::None => true,
                 Value::Some(v) => inner.matches_value(v, ctx),
@@ -446,6 +449,15 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    #[test]
+    fn unit_runtime_type_matches_none_and_empty_tuple() {
+        let ctx = TestCtx::new();
+
+        assert!(RuntimeType::Unit.matches_value(&Value::None, &ctx));
+        assert!(RuntimeType::Unit.matches_value(&Value::Tuple(Rc::new(Vec::new())), &ctx));
+        assert!(!RuntimeType::Unit.matches_value(&Value::Tuple(Rc::new(vec![Value::None])), &ctx));
     }
 
     #[test]
