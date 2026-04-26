@@ -1,6 +1,6 @@
 // Effect-polymorphic wrapper + local handle discharge.
 
-effect Console {
+effect Logger {
     print: String -> ()
 }
 
@@ -8,13 +8,13 @@ fn run_task(f: (() -> Int with |e)) -> Int with |e {
     f()
 }
 
-fn task() -> Int with Console {
-    perform Console.print("ok")
+fn task() -> Int with Logger {
+    perform Logger.print("ok")
     7
 }
 
 fn run() -> Int {
-    run_task(task) handle Console {
+    run_task(task) handle Logger {
         print(resume, _msg) -> resume(())
     }
 }

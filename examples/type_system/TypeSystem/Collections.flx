@@ -41,14 +41,17 @@ module TypeSystem.Collections {
 
     // Take the first n elements.
     public fn take<T>(xs: List<T>, n: Int) -> List<T> {
-        if n <= 0 {
-            []
-        } else {
-            match xs {
-                [h | t] -> [h | take(t, n - 1)],
-                _ -> []
+        fn take_go(ys, remaining) {
+            if remaining <= 0 {
+                []
+            } else {
+                match ys {
+                    [h | t] -> [h | take_go(t, remaining - 1)],
+                    _ -> []
+                }
             }
         }
+        take_go(xs, n)
     }
 
     // Sum a list of integers.
