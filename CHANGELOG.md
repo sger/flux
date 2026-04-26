@@ -13,6 +13,490 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.0.5] - 2026-04-26
+
+
+### Added
+- `scripts/changelog/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
+- `scripts/changelog/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
+- `scripts/release/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
+- `scripts/release/release_check.sh` local preflight command documented in `README.md`.
+- add proposals for grammar improvements, deterministic effect replay, typed module contracts, and macro system
+- Effect-row constraint solver (`src/bytecode/compiler/effect_rows.rs`): `EffectRow`, `RowConstraint`, `RowSolution`, and `solve_row_constraints` implementing set-based row arithmetic with var binding, link propagation, and worklist-based resolution.
+- New error codes `E419` (unresolved single effect variable), `E420` (ambiguous multiple effect variables), `E421` (invalid effect subtraction), `E422` (unsatisfied effect subset) with deterministic sorted diagnostics.
+- Pass fixtures: `100_effect_row_order_equivalence_ok.flx`, `101_effect_row_subtract_concrete_ok.flx`, `102_effect_row_subtract_var_satisfied_ok.flx`, `103_effect_row_multivar_disambiguated_ok.flx`, `104_effect_row_absent_ordering_linked_ok.flx`.
+- Fail fixtures: `194_effect_row_multi_missing_deterministic_e400.flx`, `195_effect_row_invalid_subtract_e421.flx`, `196_effect_row_subtract_unresolved_single_e419.flx`, `197_effect_row_subtract_unresolved_multi_e420.flx`, `198_effect_row_subset_unsatisfied_e422.flx`, `199_effect_row_subset_ordered_missing_e422.flx`, `200_effect_row_absent_ordering_linked_violation_e421.flx`.
+- Tiered Flux example execution in CI via manifest-driven runs (`ci/examples_manifest.tsv`) and runner automation (`scripts/ci/run_flux_manifest.sh`).
+- New contextual boundary/effect fixtures for type-system hardening (`161`, `189`, `190`, `191`).
+- New parser contextual recovery fixtures and snapshots for perform/handle/module structural diagnostics.
+- add N-ary Core IR pipeline, fix CFG bytecode compilation, and update docs
+- switch JIT calls to tagged values
+- move non-nullary ADTs onto GC heap
+- add cross-language benchmark suite and runtime updates
+- add type-informed optimizations and stable HM expr ids
+- add type-informed folding and ExprId-based HM lookups
+- add type-informed AST optimization pass and stable ExprId typing
+- add type-informed AST folding and expr-id based HM typing
+- add stable IDs to parsed expression nodes
+- switch compose to lazy normalization
+- add inference for perform/handle and lambda expressions
+- 0051 Stage 2 — HM fallback for generic/ADT contract params
+- tighten HM signatures for collection, map, list, and misc builtins
+- add effect-row-aware HM unification and substitutions
+- enforce explicit effect row tails and document parser behavior
+- parse explicit effect row tails and document parse_effect_expr
+- support row variables in effect expressions and document effect-row completeness
+- add row-constraint solver coverage and deterministic diagnostics
+- FluxRep on Core IR, typed LLVM codegen, and worker/wrapper split (Proposal 0119 Phases 1-3)
+- delete src/runtime/base/, primops as single source of truth (Proposal 0120 Phase 4)
+- Flux standard library and primop promotion (Proposal 0120 Phases 1-3)
+- auto-import Base.Option prelude for all Flux programs (Proposal 0120 POC)
+- module interface files and per-module type inference for native backend (Proposal 0121 Phases 2-3)
+- `exposing` import syntax, native stack traces, and division-by-zero fix (Proposal 0121 Phase 1)
+- CPS continuation stack for non-tail recursion (Proposal 0122 Phase 3)
+- trampoline-based mutual tail call optimization (Proposal 0122 Phase 2)
+- guaranteed self-tail-call optimization (Proposal 0122 Phase 1)
+- AoC 2024 Days 1-5 native, SSA fix, Proposal 0122
+- add MemberAccess resolution for module-qualified calls
+- higher-order closure calls, 50+ C runtime builtins (Phase 9d)
+- add 30+ C runtime builtins and fix remaining parity (Phase 9d)
+- add to core to llvm primop expansion and flux base
+- add pipeline, CLI integration, builtins, and proposals (Phase 8+)
+- add Aether RC integration (Phase 7)
+- add ADT lowering and pattern matching
+- add closure lowering and higher-order calls
+- lower top-level core functions and control flow
+- add prelude and arithmetic helper emission
+- add LLVM text IR AST and pretty-printer
+- CFG covers all well-typed functions — Handle, MakeHash, pre-validation
+- CFG primary compilation path — fix MakeList, enable Prefix/LoadName
+- FBIP annotations, CFG binary op coverage, typed-let pre-validation
+- spine-based dup/drop fusion, rt_index list/string support, deterministic bench output
+- CFG bytecode expansion with pre-codegen validation and JIT empty list
+- --dump-aether flag, CFG bytecode handlers, pre-codegen validation
+- Aether non-linear control flow safety
+- Aether cross-function borrowed parameters
+- Aether drop-reuse specialization
+- Aether drop specialization — IsUnique across all three backends
+- Aether alignment  reuse specialization, VM opcodes, drop specialization
+- Aether scrutinee-drop enable reuse in practice
+- Aether reuse — operational runtime integration
+- make Aether operational across all three backends
+- Aether Phase 7 — reuse token analysis in Core IR
+- Aether Phase 6 — borrowing analysis for dup/drop elision
+- Aether Phase 5 — compile-time dup/drop insertion
+- Aether Phase 5 — remove GcHeap and complete memory model migration
+- Aether Phase 4 — remove Value::Gc and legacy GC allocation paths
+- Aether Phase 3 — migrate HAMT maps from GcHeap to Rc
+- Aether Phase 2 — eliminate Value::GcAdt, unify all ADTs under Rc
+- Aether Phase 1 — migrate cons lists from GcHeap to Rc<ConsCell>
+- implement Aether Phase 0 — Rc reuse fast paths for base functions and VM opcodes
+- Implement E452 validation for class method effect floors
+- Introduce E452 for instance method effect floor violation
+- Propagate method effects through compiler data structures
+- Parse 'with' clauses for class and instance methods
+- Adapt `ClassEnv` for `ClassId` (Phase 1a compatibility)
+- Whitelist `class`, `instance`, and `import` in module bodies
+- Extend Parser to support `public class` and `public instance` syntax
+- Add `is_public` field to Class/Instance AST nodes and update folding
+- Introduce `Symbol::SENTINEL` for placeholder values
+- typed Core IR  lambda param typing + Aether RC elision for unboxed primitives
+- typed Core IR — thread TypeEnv to AST lowerer for typed parameter binders
+- deriving — auto-derive type class instances for ADTs
+- built-in type classes — Eq, Ord, Num, Show, Semigroup with primitive instances
+- type class constraint solving — verify instances at compile time
+- type class constraint generation during HM inference
+- type class dispatch — end-to-end instance method compilation
+- type class environment — validation of class and instance declarations
+- type class syntax — parser, AST, Core IR, and full backend pipeline
+- polymorphic primop signatures — eliminate remaining Any types
+- typed primop returns and polymorphic operator inference
+- add --strict-types flag for full static typing
+- total arithmetic and native div-by-zero guard
+- SCC-based binding group partitioning using Tarjan's algorithm
+- tail call optimization for both backends and entry-file symbol qualification
+- complete Proposal 0140 phases 4+6 — inline ADT access and boolean optimization
+- Bidirectional type checker for annotated bindings (Proposal 0159). New `check_expression` dispatcher in `src/ast/type_infer/expression/checked.rs` with specialised rules for `If`, `Match`, `DoBlock`, and `Lambda`. Propagates the expected type into sub-expressions so branch/arm/body mismatches report at the offending sub-expression span instead of only at the outer annotation.
+- Rigid skolem type variables for declared signature parameters. `InferCtx` gains `skolem_vars` state and `mark_skolem` / `unmark_skolems` helpers; `infer_function_declaration` marks declared type parameters for the duration of body inference. `unify_core` rejects binding a skolem to a non-identical type via a new `UnifyErrorKind::RigidBind`, threaded through all unification helpers via a `skolems: &HashSet<TypeVarId>` parameter.
+- `E305` (RIGID TYPE VARIABLE ESCAPE): new diagnostic emitted when a declared type parameter would be unified with a concrete type inside the function body. Uses the source-level parameter name in the message.
+- Recursive-group pre-binding with declared polymorphic schemes. `declared_fn_scheme` builds a scheme from a complete explicit signature (all parameters + return type annotated) so recursive call sites instantiate at fresh types rather than collapsing through `Scheme::mono(fresh)`. Wired in `infer_program` (top level) and `infer_module` (annotation-gated — unannotated module helpers remain non-predeclared).
+- Higher-order call-site check mode. When an argument is a lambda and the expected parameter type has fully-concrete parameters, `infer_call_higher_order_path` propagates via `check_expression`, surfacing body-level mismatches at the offending sub-expression. Non-lambda args silently unify against the expected type so later lambdas see resolved callee type variables.
+- Investigation note `docs/internals/proposal_0159_investigation.md` documenting the `Scheme::mono(fresh_var)` polymorphism-collapse that motivated annotation-gated module Phase A.
+- plumb effect_row_aliases through type inference context
+
+### Changed
+- CI now runs changelog fragment validation on pull requests.
+- Release docs now use a fragment-first changelog workflow.
+- Refactor base function handling and introduce fastcall allowlist
+- fix clippy issues
+- update README.md
+- add changelog fragment
+- update snapshot tests
+- Refactor built-in functions to base functions and update related tests
+- Refactor terminology from "builtins" to "base functions" across documentation and examples
+- Rename builtins to base functions and update related references for consistency
+- Supports module imports with member exclusions
+- Refactor built-in functions to use a consistent naming convention
+- update documentation
+- Migrates runtime terminology to Base-first and documents API
+- Implement string manipulation builtins and type checking functions
+- rename builtins to base functions and update related imports and calls
+- add new error codes for Base directive handling and update existing error message
+- update bytecode compiler for Base module integration and error handling
+- enhance import statement handling in AST folding and visiting
+- add fragment about changelog
+- fix changelog script
+- fix unit test
+- update snapshots
+- Add documentation comparing PrimOps and Builtins with routing rules
+- Add comprehensive PrimOps tests and examples
+- Add extended primitive operations and their execution logic
+- Add tests for PrimOp functionality in compiler and JIT
+- Add error handling for juxtaposed identifiers in parser
+- Add null value handling in compile_statement to return early
+- Refactor leave_scope to return EffectSummary and update debug info handling in compiler
+- Enhance effect summary handling in compiler and add tests for primitive operations
+- Add proposals for deterministic effect replay, typed module contracts, and hygienic macro system
+- Add examples for primitive operations and effect boundaries in the Flux runtime
+- Add rt_call_primop to runtime symbols for primitive operation support
+- Add support for primitive operations in the compiler and JIT
+- Add rt_call_primop function for executing primitive operations with error handling
+- Enhance documentation for execute_primop_opcode function with detailed error handling descriptions
+- Add comprehensive primitive operation support with additional arithmetic, comparison, and utility functions
+- Implement primitive operation support with OpPrimOp and OpCallBuiltin opcodes
+- Add PrimOp and PrimEffect enums to support primitive operations
+- `collect_effect_row_constraints` and `collect_effect_expr_absence_constraints` in `expression.rs` integrate the new solver for all call-site effect-row validation (subset checks, absence constraints, unresolved-var detection).
+- CI manifest (`ci/examples_manifest.tsv`) extended with all new pass/fail fixtures (tier 2, both VM and JIT).
+- Extended example fixture manifest and snapshot coverage to keep these diagnostics/warnings stable in CI.
+- Locked contextual diagnostics output for 0058 call-site/let/return mismatches with explicit snapshot coverage.
+- Strengthened parser contextual message/recovery regression guards for targeted `E034` paths (perform/handle/handle-arm/module).
+- fix clippy errors
+- Introduce Flux IR lowering and route JIT through it
+- drive truthiness branching from HM expression types
+- reorganize binarytrees benchmarks and add smoke/full profiling workflow
+- convert Error to error lowecase
+- Harden JIT runtime diagnostics and add row-effect error fixtures
+- Improve JIT runtime diagnostic parity for base and primop errors
+- Improve parser diagnostics and add architecture proposals
+- Normalize type system example numbering
+- Harden parser diagnostics emission and refresh snapshots
+- Polish grouped diagnostics headers and note rendering
+- Complete diagnostics quality proposal 0080
+- update tests
+- harden parser metadata and runtime stack traces
+- add rustdocs for diagnostics module
+- update and add new proposals
+- update unit and snapshot tests
+- Improve effect diagnostics and source rendering
+- Unify compiler, VM, and JIT diagnostic behavior
+- Tighten runtime base helper behavior and tests
+- Improve parser recovery and contextual diagnostics
+- Refactor diagnostics around shared quality and taxonomy helpers
+- Add diagnostic category type to diagnostics model
+- Refine diagnostic builder support for structured rendering
+- Refine diagnostics JSON and source snippet rendering
+- update diagnostics renderer
+- Fix effect row propagation in inference and bytecode compilation
+- add new proposal
+- review and update proposals
+- rename and clean up src/types/ module
+- split unify_error.rs into error types and algorithm modules
+- introduce constraint solver and improve diagnostics
+- Add stable expression IDs to parsed AST nodes
+- unify fold helpers and simplify free-var scope tracking
+- add quality/perf guards and docs proposals
+- remove ignore unit tests
+- remove legacy expression module and add infer config struct
+- implement modular expression inference pipeline
+- add collection and control-flow expression inference modules
+- split calls inference helpers into new file
+- split calls inference helpers and unify naming
+- modularize statement/pattern inference and self-call search
+- split pattern/statement inference helpers and unify naming
+- type-infer: split expression inference module and wire new API
+- type-infer: document ADT/effect helpers and split call-effect constraint paths
+- update docs
+- close proposals
+- Split monolithic 2,250-line type_infer.rs into a module directory with one file per concern
+- update function name
+- update unit tests for type inference
+- update changelog fragment
+- update examples and docs
+- fix unit tests
+- improve effect-row inference for function arguments and HM integration
+- improve runtime error boundary for vm and jit
+- rename nary→core, replace ir/ with backend_ir facade, restructure IR pipeline
+- fix examples for vm and jit output
+- Fix JIT runtime error rendering for arithmetic ops to match VM diagnostics
+- add test framework assertions and comprehensive syntax test suite
+- add changelog from commits
+- add TBAA metadata to LLVM backend loads/stores
+- add inlinehint to small frequently-called runtime helpers
+- enable LLVM tailcallelim for self-recursive tail calls
+- add LLVM function attributes to rt_* helper declarations
+- extract shared backend metadata collection to backend_ir/metadata.rs
+- add proper purity analysis for Core IR optimizer
+- extend runtime error checks to comparisons and prefix ops in JIT/LLVM
+- fix type-directed arithmetic: require proven operand types for IAdd/FAdd
+- add  tail call optimization for llvm
+- update snapshots tests
+- refactor LLVM compiler into focused submodules
+- LLVM backend: fix parity issues and add runtime error reporting
+- fix runtime contract
+- remove synthetic stack traces from jit and llvm
+- add runtime extraction the LLVM backend is now fully independent from the cranelift JIT
+- fix parity issues between llvm and jit
+- implement LLVM backend phase 6: AOT object file emission
+- implement LLVM backend phase 4: effect handlers and Perform expression
+- implement LLVM backend phase 3: ADTs, pattern matching, and collections
+- complete LLVM backend phase 2: prefix ops, interpolation, and all binary ops
+- fix string constants, closures with captures and engine cleanup crash
+- add HandleScope compilation (ops array, closures, push_handler call)
+- add compilation support for print
+- add scaffold llvm module and install dependencies
+- migrate backend_ir to cfg module
+- move VM executor from runtime/ to bytecode/ for backend symmetry
+- extract compile() into explicit phase pipeline (proposal 0044 M1)
+- Add Flow.Array module (Proposal 0125 Phase 2) and fix LLVM module name collisions
+- fix advanced examples
+- add new proposal and update parity script to show cargo run commands
+- Add builtin mappings to flux_rt_eq/flux_rt_neq which already existed in the C runtime with deep structural comparison.
+- fix snapshot tests
+- format code
+- move base files to flow stdlib
+- update proposals
+- Improve LLVM lowering for unboxed values and int coercions
+- cleanup src/runtime/base/
+- fix linking issues on linux
+- auto build libflux
+- update gitignore
+- remove Cranelift JIT and llvm-sys backends (Proposal 0118)
+- add c runtime
+- fix issues phase 5
+- fix issues phase 4 and 5
+- improve phase 1 and 2
+- Add iterative Core simplifier gated behind -O flag (Proposal 0112 Phase 1)
+- Fix nested if-else bytecode jump target overrun and add VM IP guard
+- Split JIT compiler into submodules and fix CI regressions
+- Refine Aether reuse/fusion analysis and document proof scaffold
+- fix snapshots
+- Bounded FBIP forms, deferred until after N-U
+- close the remaining reuse gap on transparent-wrapper and forwarding-child style patterns
+- add cli command for aether report
+- fix vm bug regarding spans
+- make Aether maturity measurable on a broader workload
+- strengthen interprocedural ownership and FBIP summaries so more direct/internal/imported cases compose precisely.
+- increase `DropSpecialized` coverage on structurally safe cases that still stay conservative today.
+- recover more profitable `Reuse` sites that are still being missed in realistic transformed Core.
+- reduce conservative outcomes that still appear in recursive and higher-order functions.
+- fix parser issue with fbip
+- broaden the set of realistic transformed Core shapes that trigger profitable reuse and drop specialization.
+- improve borrow/liveness precision toward Koka-style behavior across recursive, higher-order, and imported/base-call cases.
+- fix unit and snapshot tests
+- complete pipeline and strict effect enforcement
+- switch dup/drop insertion to environment-based planning
+- update proposal
+- remove repl
+- Implement proposal 0137 modular interface and VM cache pipeline
+- remove parity shell scripts
+- fix native top-level entry and runtime stack-trace diagnostics
+- fix Aether member access resolution for qualified module calls
+- make Aether a backend-only layer and remove RC nodes from Core
+- enforce explicit array/map builtin boundary and update examples/tests
+- add parity layered backend diagnostics and representation checks
+- Add Proposal 0152 (named fields for data types) and supersede 0048
+- Fix cached effect descriptor symbol remapping and strengthen
+- Add module-scoped type classes status and acceptance coverage
+- Add class-call effect propagation and fix multi-param method constraints
+- Add E452 validation to compiler and new tests
+- Add effects to ClassMethod and InstanceMethod structs
+- Add whitelist `effect` in module bodies
+- exposing collision diagnostics (E457, E458)
+- Add diagnostics error E443 extended
+- Add diagnostics error E456, .flxi schema, .fxc cache hash
+- Add ADT visibility + E451/E455 walkers
+- Add visibility walker
+- add orphan rule walker
+- Add qualified calls and ClassId-keyed storage
+- Add initial integration tests for module-scoped classes and visibility parsing
+- Ignore `is_public` during AST to IR lowering passes
+- Define `ModulePath` and `ClassId` for unique class identity
+- add supports for HKT instance resolution
+- add Instance context enforcement
+- Document and test the MethodSig param_types contract now that class methods carry real parameter type metadata.
+- Document the operator desugaring keep-infix decision matrix in should_keep_infix.
+- Extract the duplicated fresh and preloaded file-inference setup into a single internal preparation helper with an explicit mode switch.
+- Remove Compiler::last_inferred_program and replace it with explicit prepared-program threading across dump, Aether, and LLVM lowering paths.
+- Reuse the post-fold HM result when operator desugaring does not rewrite the AST
+- Represent the final inferred program as Cow<'_, Program> so unchanged programs stay borrowed through Phase 3 and standalone HM helpers.
+- Add ModuleKind to ModuleNode and thread it through the compiler as the source of truth for Flow stdlib behavior.
+- add operator desugaring
+- remove dead code
+- add type class constraints to Flow stdlib
+- add polymorphic dispatch through constrained type params + stdlib type annotations
+- Split Flow list/array stdlib behavior and add fixture coverage
+- Implement contextual instance dictionary threading
+- Implement constrained function type params
+- add multi-parameter type classes
+- add operator desugaring, remove type_of() dispatch, harden instance validation
+- add superclass parsing and enforcement for type classes
+- add concrete dictionary resolution at call sites
+- wire constraint promotion from type inference into Scheme
+- add dictionary elaboration pass for type classes
+- update vscode extension
+- add unit tests for strict types
+- add higher-kinded types + polymorphic dispatch
+- add polymorphic type class dispatch multiple types in the same scope
+- add compile-time type class dispatch resolve class methods to instance functions during Core lowering
+- add typed Core IR  pattern binders, effect handler binders, and ADT field layout metadata
+- fix formatter issues
+- fix examples
+- fix issue when changing backend cache
+- add LetRecGroup variant in Core IR
+- make List stdlib functions tail-recursive and support nested forward refs
+- skip parity files with bench name
+- add unit tests for stackless drop
+- fix Aether dup/drop insertion pass (insert.rs) didn't track TupleField
+- Fix the HM primop type signatures  parse_int returning the wrong type is a user-facing bug
+- Clean up deprecated code (OpCallBase, BaseFunction)
+- add single cache epoch counter that invalidates all cache formats at once
+- add integration tests that compile multi-module programs through the full pipeline
+- add profiler for vm
+- worker/wrapper unboxing for native backend
+- replace NaN-boxing with pointer tagging
+- known-call optimization
+- bump allocator for native backend
+- native backend codegen optimizations (proposal 0140, phases 1-6)
+- fix multiline strings on windows
+- fix parity script on windows
+- update ci to use parity rust script
+- update proposals status
+- delete unused code
+- Enable entry-module caching and extended parity in CI
+- Optimize native backend build pipeline: single-pass clang, archive bundling, and binary caching
+- Fix native LLVM ctor-name linking on macOS
+- fix aether examples
+- fix per-module native backend: duplicate symbols, primop gaps, and test migration
+- fix missing imports for examples
+- remove whole byte cache info
+- add support for lld linker
+- add incremental module caching
+- Improve parity diagnostics and auto-rebuild workflow
+- Fix native parity for map delete, list comprehensions, and Array.sort
+- add parity validation subsystem (Proposal 0138)
+- `advance_counter_past_preloaded_schemes`: `InferCtx::new` now bumps the type-var counter past any TypeVarId used in preloaded schemes so freshly-allocated vars in a later pass cannot collide with IDs baked into cross-pass scheme bodies. Prevents fallback-var expansion in `resolve_binding_schemes` from tainting quantified parameters of preloaded schemes.
+- `seen_error_keys` dedup gate: bypasses the concreteness check for `RigidBind` errors since the expected side is necessarily a type variable.
+- Typed-`let` bindings whose initializer is an `If`, `Match`, or `DoBlock` now run `check_expression` in addition to the canonical `let_annotation_type_mismatch` E300, emitting per-branch diagnostics at the offending sub-expression while preserving the pinned canonical diagnostic.
+- Organize diagnostics fixtures and add parity expectations
+- update examples
+- fix parity unit tests
+- reclassify stale type-system failing fixtures
+- Add strict stderr parity for failing type-system fixtures
+- add parity output for flx files
+- fix type system examples syntax
+- Fix type-class dispatch + user-effect shadowing of builtins
+- Resolve unqualified contract lookup and handler export name collisions
+- Normalize CRLF in string literal decoding
+- Complete proposal 0171 effect-system polish and hardening
+- Add Flow.Debug stderr-routed developer tracing
+- add support for ubuntu for github ci
+- Doc: Further polish effect system documentation and examples
+- Test: Add integration test to prevent effect spec drift
+- Feat: Restrict direct import of `Flow.Primops` and update prelude injection
+- Feat: Improve E400/E402 effect diagnostics
+- Refactor: Pass `ExprId` through effect routing for diagnostic origin
+- Feat: Add linter warning for effect row separator style (W013)
+- Doc: Update internal proposal links and rename 0169 to 0172
+- Chore: Allow dead code in primop_parity.rs
+- fix effects issues
+- add new examples regarding effects
+- Implement parameterized effect handlers
+- Implement effectful primops through handlers
+- Implement proposal 0161 effect capabilities
+- route Aether/FBIP and compiler effect checks through shared builtin registry
+- finish Phase 1 intern-site migration; relocate 0170
+- implement polymorphic effect operations
+- fix issues regarding windows unix path on snapshot tests
+- update proposal status
+- yield-based effect runtime
+- Fix arity-aware flux_yield_prompt
+- Support zero-capture synthesized continuations
+- Wire yield continuations end-to-end on native
+- Synthesize continuation LirFunctions
+- Emit opt-in yield-check shape at Call sites
+- Add LIR backward liveness analysis
+- Add VM-side mirrors of the C runtime's Evidence/YieldState
+- Tighten VM multi-shot diagnostic to match native E1201
+- Retire AetherBuiltinEffect — route through the 0161 effect registry
+- Close the effect parity ledger with structured native diagnostics
+- Cache identity closure to eliminate per-perform allocation
+- Decompose IO/Time effects and drive optimizer from effect-row registry
+- Add alias Name = <E1 | E2 | ...> effect-row aliases
+- Complete HKT polymorphic dispatch through dictionary elaboration
+- Consume BoundaryKind in diagnostics and promote Core contract to Error
+- pattern exhaustiveness and redundancy checking
+- expand stdlib surface (Flow.Math, Flow.Numeric, Flow.Either)
+- Add static typing contract validation at the type-infer → Core boundary
+- Reorganize test suite by compiler phase
+- format and fix clippy issues
+- Implement intrinsic stdlib primop surface and numeric/bitwise primops
+
+### Fixed
+- Hardened strict type/effect diagnostics for unresolved `perform` argument paths (locked with new failing fixture `192_perform_arg_unresolved_strict_e425.flx`).
+- Added regression coverage for unreachable pattern-arm warnings via new fixture `193_unreachable_pattern_arm_w202.flx`.
+- JIT release parity regression for AOC day05 part1 test caused by invalid do-block control-flow emission in JIT lowering.
+- resolve 6 compiler bugs and restore lost diagnostics
+- align closure ABI and tagged collection helpers
+- preserve arena-backed values across GC
+- clarify type variable allocator naming
+- rename type var alloc helpers for clarity
+- prevent HM substitution cycles from hanging call-base tests
+- wire Base HM signatures into registry entries
+- clarify row variable allocator naming
+- rename row-var fresh counter for clarity
+- accept untyped closures for function-typed parameters
+- local variables shadow base functions in call resolution
+- unify call ABI, fix 5 parity gaps, add effect handler tests
+- close 16 JIT coverage gaps and add automated VM/JIT parity test
+- BigInt equality, parse_ints builtin, and --dump-core for multimodule programs
+- write all fields in Aether reuse to fix list [0,0,0] bug
+- bigint overflow, MemberAccess, malloc GC, AoC Day 6 (Phase 9e)
+- HAMT, comparisons, indexing, to_string — zero mismatches (Phase 9c)
+- runtime arithmetic dispatch, string concat, tuple tags (Phase 9b)
+- fix closure SSA, string names, ADT printing, cache bypass (Phase 9a)
+- list index in native backend and suppress unused-variable warning
+- native backend symbol collision, runtime member access, and parity test coverage
+- effect ordering in inliner, native module linking, and clippy cleanup
+- reject stale interface caches and fix AoC example syntax
+- superinstruction constant patching and Flow prelude in parallel compilation
+- Snapshot acceptance for ~20 `type_mismatch_argument*` / `adversarial__*` / `type_system__failing__*` fixtures whose call-argument diagnostics now report narrower spans reflecting the offending sub-expression.
+- Normalize effect aliases during HM effect checks so imported type-class methods declared with aliases like `IO` match callers annotated with the expanded effect row.
+- normalize effect aliases in scope availability checks
+- normalize effect aliases during HM effect checks
+- Cleaned up import-cycle diagnostics to show relative paths and point at the import that enters the cycle.
+- Stopped module-resolution failures from cascading into later type and backend diagnostics.
+- Reworded unresolved concrete type diagnostics to lead with the source-level issue.
+
+### Docs
+- Added `changes/README.md` and `changes/_template.md` for contributor guidance.
+- Updated type-system/effects documentation across guides and internals for v0.0.4 alignment.
+- Refreshed proposal set for post-0.0.4 planning lanes, including effect-row variables, actor/effect tracks, and uniqueness/performance follow-ups.
+- Improved cross-references between roadmap/proposals and implementation evidence sections.
+- Proposals `0042` and `0049` marked `Implemented | have` in `docs/proposals/0000_index.md` with full closure evidence.
+- `examples/type_system/README.md` and `examples/type_system/failing/README.md` updated with new fixture entries and 0049 run-command section.
+- Updated v0.0.4 roadmap evidence and task status tracking (`R4-T01` through `R4-T09`).
+- Expanded proposal tracking/docs for deferred and post-0.0.4 lanes.
+- move implemented proposals into dedicated folder
+- Update Proposal 0151 with phased plan and design refinements
+- `changes/2026-04-17-signature-directed-checking.md` — this fragment.
+- `docs/internals/proposal_0159_investigation.md` — pin-down of the module Phase A predeclaration collapse documented during Commit 0 of the phased delivery.
+- Added proposal [0170](../docs/proposals/0170_polymorphic_effect_operations.md) (Polymorphic Effect Operations), surfaced by a spike of proposal 0165 (IO primop migration to effect handlers). 0170 generalizes effect-op signatures at collection time (`effect_op_signatures` stores `Scheme` instead of `TypeExpr`) and instantiates fresh at each `perform` site, closing the gap that blocked 0165's Console slice.
+- Updated 0165's status to "Blocked" and appended a "Spike findings" section documenting the two attempted paths (`a -> ()` rigid skolem, `to_string` coercion) and why neither is viable without op polymorphism.
+- Added 0165 and 0170 rows to the proposal index.
+- add changelog entry for multi-effect alias fix
+
+---
+
 ## [v0.0.4] - 2026-03-31
 
 
@@ -405,8 +889,9 @@ Initial release.
 - **`--verbose` flag**: show cache hit/miss/store status
 - **Builtins**: `print`, `to_string`, `len`, `push`, `concat`, `reverse`, `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`, `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
 
-[Unreleased]: https://github.com/sger/flux/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/sger/flux/compare/v0.0.5...HEAD
 [v0.0.3]: https://github.com/sger/flux/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/sger/flux/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/sger/flux/releases/tag/v0.0.1
 [v0.0.4]: https://github.com/sger/flux/compare/v0.0.3...v0.0.4
+[v0.0.5]: https://github.com/sger/flux/compare/v0.0.4...v0.0.5
