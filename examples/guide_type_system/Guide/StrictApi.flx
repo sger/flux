@@ -1,3 +1,5 @@
+// root: examples/guide_type_system
+
 module Guide.StrictApi {
     public fn inc(x: Int) -> Int {
         x + 1
