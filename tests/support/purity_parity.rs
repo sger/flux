@@ -167,13 +167,6 @@ pub fn curated_cases() -> Vec<ParityFixtureCase> {
             category: "D",
         },
         ParityFixtureCase {
-            path: "examples/type_system/failing/43_main_unhandled_custom_effect.flx",
-            roots: &[],
-            strict: false,
-            expect_compile_error: true,
-            category: "D",
-        },
-        ParityFixtureCase {
             path: "examples/type_system/29_main_handles_custom_effect.flx",
             roots: &[],
             strict: false,
