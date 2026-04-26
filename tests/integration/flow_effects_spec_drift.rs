@@ -18,11 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use flux::syntax::{
-    lexer::Lexer,
-    parser::Parser,
-    statement::Statement,
-};
+use flux::syntax::{lexer::Lexer, parser::Parser, statement::Statement};
 
 /// The authoritative set of built-in effect *labels* the compiler seeds.
 /// Mirrored from `src/syntax/builtin_effects.rs` constants and
@@ -33,10 +29,7 @@ use flux::syntax::{
 /// reserved / phantom labels).
 fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     let mut out = BTreeMap::new();
-    out.insert(
-        "Console",
-        BTreeSet::from(["print", "println"]),
-    );
+    out.insert("Console", BTreeSet::from(["print", "println"]));
     out.insert(
         "FileSystem",
         BTreeSet::from(["read_file", "read_lines", "write_file"]),
@@ -61,10 +54,7 @@ fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
 /// order the alias body differently from the seed without semantic change.
 fn authoritative_aliases() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     let mut out = BTreeMap::new();
-    out.insert(
-        "IO",
-        BTreeSet::from(["Console", "FileSystem", "Stdin"]),
-    );
+    out.insert("IO", BTreeSet::from(["Console", "FileSystem", "Stdin"]));
     out.insert("Time", BTreeSet::from(["Clock"]));
     out
 }
@@ -77,9 +67,8 @@ fn parse_spec_file() -> (
 ) {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let spec_path = workspace_root.join("lib").join("Flow").join("Effects.flx");
-    let source = std::fs::read_to_string(&spec_path).unwrap_or_else(|err| {
-        panic!("failed to read {}: {err}", spec_path.display())
-    });
+    let source = std::fs::read_to_string(&spec_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", spec_path.display()));
 
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
@@ -166,7 +155,8 @@ fn flow_effects_spec_labels_match_seed() {
          \n\
          Keep `lib/Flow/Effects.flx` and `Compiler::seed_builtin_effect_aliases` / \
          `seed_builtin_effect_operations` in sync. See proposal 0161.\n",
-        missing_from_spec, extra_in_spec,
+        missing_from_spec,
+        extra_in_spec,
     );
 
     for (label, expected_ops) in &expected {
@@ -184,7 +174,9 @@ fn flow_effects_spec_labels_match_seed() {
              \n\
              Keep the operation list in sync with \
              `Compiler::seed_builtin_effect_operations`.\n",
-            label, missing_ops, extra_ops,
+            label,
+            missing_ops,
+            extra_ops,
         );
     }
 }
@@ -208,7 +200,8 @@ fn flow_effects_spec_aliases_match_seed() {
            aliases in lib/Flow/Effects.flx but not seeded by compiler: {:?}\n\
          \n\
          Keep `lib/Flow/Effects.flx` and `Compiler::seed_builtin_effect_aliases` in sync.\n",
-        missing_from_spec, extra_in_spec,
+        missing_from_spec,
+        extra_in_spec,
     );
 
     for (alias, expected_atoms) in &expected {
@@ -223,7 +216,9 @@ fn flow_effects_spec_aliases_match_seed() {
              Flow.Effects alias `{}` expansion drift:\n  \
                atoms missing from lib/Flow/Effects.flx: {:?}\n  \
                atoms in lib/Flow/Effects.flx but not in compiler seed: {:?}\n",
-            alias, missing_atoms, extra_atoms,
+            alias,
+            missing_atoms,
+            extra_atoms,
         );
     }
 }

@@ -4213,9 +4213,7 @@ impl Compiler {
 
         let residual =
             self.infer_effects_from_block(main_body, None, &inferred, io_effect, time_effect);
-        let debug_effect = self
-            .interner
-            .intern(crate::syntax::builtin_effects::DEBUG);
+        let debug_effect = self.interner.intern(crate::syntax::builtin_effects::DEBUG);
         let mut disallowed: Vec<Symbol> = residual
             .into_iter()
             .filter(|effect| {
@@ -6305,7 +6303,11 @@ impl Compiler {
         op: Symbol,
     ) -> Option<crate::compiler::binding::Binding> {
         let ev_symbol = {
-            let scope = self.handler_scopes.iter().rev().find(|s| s.effect == effect)?;
+            let scope = self
+                .handler_scopes
+                .iter()
+                .rev()
+                .find(|s| s.effect == effect)?;
             let arm_idx = scope.ops.iter().position(|&o| o == op)?;
             scope.evidence_symbols.as_ref()?.get(arm_idx).copied()?
         };

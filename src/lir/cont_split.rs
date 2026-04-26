@@ -108,10 +108,7 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
 /// module stays feature-flag-agnostic at the type level. Opt out with
 /// `FLUX_YIELD_CHECKS=0`.
 fn yield_checks_enabled() -> bool {
-    match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) if v == "0" => false,
-        _ => true,
-    }
+    !matches!(std::env::var("FLUX_YIELD_CHECKS"), Ok(v) if v == "0")
 }
 
 /// A call site that needs a continuation function synthesized for it.

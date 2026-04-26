@@ -549,6 +549,7 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
     }
 }
 
+#[allow(clippy::collapsible_match)]
 fn bind_function_id_in_items(
     items: &mut [IrTopLevelItem],
     name: Identifier,

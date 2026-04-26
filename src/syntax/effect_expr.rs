@@ -98,9 +98,7 @@ impl EffectExpr {
         match self {
             EffectExpr::Add { .. } => true,
             EffectExpr::Named { .. } | EffectExpr::RowVar { .. } => false,
-            EffectExpr::Subtract { left, right, .. } => {
-                left.contains_add() || right.contains_add()
-            }
+            EffectExpr::Subtract { left, right, .. } => left.contains_add() || right.contains_add(),
         }
     }
 

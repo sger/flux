@@ -45,10 +45,7 @@ const LEFT_TAG: i32 = 2;
 /// sites, so non-effect programs pay zero overhead. Opt out to the legacy
 /// direct-perform path with `FLUX_YIELD_CHECKS=0`.
 fn yield_checks_enabled() -> bool {
-    match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) if v == "0" => false,
-        _ => true,
-    }
+    !matches!(std::env::var("FLUX_YIELD_CHECKS"), Ok(v) if v == "0")
 }
 
 /// True when the LIR program contains at least one `CallKind::YieldTo`

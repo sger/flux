@@ -587,12 +587,14 @@ fn synthesize_stmt_entry_handlers(
             wrap_block_with_default_handlers(
                 body,
                 *span,
-                interner,
-                ids,
-                user_effect_ops,
-                function_effects,
-                &entry_effects,
-                user_redefined_builtin_effects,
+                DefaultHandlerContext {
+                    interner,
+                    ids,
+                    user_effect_ops,
+                    function_effects,
+                    entry_effects: &entry_effects,
+                    user_redefined_builtin_effects,
+                },
             )
         }
         Statement::Module { body, .. } => {
@@ -619,27 +621,31 @@ fn is_entry_name(name: Identifier, interner: &Interner) -> bool {
         .is_some_and(|name| name == "main" || name.starts_with("test_"))
 }
 
+struct DefaultHandlerContext<'a> {
+    interner: &'a mut Interner,
+    ids: &'a mut ExprIdGen,
+    user_effect_ops: &'a HashMap<Identifier, HashSet<Identifier>>,
+    function_effects: &'a HashMap<Identifier, HashSet<&'static str>>,
+    entry_effects: &'a HashSet<&'static str>,
+    user_redefined_builtin_effects: &'a HashSet<Identifier>,
+}
+
 fn wrap_block_with_default_handlers(
     block: &mut Block,
     span: Span,
-    interner: &mut Interner,
-    ids: &mut ExprIdGen,
-    user_effect_ops: &HashMap<Identifier, HashSet<Identifier>>,
-    function_effects: &HashMap<Identifier, HashSet<&'static str>>,
-    entry_effects: &HashSet<&'static str>,
-    user_redefined_builtin_effects: &HashSet<Identifier>,
+    ctx: DefaultHandlerContext<'_>,
 ) -> bool {
-    let mut required_effects = default_effects_in_block(block, interner, function_effects);
-    required_effects.extend(entry_effects.iter().copied());
+    let mut required_effects = default_effects_in_block(block, ctx.interner, ctx.function_effects);
+    required_effects.extend(ctx.entry_effects.iter().copied());
     // If the user has redefined a builtin effect (e.g. their own
     // `effect Console { print: String -> () }`), don't synthesize a default
     // handler for it — the user is responsible for handling their own effect,
     // and our default arms reference builtin operations the user never
     // declared (which would E401 in handler exhaustiveness).
     required_effects.retain(|effect_name| {
-        interner
+        ctx.interner
             .lookup(effect_name)
-            .is_none_or(|sym| !user_redefined_builtin_effects.contains(&sym))
+            .is_none_or(|sym| !ctx.user_redefined_builtin_effects.contains(&sym))
     });
     if required_effects.is_empty() {
         return false;
@@ -655,24 +661,24 @@ fn wrap_block_with_default_handlers(
     let mut expr = Expression::DoBlock {
         block: original,
         span,
-        id: ids.next_id(),
+        id: ctx.ids.next_id(),
     };
 
     for effect in [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::CLOCK, be::DEBUG] {
         if !required_effects.contains(effect) {
             continue;
         }
-        let arms = default_handler_arms(effect, interner, ids, user_effect_ops, span);
+        let arms = default_handler_arms(effect, ctx.interner, ctx.ids, ctx.user_effect_ops, span);
         if arms.is_empty() {
             continue;
         }
         expr = Expression::Handle {
             expr: Box::new(expr),
-            effect: interner.intern(effect),
+            effect: ctx.interner.intern(effect),
             parameter: None,
             arms,
             span,
-            id: ids.next_id(),
+            id: ctx.ids.next_id(),
         };
     }
 

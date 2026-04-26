@@ -356,8 +356,7 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
 mod tests {
     use super::{
         has_error_diagnostics, merge_programs, should_build_merged_program,
-        should_dispatch_native_backend,
-        should_try_parallel_vm_fast_path,
+        should_dispatch_native_backend, should_try_parallel_vm_fast_path,
     };
     use crate::{
         diagnostics::{Diagnostic, Severity, position::Span},
