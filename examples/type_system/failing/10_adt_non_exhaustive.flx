@@ -1,6 +1,61 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/10_adt_non_exhaustive.flx
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 1 missing pattern.
+//
+//   examples/type_system/failing/10_adt_non_exhaustive.flx:72:5
+//    |
+// 72 |     match c {
+//    |     ^^^^^^^^^
+// 73 |         Red -> "red",
+//    | ^^^^^^^^^^^^^^^^^^^^^
+// 74 |         Green -> "green",
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+// 75 |         // Missing: Blue
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^
+// 76 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+//
+//
+// error[E413]: Top-Level Effect
+//
+// Effectful operation is not allowed at top level (requires: Console).
+//
+//   examples/type_system/failing/10_adt_non_exhaustive.flx:87:1
+//    |
+// 87 | print(pass(t))
+//    | ^^^^^^^^^^^^^^
+//    | -------------- top-level effectful expression
+//
+// Hint:
+//   Move this code into `fn main() with ... { ... }`.
+//
+//
+// error[E414]: Missing Main Function
+//
+// Effectful program is missing `fn main` root effect handler.
+//
+//   examples/type_system/failing/10_adt_non_exhaustive.flx:87:1
+//    |
+// 87 | print(pass(t))
+//    | ^^^^^^^^^^^^^^
+//    | -------------- effectful top-level execution
+//
+// Hint:
+//   Define `fn main() with ... { ... }` and move execution there.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E015
+// expect-error: E413
+// expect-error: E414
 
 data Color {
     Red,

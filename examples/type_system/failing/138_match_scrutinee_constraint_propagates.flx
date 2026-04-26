@@ -1,6 +1,75 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx
+// error[E004]: Undefined Variable
+//
+// I can't find a value named `mystery_value`.
+//
+//   examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:75:13
+//    |
+// 75 |     let x = mystery_value
+//    |             ^^^^^^^^^^^^^
+//
+// Hint:
+//   Define it first: let mystery_value = ...;
+//
+//
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `y` does not match its type annotation.
+//
+//   examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:76:21
+//    |
+// 76 |     let y: String = match x {
+//    |                     ^^^^^^^^^
+//    |            ------ but `y` was annotated as `String`
+// 77 |         Some(n) -> n,
+//    | ^^^^^^^^^^^^^^^^^^^^^
+// 78 |         None -> 0,
+//    | ^^^^^^^^^^^^^^^^^^
+// 79 |     }
+//    | ^^^^^
+//
+// Note:
+//   annotated type: String
+//   value type: Int
+//
+// Help:
+//   Try `to_string(...)` to convert a `Int` into a `String`.
+//
+//
+// error[E300]: Match Arm Type Mismatch
+//
+// The arms of this `match` expression do not agree on a type.
+//
+//   examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:78:17
+//    |
+// 77 |         Some(n) -> n,
+//    |                    - first arm returns `String`
+//
+//    |                    - this arm established the expected type
+// 78 |         None -> 0,
+//    |                 ^
+//    |                 - arm 2 has type `Int`
+//
+//    |                 - arm 2 conflicts with that type
+//
+// Note:
+//   first arm type: String
+//   this arm type: Int
+//   the first arm fixes the type expected from the whole `match`
+//   this arm produces the competing type
+//
+// Help:
+//   Try `to_string(...)` to convert a `Int` into a `String`.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E004
+// expect-error: E300
+// expect-error: E300
 
 fn main() -> Unit {
     let x = mystery_value

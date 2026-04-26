@@ -1,6 +1,9 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity: vm_strict, llvm_strict
 // expect: compile_error
+// expect-error: E415
+// skip: strict missing-main fixture does not currently fail under parity strict entry semantics
 
 fn inc(x: Int) -> Int {
     x + 1

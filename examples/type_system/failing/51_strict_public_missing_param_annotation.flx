@@ -1,6 +1,23 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/51_strict_public_missing_param_annotation.flx
+// error[E416]: Strict Function Annotation Required
+//
+// Public function `add` must annotate all parameters in strict mode.
+//
+//   examples/type_system/failing/51_strict_public_missing_param_annotation.flx:22:8
+//    |
+// 22 | public fn add(x, y) -> Int {
+//    |        ^^^^^^^^^^^^^^^^^^^
+//    |        ------------------- missing parameter type annotations
+//
+// Hint:
+//   Add explicit parameter types to the function signature.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
 // expect: compile_error
+// expect-error: E416
 
 public fn add(x, y) -> Int {
     x + y

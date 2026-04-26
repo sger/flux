@@ -1,6 +1,25 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/179_data_missing_open_brace.flx
+// error[E034]: Missing Data Body
+//
+// Expected `{` to begin data constructors.
+//
+//   examples/type_system/failing/179_data_missing_open_brace.flx:24:15
+//    |
+// 24 | data Maybe<T> Some(T), None }
+//    |               ^^^^
+//
+// Hint:
+//   Data declarations use `data TypeName { Ctor, ... }`.
+//
+// Note:
+//   while parsing data declaration `Maybe`
+//   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E034
 
 data Maybe<T> Some(T), None }
 let after = 1

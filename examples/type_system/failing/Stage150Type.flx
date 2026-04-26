@@ -1,6 +1,28 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/Stage150Type.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `x` does not match its type annotation.
+//
+//   examples/type_system/failing/Stage150Type.flx:32:23
+//    |
+// 32 |         let x: Bool = 42
+//    |                       ^^
+//    |                       -- this value has type `Int`
+//
+//    |                ---- but `x` was annotated as `Bool`
+//
+// Note:
+//   annotated type: Bool
+//   value type: Int
+//
+// Help:
+//   Booleans are not numeric in Flux. Use `true` or `false` here.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 // Helper module for stage-aware fixture 150/153.
 // Intentionally has a type diagnostic.

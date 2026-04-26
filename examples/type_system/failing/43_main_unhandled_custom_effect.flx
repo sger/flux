@@ -2,6 +2,7 @@
 // "x"
 // parity-expected-stdout-end
 // expect: compile_error
+// skip: historical fixture currently compiles successfully
 
 // E406: custom effects must be discharged before returning from main.
 

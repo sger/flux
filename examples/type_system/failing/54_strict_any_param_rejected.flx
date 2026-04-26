@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/54_strict_any_param_rejected.flx
+// error[E423]: Unknown Type
+//
+// I can't find a type named `Any`.
+//
+//   examples/type_system/failing/54_strict_any_param_rejected.flx:21:17
+//    |
+// 21 | public fn id(x: Any) -> Int {
+//    |                 ^^^
+//    |                 --- unknown type used here
+//
+// Hint:
+//   Use a built-in type, an in-scope type parameter, or a declared ADT.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E423
 
 public fn id(x: Any) -> Int {
     1

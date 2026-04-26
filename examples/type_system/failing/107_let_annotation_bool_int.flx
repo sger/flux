@@ -1,6 +1,28 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/107_let_annotation_bool_int.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `flag` does not match its type annotation.
+//
+//   examples/type_system/failing/107_let_annotation_bool_int.flx:28:22
+//    |
+// 28 |     let flag: Bool = 42
+//    |                      ^^
+//    |                      -- this value has type `Int`
+//
+//    |               ---- but `flag` was annotated as `Bool`
+//
+// Note:
+//   annotated type: Bool
+//   value type: Int
+//
+// Help:
+//   Booleans are not numeric in Flux. Use `true` or `false` here.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 fn main() -> Unit {
     let flag: Bool = 42

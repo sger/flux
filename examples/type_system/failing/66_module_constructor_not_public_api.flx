@@ -1,6 +1,53 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/66_module_constructor_not_public_api.flx
+// error[E421]: Unknown Member in Exposing
+//
+// `print` is not defined in module `Flow.Primops`.
+//
+//   examples/type_system/failing/66_module_constructor_not_public_api.flx:7:1
+//   |
+// 7 | // `print` is not defined in module `Flow.Primops`.
+//   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the public members of `Flow.Primops` or remove `print` from the exposing list.
+//
+//
+// error[E004]: Undefined Variable
+//
+// I can't find a value named `TypeSystem.GenericResultTree.Node`.
+//
+//   examples/type_system/failing/66_module_constructor_not_public_api.flx:58:14
+//    |
+// 58 |     let _t = TypeSystem.GenericResultTree.Node(
+//    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Define it first: let TypeSystem.GenericResultTree.Node = ...;
+//
+//
+// • 1 error • examples/type_system/failing/66_module_constructor_not_public_api.flx
+// error[E018]: Import Not Found
+//
+// Cannot find module `TypeSystem.GenericResultTree` to import.
+//
+//   examples/type_system/failing/66_module_constructor_not_public_api.flx:55:1
+//    |
+// 55 | import TypeSystem.GenericResultTree
+//    | ^
+//
+// Hint:
+//   Check that: 1) The module file exists (e.g., `TypeSystem.GenericResultTree.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+//   Looked for module `TypeSystem.GenericResultTree` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/66_module_constructor_not_public_api.flx).
+//
+// Found 3 errors across 2 modules.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E004
+// expect-error: E018
+// expect-error: E421
 
 // Policy fixture (0.0.4): module ADT constructors are internal API.
 // External usage should go through module `public fn` factories/accessors.
