@@ -9,13 +9,13 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 2 has the wrong type.
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
-  |
-8 |     each([1, 2, 3], noisy_log)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin`
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+   |
+52 |     each([1, 2, 3], noisy_log)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin`
 
-  |     -------------------------- this type mismatch is reported here
+   |     -------------------------- this type mismatch is reported here
 
 Note:
   expected parameter type: () -> Unit
@@ -30,11 +30,11 @@ error[E400]: Missing Effect
 
 requires effect `Console` but the enclosing context does not provide it
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:8:5
-  |
-8 |     each([1, 2, 3], noisy_log)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     -------------------------- requires `Console`
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+   |
+52 |     each([1, 2, 3], noisy_log)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     -------------------------- requires `Console`
 
 Hint:
   annotate the enclosing function with `with Console`

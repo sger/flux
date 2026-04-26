@@ -9,15 +9,15 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:66:5
    |
-14 |     match x {
+66 |     match x {
    |     ^^^^^^^^^
-15 |         A1 -> 1,
+67 |         A1 -> 1,
    | ^^^^^^^^^^^^^^^^
-16 |         B1 -> 2,
+68 |         B1 -> 2,
    | ^^^^^^^^^^^^^^^^
-17 |     }
+69 |     }
    | ^^^^^
 
 Note:
@@ -33,15 +33,15 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:66:5
    |
-14 |     match x {
+66 |     match x {
    |     ^^^^^^^^^
-15 |         A1 -> 1,
+67 |         A1 -> 1,
    | ^^^^^^^^^^^^^^^^
-16 |         B1 -> 2,
+68 |         B1 -> 2,
    | ^^^^^^^^^^^^^^^^
-17 |     }
+69 |     }
    | ^^^^^
 
 Hint:

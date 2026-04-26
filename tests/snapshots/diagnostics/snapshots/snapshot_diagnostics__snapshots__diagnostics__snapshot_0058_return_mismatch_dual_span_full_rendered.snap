@@ -6,13 +6,13 @@ error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 
-  examples/type_system/failing/108_fun_return_string_vs_int.flx:2:5
-  |
-1 | fn bad() -> Int {
-  |             --- `bad` was declared to return `Int`
-2 |     "oops"
-  |     ^^^^^^
-  |     ------ this expression has type `String`
+  examples/type_system/failing/108_fun_return_string_vs_int.flx:51:5
+   |
+50 | fn bad() -> Int {
+   |             --- `bad` was declared to return `Int`
+51 |     "oops"
+   |     ^^^^^^
+   |     ------ this expression has type `String`
 
 Note:
   declared return type: Int

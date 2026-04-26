@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx:2:5
-  |
-2 |     x[0]
-  |     ^
-  |     - this expression has type `Int`
+  examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx:29:5
+   |
+29 |     x[0]
+   |     ^
+   |     - this expression has type `Int`
 
-  |     - indexed value is known at compile time
+   |     - indexed value is known at compile time
 
 Note:
   expected type: indexable value (Array/List/Tuple/Map)

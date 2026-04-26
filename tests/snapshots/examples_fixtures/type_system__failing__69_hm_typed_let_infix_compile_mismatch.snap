@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:9:18
-  |
-9 |     let y: Int = x + 1
-  |                  ^^^^^
-  |                  ----- this value has type `String`
+  examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:35:18
+   |
+35 |     let y: Int = x + 1
+   |                  ^^^^^
+   |                  ----- this value has type `String`
 
-  |            --- but `y` was annotated as `Int`
+   |            --- but `y` was annotated as `Int`
 
 Note:
   annotated type: Int

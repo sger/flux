@@ -9,13 +9,13 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 2 missing patterns.
 
-  examples/type_system/failing/24_adt_guarded_non_exhaustive.flx:9:5
+  examples/type_system/failing/24_adt_guarded_non_exhaustive.flx:32:5
    |
- 9 |     match x {
+32 |     match x {
    |     ^^^^^^^^^
-10 |         SomeI(v) if v > 0 -> v,
+33 |         SomeI(v) if v > 0 -> v,
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-11 |     }
+34 |     }
    | ^^^^^
 
 Hint:

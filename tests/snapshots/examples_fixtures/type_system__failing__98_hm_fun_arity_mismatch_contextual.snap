@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx
 == compile ==
@@ -9,19 +9,19 @@ error[E300]: Wrong Number Of Arguments
 
 I am applying a function to too many arguments.
 
-  examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx:11:14
+  examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx:46:14
    |
-11 |     let _f = if true {
+46 |     let _f = if true {
    |              ^^^^^^^^^
-12 |         one_arg
+47 |         one_arg
    | ^^^^^^^^^^^^^^^
    |         ------- this branch established the expected type
-13 |     } else {
+48 |     } else {
    | ^^^^^^^^^^^^
-14 |         two_args
+49 |         two_args
    | ^^^^^^^^^^^^^^^^
    |         -------- this branch conflicts with that type
-15 |     }
+50 |     }
    | ^^^^^
 
 Note:

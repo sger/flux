@@ -9,15 +9,15 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx:7:14
+  examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx:48:14
    |
- 7 |     let _y = match x {
+48 |     let _y = match x {
    |              ^^^^^^^^^
- 8 |         LeftI(a, b, c) -> a,
+49 |         LeftI(a, b, c) -> a,
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
- 9 |         RightI(n) -> n,
+50 |         RightI(n) -> n,
    | ^^^^^^^^^^^^^^^^^^^^^^^
-10 |     }
+51 |     }
    | ^^^^^
 
 Hint:
@@ -28,10 +28,10 @@ error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `LeftI` expects 1 argument(s) but got 3.
 
-  examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx:8:9
-  |
-8 |         LeftI(a, b, c) -> a,
-  |         ^^^^^^^^^^^^^^
+  examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx:49:9
+   |
+49 |         LeftI(a, b, c) -> a,
+   |         ^^^^^^^^^^^^^^
 
 Hint:
   Check the constructor's declared pattern field count.

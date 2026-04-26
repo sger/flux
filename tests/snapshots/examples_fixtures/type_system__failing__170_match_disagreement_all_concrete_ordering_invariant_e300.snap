@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx
 == compile ==
@@ -9,17 +9,17 @@ error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:2:18
-  |
-2 |     let y: Int = match true {
-  |                  ^^^^^^^^^^^^
-  |            --- but `y` was annotated as `Int`
-3 |         true -> "oops",
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-4 |         false -> 1,
-  | ^^^^^^^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
+  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:62:18
+   |
+62 |     let y: Int = match true {
+   |                  ^^^^^^^^^^^^
+   |            --- but `y` was annotated as `Int`
+63 |         true -> "oops",
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+64 |         false -> 1,
+   | ^^^^^^^^^^^^^^^^^^^
+65 |     }
+   | ^^^^^
 
 Note:
   annotated type: Int
@@ -33,17 +33,17 @@ error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 
-  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:3:17
-  |
-3 |         true -> "oops",
-  |                 ^^^^^^
-  |                 ------ arm 1 has type `String`
+  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:63:17
+   |
+63 |         true -> "oops",
+   |                 ^^^^^^
+   |                 ------ arm 1 has type `String`
 
-  |                 ------ first arm returns `Int`
+   |                 ------ first arm returns `Int`
 
-  |                 ------ this arm established the expected type
+   |                 ------ this arm established the expected type
 
-  |                 ------ arm 1 conflicts with that type
+   |                 ------ arm 1 conflicts with that type
 
 Note:
   first arm type: Int

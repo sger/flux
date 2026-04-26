@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/02_runtime_boundary_arg_violation.flx
 == compile ==
@@ -9,16 +9,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/type_system/failing/02_runtime_boundary_arg_violation.flx:12:11
+  examples/type_system/failing/02_runtime_boundary_arg_violation.flx:45:11
    |
- 5 | fn typed_add(a: Int, b: Int) -> Int {
+38 | fn typed_add(a: Int, b: Int) -> Int {
    | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
- 6 |     a + b
- 7 | }
+39 |     a + b
+40 | }
 ... |
-10 | 
-11 | 
-12 | typed_add(dynamic, 1)
+43 | 
+44 | 
+45 | typed_add(dynamic, 1)
    |           ^^^^^^^
    |           ------- this argument has type `String`
 

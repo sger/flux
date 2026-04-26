@@ -9,11 +9,11 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/type_system/failing/38_top_level_effect_rejected.flx:3:1
-  |
-3 | print("top-level effect")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------- top-level effectful expression
+  examples/type_system/failing/38_top_level_effect_rejected.flx:40:1
+   |
+40 | print("top-level effect")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
@@ -23,11 +23,11 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/type_system/failing/38_top_level_effect_rejected.flx:3:1
-  |
-3 | print("top-level effect")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------- effectful top-level execution
+  examples/type_system/failing/38_top_level_effect_rejected.flx:40:1
+   |
+40 | print("top-level effect")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- effectful top-level execution
 
 Hint:
   Define `fn main() with ... { ... }` and move execution there.

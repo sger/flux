@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/17_handle_unknown_operation.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E401]: Unknown Effect Operation
 
 Handler for `Console` includes unknown operation `read`.
 
-  examples/type_system/failing/17_handle_unknown_operation.flx:9:9
-  |
-9 |         read(resume) -> resume("x")
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |         --------------------------- unknown operation arm
+  examples/type_system/failing/17_handle_unknown_operation.flx:29:9
+   |
+29 |         read(resume) -> resume("x")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         --------------------------- unknown operation arm
 
 Hint:
   Add this operation to the effect declaration or remove the arm.

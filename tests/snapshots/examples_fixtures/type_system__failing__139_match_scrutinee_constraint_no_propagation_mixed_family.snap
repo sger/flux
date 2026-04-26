@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:4:13
-  |
-4 |     let x = mystery_value
-  |             ^^^^^^^^^^^^^
+  examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:47:13
+   |
+47 |     let x = mystery_value
+   |             ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;
@@ -22,16 +22,16 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:10:14
+  examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:53:14
    |
- 1 | fn add(a: Int, b: Int) -> Int { a + b }
+44 | fn add(a: Int, b: Int) -> Int { a + b }
    | ----------------------------- `add` is defined with 2 parameters
- 2 | 
- 3 | fn main() -> Unit {
+45 | 
+46 | fn main() -> Unit {
 ... |
- 8 |         _ -> 0,
- 9 |     }
-10 |     let _z = add(1)
+51 |         _ -> 0,
+52 |     }
+53 |     let _z = add(1)
    |              ^^^^^^
    |              ------ 1 arguments provided here, expected 2
 

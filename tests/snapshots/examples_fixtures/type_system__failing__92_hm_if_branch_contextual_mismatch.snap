@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx
 == compile ==
@@ -9,18 +9,18 @@ error[E300]: Branch Type Mismatch
 
 The branches of this `if` expression do not agree on a type.
 
-  examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx:6:9
-  |
-4 |         42
-  |         -- `then` branch returns `Int`
+  examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx:39:9
+   |
+37 |         42
+   |         -- `then` branch returns `Int`
 
-  |         -- this branch established the expected type
-5 |     } else {
-6 |         "nope"
-  |         ^^^^^^
-  |         ------ the `else` branch has type `String`
+   |         -- this branch established the expected type
+38 |     } else {
+39 |         "nope"
+   |         ^^^^^^
+   |         ------ the `else` branch has type `String`
 
-  |         ------ this branch conflicts with that type
+   |         ------ this branch conflicts with that type
 
 Note:
   then branch type: Int

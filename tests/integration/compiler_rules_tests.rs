@@ -1607,7 +1607,7 @@ fn hm_fixture_131_call_arg_primary_label_is_argument_subspan() {
         .iter()
         .find(|l| l.style == LabelStyle::Primary)
         .expect("expected primary label on fixture 131 diagnostic");
-    assert_eq!(primary.span.start.line, 4);
+    assert_eq!(primary.span.start.line, 34);
     assert_eq!(primary.span.start.column, 21);
 }
 
@@ -1667,7 +1667,7 @@ fn hm_fixture_132_let_annotation_primary_label_is_initializer_subspan() {
         .iter()
         .find(|l| l.style == LabelStyle::Primary)
         .expect("expected primary label on fixture 132 diagnostic");
-    assert_eq!(primary.span.start.line, 2);
+    assert_eq!(primary.span.start.line, 52);
     assert_eq!(primary.span.start.column, 17);
 }
 
@@ -1717,9 +1717,9 @@ fn hm_fixture_133_if_primary_label_is_else_value_subspan() {
         .iter()
         .find(|l| l.style == LabelStyle::Secondary)
         .expect("expected secondary label on fixture 133 diagnostic");
-    assert_eq!(primary.span.start.line, 2);
+    assert_eq!(primary.span.start.line, 34);
     assert_eq!(primary.span.start.column, 35);
-    assert_eq!(secondary.span.start.line, 2);
+    assert_eq!(secondary.span.start.line, 34);
     assert_eq!(secondary.span.start.column, 23);
 }
 

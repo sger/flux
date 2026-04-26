@@ -9,11 +9,11 @@ error[E400]: Missing Effect
 
 requires effect `Clock` but the enclosing context does not provide it
 
-  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:5:5
-  |
-5 |     n()
-  |     ^^^
-  |     --- requires `Clock`
+  examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:25:5
+   |
+25 |     n()
+   |     ^^^
+   |     --- requires `Clock`
 
 Hint:
   annotate the enclosing function with `with Clock`

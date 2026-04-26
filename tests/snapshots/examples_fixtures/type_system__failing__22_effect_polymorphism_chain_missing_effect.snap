@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `wrap_apply` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx:17:5
+  examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx:37:5
    |
-17 |     wrap_apply(io_inc, 41)
+37 |     wrap_apply(io_inc, 41)
    |     ^^^^^^^^^^
    |     ---------- effectful call occurs here
 

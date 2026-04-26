@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/179_data_missing_open_brace.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Data Body
 
 Expected `{` to begin data constructors.
 
-  examples/type_system/failing/179_data_missing_open_brace.flx:1:15
-  |
-1 | data Maybe<T> Some(T), None }
-  |               ^^^^
+  examples/type_system/failing/179_data_missing_open_brace.flx:24:15
+   |
+24 | data Maybe<T> Some(T), None }
+   |               ^^^^
 
 Hint:
   Data declarations use `data TypeName { Ctor, ... }`.
@@ -25,10 +25,10 @@ error[E031]: Expected Expression
 
 Expected expression, found `,`.
 
-  examples/type_system/failing/179_data_missing_open_brace.flx:1:22
-  |
-1 | data Maybe<T> Some(T), None }
-  |                      ^
+  examples/type_system/failing/179_data_missing_open_brace.flx:24:22
+   |
+24 | data Maybe<T> Some(T), None }
+   |                      ^
 
 Found 2 errors.
 == stdout ==

@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/142_match_bool_missing_true.flx:4:14
-  |
-4 |     let _x = match b {
-  |              ^^^^^^^^^
-5 |         false -> 0
-  | ^^^^^^^^^^^^^^^^^^
-6 |     }
-  | ^^^^^
+  examples/type_system/failing/142_match_bool_missing_true.flx:27:14
+   |
+27 |     let _x = match b {
+   |              ^^^^^^^^^
+28 |         false -> 0
+   | ^^^^^^^^^^^^^^^^^^
+29 |     }
+   | ^^^^^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

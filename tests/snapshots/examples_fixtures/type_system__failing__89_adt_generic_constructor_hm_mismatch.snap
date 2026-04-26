@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `bad` does not match its type annotation.
 
-  examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:4:32
-  |
-4 | let bad: Result<Int, String> = Ok("oops")
-  |                                ^^^^^^^^^^
-  |                                ---------- this value has type `Result<String, _>`
+  examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:46:32
+   |
+46 | let bad: Result<Int, String> = Ok("oops")
+   |                                ^^^^^^^^^^
+   |                                ---------- this value has type `Result<String, _>`
 
-  |          ------------------- but `bad` was annotated as `Result<Int, String>`
+   |          ------------------- but `bad` was annotated as `Result<Int, String>`
 
 Note:
   annotated type: Result<Int, String>

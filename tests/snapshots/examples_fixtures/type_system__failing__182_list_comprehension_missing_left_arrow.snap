@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/182_list_comprehension_missing_left_arrow.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Generator Name
 
 Expected generator identifier before `<-` in list comprehension.
 
-  examples/type_system/failing/182_list_comprehension_missing_left_arrow.flx:1:15
-  |
-1 | let xs = [x | <- [1, 2, 3]]
-  |               ^^
+  examples/type_system/failing/182_list_comprehension_missing_left_arrow.flx:20:15
+   |
+20 | let xs = [x | <- [1, 2, 3]]
+   |               ^^
 
 Hint:
   List comprehensions use `[expr | name <- source, ...]`.
