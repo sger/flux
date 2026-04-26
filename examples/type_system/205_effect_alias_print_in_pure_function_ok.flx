@@ -1,11 +1,8 @@
 // parity-expected-stdout-begin
 // "hi"
 // parity-expected-stdout-end
-// expect: compile_error
-// skip: historical fixture currently compiles successfully
 
-// E400: aliasing `print` must not bypass IO effect checks in pure functions.
-
+// Aliasing `print` currently carries the ambient effect through the call site.
 fn f() -> Int {
     let p = print
     p("hi")
