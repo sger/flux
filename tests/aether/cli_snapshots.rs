@@ -1,8 +1,8 @@
 use flux::parity::normalize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // Native backend CLI runs share cache and output paths for the same fixture, so serialize command
 // execution ONLY when the invocation uses `--native` (which writes .o / .ll / binary artifacts
@@ -30,10 +30,7 @@ fn isolated_cache_dir() -> PathBuf {
     workspace_root()
         .join("target")
         .join("test-caches")
-        .join(format!(
-            "aether-cli-snapshots-{}-{id}",
-            std::process::id()
-        ))
+        .join(format!("aether-cli-snapshots-{}-{id}", std::process::id()))
 }
 
 fn run_flux_output(args: &[&str]) -> std::process::Output {
