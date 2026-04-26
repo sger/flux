@@ -1,10 +1,16 @@
+// expect: compile_error
+// expect-error: E024
+
 // Module: MapUtils
-// Utilities for working with persistent maps (HAMT)
+// Utilities for working with the Flow.Map public surface.
+
+import Flow.Array as Array
+import Flow.Map as Map
 
 module Modules.MapUtils {
     // Unwrap a map value (get returns Some/None, this returns the value or None)
     fn val(m, k) {
-        match get(m, k) {
+        match Map.get(m, k) {
             Some(v) -> v,
             _ -> None,
         }
@@ -12,30 +18,30 @@ module Modules.MapUtils {
 
     // Convert an array of [|key, value|] pairs into a map
     fn from_pairs(pairs) {
-        fold(pairs, {}, \(acc, pair) -> put(acc, first(pair), last(pair)))
+        fold(pairs, {}, \(acc, pair) -> Map.set(acc, first(pair), last(pair)))
     }
 
     // Apply function f to every value in the map, returning a new map
     fn map_values(m, f) {
-        fold(keys(m), {}, \(acc, k) -> put(acc, k, f(val(m, k))))
+        fold(Map.keys(m), {}, \(acc, k) -> Map.set(acc, k, f(val(m, k))))
     }
 
     // Helper for filter_entries
     fn _check(m, acc, k, pred) {
         let v = val(m, k)
-        if pred(k, v) { put(acc, k, v) } else { acc }
+        if pred(k, v) { Map.set(acc, k, v) } else { acc }
     }
 
     // Keep only entries where pred(key, value) returns true
     fn filter_entries(m, pred) {
-        fold(keys(m), {}, \(acc, k) -> _check(m, acc, k, pred))
+        fold(Map.keys(m), {}, \(acc, k) -> _check(m, acc, k, pred))
     }
 
     // Helper for frequencies
     fn _inc(acc, item) {
-        match get(acc, item) {
-            Some(n) -> put(acc, item, n + 1),
-            _ -> put(acc, item, 1),
+        match Map.get(acc, item) {
+            Some(n) -> Map.set(acc, item, n + 1),
+            _ -> Map.set(acc, item, 1),
         }
     }
 
@@ -46,9 +52,9 @@ module Modules.MapUtils {
 
     // Helper for group_by
     fn _add_group(acc, k, item) {
-        match get(acc, k) {
-            Some(existing) -> put(acc, k, push(existing, item)),
-            _ -> put(acc, k, [|item|]),
+        match Map.get(acc, k) {
+            Some(existing) -> Map.set(acc, k, Array.push(existing, item)),
+            _ -> Map.set(acc, k, [|item|]),
         }
     }
 
@@ -59,6 +65,6 @@ module Modules.MapUtils {
 
     // Swap keys and values in a map
     fn invert(m) {
-        fold(keys(m), {}, \(acc, k) -> put(acc, val(m, k), k))
+        fold(Map.keys(m), {}, \(acc, k) -> Map.set(acc, val(m, k), k))
     }
 }

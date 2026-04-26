@@ -1,6 +1,42 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/parser_errors/modules_many_errors/BrokenEffect.flx
+// error[E034]: Missing Effect Operation Colon
+//
+// Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+//
+//   examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:15
+//    |
+// 38 |         print String -> Unit,,
+//    |               ^^^^^^
+//
+// Note:
+//   while parsing module `BrokenEffect` > effect `Console`
+//
+//
+// error[E034]: Invalid Effect Operation
+//
+// I was expecting an operation name in this `effect` declaration, but I found `,`.
+//
+//   examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:30
+//    |
+// 38 |         print String -> Unit,,
+//    |                              ^
+//
+// Note:
+//   while parsing module `BrokenEffect` > effect `Console`
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+
 module BrokenEffect {
     effect Console {
         print String -> Unit,,
         read: Unit -> String
     }
 }
+

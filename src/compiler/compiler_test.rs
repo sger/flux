@@ -194,7 +194,7 @@ fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
 
 #[test]
 fn final_compile_preserves_specific_effect_errors_over_expression_e430() {
-    let (program, interner) = parse_program("perform Console.print(\"hello\")");
+    let (program, interner) = parse_program("perform Missing.print(\"hello\")");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let diags = compiler
         .compile_with_opts(&program, false, false)
@@ -321,15 +321,15 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
 }
 
 #[test]
-fn infer_expr_types_for_program_keeps_borrowed_program_when_untransformed() {
+fn infer_expr_types_for_program_stores_owned_program_after_0165_preparation() {
     let (program, interner) = parse_program("fn f() { 1 }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
     let prepared = compiler.prepare_program_for_lowering(&program);
 
     assert!(
-        matches!(prepared.effective_program, std::borrow::Cow::Borrowed(_)),
-        "expected borrowed final AST on the no-op inference path"
+        matches!(prepared.effective_program, std::borrow::Cow::Owned(_)),
+        "expected owned final AST after 0165 preparation"
     );
 }
 
@@ -656,7 +656,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
         .cloned()
         .expect("scheme should be cached");
 
-    let io_sym = compiler.interner.intern("IO");
+    let io_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut compiler.interner);
     match &scheme.infer_type {
         InferType::Fun(_, _, effects) => {
             assert!(
@@ -700,6 +700,275 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         compiler.cached_member_schemes().get(&(module, member)),
         Some(&Scheme::mono(InferType::Con(TypeConstructor::Int)))
     );
+}
+
+#[test]
+fn flow_primops_missing_covered_scheme_does_not_fall_back_to_rust_injection() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() with Console {
+    println("hello")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let module = compiler.interner.intern("Flow.Primops");
+    let idiv = compiler.interner.intern("idiv");
+    compiler.cached_member_schemes.insert(
+        (module, idiv),
+        Scheme {
+            forall: vec![],
+            constraints: vec![],
+            infer_type: InferType::Fun(
+                vec![
+                    InferType::Con(TypeConstructor::Int),
+                    InferType::Con(TypeConstructor::Int),
+                ],
+                Box::new(InferType::Con(TypeConstructor::Int)),
+                InferEffectRow::closed_empty(),
+            ),
+        },
+    );
+
+    let diags = compiler
+        .compile(&program)
+        .expect_err("println should not be supplied by Rust fallback once Flow.Primops is loaded");
+    let rendered = render_diagnostics(&diags, None, None);
+    assert!(
+        rendered.contains("println") || rendered.contains("unresolved"),
+        "expected missing Flow.Primops.println to surface as a compile failure:\n{rendered}"
+    );
+}
+
+#[test]
+fn builtin_effect_operation_registry_seeds_effectful_prelude_ops() {
+    let mut compiler = Compiler::new();
+    compiler.phase_reset();
+
+    let expected = [
+        ("Console", "print"),
+        ("Console", "println"),
+        ("FileSystem", "read_file"),
+        ("FileSystem", "read_lines"),
+        ("FileSystem", "write_file"),
+        ("Stdin", "read_stdin"),
+        ("Clock", "clock_now"),
+        ("Clock", "now_ms"),
+    ];
+
+    for (effect, operation) in expected {
+        let effect = compiler.interner.intern(effect);
+        let operation = compiler.interner.intern(operation);
+        assert!(
+            compiler
+                .effect_ops_registry
+                .get(&effect)
+                .is_some_and(|ops| ops.contains(&operation)),
+            "expected seeded operation {effect:?}.{operation:?}"
+        );
+        assert!(
+            compiler
+                .effect_op_signatures
+                .contains_key(&(effect, operation)),
+            "expected seeded signature for {effect:?}.{operation:?}"
+        );
+    }
+}
+
+#[test]
+fn main_println_without_annotation_compiles_via_default_handler() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() {
+    println("hello")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, None, None)));
+}
+
+#[test]
+fn test_function_println_without_annotation_compiles_via_default_handler() {
+    // `test_*` functions are entrypoints just like `main` and should
+    // receive the same compiler-synthesized default handlers for the
+    // built-in operational effects.
+    let (program, interner) = parse_program(
+        r#"
+fn test_default_handlers_apply_to_test_entry() {
+    println("from test_*")
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, None, None)));
+}
+
+#[test]
+fn helper_called_from_main_does_not_inherit_default_handler() {
+    // Default handlers wrap the entry's body only. An ordinary helper
+    // called from `main` still has to declare its effects explicitly;
+    // omitting `with Console` triggers E400 even when `main` itself
+    // would have synthesized a Console handler.
+    let (program, interner) = parse_program(
+        r#"
+fn helper() -> Unit {
+    println("missing Console")
+}
+
+fn main() {
+    helper()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("helper without `with Console` should fail to compile");
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E400")),
+        "expected E400 from helper, got: {diags:?}"
+    );
+}
+
+#[test]
+fn helper_called_from_test_entry_does_not_inherit_default_handler() {
+    // Symmetric with the `main` case: a `test_*` entry's default
+    // handler does not propagate into helpers it calls.
+    let (program, interner) = parse_program(
+        r#"
+fn helper() -> Unit {
+    println("missing Console")
+}
+
+fn test_helper_does_not_inherit_entry_default() {
+    helper()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("helper without `with Console` should fail to compile");
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E400")),
+        "expected E400 from helper, got: {diags:?}"
+    );
+}
+
+// =====================================================================
+// Track 4 — three-way effect availability invariant
+//
+// Three passes ask "is effect E available here?" against three data
+// shapes: HM inference (rows), CFG pre-validator (declared-only static),
+// and lowering (`Compiler::is_effect_available`, declared + handled).
+//
+// Forward direction of the contract: if the pre-validator accepts an
+// effect, the lowering predicate must accept the same effect for the
+// same fixture. The tests below pin both directions of the contract for
+// the canonical 0165 shape (a routed prelude call inside a helper that
+// did not declare its effect) and a positive control.
+// =====================================================================
+
+#[test]
+fn helper_routed_prelude_is_caught_by_pre_validator_not_just_lowering() {
+    // The 0165 bug shape: a prelude call (`println`) inside a helper
+    // without `with Console`. The routing pass synthesizes a
+    // `perform Console.println(...)` and the CFG pre-validator must
+    // catch the missing ambient effect. If pre-validation regresses
+    // the same fixture would still fail at lowering, but the diagnostic
+    // would arrive later and from a different code path.
+    //
+    // We assert E400 fires at all (forward contract) and that exactly
+    // one E400 fires for the helper, not two — which would indicate
+    // the pre-validator and lowering both reported the same failure
+    // and the suppression contract has drifted.
+    let (program, interner) = parse_program(
+        r#"
+fn helper() -> Unit {
+    println("missing Console")
+}
+
+fn main() {
+    helper()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let diags = compiler
+        .compile_with_opts(&program, false, false)
+        .expect_err("routed prelude in helper without `with Console` should fail");
+
+    let e400_count = diags.iter().filter(|d| d.code() == Some("E400")).count();
+    assert_eq!(
+        e400_count, 1,
+        "expected exactly one E400 across HM/pre-validator/lowering, got {e400_count}: {diags:?}",
+    );
+}
+
+#[test]
+fn helper_with_explicit_effect_is_accepted_by_all_three_passes() {
+    // Positive control for the three-way invariant: when the helper
+    // declares `with Console` explicitly, all three passes (HM
+    // inference, CFG pre-validator, lowering) must accept the same
+    // routed call. A regression in any one would either reject the
+    // helper outright or surface a spurious E400 at lowering.
+    let (program, interner) = parse_program(
+        r#"
+fn helper() -> Unit with Console {
+    println("explicit Console")
+}
+
+fn main() {
+    helper()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, None, None)));
+}
+
+#[test]
+fn handled_effect_inside_helper_is_accepted_at_lowering_only() {
+    // The asymmetric direction of the contract: lowering may accept
+    // effects the pre-validator would reject, because handlers become
+    // visible only at lowering. Here `helper` does not declare
+    // `with Console`, but the routed `println` is inside a `handle
+    // Console { ... }` block — the lowering predicate sees the
+    // installed handler via `handled_effects` and accepts the call.
+    //
+    // This is the inverse-direction case the pre-validator's doc
+    // calls out: it intentionally ignores synthesized/user handlers,
+    // so a regression where the pre-validator started consulting them
+    // would still pass this test, but a regression where lowering
+    // *stopped* consulting them would break it.
+    let (program, interner) = parse_program(
+        r#"
+fn helper() -> Int {
+    do {
+        println("captured")
+        1
+    } handle Console {
+        print(resume, _msg) -> resume(())
+        println(resume, _msg) -> resume(())
+    }
+}
+
+fn main() {
+    let _ = helper()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, None, None)));
 }
 
 #[test]
@@ -1340,8 +1609,12 @@ fn main() -> Unit {
 fn strict_mode_requires_effect_annotation_for_non_public_effectful_function() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit {
+fn helper() -> Unit {
     print("x")
+}
+
+fn main() -> Unit {
+    helper()
 }
 "#,
     );
@@ -1353,8 +1626,8 @@ fn main() -> Unit {
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered
-                .contains("Effectful function `main` must declare `with IO` in strict mode."),
+            && rendered.contains("Effectful function `helper` must declare `with Console`")
+            && rendered.contains("Add explicit `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1364,8 +1637,12 @@ fn main() -> Unit {
 fn strict_mode_requires_time_annotation_for_non_public_effectful_function() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit {
+fn helper() -> Unit {
     let _t = now_ms()
+}
+
+fn main() -> Unit {
+    helper()
 }
 "#,
     );
@@ -1377,8 +1654,8 @@ fn main() -> Unit {
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
-            && rendered
-                .contains("Effectful function `main` must declare `with Time` in strict mode."),
+            && rendered.contains("Effectful function `helper` must declare `with Clock`")
+            && rendered.contains("Add explicit `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1388,8 +1665,12 @@ fn main() -> Unit {
 fn strict_mode_reports_missing_time_when_only_io_is_declared() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit with IO {
+fn helper() -> Unit with IO {
     let _t = now_ms()
+}
+
+fn main() -> Unit with IO {
+    helper()
 }
 "#,
     );
@@ -1400,7 +1681,9 @@ fn main() -> Unit with IO {
         .expect_err("expected missing Time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Effectful function `main` must declare `with Time` in strict mode."),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Clock`")
+            && rendered.contains("Add explicit `with Clock`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1410,8 +1693,12 @@ fn main() -> Unit with IO {
 fn strict_mode_reports_missing_io_when_only_time_is_declared() {
     let (program, interner) = parse_program(
         r#"
-fn main() -> Unit with Time {
+fn helper() -> Unit with Time {
     print("x")
+}
+
+fn main() -> Unit with Time {
+    helper()
 }
 "#,
     );
@@ -1422,7 +1709,9 @@ fn main() -> Unit with Time {
         .expect_err("expected missing IO annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Effectful function `main` must declare `with IO` in strict mode."),
+        rendered.contains("error[E418]: Strict Effect Annotation Required")
+            && rendered.contains("Effectful function `helper` must declare `with Console`")
+            && rendered.contains("Add explicit `with Console`"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -1450,4 +1739,94 @@ fn bad() -> Int {
         compiler.scope_index, 0,
         "function compile error should not leak symbol table scope"
     );
+}
+
+mod unqualified_runtime_contract_resolution {
+    //! Resolution rule for unqualified function names whose contracts live in
+    //! multiple modules: an explicit user import beats the auto-injected
+    //! `Flow.*` prelude. Without this, `sum` (defined in both `Flow.List` and
+    //! `Flow.Array`) would resolve via non-deterministic HashMap iteration.
+
+    use crate::compiler::Compiler;
+    use crate::runtime::function_contract::FunctionContract;
+    use crate::runtime::runtime_type::RuntimeType;
+    use crate::syntax::interner::Interner;
+
+    fn list_sum_contract() -> FunctionContract {
+        FunctionContract {
+            params: vec![Some(RuntimeType::List(Box::new(RuntimeType::Int)))],
+            ret: Some(RuntimeType::Int),
+            effects: vec![],
+        }
+    }
+
+    fn array_sum_contract() -> FunctionContract {
+        FunctionContract {
+            params: vec![Some(RuntimeType::Array(Box::new(RuntimeType::Int)))],
+            ret: Some(RuntimeType::Int),
+            effects: vec![],
+        }
+    }
+
+    fn make_compiler_with_sum_contracts() -> Compiler {
+        let mut compiler = Compiler::new_with_interner("<test>", Interner::new());
+        let list_mod = compiler.interner.intern("Flow.List");
+        let array_mod = compiler.interner.intern("Flow.Array");
+        let sum_member = compiler.interner.intern("sum");
+        compiler
+            .cached_member_runtime_contracts
+            .insert((list_mod, sum_member), list_sum_contract());
+        compiler
+            .cached_member_runtime_contracts
+            .insert((array_mod, sum_member), array_sum_contract());
+        compiler
+    }
+
+    #[test]
+    fn prelude_only_resolves_to_prelude_contract() {
+        // Only Flow.List is imported (as it would be from the auto-prelude).
+        // `sum` must resolve to Flow.List.sum even though Flow.Array.sum is
+        // present in the contract cache (loaded transitively as a dependency).
+        let mut compiler = make_compiler_with_sum_contracts();
+        let list_mod = compiler.interner.intern("Flow.List");
+        let sum_member = compiler.interner.intern("sum");
+        compiler.imported_modules.insert(list_mod);
+
+        let resolved = compiler
+            .lookup_unqualified_runtime_contract(sum_member)
+            .expect("expected to resolve sum");
+        assert_eq!(resolved, &list_sum_contract());
+    }
+
+    #[test]
+    fn explicit_import_beats_prelude() {
+        // Both Flow.List (prelude) and Flow.Array (explicit) are imported.
+        // `sum` must resolve to Flow.Array.sum — the explicit import wins.
+        let mut compiler = make_compiler_with_sum_contracts();
+        let list_mod = compiler.interner.intern("Flow.List");
+        let array_mod = compiler.interner.intern("Flow.Array");
+        let sum_member = compiler.interner.intern("sum");
+        compiler.imported_modules.insert(list_mod);
+        compiler.imported_modules.insert(array_mod);
+
+        let resolved = compiler
+            .lookup_unqualified_runtime_contract(sum_member)
+            .expect("expected to resolve sum");
+        assert_eq!(resolved, &array_sum_contract());
+    }
+
+    #[test]
+    fn cached_contract_for_unimported_module_is_ignored() {
+        // Flow.Array.sum is in the contract cache but not in imported_modules,
+        // and no other module exposes `sum`. Resolution must return None
+        // rather than leaking the unimported module's contract.
+        let mut compiler = make_compiler_with_sum_contracts();
+        let sum_member = compiler.interner.intern("sum");
+        // No imports at all.
+        assert!(
+            compiler
+                .lookup_unqualified_runtime_contract(sum_member)
+                .is_none()
+        );
+    }
 }

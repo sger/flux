@@ -1,2 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/eof_after_match_open.flx
+// error[E034]: Missing Match Body
+//
+// Expected at least one match arm before end of file.
+//
+//   examples/parser_errors/eof_after_match_open.flx:25:25
+//    |
+// 25 |     let value = match 1 {
+//    |                         ^
+//    |                         - this match expression starts here
+//
+// Note:
+//   while parsing function `main` > `match` expression
+//
+// Help:
+//   Write match arms as `match value { pattern -> body, ... }`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Unit {
     let value = match 1 {
+

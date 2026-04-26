@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 effect Console {
     print: String -> ()
 }

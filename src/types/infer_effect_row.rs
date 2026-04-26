@@ -117,11 +117,7 @@ impl InferEffectRow {
         let mut tail = self.tail;
         let mut seen = HashSet::new();
 
-        loop {
-            // No tail means the row is closed; substitution is complete.
-            let Some(current_tail) = tail else {
-                break;
-            };
+        while let Some(current_tail) = tail {
             // Break on cycles in row-variable bindings. This guards against
             // pathological substitution inputs and ensures termination.
             if !seen.insert(current_tail) {

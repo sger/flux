@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // General match exhaustiveness: Bool domain is exhaustive without catch-all.
 fn main() {
     let b = true

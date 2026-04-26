@@ -1,5 +1,6 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 33
 ---
 Fixture: examples/aoc/2025/Day2Part2.flx
 == compile ==

@@ -1,0 +1,3 @@
+fn main() with Console {
+    (println("nested sealing") sealing { Console }) sealing { Console }
+}

@@ -56,7 +56,7 @@ cargo run -- parity-check tests/parity --capture-core --capture-aether
 
 # CI/release parity commands
 cargo run -- parity-check tests/parity --ways vm,llvm
-cargo run -- parity-check examples/basics --ways vm,llvm
+cargo run -- parity-check examples/guide --ways vm,llvm
 cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 ```
 

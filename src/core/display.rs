@@ -224,10 +224,17 @@ impl<'a> Formatter<'a> {
             CoreExpr::Handle {
                 body,
                 effect,
+                parameter,
                 handlers,
                 ..
             } => {
-                write!(out, "handle {} {{", self.resolve_name(*effect)).unwrap();
+                write!(out, "handle {}", self.resolve_name(*effect)).unwrap();
+                if let Some(parameter) = parameter {
+                    out.push('(');
+                    self.write_expr_inline(out, parameter, indent);
+                    out.push(')');
+                }
+                out.push_str(" {");
                 for h in handlers {
                     out.push('\n');
                     self.write_handler(out, h, indent + 2);
@@ -290,6 +297,12 @@ impl<'a> Formatter<'a> {
                 out.push_str(", ");
             }
             out.push_str(&self.resolve_binder(p));
+        }
+        if let Some(state) = &h.state {
+            if !h.params.is_empty() {
+                out.push_str(", ");
+            }
+            out.push_str(&self.resolve_binder(state));
         }
         writeln!(out, "; {}) →", self.resolve_binder(&h.resume)).unwrap();
         push_indent(out, indent + 2);
@@ -445,6 +458,27 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FMul => out.push_str("FMul"),
         CorePrimOp::FDiv => out.push_str("FDiv"),
         CorePrimOp::Abs => out.push_str("Abs"),
+        CorePrimOp::FSqrt => out.push_str("FSqrt"),
+        CorePrimOp::FSin => out.push_str("FSin"),
+        CorePrimOp::FCos => out.push_str("FCos"),
+        CorePrimOp::FExp => out.push_str("FExp"),
+        CorePrimOp::FLog => out.push_str("FLog"),
+        CorePrimOp::FFloor => out.push_str("FFloor"),
+        CorePrimOp::FCeil => out.push_str("FCeil"),
+        CorePrimOp::FRound => out.push_str("FRound"),
+        CorePrimOp::FTan => out.push_str("FTan"),
+        CorePrimOp::FAsin => out.push_str("FAsin"),
+        CorePrimOp::FAcos => out.push_str("FAcos"),
+        CorePrimOp::FAtan => out.push_str("FAtan"),
+        CorePrimOp::FSinh => out.push_str("FSinh"),
+        CorePrimOp::FCosh => out.push_str("FCosh"),
+        CorePrimOp::FTanh => out.push_str("FTanh"),
+        CorePrimOp::FTruncate => out.push_str("FTruncate"),
+        CorePrimOp::BitAnd => out.push_str("BitAnd"),
+        CorePrimOp::BitOr => out.push_str("BitOr"),
+        CorePrimOp::BitXor => out.push_str("BitXor"),
+        CorePrimOp::BitShl => out.push_str("BitShl"),
+        CorePrimOp::BitShr => out.push_str("BitShr"),
         CorePrimOp::Min => out.push_str("Min"),
         CorePrimOp::Max => out.push_str("Max"),
         CorePrimOp::Neg => out.push_str("Neg"),
@@ -479,6 +513,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         // Promoted primops (Proposal 0120)
         CorePrimOp::Print => out.push_str("Print"),
         CorePrimOp::Println => out.push_str("Println"),
+        CorePrimOp::DebugTrace => out.push_str("DebugTrace"),
         CorePrimOp::ReadFile => out.push_str("ReadFile"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
@@ -488,16 +523,11 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::StringSlice => out.push_str("StringSlice"),
         CorePrimOp::ToString => out.push_str("ToString"),
         CorePrimOp::Split => out.push_str("Split"),
-        CorePrimOp::Join => out.push_str("Join"),
         CorePrimOp::Trim => out.push_str("Trim"),
         CorePrimOp::Upper => out.push_str("Upper"),
         CorePrimOp::Lower => out.push_str("Lower"),
-        CorePrimOp::StartsWith => out.push_str("StartsWith"),
-        CorePrimOp::EndsWith => out.push_str("EndsWith"),
         CorePrimOp::Replace => out.push_str("Replace"),
         CorePrimOp::Substring => out.push_str("Substring"),
-        CorePrimOp::Chars => out.push_str("Chars"),
-        CorePrimOp::StrContains => out.push_str("StrContains"),
         CorePrimOp::ArrayLen => out.push_str("ArrayLen"),
         CorePrimOp::ArrayGet => out.push_str("ArrayGet"),
         CorePrimOp::ArraySet => out.push_str("ArraySet"),
@@ -526,30 +556,11 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::ClockNow => out.push_str("ClockNow"),
         CorePrimOp::Time => out.push_str("Time"),
         CorePrimOp::ParseInt => out.push_str("ParseInt"),
-        CorePrimOp::ParseInts => out.push_str("ParseInts"),
-        CorePrimOp::SplitInts => out.push_str("SplitInts"),
-        CorePrimOp::ToList => out.push_str("ToList"),
-        CorePrimOp::ToArray => out.push_str("ToArray"),
         CorePrimOp::Len => out.push_str("Len"),
         CorePrimOp::CmpEq => out.push_str("CmpEq"),
         CorePrimOp::CmpNe => out.push_str("CmpNe"),
         CorePrimOp::Try => out.push_str("Try"),
         CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
-        CorePrimOp::ArrayReverse => out.push_str("ArrayReverse"),
-        CorePrimOp::ArrayContains => out.push_str("ArrayContains"),
-        CorePrimOp::Sort => out.push_str("Sort"),
-        CorePrimOp::SortBy => out.push_str("SortBy"),
-        CorePrimOp::HoMap => out.push_str("HoMap"),
-        CorePrimOp::HoFilter => out.push_str("HoFilter"),
-        CorePrimOp::HoFold => out.push_str("HoFold"),
-        CorePrimOp::HoAny => out.push_str("HoAny"),
-        CorePrimOp::HoAll => out.push_str("HoAll"),
-        CorePrimOp::HoEach => out.push_str("HoEach"),
-        CorePrimOp::HoFind => out.push_str("HoFind"),
-        CorePrimOp::HoCount => out.push_str("HoCount"),
-        CorePrimOp::Zip => out.push_str("Zip"),
-        CorePrimOp::Flatten => out.push_str("Flatten"),
-        CorePrimOp::HoFlatMap => out.push_str("HoFlatMap"),
         // Effect handlers (Koka-style yield model)
         CorePrimOp::EvvGet => out.push_str("EvvGet"),
         CorePrimOp::EvvSet => out.push_str("EvvSet"),

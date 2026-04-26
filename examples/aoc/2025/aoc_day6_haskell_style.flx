@@ -14,7 +14,7 @@ import Flow.Array as Array
 // Program entry point.
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
     // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
     // Helper for concat.

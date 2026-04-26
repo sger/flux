@@ -1,0 +1,35 @@
+// parity: vm, llvm
+// expect: success
+// bug: Conditional resume — the handler decides per-invocation whether
+//      to resume or to short-circuit. `resume(10)` appears in tail
+//      position of an if-branch; the other branch returns `100` without
+//      resuming (non-TR discard shape).
+//
+//      Both backends print "100" (Proposal 0162 Phase 3 slice
+//      5-tr-nested): the VM's OpTailCall/OpTailCall1 dispatch
+//      Continuation callees through execute_resume, and the native
+//      yield-based prompt loop (default since slice 5-gate) composes
+//      the continuation correctly and handles the short-circuit branch
+//      as a non-resumed clause.
+// parity-expected-stdout-begin
+// "100"
+// parity-expected-stdout-end
+
+effect Choose {
+    pick : (Int) -> Int
+}
+
+fn calc() -> Int with Choose {
+    let a = perform Choose.pick(1)
+    let b = perform Choose.pick(2)
+    a + b
+}
+
+fn main() with IO {
+    // Handler: pick(1) -> resume(10); pick(anything else) -> return 999
+    // But we only pick 1 and 2 and the `2` case short-circuits.
+    let result = calc() handle Choose {
+        pick(resume, n) -> if n == 1 { resume(10) } else { 100 }
+    }
+    print(to_string(result))
+}

@@ -211,6 +211,34 @@ static int flux_scan_offset(uint8_t obj_tag) {
     }
 }
 
+static inline void flux_block_free(void *ptr);
+
+/*
+ * Evidence vectors are not compatible with the generic scan_fsize scanner:
+ * their payload starts with a 32-bit count, followed by packed 5-word entries
+ * that mix tagged ints and owned references.
+ */
+#define FLUX_EVV_ENTRY_WORDS  5
+#define FLUX_EVV_HANDLER_OFF  2
+#define FLUX_EVV_PARENT_OFF   3
+#define FLUX_EVV_STATE_OFF    4
+
+typedef struct {
+    int32_t count;
+    int64_t data[];
+} FluxEvvArray;
+
+static void flux_drop_evidence(void *ptr) {
+    FluxEvvArray *evv = (FluxEvvArray *)ptr;
+    for (int32_t i = 0; i < evv->count; i++) {
+        int64_t *entry = &evv->data[i * FLUX_EVV_ENTRY_WORDS];
+        flux_drop(entry[FLUX_EVV_HANDLER_OFF]);
+        flux_drop(entry[FLUX_EVV_PARENT_OFF]);
+        flux_drop(entry[FLUX_EVV_STATE_OFF]);
+    }
+    flux_block_free(ptr);
+}
+
 void flux_dup(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);
@@ -321,7 +349,9 @@ void flux_drop(int64_t val) {
     FluxHeader *hdr = header_of(ptr);
     if (--hdr->refcount > 0) return;
 
-    if (hdr->scan_fsize > 0) {
+    if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
+        flux_drop_evidence(ptr);
+    } else if (hdr->scan_fsize > 0) {
         flux_drop_free_recx(ptr);
     } else {
         flux_block_free(ptr);

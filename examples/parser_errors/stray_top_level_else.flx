@@ -1,2 +1,32 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/parser_errors/stray_top_level_else.flx
+// error[E031]: Expected Expression
+//
+// Expected expression, found `else`.
+//
+//   examples/parser_errors/stray_top_level_else.flx:30:1
+//    |
+// 30 | else
+//    | ^^^^
+//
+//
+// error[E031]: Expected Expression
+//
+// Expected expression, found `->`.
+//
+//   examples/parser_errors/stray_top_level_else.flx:31:11
+//    |
+// 31 | fn main() -> Unit {}
+//    |           ^^
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E031
+// expect-error: E031
+
 else
 fn main() -> Unit {}
+

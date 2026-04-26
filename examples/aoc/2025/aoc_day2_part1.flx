@@ -8,6 +8,7 @@ Uses input file: examples/aoc/2025/aoc_day2.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
 
 // Program entry point.
 fn main() with IO, Time {
@@ -46,7 +47,7 @@ fn main() with IO, Time {
 
     // Parse one numeric range token.
     fn parse_range_token(token) {
-        let parts = split_ints(trim(token), "-")
+        let parts = IO.split_ints(trim(token), "-")
         let start = match Array.first(parts) {
             Some(v) -> v,
             _ -> 0
@@ -58,9 +59,9 @@ fn main() with IO, Time {
         (start, end)
     }
 
-    // Parse all range records from the input file.
-    fn parse_ranges(path) with IO {
-        read_file(path)
+    // Parse all range records from input text.
+    fn parse_ranges_text(content) {
+        content
         |> trim
         |> split(",")
         |> Array.filter(\t -> trim(t) != "")
@@ -93,7 +94,8 @@ fn main() with IO, Time {
         )
     }
 
-    let ranges = parse_ranges("examples/aoc/2025/aoc_day2.txt")
+    let content = read_file("examples/aoc/2025/aoc_day2.txt")
+    let ranges = parse_ranges_text(content)
     let total = solve_part1(ranges)
     print(total)
 }

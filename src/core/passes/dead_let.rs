@@ -1,10 +1,13 @@
 /// Dead let elimination pass.
 ///
 /// Removes `Let { var, rhs, body }` where `var` does not appear free in `body`
-/// and `rhs` is pure (a literal or variable — no observable effects).
+/// and `rhs` has no observable side effect. Proposal 0161 Phase 3 widens this
+/// from strict `is_pure` to `can_discard`: a `CanFail` rhs (e.g. `10 / n`,
+/// `arr[i]`) is safe to drop because its failure was never observed — the
+/// binding is unused, so the whole expression is never evaluated.
 use crate::core::CoreExpr;
 
-use super::helpers::{appears_free, is_pure, map_children};
+use super::helpers::{appears_free, can_discard, map_children};
 
 pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
     match expr {
@@ -16,7 +19,7 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
         } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
-            if is_pure(&rhs) && !appears_free(var.id, &body) {
+            if can_discard(&rhs) && !appears_free(var.id, &body) {
                 body
             } else {
                 CoreExpr::Let {

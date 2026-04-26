@@ -108,7 +108,15 @@ pub(super) fn free_vars_rec(
                 free_vars_rec(a, bound, free);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                free_vars_rec(parameter, bound, free);
+            }
             free_vars_rec(body, bound, free);
             for h in handlers {
                 let mut new_binders = Vec::new();
@@ -119,6 +127,11 @@ pub(super) fn free_vars_rec(
                     if bound.insert(p.id) {
                         new_binders.push(p.id);
                     }
+                }
+                if let Some(state) = h.state
+                    && bound.insert(state.id)
+                {
+                    new_binders.push(state.id);
                 }
                 free_vars_rec(&h.body, bound, free);
                 for b in new_binders {

@@ -9,7 +9,7 @@
 /// Recursive (`LetRec`) bindings are never inlined (would create infinite expansion).
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
 
-use super::helpers::{expr_size, is_pure, map_children, subst};
+use super::helpers::{can_discard, expr_size, is_pure, map_children, subst};
 
 /// Maximum node count of an RHS to inline when the binder is used more than once.
 const INLINE_THRESHOLD: usize = 10;
@@ -34,11 +34,13 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
                     && occurs_as_callee(var.id, &body);
 
-            if count == 0 && is_pure(&rhs) {
-                // Dead binding — drop it.
+            if count == 0 && can_discard(&rhs) {
+                // Dead binding — drop it. Proposal 0161 Phase 3: `CanFail`
+                // primops (`10 / n`, `arr[i]`) are also droppable here because
+                // the binding was unused, so the failure was never observed.
                 body
             } else if count == 0 {
-                // Dead but effectful — keep the binding to preserve side effects.
+                // Dead but has observable effect — keep to preserve side effects.
                 CoreExpr::Let {
                     var,
                     rhs: Box::new(rhs),
@@ -169,12 +171,23 @@ pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
         CoreExpr::PrimOp { args, .. } => args.iter().map(|a| count_occurrences(var, a)).sum(),
         CoreExpr::Return { value, .. } => count_occurrences(var, value),
         CoreExpr::Perform { args, .. } => args.iter().map(|a| count_occurrences(var, a)).sum(),
-        CoreExpr::Handle { body, handlers, .. } => {
-            count_occurrences(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter
+                .as_ref()
+                .map_or(0, |parameter| count_occurrences(var, parameter))
+                + count_occurrences(var, body)
                 + handlers
                     .iter()
                     .map(|h| {
-                        if h.resume.id == var || h.params.iter().any(|p| p.id == var) {
+                        if h.resume.id == var
+                            || h.params.iter().any(|p| p.id == var)
+                            || h.state.as_ref().is_some_and(|state| state.id == var)
+                        {
                             0
                         } else {
                             count_occurrences(var, &h.body)
@@ -242,11 +255,20 @@ pub(super) fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| occurs_under_lambda(var, a)),
         CoreExpr::Return { value, .. } => occurs_under_lambda(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| occurs_under_lambda(var, a)),
-        CoreExpr::Handle { body, handlers, .. } => {
-            occurs_under_lambda(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter
+                .as_ref()
+                .is_some_and(|parameter| occurs_under_lambda(var, parameter))
+                || occurs_under_lambda(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var
                         && !h.params.iter().any(|p| p.id == var)
+                        && h.state.as_ref().is_none_or(|state| state.id != var)
                         && occurs_under_lambda(var, &h.body)
                 })
         }
@@ -318,11 +340,20 @@ pub(super) fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
         CoreExpr::Return { value, .. } => occurs_as_callee(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
-        CoreExpr::Handle { body, handlers, .. } => {
-            occurs_as_callee(var, body)
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            parameter
+                .as_ref()
+                .is_some_and(|parameter| occurs_as_callee(var, parameter))
+                || occurs_as_callee(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var
                         && !h.params.iter().any(|p| p.id == var)
+                        && h.state.as_ref().is_none_or(|state| state.id != var)
                         && occurs_as_callee(var, &h.body)
                 })
         }

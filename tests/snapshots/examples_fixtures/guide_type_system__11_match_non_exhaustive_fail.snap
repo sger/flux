@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/guide_type_system/11_match_non_exhaustive_fail.flx
 == compile ==
@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E015]: Non-Exhaustive Match
 
-Match is non-exhaustive: missing Bool case(s): false.
+Match is not exhaustive: 1 missing pattern.
 
   examples/guide_type_system/11_match_non_exhaustive_fail.flx:5:1
   |
@@ -19,6 +19,6 @@ Match is non-exhaustive: missing Bool case(s): false.
   | ^
 
 Hint:
-  Add missing boolean arms or an unguarded `_ -> ...` catch-all.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 == stdout ==
 <not executed>

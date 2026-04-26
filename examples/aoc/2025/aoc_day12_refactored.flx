@@ -9,11 +9,13 @@ Uses input file: examples/aoc/2025/aoc_day12.txt
 */
 
 import Flow.Array as Array
+import Flow.IO as IO
+import Flow.String as String
 
 // Two unified safe-get helpers replace line_at / int_at / str_at / area_at
 fn main() with IO, Time {
     // Append one value to an array.
-    fn push(arr, value) { array_push(arr, value) }
+    fn push<T>(arr: Array<T>, value: T) -> Array<T> { Array.push(arr, value) }
     // Return a slice of an array.
     fn slice(arr, start, stop) { Array.slice(arr, start, stop) }
 
@@ -25,12 +27,12 @@ fn main() with IO, Time {
     // Return the character slice at the given index.
     fn char_at(s, idx) { substring(s, idx, idx + 1) }
 
-    // has_char: chars()+contains is faster than manual index recursion
-    fn has_char(s, ch) { Array.contains(chars(s), ch) }
+    // has_char: String.chars()+contains is faster than manual index recursion
+    fn has_char(s, ch) { Array.contains(String.chars(s), ch) }
 
-    // count_hashes: fold over chars is 3x faster than manual index recursion
+    // count_hashes: fold over String.chars is 3x faster than manual index recursion
     fn count_hashes(s) {
-        Array.fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
+        Array.fold(String.chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
     }
 
     // parse_block_sizes: explicit recursion kept — tuple-state fold allocates
@@ -80,10 +82,10 @@ fn main() with IO, Time {
                             let parts    = split(line, " ") |> Array.filter(\t -> trim(t) != "")
                             let dims_raw = safe_str(parts, 0)
                             let dims     = substring(dims_raw, 0, len(dims_raw) - 1)
-                            let bounds   = split_ints(dims, "x")
+                            let bounds   = IO.split_ints(dims, "x")
                             let counts   = parse_area_counts(slice(parts, 1, len(parts)))
                             parse_areas(lines, idx + 1,
-                                array_push(acc, (safe_int(bounds, 0), safe_int(bounds, 1), counts)))
+                                push(acc, (safe_int(bounds, 0), safe_int(bounds, 1), counts)))
                             } else {
                                 parse_areas(lines, idx + 1, acc)
                             }

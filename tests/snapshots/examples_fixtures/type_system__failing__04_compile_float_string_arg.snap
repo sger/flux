@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/04_compile_float_string_arg.flx
 == compile ==
@@ -9,16 +9,17 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `scale`.
 
-  examples/type_system/failing/04_compile_float_string_arg.flx:6:7
-  |
-1 | fn scale(x: Float, factor: Float) -> Float {
-2 |     x * factor
-3 | }
-4 | 
-5 | 
-6 | scale("3.14", 2.0)
-  |       ^^^^^^
-  |       ------ this argument has type `String`
+  examples/type_system/failing/04_compile_float_string_arg.flx:38:7
+   |
+33 | fn scale(x: Float, factor: Float) -> Float {
+   | ------------------------------------------ `scale` expects `Float` as the 1st parameter
+34 |     x * factor
+35 | }
+36 | 
+37 | 
+38 | scale("3.14", 2.0)
+   |       ^^^^^^
+   |       ------ this argument has type `String`
 
 Note:
   expected argument type: Float

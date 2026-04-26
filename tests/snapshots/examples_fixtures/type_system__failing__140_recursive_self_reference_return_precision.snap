@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/140_recursive_self_reference_return_precision.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/type_system/failing/140_recursive_self_reference_return_precision.flx:10:25
+  examples/type_system/failing/140_recursive_self_reference_return_precision.flx:36:25
    |
-10 |     let value: String = countdown(2)
+36 |     let value: String = countdown(2)
    |                         ^^^^^^^^^^^^
    |                         ------------ this value has type `Int`
 

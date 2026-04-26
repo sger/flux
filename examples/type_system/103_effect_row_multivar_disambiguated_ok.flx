@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Multi-arg shared row variable: deferred Absent check stays valid when final binding excludes IO.
 
 fn needs_linked_absence(

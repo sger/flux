@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/111_call_arg_anonymous_fn.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to this function.
 
-  examples/type_system/failing/111_call_arg_anonymous_fn.flx:6:49
-  |
-6 |     let _x = (if true { greet } else { greet })(42)
-  |                                                 ^^
-  |                                                 -- this argument has type `Int`
+  examples/type_system/failing/111_call_arg_anonymous_fn.flx:31:49
+   |
+31 |     let _x = (if true { greet } else { greet })(42)
+   |                                                 ^^
+   |                                                 -- this argument has type `Int`
 
 Note:
   expected argument type: String

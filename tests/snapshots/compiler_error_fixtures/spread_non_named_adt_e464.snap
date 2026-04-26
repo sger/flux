@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/spread_non_named_adt_e464.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E464]: Spread Requires Named-Field Type
 
 Cannot spread a value of type `Int`; spread requires a named-field data type.
 
-  examples/compiler_errors/spread_non_named_adt_e464.flx:8:13
-  |
-8 |     let x = { ...n, foo: 1 }
-  |             ^^^^^^^^^^^^^^^^
+  examples/compiler_errors/spread_non_named_adt_e464.flx:11:13
+   |
+11 |     let x = { ...n, foo: 1 }
+   |             ^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

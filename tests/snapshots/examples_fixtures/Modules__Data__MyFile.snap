@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/Data/MyFile.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Data.MyFile` doesn't match file path `examples/Modules/Data/MyFile.flx`.
 
-  examples/Modules/Data/MyFile.flx:1:1
+  examples/Modules/Data/MyFile.flx:4:1
   |
-1 | module Modules.Data.MyFile {
+4 | module Modules.Data.MyFile {
   | ^
 
 Hint:

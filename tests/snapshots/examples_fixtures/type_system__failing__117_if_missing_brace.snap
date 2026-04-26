@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/117_if_missing_brace.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E034]: Missing If Body
 
 This `if` branch needs to start with `{`.
 
-  examples/type_system/failing/117_if_missing_brace.flx:2:8
-  |
-2 |     if true 1 else 2
-  |        ^^^^
-  |        ---- this `if` branch starts here
+  examples/type_system/failing/117_if_missing_brace.flx:25:8
+   |
+25 |     if true 1 else 2
+   |        ^^^^
+   |        ---- this `if` branch starts here
 
 Note:
   while parsing function `main` > `if` expression

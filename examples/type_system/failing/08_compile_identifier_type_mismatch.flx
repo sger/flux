@@ -1,2 +1,28 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/08_compile_identifier_type_mismatch.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `n` does not match its type annotation.
+//
+//   examples/type_system/failing/08_compile_identifier_type_mismatch.flx:28:14
+//    |
+// 28 | let n: Int = value
+//    |              ^^^^^
+//    |              ----- this value has type `String`
+//
+//    |        --- but `n` was annotated as `Int`
+//
+// Note:
+//   annotated type: Int
+//   value type: String
+//
+// Help:
+//   Change `n` to a `Int` value or update the annotation.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 let value = "oops"
 let n: Int = value

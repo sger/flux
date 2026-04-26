@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx
+// error[E412]: Invalid Main Return Type
+//
+// `fn main` must return `Unit` (or omit return type).
+//
+//   examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx:27:14
+//    |
+// 27 | fn main() -> Int with Console {
+//    |              ^^^
+//    |              --- invalid `main` return type
+//
+// Hint:
+//   Change signature to `fn main() { ... }` or `-> Unit`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E412
+
 // E412 only: invalid main signature should suppress root-discharge noise (no E406 cascade).
 
 effect Console {

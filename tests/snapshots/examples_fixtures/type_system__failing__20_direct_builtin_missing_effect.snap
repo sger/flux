@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/20_direct_builtin_missing_effect.flx
 == compile ==
@@ -7,11 +7,11 @@ failed (compile)
 == diagnostics ==
 error[E413]: Top-Level Effect
 
-Effectful operation is not allowed at top level (requires: Time).
+Effectful operation is not allowed at top level (requires: Clock).
 
-  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:67:1
    |
-10 | tick()
+67 | tick()
    | ^^^^^^
    | ------ top-level effectful expression
 
@@ -23,9 +23,9 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:67:1
    |
-10 | tick()
+67 | tick()
    | ^^^^^^
    | ------ effectful top-level execution
 
@@ -35,16 +35,16 @@ Hint:
 
 error[E400]: Missing Effect
 
-requires effect `Time` but the enclosing context does not provide it
+requires effect `Clock` but the enclosing context does not provide it
 
-  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:67:1
    |
-10 | tick()
+67 | tick()
    | ^^^^^^
-   | ------ requires `Time`
+   | ------ requires `Clock`
 
 Hint:
-  annotate the enclosing function with `with Time`
+  annotate the enclosing function with `with Clock`
 
 
 Note: Downstream Errors Suppressed

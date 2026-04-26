@@ -1,30 +1,18 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E430]: Any Type Inferred
+error[E430]: Could Not Infer Concrete Type
 
-Could not determine a concrete type for `loop_unknown`. Inferred type: `(Int) -> _`.
+Could not determine a concrete type for `loop_unknown` at the public function signature. Inferred type: `(Int) -> _`.
 
-  examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:1:1
-  |
-1 | fn loop_unknown(n) {
-  | ^^^^^^^^^^^^^^^^^^^^
-2 |     if n == 0 {
-  | ^^^^^^^^^^^^^^^
-3 |         mystery_value
-  | ^^^^^^^^^^^^^^^^^^^^^
-4 |     } else {
-  | ^^^^^^^^^^^^
-5 |         loop_unknown(n - 1)
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-6 |     }
-  | ^^^^^
-7 | }
-  | ^
+  examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:36:1
+   |
+36 | fn loop_unknown(n) {
+   | ^^^^^^^^^^^^^^^^^^
 
 Hint:
   Add a type annotation: e.g. `fn loop_unknown(x: Int, y: Int): Int`
@@ -34,10 +22,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:3:9
-  |
-3 |         mystery_value
-  |         ^^^^^^^^^^^^^
+  examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:38:9
+   |
+38 |         mystery_value
+   |         ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;

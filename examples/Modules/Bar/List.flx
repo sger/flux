@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E024
+
 module Modules.Bar.List {
   fn value() {
     20;

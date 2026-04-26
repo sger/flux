@@ -1,14 +1,18 @@
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
 // Effect-row concrete atom ordering is non-semantic.
 // Expected: compile/run success.
 
-fn call_swapped_effects(f: ((Int) -> Int with Time, IO), x: Int) -> Int with IO, Time {
+fn call_swapped_effects(f: ((Int) -> Int with Clock, Console), x: Int) -> Int with Console, Clock {
     f(x)
 }
 
-fn add_one(x: Int) -> Int with IO, Time {
+fn add_one(x: Int) -> Int with Console, Clock {
     x + 1
 }
 
-fn main() with IO, Time {
+fn main() with Console, Clock {
     print(to_string(call_swapped_effects(add_one, 41)))
 }

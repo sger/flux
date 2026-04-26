@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/183_hash_missing_colon.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
-  examples/type_system/failing/183_hash_missing_colon.flx:1:15
-  |
-1 | let h = { "a" 1 }
-  |               ^
+  examples/type_system/failing/183_hash_missing_colon.flx:20:15
+   |
+20 | let h = { "a" 1 }
+   |               ^
 
 Hint:
   Hash literals use `{key: value, ...}`.

@@ -1,3 +1,54 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
+// error[E421]: Unknown Member in Exposing
+//
+// `print` is not defined in module `Flow.Primops`.
+//
+//   examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:7:1
+//   |
+// 7 | // `print` is not defined in module `Flow.Primops`.
+//   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the public members of `Flow.Primops` or remove `print` from the exposing list.
+//
+//
+// error[E012]: Unknown Module Member
+//
+// Module `TypeSystem.HmGenericModule` has no member named `prepend`.
+//
+//   examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:62:15
+//    |
+// 62 |     let _xs = M.prepend("hello", [|1, 2, 3|])
+//    |               ^^^^^^^^^
+//
+// Hint:
+//   Check the module's public members or import the correct module.
+//
+//
+// • 1 error • examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
+// error[E018]: Import Not Found
+//
+// Cannot find module `TypeSystem.HmGenericModule` to import.
+//
+//   examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:59:1
+//    |
+// 59 | import TypeSystem.HmGenericModule as M
+//    | ^
+//
+// Hint:
+//   Check that: 1) The module file exists (e.g., `TypeSystem.HmGenericModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+//   Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx).
+//
+// Found 3 errors across 2 modules.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E012
+// expect-error: E018
+// expect-error: E421
+
 // 0051 Stage 2: HM fallback catches argument type mismatch for module generic params.
 // M.prepend<T>(elem: T, xs: Array<T>) -- T and Array<T> are generic, convert_type_expr
 // returns None for both. Stage 2 uses HM's instantiated function type:

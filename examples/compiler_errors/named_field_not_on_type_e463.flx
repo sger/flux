@@ -1,3 +1,7 @@
+// expect: compile_error
+// expect-error: E430
+// expect-error: E463
+
 // Dot access using a member that is declared by no variant of the ADT.
 //
 // Expected: E463 Field Not On Type

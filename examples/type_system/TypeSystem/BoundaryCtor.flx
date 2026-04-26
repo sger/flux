@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+
 module TypeSystem.BoundaryCtor {
     data MaybeInt {
         SomeInt(Int),

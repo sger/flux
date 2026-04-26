@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/31_direct_time_builtin_missing_effect.flx
 == compile ==
@@ -7,15 +7,15 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `now_ms` requires effect `Time` in this function signature.
+Call to `now_ms` requires effect `Clock` in this function signature.
 
-  examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:4:5
-  |
-4 |     now_ms()
-  |     ^^^^^^
-  |     ------ effectful call occurs here
+  examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:24:5
+   |
+24 |     now_ms()
+   |     ^^^^^^^^
+   |     -------- effectful call occurs here
 
 Hint:
-  Add `with Time` to the enclosing function.
+  Add `with Clock` to the enclosing function.
 == stdout ==
 <not executed>

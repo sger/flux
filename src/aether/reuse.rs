@@ -269,6 +269,7 @@ fn rewrite_with_ctx(
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
@@ -279,6 +280,14 @@ fn rewrite_with_ctx(
                 blocked_outer_token,
             )),
             effect,
+            parameter: parameter.map(|p| {
+                Box::new(rewrite_with_ctx(
+                    *p,
+                    pat_binders,
+                    pat_tag,
+                    blocked_outer_token,
+                ))
+            }),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {

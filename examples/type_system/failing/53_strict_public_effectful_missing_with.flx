@@ -1,3 +1,56 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/53_strict_public_effectful_missing_with.flx
+// error[E418]: Strict Effect Annotation Required
+//
+// Effectful function `log` must declare `with Console` in strict mode.
+//
+//   examples/type_system/failing/53_strict_public_effectful_missing_with.flx:54:8
+//    |
+// 54 | public fn log(x) {
+//    |        ^^^^^^^^^
+//    |        --------- missing explicit effect annotation
+//
+// Hint:
+//   Add explicit `with Console` to the function signature.
+//
+//
+// error[E416]: Strict Function Annotation Required
+//
+// Public function `log` must annotate all parameters in strict mode.
+//
+//   examples/type_system/failing/53_strict_public_effectful_missing_with.flx:54:8
+//    |
+// 54 | public fn log(x) {
+//    |        ^^^^^^^^^
+//    |        --------- missing parameter type annotations
+//
+// Hint:
+//   Add explicit parameter types to the function signature.
+//
+//
+// error[E417]: Strict Return Annotation Required
+//
+// Public function `log` must declare a return type in strict mode.
+//
+//   examples/type_system/failing/53_strict_public_effectful_missing_with.flx:54:8
+//    |
+// 54 | public fn log(x) {
+//    |        ^^^^^^^^^
+//    |        --------- missing return type annotation
+//
+// Hint:
+//   Add `-> Type` to the function signature.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
+// expect: compile_error
+// expect-error: E416
+// expect-error: E417
+// expect-error: E418
+
 public fn log(x) {
     print(to_string(x))
 }

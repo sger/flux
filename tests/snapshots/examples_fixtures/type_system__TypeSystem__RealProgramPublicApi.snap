@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/RealProgramPublicApi.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.RealProgramPublicApi` doesn't match file path `examples/type_system/TypeSystem/RealProgramPublicApi.flx`.
 
-  examples/type_system/TypeSystem/RealProgramPublicApi.flx:1:1
+  examples/type_system/TypeSystem/RealProgramPublicApi.flx:5:1
   |
-1 | module TypeSystem.RealProgramPublicApi {
+5 | module TypeSystem.RealProgramPublicApi {
   | ^
 
 Hint:

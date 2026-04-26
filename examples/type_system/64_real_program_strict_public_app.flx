@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "value=15"
+// parity-expected-stdout-end
+
 import TypeSystem.RealProgramPublicApi as Api
 
 fn main() -> Unit with IO {

@@ -106,12 +106,34 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::ISub
         | CorePrimOp::IMul
         | CorePrimOp::IDiv
-        | CorePrimOp::IMod => FluxRep::IntRep,
+        | CorePrimOp::IMod
+        | CorePrimOp::BitAnd
+        | CorePrimOp::BitOr
+        | CorePrimOp::BitXor
+        | CorePrimOp::BitShl
+        | CorePrimOp::BitShr => FluxRep::IntRep,
 
         // Typed float arithmetic → FloatRep
-        CorePrimOp::FAdd | CorePrimOp::FSub | CorePrimOp::FMul | CorePrimOp::FDiv => {
-            FluxRep::FloatRep
-        }
+        CorePrimOp::FAdd
+        | CorePrimOp::FSub
+        | CorePrimOp::FMul
+        | CorePrimOp::FDiv
+        | CorePrimOp::FSqrt
+        | CorePrimOp::FSin
+        | CorePrimOp::FCos
+        | CorePrimOp::FExp
+        | CorePrimOp::FLog
+        | CorePrimOp::FFloor
+        | CorePrimOp::FCeil
+        | CorePrimOp::FRound
+        | CorePrimOp::FTan
+        | CorePrimOp::FAsin
+        | CorePrimOp::FAcos
+        | CorePrimOp::FAtan
+        | CorePrimOp::FSinh
+        | CorePrimOp::FCosh
+        | CorePrimOp::FTanh
+        | CorePrimOp::FTruncate => FluxRep::FloatRep,
 
         // Comparisons → BoolRep
         CorePrimOp::Eq
@@ -134,10 +156,7 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FCmpGe
         | CorePrimOp::And
         | CorePrimOp::Or
-        | CorePrimOp::Not
-        | CorePrimOp::StartsWith
-        | CorePrimOp::EndsWith
-        | CorePrimOp::StrContains => FluxRep::BoolRep,
+        | CorePrimOp::Not => FluxRep::BoolRep,
 
         // String operations → BoxedRep
         CorePrimOp::Concat
@@ -146,13 +165,11 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::StringSlice
         | CorePrimOp::ToString
         | CorePrimOp::Split
-        | CorePrimOp::Join
         | CorePrimOp::Trim
         | CorePrimOp::Upper
         | CorePrimOp::Lower
         | CorePrimOp::Replace
-        | CorePrimOp::Substring
-        | CorePrimOp::Chars => FluxRep::BoxedRep,
+        | CorePrimOp::Substring => FluxRep::BoxedRep,
 
         // Collection constructors → BoxedRep
         CorePrimOp::MakeList
@@ -173,7 +190,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         CorePrimOp::StringLength | CorePrimOp::ArrayLen => FluxRep::IntRep,
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
-        CorePrimOp::Print | CorePrimOp::Println | CorePrimOp::WriteFile => FluxRep::UnitRep,
+        CorePrimOp::Print
+        | CorePrimOp::Println
+        | CorePrimOp::DebugTrace
+        | CorePrimOp::WriteFile => FluxRep::UnitRep,
         CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep
@@ -369,11 +389,13 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(anf_expr(*body, next_id)),
             effect,
+            parameter: parameter.map(|p| Box::new(anf_expr(*p, next_id))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {

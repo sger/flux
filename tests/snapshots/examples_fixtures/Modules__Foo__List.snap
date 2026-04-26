@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/Foo/List.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Foo.List` doesn't match file path `examples/Modules/Foo/List.flx`.
 
-  examples/Modules/Foo/List.flx:1:1
+  examples/Modules/Foo/List.flx:4:1
   |
-1 | module Modules.Foo.List {
+4 | module Modules.Foo.List {
   | ^
 
 Hint:

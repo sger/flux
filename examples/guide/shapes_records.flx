@@ -1,0 +1,46 @@
+// parity: vm
+// parity-expected-stdout-begin
+// "circle"
+// "square"
+// 3
+// 5
+// parity-expected-stdout-end
+
+/*
+Multi-variant named-field ADT (proposal 0152). Every variant declares
+`label: String`, so `shape.label` works with just dot access — no match
+needed. Variant-specific fields still need pattern matching.
+*/
+
+
+data Shape {
+    Circle { label: String, radius: Int }
+    Square { label: String, side: Int }
+}
+
+// Helper for describe.
+fn describe(s) {
+    print(s.label)
+}
+
+// Helper for extent.
+fn extent(s) {
+    match s {
+        Circle { radius, ... } -> radius,
+        Square { side, ... } -> side,
+    }
+}
+
+// Program entry point.
+fn main() with IO {
+    let c = Circle { label: "circle", radius: 3 }
+    let sq = Square { label: "square", side: 5 }
+
+    // Common-field dot access works on either variant.
+    describe(c)
+    describe(sq)
+
+    // Variant-specific access requires match.
+    print(extent(c))
+    print(extent(sq))
+}

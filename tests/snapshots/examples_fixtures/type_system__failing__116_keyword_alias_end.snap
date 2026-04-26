@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/116_keyword_alias_end.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 
-  examples/type_system/failing/116_keyword_alias_end.flx:3:1
-  |
-3 | end
-  | ^^^
+  examples/type_system/failing/116_keyword_alias_end.flx:22:1
+   |
+22 | end
+   | ^^^
 
 Hint:
   Replace `end` with `}`.

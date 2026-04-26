@@ -114,3 +114,379 @@ path = "benchmarks/rust/rbtree2.rs"
 [[bin]]
 name = "rbtree_del_rust"
 path = "benchmarks/rust/rbtree_del.rs"
+
+# -----------------------------------------------------------------------------
+# Tests moved into phase subdirectories. Test binary names are
+# kept identical to the old flat filenames so insta snapshot prefixes do not
+# drift.
+# -----------------------------------------------------------------------------
+
+[[test]]
+name = "aether_cli_snapshots"
+path = "tests/aether/cli_snapshots.rs"
+
+[[test]]
+name = "aether_core_regressions"
+path = "tests/aether/core_regressions.rs"
+
+[[test]]
+name = "aether_fbip_diagnostics"
+path = "tests/aether/fbip_diagnostics.rs"
+
+[[test]]
+name = "ast_complexity_tests"
+path = "tests/ast_passes/complexity_tests.rs"
+
+[[test]]
+name = "ast_constant_fold_tests"
+path = "tests/ast_passes/constant_fold_tests.rs"
+
+[[test]]
+name = "ast_desugar_tests"
+path = "tests/ast_passes/desugar_tests.rs"
+
+[[test]]
+name = "ast_fold_smoke"
+path = "tests/ast_passes/fold_smoke.rs"
+
+[[test]]
+name = "ast_free_vars_tests"
+path = "tests/ast_passes/free_vars_tests.rs"
+
+[[test]]
+name = "ast_rename_tests"
+path = "tests/ast_passes/rename_tests.rs"
+
+[[test]]
+name = "ast_tail_position_tests"
+path = "tests/ast_passes/tail_position_tests.rs"
+
+[[test]]
+name = "ast_visit_smoke"
+path = "tests/ast_passes/visit_smoke.rs"
+
+[[test]]
+name = "tail_call_tests"
+path = "tests/ast_passes/tail_call_tests.rs"
+
+[[test]]
+name = "lexer_tests"
+path = "tests/lexer/lexer_tests.rs"
+
+[[test]]
+name = "token_tests"
+path = "tests/lexer/token_tests.rs"
+
+[[test]]
+name = "token_type_tests"
+path = "tests/lexer/token_type_tests.rs"
+
+[[test]]
+name = "interner_span_tests"
+path = "tests/lexer/interner_span_tests.rs"
+
+[[test]]
+name = "perf_parse_ops"
+path = "tests/lexer/perf_parse_ops.rs"
+
+[[test]]
+name = "parser_tests"
+path = "tests/parser/parser_tests.rs"
+
+[[test]]
+name = "parser_recovery"
+path = "tests/parser/parser_recovery.rs"
+
+[[test]]
+name = "list_literal_syntax_tests"
+path = "tests/parser/list_literal_syntax_tests.rs"
+
+[[test]]
+name = "span_tests"
+path = "tests/parser/span_tests.rs"
+
+[[test]]
+name = "linter_tests"
+path = "tests/parser/linter_tests.rs"
+
+[[test]]
+name = "core_type_contract_matrix_tests"
+path = "tests/core_ir/core_type_contract_matrix_tests.rs"
+
+[[test]]
+name = "primop_compiler_lowering_tests"
+path = "tests/core_ir/primop_compiler_lowering_tests.rs"
+
+[[test]]
+name = "primop_effect_summary_tests"
+path = "tests/core_ir/primop_effect_summary_tests.rs"
+
+[[test]]
+name = "backend_representation_runtime_tests"
+path = "tests/core_ir/backend_representation_runtime_tests.rs"
+
+[[test]]
+name = "ir_pipeline_tests"
+path = "tests/core_ir/ir_pipeline_tests.rs"
+
+[[test]]
+name = "op_code_tests"
+path = "tests/bytecode/op_code_tests.rs"
+
+[[test]]
+name = "superinstruction_tests"
+path = "tests/bytecode/superinstruction_tests.rs"
+
+[[test]]
+name = "cmp_jump_fusion_tests"
+path = "tests/bytecode/cmp_jump_fusion_tests.rs"
+
+[[test]]
+name = "vm_tests"
+path = "tests/vm_runtime/vm_tests.rs"
+
+[[test]]
+name = "program_tests"
+path = "tests/vm_runtime/program_tests.rs"
+
+[[test]]
+name = "contextual_instance_runtime_tests"
+path = "tests/vm_runtime/contextual_instance_runtime_tests.rs"
+
+[[test]]
+name = "stackless_drop_native"
+path = "tests/vm_runtime/stackless_drop_native.rs"
+
+[[test]]
+name = "runtime_list_index_tests"
+path = "tests/vm_runtime/runtime_list_index_tests.rs"
+
+[[test]]
+name = "stdlib_list_tail_recursive"
+path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
+
+[[test]]
+name = "llvm_adt"
+path = "tests/native_llvm/llvm_adt.rs"
+
+[[test]]
+name = "llvm_closures"
+path = "tests/native_llvm/llvm_closures.rs"
+
+[[test]]
+name = "llvm_codegen"
+path = "tests/native_llvm/llvm_codegen.rs"
+
+[[test]]
+name = "llvm_snapshots"
+path = "tests/native_llvm/llvm_snapshots.rs"
+
+[[test]]
+name = "llvm_type_class"
+path = "tests/native_llvm/llvm_type_class.rs"
+
+[[test]]
+name = "bitwise_primop_native_tests"
+path = "tests/native_llvm/bitwise_primop_native_tests.rs"
+
+[[test]]
+name = "math_primop_native_tests"
+path = "tests/native_llvm/math_primop_native_tests.rs"
+
+[[test]]
+name = "safe_arithmetic_tests"
+path = "tests/native_llvm/safe_arithmetic_tests.rs"
+
+[[test]]
+name = "native_runtime_error_spans"
+path = "tests/native_llvm/native_runtime_error_spans.rs"
+
+[[test]]
+name = "effect_runtime_parity_tests"
+path = "tests/native_llvm/effect_runtime_parity_tests.rs"
+
+[[test]]
+name = "effect_multi_shot_tests"
+path = "tests/native_llvm/effect_multi_shot_tests.rs"
+
+[[test]]
+name = "type_inference_tests"
+path = "tests/type_inference/type_inference_tests.rs"
+
+[[test]]
+name = "type_semantics_matrix_tests"
+path = "tests/type_inference/type_semantics_matrix_tests.rs"
+
+[[test]]
+name = "type_semantics_runtime_matrix_tests"
+path = "tests/type_inference/type_semantics_runtime_matrix_tests.rs"
+
+[[test]]
+name = "static_typing_closure"
+path = "tests/type_inference/static_typing_closure.rs"
+
+[[test]]
+name = "static_typing_contract_tests"
+path = "tests/type_inference/static_typing_contract_tests.rs"
+
+[[test]]
+name = "static_type_validation_tests"
+path = "tests/type_inference/static_type_validation_tests.rs"
+
+[[test]]
+name = "constrained_type_params_integration"
+path = "tests/type_inference/constrained_type_params_integration.rs"
+
+[[test]]
+name = "non_zero_type_tests"
+path = "tests/type_inference/non_zero_type_tests.rs"
+
+[[test]]
+name = "pattern_validation"
+path = "tests/type_inference/pattern_validation.rs"
+
+[[test]]
+name = "match_some_pattern_tests"
+path = "tests/type_inference/match_some_pattern_tests.rs"
+
+[[test]]
+name = "perf_type_infer"
+path = "tests/type_inference/perf_type_infer.rs"
+
+[[test]]
+name = "type_infer_guards"
+path = "tests/type_inference/type_infer_guards.rs"
+
+[[test]]
+name = "boundary_contract_tests"
+path = "tests/type_inference/boundary_contract_tests.rs"
+
+[[test]]
+name = "diagnostic_render_tests"
+path = "tests/diagnostics/diagnostic_render_tests.rs"
+
+[[test]]
+name = "diagnostic_span_render_tests"
+path = "tests/diagnostics/diagnostic_span_render_tests.rs"
+
+[[test]]
+name = "diagnostics_aggregator_tests"
+path = "tests/diagnostics/diagnostics_aggregator_tests.rs"
+
+[[test]]
+name = "diagnostics_docs_guard"
+path = "tests/diagnostics/diagnostics_docs_guard.rs"
+
+[[test]]
+name = "diagnostics_rendering_extended_tests"
+path = "tests/diagnostics/diagnostics_rendering_extended_tests.rs"
+
+[[test]]
+name = "unified_diagnostics_tests"
+path = "tests/diagnostics/unified_diagnostics_tests.rs"
+
+[[test]]
+name = "error_codes_registry_tests"
+path = "tests/diagnostics/error_codes_registry_tests.rs"
+
+[[test]]
+name = "examples_guide_snapshots"
+path = "tests/examples/examples_guide_snapshots.rs"
+
+[[test]]
+name = "examples_fixtures_snapshots"
+path = "tests/examples/examples_fixtures_snapshots.rs"
+
+[[test]]
+name = "parser_error_fixtures_snapshots"
+path = "tests/error_fixtures/parser_error_fixtures_snapshots.rs"
+
+[[test]]
+name = "compiler_error_fixtures_snapshots"
+path = "tests/error_fixtures/compiler_error_fixtures_snapshots.rs"
+
+[[test]]
+name = "runtime_error_fixtures_snapshots"
+path = "tests/error_fixtures/runtime_error_fixtures_snapshots.rs"
+
+[[test]]
+name = "cache_invalidation_tests"
+path = "tests/integration/cache_invalidation_tests.rs"
+
+[[test]]
+name = "compiler_optimization_tests"
+path = "tests/integration/compiler_optimization_tests.rs"
+
+[[test]]
+name = "compiler_rules_tests"
+path = "tests/integration/compiler_rules_tests.rs"
+
+[[test]]
+name = "cross_module_function_tests"
+path = "tests/integration/cross_module_function_tests.rs"
+
+[[test]]
+name = "flow_effects_spec_drift"
+path = "tests/integration/flow_effects_spec_drift.rs"
+
+[[test]]
+name = "flow_prelude_module_tests"
+path = "tests/integration/flow_prelude_module_tests.rs"
+
+[[test]]
+name = "module_graph_tests"
+path = "tests/integration/module_graph_tests.rs"
+
+[[test]]
+name = "module_linking_integration_tests"
+path = "tests/integration/module_linking_integration_tests.rs"
+
+[[test]]
+name = "module_scoped_classes_tests"
+path = "tests/integration/module_scoped_classes_tests.rs"
+
+[[test]]
+name = "mutual_recursion"
+path = "tests/integration/mutual_recursion.rs"
+
+[[test]]
+name = "operators"
+path = "tests/integration/operators.rs"
+
+[[test]]
+name = "symbol_table_tests"
+path = "tests/integration/symbol_table_tests.rs"
+
+[[test]]
+name = "test_runner_cli"
+path = "tests/integration/test_runner_cli.rs"
+
+[[test]]
+name = "regression_snapshots"
+path = "tests/integration/regression_snapshots.rs"
+
+[[test]]
+name = "layout_guard"
+path = "tests/integration/layout_guard.rs"
+
+# Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
+# filenames (which are prefixed with the test-binary name) do not drift.
+[[test]]
+name = "snapshot_lexer"
+path = "tests/lexer/snapshot_lexer.rs"
+
+[[test]]
+name = "snapshot_parser"
+path = "tests/parser/snapshot_parser.rs"
+
+[[test]]
+name = "snapshot_formatter"
+path = "tests/parser/snapshot_formatter.rs"
+
+[[test]]
+name = "snapshot_bytecode"
+path = "tests/bytecode/snapshot_bytecode.rs"
+
+[[test]]
+name = "snapshot_diagnostics"
+path = "tests/diagnostics/snapshot_diagnostics.rs"

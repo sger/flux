@@ -1,3 +1,9 @@
+// parity-expected-stdout-begin
+// "processed=42"
+// "42"
+// "10"
+// parity-expected-stdout-end
+
 // Effect propagation through function calls.
 //
 // `log_line` requires IO. Any typed function that calls it must also declare IO.

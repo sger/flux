@@ -406,11 +406,11 @@ Canonical fixture references:
 
 | Rule area | Passing fixtures | Failing fixtures |
 |---|---|---|
-| Direct effect checks and propagation | `19`, `20`, `27`, `28` | `15`, `16`, `20`, `31`, `32`, `33`, `34`, `35`, `36`, `37`, `39`, `40`, `41` |
-| Perform/handle static correctness | `18`, `22`, `29` | `17`, `18`, `21`, `42`, `43` |
+| Direct effect checks and propagation | `19`, `20`, `27`, `28`, `205` | `15`, `16`, `20`, `31`, `32`, `33`, `34`, `35`, `36`, `37`, `40`, `41` |
+| Perform/handle static correctness | `18`, `22`, `29` | `17`, `18`, `21`, `42` |
 | Effect polymorphism and rows | `21`, `23`, `30`, `31`, `32`, `33` | `19`, `22`, `44`, `45` |
 | HM + ADT + exhaustiveness hardening | `74`, `75`, `76`, `77`, `78`, `79`, `80`, `81`, `82`, `83`, `84`, `85`, `88`, `89`, `90`, `91` | `64`, `65`, `67`, `68`, `69`, `70`, `71`, `72`, `73`, `74`, `75`, `76`, `77`, `78`, `79`, `81`, `82`, `83`, `84` |
-| Entry-point boundary | `27`, `28`, `29` | `38`, `43`, `46`, `47`, `48`, `49`, `50` |
+| Entry-point boundary | `27`, `28`, `29` | `38`, `46`, `47`, `48`, `49`, `50` |
 | Strict/public boundary | `58`, `59`, `60`, `61` | `29`, `30`, `51`, `52`, `53`, `54`, `55`, `56`, `57`, `58`, `59` |
 
 Module-qualified fixtures must run with:
@@ -463,7 +463,7 @@ Targeted fixture validation (VM):
 ```bash
 cargo run -- --no-cache examples/type_system/22_handle_discharges_effect.flx
 cargo run -- --no-cache examples/type_system/30_effect_poly_hof_nested_ok.flx
-cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
+cargo run -- --no-cache examples/type_system/29_main_handles_custom_effect.flx
 cargo run -- --no-cache --strict examples/type_system/failing/53_strict_public_effectful_missing_with.flx
 ```
 
@@ -472,7 +472,7 @@ Targeted fixture validation (JIT):
 ```bash
 cargo run --features jit -- --no-cache examples/type_system/22_handle_discharges_effect.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/30_effect_poly_hof_nested_ok.flx --jit
-cargo run --features jit -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/29_main_handles_custom_effect.flx --jit
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/53_strict_public_effectful_missing_with.flx --jit
 ```
 

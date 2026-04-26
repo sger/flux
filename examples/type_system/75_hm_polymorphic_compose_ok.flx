@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "41"
+// parity-expected-stdout-end
+
 fn id(x) {
     x
 }

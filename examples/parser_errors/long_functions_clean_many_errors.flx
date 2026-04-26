@@ -1,3 +1,191 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 12 errors, 3 notes • examples/parser_errors/long_functions_clean_many_errors.flx
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:190:22
+//     |
+// 190 |     let hash = { "a" 1 }
+//     |                      ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing function `first_clean_long_function`
+//
+//
+// error[E073]: Missing Comma
+//
+// Missing comma between arguments.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:191:20
+//     |
+// 191 |     let _r = add(1 2)
+//     |                    ^
+//
+// Hint:
+//   Add a comma between items, e.g. `f(a, b)`.
+//
+// Note:
+//   while parsing function `first_clean_long_function`
+//
+//
+// error[E034]: Missing Else Body
+//
+// This `else` branch needs to start with `{`.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:192:35
+//     |
+// 192 |     let _label = if true { "ok" } else "bad"
+//     |                                   ^^^^
+//     |                                   ---- `else` starts here
+//
+// Note:
+//   while parsing function `first_clean_long_function` > `if` expression
+//
+// Help:
+//   Try adding `{` after `else`.
+//
+//
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:193:22
+//     |
+// 193 |     let more = { "c" 3 }
+//     |                      ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing function `first_clean_long_function`
+//
+//
+// error[E073]: Missing Comma
+//
+// Missing comma between arguments.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:194:23
+//     |
+// 194 |     let _next = add(3 4)
+//     |                       ^
+//
+// Hint:
+//   Add a comma between items, e.g. `f(a, b)`.
+//
+// Note:
+//   while parsing function `first_clean_long_function`
+//
+//
+// error[E034]: Missing Else Body
+//
+// This `else` branch needs to start with `{`.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:195:37
+//     |
+// 195 |     let again = if false { "left" } else "right"
+//     |                                     ^^^^
+//     |                                     ---- `else` starts here
+//
+// Note:
+//   while parsing function `first_clean_long_function` > `if` expression
+//
+// Help:
+//   Try adding `{` after `else`.
+//
+//
+// error[E034]: Missing Hash Colon
+//
+// This hash entry needs `:` between the key and value.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:199:22
+//     |
+// 199 |     let info = { "b" 2 }
+//     |                      ^
+//
+// Hint:
+//   Hash literals use `{key: value, ...}`.
+//
+// Note:
+//   while parsing function `second_clean_long_function`
+//
+//
+// error[E073]: Missing Comma
+//
+// Missing comma between arguments.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:200:28
+//     |
+// 200 |     let _s = greet("Alice" "Bob")
+//     |                            ^^^^^
+//
+// Hint:
+//   Add a comma between items, e.g. `f(a, b)`.
+//
+// Note:
+//   while parsing function `second_clean_long_function`
+//
+//
+// error[E034]: Missing Else Body
+//
+// This `else` branch needs to start with `{`.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:201:39
+//     |
+// 201 |     let _branch = if false { "left" } else "right"
+//     |                                       ^^^^
+//     |                                       ---- `else` starts here
+//
+// Note:
+//   while parsing function `second_clean_long_function` > `if` expression
+//
+// Help:
+//   Try adding `{` after `else`.
+//
+//
+// Note: Repeated Parser Diagnostics Suppressed
+//
+// I hid 1 additional repeated parser diagnostic(s) for "Missing Hash Colon" in this file. Use `--all-errors` to see every occurrence.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:0:1
+//   |
+//
+//
+// Note: Repeated Parser Diagnostics Suppressed
+//
+// I hid 1 additional repeated parser diagnostic(s) for "Missing Comma" in this file. Use `--all-errors` to see every occurrence.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:0:1
+//   |
+//
+//
+// Note: Repeated Parser Diagnostics Suppressed
+//
+// I hid 1 additional repeated parser diagnostic(s) for "Missing Else Body" in this file. Use `--all-errors` to see every occurrence.
+//
+//   examples/parser_errors/long_functions_clean_many_errors.flx:0:1
+//   |
+// ... and 3 more errors not shown (use --max-errors to increase).
+//
+// Found 12 errors and 3 notes.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E073
+// expect-error: E034
+// expect-error: E034
+// expect-error: E073
+// expect-error: E034
+// expect-error: E034
+// expect-error: E073
+// expect-error: E034
+
 fn first_clean_long_function() -> Unit {
     let hash = { "a" 1 }
     let _r = add(1 2)
@@ -15,3 +203,4 @@ fn second_clean_long_function() -> Unit {
     let _call = greet("Carol" "Dave")
     let final_branch = if true { "up" } else "down"
 }
+

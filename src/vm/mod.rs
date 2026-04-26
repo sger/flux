@@ -3,8 +3,9 @@ use std::rc::Rc;
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, frame::Frame, hamt,
-        handler_frame::HandlerFrame, leak_detector, value::Value,
+        closure::Closure, compiled_function::CompiledFunction, evidence::EvidenceVector,
+        frame::Frame, hamt, handler_frame::HandlerFrame, leak_detector, value::Value,
+        yield_state::YieldState,
     },
 };
 
@@ -78,6 +79,10 @@ pub struct VM {
     tail_arg_scratch: Vec<Slot>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
+    /// Shared evidence vector for the Phase 3 VM effect runtime path.
+    pub(crate) evv: EvidenceVector,
+    /// In-flight yield state for the Phase 3 VM effect runtime path.
+    pub(crate) yield_state: YieldState,
     /// Profiling state — only active when `--prof` is passed.
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
@@ -101,6 +106,8 @@ impl VM {
             trace: false,
             tail_arg_scratch: Vec::new(),
             handler_stack: Vec::new(),
+            evv: EvidenceVector::new(),
+            yield_state: YieldState::new(),
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),
@@ -158,14 +165,26 @@ impl VM {
         profiling::print_profile_report(&self.cost_centres, execute_ns);
     }
 
-    /// Create a closure that acts as the identity function: `fn(x) -> x`.
-    /// Used as the `resume` parameter for tail-resumptive `OpPerformDirect`,
-    /// so that `resume(v)` simply returns `v`.
+    /// A closure that acts as the identity function: `fn(x) -> x`.
+    /// Used as the `resume` parameter for tail-resumptive `OpPerform` /
+    /// `OpPerformDirect`, so that `resume(v)` simply returns `v`.
+    ///
+    /// Proposal 0162 Phase 1: the identity closure is a thread-local
+    /// singleton — every TR perform in a hot loop previously allocated a
+    /// fresh `Rc<CompiledFunction>` + `Rc<Closure>` per invocation. The
+    /// shared `Rc` is cloned (bumping only the refcount) instead of
+    /// rebuilding the bytecode. Safe because the identity closure has no
+    /// upvalues and no mutable state. Measured ~15% speedup on a 500k
+    /// perform microbench.
     pub(crate) fn make_identity_closure(&self) -> Value {
-        // Bytecode: OpReturnLocal(0) — return the first argument.
-        let instructions = vec![OpCode::OpReturnLocal as u8, 0];
-        let func = Rc::new(CompiledFunction::new(instructions, 1, 1, None));
-        Value::Closure(Rc::new(Closure::new(func, vec![])))
+        thread_local! {
+            static IDENTITY: Rc<Closure> = {
+                let instructions = vec![OpCode::OpReturnLocal as u8, 0];
+                let func = Rc::new(CompiledFunction::new(instructions, 1, 1, None));
+                Rc::new(Closure::new(func, vec![]))
+            };
+        }
+        IDENTITY.with(|c| Value::Closure(Rc::clone(c)))
     }
 
     pub fn run(&mut self) -> Result<(), String> {

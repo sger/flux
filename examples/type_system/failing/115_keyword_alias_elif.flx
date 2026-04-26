@@ -1,1 +1,41 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/115_keyword_alias_elif.flx
+// error[E030]: Unknown Keyword
+//
+// Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
+//
+//   examples/type_system/failing/115_keyword_alias_elif.flx:41:15
+//    |
+// 41 | if true { 1 } elif false { 2 } else { 3 }
+//    |               ^^^^
+//
+// Hint:
+//   Did you mean `else if`?
+//   Replace `elif`/`elsif` with `else if`.
+//
+// Note:
+//   while parsing `if` expression
+//
+//
+// error[E030]: Unknown Keyword
+//
+// Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
+//
+//   examples/type_system/failing/115_keyword_alias_elif.flx:41:15
+//    |
+// 41 | if true { 1 } elif false { 2 } else { 3 }
+//    |               ^^^^
+//
+// Hint:
+//   Did you mean `else if`?
+//   Replace `elif`/`elsif` with `else if`.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E030
+// expect-error: E030
+
 if true { 1 } elif false { 2 } else { 3 }

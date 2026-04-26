@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx:3:14
-  |
-3 |         n if 1 -> n,
-  |              ^
-  |              - this expression has type `Int`
+  examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx:30:14
+   |
+30 |         n if 1 -> n,
+   |              ^
+   |              - this expression has type `Int`
 
-  |              - match guard is known at compile time
+   |              - match guard is known at compile time
 
 Note:
   expected type: Bool

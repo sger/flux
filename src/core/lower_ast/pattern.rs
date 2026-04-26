@@ -29,17 +29,25 @@ impl<'a> super::AstLowerer<'a> {
         arm: &HandleArm,
         effect: crate::syntax::Identifier,
         handle_result_ty: Option<crate::core::CoreType>,
+        parameter_ty: Option<crate::core::CoreType>,
     ) -> CoreHandler {
         // Look up op signature: (effect, operation) → (param_types, return_type)
         let op_sig = self
             .effect_op_sigs
             .and_then(|sigs| sigs.get(&(effect, arm.operation_name)));
 
-        let (params, param_types) = if let Some((param_tys, _ret_ty)) = op_sig {
-            if param_tys.len() == arm.params.len() {
-                let params: Vec<_> = arm
+        let has_state = parameter_ty.is_some() && !arm.params.is_empty();
+        let source_op_param_count = arm.params.len().saturating_sub(usize::from(has_state));
+        let state_source = has_state
+            .then(|| arm.params[source_op_param_count])
+            .map(|p| self.bind_name(p));
+
+        let (params, param_types, state, state_ty) = if let Some((param_tys, _ret_ty)) = op_sig {
+            if param_tys.len() == source_op_param_count {
+                let params = arm
                     .params
                     .iter()
+                    .take(source_op_param_count)
                     .zip(param_tys.iter())
                     .map(|(&p, ty)| self.bind_name_with_type(p, ty))
                     .collect();
@@ -47,17 +55,29 @@ impl<'a> super::AstLowerer<'a> {
                     .iter()
                     .map(crate::core::CoreType::try_from_infer)
                     .collect();
-                (params, param_types)
+                (params, param_types, state_source, parameter_ty.clone())
             } else {
                 (
-                    arm.params.iter().map(|&p| self.bind_name(p)).collect(),
+                    arm.params
+                        .iter()
+                        .take(source_op_param_count)
+                        .map(|&p| self.bind_name(p))
+                        .collect(),
                     Vec::new(),
+                    state_source,
+                    parameter_ty.clone(),
                 )
             }
         } else {
             (
-                arm.params.iter().map(|&p| self.bind_name(p)).collect(),
+                arm.params
+                    .iter()
+                    .take(source_op_param_count)
+                    .map(|&p| self.bind_name(p))
+                    .collect(),
                 Vec::new(),
+                state_source,
+                parameter_ty.clone(),
             )
         };
 
@@ -69,8 +89,12 @@ impl<'a> super::AstLowerer<'a> {
         };
         let resume_ty = op_sig.and_then(|(_param_tys, ret_ty)| {
             crate::core::CoreType::try_from_infer(ret_ty).map(|op_ret_ty| {
+                let mut params = vec![op_ret_ty];
+                if let Some(parameter_ty) = parameter_ty.clone() {
+                    params.push(parameter_ty);
+                }
                 crate::core::CoreType::Function(
-                    vec![op_ret_ty],
+                    params,
                     Box::new(
                         handle_result_ty
                             .clone()
@@ -86,6 +110,8 @@ impl<'a> super::AstLowerer<'a> {
             operation: arm.operation_name,
             params,
             param_types,
+            state,
+            state_ty,
             resume,
             resume_ty,
             body: self.lower_expr(&arm.body),

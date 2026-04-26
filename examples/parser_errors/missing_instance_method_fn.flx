@@ -1,3 +1,19 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_instance_method_fn.flx
+// error[E034]: Unexpected Closing Delimiter
+//
+// Unexpected `}` outside of a block.
+//
+//   examples/parser_errors/missing_instance_method_fn.flx:28:1
+//    |
+// 28 | }
+//    | ^
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `fn` keyword before method in instance declaration.
 //
 // Expected: E034 Unexpected Closing Delimiter
@@ -14,3 +30,4 @@ instance Sizeable<Int> {
 fn main() {
     42
 }
+

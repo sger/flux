@@ -13,6 +13,9 @@ pub struct HandlerDescriptor {
     /// Op names in the same order as the closures left on the stack.
     pub ops: Vec<Identifier>,
     pub op_names: Vec<Box<str>>,
+    /// Parameterized handlers carry one mutable handler-frame value threaded
+    /// through two-argument resume calls.
+    pub has_state: bool,
     /// When `true`, all handler arms never use `resume`. `OpPerform` can skip
     /// continuation capture entirely — just unwind and call the arm directly.
     /// (Perceus Section 2.7.1: non-linear control flow safety.)

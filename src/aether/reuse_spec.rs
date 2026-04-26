@@ -198,11 +198,13 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         CoreExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => CoreExpr::Handle {
             body: Box::new(specialize_with_env(*body, env)),
             effect,
+            parameter: parameter.map(|p| Box::new(specialize_with_env(*p, env))),
             handlers: handlers
                 .into_iter()
                 .map(|mut handler| {
@@ -440,11 +442,13 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         AetherExpr::Handle {
             body,
             effect,
+            parameter,
             handlers,
             span,
         } => AetherExpr::Handle {
             body: Box::new(specialize_with_env_aether(*body, env)),
             effect,
+            parameter: parameter.map(|p| Box::new(specialize_with_env_aether(*p, env))),
             handlers: handlers
                 .into_iter()
                 .map(|mut handler| {

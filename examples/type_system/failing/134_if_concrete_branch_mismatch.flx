@@ -1,3 +1,35 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/134_if_concrete_branch_mismatch.flx
+// error[E300]: Branch Type Mismatch
+//
+// The branches of this `if` expression do not agree on a type.
+//
+//   examples/type_system/failing/134_if_concrete_branch_mismatch.flx:34:36
+//    |
+// 34 |     let _x = if true { 42 } else { "nope" }
+//    |                                    ^^^^^^
+//    |                                    ------ the `else` branch has type `String`
+//
+//    |                        -- `then` branch returns `Int`
+//
+//    |                        -- this branch established the expected type
+//
+//    |                                    ------ this branch conflicts with that type
+//
+// Note:
+//   then branch type: Int
+//   else branch type: String
+//   the `then` branch fixes the type expected from the whole `if`
+//   the `else` branch produces the competing type
+//
+// Help:
+//   Both branches of an `if` must produce the same type.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 fn main() -> Unit {
     let _x = if true { 42 } else { "nope" }
 }

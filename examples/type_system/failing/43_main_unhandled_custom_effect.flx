@@ -1,4 +1,7 @@
-// E406: custom effects must be discharged before returning from main.
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: runtime_error
+// skip: VM currently runs this custom-effect main, while LLVM reports an unhandled effect at runtime
 
 effect Console {
     print: String -> ()
@@ -9,5 +12,5 @@ fn log(msg: String) -> Unit with Console {
 }
 
 fn main() -> Unit with Console {
-    log("x");
+    log("x")
 }

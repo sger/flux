@@ -1,0 +1,7 @@
+// parity: vm
+import Telemetry
+
+fn main() with Console, Clock {
+    let score = Telemetry.measure("startup")
+    println("score=" + to_string(score))
+}

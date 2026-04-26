@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "unit example"
+// "unit example"
+// parity-expected-stdout-end
+
 // `Unit` return: effectful function with no meaningful result.
 
 fn log_twice(msg: String) -> Unit with IO {

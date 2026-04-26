@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/117_if_missing_brace.flx
+// error[E034]: Missing If Body
+//
+// This `if` branch needs to start with `{`.
+//
+//   examples/type_system/failing/117_if_missing_brace.flx:25:8
+//    |
+// 25 |     if true 1 else 2
+//    |        ^^^^
+//    |        ---- this `if` branch starts here
+//
+// Note:
+//   while parsing function `main` > `if` expression
+//
+// Help:
+//   Try adding `{` after the `if` condition.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Unit {
     if true 1 else 2
 }

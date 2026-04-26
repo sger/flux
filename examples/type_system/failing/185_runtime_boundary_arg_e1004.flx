@@ -1,3 +1,68 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/185_runtime_boundary_arg_e1004.flx
+// error[E421]: Unknown Member in Exposing
+//
+// `print` is not defined in module `Flow.Primops`.
+//
+//   examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:7:1
+//   |
+// 7 | // `print` is not defined in module `Flow.Primops`.
+//   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the public members of `Flow.Primops` or remove `print` from the exposing list.
+//
+//
+// error[E430]: Any Type Inferred
+//
+// Core definition `7` has an unresolved type variable (var #N) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+//
+//   examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:72:1
+//    |
+// 72 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Add a type annotation or adjust the definition so inference fully resolves its result type.
+//
+//
+// error[E012]: Unknown Module Member
+//
+// Module `TypeSystem.BoundaryUnknown` has no member named `dynamic_string`.
+//
+//   examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:72:15
+//    |
+// 72 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+//    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//
+// Hint:
+//   Check the module's public members or import the correct module.
+//
+//
+// • 1 error • examples/type_system/failing/185_runtime_boundary_arg_e1004.flx
+// error[E018]: Import Not Found
+//
+// Cannot find module `TypeSystem.BoundaryUnknown` to import.
+//
+//   examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:66:1
+//    |
+// 66 | import TypeSystem.BoundaryUnknown
+//    | ^
+//
+// Hint:
+//   Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryUnknown.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+//   Looked for module `TypeSystem.BoundaryUnknown` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/185_runtime_boundary_arg_e1004.flx).
+//
+// Found 4 errors across 2 modules.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E012
+// expect-error: E018
+// expect-error: E421
+// expect-error: E430
+
 import TypeSystem.BoundaryUnknown
 
 fn typed_add(a: Int, b: Int) -> Int {

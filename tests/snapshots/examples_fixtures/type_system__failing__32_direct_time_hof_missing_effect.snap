@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/32_direct_time_hof_missing_effect.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `time`.
 
-  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
-  |
-4 |     time(/() -> 1)
-  |     ^^^^
+  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:23:5
+   |
+23 |     time(/() -> 1)
+   |     ^^^^
 
 Hint:
   Define it first: let time = ...;

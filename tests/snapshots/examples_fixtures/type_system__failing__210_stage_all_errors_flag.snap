@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/210_stage_all_errors_flag.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  examples/type_system/failing/210_stage_all_errors_flag.flx:7:18
-  |
-7 |     let broken = "unterminated
-  |                  ^^^^^^^^^^^^^
+  examples/type_system/failing/210_stage_all_errors_flag.flx:26:18
+   |
+26 |     let broken = "unterminated
+   |                  ^^^^^^^^^^^^^
 
 Hint:
   Add a closing " at the end of the string.

@@ -2,80 +2,74 @@
 
 module Flow.Assert {
 
-    fn assert_failed(name: String) with IO {
+    fn assert_failed(name: String) with Console {
         println("ASSERTION FAILED: " + name)
     }
 
     // Uses cmp_eq (deep structural comparison) rather than == (Eq class)
     // so it works for all types including List, Array, tuples, and ADTs.
-    public fn assert_eq<a>(a: a, b: a) with IO {
+    public fn assert_eq<a>(a: a, b: a) -> () with Console {
         if cmp_eq(a, b) { () }
         else {
             assert_failed("assert_eq")
             println(a)
             println(b)
             panic("assert_eq failed")
-        }
+        };
     }
 
-    public fn assert_neq<a>(a: a, b: a) with IO {
+    public fn assert_neq<a>(a: a, b: a) -> () with Console {
         if cmp_ne(a, b) { () }
         else {
             assert_failed("assert_neq")
             panic("assert_neq failed")
-        }
+        };
     }
 
-    public fn assert_true(x: Bool) with IO {
+    public fn assert_true(x: Bool) -> () with Console {
         if x { () }
-        else { panic("assert_true failed") }
+        else { panic("assert_true failed") };
     }
 
-    public fn assert_false(x: Bool) with IO {
+    public fn assert_false(x: Bool) -> () with Console {
         if !x { () }
-        else { panic("assert_false failed") }
+        else { panic("assert_false failed") };
     }
 
-    public fn assert_gt<a: Ord>(a: a, b: a) with IO {
+    public fn assert_gt<a: Ord>(a: a, b: a) -> () with Console {
         if a > b { () }
-        else { panic("assert_gt failed") }
+        else { panic("assert_gt failed") };
     }
 
-    public fn assert_lt<a: Ord>(a: a, b: a) with IO {
+    public fn assert_lt<a: Ord>(a: a, b: a) -> () with Console {
         if a < b { () }
-        else { panic("assert_lt failed") }
+        else { panic("assert_lt failed") };
     }
 
-    public fn assert_gte<a: Ord>(a: a, b: a) with IO {
+    public fn assert_gte<a: Ord>(a: a, b: a) -> () with Console {
         if a >= b { () }
-        else { panic("assert_gte failed") }
+        else { panic("assert_gte failed") };
     }
 
-    public fn assert_lte<a: Ord>(a: a, b: a) with IO {
+    public fn assert_lte<a: Ord>(a: a, b: a) -> () with Console {
         if a <= b { () }
-        else { panic("assert_lte failed") }
+        else { panic("assert_lte failed") };
     }
 
-    fn list_length(xs, acc) {
-        match xs {
-            [h | t] -> list_length(t, acc + 1),
-            _ -> acc
-        }
-    }
-
-    // assert_len uses runtime type dispatch (is_list) — leave untyped for now
-    public fn assert_len(collection, expected: Int) with IO {
-        let actual = if is_list(collection) { list_length(collection, 0) } else { len(collection) }
+    // `collection` stays polymorphic here because `len(...)` already supports
+    // every length-bearing surface we use in tests (lists, arrays, strings,
+    // tuples, ...).
+    public fn assert_len<a>(collection: a, expected: Int) -> () with Console {
+        let actual = len(collection)
         if actual == expected { () }
         else {
-            assert_failed("assert_len")
             panic("assert_len failed")
-        }
+        };
     }
 
-    public fn assert_msg(condition: Bool, message: String) with IO {
+    public fn assert_msg(condition: Bool, message: String) -> () with Console {
         if condition { () }
-        else { panic(message) }
+        else { panic(message) };
     }
 
 }

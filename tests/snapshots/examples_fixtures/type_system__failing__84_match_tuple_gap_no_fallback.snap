@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
 == compile ==
@@ -7,20 +7,20 @@ failed (compile)
 == diagnostics ==
 error[E015]: Non-Exhaustive Match
 
-Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
+Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/84_match_tuple_gap_no_fallback.flx:4:1
-  |
-4 | match t {
-  | ^^^^^^^^^
-5 |     (1, true) -> 1,
-  | ^^^^^^^^^^^^^^^^^^^
-6 |     (2, false) -> 2
-  | ^^^^^^^^^^^^^^^^^^^
-7 | };
-  | ^
+  examples/type_system/failing/84_match_tuple_gap_no_fallback.flx:29:1
+   |
+29 | match t {
+   | ^^^^^^^^^
+30 |     (1, true) -> 1,
+   | ^^^^^^^^^^^^^^^^^^^
+31 |     (2, false) -> 2
+   | ^^^^^^^^^^^^^^^^^^^
+32 | };
+   | ^
 
 Hint:
-  Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 == stdout ==
 <not executed>

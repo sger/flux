@@ -39,12 +39,12 @@ fn sample_lines() {
 }
 
 // Helper for test DAY05 part1 prompt sample is 143.
-fn test_day05_part1_prompt_sample_is_143() {
+fn test_day05_part1_prompt_sample_is_143() with IO {
     Test.eq(Day05.day05a_from_lines(sample_lines()), 143)
 }
 
 // Helper for test DAY05 part1 ignores missing page rules.
-fn test_day05_part1_ignores_missing_page_rules() {
+fn test_day05_part1_ignores_missing_page_rules() with IO {
     let lines = [|
         "10|20",
         "20|30",
@@ -58,7 +58,7 @@ fn test_day05_part1_ignores_missing_page_rules() {
 }
 
 // Helper for test DAY05 part1 rejects violating updates.
-fn test_day05_part1_rejects_violating_updates() {
+fn test_day05_part1_rejects_violating_updates() with IO {
     let lines = [|
         "10|20",
         "",
@@ -70,7 +70,7 @@ fn test_day05_part1_rejects_violating_updates() {
 }
 
 // Helper for test DAY05 part1 memory and lines match.
-fn test_day05_part1_memory_and_lines_match() {
+fn test_day05_part1_memory_and_lines_match() with IO {
     let memory =
     "1|2\n" +
     "2|3\n" +

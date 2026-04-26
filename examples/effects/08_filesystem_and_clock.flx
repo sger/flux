@@ -1,0 +1,15 @@
+// parity: vm
+// FileSystem and Clock are independent operational effects.
+
+fn read_demo_lines() -> Array<String> with FileSystem {
+    read_lines("examples/effects/data.txt")
+}
+
+fn measured_line_count() -> Int with FileSystem, Clock {
+    let _started = clock_now()
+    len(read_demo_lines())
+}
+
+fn main() {
+    println("line_count=" + to_string(measured_line_count()))
+}

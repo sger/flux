@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/178_import_except_missing_open_bracket.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Import Except List
 
 Expected `[` after `except` in import.
 
-  examples/type_system/failing/178_import_except_missing_open_bracket.flx:1:23
-  |
-1 | import Foo.Bar except x, y ]
-  |                       ^
+  examples/type_system/failing/178_import_except_missing_open_bracket.flx:20:23
+   |
+20 | import Foo.Bar except x, y ]
+   |                       ^
 
 Hint:
   Import exclusions use `import Module except [Name1, Name2]`.

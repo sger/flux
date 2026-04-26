@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/import_in_function_error.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
-  examples/imports/import_in_function_error.flx:5:5
+  examples/imports/import_in_function_error.flx:7:5
   |
-5 |     import Modules.Math
+7 |     import Modules.Math
   |     ^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E013]: Module Not Imported
 
 Module `Math` is not imported.
 
-  examples/imports/import_in_function_error.flx:6:11
+  examples/imports/import_in_function_error.flx:8:11
   |
-6 |     print(Math.square(5));
+8 |     print(Math.square(5));
   |           ^^^^^^^^^^^
 
 Hint:

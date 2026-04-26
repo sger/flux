@@ -172,7 +172,7 @@ impl Compiler {
                 let name_str = self.sym(*name);
                 if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
                     let required_sym = self.interner.intern(required_effect);
-                    !Self::is_effect_in_declared(required_sym, declared_effects)
+                    !self.is_effect_in_declared(required_sym, declared_effects)
                 } else {
                     false
                 }
@@ -272,27 +272,53 @@ impl Compiler {
         }
     }
 
-    /// Check if any typed let binding has a type annotation mismatch (E300).
+    /// Check if any typed let binding carries an unsound annotation-vs-initializer
+    /// relationship that the CFG path cannot diagnose:
+    ///
+    /// 1. **E300 type mismatch** — annotation resolves to a concrete type, the
+    ///    initializer's HM type is known and concrete, and they fail to unify.
+    /// 2. **E425 unresolved boundary** — strict mode is on and either the
+    ///    annotation itself cannot be resolved to a concrete type (unknown
+    ///    type constructor), or the initializer's HM type is still unresolved.
+    ///
+    /// Returns `true` when the function body should fall back to the AST path
+    /// so the specialized diagnostic can be rendered. Well-typed annotated
+    /// lets return `false` and proceed through CFG (Proposal 0167 Part 4).
     fn block_has_typed_let_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| {
-            if let Statement::Let {
+            let Statement::Let {
                 type_annotation: Some(annotation),
                 value,
                 ..
             } = s
-            {
-                if let Some(expected) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
-                    annotation,
-                    &Default::default(),
-                    &self.interner,
-                ) {
-                    self.known_concrete_expr_type_mismatch(&expected, value)
+            else {
+                return false;
+            };
+            match crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                annotation,
+                &Default::default(),
+                &self.interner,
+            ) {
+                Some(expected) => {
+                    if self
+                        .known_concrete_expr_type_mismatch(&expected, value)
                         .is_some()
-                } else {
+                    {
+                        return true;
+                    }
+                    if self.strict_mode
+                        && matches!(
+                            self.hm_expr_type_strict_path(value),
+                            super::hm_expr_typer::HmExprTypeResult::Unresolved(_)
+                        )
+                    {
+                        return true;
+                    }
                     false
                 }
-            } else {
-                false
+                // Annotation could not be resolved (unknown type constructor).
+                // In strict mode this is E425 on the AST path; let it fall back.
+                None => self.strict_mode,
             }
         })
     }
@@ -543,10 +569,17 @@ impl Compiler {
             Expression::DoBlock { block, .. } => {
                 self.block_has_effect_row_error(block, declared_effects, param_effect_rows)
             }
+            Expression::Sealing { expr, allowed, .. } => {
+                self.sealing_has_effect_row_error(expr, allowed, declared_effects)
+                    || self.expr_has_effect_row_error(expr, declared_effects, param_effect_rows)
+            }
             Expression::Match { arms, .. } => arms.iter().any(|arm| {
                 self.expr_has_effect_row_error(&arm.body, declared_effects, param_effect_rows)
             }),
-            // Check perform for unknown effects/operations (E404/E405)
+            // Check perform for unknown effects/operations and missing ambient
+            // effects. Routed 0165 primops reach this path as `perform`, so the
+            // CFG pre-validator must preserve the same E400 boundary that direct
+            // builtin calls had before routing.
             Expression::Perform {
                 effect, operation, ..
             } => {
@@ -554,6 +587,7 @@ impl Compiler {
                 let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
                 self.effect_op_signature(resolved_effect, *operation)
                     .is_none()
+                    || !self.is_effect_in_declared(resolved_effect, declared_effects)
             }
             // Don't recurse into nested function bodies — they have their own effect context
             _ => false,
@@ -576,7 +610,7 @@ impl Compiler {
             let name_str = self.sym(*name);
             if let Some(required_effect) = self.required_effect_for_base_name(name_str) {
                 let required_sym = self.interner.intern(required_effect);
-                if !Self::is_effect_in_declared(required_sym, declared_effects) {
+                if !self.is_effect_in_declared(required_sym, declared_effects) {
                     return true;
                 }
             }
@@ -607,7 +641,7 @@ impl Compiler {
         let unresolved: Vec<Symbol> = required_row
             .unresolved_vars(&solution)
             .into_iter()
-            .filter(|effect_var| !Self::is_effect_in_declared(*effect_var, declared_effects))
+            .filter(|effect_var| !self.is_effect_in_declared(*effect_var, declared_effects))
             .collect();
         if !unresolved.is_empty() {
             return true;
@@ -616,7 +650,7 @@ impl Compiler {
         // Check for missing concrete effects (E400)
         let required_effects = required_row.concrete_effects(&solution);
         for required_name in required_effects {
-            if !Self::is_effect_in_declared(required_name, declared_effects) {
+            if !self.is_effect_in_declared(required_name, declared_effects) {
                 return true;
             }
         }
@@ -624,14 +658,114 @@ impl Compiler {
         false
     }
 
-    /// Check if an effect is available in the declared effects list.
-    /// When no effects are declared (empty slice), no effects are available —
-    /// matching the AST path's behavior where `current_function_effects()` returns
-    /// `Some(&[])` and `is_effect_available()` returns false.
-    fn is_effect_in_declared(effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
-        declared_effects
+    fn sealing_has_effect_row_error(
+        &mut self,
+        expr: &Expression,
+        allowed: &[EffectExpr],
+        declared_effects: &[EffectExpr],
+    ) -> bool {
+        let io_effect = crate::syntax::builtin_effects::io_effect_symbol(&mut self.interner);
+        let time_effect = crate::syntax::builtin_effects::time_effect_symbol(&mut self.interner);
+        let inferred = self.contract_effect_sets();
+        let actual = self.infer_effects_from_expr(
+            expr,
+            self.current_module_prefix,
+            &inferred,
+            io_effect,
+            time_effect,
+        );
+        let allowed = self.evaluate_sealing_allowed_effects_for_declared(allowed, declared_effects);
+        !actual.is_subset(&allowed)
+    }
+
+    fn evaluate_sealing_allowed_effects_for_declared(
+        &self,
+        allowed: &[EffectExpr],
+        declared_effects: &[EffectExpr],
+    ) -> HashSet<Symbol> {
+        let ambient: HashSet<Symbol> = declared_effects
             .iter()
-            .any(|e| e.normalized_names().contains(&effect))
+            .flat_map(EffectExpr::normalized_names)
+            .collect();
+        let mut out = HashSet::new();
+        for effect in allowed {
+            out.extend(self.evaluate_sealing_effect_expr_for_declared(effect, &ambient));
+        }
+        out
+    }
+
+    fn evaluate_sealing_effect_expr_for_declared(
+        &self,
+        effect: &EffectExpr,
+        ambient: &HashSet<Symbol>,
+    ) -> HashSet<Symbol> {
+        match effect {
+            EffectExpr::Named { name, .. } => HashSet::from([*name]),
+            EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => ambient.clone(),
+            EffectExpr::RowVar { .. } => HashSet::new(),
+            EffectExpr::Add { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr_for_declared(left, ambient);
+                out.extend(self.evaluate_sealing_effect_expr_for_declared(right, ambient));
+                out
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                let mut out = self.evaluate_sealing_effect_expr_for_declared(left, ambient);
+                for effect in self.evaluate_sealing_effect_expr_for_declared(right, ambient) {
+                    out.remove(&effect);
+                }
+                out
+            }
+        }
+    }
+
+    /// Declared-only static effect-availability predicate, consulted by
+    /// the CFG pre-validator before AST → CFG lowering.
+    ///
+    /// **Three-way invariant** (proposal 0171, Track 4). This is the
+    /// pre-pass safety gate that runs *before* the lowering-time predicate
+    /// [`super::Compiler::is_effect_available`]. It intentionally checks
+    /// only the function's syntactic `with` clause and ignores any
+    /// synthesized or user-installed handlers — those become visible
+    /// later, in the lowering pass.
+    ///
+    /// Directional contract: if this predicate accepts an effect, the
+    /// later lowering predicate must also accept it (or the function's
+    /// declared effects shrunk between passes, which is a bug). The
+    /// inverse does not hold — lowering may legitimately accept effects
+    /// this predicate rejects, because handlers are not visible here.
+    /// The 0165 bug where a routed `perform` slipped past this check and
+    /// was then rejected at lowering was a violation of the *forward*
+    /// direction; it was closed by routing `Expression::Perform` through
+    /// `expr_has_effect_row_error`, the same entry direct builtin calls
+    /// use.
+    ///
+    /// When no effects are declared (empty slice), no effects are
+    /// available — matching the AST path's behavior where
+    /// `current_function_effects()` returns `Some(&[])` and
+    /// `is_effect_available()` returns false.
+    fn is_effect_in_declared(&self, effect: Symbol, declared_effects: &[EffectExpr]) -> bool {
+        let required: Vec<String> = if let Some(expansion) = self.effect_row_aliases.get(&effect) {
+            expansion
+                .expand_aliases(&self.effect_row_aliases)
+                .normalized_concrete_names()
+                .into_iter()
+                .map(|name| self.sym(name).to_owned())
+                .collect()
+        } else {
+            vec![self.sym(effect).to_owned()]
+        };
+        let declared: HashSet<String> = declared_effects
+            .iter()
+            .flat_map(|effect_expr| {
+                effect_expr
+                    .expand_aliases(&self.effect_row_aliases)
+                    .normalized_names()
+            })
+            .map(|name| self.sym(name).to_owned())
+            .collect();
+        required
+            .iter()
+            .all(|required_name| declared.contains(required_name))
     }
 
     fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
@@ -639,22 +773,6 @@ impl Compiler {
             matches!(
                 statement,
                 Statement::Module { .. } | Statement::Import { .. }
-            )
-        })
-    }
-
-    /// Returns `true` when the block contains a typed `let` binding whose
-    /// type annotation the AST path must validate. The CFG path does not yet
-    /// perform strict annotation checking, so we fall back to AST when
-    /// strict mode is active and annotated let-bindings are present.
-    fn block_contains_typed_let_ast(body: &Block) -> bool {
-        body.statements.iter().any(|statement| {
-            matches!(
-                statement,
-                Statement::Let {
-                    type_annotation: Some(_),
-                    ..
-                }
             )
         })
     }
@@ -849,7 +967,12 @@ impl Compiler {
         if self.effect_declared_ops(effect).is_some() {
             return true;
         }
-        matches!(self.sym(effect), "IO" | "Time" | "State")
+        // Proposal 0161 B3: `IO` and `Time` are coarse aliases that expand to
+        // fine-grained rows; the decomposed labels themselves are also valid
+        // annotations (`with Console`, `with FileSystem`, `with Clock`, …).
+        let effect_name = self.sym(effect);
+        effect_name == "State"
+            || crate::syntax::builtin_effects::is_known_function_effect_annotation_name(effect_name)
     }
 
     fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {
@@ -1066,10 +1189,12 @@ impl Compiler {
                         // Don't emit OpReturnValue if we just emitted OpTailCall
                         // because the tail call will loop back instead of returning
                         if !self.is_last_instruction(OpCode::OpTailCall) {
+                            self.emit(OpCode::OpReturnCheck, &[]);
                             self.emit(OpCode::OpReturnValue, &[]);
                         }
                     }
                     None => {
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturn, &[]);
                     }
                 },
@@ -1080,6 +1205,7 @@ impl Compiler {
                     return_type,
                     effects,
                     body,
+                    intrinsic,
                     span,
                     ..
                 } => {
@@ -1116,6 +1242,7 @@ impl Compiler {
                         return_type,
                         &effective_effects,
                         body,
+                        *intrinsic,
                         None,
                         *span,
                     )?;
@@ -1208,6 +1335,9 @@ impl Compiler {
                 }
                 // Effect declarations are syntax only for now no bytecode emitted.
                 Statement::EffectDecl { .. } => {}
+                // Effect aliases are compile-time only (Proposal 0161 B1); the
+                // compiler's alias table is populated before codegen runs.
+                Statement::EffectAlias { .. } => {}
                 // Type class declarations are syntax only — no bytecode emitted.
                 Statement::Class { .. } => {}
                 Statement::Instance { .. } => {}
@@ -1227,6 +1357,7 @@ impl Compiler {
         return_type: &Option<TypeExpr>,
         effects: &[EffectExpr],
         body: &Block,
+        intrinsic: Option<crate::core::CorePrimOp>,
         ir_function: Option<&IrFunction>,
         function_span: Span,
     ) -> CompileResult<()> {
@@ -1342,6 +1473,19 @@ impl Compiler {
         }
 
         let compile_result: CompileResult<()> = (|| {
+            if let Some(op) = intrinsic {
+                for param in parameters {
+                    let Some(binding) = self.symbol_table.resolve(*param) else {
+                        continue;
+                    };
+                    self.load_symbol(&binding);
+                }
+                self.emit(OpCode::OpPrimOp, &[op.id() as usize, parameters.len()]);
+                self.emit(OpCode::OpReturnCheck, &[]);
+                self.emit(OpCode::OpReturnValue, &[]);
+                return Ok(());
+            }
+
             // Compile-time return type check: if the declared return type and
             // the static type of the tail expression are both known, verify
             // they're compatible.
@@ -1395,18 +1539,20 @@ impl Compiler {
                 self.quick_validate_function_body(body, parameters, effects, &param_effect_rows);
 
             // CFG handles all well-typed functions. AST fallback is used only
-            // for: (a) functions with pre-validation errors, (b) HM type errors,
-            // (c) module/import statements, (d) strict-mode typed-let.
+            // for: (a) functions with pre-validation errors (incl. strict-mode
+            // typed-let errors — see `block_has_typed_let_error`),
+            // (b) HM type errors, (c) CFG-incompatible statements such as
+            // module/import statements.
+            //
+            // Well-typed strict-mode annotated lets now stay on the CFG path
+            // (Proposal 0167 Part 4).
             let use_ast_path = if requires_ir_only {
-                ir_function.is_none()
-                    || Self::block_contains_cfg_incompatible_statements_ast(body)
-                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
+                ir_function.is_none() || Self::block_contains_cfg_incompatible_statements_ast(body)
             } else {
                 has_body_errors
                     || self.has_hm_diagnostics
                     || ir_function.is_none()
                     || Self::block_contains_cfg_incompatible_statements_ast(body)
-                    || (self.strict_mode && Self::block_contains_typed_let_ast(body))
             };
 
             if !use_ast_path {
@@ -1450,7 +1596,7 @@ impl Compiler {
                 parameters.len(),
                 effects,
                 param_effect_rows,
-                |compiler| compiler.compile_block_with_tail_collect_errors(body),
+                |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true),
             );
             if body_errors.is_empty() {
                 if self.block_has_value_tail(body) {
@@ -1468,15 +1614,18 @@ impl Compiler {
                         // OpReturnValue so the jump has a valid target.
                         // It is dead code for the alternative path but
                         // harmless (1 extra byte per affected function).
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturnValue, &[]);
                     } else if !self.is_last_instruction(OpCode::OpReturnValue)
                         && !self.is_last_instruction(OpCode::OpReturnLocal)
                     {
+                        self.emit(OpCode::OpReturnCheck, &[]);
                         self.emit(OpCode::OpReturnValue, &[]);
                     }
                 } else if !self.is_last_instruction(OpCode::OpReturnValue)
                     && !self.is_last_instruction(OpCode::OpReturnLocal)
                 {
+                    self.emit(OpCode::OpReturnCheck, &[]);
                     self.emit(OpCode::OpReturn, &[]);
                 }
             }
@@ -1670,17 +1819,19 @@ impl Compiler {
 
             // Compile the function body.
             let body_errors = self.with_tail_position(true, |c| {
-                c.compile_block_with_tail_collect_errors(entry.body)
+                c.compile_block_with_tail_mode_collect_errors(entry.body, true)
             });
             if self.block_has_value_tail(entry.body) {
                 if !self.is_last_instruction(OpCode::OpReturnValue)
                     && !self.is_last_instruction(OpCode::OpReturnLocal)
                 {
+                    self.emit(OpCode::OpReturnCheck, &[]);
                     self.emit(OpCode::OpReturnValue, &[]);
                 }
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
+                self.emit(OpCode::OpReturnCheck, &[]);
                 self.emit(OpCode::OpReturn, &[]);
             }
             for err in body_errors {
@@ -1801,6 +1952,10 @@ impl Compiler {
                 // declaration as transparent here, identical to how it treats
                 // top-level `effect` declarations.
                 Statement::EffectDecl { .. } => {}
+                // Effect aliases (Proposal 0161 B1) are allowed inside modules
+                // for the same reason EffectDecl is — they only affect the
+                // compile-time alias table.
+                Statement::EffectAlias { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
@@ -1916,6 +2071,7 @@ impl Compiler {
                 return_type,
                 effects,
                 body: fn_body,
+                intrinsic,
                 span,
                 ..
             } = statement
@@ -1936,6 +2092,7 @@ impl Compiler {
                     return_type,
                     &effective_effects,
                     fn_body,
+                    *intrinsic,
                     ir_program.and_then(|program| {
                         self.find_ir_function_by_symbol(program, qualified_name)
                     }),
@@ -2196,7 +2353,11 @@ impl Compiler {
     }
 
     #[allow(clippy::vec_box)]
-    fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
+    fn compile_block_with_tail_mode_collect_errors(
+        &mut self,
+        block: &Block,
+        allow_tail: bool,
+    ) -> Vec<Box<Diagnostic>> {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level pass 1).
         if self.scope_index > 0 {
@@ -2250,9 +2411,22 @@ impl Compiler {
                     } | Statement::Return { .. }
                 );
 
-                let result = if is_last && tail_eligible {
+                let result = if allow_tail && is_last && tail_eligible {
                     compiler
                         .with_tail_position(true, |compiler| compiler.compile_statement(statement))
+                } else if is_last && tail_eligible {
+                    match statement {
+                        Statement::Expression {
+                            expression,
+                            has_semicolon: false,
+                            ..
+                        } => compiler.with_tail_position(false, |compiler| {
+                            compiler.compile_expression(expression)
+                        }),
+                        _ => compiler.with_tail_position(false, |compiler| {
+                            compiler.compile_statement(statement)
+                        }),
+                    }
                 } else {
                     compiler
                         .with_tail_position(false, |compiler| compiler.compile_statement(statement))
@@ -2330,8 +2504,18 @@ impl Compiler {
 
     /// Compile a block with tail position awareness for the last statement
     pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+        self.compile_block_with_tail_mode(block, true)
+    }
+
+    /// Compile a block using the tail-aware block machinery, optionally
+    /// suppressing tail position for the final statement.
+    pub(super) fn compile_block_with_tail_mode(
+        &mut self,
+        block: &Block,
+        allow_tail: bool,
+    ) -> CompileResult<()> {
         let mut errors = self
-            .compile_block_with_tail_collect_errors(block)
+            .compile_block_with_tail_mode_collect_errors(block, allow_tail)
             .into_iter();
         if let Some(first) = errors.next() {
             for err in errors {

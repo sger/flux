@@ -1,3 +1,35 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/04_compile_float_string_arg.flx
+// error[E300]: Argument Type Mismatch
+//
+// I found the wrong type in the 1st argument to `scale`.
+//
+//   examples/type_system/failing/04_compile_float_string_arg.flx:38:7
+//    |
+// 33 | fn scale(x: Float, factor: Float) -> Float {
+//    | ------------------------------------------ `scale` expects `Float` as the 1st parameter
+// 34 |     x * factor
+// 35 | }
+// 36 |
+// 37 |
+// 38 | scale("3.14", 2.0)
+//    |       ^^^^^^
+//    |       ------ this argument has type `String`
+//
+// Note:
+//   expected argument type: Float
+//   found argument type: String
+//   the actual argument type is inferred from this expression
+//   the expected argument type comes from the function signature
+//
+// Help:
+//   Pass a `Float` value as the 1st argument.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 fn scale(x: Float, factor: Float) -> Float {
     x * factor
 }

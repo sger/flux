@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/ModuleGraph/const_divide_by_zero_error.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ConstDivideByZero` to import.
 
-  examples/ModuleGraph/const_divide_by_zero_error.flx:2:1
+  examples/ModuleGraph/const_divide_by_zero_error.flx:5:1
   |
-2 | import ModuleGraph.ConstDivideByZero
+5 | import ModuleGraph.ConstDivideByZero
   | ^
 
 Hint:

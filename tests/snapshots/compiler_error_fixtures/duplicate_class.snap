@@ -1,24 +1,10 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/duplicate_class.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E440]: Duplicate Type Class
-
-Type class `Show` is already defined.
-
-  examples/compiler_errors/duplicate_class.flx:7:1
-  |
-7 | class Show<a> {
-  | ^^^^^^^^^^^^^^^
-8 |     fn show(x: a) -> Int
-  | ^^^^^^^^^^^^^^^^^^^^^^^^
-9 | }
-  | ^
-
-
 error[E440]: Duplicate Type Class
 
 Type class `Show` is already defined.
@@ -30,6 +16,20 @@ Type class `Show` is already defined.
 12 |     fn show(x: a) -> Int
    | ^^^^^^^^^^^^^^^^^^^^^^^^
 13 | }
+   | ^
+
+
+error[E440]: Duplicate Type Class
+
+Type class `Show` is already defined.
+
+  examples/compiler_errors/duplicate_class.flx:15:1
+   |
+15 | class Show<a> {
+   | ^^^^^^^^^^^^^^^
+16 |     fn show(x: a) -> Int
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+17 | }
    | ^
 
 Found 2 errors.

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.BoundaryUnknown` to import.
 
-  examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx:3:1
-  |
-3 | import TypeSystem.BoundaryUnknown
-  | ^
+  examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx:68:1
+   |
+68 | import TypeSystem.BoundaryUnknown
+   | ^
 
 Hint:
   Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryUnknown.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.

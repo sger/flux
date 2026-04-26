@@ -24,7 +24,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                 if params.len() == args.len() {
                     // Full application: substitute all params
                     let mut body = *body;
-                    for (p, a) in params.into_iter().zip(args.into_iter()) {
+                    for (p, a) in params.into_iter().zip(args) {
                         body = subst(body, p.id, &a);
                     }
                     beta_reduce(body)
@@ -37,7 +37,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     } else {
                         Vec::new()
                     };
-                    for (p, a) in params.into_iter().zip(args.into_iter()) {
+                    for (p, a) in params.into_iter().zip(args) {
                         body = subst(body, p.id, &a);
                     }
                     beta_reduce(CoreExpr::Lam {
@@ -51,7 +51,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     // Over-application: apply all params, then apply remaining args
                     let extra_args = args[params.len()..].to_vec();
                     let mut body = *body;
-                    for (p, a) in params.into_iter().zip(args.into_iter()) {
+                    for (p, a) in params.into_iter().zip(args) {
                         body = subst(body, p.id, &a);
                     }
                     let body = beta_reduce(body);

@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/type_mismatch_argument.flx
 == compile ==
@@ -9,14 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 
-  examples/compiler_errors/type_mismatch_argument.flx:6:25
+  examples/compiler_errors/type_mismatch_argument.flx:9:25
   |
-1 | fn greet(name: String) -> String {
-2 |     name
-3 | }
-4 | 
-5 | fn main() -> Unit {
-6 |     let ignored = greet(123)
+4 | fn greet(name: String) -> String {
+  | -------------------------------- `greet` expects `String` as the 1st parameter
+5 |     name
+6 | }
+7 | 
+8 | fn main() -> Unit {
+9 |     let ignored = greet(123)
   |                         ^^^
   |                         --- this argument has type `Int`
 

@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/row_effects/invalid_row_subtract_e421.flx
 == compile ==
@@ -9,21 +9,21 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/compiler_errors/row_effects/invalid_row_subtract_e421.flx:16:5
+  examples/compiler_errors/row_effects/invalid_row_subtract_e421.flx:19:5
    |
-16 |     run_filtered(io_console_work)
+19 |     run_filtered(io_console_work)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     ----------------------------- parameter 1 has type `() -> Unit with Console, IO`
+   |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
 
    |     ----------------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with IO
-  found parameter type: () -> Unit with Console, IO
+  expected parameter type: () -> Unit with FileSystem, Stdin
+  found parameter type: () -> Unit with Console, FileSystem, Stdin
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with IO` consistently.
+  Change parameter 1 to use `() -> Unit with FileSystem, Stdin` consistently.
 
 
 Note: Downstream Errors Suppressed

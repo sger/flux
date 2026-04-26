@@ -47,8 +47,12 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         dest,
                         body_entry,
                         arms,
+                        initial_state,
                         ..
                     } => {
+                        if let Some(initial_state) = initial_state {
+                            ensure_defined(*initial_state, &defined)?;
+                        }
                         ensure_block_exists(*body_entry, &block_ids)?;
                         for arm in arms {
                             ensure_function_exists(arm.function_id, &function_ids)?;

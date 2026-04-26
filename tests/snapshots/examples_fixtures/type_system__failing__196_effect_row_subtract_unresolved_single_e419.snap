@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E419]: Unresolved Effect Row
 
 I cannot resolve the effect variable `e` introduced by this call.
 
-  examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:8:13
-  |
-8 |     let _ = unresolved(1)
-  |             ^^^^^^^^^^
-  |             ---------- this call leaves an effect variable unconstrained
+  examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:34:13
+   |
+34 |     let _ = unresolved(1)
+   |             ^^^^^^^^^^
+   |             ---------- this call leaves an effect variable unconstrained
 
-  |             ---------- this call to `unresolved` creates the effect obligation
+   |             ---------- this call to `unresolved` creates the effect obligation
 
 Note:
   unresolved effect variable: e

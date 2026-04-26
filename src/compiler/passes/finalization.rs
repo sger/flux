@@ -1,4 +1,4 @@
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, Severity};
 use crate::syntax::program::Program;
 
 use super::super::{Compiler, pipeline::CollectionResult};
@@ -34,9 +34,17 @@ impl Compiler {
         // surface first in the error list.
         self.errors.extend(hm_diagnostics);
 
-        // Return all errors at the end
-        if !self.errors.is_empty() {
+        // Only hard errors flip compilation to `Err`. Warnings and
+        // notes are collected and surfaced via `take_warnings`, so
+        // pushing them into `self.errors` must not cascade-skip
+        // dependent modules.
+        let has_error = self.errors.iter().any(|d| d.severity() == Severity::Error);
+        if has_error {
             return Err(std::mem::take(&mut self.errors));
+        }
+        let taken = std::mem::take(&mut self.errors);
+        if !taken.is_empty() {
+            self.warnings.extend(taken);
         }
 
         Ok(())

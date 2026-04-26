@@ -39,6 +39,32 @@ const FLUX_OBJ_FLOAT: i64 = 0xF8;
 const SOME_TAG: i32 = 1;
 const LEFT_TAG: i32 = 2;
 
+/// True when the yield-based algebraic-effect runtime is active (Proposal
+/// 0162 Phase 3). Enabled by default since the program-level gate in
+/// `program_has_yield_sites` skips emission for programs with no perform
+/// sites, so non-effect programs pay zero overhead. Opt out to the legacy
+/// direct-perform path with `FLUX_YIELD_CHECKS=0`.
+fn yield_checks_enabled() -> bool {
+    !matches!(std::env::var("FLUX_YIELD_CHECKS"), Ok(v) if v == "0")
+}
+
+/// True when the LIR program contains at least one `CallKind::YieldTo`
+/// terminator — i.e. the program has a `perform` somewhere. Used to gate
+/// the yield-check emission so non-effect programs pay zero overhead even
+/// when the env var is set (Proposal 0162 Phase 3 slice 5-gate).
+fn program_has_yield_sites(program: &LirProgram) -> bool {
+    for func in &program.functions {
+        for block in &func.blocks {
+            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator
+                && matches!(kind, crate::lir::CallKind::YieldTo)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -68,6 +94,27 @@ pub fn emit_llvm_module_with_options(
     export_runtime_trampoline: bool,
     export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
+    // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
+    // the continuation-splitting pre-pass to synthesize per-call-site
+    // continuation functions and populate `Call.yield_cont`. The yield-check
+    // stub then builds a real closure from the synthesized function and
+    // passes it to `flux_yield_extend`.
+    //
+    // Slice 5-gate: also require the program to have at least one yield
+    // site (CallKind::YieldTo terminator). Programs with no performs pay
+    // zero overhead regardless of the env var.
+    //
+    // Accepts `&LirProgram` but must produce owned output to run the pass.
+    // Clone is a cheap DAG copy — only happens when the feature flag is on,
+    // so the default path pays nothing.
+    let owned_program: LirProgram;
+    let yield_active = yield_checks_enabled() && program_has_yield_sites(program);
+    let program: &LirProgram = if yield_active {
+        owned_program = crate::lir::cont_split::split_continuations(program.clone());
+        &owned_program
+    } else {
+        program
+    };
     let mut module = LlvmModule {
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
@@ -100,6 +147,12 @@ pub fn emit_llvm_module_with_options(
         .map(|f| f.id)
         .collect();
 
+    // Proposal 0162 Phase 3 (slice 3a + slice 5-gate). Yield-check emission
+    // activates only when the env flag is on AND the program has at least
+    // one yield site. Non-effect programs emit byte-identical IR to the
+    // pre-slice-3a baseline even with FLUX_YIELD_CHECKS=1 set.
+    let emit_yield_checks = yield_active;
+
     // Emit each LIR function.
     let mut closure_wrappers_needed: HashSet<LirFuncId> = HashSet::new();
     for func in &program.functions {
@@ -119,6 +172,7 @@ pub fn emit_llvm_module_with_options(
             worker_mode: false,
             direct_capture_mode: false,
             worker_eligible: &worker_eligible,
+            emit_yield_checks,
         };
         let llvm_func = emitter.emit_function();
         module.functions.push(llvm_func);
@@ -142,6 +196,7 @@ pub fn emit_llvm_module_with_options(
                 worker_mode: true,
                 direct_capture_mode: false,
                 worker_eligible: &worker_eligible,
+                emit_yield_checks,
             };
             let worker_func = emitter.emit_function();
             module.functions.push(worker_func);
@@ -165,6 +220,7 @@ pub fn emit_llvm_module_with_options(
                 worker_mode: false,
                 direct_capture_mode: true,
                 worker_eligible: &worker_eligible,
+                emit_yield_checks,
             };
             let direct_capture_func = emitter.emit_function();
             module.functions.push(direct_capture_func);
@@ -566,6 +622,14 @@ struct FnEmitter<'a> {
     /// Set of LirFuncIds eligible for worker/wrapper splitting.
     worker_eligible: &'a HashSet<LirFuncId>,
     direct_capture_mode: bool,
+    /// Proposal 0162 Phase 3. When true, emit `flux_is_yielding` checks
+    /// after each `Call` terminator, consuming the `yield_cont` populated by
+    /// the `cont_split` pre-pass to build a real continuation closure on the
+    /// yield path.
+    ///
+    /// Controlled by the `FLUX_YIELD_CHECKS=1` environment variable. Off by
+    /// default so existing output is byte-identical.
+    emit_yield_checks: bool,
 }
 
 impl<'a> FnEmitter<'a> {
@@ -718,7 +782,18 @@ impl<'a> FnEmitter<'a> {
                         v.push(default.0);
                         v
                     }
-                    LirTerminator::Call { cont, .. } => vec![cont.0],
+                    LirTerminator::Call { cont, kind, .. } => {
+                        // Slice 5-tr-fix: `CallKind::YieldTo` always returns
+                        // the sentinel (never falls through), so its cont
+                        // block is dead in the parent — emitting it would
+                        // reference `dst` which is only bound via the
+                        // synthesized continuation fn, not in this function.
+                        if matches!(kind, CallKind::YieldTo) {
+                            vec![]
+                        } else {
+                            vec![cont.0]
+                        }
+                    }
                     LirTerminator::MatchCtor { arms, default, .. } => {
                         let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
                         v.push(default.0);
@@ -1062,6 +1137,11 @@ impl<'a> FnEmitter<'a> {
             LirInstr::IMul { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Mul, *a, *b),
             LirInstr::IDiv { dst, a, b, span } => self.emit_idiv_call(*dst, *a, *b, *span),
             LirInstr::IRem { dst, a, b, span } => self.emit_irem_call(*dst, *a, *b, *span),
+            LirInstr::IAnd { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::And, *a, *b),
+            LirInstr::IOr { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Or, *a, *b),
+            LirInstr::IXor { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Xor, *a, *b),
+            LirInstr::IShl { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Shl, *a, *b),
+            LirInstr::IShr { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::AShr, *a, *b),
 
             LirInstr::ICmp { dst, op, a, b } => {
                 let cmp_op = match op {
@@ -1580,9 +1660,13 @@ impl<'a> FnEmitter<'a> {
         span: crate::diagnostics::position::Span,
         c_name: &str,
     ) {
+        // Reserve a fresh counter slot so multiple checked ops in the same
+        // LLVM function don't collide on `dz0_…` SSA names.
+        let n = self.next_tmp;
+        self.next_tmp += 1;
         // Tag: (raw << 1) | 1
-        let a_tag = LlvmLocal(format!("dz{}_a_tag", self.next_tmp));
-        let a_tag2 = LlvmLocal(format!("dz{}_a_tag2", self.next_tmp));
+        let a_tag = LlvmLocal(format!("dz{n}_a_tag"));
+        let a_tag2 = LlvmLocal(format!("dz{n}_a_tag2"));
         self.emit(LlvmInstr::Binary {
             dst: a_tag.clone(),
             op: LlvmValueKind::Shl,
@@ -1597,8 +1681,8 @@ impl<'a> FnEmitter<'a> {
             lhs: LlvmOperand::Local(a_tag),
             rhs: self.i64_const(1),
         });
-        let b_tag = LlvmLocal(format!("dz{}_b_tag", self.next_tmp));
-        let b_tag2 = LlvmLocal(format!("dz{}_b_tag2", self.next_tmp));
+        let b_tag = LlvmLocal(format!("dz{n}_b_tag"));
+        let b_tag2 = LlvmLocal(format!("dz{n}_b_tag2"));
         self.emit(LlvmInstr::Binary {
             dst: b_tag.clone(),
             op: LlvmValueKind::Shl,
@@ -1614,7 +1698,7 @@ impl<'a> FnEmitter<'a> {
             rhs: self.i64_const(1),
         });
         // Call the C runtime function (which checks for zero).
-        let tagged_result = LlvmLocal(format!("dz{}_result", self.next_tmp));
+        let tagged_result = LlvmLocal(format!("dz{n}_result"));
         self.call_c(
             Some(tagged_result.clone()),
             c_name,
@@ -2159,6 +2243,236 @@ impl<'a> FnEmitter<'a> {
         }
     }
 
+    // ── Yield-check emission (Proposal 0162 Phase 3 slice 3a) ────────
+
+    // Slice 3b moved live-at-cont computation into the `cont_split` pre-pass
+    // (which populates `Call.yield_cont` with the capture set). The emitter
+    // no longer needs per-call liveness — it reads the canonical set from
+    // `yield_cont`. The `FunctionLiveness` / `liveness()` helpers remain on
+    // the struct for potential use by later slices (e.g. debug dumps or IR
+    // validation passes), but are no longer exercised in the default path.
+
+    /// After a `Call` has emitted its actual call instruction (result bound to
+    /// `dst`), insert the yield-check shape:
+    ///
+    /// ```llvm
+    ///   %y = call i32 @flux_is_yielding()
+    ///   %y_nz = icmp ne i32 %y, 0
+    ///   br i1 %y_nz, label %yield.N, label %yield.cont.N
+    /// yield.N:
+    ///   ; when Call.yield_cont is Some (slice 3b-ii):
+    ///   %captures = alloca [M x i64]
+    ///   ; store each capture into the array...
+    ///   %closure = call @flux_make_closure(ptr @<synth>$dc, i32 1, ptr %captures, i32 M, null, 0)
+    ///   %sentinel = call @flux_yield_extend(i64 %closure)
+    ///   ret i64 %sentinel
+    /// yield.cont.N:
+    ///   br label %<cont>
+    /// ```
+    ///
+    /// When `yield_cont` is `None` the yield block falls back to the slice-3a
+    /// stub (`ret i64 FLUX_YIELD_SENTINEL`), which silently drops the
+    /// continuation. The pre-pass runs whenever `FLUX_YIELD_CHECKS=1`, so in
+    /// that configuration `yield_cont` is populated for every normal Call.
+    fn emit_yield_check_after_call(
+        &mut self,
+        cont: BlockId,
+        yield_cont: Option<(LirFuncId, &[LirVar])>,
+    ) -> LlvmTerminator {
+        // Label ids unique per call site.
+        let slot = self.next_tmp;
+        self.next_tmp += 1;
+        let yield_label = LabelId(format!("yield.{slot}"));
+        let cont_label = LabelId(format!("yield.cont.{slot}"));
+
+        // Declare C runtime helpers we rely on.
+        self.needed_decls.insert("flux_is_yielding".to_string());
+
+        // %y = call i32 @flux_is_yielding()
+        let y = self.tmp();
+        self.emit(LlvmInstr::Call {
+            dst: Some(y.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i32(),
+            callee: LlvmOperand::Global(GlobalId("flux_is_yielding".to_string())),
+            args: Vec::new(),
+            attrs: Vec::new(),
+        });
+
+        // %y_nz = icmp ne i32 %y, 0
+        let y_nz = self.tmp();
+        self.emit(LlvmInstr::Icmp {
+            dst: y_nz.clone(),
+            op: LlvmCmpOp::Ne,
+            ty: LlvmType::i32(),
+            lhs: LlvmOperand::Local(y),
+            rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+        });
+
+        // The yield block: build continuation closure + flux_yield_extend.
+        let yield_block_instrs = self.build_yield_block_instrs(yield_cont);
+        self.extra_blocks.push(LlvmBlock {
+            label: yield_label.clone(),
+            instrs: yield_block_instrs.0,
+            term: yield_block_instrs.1,
+        });
+
+        // The cont-path block: forward to the actual `cont` in a new block so
+        // the cond-br has a clean target (and phi nodes in `cont` will see a
+        // single predecessor label rather than the original call block's).
+        self.extra_blocks.push(LlvmBlock {
+            label: cont_label.clone(),
+            instrs: Vec::new(),
+            term: LlvmTerminator::Br {
+                target: self.label(cont),
+            },
+        });
+
+        LlvmTerminator::CondBr {
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(y_nz),
+            then_label: yield_label,
+            else_label: cont_label,
+        }
+    }
+
+    /// Emit the body of the yield-path block.
+    ///
+    /// - `Some((func_id, captures))`: allocate a captures array, store each
+    ///   live var into it, build a closure over the synthesized continuation
+    ///   function, call `flux_yield_extend`, return the sentinel.
+    /// - `None`: emit the slice-3a stub — just return the sentinel. This path
+    ///   is only reached if the pre-pass didn't synthesize a continuation
+    ///   (e.g. the cont subgraph was trivially empty).
+    fn build_yield_block_instrs(
+        &mut self,
+        yield_cont: Option<(LirFuncId, &[LirVar])>,
+    ) -> (Vec<LlvmInstr>, LlvmTerminator) {
+        let Some((func_id, captures)) = yield_cont else {
+            return (
+                Vec::new(),
+                LlvmTerminator::Ret {
+                    ty: LlvmType::i64(),
+                    value: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: FLUX_YIELD_SENTINEL as i128,
+                    }),
+                },
+            );
+        };
+
+        self.needed_decls.insert("flux_yield_extend".to_string());
+
+        let target = self
+            .program
+            .func_by_id(func_id)
+            .expect("yield_cont references unknown synthesized LirFuncId");
+        let sanitized_target = sanitize_llvm_symbol_fragment(&target.qualified_name);
+        // The synthesized function's user-visible arity is its own params
+        // (`[dst]`, so 1). Captures are separate.
+        let user_arity = target.params.len() as i32;
+
+        // Select the correct ccc-convention entry point to pack into the
+        // closure. `flux_make_closure`'s fn_ptr must be a ccc function
+        // `(i64 closure, ptr args_ptr, i32 nargs) -> i64` since the closure
+        // is later dispatched through `flux_call_closure_c`. Two cases:
+        //
+        //  - Synthesized fn has captures (`capture_vars` non-empty): the
+        //    `else` branch of emit_function emits a ccc-entry with that same
+        //    name (flux_{name}), which unpacks both captures from the
+        //    closure payload and args from args_ptr.
+        //
+        //  - Synthesized fn has NO captures (live_in(cont) = {dst} only):
+        //    the `else if capture_vars.is_empty()` branch emits a fastcc
+        //    direct function. We can't point the closure at it — instead we
+        //    use the auto-generated `.closure_entry` wrapper, which is ccc
+        //    and unpacks args only. Register it so `emit_closure_wrapper`
+        //    produces the wrapper.
+        let fn_ptr_name = if target.capture_vars.is_empty() {
+            self.closure_wrappers_needed.insert(func_id);
+            format!("flux_{sanitized_target}.closure_entry")
+        } else {
+            format!("flux_{sanitized_target}")
+        };
+
+        // Build the closure. For non-empty captures, allocate an i64 array
+        // on the stack, store each capture, and pass the array pointer to
+        // flux_make_closure. For empty captures, pass a null pointer.
+        let mut instrs: Vec<LlvmInstr> = Vec::new();
+        let (cap_ptr, cap_count) = if captures.is_empty() {
+            (LlvmOperand::Const(LlvmConst::Null), 0i32)
+        } else {
+            let cap_arr = self.tmp();
+            instrs.push(LlvmInstr::Alloca {
+                dst: cap_arr.clone(),
+                ty: LlvmType::Array {
+                    len: captures.len() as u64,
+                    element: Box::new(LlvmType::i64()),
+                },
+                count: None,
+                align: Some(8),
+            });
+            for (i, cap) in captures.iter().enumerate() {
+                let gep = self.tmp();
+                instrs.push(LlvmInstr::GetElementPtr {
+                    dst: gep.clone(),
+                    inbounds: true,
+                    element_ty: LlvmType::i64(),
+                    base: LlvmOperand::Local(cap_arr.clone()),
+                    indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
+                });
+                instrs.push(LlvmInstr::Store {
+                    ty: LlvmType::i64(),
+                    value: self.var(*cap),
+                    ptr: LlvmOperand::Local(gep),
+                    align: Some(8),
+                });
+            }
+            (LlvmOperand::Local(cap_arr), captures.len() as i32)
+        };
+
+        // %closure = flux_make_closure(fn_ptr, arity, captures_ptr,
+        //                              cap_count, null, 0)
+        let closure = self.tmp();
+        instrs.push(LlvmInstr::Call {
+            dst: Some(closure.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Fastcc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_make_closure".to_string())),
+            args: vec![
+                (LlvmType::Ptr, LlvmOperand::Global(GlobalId(fn_ptr_name))),
+                (LlvmType::i32(), self.i32_const(user_arity)),
+                (LlvmType::Ptr, cap_ptr),
+                (LlvmType::i32(), self.i32_const(cap_count)),
+                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
+                (LlvmType::i32(), self.i32_const(0)),
+            ],
+            attrs: Vec::new(),
+        });
+
+        // %sentinel = call i64 @flux_yield_extend(i64 %closure)
+        let sentinel = self.tmp();
+        instrs.push(LlvmInstr::Call {
+            dst: Some(sentinel.clone()),
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::i64(),
+            callee: LlvmOperand::Global(GlobalId("flux_yield_extend".to_string())),
+            args: vec![(LlvmType::i64(), LlvmOperand::Local(closure))],
+            attrs: Vec::new(),
+        });
+
+        (
+            instrs,
+            LlvmTerminator::Ret {
+                ty: LlvmType::i64(),
+                value: LlvmOperand::Local(sentinel),
+            },
+        )
+    }
+
     // ── Terminator emission ─────────────────────────────────────────
 
     fn emit_terminator(&mut self, term: &LirTerminator) -> LlvmTerminator {
@@ -2221,7 +2535,8 @@ impl<'a> FnEmitter<'a> {
                 args,
                 cont,
                 kind,
-                yield_cont: _,
+                suppress_yield_check,
+                yield_cont,
             } => {
                 match kind {
                     CallKind::Direct { func_id } => {
@@ -2297,10 +2612,45 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
+                    CallKind::YieldTo => {
+                        // Proposal 0162 Phase 3 slice 5-tr-fix: the YieldTo
+                        // PrimCall has already been emitted as the last
+                        // instruction of this block; no call to emit here.
+                        // The yield-check branch below handles propagation.
+                    }
                 }
-                // TODO(0134): yield check emission when yield_cont is Some
-                LlvmTerminator::Br {
-                    target: self.label(*cont),
+                if matches!(kind, CallKind::YieldTo) {
+                    // Slice 5-tr-fix: YieldTo always yields by construction —
+                    // skip the is_yielding branch and go straight to the yield
+                    // path (extend the continuation + return the sentinel).
+                    // The parent's cont block is only ever entered via the
+                    // synthesized continuation fn, never via straight-line
+                    // fall-through, so %dst is never defined in the parent.
+                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
+                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
+                    let (instrs, term) = self.build_yield_block_instrs(passed_cont);
+                    for instr in instrs {
+                        self.emit(instr);
+                    }
+                    term
+                } else if self.emit_yield_checks && !suppress_yield_check {
+                    // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
+                    // yield path, build a closure over the synthesized
+                    // continuation function (populated in Call.yield_cont by
+                    // the `cont_split` pre-pass) and hand it to
+                    // `flux_yield_extend`. When the pre-pass produced no
+                    // synthesized continuation, fall back to the stub path
+                    // that drops the continuation — only reachable for
+                    // degenerate cont subgraphs.
+                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
+                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
+                    self.emit_yield_check_after_call(*cont, passed_cont)
+                } else {
+                    // Default output (yield checks disabled): branch straight
+                    // to `cont`. Byte-identical to pre-slice-3a IR.
+                    LlvmTerminator::Br {
+                        target: self.label(*cont),
+                    }
                 }
             }
 
@@ -2391,6 +2741,9 @@ impl<'a> FnEmitter<'a> {
                             ],
                             LlvmType::i64(),
                         );
+                    }
+                    CallKind::YieldTo => {
+                        unreachable!("CallKind::YieldTo only appears on non-tail Call terminators")
                     }
                 }
                 LlvmTerminator::Ret {
@@ -2925,6 +3278,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
     let flux_name = match op {
         CorePrimOp::Print => "print",
         CorePrimOp::Println => "println",
+        // Emit the unprefixed Flux name; the lower loop prepends `flux_`.
+        // Keeps the C symbol as `flux_debug_trace` to match `flux_print` /
+        // `flux_println` rather than carrying the internal `__primop_` mangling.
+        CorePrimOp::DebugTrace => "debug_trace",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::WriteFile => "write_file",
@@ -2934,16 +3291,11 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
         CorePrimOp::Split => "split",
-        CorePrimOp::Join => "join",
         CorePrimOp::Trim => "trim",
         CorePrimOp::Upper => "upper",
         CorePrimOp::Lower => "lower",
-        CorePrimOp::StartsWith => "starts_with",
-        CorePrimOp::EndsWith => "ends_with",
         CorePrimOp::Replace => "replace",
         CorePrimOp::Substring => "substring",
-        CorePrimOp::Chars => "chars",
-        CorePrimOp::StrContains => "str_contains",
         CorePrimOp::ArrayLen => "array_len",
         CorePrimOp::ArrayGet => "array_get",
         CorePrimOp::ArraySet => "array_set",
@@ -2976,11 +3328,28 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Try => "try",
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
-        CorePrimOp::ParseInts => "parse_ints",
-        CorePrimOp::SplitInts => "split_ints",
-        CorePrimOp::ToList => "to_list",
-        CorePrimOp::ToArray => "to_array",
         CorePrimOp::Abs => "abs",
+        CorePrimOp::FSqrt => "sqrt",
+        CorePrimOp::FSin => "sin",
+        CorePrimOp::FCos => "cos",
+        CorePrimOp::FExp => "exp",
+        CorePrimOp::FLog => "log",
+        CorePrimOp::FFloor => "floor",
+        CorePrimOp::FCeil => "ceil",
+        CorePrimOp::FRound => "round",
+        CorePrimOp::FTan => "tan",
+        CorePrimOp::FAsin => "asin",
+        CorePrimOp::FAcos => "acos",
+        CorePrimOp::FAtan => "atan",
+        CorePrimOp::FSinh => "sinh",
+        CorePrimOp::FCosh => "cosh",
+        CorePrimOp::FTanh => "tanh",
+        CorePrimOp::FTruncate => "truncate",
+        CorePrimOp::BitAnd => "bit_and",
+        CorePrimOp::BitOr => "bit_or",
+        CorePrimOp::BitXor => "bit_xor",
+        CorePrimOp::BitShl => "bit_shl",
+        CorePrimOp::BitShr => "bit_shr",
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
@@ -3030,22 +3399,6 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::MakeList => return "flux_make_list".to_string(),
         CorePrimOp::Interpolate => return "flux_to_string".to_string(), // simplified: single-arg toString
         CorePrimOp::Index => return "flux_rt_index".to_string(),
-        // Collection helpers (promoted for native)
-        CorePrimOp::ArrayReverse => return "flux_array_reverse".to_string(),
-        CorePrimOp::ArrayContains => return "flux_array_contains".to_string(),
-        CorePrimOp::Sort => return "flux_sort_default".to_string(),
-        CorePrimOp::SortBy => return "flux_ho_sort_by".to_string(),
-        CorePrimOp::HoMap => return "flux_ho_map".to_string(),
-        CorePrimOp::HoFilter => return "flux_ho_filter".to_string(),
-        CorePrimOp::HoFold => return "flux_ho_fold".to_string(),
-        CorePrimOp::HoAny => return "flux_ho_any".to_string(),
-        CorePrimOp::HoAll => return "flux_ho_all".to_string(),
-        CorePrimOp::HoEach => return "flux_ho_each".to_string(),
-        CorePrimOp::HoFind => return "flux_ho_find".to_string(),
-        CorePrimOp::HoCount => return "flux_ho_count".to_string(),
-        CorePrimOp::Zip => return "flux_zip".to_string(),
-        CorePrimOp::Flatten => return "flux_flatten".to_string(),
-        CorePrimOp::HoFlatMap => return "flux_ho_flat_map".to_string(),
         // Effect handlers (Koka-style yield model)
         CorePrimOp::EvvGet => return "flux_evv_get".to_string(),
         CorePrimOp::EvvSet => return "flux_evv_set".to_string(),
@@ -3129,11 +3482,17 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),
+                LlvmType::i64(),
             ],
         ),
         "flux_yield_to" => (
             LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
         ),
         "flux_yield_extend" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_yield_prompt" => (

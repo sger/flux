@@ -1,3 +1,47 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx
+// error[E300]: Parameter Type Mismatch
+//
+// Parameter 2 has the wrong type.
+//
+//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+//    |
+// 52 |     each([1, 2, 3], noisy_log)
+//    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin`
+//
+//    |     -------------------------- this type mismatch is reported here
+//
+// Note:
+//   expected parameter type: () -> Unit
+//   found parameter type: () -> Unit with Console, FileSystem, Stdin
+//   the conflicting types meet at this expression
+//
+// Help:
+//   Change parameter 2 to use `() -> Unit` consistently.
+//
+//
+// error[E400]: Missing Effect
+//
+// requires effect `Console` but the enclosing context does not provide it
+//
+//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+//    |
+// 52 |     each([1, 2, 3], noisy_log)
+//    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |     -------------------------- requires `Console`
+//
+// Hint:
+//   annotate the enclosing function with `with Console`
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+// expect-error: E400
+
 // E400: Base HOF callback effect requirement must be available in ambient context.
 
 fn noisy_log(n: Int) -> Unit with IO {

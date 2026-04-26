@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/64_hm_inferred_call_mismatch.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `f`.
 
-  examples/type_system/failing/64_hm_inferred_call_mismatch.flx:8:20
-  |
-8 |     let b: Int = f("x")
-  |                    ^^^
-  |                    --- this argument has type `String`
+  examples/type_system/failing/64_hm_inferred_call_mismatch.flx:33:20
+   |
+33 |     let b: Int = f("x")
+   |                    ^^^
+   |                    --- this argument has type `String`
 
 Note:
   expected argument type: Int

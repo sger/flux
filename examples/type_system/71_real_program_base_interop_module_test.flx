@@ -1,19 +1,22 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.FTest as Test
 import TypeSystem.RealProgramBaseInterop as B
 
-fn test_sorted_and_contains() {
+fn test_sorted_and_contains() with IO {
     let sorted = B.sorted_copy([|5, 2, 4, 1|])
     Test.eq(sorted, [|1, 2, 4, 5|])
     Test.is_true(B.has_value(sorted, 2))
     Test.is_false(B.has_value(sorted, 99))
 }
 
-fn test_scalar_helpers() {
+fn test_scalar_helpers() with IO {
     Test.eq(B.max_pair(10, 4), 10)
     Test.eq(B.max_pair(3, 8), 8)
 }
 
-fn test_score_lookup_or_default() {
+fn test_score_lookup_or_default() with IO {
     let scores = {"alpha": 7}
     Test.eq(B.score_or_zero(scores, "alpha"), 7)
     Test.eq(B.score_or_zero(scores, "missing"), 0)

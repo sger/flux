@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx
 == compile ==
@@ -7,18 +7,18 @@ failed (compile)
 == diagnostics ==
 error[E421]: Effect Requirement Mismatch
 
-I cannot subtract effect `IO` from this effect row.
+I cannot subtract effect `Console` from this effect row.
 
-  examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:20:13
+  examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:46:13
    |
-20 |     let _ = needs_linked_absence(row_var_worker, io_worker)
+46 |     let _ = needs_linked_absence(row_var_worker, console_worker)
    |             ^^^^^^^^^^^^^^^^^^^^
    |             -------------------- this call violates an effect-row subtraction constraint
 
    |             -------------------- this call to `needs_linked_absence` creates the effect obligation
 
 Note:
-  requested subtraction: IO
+  requested subtraction: Console
   constraint source: effect-row checking for `needs_linked_absence`
 
 Help:

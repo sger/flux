@@ -19,9 +19,9 @@ run_cmd cargo run -- parity-check examples/basics --ways vm,llvm,vm_cached,vm_st
 
 # Expanded parity sweep (--compile) across non-error example folders.
 # Excluded by design: parser_errors, compiler_errors, runtime_errors,
-# type_system/failing, diagnostics_demos (all fail-on-purpose).
+# type_system/failing, diagnostics (all fail-on-purpose).
 PARITY_FOLDERS=(
-  advanced aether aoc benchmarks Debug flow functions guide_type_system
+  advanced aether aoc benchmarks flow functions guide_type_system
   imports io ModuleGraph Modules module_scoped_type_classes namespaces
   optimizations patterns performance primop repros roots runtime_boundaries
   strict_types tail_call tests type_inference

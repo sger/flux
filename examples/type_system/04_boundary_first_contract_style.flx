@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// 5
+// 60
+// parity-expected-stdout-end
+
 // Boundary-first contract style: public-facing functions are typed.
 
 fn main() with IO, Time {

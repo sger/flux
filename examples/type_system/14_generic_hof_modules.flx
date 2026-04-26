@@ -1,3 +1,16 @@
+// parity-expected-stdout-begin
+// "doubled:"
+// [140, 170, 84, 182, 120]
+// "passing:"
+// [70, 85, 91, 60]
+// "total passing score=306"
+// "named scores:"
+// [("Alice", 70), ("Bob", 85), ("Charlie", 42), ("Dana", 91), ("Eve", 60)]
+// "grades:"
+// ["C", "B", "F", "A", "D"]
+// "top3=70, 85, 42"
+// parity-expected-stdout-end
+
 // Generic higher-order functions via typed modules.
 //
 // Shows:

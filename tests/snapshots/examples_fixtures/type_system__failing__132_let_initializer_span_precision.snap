@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/132_let_initializer_span_precision.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/132_let_initializer_span_precision.flx:2:18
-  |
-2 |     let x: Int = if true { "hello" } else { "world" }
-  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |                  ------------------------------------ this value has type `String`
+  examples/type_system/failing/132_let_initializer_span_precision.flx:52:18
+   |
+52 |     let x: Int = if true { "hello" } else { "world" }
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                  ------------------------------------ this value has type `String`
 
-  |            --- but `x` was annotated as `Int`
+   |            --- but `x` was annotated as `Int`
 
 Note:
   annotated type: Int
@@ -29,13 +29,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/132_let_initializer_span_precision.flx:2:28
-  |
-2 |     let x: Int = if true { "hello" } else { "world" }
-  |                            ^^^^^^^
-  |                            ------- this expression has type `String`
+  examples/type_system/failing/132_let_initializer_span_precision.flx:52:28
+   |
+52 |     let x: Int = if true { "hello" } else { "world" }
+   |                            ^^^^^^^
+   |                            ------- this expression has type `String`
 
-  |                            ------- this type mismatch is reported here
+   |                            ------- this type mismatch is reported here
 
 Note:
   expected type: Int

@@ -1,3 +1,55 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:66:5
+//    |
+// 66 |     match x {
+//    |     ^^^^^^^^^
+// 67 |         A1 -> 1,
+//    | ^^^^^^^^^^^^^^^^
+// 68 |         B1 -> 2,
+//    | ^^^^^^^^^^^^^^^^
+// 69 |     }
+//    | ^^^^^
+//
+// Note:
+//   expected type: A
+//   found type: B
+//   the conflicting types meet at this expression
+//
+// Help:
+//   These two types are not compatible.
+//
+//
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 1 missing pattern.
+//
+//   examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:66:5
+//    |
+// 66 |     match x {
+//    |     ^^^^^^^^^
+// 67 |         A1 -> 1,
+//    | ^^^^^^^^^^^^^^^^
+// 68 |         B1 -> 2,
+//    | ^^^^^^^^^^^^^^^^
+// 69 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E015
+// expect-error: E300
+
 // E083: match arms mix constructors from different ADTs.
 
 data A {

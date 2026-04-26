@@ -1,0 +1,16 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity: vm_strict, llvm_strict
+
+// Strict mode permits function-typed public boundaries.
+public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
+    f(x)
+}
+
+fn is_positive(x: Int) -> Bool {
+    x > 0
+}
+
+fn main() -> Unit {
+    let _ = apply(is_positive, 1)
+}

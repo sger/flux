@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
 == compile ==
@@ -9,21 +9,21 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:12:5
+  examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:44:5
    |
-12 |     run_needs_io_time(pure_worker)
+44 |     run_needs_io_time(pure_worker)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------------ parameter 1 has type `() -> Unit`
 
    |     ------------------------------ this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with IO, Time
+  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock
   found parameter type: () -> Unit
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with IO, Time` consistently.
+  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock` consistently.
 
 
 Note: Downstream Errors Suppressed

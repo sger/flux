@@ -1,3 +1,5 @@
+// expect: compile_error
+
 import Dup.Mod
 
 Dup.Mod.value();

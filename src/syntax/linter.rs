@@ -8,12 +8,14 @@ use crate::{
     },
     syntax::{
         Identifier,
+        effect_expr::EffectExpr,
         expression::{Expression, Pattern},
         interner::Interner,
         module_graph::is_valid_module_name,
         program::Program,
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
 };
 
@@ -230,6 +232,58 @@ impl<'a> Linter<'a> {
         self.warnings.push(diag);
     }
 
+    /// W013: Warn when a `with` clause uses `+` to separate concrete atoms
+    /// without any `-` subtraction or open row-tail. `+` is reserved for
+    /// genuine row arithmetic (`A + B - B`) and row extension over an open
+    /// tail (`A + B | e`); comma is the canonical list separator otherwise.
+    fn check_effect_separator_style(&mut self, effects: &[EffectExpr]) {
+        for effect in effects {
+            if effect.contains_add() && !effect.contains_subtract() && !effect.is_open() {
+                self.push_warning(
+                    "EFFECT ROW SEPARATOR STYLE",
+                    "W013",
+                    effect.span().start,
+                    format!(
+                        "Effect row `{}` uses `+` without subtraction; use `,` to separate \
+                         effects in `with` clauses. Reserve `+`/`-` for row arithmetic \
+                         (e.g. `A + B - B` or `A + B | e`).",
+                        effect.display_with(self.interner)
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Recursively check any `TypeExpr::Function` nested inside a parameter
+    /// or return type, so callback signatures like
+    /// `f: (() -> Int with Console + Clock)` are also caught.
+    fn check_effect_style_in_type(&mut self, ty: &TypeExpr) {
+        match ty {
+            TypeExpr::Function {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
+                self.check_effect_separator_style(effects);
+                for p in params {
+                    self.check_effect_style_in_type(p);
+                }
+                self.check_effect_style_in_type(ret);
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for el in elements {
+                    self.check_effect_style_in_type(el);
+                }
+            }
+            TypeExpr::Named { args, .. } => {
+                for a in args {
+                    self.check_effect_style_in_type(a);
+                }
+            }
+        }
+    }
+
     fn check_complexity_metrics(&mut self, metrics: &crate::ast::complexity::FunctionMetrics) {
         let name_str = if let Some(name) = metrics.name {
             self.sym(name).to_string()
@@ -339,11 +393,21 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             Statement::Function {
                 name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 span,
                 ..
             } => {
                 self.check_function_complexity(Some(*name), parameters, body, span.start);
+                self.check_effect_separator_style(effects);
+                for pt in parameter_types.iter().flatten() {
+                    self.check_effect_style_in_type(pt);
+                }
+                if let Some(rt) = return_type {
+                    self.check_effect_style_in_type(rt);
+                }
                 let name_str = self.sym(*name);
                 if !is_snake_case(name_str) {
                     self.push_warning(
@@ -395,6 +459,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             }
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
+            Statement::EffectAlias { .. } => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }
@@ -407,11 +472,21 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             }
             Expression::Function {
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 span,
                 ..
             } => {
                 self.check_function_complexity(None, parameters, body, span.start);
+                self.check_effect_separator_style(effects);
+                for pt in parameter_types.iter().flatten() {
+                    self.check_effect_style_in_type(pt);
+                }
+                if let Some(rt) = return_type {
+                    self.check_effect_style_in_type(rt);
+                }
                 self.enter_scope();
                 for param in parameters {
                     self.define_binding(*param, span.start, BindingKind::Param);

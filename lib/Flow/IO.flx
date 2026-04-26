@@ -1,8 +1,10 @@
 // Flow.IO — I/O helper functions.
 
+import Flow.Array as Array
+
 module Flow.IO {
 
-    public fn print_all<a>(arr: Array<a>) with IO {
+    public fn print_all<a>(arr: Array<a>) -> () with IO {
         fn pa_go(i) with IO {
             if i < len(arr) {
                 match arr[i] {
@@ -12,10 +14,10 @@ module Flow.IO {
                 pa_go(i + 1)
             } else { () }
         }
-        pa_go(0)
+        pa_go(0);
     }
 
-    public fn println_all<a>(arr: Array<a>) with IO {
+    public fn println_all<a>(arr: Array<a>) -> () with IO {
         fn pla_go(i) with IO {
             if i < len(arr) {
                 match arr[i] {
@@ -25,7 +27,7 @@ module Flow.IO {
                 pla_go(i + 1)
             } else { () }
         }
-        pla_go(0)
+        pla_go(0);
     }
 
     public fn read_lines(path: String) -> Array<String> with IO {
@@ -38,7 +40,7 @@ module Flow.IO {
             if i >= len(arr) { result }
             else {
                 match arr[i] {
-                    Some(s) -> pi_go(i + 1, array_push(result, parse_int(s))),
+                    Some(s) -> pi_go(i + 1, Array.push(result, parse_int(s))),
                     _ -> pi_go(i + 1, result)
                 }
             }

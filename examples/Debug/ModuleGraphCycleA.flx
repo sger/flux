@@ -1,7 +1,0 @@
-import Debug.ModuleGraphCycleB
-
-module Debug.ModuleGraphCycleA {
-  fn value() {
-    1;
-  }
-}

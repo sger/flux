@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/uppercase_row_tail_after_named_effect.flx
+// error[E034]: Unexpected Token
+//
+// Effect row tail variables must be lowercase identifiers.
+//
+//   examples/parser_errors/uppercase_row_tail_after_named_effect.flx:23:28
+//    |
+// 23 | fn main() -> Int with IO | E {
+//    |                            ^
+//
+// Hint:
+//   Use a lowercase tail name, for example `with IO | e`.
+//
+// Note:
+//   while parsing function `main`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Int with IO | E {
     1
 }
+

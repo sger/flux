@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn main() with IO {
     // Test: List pattern matching with cons syntax
     // Expected output:
@@ -30,26 +32,18 @@ fn main() with IO {
     // Recursive List Processing
     // =============================================================================
 
-    // Sum all elements in a list
-    fn sum(lst) {
-        match lst {
-            [h | t] -> h + sum(t),
-            _ -> 0,
-        }
-    }
-
     let nums = [1, 2, 3, 4];
-    print("Sum: " + to_string(sum(nums)));  // 10
+    print("Sum: " + to_string(Array.sum(Array.from_list(nums))));  // 10
 
     // Count elements
-    fn length(lst) {
+    fn list_length(lst) {
         match lst {
-            [_ | t] -> 1 + length(t),
+            [_ | t] -> 1 + list_length(t),
             _ -> 0,
         }
     }
 
-    print("Length: " + to_string(length(nums)));  // 4
+    print("Length: " + to_string(list_length(nums)));  // 4
 
     // =============================================================================
     // Matching Specific Head Values

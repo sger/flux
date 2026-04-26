@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/120_match_pipe_separator.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Invalid Match Arm Separator
 
 Match arms are separated by `,` in Flux, not `|`.
 
-  examples/type_system/failing/120_match_pipe_separator.flx:2:30
-  |
-2 |     let x = match 1 { 0 -> 0 | _ -> 1 }
-  |                              ^
+  examples/type_system/failing/120_match_pipe_separator.flx:24:30
+   |
+24 |     let x = match 1 { 0 -> 0 | _ -> 1 }
+   |                              ^
 
 Hint:
   Replace `|` with `,`.

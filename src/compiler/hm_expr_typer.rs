@@ -2,7 +2,7 @@ use crate::{
     compiler::Compiler,
     diagnostics::{
         Diagnostic, DiagnosticBuilder, ErrorType, compiler_errors::type_unification_error,
-        position::Span, types::LabelStyle,
+        position::Span,
     },
     syntax::expression::Expression,
     types::{infer_type::InferType, unify::unify},
@@ -208,32 +208,15 @@ impl Compiler {
     }
 
     pub(super) fn type_error_already_reported_for_span(&self, expr_span: Span) -> bool {
-        self.errors.iter().any(|diag| {
-            if diag.code() != Some("E300") {
-                return false;
-            }
-            let diag_file = diag.file().unwrap_or(self.file_path.as_str());
-            if diag_file != self.file_path {
-                return false;
-            }
-            if let Some(diag_span) = diag.span()
-                && Self::spans_overlap(diag_span, expr_span)
-            {
-                return true;
-            }
-            if let Some(diag_span) = diag.span()
-                && diag_span.start.line == expr_span.start.line
-            {
-                return true;
-            }
-            diag.labels().iter().any(|label| {
-                if label.style != LabelStyle::Primary {
-                    return false;
-                }
-                Self::spans_overlap(label.span, expr_span)
-                    || label.span.start.line == expr_span.start.line
-            })
-        })
+        // Delegated to the shared ranking policy (Proposal 0167 Part 5).
+        // The legacy same-line suppression heuristic is gone on purpose:
+        // disjoint diagnostics on the same line now both survive.
+        crate::diagnostics::ranking::is_suppressed_by(
+            &self.errors,
+            self.file_path.as_str(),
+            expr_span,
+            |code| code == Some("E300"),
+        )
     }
 
     pub(super) fn type_error_already_reported_for(&self, expression: &Expression) -> bool {

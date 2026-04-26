@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Underscore naming is style-only: visibility is explicit via `public fn`.
 
 public fn _api(x: Int) -> Int {

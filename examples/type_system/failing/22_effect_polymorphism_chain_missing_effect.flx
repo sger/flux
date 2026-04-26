@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx
+// error[E400]: Missing Ambient Effect
+//
+// Call to `wrap_apply` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx:37:5
+//    |
+// 37 |     wrap_apply(io_inc, 41)
+//    |     ^^^^^^^^^^
+//    |     ---------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E400
+
 // E400: chained `with |e` resolves to IO from callback, but caller only declares Time.
 
 fn apply_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {

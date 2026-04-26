@@ -254,7 +254,7 @@ mod tests {
 
         let mut interner = Interner::new();
         // In the new session, "IO" gets a different index
-        let io_sym = interner.intern("IO");
+        let io_sym = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
         let adt_sym = interner.intern("MyAdt");
 
         let remap = interface.build_symbol_remap(&mut interner);
@@ -273,7 +273,7 @@ mod tests {
         use crate::syntax::interner::Interner;
 
         let mut interner = Interner::new();
-        let sym = interner.intern("IO");
+        let sym = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
 
         let mut interface = ModuleInterface::new("Test", "hash", "cfg");
         interface

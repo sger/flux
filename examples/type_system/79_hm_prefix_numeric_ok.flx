@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "-5"
+// parity-expected-stdout-end
+
 fn main() {
     let x = 5
     let y = -x

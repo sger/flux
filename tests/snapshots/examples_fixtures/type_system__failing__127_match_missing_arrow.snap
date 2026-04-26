@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/127_match_missing_arrow.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found an integer literal.
 
-  examples/type_system/failing/127_match_missing_arrow.flx:2:7
-  |
-2 |     0 1,
-  |       ^
+  examples/type_system/failing/127_match_missing_arrow.flx:24:7
+   |
+24 |     0 1,
+   |       ^
 
 Note:
   while parsing `match` expression

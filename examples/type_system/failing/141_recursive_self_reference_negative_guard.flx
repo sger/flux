@@ -1,3 +1,28 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/141_recursive_self_reference_negative_guard.flx
+// error[E056]: Wrong Number Of Arguments
+//
+// The `add` function takes 2 arguments, but 1 were provided.
+//
+//   examples/type_system/failing/141_recursive_self_reference_negative_guard.flx:31:14
+//    |
+// 27 | fn add(a: Int, b: Int) -> Int { a + b }
+//    | ----------------------------- `add` is defined with 2 parameters
+// 28 |
+// 29 | fn main() -> Unit {
+// 30 |     let _v = id(1)
+// 31 |     let _z = add(1)
+//    |              ^^^^^^
+//    |              ------ 1 arguments provided here, expected 2
+//
+// Help:
+//   Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E056
+
 fn id(x) { x }
 fn add(a: Int, b: Int) -> Int { a + b }
 

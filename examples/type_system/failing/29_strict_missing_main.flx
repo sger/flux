@@ -1,3 +1,27 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/29_strict_missing_main.flx
+// error[E415]: Missing Main Function (strict)
+//
+// Strict mode requires `fn main()` for all programs.
+//
+//   examples/type_system/failing/29_strict_missing_main.flx:25:1
+//    |
+// 25 | fn inc(x: Int) -> Int {
+//    | ^^^^^^^^^^^^^^^^^^^^^^^
+// 26 |     x + 1
+//    | ^^^^^^^^^
+// 27 | }
+//    | ^
+//
+// Hint:
+//   Add `fn main() { ... }` as the program entrypoint.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
+// expect: compile_error
+// expect-error: E415
+
 fn inc(x: Int) -> Int {
     x + 1
 }
