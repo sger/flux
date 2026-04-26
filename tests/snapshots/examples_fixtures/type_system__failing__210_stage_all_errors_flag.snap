@@ -9,9 +9,9 @@ error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  examples/type_system/failing/210_stage_all_errors_flag.flx:50:18
+  examples/type_system/failing/210_stage_all_errors_flag.flx:26:18
    |
-50 |     let broken = "unterminated
+26 |     let broken = "unterminated
    |                  ^^^^^^^^^^^^^
 
 Hint:

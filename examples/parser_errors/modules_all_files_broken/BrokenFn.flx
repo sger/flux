@@ -1,4 +1,30 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/modules_all_files_broken/BrokenFn.flx
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/modules_all_files_broken/BrokenFn.flx:28:9
+//    |
+// 27 |     pub fn greet(name: String) -> String
+//    |         - `greet` starts here
+// 28 |         "Hello, " + name
+//    |         ^^^^^^^^^
+//    |         --------- This looks like the function body
+//
+// Note:
+//   while parsing module `BrokenFn` > function `greet`
+//
+// Help:
+//   Try adding `{` after the function signature.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 module BrokenFn {
     pub fn greet(name: String) -> String
         "Hello, " + name
 }
+

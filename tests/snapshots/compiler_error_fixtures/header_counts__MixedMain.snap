@@ -9,9 +9,9 @@ Warning[W201]: Cross-Module Constructor Access
 
 Direct constructor access `SomeInt` from module `MixedBroken` bypasses module API boundaries.
 
-  examples/compiler_errors/header_counts/MixedMain.flx:4:14
+  examples/compiler_errors/header_counts/MixedMain.flx:7:14
   |
-4 |     let _x = MixedBroken.SomeInt(1)
+7 |     let _x = MixedBroken.SomeInt(1)
   |              ^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/compiler_errors/header_counts/MixedMain.flx:5:22
+  examples/compiler_errors/header_counts/MixedMain.flx:8:22
   |
-5 |     let value: Int = "oops"
+8 |     let value: Int = "oops"
   |                      ^^^^^^
   |                      ------ this value has type `String`
 

@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/compiler_errors/row_effects/invalid_row_subtract_e421.flx:16:5
+  examples/compiler_errors/row_effects/invalid_row_subtract_e421.flx:19:5
    |
-16 |     run_filtered(io_console_work)
+19 |     run_filtered(io_console_work)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
 

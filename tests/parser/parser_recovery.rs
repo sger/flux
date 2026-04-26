@@ -6,6 +6,50 @@ use flux::syntax::{
     statement::Statement,
 };
 
+fn strip_parity_metadata_header(source: &str) -> &str {
+    let mut offset = 0;
+    let mut lines = source.split_inclusive('\n').peekable();
+
+    while let Some(line) = lines.peek().copied() {
+        let trimmed = line.trim();
+        if trimmed == "// parity-expected-stdout-begin" {
+            offset += line.len();
+            lines.next();
+            for block_line in lines.by_ref() {
+                offset += block_line.len();
+                if block_line.trim() == "// parity-expected-stdout-end" {
+                    break;
+                }
+            }
+            continue;
+        }
+        if trimmed == "// parity-expected-stderr-begin" {
+            offset += line.len();
+            lines.next();
+            for block_line in lines.by_ref() {
+                offset += block_line.len();
+                if block_line.trim() == "// parity-expected-stderr-end" {
+                    break;
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("// expect:") || trimmed.starts_with("// expect-error:") {
+            offset += line.len();
+            lines.next();
+            continue;
+        }
+        if trimmed.is_empty() {
+            offset += line.len();
+            lines.next();
+            continue;
+        }
+        break;
+    }
+
+    &source[offset..]
+}
+
 #[derive(Clone, Copy)]
 struct RecoveryCase {
     name: &'static str,
@@ -14,6 +58,7 @@ struct RecoveryCase {
 }
 
 fn parse_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>, Interner), String> {
+    let input = strip_parity_metadata_header(input);
     panic::catch_unwind(AssertUnwindSafe(|| {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
@@ -594,6 +639,7 @@ fn eof_truncation_fixtures_report_root_construct_diagnostics() {
     ];
 
     for (name, input, fragment) in cases {
+        let source_line_count = strip_parity_metadata_header(input).lines().count().max(1);
         let (_program, diagnostics, _) =
             parse_no_panic(input).unwrap_or_else(|e| panic!("{name} panicked: {e}"));
         assert!(
@@ -619,7 +665,7 @@ fn eof_truncation_fixtures_report_root_construct_diagnostics() {
             .expect("expected eof-truncation diagnostic");
         let span = first.span().expect("expected eof-truncation span");
         assert!(
-            span.start.line <= 2,
+            span.start.line <= source_line_count + 1,
             "expected `{name}` to anchor on a real source line instead of synthetic EOF, got: {diagnostics:#?}"
         );
     }

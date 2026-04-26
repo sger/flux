@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/named_field_missing_e460.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E460]: Missing Named Field
 
 Missing field `y` in `Point` constructor.
 
-  examples/compiler_errors/named_field_missing_e460.flx:10:13
+  examples/compiler_errors/named_field_missing_e460.flx:13:13
    |
-10 |     let p = Point { x: 1 }
+13 |     let p = Point { x: 1 }
    |             ^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

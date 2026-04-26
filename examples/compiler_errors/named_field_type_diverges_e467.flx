@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E467
+
 // A shared field name has different declared types across variants.
 //
 // Expected: E467 Divergent Field Types Across Variants

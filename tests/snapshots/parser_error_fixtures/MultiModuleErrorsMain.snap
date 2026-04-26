@@ -1,5 +1,5 @@
 ---
-source: tests/parser_error_fixtures_snapshots.rs
+source: tests/error_fixtures/parser_error_fixtures_snapshots.rs
 ---
 Fixture: examples/parser_errors/MultiModuleErrorsMain.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `name: Type`.
 
-  examples/parser_errors/MultiAnnotationErrors.flx:2:23
-  |
-2 |     fn bad_param(name String) -> String { name }
-  |                       ^^^^^^
+  examples/parser_errors/MultiAnnotationErrors.flx:79:23
+   |
+79 |     fn bad_param(name String) -> String { name }
+   |                       ^^^^^^
 
 Hint:
   Type annotations use `name: Type`.
@@ -22,10 +22,10 @@ error[E034]: Missing Return Type Arrow
 
 Missing `->` before function return type. Write it as `fn name(...) -> Type`.
 
-  examples/parser_errors/MultiAnnotationErrors.flx:3:27
-  |
-3 |     fn bad_return(x: Int) String { x }
-  |                           ^^^^^^
+  examples/parser_errors/MultiAnnotationErrors.flx:80:27
+   |
+80 |     fn bad_return(x: Int) String { x }
+   |                           ^^^^^^
 
 Note:
   while parsing module `MultiAnnotationErrors` > function `bad_return`
@@ -35,10 +35,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `value: Type`.
 
-  examples/parser_errors/MultiAnnotationErrors.flx:6:19
-  |
-6 |         let value Int = 1
-  |                   ^^^
+  examples/parser_errors/MultiAnnotationErrors.flx:83:19
+   |
+83 |         let value Int = 1
+   |                   ^^^
 
 Hint:
   Type annotations use `name: Type`.
@@ -48,10 +48,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `x: Type`.
 
-  examples/parser_errors/MultiAnnotationErrors.flx:7:21
-  |
-7 |         let f = /(x Int, y String) -> x
-  |                     ^^^
+  examples/parser_errors/MultiAnnotationErrors.flx:84:21
+   |
+84 |         let f = /(x Int, y String) -> x
+   |                     ^^^
 
 Hint:
   Type annotations use `name: Type`.
@@ -61,10 +61,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `y: Type`.
 
-  examples/parser_errors/MultiAnnotationErrors.flx:7:28
-  |
-7 |         let f = /(x Int, y String) -> x
-  |                            ^^^^^^
+  examples/parser_errors/MultiAnnotationErrors.flx:84:28
+   |
+84 |         let f = /(x Int, y String) -> x
+   |                            ^^^^^^
 
 Hint:
   Type annotations use `name: Type`.
@@ -74,11 +74,11 @@ error[E034]: Missing If Body
 
 This `if` branch needs to start with `{`.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:3:20
-  |
-3 |         let a = if true 1
-  |                    ^^^^
-  |                    ---- this `if` branch starts here
+  examples/parser_errors/MultiControlFlowErrors.flx:99:20
+   |
+99 |         let a = if true 1
+   |                    ^^^^
+   |                    ---- this `if` branch starts here
 
 Note:
   while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
@@ -91,11 +91,11 @@ error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:4:32
-  |
-4 |         let b = if false { 0 } else 1
-  |                                ^^^^
-  |                                ---- `else` starts here
+  examples/parser_errors/MultiControlFlowErrors.flx:100:32
+    |
+100 |         let b = if false { 0 } else 1
+    |                                ^^^^
+    |                                ---- `else` starts here
 
 Note:
   while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
@@ -108,10 +108,10 @@ error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:5:29
-  |
-5 |         let c = match 1 { 0 "zero", 1 -> "one" }
-  |                             ^^^^^^
+  examples/parser_errors/MultiControlFlowErrors.flx:101:29
+    |
+101 |         let c = match 1 { 0 "zero", 1 -> "one" }
+    |                             ^^^^^^
 
 Note:
   while parsing module `MultiControlFlowErrors` > function `flow` > `match` expression
@@ -124,10 +124,10 @@ error[E034]: Missing Handle Arm Arrow
 
 Expected `->` in handle arm.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:6:50
-  |
-6 |         let d = 1 handle IO { print(resume, msg) print(msg) }
-  |                                                  ^^^^^
+  examples/parser_errors/MultiControlFlowErrors.flx:102:50
+    |
+102 |         let d = 1 handle IO { print(resume, msg) print(msg) }
+    |                                                  ^^^^^
 
 Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
@@ -140,11 +140,11 @@ error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found an identifier.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:7:18
-  |
-7 |         let f = /x x + 1
-  |                  ^
-  |                  - this lambda parameter list ends here
+  examples/parser_errors/MultiControlFlowErrors.flx:103:18
+    |
+103 |         let f = /x x + 1
+    |                  ^
+    |                  - this lambda parameter list ends here
 
 Note:
   while parsing module `MultiControlFlowErrors` > lambda expression
@@ -157,20 +157,20 @@ error[E034]: Unexpected Closing Delimiter
 
 Unexpected `}` outside of a block.
 
-  examples/parser_errors/MultiControlFlowErrors.flx:9:1
-  |
-9 | }
-  | ^
+  examples/parser_errors/MultiControlFlowErrors.flx:105:1
+    |
+105 | }
+    | ^
 
 
 error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 
-  examples/parser_errors/MultiDeclarationErrors.flx:3:18
-  |
-3 |         Pair(Int String),
-  |                  ^^^^^^
+  examples/parser_errors/MultiDeclarationErrors.flx:67:18
+   |
+67 |         Pair(Int String),
+   |                  ^^^^^^
 
 Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
@@ -180,10 +180,10 @@ error[E034]: Invalid Data Constructor
 
 I was expecting a constructor name in this `data` declaration, but I found an integer literal.
 
-  examples/parser_errors/MultiDeclarationErrors.flx:4:9
-  |
-4 |         123
-  |         ^^^
+  examples/parser_errors/MultiDeclarationErrors.flx:68:9
+   |
+68 |         123
+   |         ^^^
 
 Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
@@ -193,10 +193,10 @@ error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
-  examples/parser_errors/MultiDeclarationErrors.flx:8:15
-  |
-8 |         print String -> Unit
-  |               ^^^^^^
+  examples/parser_errors/MultiDeclarationErrors.flx:72:15
+   |
+72 |         print String -> Unit
+   |               ^^^^^^
 
 Note:
   while parsing module `MultiDeclarationErrors` > effect `Console`
@@ -206,10 +206,10 @@ error[E034]: Unexpected Token
 
 Expected `:` after effect operation name.
 
-  examples/parser_errors/MultiDeclarationErrors.flx:9:28
-  |
-9 |         log: String String -> Unit
-  |                            ^^
+  examples/parser_errors/MultiDeclarationErrors.flx:73:28
+   |
+73 |         log: String String -> Unit
+   |                            ^^
 
 Hint:
   Effect operation signatures use `op: Type -> Return`.
@@ -222,9 +222,9 @@ error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 
-  examples/parser_errors/MultiDeclarationErrors.flx:13:26
+  examples/parser_errors/MultiDeclarationErrors.flx:77:26
    |
-13 |     type Result = Ok(Int String) | Err(String)
+77 |     type Result = Ok(Int String) | Err(String)
    |                          ^^^^^^
 
 Note:
@@ -235,10 +235,10 @@ error[E034]: Missing Closing Delimiter
 
 Expected `)` to close this tuple literal.
 
-  examples/parser_errors/MultiDelimiterErrors.flx:3:25
-  |
-3 |         let pair = (1, 2]
-  |                         ^
+  examples/parser_errors/MultiDelimiterErrors.flx:98:25
+   |
+98 |         let pair = (1, 2]
+   |                         ^
 
 Hint:
   Add `)` after the last tuple element.
@@ -251,29 +251,29 @@ error[E076]: Missing Closing Delimiter
 
 Expected a closing `]` to match this opening `[`.
 
-  examples/parser_errors/MultiDelimiterErrors.flx:4:18
-  |
-4 |         let xs = [1, 2, 3
-  |                  ^
+  examples/parser_errors/MultiDelimiterErrors.flx:99:18
+   |
+99 |         let xs = [1, 2, 3
+   |                  ^
 
 Note:
   while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 note: Expected `]` before this token.
-  examples/parser_errors/MultiDelimiterErrors.flx:5:9
-  |
-5 |         let h = { "a" 1 }
-  |         ^^^
+  examples/parser_errors/MultiDelimiterErrors.flx:100:9
+    |
+100 |         let h = { "a" 1 }
+    |         ^^^
 
 
 error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
-  examples/parser_errors/MultiDelimiterErrors.flx:5:23
-  |
-5 |         let h = { "a" 1 }
-  |                       ^
+  examples/parser_errors/MultiDelimiterErrors.flx:100:23
+    |
+100 |         let h = { "a" 1 }
+    |                       ^
 
 Hint:
   Hash literals use `{key: value, ...}`.
@@ -286,10 +286,10 @@ error[E073]: Missing Comma
 
 Missing comma between arguments.
 
-  examples/parser_errors/MultiDelimiterErrors.flx:6:23
-  |
-6 |         let r = add(1 2)
-  |                       ^
+  examples/parser_errors/MultiDelimiterErrors.flx:101:23
+    |
+101 |         let r = add(1 2)
+    |                       ^
 
 Hint:
   Add a comma between items, e.g. `f(a, b)`.
@@ -302,10 +302,10 @@ error[E034]: Missing Closing Delimiter
 
 Expected `)` to close this grouped expression.
 
-  examples/parser_errors/MultiDelimiterErrors.flx:7:23
-  |
-7 |         let g = (1 + 2]
-  |                       ^
+  examples/parser_errors/MultiDelimiterErrors.flx:102:23
+    |
+102 |         let g = (1 + 2]
+    |                       ^
 
 Hint:
   Add `)` after the expression.
@@ -318,10 +318,10 @@ error[E034]: Missing Import Path
 
 This import needs a module path after `import`.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:2:5
-  |
-2 |     import
-  |     ^^^^^^
+  examples/parser_errors/MultiImportKeywordErrors.flx:125:5
+    |
+125 |     import
+    |     ^^^^^^
 
 Hint:
   Import statements use `import Module.Name`.
@@ -334,10 +334,10 @@ error[E034]: Missing Import Alias
 
 This import alias needs a name after `as`.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:3:17
-  |
-3 |     import Demo as
-  |                 ^^
+  examples/parser_errors/MultiImportKeywordErrors.flx:126:17
+    |
+126 |     import Demo as
+    |                 ^^
 
 Hint:
   Import aliases use `import Module as Alias`.
@@ -350,10 +350,10 @@ error[E034]: Missing Import Except List
 
 Expected `[` after `except` in import.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:4:27
-  |
-4 |     import Foo.Bar except x, y ]
-  |                           ^
+  examples/parser_errors/MultiImportKeywordErrors.flx:127:27
+    |
+127 |     import Foo.Bar except x, y ]
+    |                           ^
 
 Hint:
   Import exclusions use `import Module except [Name1, Name2]`.
@@ -366,10 +366,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:6:5
-  |
-6 |     def greet(name) { name }
-  |     ^^^
+  examples/parser_errors/MultiImportKeywordErrors.flx:129:5
+    |
+129 |     def greet(name) { name }
+    |     ^^^
 
 Hint:
   Did you mean `fn`?
@@ -382,10 +382,10 @@ error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:6:28
-  |
-6 |     def greet(name) { name }
-  |                            ^
+  examples/parser_errors/MultiImportKeywordErrors.flx:129:28
+    |
+129 |     def greet(name) { name }
+    |                            ^
 
 Hint:
   Hash literals use `{key: value, ...}`.
@@ -398,10 +398,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `var`. Flux uses `let` for bindings.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:7:5
-  |
-7 |     var count = 1
-  |     ^^^
+  examples/parser_errors/MultiImportKeywordErrors.flx:130:5
+    |
+130 |     var count = 1
+    |     ^^^
 
 Hint:
   Did you mean `let`?
@@ -414,10 +414,10 @@ error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 
-  examples/parser_errors/MultiImportKeywordErrors.flx:9:5
-  |
-9 |     end
-  |     ^^^
+  examples/parser_errors/MultiImportKeywordErrors.flx:132:5
+    |
+132 |     end
+    |     ^^^
 
 Hint:
   Replace `end` with `}`.

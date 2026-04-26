@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_do_brace.flx
+// error[E034]: Missing Do Block
+//
+// This `do` block needs to start with `{`.
+//
+//   examples/parser_errors/missing_do_brace.flx:27:9
+//    |
+// 27 |         let x = 1
+//    |         ^^^
+//    |         --- This looks like the `do` block body
+//
+// Help:
+//   Try adding `{` after `do`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `{` in do block.
 //
 // Expected: contextual error about do block syntax.
@@ -7,3 +27,4 @@ fn main() -> Unit {
         let x = 1
         print(x)
 }
+

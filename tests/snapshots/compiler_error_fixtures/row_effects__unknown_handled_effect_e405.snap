@@ -9,9 +9,9 @@ error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: println.
 
-  examples/compiler_errors/row_effects/unknown_handled_effect_e405.flx:2:13
+  examples/compiler_errors/row_effects/unknown_handled_effect_e405.flx:5:13
   |
-2 |     let _ = 1 handle Console {
+5 |     let _ = 1 handle Console {
   |             ^
   |             - handled expression
 

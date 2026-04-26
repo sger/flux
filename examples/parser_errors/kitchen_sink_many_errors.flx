@@ -1,3 +1,5 @@
+// expect: compile_error
+
 // Omnibus parser-torture fixture.
 //
 // This file intentionally combines many independent parser mistakes in one

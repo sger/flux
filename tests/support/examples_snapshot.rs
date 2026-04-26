@@ -55,6 +55,21 @@ pub fn run_fixture_dir_snapshots(
     workspace_root: &Path,
     fixtures_dir_rel: &str,
 ) -> Result<Vec<FixtureSnapshotCase>, String> {
+    run_fixture_dir_snapshots_with_options(workspace_root, fixtures_dir_rel, false)
+}
+
+pub fn run_fixture_dir_snapshots_stripping_parity_metadata(
+    workspace_root: &Path,
+    fixtures_dir_rel: &str,
+) -> Result<Vec<FixtureSnapshotCase>, String> {
+    run_fixture_dir_snapshots_with_options(workspace_root, fixtures_dir_rel, true)
+}
+
+fn run_fixture_dir_snapshots_with_options(
+    workspace_root: &Path,
+    fixtures_dir_rel: &str,
+    strip_parity_metadata: bool,
+) -> Result<Vec<FixtureSnapshotCase>, String> {
     let fixtures_root = workspace_root.join(fixtures_dir_rel);
     let fixtures = discover_fixtures(&fixtures_root);
     if fixtures.is_empty() {
@@ -72,7 +87,12 @@ pub fn run_fixture_dir_snapshots(
             .to_string_lossy()
             .replace('\\', "/");
         let snapshot = snapshot_name(&fixtures_root, &fixture);
-        let transcript = build_transcript(&fixture, &rel, workspace_root)
+        let transcript = build_transcript_with_options(
+            &fixture,
+            &rel,
+            workspace_root,
+            strip_parity_metadata,
+        )
             .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
         cases.push(FixtureSnapshotCase {
             snapshot_name: snapshot,
@@ -81,6 +101,50 @@ pub fn run_fixture_dir_snapshots(
     }
 
     Ok(cases)
+}
+
+pub fn strip_parity_metadata_header(source: &str) -> &str {
+    let mut offset = 0;
+    let mut lines = source.split_inclusive('\n').peekable();
+
+    while let Some(line) = lines.peek().copied() {
+        let trimmed = line.trim();
+        if trimmed == "// parity-expected-stdout-begin" {
+            offset += line.len();
+            lines.next();
+            for block_line in lines.by_ref() {
+                offset += block_line.len();
+                if block_line.trim() == "// parity-expected-stdout-end" {
+                    break;
+                }
+            }
+            continue;
+        }
+        if trimmed == "// parity-expected-stderr-begin" {
+            offset += line.len();
+            lines.next();
+            for block_line in lines.by_ref() {
+                offset += block_line.len();
+                if block_line.trim() == "// parity-expected-stderr-end" {
+                    break;
+                }
+            }
+            continue;
+        }
+        if trimmed.starts_with("// expect:") || trimmed.starts_with("// expect-error:") {
+            offset += line.len();
+            lines.next();
+            continue;
+        }
+        if trimmed.is_empty() {
+            offset += line.len();
+            lines.next();
+            continue;
+        }
+        break;
+    }
+
+    &source[offset..]
 }
 
 fn strip_ansi(input: &str) -> String {
@@ -211,10 +275,24 @@ pub fn build_transcript(
     fixture_rel: &str,
     workspace_root: &Path,
 ) -> Result<String, String> {
+    build_transcript_with_options(fixture, fixture_rel, workspace_root, false)
+}
+
+pub fn build_transcript_with_options(
+    fixture: &Path,
+    fixture_rel: &str,
+    workspace_root: &Path,
+    strip_parity_metadata: bool,
+) -> Result<String, String> {
     let source = fs::read_to_string(fixture)
         .map_err(|e| format!("failed to read `{}`: {e}", fixture.display()))?;
+    let source = if strip_parity_metadata {
+        strip_parity_metadata_header(&source)
+    } else {
+        source.as_str()
+    };
 
-    let lexer = Lexer::new(&source);
+    let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let mut program = parser.parse_program();
 

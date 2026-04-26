@@ -818,7 +818,7 @@ pub const RIGID_VAR_ESCAPE: ErrorCode = ErrorCode {
 
 pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
     code: "E430",
-    title: "ANY TYPE INFERRED",
+    title: "COULD NOT INFER CONCRETE TYPE",
     error_type: ErrorType::Compiler,
     message: "Could not determine a concrete type for `{}`.",
     hint: Some("Add a type annotation so the compiler can verify type safety."),

@@ -1,3 +1,25 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_closing_brace.flx
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `}` to match this opening `{` in function `add`.
+//
+//   examples/parser_errors/missing_closing_brace.flx:30:31
+//    |
+// 30 | fn add(a: Int, b: Int) -> Int {
+//    |                               ^
+//
+// Note:
+//   while parsing function `add`
+//
+// Help:
+//   Add `}` to close the body of function `add`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E076
+
 // Missing closing `}` for function body.
 //
 // Expected: E076 UNCLOSED DELIMITER
@@ -11,3 +33,4 @@ fn add(a: Int, b: Int) -> Int {
 fn main() -> Unit {
     let _x = add(1, 2)
 }
+

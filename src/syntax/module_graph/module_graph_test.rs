@@ -15,6 +15,7 @@ use crate::diagnostics::{
 use super::{
     ImportEdge, ModuleGraph, ModuleId, ModuleKind, ModuleNode, import_binding_name,
     is_valid_module_alias, is_valid_module_name, module_binding_name,
+    module_order::topo_order,
     module_resolution::{normalize_roots, resolve_imports, validate_file_kind},
 };
 
@@ -109,22 +110,23 @@ fn validate_file_kind_script_not_importable() {
 #[test]
 fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     let mut interner = Interner::new();
-    let debug_sym = interner.intern("Debug.IceDemo");
+    let diagnostics_sym = interner.intern("Diagnostics.IceDemo");
     let cwd = std::env::current_dir()
         .unwrap()
         .to_string_lossy()
         .replace('\\', "/");
-    let path_str = if let Some(rest) = format!("{cwd}/examples/Debug/IceDemo.flx").strip_prefix('/')
+    let path_str = if let Some(rest) =
+        format!("{cwd}/examples/diagnostics/ice_demo.flx").strip_prefix('/')
     {
         format!("//?/{rest}")
     } else {
-        format!("//?/{cwd}/examples/Debug/IceDemo.flx")
+        format!("//?/{cwd}/examples/diagnostics/ice_demo.flx")
     };
     let path_buf = PathBuf::from(path_str);
 
     let program = Program {
         statements: vec![Statement::Module {
-            name: debug_sym,
+            name: diagnostics_sym,
             body: Block {
                 statements: vec![],
                 span: Span::default(),
@@ -136,10 +138,10 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
 
     let roots = vec![
         PathBuf::from(
-            if let Some(rest) = format!("{cwd}/examples/Debug").strip_prefix('/') {
+            if let Some(rest) = format!("{cwd}/examples/diagnostics").strip_prefix('/') {
                 format!("//?/{rest}")
             } else {
-                format!("//?/{cwd}/examples/Debug")
+                format!("//?/{cwd}/examples/diagnostics")
             },
         ),
         PathBuf::from(if let Some(rest) = format!("{cwd}/src").strip_prefix('/') {
@@ -154,7 +156,7 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     let rendered = err[0].render(None, None);
 
     assert!(rendered.contains(
-        "Module name `Debug.IceDemo` doesn't match file path `examples/Debug/IceDemo.flx`."
+        "Module name `Diagnostics.IceDemo` doesn't match file path `examples/diagnostics/ice_demo.flx`."
     ));
 }
 
@@ -293,6 +295,93 @@ fn topo_levels_group_independent_dependencies() {
 }
 
 #[test]
+fn import_cycle_diagnostic_uses_stable_paths_and_import_span() {
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let make_verbatim = |suffix: &str| {
+        let joined = format!("{cwd}/{suffix}");
+        if let Some(rest) = joined.strip_prefix('/') {
+            format!("//?/{rest}")
+        } else {
+            format!("//?/{joined}")
+        }
+    };
+
+    let entry_path = make_verbatim("examples/diagnostics/module_cycle_error.flx");
+    let module_a_path = make_verbatim("examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx");
+    let module_b_path = make_verbatim("examples/diagnostics/ModuleGraph/ModuleGraphCycleB.flx");
+    let entry = ModuleId(entry_path.clone());
+    let module_a = ModuleId(module_a_path.clone());
+    let module_b = ModuleId(module_b_path.clone());
+
+    let nodes = std::collections::HashMap::from([
+        (
+            entry.clone(),
+            ModuleNode {
+                id: entry.clone(),
+                path: PathBuf::from(&entry_path),
+                kind: ModuleKind::User,
+                program: Program::new(),
+                imports: vec![ImportEdge {
+                    name: "ModuleGraph.ModuleGraphCycleA".to_string(),
+                    position: pos(1, 0),
+                    target: module_a.clone(),
+                    target_path: PathBuf::from(&module_a_path),
+                }],
+            },
+        ),
+        (
+            module_a.clone(),
+            ModuleNode {
+                id: module_a.clone(),
+                path: PathBuf::from(&module_a_path),
+                kind: ModuleKind::User,
+                program: Program::new(),
+                imports: vec![ImportEdge {
+                    name: "ModuleGraph.ModuleGraphCycleB".to_string(),
+                    position: pos(1, 0),
+                    target: module_b.clone(),
+                    target_path: PathBuf::from(&module_b_path),
+                }],
+            },
+        ),
+        (
+            module_b.clone(),
+            ModuleNode {
+                id: module_b.clone(),
+                path: PathBuf::from(&module_b_path),
+                kind: ModuleKind::User,
+                program: Program::new(),
+                imports: vec![ImportEdge {
+                    name: "ModuleGraph.ModuleGraphCycleA".to_string(),
+                    position: pos(1, 0),
+                    target: module_a.clone(),
+                    target_path: PathBuf::from(&module_a_path),
+                }],
+            },
+        ),
+    ]);
+
+    let err = topo_order(&nodes, &entry).unwrap_err();
+    let rendered = err.render(
+        Some(
+            "import ModuleGraph.ModuleGraphCycleA\n\nModuleGraph.ModuleGraphCycleA.value();\n",
+        ),
+        None,
+    );
+
+    assert!(rendered.contains(
+        "Circular import detected: examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleB.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx."
+    ));
+    assert!(!rendered.contains(r"\\?\"));
+    assert!(rendered.contains("examples/diagnostics/module_cycle_error.flx:1:1"));
+    assert!(rendered.contains("1 | import ModuleGraph.ModuleGraphCycleA"));
+    assert!(rendered.contains("this import participates in the cycle"));
+}
+
+#[test]
 fn build_graph_marks_flow_modules_as_stdlib() {
     let root = temp_dir("flow_kind");
     let lib_root = root.join("lib");
@@ -355,7 +444,7 @@ fn build_graph_marks_non_flow_modules_as_user() {
 #[test]
 fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
     let mut interner = Interner::new();
-    let module_sym = interner.intern("Debug.ModuleGraphCycleA");
+    let module_sym = interner.intern("ModuleGraph.Missing");
 
     let program = Program {
         statements: vec![Statement::Import {
@@ -381,14 +470,14 @@ fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
         }
     };
 
-    let source_path = make_verbatim("examples/Debug/module_cycle_error.flx");
-    let roots = vec![make_verbatim("examples/Debug"), make_verbatim("src")];
+    let source_path = make_verbatim("examples/diagnostics/module_cycle_error.flx");
+    let roots = vec![make_verbatim("examples/diagnostics"), make_verbatim("src")];
 
     let err = resolve_imports(&source_path, &program, &roots, &interner).unwrap_err();
     let rendered = err[0].render(None, None);
 
     assert!(rendered.contains(
-        "Looked for module `Debug.ModuleGraphCycleA` under roots: examples/Debug, src (imported from examples/Debug/module_cycle_error.flx)."
+        "Looked for module `ModuleGraph.Missing` under roots: examples/diagnostics, src (imported from examples/diagnostics/module_cycle_error.flx)."
     ));
 }
 

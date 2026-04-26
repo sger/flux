@@ -1,4 +1,52 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/parser_errors/mixed_closer_nested_delimiters.flx
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `]` to match this opening `[`.
+//
+//   examples/parser_errors/mixed_closer_nested_delimiters.flx:49:17
+//    |
+// 49 |     let value = [add(1, 2}]
+//    |                 ^
+//
+// Note:
+//   while parsing function `main`
+//
+// note: Expected `]` before this token.
+//   examples/parser_errors/mixed_closer_nested_delimiters.flx:49:26
+//    |
+// 49 |     let value = [add(1, 2}]
+//    |                          ^
+//
+//
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `)` to match this opening `(`.
+//
+//   examples/parser_errors/mixed_closer_nested_delimiters.flx:49:21
+//    |
+// 49 |     let value = [add(1, 2}]
+//    |                     ^
+//
+// Note:
+//   while parsing function `main`
+//
+// note: Expected `)` before this token.
+//   examples/parser_errors/mixed_closer_nested_delimiters.flx:49:26
+//    |
+// 49 |     let value = [add(1, 2}]
+//    |                          ^
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E076
+// expect-error: E076
+
 fn main() -> Unit {
     let value = [add(1, 2}]
     print(value)
 }
+

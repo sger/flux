@@ -4,17 +4,6 @@ source: tests/integration/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx
 exit_code: 1
 
-[ 1 of 12] Compiling  Assert
-[ 2 of 12] Compiling  Debug
-[ 3 of 12] Compiling  Array
-[ 4 of 12] Compiling  List
-[ 5 of 12] Compiling  Either
-[ 6 of 12] Compiling  IO
-[ 7 of 12] Compiling  Math
-[ 8 of 12] Compiling  Numeric
-[ 9 of 12] Compiling  Option
-[10 of 12] Compiling  Primops
-[11 of 12] Compiling  String
 • 1 error • tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx
 error[E034]: Unexpected Token
 

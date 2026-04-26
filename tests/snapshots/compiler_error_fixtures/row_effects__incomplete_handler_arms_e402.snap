@@ -9,9 +9,9 @@ error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: read.
 
-  examples/compiler_errors/row_effects/incomplete_handler_arms_e402.flx:6:1
+  examples/compiler_errors/row_effects/incomplete_handler_arms_e402.flx:9:1
   |
-6 | fn main() with Console {
+9 | fn main() with Console {
   | ^^^^^^^^^^^^^^^^^^^^^^
   | ---------------------- handled expression
 

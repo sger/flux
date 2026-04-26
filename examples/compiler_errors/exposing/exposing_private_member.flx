@@ -1,3 +1,7 @@
+// expect: compile_error
+// expect-error: E420
+// expect-error: E004
+
 import ExposingTarget exposing (secret)
 
 fn main() with IO {

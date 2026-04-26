@@ -18,9 +18,9 @@ error[E999]: FBIP Contract Failed
 @fbip on `bounded` analysis result NotProvable:
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 
-  examples/compiler_errors/fbip_fail_nonfip_call.flx:10:7
+  examples/compiler_errors/fbip_fail_nonfip_call.flx:13:7
    |
-10 | @fbip fn bounded(f, x) {
+13 | @fbip fn bounded(f, x) {
    |       ^^^^^^^^^^^^^^^^
 
 Hint:

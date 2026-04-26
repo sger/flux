@@ -9,9 +9,9 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/namespaces/namespace_missing_import_error.flx:1:1
+  examples/namespaces/namespace_missing_import_error.flx:6:1
   |
-1 | print(Modules.Data.MyFile.value());
+6 | print(Modules.Data.MyFile.value());
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   | ----------------------------------- top-level effectful expression
 
@@ -23,9 +23,9 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/namespaces/namespace_missing_import_error.flx:1:1
+  examples/namespaces/namespace_missing_import_error.flx:6:1
   |
-1 | print(Modules.Data.MyFile.value());
+6 | print(Modules.Data.MyFile.value());
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   | ----------------------------------- effectful top-level execution
 
@@ -37,9 +37,9 @@ error[E013]: Module Not Imported
 
 Module `Modules.Data.MyFile` is not imported.
 
-  examples/namespaces/namespace_missing_import_error.flx:1:7
+  examples/namespaces/namespace_missing_import_error.flx:6:7
   |
-1 | print(Modules.Data.MyFile.value());
+6 | print(Modules.Data.MyFile.value());
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

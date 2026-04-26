@@ -1,0 +1,11 @@
+// expect: compile_error
+// expect-error: E021
+// root: examples/diagnostics
+
+import ModuleGraph.ModuleGraphCycleB
+
+module ModuleGraph.ModuleGraphCycleA {
+  fn value() {
+    1;
+  }
+}

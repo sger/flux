@@ -1,3 +1,22 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_class_method_parens.flx
+// error[E034]: Unexpected Token
+//
+// Expected `(` after method name.
+//
+//   examples/parser_errors/missing_class_method_parens.flx:28:1
+//    |
+// 28 | }
+//    | ^
+//
+// Hint:
+//   Class methods use `fn name(x: a, y: a) -> ReturnType`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Missing `(` after method name in class declaration.
 //
 // Expected: E034 Unexpected Token
@@ -11,3 +30,4 @@ class Show<a> {
 fn main() {
     42
 }
+

@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/wrong_argument_count.flx
 == compile ==
@@ -9,15 +9,15 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/compiler_errors/wrong_argument_count.flx:6:19
+  examples/compiler_errors/wrong_argument_count.flx:9:19
   |
-1 | fn add(a: Int, b: Int) -> Int {
+4 | fn add(a: Int, b: Int) -> Int {
   | ----------------------------- `add` is defined with 2 parameters
-2 |     a + b
-3 | }
-4 | 
-5 | fn main() -> Unit {
-6 |     let ignored = add(1)
+5 |     a + b
+6 | }
+7 | 
+8 | fn main() -> Unit {
+9 |     let ignored = add(1)
   |                   ^^^^^^
   |                   ------ 1 arguments provided here, expected 2
 

@@ -1,6 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
-assertion_line: 141
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/duplicate_instance.flx
 == compile ==
@@ -10,13 +9,13 @@ error[E443]: Duplicate Instance
 
 Duplicate instance for `Sizeable<Int>`.
 
-  examples/compiler_errors/duplicate_instance.flx:15:1
+  examples/compiler_errors/duplicate_instance.flx:19:1
    |
-15 | instance Sizeable<Int> {
+19 | instance Sizeable<Int> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-16 |     fn size(x) { x + 1 }
+20 |     fn size(x) { x + 1 }
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-17 | }
+21 | }
    | ^
 
 
