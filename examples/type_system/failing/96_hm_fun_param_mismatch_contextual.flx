@@ -1,3 +1,38 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx
+// error[E300]: Parameter Type Mismatch
+//
+// Parameter 1 has the wrong type.
+//
+//   examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:46:14
+//    |
+// 46 |     let _f = if true {
+//    |              ^^^^^^^^^
+// 47 |         takes_int
+//    | ^^^^^^^^^^^^^^^^^
+//    |         --------- this branch established the expected type
+// 48 |     } else {
+//    | ^^^^^^^^^^^^
+// 49 |         takes_string
+//    | ^^^^^^^^^^^^^^^^^^^^
+//    |         ------------ this branch conflicts with that type
+// 50 |     }
+//    | ^^^^^
+//
+// Note:
+//   expected parameter type: Int
+//   found parameter type: String
+//   the `then` branch fixes the type expected from the whole `if`
+//   the `else` branch produces the competing type
+//
+// Help:
+//   Change parameter 1 to use `Int` consistently.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 // E300: function-type parameter mismatch should report parameter-specific diagnostics.
 fn takes_int(x: Int) -> Int {
     x

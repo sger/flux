@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "double=14"
+// "14"
+// parity-expected-stdout-end
+
 // Effect inference for unannotated functions.
 //
 // `log_line` and `double_and_log` have no type/effect annotations, but they call `print`,

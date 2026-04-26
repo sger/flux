@@ -35,7 +35,7 @@ fn main() with IO, Time {
     let y = x + 5;  // NOT folded (x is a variable)
 
     print("Constant folding demo - all constants were optimized at compile-time!");
-    print("a =", a);
-    print("greeting =", greeting);
-    print("complex =", complex);
+    print("a = " + to_string(a));
+    print("greeting = " + greeting);
+    print("complex = " + to_string(complex));
 }

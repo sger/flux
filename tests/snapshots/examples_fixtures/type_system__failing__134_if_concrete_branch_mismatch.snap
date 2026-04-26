@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/134_if_concrete_branch_mismatch.flx
 == compile ==
@@ -9,17 +9,17 @@ error[E300]: Branch Type Mismatch
 
 The branches of this `if` expression do not agree on a type.
 
-  examples/type_system/failing/134_if_concrete_branch_mismatch.flx:2:36
-  |
-2 |     let _x = if true { 42 } else { "nope" }
-  |                                    ^^^^^^
-  |                                    ------ the `else` branch has type `String`
+  examples/type_system/failing/134_if_concrete_branch_mismatch.flx:34:36
+   |
+34 |     let _x = if true { 42 } else { "nope" }
+   |                                    ^^^^^^
+   |                                    ------ the `else` branch has type `String`
 
-  |                        -- `then` branch returns `Int`
+   |                        -- `then` branch returns `Int`
 
-  |                        -- this branch established the expected type
+   |                        -- this branch established the expected type
 
-  |                                    ------ this branch conflicts with that type
+   |                                    ------ this branch conflicts with that type
 
 Note:
   then branch type: Int

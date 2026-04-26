@@ -16,6 +16,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use super::fixture::{Expect, parse_fixture_meta};
+use super::normalize::normalize;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
     print_summary,
@@ -92,7 +93,6 @@ pub fn run_parity_check(args: &[String]) {
 
     // Run parity checks
     let default_ways = vec![Way::Vm, Way::Llvm];
-    let compile_ways = vec![Way::VmCached, Way::LlvmCached];
     let mut results = Vec::new();
     let mut saved_first_failure = false;
 
@@ -104,10 +104,12 @@ pub fn run_parity_check(args: &[String]) {
         });
         let fixture_meta = parse_fixture_meta(file);
         let extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
+        let compile_ways;
         let effective_ways = if config.ways.is_some() {
             ways
-        } else if config.compile_first {
+        } else if config.compile_first && !matches!(fixture_meta.expect, Expect::CompileError) {
             // --compile: run against warmed caches instead of fresh ways.
+            compile_ways = cached_equivalent_ways(&fixture_meta.ways);
             &compile_ways
         } else {
             &fixture_meta.ways
@@ -129,7 +131,10 @@ pub fn run_parity_check(args: &[String]) {
                 compare_surfaces_only: config.compare_surfaces_only,
                 explain: config.explain,
                 expected_stdout: fixture_meta.expected_stdout.as_deref(),
+                expected_stderr: fixture_meta.expected_stderr.as_deref(),
+                expected_errors: &fixture_meta.expected_errors,
                 expect: fixture_meta.expect,
+                skip: fixture_meta.skip.as_deref(),
             },
         );
         print_result(&parity_result, config.display_filter, config.explain);
@@ -170,6 +175,17 @@ pub fn run_parity_check(args: &[String]) {
     }
 }
 
+fn cached_equivalent_ways(ways: &[Way]) -> Vec<Way> {
+    ways.iter()
+        .copied()
+        .map(|way| match way {
+            Way::Vm => Way::VmCached,
+            Way::Llvm => Way::LlvmCached,
+            other => other,
+        })
+        .collect()
+}
+
 struct CheckOpts<'a> {
     ways: &'a [Way],
     vm_binary: &'a Path,
@@ -184,13 +200,28 @@ struct CheckOpts<'a> {
     compare_surfaces_only: bool,
     explain: bool,
     expected_stdout: Option<&'a str>,
+    expected_stderr: Option<&'a str>,
+    expected_errors: &'a [String],
     /// Declared fixture expectation: `success`, `compile_error`, or
     /// `runtime_error`. Controls stdout-comparison semantics.
     expect: Expect,
+    /// Declared reason to skip this fixture while still reporting it.
+    skip: Option<&'a str>,
 }
 
 /// Run all requested ways on a single file and compare.
 fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
+    if let Some(reason) = opts.skip {
+        return ParityResult {
+            file: file.to_path_buf(),
+            results: vec![],
+            artifacts: vec![],
+            verdict: Verdict::Skip {
+                reason: reason.to_string(),
+            },
+        };
+    }
+
     let mut run_results = Vec::new();
 
     for &way in opts.ways {
@@ -218,8 +249,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut artifacts = capture_artifacts(file, opts, false);
-    let mut details =
-        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
+    let mut details = collect_mismatch_details(
+        &run_results,
+        &artifacts,
+        opts.compare_surfaces_only,
+        opts.expect,
+    );
 
     if !opts.capture_core
         && !details.is_empty()
@@ -228,7 +263,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         && !opts.compare_surfaces_only
     {
         artifacts = capture_artifacts(file, opts, true);
-        details = collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only);
+        details = collect_mismatch_details(
+            &run_results,
+            &artifacts,
+            opts.compare_surfaces_only,
+            opts.expect,
+        );
     }
 
     // Cache parity: compare each cached way against its fresh counterpart
@@ -310,27 +350,35 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     let verdict = if !details.is_empty() {
         Verdict::Mismatch { details }
     } else if matches!(opts.expect, Expect::CompileError | Expect::RuntimeError) {
-        // Fixture declares it should fail. Require all runs to exit non-zero
-        // and skip the expected_stdout comparison — stderr carries the real
-        // signal for error fixtures and is too volatile to pin to a block.
-        let all_failed = !run_results.is_empty() && run_results.iter().all(|r| r.exit_code != 0);
-        if all_failed {
-            Verdict::Pass
+        // Fixture declares it should fail. Require all runs to fail in the
+        // expected phase and assert diagnostic code parity without pinning the
+        // full rendered diagnostic text.
+        let expected_kind = expected_exit_kind(opts.expect);
+        let all_expected_kind =
+            !run_results.is_empty() && run_results.iter().all(|r| r.exit_kind == expected_kind);
+        if all_expected_kind {
+            let mut expected_failure_details =
+                collect_diagnostic_code_details(&run_results, opts.expected_errors);
+            expected_failure_details.extend(collect_expected_stderr_details(
+                &run_results,
+                opts.expected_stderr,
+            ));
+            if expected_failure_details.is_empty() {
+                Verdict::Pass
+            } else {
+                Verdict::Mismatch {
+                    details: expected_failure_details,
+                }
+            }
         } else {
+            let actual = run_results
+                .iter()
+                .map(|r| format!("{}: {}", r.way, r.exit_kind))
+                .collect::<Vec<_>>()
+                .join(", ");
             Verdict::ExpectedOutputMismatch {
-                expected: format!(
-                    "{} (all backends should exit non-zero)",
-                    match opts.expect {
-                        Expect::CompileError => "compile_error",
-                        Expect::RuntimeError => "runtime_error",
-                        Expect::Success => "success",
-                    }
-                ),
-                actual: run_results
-                    .iter()
-                    .map(|r| format!("{}: exit={}", r.way, r.exit_code))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                expected: expected_kind.to_string(),
+                actual,
             }
         }
     } else if let Some(expected_stdout) = opts.expected_stdout {
@@ -452,11 +500,115 @@ fn capture_artifacts(
         .collect()
 }
 
+fn expected_exit_kind(expect: Expect) -> ExitKind {
+    match expect {
+        Expect::Success => ExitKind::Success,
+        Expect::CompileError => ExitKind::CompileError,
+        Expect::RuntimeError => ExitKind::RuntimeError,
+    }
+}
+
+fn collect_diagnostic_code_details(
+    run_results: &[super::RunResult],
+    expected_errors: &[String],
+) -> Vec<MismatchDetail> {
+    let has_expected = !expected_errors.is_empty();
+    let baseline_expected = if has_expected {
+        Vec::new()
+    } else {
+        run_results
+            .first()
+            .map(|run| diagnostic_codes(&run.normalized_stderr))
+            .unwrap_or_default()
+    };
+
+    run_results
+        .iter()
+        .filter_map(|run| {
+            let expected = if has_expected {
+                sorted_codes(expected_errors.iter().cloned())
+            } else {
+                baseline_expected.clone()
+            };
+            let actual = diagnostic_codes(&run.normalized_stderr);
+            if actual == expected {
+                None
+            } else {
+                Some(MismatchDetail::DiagnosticCodes {
+                    way: run.way,
+                    expected: expected.clone(),
+                    actual,
+                })
+            }
+        })
+        .collect()
+}
+
+fn diagnostic_codes(stderr: &str) -> Vec<String> {
+    let mut codes = Vec::new();
+    let mut rest = stderr;
+    while let Some(start) = rest.find("error[E") {
+        let after_prefix = &rest[start + "error[".len()..];
+        let code: String = after_prefix
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
+        let code_len = code.len();
+        if !code.is_empty() {
+            codes.push(code);
+        }
+        rest = &after_prefix[code_len..];
+    }
+    sorted_codes(codes)
+}
+
+fn sorted_codes<I>(codes: I) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut codes = codes.into_iter().collect::<Vec<_>>();
+    codes.sort();
+    codes
+}
+
+fn collect_expected_stderr_details(
+    run_results: &[super::RunResult],
+    expected_stderr: Option<&str>,
+) -> Vec<MismatchDetail> {
+    let Some(expected_stderr) = expected_stderr else {
+        return Vec::new();
+    };
+    let expected = normalize(expected_stderr);
+    let expected = expected.trim();
+    run_results
+        .iter()
+        .filter_map(|run| {
+            let actual = run.normalized_stderr.trim();
+            if actual == expected {
+                None
+            } else {
+                Some(MismatchDetail::ExpectedStderr {
+                    way: run.way,
+                    expected: expected.to_string(),
+                    actual: actual.to_string(),
+                })
+            }
+        })
+        .collect()
+}
+
 fn collect_mismatch_details(
     run_results: &[super::RunResult],
     artifacts: &[(Way, DebugArtifacts)],
     compare_surfaces_only: bool,
+    expect: Expect,
 ) -> Vec<MismatchDetail> {
+    // For error fixtures, stdout/stderr diverge by construction — each backend
+    // formats its own diagnostic. The parity gate is "both backends failed,"
+    // which is verified later in the Verdict assembly.  Suppress shared/backend
+    // runtime divergence details here so the fixture doesn't register as a
+    // MISMATCH just because diagnostics read differently.
+    let suppress_runtime_comparison = matches!(expect, Expect::CompileError | Expect::RuntimeError);
     let mut details = Vec::new();
 
     if artifacts.len() >= 2 {
@@ -500,7 +652,7 @@ fn collect_mismatch_details(
         }
     }
 
-    if !compare_surfaces_only && run_results.len() >= 2 {
+    if !compare_surfaces_only && !suppress_runtime_comparison && run_results.len() >= 2 {
         let base = &run_results[0];
         let has_shared_mismatch = details.iter().any(|d| {
             matches!(
@@ -569,21 +721,91 @@ fn collect_mismatch_details(
 
 // ── Fixture collection ─────────────────────────────────────────────────────
 
-/// `--compile` phase: compile every fixture via both backends, populating
-/// their caches. Returns true if all fixtures compiled successfully; false if
-/// any failed (reported inline). Callers should abort the parity phase on
-/// false.
+/// `--compile` phase: compile every fixture through its declared parity
+/// backends, populating their caches. Returns true if all requested fixture
+/// backends compiled successfully; false if any failed (reported inline).
+/// Callers should abort the parity phase on false.
 fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
     eprintln!(
-        "[parity] --compile: compiling {} fixture(s) with VM and LLVM backends",
+        "[parity] --compile: compiling {} fixture(s) with fixture-declared backends",
         files.len()
     );
     let mut all_ok = true;
     for file in files {
         let meta = parse_fixture_meta(file);
+        if let Some(reason) = &meta.skip {
+            eprintln!(
+                "\x1b[0;33mCOMPILE SKIP\x1b[0m {} — {}",
+                file.display(),
+                reason
+            );
+            continue;
+        }
         let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
         let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
-        for (way, label) in [(Way::Vm, "vm"), (Way::Llvm, "llvm")] {
+        let mut compile_ways = meta
+            .ways
+            .iter()
+            .copied()
+            .map(Way::base_way)
+            .collect::<Vec<_>>();
+        compile_ways.sort_by_key(|way| match way {
+            Way::Vm => 0,
+            Way::Llvm => 1,
+            Way::VmCached => 2,
+            Way::LlvmCached => 3,
+            Way::VmStrict => 4,
+            Way::LlvmStrict => 5,
+        });
+        compile_ways.dedup();
+        let mut expected_failure_stderr: Vec<(Way, String)> = Vec::new();
+        for way in compile_ways {
+            let label = way.to_string();
+            if matches!(meta.expect, Expect::CompileError) {
+                let result = run_way(
+                    &config.vm_binary,
+                    &config.llvm_binary,
+                    file,
+                    way,
+                    &extra_args,
+                    config.timeout,
+                );
+                if result.exit_kind != ExitKind::CompileError {
+                    eprintln!(
+                        "\x1b[0;31mCOMPILE UNEXPECTED {}\x1b[0m {} ({}) — fixture declares `expect: compile_error`",
+                        if result.exit_kind == ExitKind::Success {
+                            "OK"
+                        } else {
+                            "ERR"
+                        },
+                        file.display(),
+                        label.as_str(),
+                    );
+                    all_ok = false;
+                } else {
+                    eprintln!(
+                        "\x1b[0;33mCOMPILE EXPECTED FAIL\x1b[0m {} ({}) — matches `expect: compile_error`",
+                        file.display(),
+                        label.as_str(),
+                    );
+                    if !meta.expected_errors.is_empty() {
+                        let expected = sorted_codes(meta.expected_errors.iter().cloned());
+                        let actual = diagnostic_codes(&result.normalized_stderr);
+                        if actual != expected {
+                            eprintln!(
+                                "\x1b[0;31mCOMPILE DIAGNOSTIC MISMATCH\x1b[0m {} ({}) expected {:?}, actual {:?}",
+                                file.display(),
+                                label.as_str(),
+                                expected,
+                                actual
+                            );
+                            all_ok = false;
+                        }
+                    }
+                    expected_failure_stderr.push((way, result.normalized_stderr));
+                }
+                continue;
+            }
             let outcome = compile_fixture(
                 &config.vm_binary,
                 &config.llvm_binary,
@@ -598,7 +820,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                     eprintln!(
                         "\x1b[0;31mCOMPILE UNEXPECTED OK\x1b[0m {} ({}) — fixture declares `expect: {}` but compiled successfully",
                         file.display(),
-                        label,
+                        label.as_str(),
                         match meta.expect {
                             Expect::CompileError => "compile_error",
                             Expect::RuntimeError => "runtime_error",
@@ -610,13 +832,29 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                     eprintln!(
                         "\x1b[0;33mCOMPILE EXPECTED FAIL\x1b[0m {} ({}) — matches `expect: {}`",
                         file.display(),
-                        label,
+                        label.as_str(),
                         match meta.expect {
                             Expect::CompileError => "compile_error",
                             Expect::RuntimeError => "runtime_error",
                             Expect::Success => "success",
                         }
                     );
+                    let normalized_stderr = normalize(&outcome.stderr);
+                    if !meta.expected_errors.is_empty() {
+                        let expected = sorted_codes(meta.expected_errors.iter().cloned());
+                        let actual = diagnostic_codes(&normalized_stderr);
+                        if actual != expected {
+                            eprintln!(
+                                "\x1b[0;31mCOMPILE DIAGNOSTIC MISMATCH\x1b[0m {} ({}) expected {:?}, actual {:?}",
+                                file.display(),
+                                label.as_str(),
+                                expected,
+                                actual
+                            );
+                            all_ok = false;
+                        }
+                    }
+                    expected_failure_stderr.push((way, normalized_stderr));
                 }
                 continue;
             }
@@ -624,7 +862,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 eprintln!(
                     "\x1b[0;32mCOMPILE OK\x1b[0m   {} ({})",
                     file.display(),
-                    label
+                    label.as_str()
                 );
                 continue;
             }
@@ -636,14 +874,14 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 eprintln!(
                     "\x1b[0;33mCOMPILE SKIP\x1b[0m {} ({}) — native unsupported",
                     file.display(),
-                    label
+                    label.as_str()
                 );
                 continue;
             }
             eprintln!(
                 "\x1b[0;31mCOMPILE FAIL\x1b[0m {} ({}) exit={}",
                 file.display(),
-                label,
+                label.as_str(),
                 outcome.exit_code
             );
             if !outcome.stderr.trim().is_empty() {
@@ -663,11 +901,59 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
             }
             all_ok = false;
         }
+        if expects_failure {
+            if let Some((baseline_way, baseline_stderr)) = expected_failure_stderr.first() {
+                for (way, stderr) in expected_failure_stderr.iter().skip(1) {
+                    if stderr != baseline_stderr {
+                        eprintln!(
+                            "\x1b[0;31mCOMPILE STDERR MISMATCH\x1b[0m {} ({} vs {})",
+                            file.display(),
+                            baseline_way,
+                            way
+                        );
+                        all_ok = false;
+                    }
+                }
+            }
+            if let Some(expected_stderr) = meta.expected_stderr.as_deref() {
+                let expected = normalize(expected_stderr);
+                let expected = expected.trim();
+                for (way, stderr) in &expected_failure_stderr {
+                    let actual = stderr.trim();
+                    if actual != expected {
+                        eprintln!(
+                            "\x1b[0;31mCOMPILE EXPECTED STDERR MISMATCH\x1b[0m {} ({})",
+                            file.display(),
+                            way
+                        );
+                        print_first_line_diff(expected, actual);
+                        all_ok = false;
+                    }
+                }
+            }
+        }
     }
     if !all_ok {
         eprintln!("[parity] --compile: stopping; fixtures above failed to compile");
     }
     all_ok
+}
+
+fn print_first_line_diff(expected: &str, actual: &str) {
+    let expected_lines = expected.lines().collect::<Vec<_>>();
+    let actual_lines = actual.lines().collect::<Vec<_>>();
+    let max_len = expected_lines.len().max(actual_lines.len());
+    for idx in 0..max_len {
+        let expected_line = expected_lines.get(idx).copied().unwrap_or("<missing>");
+        let actual_line = actual_lines.get(idx).copied().unwrap_or("<missing>");
+        if expected_line != actual_line {
+            eprintln!("  first diff at line {}:", idx + 1);
+            eprintln!("    expected: {expected_line}");
+            eprintln!("    actual:   {actual_line}");
+            return;
+        }
+    }
+    eprintln!("  stderr differs only by trailing whitespace");
 }
 
 fn merged_fixture_args(global_args: &[String], fixture_args: &[String]) -> Vec<String> {
@@ -686,20 +972,30 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
     }
 
     if path.is_dir() {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(path)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("flx"))
-            .filter(|p| !should_skip_fixture(p))
-            .collect();
+        let mut files = Vec::new();
+        collect_fixtures_recursive(path, &mut files);
         files.sort();
         return files;
     }
 
     vec![]
+}
+
+fn collect_fixtures_recursive(path: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_fixtures_recursive(&path, files);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("flx")
+            && !should_skip_fixture(&path)
+        {
+            files.push(path);
+        }
+    }
 }
 
 /// Skip benchmark/profile files — they produce timing-oriented output and may
@@ -1563,6 +1859,8 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             right_way,
             ..
         } => format!("stderr: {left_way} vs {right_way}"),
+        MismatchDetail::DiagnosticCodes { way, .. } => format!("diagnostic_codes: {way}"),
+        MismatchDetail::ExpectedStderr { way, .. } => format!("expected_stderr: {way}"),
         MismatchDetail::CoreMismatch {
             left_way,
             right_way,

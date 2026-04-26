@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "hello"
+// parity-expected-stdout-end
+
 // OK: a function with an open effect row can call a function requiring IO.
 // The open row tail `|e` absorbs the IO requirement so no mismatch is reported.
 

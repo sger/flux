@@ -1,3 +1,53 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/132_let_initializer_span_precision.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `x` does not match its type annotation.
+//
+//   examples/type_system/failing/132_let_initializer_span_precision.flx:52:18
+//    |
+// 52 |     let x: Int = if true { "hello" } else { "world" }
+//    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |                  ------------------------------------ this value has type `String`
+//
+//    |            --- but `x` was annotated as `Int`
+//
+// Note:
+//   annotated type: Int
+//   value type: String
+//
+// Help:
+//   Change `x` to a `Int` value or update the annotation.
+//
+//
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/132_let_initializer_span_precision.flx:52:28
+//    |
+// 52 |     let x: Int = if true { "hello" } else { "world" }
+//    |                            ^^^^^^^
+//    |                            ------- this expression has type `String`
+//
+//    |                            ------- this type mismatch is reported here
+//
+// Note:
+//   expected type: Int
+//   found type: String
+//   the conflicting types meet at this expression
+//
+// Help:
+//   These two types are not compatible.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+// expect-error: E300
+
 fn main() -> Unit {
     let x: Int = if true { "hello" } else { "world" }
 }

@@ -1,2 +1,24 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/176_match_missing_open_brace.flx
+// error[E034]: Missing Match Body
+//
+// Expected `{` to begin match arms.
+//
+//   examples/type_system/failing/176_match_missing_open_brace.flx:23:17
+//    |
+// 23 | let x = match 1 0 -> 0
+//    |                 ^
+//
+// Hint:
+//   Match expressions use `match value { pattern -> body, ... }`.
+//
+// Note:
+//   while parsing `match` expression
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 let x = match 1 0 -> 0
 let after = 1

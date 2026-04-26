@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx:7:9
-  |
-7 |         add(1)
-  |         ^^^^^^
-  |         ------ 1 arguments provided here, expected 2
+  examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx:10:9
+   |
+10 |         add(1)
+   |         ^^^^^^
+   |         ------ 1 arguments provided here, expected 2
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.

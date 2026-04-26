@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx
 == compile ==
@@ -9,17 +9,17 @@ error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 
-  examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx:4:18
-  |
-3 |         true -> 1,
-  |                 - first arm returns `Int`
+  examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx:36:18
+   |
+35 |         true -> 1,
+   |                 - first arm returns `Int`
 
-  |                 - this arm established the expected type
-4 |         false -> "oops",
-  |                  ^^^^^^
-  |                  ------ arm 2 has type `String`
+   |                 - this arm established the expected type
+36 |         false -> "oops",
+   |                  ^^^^^^
+   |                  ------ arm 2 has type `String`
 
-  |                  ------ arm 2 conflicts with that type
+   |                  ------ arm 2 conflicts with that type
 
 Note:
   first arm type: Int

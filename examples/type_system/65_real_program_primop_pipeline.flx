@@ -1,3 +1,12 @@
+// parity-expected-stdout-begin
+// "8"
+// "4"
+// "[|9, 4|]"
+// "Some(22)"
+// "n=42"
+// "42"
+// parity-expected-stdout-end
+
 import TypeSystem.RealProgramPrimops as P
 
 fn main() with IO {

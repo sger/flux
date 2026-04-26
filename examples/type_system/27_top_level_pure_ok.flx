@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // A4 matrix: pure top-level declarations/expressions are allowed without `main`.
 
 let answer = 40 + 2

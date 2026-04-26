@@ -1,4 +1,5 @@
 import Flow.List as List
+import Flow.String as String
 
 fn test_core_hofs() {
     assert_eq(to_string(map([1, 2, 3], fn(x) { x * 10 })), "[10, 20, 30]")
@@ -57,8 +58,8 @@ fn test_sort_and_reverse() {
     assert_eq(to_string(sort([3, 1, 4, 1, 5])), "[1, 1, 3, 4, 5]")
     assert_eq(to_string(sort([])), "[]")
     assert_eq(to_string(sort([1])), "[1]")
-    assert_eq(to_string(sort_by(["bb", "a", "ccc"], fn(s) { string_len(s) })), "[\"a\", \"bb\", \"ccc\"]")
-    assert_eq(to_string(sort_by(["zz", "a", "bb"], fn(s) { string_len(s) })), "[\"a\", \"zz\", \"bb\"]")
+    assert_eq(to_string(sort_by(["bb", "a", "ccc"], fn(s) { String.string_len(s) })), "[\"a\", \"bb\", \"ccc\"]")
+    assert_eq(to_string(sort_by(["zz", "a", "bb"], fn(s) { String.string_len(s) })), "[\"a\", \"zz\", \"bb\"]")
     assert_eq(to_string(reverse([1, 2, 3])), "[3, 2, 1]")
     assert_eq(to_string(reverse([])), "[]")
     assert_eq(to_string(range(0, 4)), "[0, 1, 2, 3]")
@@ -66,14 +67,14 @@ fn test_sort_and_reverse() {
 }
 
 fn test_numeric_reductions() {
-    assert_eq(sum([1, 2, 3, 4]), 10)
-    assert_eq(sum([]), 0)
-    assert_eq(product([1, 2, 3, 4]), 24)
-    assert_eq(product([]), 1)
-    assert_eq(to_string(maximum([3, 1, 4, 1, 5])), "Some(5)")
-    assert_eq(to_string(maximum([])), "None")
-    assert_eq(to_string(minimum([3, 1, 4, 1, 5])), "Some(1)")
-    assert_eq(to_string(minimum([])), "None")
+    assert_eq(List.sum([1, 2, 3, 4]), 10)
+    assert_eq(List.sum([]), 0)
+    assert_eq(List.product([1, 2, 3, 4]), 24)
+    assert_eq(List.product([]), 1)
+    assert_eq(to_string(List.maximum([3, 1, 4, 1, 5])), "Some(5)")
+    assert_eq(to_string(List.maximum([])), "None")
+    assert_eq(to_string(List.minimum([3, 1, 4, 1, 5])), "Some(1)")
+    assert_eq(to_string(List.minimum([])), "None")
 }
 
 fn test_slicing_helpers() {

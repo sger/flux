@@ -1,3 +1,30 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx:30:14
+//    |
+// 30 |         n if 1 -> n,
+//    |              ^
+//    |              - this expression has type `Int`
+//
+//    |              - match guard is known at compile time
+//
+// Note:
+//   expected type: Bool
+//   found type: Int
+//
+// Help:
+//   Booleans are not numeric in Flux. Use `true` or `false` here.
+//   use a Bool expression, or make the condition/guard explicitly boolean
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 fn pick(x: Int) -> Int {
     match x {
         n if 1 -> n,

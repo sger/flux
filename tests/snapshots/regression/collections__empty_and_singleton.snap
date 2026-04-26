@@ -1,16 +1,47 @@
 ---
-source: tests/regression_snapshots.rs
+source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/collections/empty_and_singleton.flx
 exit_code: 1
 
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
-• 2 errors • tests/fixtures/collections/empty_and_singleton.flx
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
+• 5 errors • tests/fixtures/collections/empty_and_singleton.flx
+error[E430]: Could Not Infer Concrete Type
+
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10594 at the backend representation.
+
+  tests/fixtures/collections/empty_and_singleton.flx:1:1
+  |
+1 | [];
+  | ^^^
+
+Hint:
+  Add a type annotation or make the expression's result type unambiguous.
+
+
+error[E430]: Could Not Infer Concrete Type
+
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10596 at the backend representation.
+
+  tests/fixtures/collections/empty_and_singleton.flx:3:1
+  |
+3 | f();
+  | ^^^^
+
+Hint:
+  Add a type annotation or make the expression's result type unambiguous.
+
+
 error[E004]: Undefined Variable
 
 I can't find a value named `f`.
@@ -24,7 +55,20 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean one of: `Flow.List.all`, `Flow.List.any`, `Flow.List.map`?
+  Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
+
+
+error[E430]: Could Not Infer Concrete Type
+
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10598 at the backend representation.
+
+  tests/fixtures/collections/empty_and_singleton.flx:4:1
+  |
+4 | f(1);
+  | ^^^^^
+
+Hint:
+  Add a type annotation or make the expression's result type unambiguous.
 
 
 error[E004]: Undefined Variable
@@ -40,6 +84,6 @@ Hint:
   Define it first: let f = ...;
 
 Help:
-  Did you mean one of: `Flow.List.all`, `Flow.List.any`, `Flow.List.map`?
+  Did you mean one of: `Flow.Math.pi`, `Flow.List.all`, `Flow.List.any`?
 
-Found 2 errors.
+Found 5 errors.

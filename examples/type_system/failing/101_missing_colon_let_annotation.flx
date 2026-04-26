@@ -1,1 +1,20 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/101_missing_colon_let_annotation.flx
+// error[E034]: Missing Type Annotation Colon
+//
+// Missing `:` in let binding type annotation. Write it as `x: Type`.
+//
+//   examples/type_system/failing/101_missing_colon_let_annotation.flx:20:7
+//    |
+// 20 | let x Int = 1
+//    |       ^^^
+//
+// Hint:
+//   Type annotations use `name: Type`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 let x Int = 1

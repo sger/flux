@@ -135,7 +135,10 @@ impl<'a> super::AstLowerer<'a> {
                 ..
             } => {
                 let params: Vec<_> = self.bind_lambda_params(parameters, *id);
-                let (param_types, result_ty) = self.lambda_signature_from_expr_id(*id);
+                let (mut param_types, result_ty) = self.lambda_signature_from_expr_id(*id);
+                if !param_types.is_empty() && param_types.len() != params.len() {
+                    param_types = Vec::new();
+                }
                 let body_expr = self.lower_block(body);
                 if parameters.is_empty() {
                     // Nullary lambda — keep the Lam wrapper so the Core→IR
@@ -381,23 +384,38 @@ impl<'a> super::AstLowerer<'a> {
             Expression::Handle {
                 expr,
                 effect,
+                parameter,
                 arms,
                 span,
                 id,
             } => {
                 let body = self.lower_expr(expr);
+                let parameter_ty = parameter
+                    .as_ref()
+                    .and_then(|p| self.infer_core_type(p.expr_id()));
+                let parameter = parameter.as_ref().map(|p| Box::new(self.lower_expr(p)));
                 let handle_result_ty = self.infer_core_type(*id);
                 let handlers: Vec<CoreHandler> = arms
                     .iter()
-                    .map(|arm| self.lower_handle_arm_typed(arm, *effect, handle_result_ty.clone()))
+                    .map(|arm| {
+                        self.lower_handle_arm_typed(
+                            arm,
+                            *effect,
+                            handle_result_ty.clone(),
+                            parameter_ty.clone(),
+                        )
+                    })
                     .collect();
                 CoreExpr::Handle {
                     body: Box::new(body),
                     effect: *effect,
+                    parameter,
                     handlers,
                     span: *span,
                 }
             }
+
+            Expression::Sealing { expr, .. } => self.lower_expr(expr),
 
             Expression::NamedConstructor {
                 name, fields, span, ..

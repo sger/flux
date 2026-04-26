@@ -1,5 +1,5 @@
 ---
-source: tests/runtime_error_fixtures_snapshots.rs
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/division_by_zero_non_zero.flx
 == vm ==
@@ -7,12 +7,17 @@ status: 0
 stdout:
 "non_zero(0) returned None - division prevented at construction"
 stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  NonZero
-[5 of 8] Compiling  Numeric
-[6 of 8] Compiling  Option
-[7 of 8] Compiling  String
-[8 of 8] Compiling  division_by_zero_non_zero
+[ 1 of 13] Compiling  Assert
+[ 2 of 13] Compiling  Debug
+[ 3 of 13] Compiling  Array
+[ 4 of 13] Compiling  List
+[ 5 of 13] Compiling  Either
+[ 6 of 13] Compiling  IO
+[ 7 of 13] Compiling  Math
+[ 8 of 13] Compiling  NonZero
+[ 9 of 13] Compiling  Numeric
+[10 of 13] Compiling  Option
+[11 of 13] Compiling  Primops
+[12 of 13] Compiling  String
+[13 of 13] Compiling  division_by_zero_non_zero
 [cfg→vm] Running via CFG → bytecode VM backend...

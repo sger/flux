@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/175_handle_arm_missing_arrow.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Handle Arm Arrow
 
 Expected `->` in handle arm.
 
-  examples/type_system/failing/175_handle_arm_missing_arrow.flx:1:42
-  |
-1 | let x = 1 handle IO { print(resume, msg) resume(msg) }
-  |                                          ^^^^^^
+  examples/type_system/failing/175_handle_arm_missing_arrow.flx:24:42
+   |
+24 | let x = 1 handle IO { print(resume, msg) resume(msg) }
+   |                                          ^^^^^^
 
 Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
@@ -25,10 +25,10 @@ error[E034]: Unexpected Closing Delimiter
 
 Unexpected `}` outside of a block.
 
-  examples/type_system/failing/175_handle_arm_missing_arrow.flx:1:54
-  |
-1 | let x = 1 handle IO { print(resume, msg) resume(msg) }
-  |                                                      ^
+  examples/type_system/failing/175_handle_arm_missing_arrow.flx:24:54
+   |
+24 | let x = 1 handle IO { print(resume, msg) resume(msg) }
+   |                                                      ^
 
 Found 2 errors.
 == stdout ==

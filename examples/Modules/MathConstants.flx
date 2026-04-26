@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E024
+
 // Module: MathConstants
 // Provides mathematical constants evaluated at compile time
 

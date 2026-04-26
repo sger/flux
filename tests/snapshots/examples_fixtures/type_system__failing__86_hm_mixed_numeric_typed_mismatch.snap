@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
-  |
-2 |     let x: Int = 1 + 2.5
-  |                  ^^^^^^^
-  |                  ------- this expression has type `Float`
+  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:53:18
+   |
+53 |     let x: Int = 1 + 2.5
+   |                  ^^^^^^^
+   |                  ------- this expression has type `Float`
 
-  |                  ------- this type mismatch is reported here
+   |                  ------- this type mismatch is reported here
 
 Note:
   expected type: Int
@@ -30,14 +30,14 @@ error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 
-  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:3:5
-  |
-1 | fn main() -> Unit {
-  |              ---- `main` was declared to return `Unit`
-2 |     let x: Int = 1 + 2.5
-3 |     x
-  |     ^
-  |     - this expression has type `Int`
+  examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:54:5
+   |
+52 | fn main() -> Unit {
+   |              ---- `main` was declared to return `Unit`
+53 |     let x: Int = 1 + 2.5
+54 |     x
+   |     ^
+   |     - this expression has type `Int`
 
 Note:
   declared return type: Unit

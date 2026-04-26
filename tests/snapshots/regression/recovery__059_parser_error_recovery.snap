@@ -1,15 +1,9 @@
 ---
-source: tests/regression_snapshots.rs
+source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/recovery/059_parser_error_recovery.flx
 exit_code: 1
 
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
 • 4 errors • tests/fixtures/recovery/059_parser_error_recovery.flx
 error[E030]: Unknown Keyword
 

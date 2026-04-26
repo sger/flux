@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/141_recursive_self_reference_negative_guard.flx
 == compile ==
@@ -9,16 +9,16 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/type_system/failing/141_recursive_self_reference_negative_guard.flx:6:14
-  |
-2 | fn add(a: Int, b: Int) -> Int { a + b }
-  | --------------------------------------- `add` is defined with 2 parameters
-3 | 
-4 | fn main() -> Unit {
-5 |     let _v = id(1)
-6 |     let _z = add(1)
-  |              ^^^^^^
-  |              ------ 1 arguments provided here, expected 2
+  examples/type_system/failing/141_recursive_self_reference_negative_guard.flx:31:14
+   |
+27 | fn add(a: Int, b: Int) -> Int { a + b }
+   | ----------------------------- `add` is defined with 2 parameters
+28 | 
+29 | fn main() -> Unit {
+30 |     let _v = id(1)
+31 |     let _z = add(1)
+   |              ^^^^^^
+   |              ------ 1 arguments provided here, expected 2
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.

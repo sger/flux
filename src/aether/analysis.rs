@@ -192,7 +192,15 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 count_uses(a, counts);
             }
         }
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                count_uses(parameter, counts);
+            }
             count_uses(body, counts);
             for h in handlers {
                 let mut h_counts = HashMap::new();
@@ -200,6 +208,9 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 h_counts.remove(&h.resume.id);
                 for p in &h.params {
                     h_counts.remove(&p.id);
+                }
+                if let Some(state) = h.state {
+                    h_counts.remove(&state.id);
                 }
                 merge_counts(counts, &h_counts);
             }
@@ -276,7 +287,15 @@ fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize
             }
         }
         AetherExpr::Return { value, .. } => count_uses_aether(value, counts),
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                count_uses_aether(parameter, counts);
+            }
             count_uses_aether(body, counts);
             for h in handlers {
                 count_handler_uses_aether(h, counts);
@@ -555,12 +574,23 @@ fn count_owned_inner(
             .sum(),
 
         // Handle: body is normal context, handler bodies have their own scope.
-        CoreExpr::Handle { body, handlers, .. } => {
-            let body_owned = count_owned_inner(var, body, registry);
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            let body_owned = count_owned_inner(var, body, registry)
+                + parameter
+                    .as_ref()
+                    .map_or(0, |p| count_owned_inner(var, p, registry));
             let handlers_owned: usize = handlers
                 .iter()
                 .map(|h| {
-                    if h.resume.id == var || h.params.iter().any(|p| p.id == var) {
+                    if h.resume.id == var
+                        || h.params.iter().any(|p| p.id == var)
+                        || h.state.is_some_and(|state| state.id == var)
+                    {
                         0
                     } else {
                         count_owned_inner(var, &h.body, registry)

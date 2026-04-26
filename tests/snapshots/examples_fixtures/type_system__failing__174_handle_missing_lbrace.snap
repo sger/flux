@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/174_handle_missing_lbrace.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Unexpected Token
 
 Expected `{` to begin `handle` arms.
 
-  examples/type_system/failing/174_handle_missing_lbrace.flx:1:21
-  |
-1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
-  |                     ^^^^^
+  examples/type_system/failing/174_handle_missing_lbrace.flx:24:21
+   |
+24 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+   |                     ^^^^^
 
 Hint:
   Handle expressions use `expr handle Effect { ... }`.
@@ -25,10 +25,10 @@ error[E031]: Expected Expression
 
 Expected expression, found `->`.
 
-  examples/type_system/failing/174_handle_missing_lbrace.flx:1:40
-  |
-1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
-  |                                        ^^
+  examples/type_system/failing/174_handle_missing_lbrace.flx:24:40
+   |
+24 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+   |                                        ^^
 
 Found 2 errors.
 == stdout ==

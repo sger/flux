@@ -35,8 +35,67 @@ pub struct Continuation {
     /// (between `entry_handler_stack_len` and `handler_pos`).
     pub inner_handlers: Vec<HandlerFrame>,
 
+    /// Handler marker whose state should be replaced when this continuation is
+    /// resumed with `resume(value, next_state)`.
+    pub state_marker: Option<u32>,
+
     /// One-shot enforcement: set to `true` after the first resume.
     pub used: bool,
+}
+
+impl Continuation {
+    /// Compose continuation pieces captured during yield unwinding into a
+    /// single resumable continuation.
+    ///
+    /// `pieces` are expected innermost-first, matching `YieldState.conts`.
+    /// The composed result stores frames and stack outermost-first so
+    /// `execute_resume` can restore them in one shot.
+    pub fn compose(
+        pieces: &[Value],
+        inner_handlers: Vec<HandlerFrame>,
+        state_marker: Option<u32>,
+    ) -> Result<Value, String> {
+        if pieces.is_empty() {
+            return Ok(Value::None);
+        }
+
+        let mut composed_frames = Vec::new();
+        let mut composed_stack = Vec::new();
+        let mut outermost: Option<Continuation> = None;
+        let mut innermost_sp = 0usize;
+
+        for piece in pieces.iter().rev() {
+            let cont = match piece {
+                Value::Continuation(rc) => rc.borrow().clone(),
+                other => {
+                    return Err(format!(
+                        "Continuation::compose expected Continuation piece, got {}",
+                        other.type_name()
+                    ));
+                }
+            };
+            if outermost.is_none() {
+                outermost = Some(cont.clone());
+            }
+            innermost_sp = cont.sp;
+            composed_frames.extend(cont.frames.clone());
+            composed_stack.extend(cont.stack.clone());
+        }
+
+        let outermost = outermost.expect("pieces.is_empty handled above");
+        Ok(Value::Continuation(std::rc::Rc::new(
+            std::cell::RefCell::new(Continuation {
+                frames: composed_frames,
+                stack: composed_stack,
+                sp: innermost_sp,
+                entry_sp: outermost.entry_sp,
+                entry_frame_index: outermost.entry_frame_index,
+                inner_handlers,
+                state_marker,
+                used: false,
+            }),
+        )))
+    }
 }
 
 /// Safety net for non-linear control flow (Perceus Section 2.7.1).
@@ -53,5 +112,54 @@ impl Drop for Continuation {
             self.frames.clear();
             self.inner_handlers.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::{closure::Closure, compiled_function::CompiledFunction};
+    use std::{cell::RefCell, rc::Rc};
+
+    fn frame(base_pointer: usize, return_slot: usize) -> Frame {
+        let func = Rc::new(CompiledFunction::new(vec![], 0, 0, None));
+        let closure = Rc::new(Closure::new(func, vec![]));
+        Frame::new_with_return_slot(closure, base_pointer, return_slot)
+    }
+
+    #[test]
+    fn compose_preserves_outermost_boundary_and_innermost_resume_slot() {
+        let inner = Value::Continuation(Rc::new(RefCell::new(Continuation {
+            frames: vec![frame(20, 29)],
+            stack: vec![Value::Integer(1), Value::Integer(2)],
+            sp: 22,
+            entry_sp: 20,
+            entry_frame_index: 1,
+            inner_handlers: vec![],
+            state_marker: None,
+            used: false,
+        })));
+        let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
+            frames: vec![frame(10, 19)],
+            stack: vec![Value::Integer(3)],
+            sp: 19,
+            entry_sp: 10,
+            entry_frame_index: 0,
+            inner_handlers: vec![],
+            state_marker: None,
+            used: false,
+        })));
+
+        let composed =
+            Continuation::compose(&[inner, outer], vec![], None).expect("compose succeeds");
+        let Value::Continuation(rc) = composed else {
+            panic!("compose should produce a continuation");
+        };
+        let cont = rc.borrow();
+        assert_eq!(cont.entry_sp, 10);
+        assert_eq!(cont.entry_frame_index, 0);
+        assert_eq!(cont.sp, 22);
+        assert_eq!(cont.frames.len(), 2);
+        assert_eq!(cont.stack.len(), 3);
     }
 }

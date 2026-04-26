@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E012
+
 fn main() with IO, Time {
     let Math = { "square": fn(x) { x * x; } };
     print(Math.square(5));

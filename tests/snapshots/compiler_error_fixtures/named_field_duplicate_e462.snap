@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/named_field_duplicate_e462.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E462]: Duplicate Named Field
 
 Field `x` is listed more than once.
 
-  examples/compiler_errors/named_field_duplicate_e462.flx:9:27
-  |
-9 |     let p = Point { x: 1, x: 2, y: 3 }
-  |                           ^^^^
+  examples/compiler_errors/named_field_duplicate_e462.flx:12:27
+   |
+12 |     let p = Point { x: 1, x: 2, y: 3 }
+   |                           ^^^^
 == stdout ==
 <not executed>

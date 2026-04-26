@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 fn main() -> Unit {
     let t = (1, (2, 3))
     let _x = match t {

@@ -1,6 +1,6 @@
 import Flow.FTest as Test
 
-fn test_flow_wrappers() {
+fn test_flow_wrappers() with Console {
     Test.eq(1 + 1, 2)
     Test.neq(1, 2)
     Test.is_true(true)
@@ -14,18 +14,34 @@ fn test_flow_wrappers() {
     Test.has_len([1, 2, 3], 3)
 }
 
-fn test_flow_helpers() with IO {
+fn test_flow_helpers() with IO, Console {
     let cases = [1, 2, 3]
 
-    Test.for_each(cases, \x -> Test.is_true(x > 0))
+    fn assert_positive(x: Int) with Console {
+        Test.is_true(x > 0)
+    }
+
+    fn assert_fixture_len(xs: List<Int>) with Console {
+        Test.eq(length(xs), 3)
+    }
+
+    fn eq_works() with Console {
+        Test.eq(2 + 2, 4)
+    }
+
+    fn neq_works() with Console {
+        Test.neq(5, 6)
+    }
+
+    Test.for_each(cases, assert_positive)
 
     Test.with_fixture(
         \() -> [10, 20, 30],
-        \xs -> Test.eq(length(xs), 3)
+        assert_fixture_len
     )
 
     Test.describe("basic helpers", [
-        Test.it("eq works", \() -> Test.eq(2 + 2, 4)),
-        Test.it("neq works", \() -> Test.neq(5, 6))
+        Test.it("eq works", eq_works),
+        Test.it("neq works", neq_works)
     ])
 }

@@ -1,3 +1,5 @@
+// expect: compile_error
+
 // Free Variables Example
 // Demonstrates variables that are referenced but not defined
 

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/advanced_map_filter_fold_pipeline.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Analytics.Transforms` to import.
 
-  examples/Modules/advanced_map_filter_fold_pipeline.flx:5:1
+  examples/Modules/advanced_map_filter_fold_pipeline.flx:9:1
   |
-5 | import Modules.Analytics.Transforms as T
+9 | import Modules.Analytics.Transforms as T
   | ^
 
 Hint:
@@ -23,10 +23,10 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  examples/Modules/advanced_map_filter_fold_pipeline.flx:6:1
-  |
-6 | import Modules.Math as Math
-  | ^
+  examples/Modules/advanced_map_filter_fold_pipeline.flx:10:1
+   |
+10 | import Modules.Math as Math
+   | ^
 
 Hint:
   Check that: 1) The module file exists (e.g., `Modules.Math.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.

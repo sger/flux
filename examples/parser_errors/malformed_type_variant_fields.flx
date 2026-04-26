@@ -1,3 +1,20 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/malformed_type_variant_fields.flx
+// error[E034]: Missing Constructor Field Separator
+//
+// I was expecting `,` or `)` between constructor fields, but I found an identifier.
+//
+//   examples/parser_errors/malformed_type_variant_fields.flx:17:22
+//    |
+// 17 | type Pair = Pair(Int String) | Empty
+//    |                      ^^^^^^
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 type Pair = Pair(Int String) | Empty
 
 fn main() -> Unit {}
+

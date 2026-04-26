@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/40_effect_alias_print_in_time_function.flx
+// error[E400]: Missing Effect
+//
+// requires effect `Console` but the enclosing context does not provide it
+//
+//   examples/type_system/failing/40_effect_alias_print_in_time_function.flx:25:5
+//    |
+// 25 |     p("tick")
+//    |     ^^^^^^^^^
+//    |     --------- requires `Console`
+//
+// Hint:
+//   annotate the enclosing function with `with Console`
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E400
+
 // E400: aliasing `print` must not bypass IO effect checks in `with Time` functions.
 
 fn g() -> Int with Time {

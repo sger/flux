@@ -1,5 +1,5 @@
 ---
-source: tests/parser_error_fixtures_snapshots.rs
+source: tests/error_fixtures/parser_error_fixtures_snapshots.rs
 ---
 Fixture: examples/parser_errors/modules_many_errors/Main.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
-  examples/parser_errors/modules_many_errors/BrokenEffect.flx:3:15
-  |
-3 |         print String -> Unit,,
-  |               ^^^^^^
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:15
+   |
+38 |         print String -> Unit,,
+   |               ^^^^^^
 
 Note:
   while parsing module `BrokenEffect` > effect `Console`
@@ -22,10 +22,10 @@ error[E034]: Invalid Effect Operation
 
 I was expecting an operation name in this `effect` declaration, but I found `,`.
 
-  examples/parser_errors/modules_many_errors/BrokenEffect.flx:3:30
-  |
-3 |         print String -> Unit,,
-  |                              ^
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:30
+   |
+38 |         print String -> Unit,,
+   |                              ^
 
 Note:
   while parsing module `BrokenEffect` > effect `Console`
@@ -35,13 +35,13 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/parser_errors/modules_many_errors/BrokenFn.flx:3:9
-  |
-2 |     pub fn greet(name: String) -> String
-  |         - `greet` starts here
-3 |         "Hello, " + name
-  |         ^^^^^^^^^
-  |         --------- This looks like the function body
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:50:9
+   |
+49 |     pub fn greet(name: String) -> String
+   |         - `greet` starts here
+50 |         "Hello, " + name
+   |         ^^^^^^^^^
+   |         --------- This looks like the function body
 
 Note:
   while parsing module `BrokenFn` > function `greet`
@@ -54,13 +54,13 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/parser_errors/modules_many_errors/BrokenFn.flx:6:9
-  |
-5 |     pub fn parting(name: String) -> String
-  |         - `parting` starts here
-6 |         "Goodbye, " + name
-  |         ^^^^^^^^^^^
-  |         ----------- This looks like the function body
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:53:9
+   |
+52 |     pub fn parting(name: String) -> String
+   |         - `parting` starts here
+53 |         "Goodbye, " + name
+   |         ^^^^^^^^^^^
+   |         ----------- This looks like the function body
 
 Note:
   while parsing module `BrokenFn` > function `parting`
@@ -73,10 +73,10 @@ error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 
-  examples/parser_errors/modules_many_errors/BrokenMatch.flx:4:15
-  |
-4 |             0 "zero",
-  |               ^^^^^^
+  examples/parser_errors/modules_many_errors/BrokenMatch.flx:26:15
+   |
+26 |             0 "zero",
+   |               ^^^^^^
 
 Note:
   while parsing module `BrokenMatch` > function `classify` > `match` expression

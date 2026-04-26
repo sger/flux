@@ -214,7 +214,15 @@ fn lint_expr(
             }
         }
 
-        CoreExpr::Handle { body, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                lint_expr(parameter, in_scope, errors);
+            }
             lint_expr(body, in_scope, errors);
             for handler in handlers {
                 lint_handler(handler, in_scope, errors);
@@ -243,6 +251,9 @@ fn lint_handler(
     let saved = save_scope(in_scope);
     for p in &handler.params {
         in_scope.insert(p.id);
+    }
+    if let Some(state) = &handler.state {
+        in_scope.insert(state.id);
     }
     in_scope.insert(handler.resume.id);
     lint_expr(&handler.body, in_scope, errors);

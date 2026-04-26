@@ -1,5 +1,5 @@
 ---
-source: tests/runtime_error_fixtures_snapshots.rs
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
 ---
 Fixture: examples/runtime_errors/either_boundary_string_into_either.flx
 == vm ==
@@ -7,14 +7,29 @@ status: 1
 stdout:
 <empty>
 stderr:
-[1 of 8] Compiling  Assert
-[2 of 8] Compiling  IO
-[3 of 8] Compiling  List
-[4 of 8] Compiling  Numeric
-[5 of 8] Compiling  Option
-[6 of 8] Compiling  String
-[7 of 8] Compiling  BoundaryUnknown
-• 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
+[ 1 of 13] Compiling  Assert
+[ 2 of 13] Compiling  Debug
+[ 3 of 13] Compiling  Array
+[ 4 of 13] Compiling  List
+[ 5 of 13] Compiling  Either
+[ 6 of 13] Compiling  IO
+[ 7 of 13] Compiling  Math
+[ 8 of 13] Compiling  Numeric
+[ 9 of 13] Compiling  Option
+[10 of 13] Compiling  Primops
+[11 of 13] Compiling  String
+[12 of 13] Compiling  BoundaryUnknown
+• 1 error, 1 warning • examples/runtime_errors/either_boundary_string_into_either.flx
+Warning: Redundant Match Arm
+
+this arm is unreachable — earlier arms already cover it
+
+  examples/runtime_errors/either_boundary_string_into_either.flx:7:9
+  |
+7 |         _ -> 0
+  |         ^^^^^^
+
+
 error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `unwrap_or_zero`.
@@ -22,12 +37,10 @@ I found the wrong type in the 1st argument to `unwrap_or_zero`.
   examples/runtime_errors/either_boundary_string_into_either.flx:12:16
    |
  3 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+   | ---------------------------------------------------- `unwrap_or_zero` expects `Either<String, Int>` as the 1st parameter
  4 |     match input {
  5 |         Left(_msg) -> 0,
- 6 |         Right(value) -> value,
- 7 |         _ -> 0
- 8 |     }
- 9 | }
+... |
 10 |
 11 | let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
 12 | unwrap_or_zero(dynamic)
@@ -42,3 +55,5 @@ Note:
 
 Help:
   Pass a `Either<String, Int>` value as the 1st argument.
+
+Found 1 error and 1 warning.

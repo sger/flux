@@ -1,0 +1,26 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/custom_handled_tracer_example.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E405]: Unknown Effect
+
+Effect `Console` is not declared for this handle block.
+
+  examples/type_classes/CustomHandledTracerExample/App/Main.flx:9:9
+   |
+ 9 |         Tracer.trace(h, "starting up")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+10 |             handle Clock {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |                 now(resume) -> resume(0)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |             }
+   | ^^^^^^^^^^^^^
+
+Hint:
+  Declare the effect before using `handle`, or fix the effect name.
+== stdout ==
+<not executed>

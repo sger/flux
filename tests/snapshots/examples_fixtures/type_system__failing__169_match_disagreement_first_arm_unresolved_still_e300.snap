@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:2:13
-  |
-2 |     let x = mystery_value
-  |             ^^^^^^^^^^^^^
+  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:51:13
+   |
+51 |     let x = mystery_value
+   |             ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;
@@ -22,18 +22,18 @@ error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 
-  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:6:14
-  |
-4 |         0 -> x,
-  |              - first arm returns `Int`
+  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:55:14
+   |
+53 |         0 -> x,
+   |              - first arm returns `Int`
 
-  |              - this arm established the expected type
-5 |         1 -> 10,
-6 |         _ -> "oops",
-  |              ^^^^^^
-  |              ------ arm 3 has type `String`
+   |              - this arm established the expected type
+54 |         1 -> 10,
+55 |         _ -> "oops",
+   |              ^^^^^^
+   |              ------ arm 3 has type `String`
 
-  |              ------ arm 3 conflicts with that type
+   |              ------ arm 3 conflicts with that type
 
 Note:
   first arm type: Int

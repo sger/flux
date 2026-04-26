@@ -1,3 +1,5 @@
+// skip: support or non-error companion fixture for compiler diagnostics
+
 module ErrorNoteBroken {
     public fn one() -> Int {
         1

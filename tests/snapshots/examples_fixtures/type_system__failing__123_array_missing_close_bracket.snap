@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/123_array_missing_close_bracket.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Closing Delimiter
 
 Expected `]` to close array literal.
 
-  examples/type_system/failing/123_array_missing_close_bracket.flx:2:1
-  |
-2 | let after = 3
-  | ^^^
+  examples/type_system/failing/123_array_missing_close_bracket.flx:21:1
+   |
+21 | let after = 3
+   | ^^^
 
 Hint:
   Array literals use `[| ... |]` and must end with `]`.

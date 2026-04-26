@@ -462,12 +462,15 @@ fn inline_trivial_substitutes_inside_handler_body() {
         body: Box::new(CoreExpr::Handle {
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             effect,
+            parameter: None,
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![],
                 param_types: vec![],
                 resume: resume_binder,
                 resume_ty: None,
+                state: None,
+                state_ty: None,
                 body: var_ref(x_binder),
                 span: s(),
             }],
@@ -505,12 +508,15 @@ fn inline_trivial_respects_handler_shadowing() {
         body: Box::new(CoreExpr::Handle {
             body: Box::new(CoreExpr::Lit(CoreLit::Unit, s())),
             effect,
+            parameter: None,
             handlers: vec![CoreHandler {
                 operation: op,
                 params: vec![handler_x],
                 param_types: vec![],
                 resume: resume_binder,
                 resume_ty: None,
+                state: None,
+                state_ty: None,
                 body: var_ref(handler_x),
                 span: s(),
             }],
@@ -1098,6 +1104,26 @@ fn algebraic_simplify_removes_int_identity() {
 
     let result = algebraic_simplify(expr);
     assert!(matches!(result, CoreExpr::Var { .. }));
+}
+
+#[test]
+fn primop_effect_class_distinguishes_pure_can_fail_and_has_effect() {
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::IAdd),
+        helpers::PrimOpEffectClass::Pure
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::IDiv),
+        helpers::PrimOpEffectClass::CanFail
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::Println),
+        helpers::PrimOpEffectClass::HasEffect
+    );
+    assert_eq!(
+        helpers::primop_effect_class(&CorePrimOp::Panic),
+        helpers::PrimOpEffectClass::HasEffect
+    );
 }
 
 #[test]

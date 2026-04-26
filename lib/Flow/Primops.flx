@@ -1,0 +1,53 @@
+// Flow.Primops — source-visible declarations for selected compiler primops.
+//
+// These declarations are intentionally 1:1 with CorePrimOp operations. They
+// make the builtin effect boundary auditable from Flux source while the Rust
+// HM primop injection remains in place during the migration.
+
+module Flow.Primops {
+
+    public intrinsic fn print<a>(x: a) -> Unit with Console = primop Print
+
+    public intrinsic fn println<a>(x: a) -> Unit with Console = primop Println
+
+    public intrinsic fn read_file(path: String) -> String with FileSystem = primop ReadFile
+
+    public intrinsic fn read_lines(path: String) -> Array<String> with FileSystem = primop ReadLines
+
+    public intrinsic fn write_file(path: String, contents: String) -> Unit with FileSystem = primop WriteFile
+
+    public intrinsic fn read_stdin() -> String with Stdin = primop ReadStdin
+
+    public intrinsic fn clock_now() -> Int with Clock = primop ClockNow
+
+    public intrinsic fn now_ms() -> Int with Clock = primop ClockNow
+
+    public intrinsic fn idiv(a: Int, b: Int) -> Int with Div = primop IDiv
+
+    public intrinsic fn imod(a: Int, b: Int) -> Int with Div = primop IMod
+
+    public intrinsic fn index<a>(xs: List<a>, i: Int) -> a with Div = primop Index
+
+    public intrinsic fn array_get<a>(arr: Array<a>, i: Int) -> a with Div = primop ArrayGet
+
+    public intrinsic fn panic<a>(message: String) -> a with Panic = primop Panic
+
+    public intrinsic fn __primop_print<a>(x: a) -> Unit = primop Print
+
+    public intrinsic fn __primop_println<a>(x: a) -> Unit = primop Println
+
+    public intrinsic fn __primop_read_file(path: String) -> String = primop ReadFile
+
+    public intrinsic fn __primop_read_lines(path: String) -> Array<String> = primop ReadLines
+
+    public intrinsic fn __primop_write_file(path: String, contents: String) -> Unit = primop WriteFile
+
+    public intrinsic fn __primop_read_stdin() -> String = primop ReadStdin
+
+    public intrinsic fn __primop_clock_now() -> Int = primop ClockNow
+
+    public intrinsic fn __primop_now_ms() -> Int = primop ClockNow
+
+    public intrinsic fn __primop_debug_trace(msg: String) -> Unit = primop DebugTrace
+
+}

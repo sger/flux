@@ -1,2 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/eof_after_lambda_params.flx
+// error[E034]: Missing Lambda Arrow
+//
+// I was expecting `->` after the lambda parameters, but I found the end of the file.
+//
+//   examples/parser_errors/eof_after_lambda_params.flx:25:19
+//    |
+// 25 |     let f = \(x, y)
+//    |                   ^
+//    |                   - this lambda parameter list ends here
+//
+// Note:
+//   while parsing function `main` > lambda expression
+//
+// Help:
+//   Use `\x -> expr` or `\(x, y) -> expr`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 fn main() -> Unit {
     let f = \(x, y)
+

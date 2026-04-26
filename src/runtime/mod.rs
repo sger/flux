@@ -19,6 +19,7 @@ pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;
 pub mod continuation;
+pub mod evidence;
 pub mod frame;
 pub mod function_contract;
 pub mod hamt;
@@ -30,6 +31,7 @@ pub mod leak_detector;
 pub mod perform_descriptor;
 pub mod runtime_type;
 pub mod value;
+pub mod yield_state;
 
 pub mod nanbox;
 

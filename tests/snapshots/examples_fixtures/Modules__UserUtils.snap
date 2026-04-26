@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/UserUtils.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.UserUtils` doesn't match file path `examples/Modules/UserUtils.flx`.
 
-  examples/Modules/UserUtils.flx:1:1
+  examples/Modules/UserUtils.flx:4:1
   |
-1 | module Modules.UserUtils {
+4 | module Modules.UserUtils {
   | ^
 
 Hint:

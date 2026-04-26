@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/ConsoleLoggerExample/Flow/Console.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `ConsoleLoggerExample.Flow.Console` doesn't match file path `examples/type_classes/ConsoleLoggerExample/Flow/Console.flx`.
+
+  examples/type_classes/ConsoleLoggerExample/Flow/Console.flx:1:1
+  |
+1 | module ConsoleLoggerExample.Flow.Console {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

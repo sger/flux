@@ -1,15 +1,20 @@
 ---
-source: tests/regression_snapshots.rs
+source: tests/integration/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/semantic_types/runtime_boundaries/annotation_mismatch_error.flx
 exit_code: 1
 
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
 • 1 error • tests/fixtures/semantic_types/runtime_boundaries/annotation_mismatch_error.flx
 error[E300]: Argument Type Mismatch
 
@@ -18,7 +23,7 @@ I found the wrong type in the 1st argument to `inc`.
   tests/fixtures/semantic_types/runtime_boundaries/annotation_mismatch_error.flx:4:9
   |
 1 | fn inc(x: Int) -> Int { x + 1 }
-  | ------------------------------- `inc` expects `Int` as the 1st parameter
+  | --------------------- `inc` expects `Int` as the 1st parameter
 2 | 
 3 | fn main() {
 4 |     inc("oops")

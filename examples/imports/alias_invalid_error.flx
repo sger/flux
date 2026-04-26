@@ -1,5 +1,6 @@
 // root: examples
 // expect: compile_error
+// expect-error: E026
 
 import Modules.Data.MyFile as myfile
 

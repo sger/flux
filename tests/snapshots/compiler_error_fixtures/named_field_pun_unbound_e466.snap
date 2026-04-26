@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/named_field_pun_unbound_e466.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `x`.
 
-  examples/compiler_errors/named_field_pun_unbound_e466.flx:10:21
+  examples/compiler_errors/named_field_pun_unbound_e466.flx:14:21
    |
-10 |     let p = Point { x, y }
+14 |     let p = Point { x, y }
    |                     ^
 
 Hint:
@@ -25,9 +25,9 @@ error[E466]: Punned Field Not In Scope
 
 No variable named `x` is in scope for punning.
 
-  examples/compiler_errors/named_field_pun_unbound_e466.flx:10:21
+  examples/compiler_errors/named_field_pun_unbound_e466.flx:14:21
    |
-10 |     let p = Point { x, y }
+14 |     let p = Point { x, y }
    |                     ^
 
 Found 2 errors.

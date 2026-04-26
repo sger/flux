@@ -1,5 +1,5 @@
 ---
-source: tests/compiler_error_fixtures_snapshots.rs
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
 Fixture: examples/compiler_errors/rigid_var_escape_e305.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E305]: Rigid Type Variable Escape
 
 Rigid type variable `a` cannot be unified with `Int`.
 
-  examples/compiler_errors/rigid_var_escape_e305.flx:8:5
-  |
-8 |     x + 1
-  |     ^^^^^
-  |     ----- forces `a` to become `Int`
+  examples/compiler_errors/rigid_var_escape_e305.flx:11:5
+   |
+11 |     x + 1
+   |     ^^^^^
+   |     ----- forces `a` to become `Int`
 
-  |     ----- this type mismatch is reported here
+   |     ----- this type mismatch is reported here
 
 Note:
   the conflicting types meet at this expression

@@ -1,26 +1,26 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E083]: Non-Exhaustive ADT Match
+error[E015]: Non-Exhaustive Match
 
-Match on `Wrap` is missing constructors: Boxed.
+Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx:14:5
+  examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx:39:5
    |
-14 |     match w {
+39 |     match w {
    |     ^^^^^^^^^
-15 |         Boxed(SomeI(v)) if v > 0 -> v,
+40 |         Boxed(SomeI(v)) if v > 0 -> v,
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |         Empty -> 0,
+41 |         Empty -> 0,
    | ^^^^^^^^^^^^^^^^^^^
-17 |     }
+42 |     }
    | ^^^^^
 
 Hint:
-  Add arms for Boxed or add a `_ -> ...` catch-all.
+  Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
 == stdout ==
 <not executed>

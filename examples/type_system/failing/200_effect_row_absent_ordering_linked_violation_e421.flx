@@ -1,9 +1,35 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx
+// error[E421]: Effect Requirement Mismatch
+//
+// I cannot subtract effect `Console` from this effect row.
+//
+//   examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:46:13
+//    |
+// 46 |     let _ = needs_linked_absence(row_var_worker, console_worker)
+//    |             ^^^^^^^^^^^^^^^^^^^^
+//    |             -------------------- this call violates an effect-row subtraction constraint
+//
+//    |             -------------------- this call to `needs_linked_absence` creates the effect obligation
+//
+// Note:
+//   requested subtraction: Console
+//   constraint source: effect-row checking for `needs_linked_absence`
+//
+// Help:
+//   Handle or include this effect before subtracting it from an effect row.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E421
+
 // E421: deferred Absent catches shared-row binding from a later argument.
 
 fn needs_linked_absence(
-    first: (() -> Int with |e - IO),
+    first: (() -> Int with |e - Console),
     second: (() -> Int with |e)
-) -> Int with |e - IO {
+) -> Int with |e - Console {
     first() + second()
 }
 
@@ -11,11 +37,11 @@ fn row_var_worker() -> Int with |e {
     1
 }
 
-fn io_worker() -> Int with IO {
-    print("io")
+fn console_worker() -> Int with Console {
+    print("console")
     2
 }
 
-fn main() -> Unit with IO {
-    let _ = needs_linked_absence(row_var_worker, io_worker)
+fn main() -> Unit with Console {
+    let _ = needs_linked_absence(row_var_worker, console_worker)
 }

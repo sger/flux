@@ -113,6 +113,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             body,
             span: _,
             fip: _,
+            intrinsic: _,
         } => {
             visitor.visit_identifier(name);
             for param in parameters {
@@ -158,8 +159,19 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         Statement::Data { .. } => {}
         Statement::EffectDecl { .. } => {}
-        Statement::Class { .. } => {}
-        Statement::Instance { .. } => {}
+        Statement::EffectAlias { .. } => {}
+        Statement::Class { methods, .. } => {
+            for method in methods {
+                if let Some(body) = method.default_body.as_ref() {
+                    visitor.visit_block(body);
+                }
+            }
+        }
+        Statement::Instance { methods, .. } => {
+            for method in methods {
+                visitor.visit_block(&method.body);
+            }
+        }
     }
 }
 
@@ -362,11 +374,22 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(arg);
             }
         }
-        Expression::Handle { expr, arms, .. } => {
+        Expression::Handle {
+            expr,
+            parameter,
+            arms,
+            ..
+        } => {
             visitor.visit_expr(expr);
+            if let Some(parameter) = parameter {
+                visitor.visit_expr(parameter);
+            }
             for arm in arms {
                 visitor.visit_expr(&arm.body);
             }
+        }
+        Expression::Sealing { expr, .. } => {
+            visitor.visit_expr(expr);
         }
         Expression::NamedConstructor { fields, .. } => {
             for field in fields {

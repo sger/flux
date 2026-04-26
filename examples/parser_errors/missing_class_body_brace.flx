@@ -1,3 +1,45 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/parser_errors/missing_class_body_brace.flx
+// error[E034]: Missing Class Body
+//
+// Expected `{` to begin class body.
+//
+//   examples/parser_errors/missing_class_body_brace.flx:50:5
+//    |
+// 50 |     fn show(x: a) -> String
+//    |     ^^
+//
+// Hint:
+//   Class declarations use `class Name<a> { fn method(x: a) -> ReturnType }`.
+//
+//
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/missing_class_body_brace.flx:52:1
+//    |
+// 50 |     fn show(x: a) -> String
+//    |     - `show` starts here
+// 51 | 
+// 52 | fn main() {
+//    | ^^
+//    | -- This looks like the function body
+//
+// Note:
+//   while parsing function `show`
+//
+// Help:
+//   Try adding `{` after the function signature.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+
 // Missing `{` to begin class body.
 //
 // Expected: E034 Missing Class Body
@@ -10,3 +52,4 @@ class Show<a>
 fn main() {
     42
 }
+

@@ -124,6 +124,8 @@ define_tokens! {
         Let    => "let",
         Do     => "do",
         Fn     => "fn",
+        Intrinsic => "intrinsic",
+        Primop => "primop",
         Public => "public",
         With   => "with",
         If     => "if",
@@ -144,9 +146,11 @@ define_tokens! {
         Data   => "data",
         Effect => "effect",
         Handle => "handle",
+        Sealing => "sealing",
         Perform => "perform",
         Class => "class",
         Instance => "instance",
         Deriving => "deriving",
+        Alias => "alias",
     }
 }

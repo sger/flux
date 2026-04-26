@@ -7,6 +7,8 @@ Advent of Code - Day 1 Part 2 (Secret Entrance, method 0x434C49434B)
 Uses input file: examples/aoc/2025/aoc_day1.txt
 */
 
+import Flow.Array as Array
+
 // Program entry point.
 fn main() with IO, Time {
     // Helper for wrap 100.
@@ -73,7 +75,7 @@ fn main() with IO, Time {
         }
     }
 
-    let lines = to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
+    let lines = Array.to_list(read_lines("examples/aoc/2025/aoc_day1.txt"))
     let steps = [trim(line) | line <- lines, trim(line) != ""]
     let password = solve(steps, 50, 0)
     print(password)

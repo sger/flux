@@ -1,26 +1,27 @@
 ---
-source: tests/aether_cli_snapshots.rs
+source: tests/aether/cli_snapshots.rs
 ---
-[1 of 7] Compiling  Assert
-[2 of 7] Compiling  IO
-[3 of 7] Compiling  List
-[4 of 7] Compiling  Numeric
-[5 of 7] Compiling  Option
-[6 of 7] Compiling  String
+[ 1 of 12] Compiling  Assert
+[ 2 of 12] Compiling  Debug
+[ 3 of 12] Compiling  Array
+[ 4 of 12] Compiling  List
+[ 5 of 12] Compiling  Either
+[ 6 of 12] Compiling  IO
+[ 7 of 12] Compiling  Math
+[ 8 of 12] Compiling  Numeric
+[ 9 of 12] Compiling  Option
+[10 of 12] Compiling  Primops
+[11 of 12] Compiling  String
 • 1 error • examples/compiler_errors/fbip_fail_nonfip_call.flx
 error[E999]: FBIP Contract Failed
 
 @fbip on `bounded` analysis result NotProvable:
 - calls indirect or opaque callee `f` whose FBIP behavior is unknown
 
-  examples/compiler_errors/fbip_fail_nonfip_call.flx:10:7
+  examples/compiler_errors/fbip_fail_nonfip_call.flx:13:7
    |
-10 | @fbip fn bounded(f, x) {
-   |       ^^^^^^^^^^^^^^^^^^
-11 |     f(x)
-   | ^^^^^^^^
-12 | }
-   | ^
+13 | @fbip fn bounded(f, x) {
+   |       ^^^^^^^^^^^^^^^^
 
 Hint:
   Annotate only functions whose fresh allocations remain provably bounded.

@@ -1,3 +1,6 @@
+// expect: compile_error
+// expect-error: E018
+
 // Entry point for verifying const string ordering in module constants.
 import ModuleGraph.ConstStringOrdering
 

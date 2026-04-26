@@ -1,56 +1,10 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/optimizations/tail_recursion.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/optimizations/tail_recursion.flx:41:5
-   |
-41 |     fibonacci_non_tail(n - 1) + fibonacci_non_tail(n - 2);
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     ----------------------------------------------------- this expression has type `Unit and Unit`
-
-   |     ----------------------------------------------------- operator operands are known at compile time
-
-Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: Unit and Unit
-
-Help:
-  These two types are not compatible.
-  adjust operand types or add explicit conversion
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `print`.
-
-  examples/optimizations/tail_recursion.flx:49:1
-   |
-49 | print("Factorial(5):", result1);
-   | ^^^^^
-
-Hint:
-  Define it first: let print = ...;
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `print`.
-
-  examples/optimizations/tail_recursion.flx:50:1
-   |
-50 | print("Fibonacci(10):", result2);
-   | ^^^^^
-
-Hint:
-  Define it first: let print = ...;
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

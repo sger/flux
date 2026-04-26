@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/namespaces/qualified_collision_ok.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Foo.List` to import.
 
-  examples/namespaces/qualified_collision_ok.flx:1:1
+  examples/namespaces/qualified_collision_ok.flx:5:1
   |
-1 | import Modules.Foo.List
+5 | import Modules.Foo.List
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Bar.List` to import.
 
-  examples/namespaces/qualified_collision_ok.flx:2:1
+  examples/namespaces/qualified_collision_ok.flx:6:1
   |
-2 | import Modules.Bar.List
+6 | import Modules.Bar.List
   | ^
 
 Hint:

@@ -1,3 +1,44 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/parser_errors/missing_class_name.flx
+// error[E034]: Missing Class Name
+//
+// Expected class name or constraint after `class`.
+//
+//   examples/parser_errors/missing_class_name.flx:48:7
+//    |
+// 48 | class {
+//    |       ^
+//
+// Hint:
+//   Class declarations use `class Name<a> { ... }`.
+//
+//
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/missing_class_name.flx:50:1
+//    |
+// 49 |     fn size(x: a) -> Int
+//    |     - `size` starts here
+// 50 | }
+//    | ^
+//    | - This looks like the function body
+//
+// Note:
+//   while parsing function `size`
+//
+// Help:
+//   Try adding `{` after the function signature.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+// expect-error: E034
+
 // Missing class name after `class` keyword.
 //
 // Expected: E034 Missing Class Name
@@ -11,3 +52,4 @@ class {
 fn main() {
     42
 }
+

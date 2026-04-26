@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// bug: Parameterized handler arms keep the ordinary handler rule that an arm
+//      may return the handled expression result directly instead of resuming.
+// parity-expected-stdout-begin
+// "41"
+// parity-expected-stdout-end
+
+effect Pick {
+    pick : () -> Int
+}
+
+fn choose() -> Int with Pick {
+    perform Pick.pick()
+}
+
+fn main() with IO {
+    let result = choose() handle Pick(41) {
+        pick(_resume, state) -> state
+    }
+    print(to_string(result))
+}

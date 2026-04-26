@@ -235,6 +235,27 @@ void flux_print(int64_t val) {
 void flux_println(int64_t val) {
     flux_print(val);
 }
+
+/* Debug-trace output. Routed to stderr so it does not corrupt stdout
+ * pipelines — matches GHC Debug.Trace, Rust dbg!, and Python logging.
+ *
+ * The Flow.Debug wrappers always pass a pre-formatted String (produced by
+ * `show()` / `to_string()` / a caller-supplied formatter), so the fast
+ * path just writes the string's bytes directly to stderr. Non-string
+ * fallback is provided for direct tests and primop-level callers. */
+void flux_debug_trace(int64_t val) {
+    if (flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
+        fwrite(flux_string_data(val), 1, flux_string_len(val), stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Defensive fallback: temporarily redirect value-print to stderr
+         * by flushing stdout, printing, and flushing stderr. Not used by
+         * the Flow.Debug wrappers, but keeps primop-level calls honest. */
+        fflush(stdout);
+        fprintf(stderr, "<debug non-string value=%lld>\n", (long long)val);
+    }
+    fflush(stderr);
+}
 /* Print value without newline, followed by a space — used for multi-arg print. */
 void flux_print_space(int64_t val) {
     flux_print_value(val);
@@ -387,6 +408,70 @@ int64_t flux_max(int64_t a, int64_t b) {
     int64_t ra = flux_untag_int(a);
     int64_t rb = flux_untag_int(b);
     return flux_tag_int(ra > rb ? ra : rb);
+}
+
+int64_t flux_sqrt(int64_t n) {
+    return flux_box_float(sqrt(flux_unbox_float(n)));
+}
+
+int64_t flux_sin(int64_t n) {
+    return flux_box_float(sin(flux_unbox_float(n)));
+}
+
+int64_t flux_cos(int64_t n) {
+    return flux_box_float(cos(flux_unbox_float(n)));
+}
+
+int64_t flux_exp(int64_t n) {
+    return flux_box_float(exp(flux_unbox_float(n)));
+}
+
+int64_t flux_log(int64_t n) {
+    return flux_box_float(log(flux_unbox_float(n)));
+}
+
+int64_t flux_floor(int64_t n) {
+    return flux_box_float(floor(flux_unbox_float(n)));
+}
+
+int64_t flux_ceil(int64_t n) {
+    return flux_box_float(ceil(flux_unbox_float(n)));
+}
+
+int64_t flux_round(int64_t n) {
+    return flux_box_float(round(flux_unbox_float(n)));
+}
+
+int64_t flux_tan(int64_t n) {
+    return flux_box_float(tan(flux_unbox_float(n)));
+}
+
+int64_t flux_asin(int64_t n) {
+    return flux_box_float(asin(flux_unbox_float(n)));
+}
+
+int64_t flux_acos(int64_t n) {
+    return flux_box_float(acos(flux_unbox_float(n)));
+}
+
+int64_t flux_atan(int64_t n) {
+    return flux_box_float(atan(flux_unbox_float(n)));
+}
+
+int64_t flux_sinh(int64_t n) {
+    return flux_box_float(sinh(flux_unbox_float(n)));
+}
+
+int64_t flux_cosh(int64_t n) {
+    return flux_box_float(cosh(flux_unbox_float(n)));
+}
+
+int64_t flux_tanh(int64_t n) {
+    return flux_box_float(tanh(flux_unbox_float(n)));
+}
+
+int64_t flux_truncate(int64_t n) {
+    return flux_box_float(trunc(flux_unbox_float(n)));
 }
 
 /* ── Runtime-dispatching arithmetic ─────────────────────────────────── */

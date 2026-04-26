@@ -122,6 +122,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             body,
             span,
             fip,
+            intrinsic,
         } => Statement::Function {
             is_public,
             name: folder.fold_identifier(name),
@@ -136,6 +137,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             body: folder.fold_block(body),
             span,
             fip,
+            intrinsic,
         },
         Statement::Assign { name, value, span } => Statement::Assign {
             name: folder.fold_identifier(name),
@@ -189,6 +191,15 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             deriving,
         },
         Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
+        Statement::EffectAlias {
+            name,
+            expansion,
+            span,
+        } => Statement::EffectAlias {
+            name,
+            expansion,
+            span,
+        },
         Statement::Class {
             is_public,
             name,
@@ -425,12 +436,14 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
         Expression::Handle {
             expr,
             effect,
+            parameter,
             arms,
             span,
             id,
         } => Expression::Handle {
             expr: Box::new(folder.fold_expr(*expr)),
             effect: folder.fold_identifier(effect),
+            parameter: parameter.map(|p| Box::new(folder.fold_expr(*p))),
             arms: arms
                 .into_iter()
                 .map(|a| HandleArm {
@@ -445,6 +458,17 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
                     span: a.span,
                 })
                 .collect(),
+            span,
+            id,
+        },
+        Expression::Sealing {
+            expr,
+            allowed,
+            span,
+            id,
+        } => Expression::Sealing {
+            expr: Box::new(folder.fold_expr(*expr)),
+            allowed,
             span,
             id,
         },

@@ -1,3 +1,36 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/05_runtime_float_string_arg_via_any.flx
+// error[E300]: Argument Type Mismatch
+//
+// I found the wrong type in the 1st argument to `area`.
+//
+//   examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:45:6
+//    |
+// 38 | fn area(radius: Float) -> Float {
+//    | ------------------------------- `area` expects `Float` as the 1st parameter
+// 39 |     3.14159 * radius * radius
+// 40 | }
+// ... |
+// 43 |
+// 44 |
+// 45 | area(dynamic)
+//    |      ^^^^^^^
+//    |      ------- this argument has type `String`
+//
+// Note:
+//   expected argument type: Float
+//   found argument type: String
+//   the actual argument type is inferred from this expression
+//   the expected argument type comes from the function signature
+//
+// Help:
+//   Pass a `Float` value as the 1st argument.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 fn identity(v) {
     v
 }

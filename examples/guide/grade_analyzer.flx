@@ -1,0 +1,143 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "=== Student Grade Analysis ==="
+// "Alice: avg=91.5, grade=A, passed=true"
+// "Bob: avg=78.75, grade=C, passed=true"
+// "Charlie: avg=95.5, grade=A, passed=true"
+// "Diana: avg=68.75, grade=D, passed=true"
+// "Eve: avg=53.75, grade=F, passed=false"
+// "=== Summary ==="
+// "Passed: 4"
+// "Failed: 1"
+// parity-expected-stdout-end
+
+/*
+Student Grade Analyzer (self-contained)
+*/
+
+
+import Flow.Array as Array
+import Flow.Map as Map
+
+type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
+type Student = Student(String, List<Float>)
+type Summary = Summary(Float, Grade, Bool)
+
+// Helper for make student.
+fn make_student(name, scores) {
+    Student(name, scores)
+}
+
+// Helper for average.
+fn average(scores) {
+    let (total, count) = fold(scores, (0.0, 0.0), \(acc, x) -> (acc.0 + x, acc.1 + 1.0))
+    total / count
+}
+
+// Helper for letter grade.
+fn letter_grade(avg) {
+    if avg >= 90.0 { return GradeA }
+    if avg >= 80.0 { return GradeB }
+    if avg >= 70.0 { return GradeC }
+    if avg >= 60.0 { return GradeD }
+    GradeF
+}
+
+// Helper for grade label.
+fn grade_label(grade) {
+    match grade {
+        GradeA -> "A",
+        GradeB -> "B",
+        GradeC -> "C",
+        GradeD -> "D",
+        GradeF -> "F",
+        _ -> "?",
+    }
+}
+
+// Helper for summarize.
+fn summarize(student) {
+    let scores = match student {
+        Student(_, values) -> values,
+    }
+    let avg = average(scores)
+    let grade = letter_grade(avg)
+    let passed = avg >= 60.0
+    Summary(avg, grade, passed)
+}
+
+// Helper for student name.
+fn student_name(student) {
+    match student {
+        Student(name, _) -> name,
+    }
+}
+
+// Helper for analyze.
+fn analyze(students) {
+    fold(students, {}, \(acc, s) ->
+        Map.set(acc, student_name(s), summarize(s))
+    )
+}
+
+// Count passed.
+fn count_passed(results) {
+    len(filter(Array.to_list(Map.values(results)), \r ->
+            match r {
+                Summary(_, _, passed) -> passed,
+            }
+    ))
+}
+
+// Count failed.
+fn count_failed(results) {
+    len(filter(Array.to_list(Map.values(results)), \r ->
+            match r {
+                Summary(_, _, passed) -> !passed,
+            }
+    ))
+}
+
+// Format result line.
+fn format_result_line(name, r) {
+    match r {
+        Summary(avg, grade, passed) ->
+        name
+        + ": avg=" + to_string(avg)
+        + ", grade=" + grade_label(grade)
+        + ", passed=" + to_string(passed),
+    }
+}
+
+// Helper for lookup result line.
+fn result_line(results, name) {
+    let maybe_result = results[name]
+    match maybe_result {
+        Some(r) -> format_result_line(name, r),
+        _ -> name + ": not found",
+    }
+}
+
+// Program entry point.
+fn main() with IO {
+    let students = [
+        make_student("Alice", [92.0, 88.0, 95.0, 91.0]),
+        make_student("Bob", [78.0, 82.0, 75.0, 80.0]),
+        make_student("Charlie", [95.0, 98.0, 92.0, 97.0]),
+        make_student("Diana", [65.0, 70.0, 68.0, 72.0]),
+        make_student("Eve", [55.0, 60.0, 48.0, 52.0]),
+    ]
+
+    print("=== Student Grade Analysis ===")
+    let results = analyze(students)
+
+    print(result_line(results, "Alice"))
+    print(result_line(results, "Bob"))
+    print(result_line(results, "Charlie"))
+    print(result_line(results, "Diana"))
+    print(result_line(results, "Eve"))
+
+    print("=== Summary ===")
+    print("Passed: " + to_string(count_passed(results)))
+    print("Failed: " + to_string(count_failed(results)))
+}

@@ -1,17 +1,21 @@
-fn main() with IO, Time {
-    fn now_plus(delta: Int) -> Int with Time {
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// skip: prints live Clock.now_ms output
+
+fn main() with Console, Clock {
+    fn now_plus(delta: Int) -> Int with Clock {
         now_ms() + delta
     }
 
-    fn log_now(prefix: String) with IO, Time {
+    fn log_now(prefix: String) with Console, Clock {
         let t = now_plus(0)
         print("#{prefix}#{t}")
     }
 
-    fn greet(name: String) with IO {
+    fn greet(name: String) with Console {
         print("Hello, #{name}")
     }
 
-    // log_now("timestamp=")
+    log_now("timestamp=")
     greet("Flux")
 }

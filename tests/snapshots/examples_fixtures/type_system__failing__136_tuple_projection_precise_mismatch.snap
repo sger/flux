@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/136_tuple_projection_precise_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/type_system/failing/136_tuple_projection_precise_mismatch.flx:2:22
-  |
-2 |     let value: Int = (1, "s").1
-  |                      ^^^^^^^^^^
-  |                      ---------- this value has type `String`
+  examples/type_system/failing/136_tuple_projection_precise_mismatch.flx:28:22
+   |
+28 |     let value: Int = (1, "s").1
+   |                      ^^^^^^^^^^
+   |                      ---------- this value has type `String`
 
-  |                --- but `value` was annotated as `Int`
+   |                --- but `value` was annotated as `Int`
 
 Note:
   annotated type: Int

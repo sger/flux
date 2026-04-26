@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "context"
+// "5"
+// parity-expected-stdout-end
+
 // Mixed concrete effects with polymorphic callback propagation.
 
 fn run_with_context(f: (() -> Int with |e)) -> Int with IO + Time | e {

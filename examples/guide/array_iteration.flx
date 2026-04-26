@@ -1,0 +1,52 @@
+// parity-expected-stdout-begin
+// 1
+// 2
+// 3
+// 4
+// 5
+// "done"
+// 15
+// 3
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+// Helper for mySum.
+fn mySum(arr) {
+    Array.fold(arr, 0, fn(acc, x) { acc + x })
+}
+
+// Helper for countItems.
+fn countItems(arr) {
+    Array.length(arr)
+}
+
+// Program entry point.
+fn main() with IO {
+    // Test: Array iteration with recursion
+    // Expected output:
+    // 1
+    // 2
+    // 3
+    // 4
+    // 5
+    // done
+    // 15
+    // 3
+
+    let values = [|1, 2, 3, 4, 5|]
+
+    // Print each element through indexed lookup.
+    print(unwrap(values[0]))
+    print(unwrap(values[1]))
+    print(unwrap(values[2]))
+    print(unwrap(values[3]))
+    print(unwrap(values[4]))
+    print("done")
+
+    // Sum all elements
+    print(mySum(values))
+
+    // Count elements (alternative to len)
+    print(countItems([|10, 20, 30|]))
+}

@@ -103,7 +103,15 @@ pub fn free_vars_rec_aether(
             free_vars_rec_aether(object, bound, free);
         }
         AetherExpr::Return { value, .. } => free_vars_rec_aether(value, bound, free),
-        AetherExpr::Handle { body, handlers, .. } => {
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                free_vars_rec_aether(parameter, bound, free);
+            }
             free_vars_rec_aether(body, bound, free);
             for handler in handlers {
                 let mut new_binders = Vec::new();
@@ -114,6 +122,11 @@ pub fn free_vars_rec_aether(
                     if bound.insert(p.id) {
                         new_binders.push(p.id);
                     }
+                }
+                if let Some(state) = handler.state
+                    && bound.insert(state.id)
+                {
+                    new_binders.push(state.id);
                 }
                 free_vars_rec_aether(&handler.body, bound, free);
                 for binder in new_binders {

@@ -1,18 +1,21 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import Flow.FTest as Test
 import TypeSystem.RealProgramDomain as D
 
-fn test_score_band_boundaries() {
+fn test_score_band_boundaries() with IO {
     Test.eq(D.band_label(D.score_band(10)), "LOW")
     Test.eq(D.band_label(D.score_band(60)), "MID")
     Test.eq(D.band_label(D.score_band(95)), "HIGH")
 }
 
-fn test_normalize_clamps_tuple() {
+fn test_normalize_clamps_tuple() with IO {
     Test.eq(D.normalize(("a", -5)), ("a", 0))
     Test.eq(D.normalize(("b", 200)), ("b", 100))
 }
 
-fn test_total_scores() {
+fn test_total_scores() with IO {
     let xs = list(("alice", 10), ("bob", 20), ("carol", 30))
     Test.eq(D.total_scores(xs), 60)
 }

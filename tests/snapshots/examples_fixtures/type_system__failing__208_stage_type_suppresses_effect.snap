@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/208_stage_type_suppresses_effect.flx
 == compile ==
@@ -9,16 +9,11 @@ error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Mystery.
 
-  examples/type_system/failing/208_stage_type_suppresses_effect.flx:13:19
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:68:1
    |
-13 | fn main() with IO {
-   |                   ^
-14 |     print(greet(42))
-   | ^^^^^^^^^^^^^^^^^^^^
-15 |     bad()
-   | ^^^^^^^^^
-16 | }
-   | ^
+68 | fn main() with IO {
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- undischarged effects at root boundary
 
 Hint:
   Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
@@ -28,17 +23,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 
-  examples/type_system/failing/208_stage_type_suppresses_effect.flx:14:17
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:69:17
    |
- 5 | fn greet(name: String) -> String {
- 6 |     "Hello, #{name}!"
- 7 | }
- 8 | 
- 9 | fn bad() with Mystery {
+60 | fn greet(name: String) -> String {
+   | -------------------------------- `greet` expects `String` as the 1st parameter
+61 |     "Hello, #{name}!"
+62 | }
 ... |
-12 | 
-13 | fn main() with IO {
-14 |     print(greet(42))
+67 | 
+68 | fn main() with IO {
+69 |     print(greet(42))
    |                 ^^
    |                 -- this argument has type `Int`
 

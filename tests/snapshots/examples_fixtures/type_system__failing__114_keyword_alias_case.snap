@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/114_keyword_alias_case.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `case`. Flux uses `match` for pattern matching.
 
-  examples/type_system/failing/114_keyword_alias_case.flx:2:5
-  |
-2 |     case 1 {
-  |     ^^^^
+  examples/type_system/failing/114_keyword_alias_case.flx:24:5
+   |
+24 |     case 1 {
+   |     ^^^^
 
 Hint:
   Did you mean `match`?

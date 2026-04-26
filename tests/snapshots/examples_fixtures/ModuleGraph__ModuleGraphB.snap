@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/ModuleGraph/ModuleGraphB.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ModuleGraphB` doesn't match file path `examples/ModuleGraph/ModuleGraphB.flx`.
 
-  examples/ModuleGraph/ModuleGraphB.flx:3:1
+  examples/ModuleGraph/ModuleGraphB.flx:6:1
   |
-3 | module ModuleGraph.ModuleGraphB {
+6 | module ModuleGraph.ModuleGraphB {
   | ^
 
 Hint:

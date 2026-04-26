@@ -1,3 +1,35 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx
+// error[E300]: Match Arm Type Mismatch
+//
+// The arms of this `match` expression do not agree on a type.
+//
+//   examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx:36:18
+//    |
+// 35 |         true -> 1,
+//    |                 - first arm returns `Int`
+//
+//    |                 - this arm established the expected type
+// 36 |         false -> "x",
+//    |                  ^^^
+//    |                  --- arm 2 has type `String`
+//
+//    |                  --- arm 2 conflicts with that type
+//
+// Note:
+//   first arm type: Int
+//   this arm type: String
+//   the first arm fixes the type expected from the whole `match`
+//   this arm produces the competing type
+//
+// Help:
+//   Change arm 2 so every arm returns the same type.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+
 fn main() -> Unit {
     let value: Int = match true {
         true -> 1,

@@ -1,0 +1,3 @@
+fn main() with Console {
+    println("sealing allows console") sealing { Console }
+}

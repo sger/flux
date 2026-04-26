@@ -19,6 +19,7 @@ mod inliner;
 pub mod lint;
 mod primop_promote;
 mod specialize;
+pub mod static_contract;
 mod tail_resumptive;
 
 pub use algebraic::algebraic_simplify;
@@ -117,12 +118,7 @@ pub fn run_core_passes_with_class_env(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     // Stage 0.5: Dictionary elaboration (before standard passes).
     if !class_env.classes.is_empty() {
-        let mut max_binder_id: u32 = 0;
-        for def in &program.defs {
-            max_binder_id = max_binder_id.max(def.binder.id.0);
-            collect_max_binder_id(&def.expr, &mut max_binder_id);
-        }
-        let mut next_id = max_binder_id + 1;
+        let mut next_id = next_fresh_binder_id(program);
         elaborate_dictionaries(program, class_env, type_env, interner, &mut next_id);
     }
     // Run the standard semantic pipeline first, then explicit Aether passes.
@@ -144,14 +140,9 @@ fn run_semantic_core_passes_with_optional_interner(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    let warnings = Vec::new();
+    let mut warnings: Vec<Diagnostic> = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
-    let mut max_binder_id: u32 = 0;
-    for def in &program.defs {
-        max_binder_id = max_binder_id.max(def.binder.id.0);
-        collect_max_binder_id(&def.expr, &mut max_binder_id);
-    }
-    let mut next_id = max_binder_id + 1;
+    let mut next_id = next_fresh_binder_id(program);
 
     // ── Stage 0: Promote known builtin calls to PrimOp ─────────────────
     // Must run after binder resolution (so `binder: None` is reliable) and
@@ -224,6 +215,31 @@ fn run_semantic_core_passes_with_optional_interner(
         }
     }
 
+    // ── Stage 1b: Static typing contract validation (Proposal 0167 Part 7) ─
+    //
+    // Spot-check each Core definition's HM-resolved result type for illegal
+    // unresolved residue *before* normalization settles representations.
+    //
+    // Violations emit at `Severity::Error` (see `build_violation` in
+    // `static_contract.rs`). The AST-level strict validator is the primary
+    // gate; this pass catches residue the AST pass missed — by definition
+    // a real contract violation.
+    //
+    // The diagnostics still travel through the `warnings` return channel
+    // because the surrounding pass infrastructure uses that channel as a
+    // general "non-fatal diagnostics" bag. Callers (the type-inference
+    // pass) treat Error-severity entries as fatal via `has_hm_diagnostics`.
+    //
+    // `FLUX_CORE_CONTRACT_SILENT` exists as a temporary escape hatch in
+    // case a real user program trips a false-positive during rollout. It
+    // can be removed once we have confidence in the pass.
+    if let Some(interner) = interner
+        && std::env::var_os("FLUX_CORE_CONTRACT_SILENT").is_none()
+    {
+        let report = static_contract::validate_core_static_contract(program, interner);
+        warnings.extend(report.violations);
+    }
+
     // ── Stage 2: Normalization passes (run once) ─────────────────────────
     for def in &mut program.defs {
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
@@ -282,6 +298,15 @@ pub fn check_fbip_annotations(
 }
 
 /// Walk an expression tree to find the maximum `CoreBinderId` in use.
+pub(crate) fn next_fresh_binder_id(program: &CoreProgram) -> u32 {
+    let mut max_binder_id: u32 = 0;
+    for def in &program.defs {
+        max_binder_id = max_binder_id.max(def.binder.id.0);
+        collect_max_binder_id(&def.expr, &mut max_binder_id);
+    }
+    max_binder_id + 1
+}
+
 fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
     use crate::core::CoreExpr::*;
     match expr {

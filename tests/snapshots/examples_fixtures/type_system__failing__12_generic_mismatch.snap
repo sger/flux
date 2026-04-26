@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/12_generic_mismatch.flx
 == compile ==
@@ -9,14 +9,14 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `both`.
 
-  examples/type_system/failing/12_generic_mismatch.flx:7:10
-  |
-5 | fn both<T>(a: T, b: T) -> T { a }
-  | --------------------------------- `both` expects `Int` as the 2nd parameter
-6 | 
-7 | both(42, "hello")
-  |          ^^^^^^^
-  |          ------- this argument has type `String`
+  examples/type_system/failing/12_generic_mismatch.flx:36:10
+   |
+34 | fn both<T>(a: T, b: T) -> T { a }
+   | --------------------------- `both` expects `Int` as the 2nd parameter
+35 | 
+36 | both(42, "hello")
+   |          ^^^^^^^
+   |          ------- this argument has type `String`
 
 Note:
   expected argument type: Int

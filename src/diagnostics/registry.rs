@@ -90,7 +90,6 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     UNKNOWN_BASE_MEMBER,
     UNKNOWN_CONSTRUCTOR,
     CONSTRUCTOR_ARITY_MISMATCH,
-    ADT_NON_EXHAUSTIVE_MATCH,
     MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
     CONSTRUCTOR_PATTERN_ARITY_MISMATCH,
     CROSS_MODULE_CONSTRUCTOR_ACCESS,
@@ -157,6 +156,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     STRING_INDEX_ERROR,
     STRING_ENCODING_ERROR,
     INVALID_SUBSTRING,
+    NON_TAIL_RESUMPTIVE_HANDLER,
+    MULTI_SHOT_HANDLER,
 ];
 
 fn error_code_map() -> &'static HashMap<&'static str, &'static ErrorCode> {
@@ -198,7 +199,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
             Some(DiagnosticCategory::TypeInference)
         }
         "E400" | "E401" | "E402" | "E403" | "E404" | "E405" | "E406" | "E407" | "E419" | "E420"
-        | "E421" | "E422" | "E425" => Some(DiagnosticCategory::Effects),
+        | "E421" | "E422" | "E425" | "E427" => Some(DiagnosticCategory::Effects),
         "E1004" => Some(DiagnosticCategory::RuntimeType),
         _ if code.starts_with("E100") || code.starts_with("E101") || code.starts_with("E102") => {
             Some(DiagnosticCategory::RuntimeExecution)

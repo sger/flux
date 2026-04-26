@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
+use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
 use crate::types::class_dispatch::generate_dispatch_functions;
@@ -26,6 +28,20 @@ impl Compiler {
         // Phase 0: Reset per-file state
         self.phase_reset();
 
+        self.validate_reserved_primop_names(program);
+
+        // Phase 0b (Proposal 0165): route effectful prelude primop calls
+        // through `perform` and wrap entrypoints with compiler-provided
+        // default handlers before collection/inference see the program.
+        let routing = route_effectful_primops_and_synthesize_handlers(
+            program,
+            &mut self.interner,
+            &self.user_declared_effect_names,
+        );
+        self.routed_call_perform_ids = routing.routed_call_perform_ids;
+        let routed_program = routing.program;
+        let program = &routed_program;
+
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);
 
@@ -51,6 +67,23 @@ impl Compiler {
             } else {
                 program
             }
+        } else {
+            program
+        };
+
+        // Phase 1c (Proposal 0161 B1): expand effect-row aliases in place.
+        // After this pass, every EffectExpr in the AST has any
+        // `alias Name = <...>` reference replaced by its decomposed body, so
+        // downstream phases (predeclaration, inference, codegen) never see
+        // unexpanded aliases.
+        let alias_expanded;
+        let program: &Program = if !self.effect_row_aliases.is_empty() {
+            alias_expanded = {
+                let mut owned: Program = program.clone();
+                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                owned
+            };
+            &alias_expanded
         } else {
             program
         };

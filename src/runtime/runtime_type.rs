@@ -236,7 +236,10 @@ impl RuntimeType {
             RuntimeType::Float => matches!(value, Value::Float(_)),
             RuntimeType::Bool => matches!(value, Value::Boolean(_)),
             RuntimeType::String => matches!(value, Value::String(_)),
-            RuntimeType::Unit => matches!(value, Value::None),
+            RuntimeType::Unit => {
+                matches!(value, Value::None)
+                    || matches!(value, Value::Tuple(elements) if elements.is_empty())
+            }
             RuntimeType::Option(inner) => match value {
                 Value::None => true,
                 Value::Some(v) => inner.matches_value(v, ctx),
@@ -449,6 +452,15 @@ mod tests {
     }
 
     #[test]
+    fn unit_runtime_type_matches_none_and_empty_tuple() {
+        let ctx = TestCtx::new();
+
+        assert!(RuntimeType::Unit.matches_value(&Value::None, &ctx));
+        assert!(RuntimeType::Unit.matches_value(&Value::Tuple(Rc::new(Vec::new())), &ctx));
+        assert!(!RuntimeType::Unit.matches_value(&Value::Tuple(Rc::new(vec![Value::None])), &ctx));
+    }
+
+    #[test]
     fn list_runtime_type_matches_cons_lists_recursively() {
         let ctx = TestCtx::new();
         let good = ConsCell::cons(
@@ -573,8 +585,8 @@ mod tests {
     #[test]
     fn function_runtime_type_rejects_effect_superset() {
         let mut interner = crate::syntax::interner::Interner::new();
-        let io = interner.intern("IO");
-        let time = interner.intern("Time");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
+        let time = crate::syntax::builtin_effects::time_effect_symbol(&mut interner);
         let ctx = TestCtx::new();
         let contract = FunctionContract {
             params: vec![Some(RuntimeType::Int)],
@@ -630,8 +642,8 @@ mod tests {
     #[test]
     fn function_runtime_type_accepts_effect_subset() {
         let mut interner = crate::syntax::interner::Interner::new();
-        let io = interner.intern("IO");
-        let time = interner.intern("Time");
+        let io = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
+        let time = crate::syntax::builtin_effects::time_effect_symbol(&mut interner);
         let ctx = TestCtx::new();
         let contract = FunctionContract {
             params: vec![Some(RuntimeType::Int)],

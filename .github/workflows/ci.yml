@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -38,9 +38,9 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Linux build tools
+      - name: Install Linux native build toolchain
         if: ${{ runner.os == 'Linux' }}
-        run: sudo apt-get update && sudo apt-get install -y binutils
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils lld
 
       - name: Changelog fragment check (PRs)
         if: github.event_name == 'pull_request'

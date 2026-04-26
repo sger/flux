@@ -1,3 +1,24 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+// error[E416]: Strict Function Annotation Required
+//
+// Public function `_foo` must annotate all parameters in strict mode.
+//
+//   examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx:24:8
+//    |
+// 24 | public fn _foo(x) -> Int {
+//    |        ^^^^^^^^^^^^^^^^^
+//    |        ----------------- missing parameter type annotations
+//
+// Hint:
+//   Add explicit parameter types to the function signature.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
+// expect: compile_error
+// expect-error: E416
+
 // `_` prefix does not make a function private in strict mode.
 
 public fn _foo(x) -> Int {

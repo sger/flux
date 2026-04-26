@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/101_missing_colon_let_annotation.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `x: Type`.
 
-  examples/type_system/failing/101_missing_colon_let_annotation.flx:1:7
-  |
-1 | let x Int = 1
-  |       ^^^
+  examples/type_system/failing/101_missing_colon_let_annotation.flx:20:7
+   |
+20 | let x Int = 1
+   |       ^^^
 
 Hint:
   Type annotations use `name: Type`.

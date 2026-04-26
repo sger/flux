@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/StrictPublicChecked.flx
 == compile ==
@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.StrictPublicChecked` doesn't match file path `examples/type_system/TypeSystem/StrictPublicChecked.flx`.
 
-  examples/type_system/TypeSystem/StrictPublicChecked.flx:1:1
+  examples/type_system/TypeSystem/StrictPublicChecked.flx:5:1
   |
-1 | module TypeSystem.StrictPublicChecked {
+5 | module TypeSystem.StrictPublicChecked {
   | ^
 
 Hint:

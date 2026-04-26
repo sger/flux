@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/85_hm_function_effect_mismatch.flx
 == compile ==
@@ -9,20 +9,21 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `apply_with_time`.
 
-  examples/type_system/failing/85_hm_function_effect_mismatch.flx:8:21
-  |
-3 | fn apply_with_time(f: ((Int) -> Int with Time), x: Int) -> Int {
-4 |     f(x)
-5 | }
-6 | 
-7 | fn main() -> Unit {
-8 |     apply_with_time(io_add_one, 1)
-  |                     ^^^^^^^^^^
-  |                     ---------- this argument has type `(Int) -> Int with IO`
+  examples/type_system/failing/85_hm_function_effect_mismatch.flx:40:21
+   |
+35 | fn apply_with_time(f: ((Int) -> Int with Time), x: Int) -> Int {
+   | -------------------------------------------------------------- `apply_with_time` expects `(Int) -> Int with Time` as the 1st parameter
+36 |     f(x)
+37 | }
+38 | 
+39 | fn main() -> Unit {
+40 |     apply_with_time(io_add_one, 1)
+   |                     ^^^^^^^^^^
+   |                     ---------- this argument has type `(Int) -> Int with Console, FileSystem, Stdin`
 
 Note:
   expected argument type: (Int) -> Int with Time
-  found argument type: (Int) -> Int with IO
+  found argument type: (Int) -> Int with Console, FileSystem, Stdin
   the actual argument type is inferred from this expression
   the expected argument type comes from the function signature
 

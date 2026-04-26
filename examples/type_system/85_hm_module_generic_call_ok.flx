@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 import TypeSystem.HmGenericModule as M
 
 fn probe() -> Int {

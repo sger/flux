@@ -1,0 +1,54 @@
+// Flow.Effects — effect label and alias spec (Proposal 0161 Phase 1).
+//
+// This file is **documentation**. It is not compiled or auto-imported; the
+// labels and aliases declared below are seeded programmatically by the
+// compiler in `Compiler::seed_builtin_effect_aliases` and
+// `Compiler::seed_builtin_effect_operations`, which are the operational
+// source of truth.
+//
+// **Drift protection:** the integration test
+// `tests/integration/flow_effects_spec_drift.rs` parses this file on every
+// `cargo test` run and fails if the declared labels, their operations, or
+// the alias expansions diverge from the compiler seed. Editing one side
+// without the other will break CI with a clear diff.
+//
+// The operational labels below are compiler-seeded. Console/FileSystem/Stdin/
+// Clock have builtin operations used by the effectful primop migration; the
+// remaining labels are row-only/reserved until real operations land. The
+// aliases `IO` and `Time` expand to the fine-grained rows at type-inference
+// time, so existing `with IO` / `with Time` annotations continue to work
+// without change.
+
+module Flow.Effects {
+
+    // ── I/O labels ─────────────────────────────────────────────
+    effect Console { print: a -> Unit, println: a -> Unit }
+    effect FileSystem {
+        read_file: String -> String,
+        read_lines: String -> Array<String>,
+        write_file: (String, String) -> Unit
+    }
+    effect Stdin { read_stdin: () -> String }
+    effect Clock { clock_now: () -> Int, now_ms: () -> Int }
+
+    // ── Non-determinism / randomness (reserved) ────────────────
+    effect Random
+    effect NonDet
+
+    // ── Failure labels ─────────────────────────────────────────
+    // Used by the optimizer to classify CanFail vs HasEffect primops.
+    effect Div           // division by zero, index OOB
+    effect Exn           // recoverable exceptions
+    effect Panic         // intentional crash — cannot be discarded
+
+    // ── Developer tracing ──────────────────────────────────────
+    // Routed to stderr so it does not corrupt stdout pipelines.
+    // Users typically interact via `Flow.Debug.debug` /
+    // `debug_labeled` / `debug_with`, which perform `Debug.trace`.
+    effect Debug { trace: String -> Unit }
+
+    // ── Aliases for ergonomics and backward compatibility ──────
+    alias IO   = <Console | FileSystem | Stdin>
+    alias Time = <Clock>
+
+}

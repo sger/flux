@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx:5:14
-  |
-5 |     let y = -x
-  |              ^
-  |              - this expression has type `String`
+  examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx:32:14
+   |
+32 |     let y = -x
+   |              ^
+   |              - this expression has type `String`
 
-  |              - unary '-' operand is known at compile time
+   |              - unary '-' operand is known at compile time
 
 Note:
   expected type: numeric operand (Int or Float)

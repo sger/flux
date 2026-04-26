@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
 == compile ==
@@ -9,21 +9,21 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:13:5
+  examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:45:5
    |
-13 |     run_needs_io_time(only_io)
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     -------------------------- parameter 1 has type `() -> Unit with IO`
+45 |     run_needs_console_clock(only_console)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------------------- parameter 1 has type `() -> Unit with Console`
 
-   |     -------------------------- this type mismatch is reported here
+   |     ------------------------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with IO, Time
-  found parameter type: () -> Unit with IO
+  expected parameter type: () -> Unit with Console, Clock
+  found parameter type: () -> Unit with Console
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with IO, Time` consistently.
+  Change parameter 1 to use `() -> Unit with Console, Clock` consistently.
 
 
 Note: Downstream Errors Suppressed

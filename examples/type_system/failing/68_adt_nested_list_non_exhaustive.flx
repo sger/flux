@@ -1,3 +1,28 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 1 missing pattern.
+//
+//   examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:34:5
+//    |
+// 34 |     match w {
+//    |     ^^^^^^^^^
+// 35 |         Boxed([]) -> 0,
+//    | ^^^^^^^^^^^^^^^^^^^^^^^
+// 36 |         Empty -> 0,
+//    | ^^^^^^^^^^^^^^^^^^^
+// 37 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E015
+
 // E083: nested list pattern set must cover empty and non-empty branches.
 
 data WrapList {

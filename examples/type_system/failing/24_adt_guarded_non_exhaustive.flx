@@ -1,3 +1,26 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/24_adt_guarded_non_exhaustive.flx
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 2 missing patterns.
+//
+//   examples/type_system/failing/24_adt_guarded_non_exhaustive.flx:32:5
+//    |
+// 32 |     match x {
+//    |     ^^^^^^^^^
+// 33 |         SomeI(v) if v > 0 -> v,
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// 34 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E015
+
 // E083: constructor arm with guard does not make the match exhaustive.
 
 data MaybeInt {

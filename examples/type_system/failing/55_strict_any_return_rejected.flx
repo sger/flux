@@ -1,3 +1,46 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/55_strict_any_return_rejected.flx
+// error[E423]: Unknown Type
+//
+// I can't find a type named `Any`.
+//
+//   examples/type_system/failing/55_strict_any_return_rejected.flx:44:25
+//    |
+// 44 | public fn id(x: Int) -> Any {
+//    |                         ^^^
+//    |                         --- unknown type used here
+//
+// Hint:
+//   Use a built-in type, an in-scope type parameter, or a declared ADT.
+//
+//
+// error[E300]: Return Type Mismatch
+//
+// The body of `id` does not match its declared return type.
+//
+//   examples/type_system/failing/55_strict_any_return_rejected.flx:45:5
+//    |
+// 44 | public fn id(x: Int) -> Any {
+//    |                         --- `id` was declared to return `Any`
+// 45 |     x
+//    |     ^
+//    |     - this expression has type `Int`
+//
+// Note:
+//   declared return type: Any
+//   body type: Int
+//
+// Help:
+//   Return a `Any` value from `id` or change its annotation.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
+// expect-error: E423
+
 public fn id(x: Int) -> Any {
     x
 }

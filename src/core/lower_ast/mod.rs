@@ -25,7 +25,9 @@ use crate::{
     types::infer_type::InferType,
 };
 
-use super::{CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreLit, CoreProgram, CoreTopLevelItem};
+use super::{
+    CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram, CoreTopLevelItem,
+};
 
 mod binder_resolution;
 mod expression;
@@ -526,6 +528,36 @@ impl<'a> AstLowerer<'a> {
                     },
                 )
             }
+            // Higher-kinded pattern: `HktApp(head, args)` shapes arise for
+            // signatures like `fn f<F, a>(xs: F<a>) where Functor<F>`, where
+            // `F` is a type constructor variable. When the pattern head is
+            // the constraint's target variable, bind it to the actual
+            // constructor so dictionary resolution can pick the right
+            // instance (Proposal 0168).
+            InferType::HktApp(pattern_head, pattern_args) => {
+                let actual_args = match actual {
+                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                    _ => return None,
+                };
+                if pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                if let InferType::Var(var) = pattern_head.as_ref()
+                    && *var == target
+                {
+                    return Some(match actual {
+                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
+                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
+                        _ => return None,
+                    });
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var(pattern_arg, actual_arg, target)
+                    })
+            }
             _ => None,
         }
     }
@@ -583,6 +615,15 @@ impl<'a> AstLowerer<'a> {
                 .and_then(|env| env.lookup(fn_name))
                 .map(|scheme| &scheme.infer_type),
         )
+    }
+
+    fn full_function_core_type_from_name(
+        &self,
+        fn_name: crate::syntax::Identifier,
+    ) -> Option<super::CoreType> {
+        self.type_env
+            .and_then(|env| env.lookup(fn_name))
+            .and_then(|scheme| super::CoreType::try_from_infer(&scheme.infer_type))
     }
 
     /// Convert a source-level type annotation to a `CoreType`, if the interner
@@ -647,6 +688,27 @@ impl<'a> AstLowerer<'a> {
 
     // ── Top-level statements ─────────────────────────────────────────────────
 
+    fn lower_function_body(
+        &mut self,
+        intrinsic: Option<CorePrimOp>,
+        params: &[CoreBinder],
+        body: &Block,
+        span: Span,
+    ) -> CoreExpr {
+        if let Some(op) = intrinsic {
+            CoreExpr::PrimOp {
+                op,
+                args: params
+                    .iter()
+                    .map(|param| CoreExpr::bound_var(param, span))
+                    .collect(),
+                span,
+            }
+        } else {
+            self.lower_block(body)
+        }
+    }
+
     fn lower_top_level(
         &mut self,
         stmt: &Statement,
@@ -663,6 +725,7 @@ impl<'a> AstLowerer<'a> {
                 parameters,
                 body,
                 fip,
+                intrinsic,
                 span,
                 return_type,
                 ..
@@ -678,7 +741,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
                 // definitions from value bindings.  We construct Lam directly
@@ -694,20 +757,12 @@ impl<'a> AstLowerer<'a> {
                 // The function itself doesn't have a single ExprId, but the body block does.
                 let mut def = CoreDef::new(binder, expr, true, *span);
                 def.fip = *fip;
-                // Try to get the type from the last expression in the block.
-                if let Some(
-                    Statement::Expression { expression, .. }
-                    | Statement::Return {
-                        value: Some(expression),
-                        ..
-                    },
-                ) = body.statements.last()
-                {
-                    def.result_ty = self.infer_core_type(expression.expr_id());
-                }
-                if def.result_ty.is_none() {
-                    def.result_ty = inferred_result_ty;
-                }
+                // Preserve the full inferred function type for semantic/debug
+                // Core dumps. Downstream lowering can peel `forall` wrappers
+                // when it needs concrete parameter/return metadata.
+                def.result_ty = self
+                    .full_function_core_type_from_name(*name)
+                    .or_else(|| inferred_result_ty.clone());
                 // If HM didn't resolve the result type, fall back to the
                 // source return-type annotation.  This is critical for
                 // recursive functions where HM may leave the return type as
@@ -791,6 +846,7 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }
@@ -812,6 +868,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span,
                     ..
                 } => {
@@ -822,7 +879,7 @@ impl<'a> AstLowerer<'a> {
                     if !param_types.is_empty() && param_types.len() != params.len() {
                         param_types = Vec::new();
                     }
-                    let body_expr = self.lower_block(body);
+                    let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
                     let expr = CoreExpr::Lam {
                         params,
                         param_types,
@@ -863,6 +920,7 @@ impl<'a> AstLowerer<'a> {
                 body: _,
                 span,
                 fip: _,
+                intrinsic: _,
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,
@@ -915,6 +973,10 @@ impl<'a> AstLowerer<'a> {
                 ops: ops.clone(),
                 span: *span,
             }),
+            // Effect aliases (Proposal 0161 B1) are a compile-time-only
+            // construct — they are consumed by the Compiler's alias table
+            // before Core lowering runs, so the Core IR never sees them.
+            Statement::EffectAlias { .. } => None,
             Statement::Class {
                 // Proposal 0151: Core IR is currently visibility-blind. Phase
                 // 2 will revisit whether `CoreTopLevelItem::Class` needs to
@@ -1104,6 +1166,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span: s,
                     ..
                 } = stmt
@@ -1116,7 +1179,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
                 (
                     binder,
                     Box::new(CoreExpr::Lam {
@@ -1167,6 +1230,7 @@ impl<'a> AstLowerer<'a> {
                     name,
                     parameters,
                     body,
+                    intrinsic,
                     span: s,
                     ..
                 } = stmt
@@ -1179,7 +1243,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_block(body);
+                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
                 CoreExpr::LetRec {
                     var: binder,
                     rhs: Box::new(CoreExpr::Lam {
@@ -1287,6 +1351,7 @@ impl<'a> AstLowerer<'a> {
             Statement::Import { .. }
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
+            | Statement::EffectAlias { .. }
             | Statement::Module { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => tail,
@@ -1472,6 +1537,7 @@ mod tests {
                 known_flow_names: std::collections::HashSet::new(),
                 flow_module_symbol: flow_sym,
                 preloaded_effect_op_signatures: HashMap::new(),
+                effect_row_aliases: HashMap::new(),
                 class_env: None,
             },
         );
@@ -1571,7 +1637,15 @@ mod tests {
                     collect_var_refs(arg, out);
                 }
             }
-            CoreExpr::Handle { body, handlers, .. } => {
+            CoreExpr::Handle {
+                body,
+                parameter,
+                handlers,
+                ..
+            } => {
+                if let Some(parameter) = parameter {
+                    collect_var_refs(parameter, out);
+                }
                 collect_var_refs(body, out);
                 for handler in handlers {
                     collect_var_refs(&handler.body, out);

@@ -1,3 +1,39 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/parser_errors/missing_module_closing_brace.flx
+// error[E076]: Missing Closing Delimiter
+//
+// Expected a closing `}` to match this opening `{`.
+//
+//   examples/parser_errors/missing_module_closing_brace.flx:42:13
+//    |
+// 42 | module Math {
+//    |             ^
+//
+// Note:
+//   while parsing module `Math`
+//
+//
+// • 1 error • examples/parser_errors/missing_module_closing_brace.flx
+// error[E024]: Module Path Mismatch
+//
+// Module name `Math` doesn't match file path `examples/parser_errors/missing_module_closing_brace.flx`.
+//
+//   examples/parser_errors/missing_module_closing_brace.flx:42:1
+//    |
+// 42 | module Math {
+//    | ^
+//
+// Hint:
+//   Rename the module or move the file to match.
+//
+// Found 2 errors across 2 modules.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E076
+// expect-error: E024
+
 // Missing closing `}` in module declaration.
 //
 // Expected: E076 UNCLOSED DELIMITER
@@ -10,3 +46,4 @@ module Math {
 fn main() -> Unit {
     let _r = Math.add(1, 2)
 }
+

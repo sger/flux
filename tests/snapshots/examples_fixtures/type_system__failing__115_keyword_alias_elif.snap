@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/115_keyword_alias_elif.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
 
-  examples/type_system/failing/115_keyword_alias_elif.flx:1:15
-  |
-1 | if true { 1 } elif false { 2 } else { 3 }
-  |               ^^^^
+  examples/type_system/failing/115_keyword_alias_elif.flx:41:15
+   |
+41 | if true { 1 } elif false { 2 } else { 3 }
+   |               ^^^^
 
 Hint:
   Did you mean `else if`?
@@ -26,10 +26,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
 
-  examples/type_system/failing/115_keyword_alias_elif.flx:1:15
-  |
-1 | if true { 1 } elif false { 2 } else { 3 }
-  |               ^^^^
+  examples/type_system/failing/115_keyword_alias_elif.flx:41:15
+   |
+41 | if true { 1 } elif false { 2 } else { 3 }
+   |               ^^^^
 
 Hint:
   Did you mean `else if`?

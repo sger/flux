@@ -36,7 +36,7 @@ use flux::llvm::pipeline::toolchain_info;
 use flux::{
     bytecode::bytecode_cache::hash_bytes,
     compiler::Compiler,
-    diagnostics::Diagnostic,
+    diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},
 };
@@ -104,6 +104,12 @@ fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
         let _ = flags;
         false
     }
+}
+
+fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
+    diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
 }
 
 /// Builds the initial run context after frontend parsing and compiler setup.
@@ -307,6 +313,10 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
     }
     match prepare_run_context(request) {
         Ok(mut ctx) => {
+            if has_error_diagnostics(&ctx.all_diagnostics) {
+                emit_compile_diagnostics_or_exit(&ctx, request);
+            }
+
             if try_run_parallel_vm_fast_path(&mut ctx, request) {
                 return;
             }
@@ -319,11 +329,7 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
             // before handing off to the native pipeline.
             #[cfg(feature = "llvm")]
             if should_dispatch_native_backend(request.flags) {
-                let has_errors = ctx
-                    .all_diagnostics
-                    .iter()
-                    .any(|d| d.severity == crate::diagnostics::Severity::Error);
-                if has_errors {
+                if has_error_diagnostics(&ctx.all_diagnostics) {
                     emit_compile_diagnostics_or_exit(&ctx, request);
                 }
                 // Clear frontend diagnostics — native backend collects its own.
@@ -349,11 +355,11 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_programs, should_build_merged_program, should_dispatch_native_backend,
-        should_try_parallel_vm_fast_path,
+        has_error_diagnostics, merge_programs, should_build_merged_program,
+        should_dispatch_native_backend, should_try_parallel_vm_fast_path,
     };
     use crate::{
-        diagnostics::position::Span,
+        diagnostics::{Diagnostic, Severity, position::Span},
         driver::{
             backend::Backend,
             mode::{AetherDumpMode, CoreDumpMode},
@@ -374,6 +380,23 @@ mod tests {
             exposing: ImportExposing::None,
             span: Span::default(),
         }
+    }
+
+    fn diagnostic_with_severity(severity: Severity) -> Diagnostic {
+        let mut diagnostic = Diagnostic::warning("test diagnostic");
+        diagnostic.severity = severity;
+        diagnostic
+    }
+
+    #[test]
+    fn has_error_diagnostics_ignores_non_errors() {
+        assert!(!has_error_diagnostics(&[]));
+        assert!(!has_error_diagnostics(&[diagnostic_with_severity(
+            Severity::Warning
+        )]));
+        assert!(has_error_diagnostics(&[diagnostic_with_severity(
+            Severity::Error
+        )]));
     }
 
     #[test]

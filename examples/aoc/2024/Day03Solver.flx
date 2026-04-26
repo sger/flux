@@ -1,6 +1,8 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 
+import Flow.IO as IO
+
 module Day03Solver {
     // Tokens that can appear at any position in the memory string.
     data Token {
@@ -42,7 +44,7 @@ module Day03Solver {
     // Try to parse a Token at position idx.
     // Returns Some((Token, next_idx)) on success, None otherwise.
     fn to_int(s: String) -> Int {
-        let arr = parse_ints([|s|])
+        let arr = IO.parse_ints([|s|])
         match arr[0] {
             Some(v) -> v,
             _ -> 0

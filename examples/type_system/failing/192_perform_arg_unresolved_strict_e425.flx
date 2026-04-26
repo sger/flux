@@ -1,3 +1,24 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx
+// error[E425]: Unresolved Boundary Type
+//
+// Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
+//
+//   examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx:35:5
+//    |
+// 35 |     None
+//    |     ^^^^
+//    |     ---- expression type is unresolved in strict mode
+//
+// Hint:
+//   Use concrete types (or additional annotations) so HM can resolve this expression.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
+// expect: compile_error
+// expect-error: E425
+
 // E425: strict mode rejects unresolved perform argument types.
 // When a perform argument's type cannot be resolved by HM, strict mode
 // requires a concrete type annotation on the argument expression.

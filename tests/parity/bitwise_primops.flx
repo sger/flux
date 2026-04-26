@@ -1,0 +1,10 @@
+// parity: vm, llvm
+// expect: success
+
+fn main() with IO {
+    print(bit_and(6, 3))
+    print(bit_or(6, 3))
+    print(bit_xor(6, 3))
+    print(bit_shl(3, 2))
+    print(bit_shr(-8, 1))
+}

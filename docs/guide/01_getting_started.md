@@ -1,6 +1,6 @@
 # Chapter 1 — Getting Started
 
-> Full examples: [`examples/basics/`](../../examples/basics/)
+> Full examples: [`examples/guide/`](../../examples/guide/)
 
 ## Hello, Flux
 
@@ -11,7 +11,7 @@ print("Hello, Flux!")
 Run it:
 
 ```bash
-cargo run -- examples/basics/print.flx
+cargo run -- examples/guide/print.flx
 ```
 
 ## Variables
@@ -43,7 +43,7 @@ let a = 1;   // with semicolon
 let b = 2    // without
 ```
 
-> See [`examples/basics/variables.flx`](../../examples/basics/variables.flx) and [`examples/basics/semicolons.flx`](../../examples/basics/semicolons.flx).
+> See [`examples/guide/variables.flx`](../../examples/guide/variables.flx) and [`examples/guide/semicolons.flx`](../../examples/guide/semicolons.flx).
 
 ## Primitive Types
 
@@ -55,7 +55,7 @@ let b = 2    // without
 | String    | `"hello"`            |
 | None      | `None`               |
 
-> See [`examples/basics/arithmetic.flx`](../../examples/basics/arithmetic.flx) and [`examples/basics/float.flx`](../../examples/basics/float.flx).
+> See [`examples/guide/arithmetic.flx`](../../examples/guide/arithmetic.flx) and [`examples/guide/float.flx`](../../examples/guide/float.flx).
 
 ## Arithmetic and Comparison
 
@@ -73,7 +73,7 @@ print(3 > 2)    // true
 print(3 >= 3)   // true
 ```
 
-> See [`examples/basics/comparison.flx`](../../examples/basics/comparison.flx).
+> See [`examples/guide/comparison.flx`](../../examples/guide/comparison.flx).
 
 ## Strings
 
@@ -96,7 +96,7 @@ print("Score: #{score}, doubled: #{score * 2}") // Score: 99, doubled: 198
 print("2 + 2 = #{2 + 2}")                       // 2 + 2 = 4
 ```
 
-> See [`examples/basics/strings.flx`](../../examples/basics/strings.flx) and [`examples/basics/string_interpolation.flx`](../../examples/basics/string_interpolation.flx).
+> See [`examples/guide/strings.flx`](../../examples/guide/strings.flx) and [`examples/guide/string_interpolation.flx`](../../examples/guide/string_interpolation.flx).
 
 ## Conditionals
 
@@ -127,7 +127,7 @@ let label = if x % 2 == 0 { "even" } else { "odd" }
 print(label)
 ```
 
-> See [`examples/basics/if_else.flx`](../../examples/basics/if_else.flx).
+> See [`examples/guide/if_else.flx`](../../examples/guide/if_else.flx).
 
 ## Next
 

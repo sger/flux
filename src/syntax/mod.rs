@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod block;
+pub mod builtin_effects;
 pub mod byte_span;
 pub mod data_variant;
 pub mod effect_expr;

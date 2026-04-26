@@ -1,16 +1,20 @@
-// Effect operation signature enforcement (passing case).
-// `Console.read` declares `String -> Int`; perform + handle respect that.
+// parity-expected-stdout-begin
+// "4"
+// parity-expected-stdout-end
 
-effect Console {
+// Effect operation signature enforcement (passing case).
+// `Reader.read` declares `String -> Int`; perform + handle respect that.
+
+effect Reader {
     read: String -> Int
 }
 
-fn ask_len(prompt: String) -> Int with Console {
-    perform Console.read(prompt)
+fn ask_len(prompt: String) -> Int with Reader {
+    perform Reader.read(prompt)
 }
 
 fn main() -> Unit with IO {
-    let value: Int = ask_len("name") handle Console {
+    let value: Int = ask_len("name") handle Reader {
         read(resume, msg) -> resume(len(msg))
     }
     print(to_string(value))

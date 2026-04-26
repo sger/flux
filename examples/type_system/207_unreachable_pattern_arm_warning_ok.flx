@@ -1,0 +1,31 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
+// This fixture currently emits unreachable-arm warnings but still compiles.
+fn dup_literal(n) {
+    match n {
+        1 -> "first",
+        1 -> "duplicate",
+        _ -> "other"
+    }
+}
+
+fn dup_none(x) {
+    match x {
+        None -> 0,
+        None -> 99,
+        Some(v) -> v
+    }
+}
+
+fn subsumed_some(x) {
+    match x {
+        Some(_) -> 1,
+        Some(42) -> 2,
+        None -> 0
+    }
+}
+
+fn main() {
+    None
+}

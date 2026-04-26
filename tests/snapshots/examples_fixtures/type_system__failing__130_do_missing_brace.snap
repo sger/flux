@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/130_do_missing_brace.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E034]: Missing Do Block
 
 This `do` block needs to start with `{`.
 
-  examples/type_system/failing/130_do_missing_brace.flx:1:12
-  |
-1 | let y = do x + 1
-  |            ^
-  |            - This looks like the `do` block body
+  examples/type_system/failing/130_do_missing_brace.flx:21:12
+   |
+21 | let y = do x + 1
+   |            ^
+   |            - This looks like the `do` block body
 
 Help:
   Try adding `{` after `do`.

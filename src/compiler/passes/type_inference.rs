@@ -70,7 +70,9 @@ impl Compiler {
             hm_diagnostics.extend(solver_diags);
         }
 
-        self.has_hm_diagnostics = !hm_diagnostics.is_empty();
+        self.has_hm_diagnostics = hm_diagnostics
+            .iter()
+            .any(|d| d.severity() == crate::diagnostics::Severity::Error);
 
         // Proposal 0152, Phase 3: desugar named-field AST nodes into their
         // positional equivalents so every downstream phase (AST-fallback

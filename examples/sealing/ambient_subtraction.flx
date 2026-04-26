@@ -1,0 +1,3 @@
+fn main() with IO {
+    println("ambient minus filesystem") sealing (ambient - FileSystem)
+}
