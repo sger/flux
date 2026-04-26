@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `_x` does not match its type annotation.
 
-  examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:4:23
-  |
-4 |     let _x: String = (/(n: Int) -> n)(1)
-  |                       ^^^^^^^^^^^^^^^^^^
-  |                       ------------------ this value has type `Int`
+  examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:30:23
+   |
+30 |     let _x: String = (/(n: Int) -> n)(1)
+   |                       ^^^^^^^^^^^^^^^^^^
+   |                       ------------------ this value has type `Int`
 
-  |             ------ but `_x` was annotated as `String`
+   |             ------ but `_x` was annotated as `String`
 
 Note:
   annotated type: String

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/102_missing_colon_function_param.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `x: Type`.
 
-  examples/type_system/failing/102_missing_colon_function_param.flx:1:10
-  |
-1 | fn add(x Int, y: Int) -> Int {
-  |          ^^^
+  examples/type_system/failing/102_missing_colon_function_param.flx:20:10
+   |
+20 | fn add(x Int, y: Int) -> Int {
+   |          ^^^
 
 Hint:
   Type annotations use `name: Type`.

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/95_wrong_argument_count_too_few.flx
 == compile ==
@@ -9,17 +9,17 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 
-  examples/type_system/failing/95_wrong_argument_count_too_few.flx:7:14
-  |
-2 | fn add(a: Int, b: Int) -> Int {
-  | ----------------------------- `add` is defined with 2 parameters
-3 |     a + b
-4 | }
-5 | 
-6 | fn main() -> Unit {
-7 |     let _x = add(1)
-  |              ^^^^^^
-  |              ------ 1 arguments provided here, expected 2
+  examples/type_system/failing/95_wrong_argument_count_too_few.flx:33:14
+   |
+28 | fn add(a: Int, b: Int) -> Int {
+   | ----------------------------- `add` is defined with 2 parameters
+29 |     a + b
+30 | }
+31 | 
+32 | fn main() -> Unit {
+33 |     let _x = add(1)
+   |              ^^^^^^
+   |              ------ 1 arguments provided here, expected 2
 
 Help:
   Add 1 missing argument(s), for example: `add(arg1, arg2)`.

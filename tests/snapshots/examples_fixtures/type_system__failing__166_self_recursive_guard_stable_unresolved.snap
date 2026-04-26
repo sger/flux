@@ -9,10 +9,10 @@ error[E430]: Any Type Inferred
 
 Could not determine a concrete type for `loop_unknown` at the public function signature. Inferred type: `(Int) -> _`.
 
-  examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:1:1
-  |
-1 | fn loop_unknown(n) {
-  | ^^^^^^^^^^^^^^^^^^
+  examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:36:1
+   |
+36 | fn loop_unknown(n) {
+   | ^^^^^^^^^^^^^^^^^^
 
 Hint:
   Add a type annotation: e.g. `fn loop_unknown(x: Int, y: Int): Int`
@@ -22,10 +22,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:3:9
-  |
-3 |         mystery_value
-  |         ^^^^^^^^^^^^^
+  examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:38:9
+   |
+38 |         mystery_value
+   |         ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;

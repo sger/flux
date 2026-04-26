@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx:2:31
-  |
-2 |     let xs: Array<Int> = [|1, "two"|]
-  |                               ^^^^^
-  |                               ----- this expression has type `String`
+  examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx:29:31
+   |
+29 |     let xs: Array<Int> = [|1, "two"|]
+   |                               ^^^^^
+   |                               ----- this expression has type `String`
 
-  |                               ----- this type mismatch is reported here
+   |                               ----- this type mismatch is reported here
 
 Note:
   expected type: Int

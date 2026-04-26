@@ -9,11 +9,11 @@ error[E400]: Missing Effect
 
 requires effect `Console` but the enclosing context does not provide it
 
-  examples/type_system/failing/40_effect_alias_print_in_time_function.flx:5:5
-  |
-5 |     p("tick")
-  |     ^^^^^^^^^
-  |     --------- requires `Console`
+  examples/type_system/failing/40_effect_alias_print_in_time_function.flx:25:5
+   |
+25 |     p("tick")
+   |     ^^^^^^^^^
+   |     --------- requires `Console`
 
 Hint:
   annotate the enclosing function with `with Console`

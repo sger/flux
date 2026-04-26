@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/82_match_list_missing_empty.flx:4:1
-  |
-4 | match xs {
-  | ^^^^^^^^^^
-5 |     [h | t] -> h
-  | ^^^^^^^^^^^^^^^^
-6 | };
-  | ^
+  examples/type_system/failing/82_match_list_missing_empty.flx:27:1
+   |
+27 | match xs {
+   | ^^^^^^^^^^
+28 |     [h | t] -> h
+   | ^^^^^^^^^^^^^^^^
+29 | };
+   | ^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

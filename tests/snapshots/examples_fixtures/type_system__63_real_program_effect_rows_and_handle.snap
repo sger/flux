@@ -3,32 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/63_real_program_effect_rows_and_handle.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Argument Type Mismatch
-
-I found the wrong type in the 1st argument to `run_with_row`.
-
-  examples/type_system/63_real_program_effect_rows_and_handle.flx:18:28
-   |
-11 | 
-   | - `run_with_row` expects `() -> Int with Console` as the 1st parameter
-12 | fn main() with IO {
-13 |     let a = local_step(10) handle Console {
-... |
-16 | 
-17 |     let b = E.run_io(20)
-18 |     let c = E.run_with_row(E.io_only_value)
-   |                            ^^^^^^^^^^^^^^^
-   |                            --------------- this argument has type `() -> Int with Console, FileSystem, Stdin`
-
-Note:
-  expected argument type: () -> Int with Console
-  found argument type: () -> Int with Console, FileSystem, Stdin
-  the actual argument type is inferred from this expression
-  the expected argument type comes from the function signature
-
-Help:
-  Pass a `() -> Int with Console` value as the 1st argument.
+<none>
 == stdout ==
 <not executed>

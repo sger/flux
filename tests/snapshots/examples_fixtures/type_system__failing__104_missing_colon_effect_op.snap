@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/104_missing_colon_effect_op.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
-  examples/type_system/failing/104_missing_colon_effect_op.flx:2:11
-  |
-2 |     print String -> Unit
-  |           ^^^^^^
+  examples/type_system/failing/104_missing_colon_effect_op.flx:21:11
+   |
+21 |     print String -> Unit
+   |           ^^^^^^
 
 Note:
   while parsing effect `Console`

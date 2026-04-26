@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `write_log` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/202_hm_pure_caller_missing_io_e400.flx:11:5
+  examples/type_system/failing/202_hm_pure_caller_missing_io_e400.flx:31:5
    |
-11 |     write_log("processing")
+31 |     write_log("processing")
    |     ^^^^^^^^^
    |     --------- effectful call occurs here
 

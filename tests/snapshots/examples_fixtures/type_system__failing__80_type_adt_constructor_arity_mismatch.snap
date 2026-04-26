@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:6:5
-  |
-6 |     match x {
-  |     ^^^^^^^^^
-7 |         Pair(a) -> a,
-  | ^^^^^^^^^^^^^^^^^^^^^
-8 |     }
-  | ^^^^^
+  examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:45:5
+   |
+45 |     match x {
+   |     ^^^^^^^^^
+46 |         Pair(a) -> a,
+   | ^^^^^^^^^^^^^^^^^^^^^
+47 |     }
+   | ^^^^^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
@@ -26,10 +26,10 @@ error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `Pair` expects 2 argument(s) but got 1.
 
-  examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:7:9
-  |
-7 |         Pair(a) -> a,
-  |         ^^^^^^^
+  examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx:46:9
+   |
+46 |         Pair(a) -> a,
+   |         ^^^^^^^
 
 Hint:
   Check the constructor's declared pattern field count.

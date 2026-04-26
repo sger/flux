@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/05_runtime_float_string_arg_via_any.flx
 == compile ==
@@ -9,16 +9,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `area`.
 
-  examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:6
+  examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:45:6
    |
- 5 | fn area(radius: Float) -> Float {
+38 | fn area(radius: Float) -> Float {
    | ------------------------------- `area` expects `Float` as the 1st parameter
- 6 |     3.14159 * radius * radius
- 7 | }
+39 |     3.14159 * radius * radius
+40 | }
 ... |
-10 | 
-11 | 
-12 | area(dynamic)
+43 | 
+44 | 
+45 | area(dynamic)
    |      ^^^^^^^
    |      ------- this argument has type `String`
 

@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `apply` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/34_generic_effect_propagation_missing.flx:13:5
+  examples/type_system/failing/34_generic_effect_propagation_missing.flx:33:5
    |
-13 |     apply(io_inc, 1)
+33 |     apply(io_inc, 1)
    |     ^^^^^
    |     ----- effectful call occurs here
 

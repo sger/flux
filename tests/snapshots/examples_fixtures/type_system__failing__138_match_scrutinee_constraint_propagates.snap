@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:2:13
-  |
-2 |     let x = mystery_value
-  |             ^^^^^^^^^^^^^
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:75:13
+   |
+75 |     let x = mystery_value
+   |             ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;
@@ -22,17 +22,17 @@ error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:3:21
-  |
-3 |     let y: String = match x {
-  |                     ^^^^^^^^^
-  |            ------ but `y` was annotated as `String`
-4 |         Some(n) -> n,
-  | ^^^^^^^^^^^^^^^^^^^^^
-5 |         None -> 0,
-  | ^^^^^^^^^^^^^^^^^^
-6 |     }
-  | ^^^^^
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:76:21
+   |
+76 |     let y: String = match x {
+   |                     ^^^^^^^^^
+   |            ------ but `y` was annotated as `String`
+77 |         Some(n) -> n,
+   | ^^^^^^^^^^^^^^^^^^^^^
+78 |         None -> 0,
+   | ^^^^^^^^^^^^^^^^^^
+79 |     }
+   | ^^^^^
 
 Note:
   annotated type: String
@@ -46,17 +46,17 @@ error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 
-  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:5:17
-  |
-4 |         Some(n) -> n,
-  |                    - first arm returns `String`
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:78:17
+   |
+77 |         Some(n) -> n,
+   |                    - first arm returns `String`
 
-  |                    - this arm established the expected type
-5 |         None -> 0,
-  |                 ^
-  |                 - arm 2 has type `Int`
+   |                    - this arm established the expected type
+78 |         None -> 0,
+   |                 ^
+   |                 - arm 2 has type `Int`
 
-  |                 - arm 2 conflicts with that type
+   |                 - arm 2 conflicts with that type
 
 Note:
   first arm type: String

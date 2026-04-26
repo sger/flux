@@ -9,17 +9,17 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:2:21
-  |
-2 |     let x: String = match Some(1) {
-  |                     ^^^^^^^^^^^^^^^
-  |            ------ but `x` was annotated as `String`
-3 |         Some(v) -> v,
-  | ^^^^^^^^^^^^^^^^^^^^^
-4 |         None -> 0,
-  | ^^^^^^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
+  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:86:21
+   |
+86 |     let x: String = match Some(1) {
+   |                     ^^^^^^^^^^^^^^^
+   |            ------ but `x` was annotated as `String`
+87 |         Some(v) -> v,
+   | ^^^^^^^^^^^^^^^^^^^^^
+88 |         None -> 0,
+   | ^^^^^^^^^^^^^^^^^^
+89 |     }
+   | ^^^^^
 
 Note:
   annotated type: String
@@ -33,17 +33,17 @@ error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 
-  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:3:20
-  |
-3 |         Some(v) -> v,
-  |                    ^
-  |                    - arm 1 has type `Int`
+  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:87:20
+   |
+87 |         Some(v) -> v,
+   |                    ^
+   |                    - arm 1 has type `Int`
 
-  |                    - first arm returns `String`
+   |                    - first arm returns `String`
 
-  |                    - this arm established the expected type
+   |                    - this arm established the expected type
 
-  |                    - arm 1 conflicts with that type
+   |                    - arm 1 conflicts with that type
 
 Note:
   first arm type: String
@@ -59,17 +59,17 @@ error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 
-  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:6:5
-  |
-1 | fn main() -> Unit {
-  |              ---- `main` was declared to return `Unit`
-2 |     let x: String = match Some(1) {
-3 |         Some(v) -> v,
-4 |         None -> 0,
-5 |     }
-6 |     x
-  |     ^
-  |     - this expression has type `String`
+  examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:90:5
+   |
+85 | fn main() -> Unit {
+   |              ---- `main` was declared to return `Unit`
+86 |     let x: String = match Some(1) {
+87 |         Some(v) -> v,
+88 |         None -> 0,
+89 |     }
+90 |     x
+   |     ^
+   |     - this expression has type `String`
 
 Note:
   declared return type: Unit

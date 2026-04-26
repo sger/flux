@@ -9,11 +9,11 @@ error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: println.
 
-  examples/type_system/failing/42_handle_unknown_effect.flx:4:13
-  |
-4 |     let _ = 1 handle Console {
-  |             ^
-  |             - handled expression
+  examples/type_system/failing/42_handle_unknown_effect.flx:28:13
+   |
+28 |     let _ = 1 handle Console {
+   |             ^
+   |             - handled expression
 
 Hint:
   Add 1 arm(s) to the handle block:

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/23_generic_call_return_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/23_generic_call_return_mismatch.flx:5:14
-  |
-5 | let x: Int = identity("hello")
-  |              ^^^^^^^^^^^^^^^^^
-  |              ----------------- this value has type `String`
+  examples/type_system/failing/23_generic_call_return_mismatch.flx:31:14
+   |
+31 | let x: Int = identity("hello")
+   |              ^^^^^^^^^^^^^^^^^
+   |              ----------------- this value has type `String`
 
-  |        --- but `x` was annotated as `Int`
+   |        --- but `x` was annotated as `Int`
 
 Note:
   annotated type: Int

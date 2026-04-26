@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E412]: Invalid Main Return Type
 
 `fn main` must return `Unit` (or omit return type).
 
-  examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx:7:14
-  |
-7 | fn main() -> Int with Console {
-  |              ^^^
-  |              --- invalid `main` return type
+  examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx:27:14
+   |
+27 | fn main() -> Int with Console {
+   |              ^^^
+   |              --- invalid `main` return type
 
 Hint:
   Change signature to `fn main() { ... }` or `-> Unit`.

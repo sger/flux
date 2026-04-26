@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/118_let_missing_eq.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Unexpected Token
 
 Expected `=` after `let x`. Did you mean `let x = ...`?
 
-  examples/type_system/failing/118_let_missing_eq.flx:2:11
-  |
-2 |     let x 1
-  |           ^
+  examples/type_system/failing/118_let_missing_eq.flx:21:11
+   |
+21 |     let x 1
+   |           ^
 
 Hint:
   Let bindings require `=`: `let name = value`

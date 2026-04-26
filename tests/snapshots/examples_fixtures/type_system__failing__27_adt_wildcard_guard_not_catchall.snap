@@ -9,13 +9,13 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 2 missing patterns.
 
-  examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx:9:5
+  examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx:32:5
    |
- 9 |     match c {
+32 |     match c {
    |     ^^^^^^^^^
-10 |         _ if true -> 1,
+33 |         _ if true -> 1,
    | ^^^^^^^^^^^^^^^^^^^^^^^
-11 |     }
+34 |     }
    | ^^^^^
 
 Hint:

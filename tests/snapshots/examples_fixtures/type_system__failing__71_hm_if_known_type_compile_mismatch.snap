@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
 == compile ==
@@ -9,16 +9,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `expect_int`.
 
-  examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:11:32
+  examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:44:32
    |
- 1 | fn expect_int(x: Int) -> Int {
+34 | fn expect_int(x: Int) -> Int {
    | ---------------------------- `expect_int` expects `Int` as the 1st parameter
- 2 |     x
- 3 | }
+35 |     x
+36 | }
 ... |
- 9 |         "right"
-10 |     }
-11 |     print(to_string(expect_int(picked)))
+42 |         "right"
+43 |     }
+44 |     print(to_string(expect_int(picked)))
    |                                ^^^^^^
    |                                ------ this argument has type `String`
 

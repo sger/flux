@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/Stats.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.Stats` doesn't match file path `examples/type_system/TypeSystem/Stats.flx`.
 
-  examples/type_system/TypeSystem/Stats.flx:9:1
-  |
-9 | module TypeSystem.Stats {
-  | ^
+  examples/type_system/TypeSystem/Stats.flx:13:1
+   |
+13 | module TypeSystem.Stats {
+   | ^
 
 Hint:
   Rename the module or move the file to match.

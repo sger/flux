@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `call_requires_clock_console` requires effect `Clock` in this function signature.
 
-  examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:14:5
+  examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:34:5
    |
-14 |     call_requires_clock_console(worker)
+34 |     call_requires_clock_console(worker)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     --------------------------- effectful call occurs here
 

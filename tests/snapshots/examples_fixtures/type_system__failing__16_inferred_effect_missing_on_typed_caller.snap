@@ -9,9 +9,9 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Clock).
 
-  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
    |
-12 | typed_time_only()
+69 | typed_time_only()
    | ^^^^^^^^^^^^^^^^^
    | ----------------- top-level effectful expression
 
@@ -23,9 +23,9 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
    |
-12 | typed_time_only()
+69 | typed_time_only()
    | ^^^^^^^^^^^^^^^^^
    | ----------------- effectful top-level execution
 
@@ -37,9 +37,9 @@ error[E400]: Missing Effect
 
 requires effect `Clock` but the enclosing context does not provide it
 
-  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:69:1
    |
-12 | typed_time_only()
+69 | typed_time_only()
    | ^^^^^^^^^^^^^^^^^
    | ----------------- requires `Clock`
 
