@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `answer` does not match its type annotation.
 
-  examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
-  |
-1 | let answer: Int = 42.5
-  |                   ^^^^
-  |                   ---- this value has type `Float`
+  examples/type_system/failing/07_typed_let_float_into_int.flx:74:19
+   |
+74 | let answer: Int = 42.5
+   |                   ^^^^
+   |                   ---- this value has type `Float`
 
-  |             --- but `answer` was annotated as `Int`
+   |             --- but `answer` was annotated as `Int`
 
 Note:
   annotated type: Int
@@ -29,9 +29,9 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:87:1
    |
-14 | print("#{label}: #{add(answer, 8)}")
+87 | print("#{label}: #{add(answer, 8)}")
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    | ------------------------------------ top-level effectful expression
 
@@ -43,9 +43,9 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:87:1
    |
-14 | print("#{label}: #{add(answer, 8)}")
+87 | print("#{label}: #{add(answer, 8)}")
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    | ------------------------------------ effectful top-level execution
 
@@ -57,9 +57,9 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
+  examples/type_system/failing/07_typed_let_float_into_int.flx:88:1
    |
-15 | print(distance_tag(point))
+88 | print(distance_tag(point))
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
    | -------------------------- top-level effectful expression
 

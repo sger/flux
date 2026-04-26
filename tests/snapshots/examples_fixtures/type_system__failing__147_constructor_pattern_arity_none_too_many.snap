@@ -9,15 +9,15 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:7:14
+  examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:48:14
    |
- 7 |     let _y = match x {
+48 |     let _y = match x {
    |              ^^^^^^^^^
- 8 |         NoneI(v) -> v,
+49 |         NoneI(v) -> v,
    | ^^^^^^^^^^^^^^^^^^^^^^
- 9 |         SomeI(n) -> n,
+50 |         SomeI(n) -> n,
    | ^^^^^^^^^^^^^^^^^^^^^^
-10 |     }
+51 |     }
    | ^^^^^
 
 Hint:
@@ -28,10 +28,10 @@ error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `NoneI` expects 0 argument(s) but got 1.
 
-  examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:8:9
-  |
-8 |         NoneI(v) -> v,
-  |         ^^^^^^^^
+  examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:49:9
+   |
+49 |         NoneI(v) -> v,
+   |         ^^^^^^^^
 
 Hint:
   Check the constructor's declared pattern field count.

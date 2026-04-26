@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/180_type_adt_missing_assign.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Type Definition
 
 Expected `=` after type declaration name.
 
-  examples/type_system/failing/180_type_adt_missing_assign.flx:1:15
-  |
-1 | type Maybe<T> Some(T) | None
-  |               ^^^^
+  examples/type_system/failing/180_type_adt_missing_assign.flx:23:15
+   |
+23 | type Maybe<T> Some(T) | None
+   |               ^^^^
 
 Hint:
   ADT sugar uses `type Name = Ctor(...) | Other`.
@@ -22,10 +22,10 @@ error[E031]: Expected Expression
 
 Expected expression, found `|`.
 
-  examples/type_system/failing/180_type_adt_missing_assign.flx:1:23
-  |
-1 | type Maybe<T> Some(T) | None
-  |                       ^
+  examples/type_system/failing/180_type_adt_missing_assign.flx:23:23
+   |
+23 | type Maybe<T> Some(T) | None
+   |                       ^
 
 Found 2 errors.
 == stdout ==

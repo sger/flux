@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/21_perform_unknown_operation.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E404]: Unknown Effect Operation
 
 Effect `Console` has no declared operation `read`.
 
-  examples/type_system/failing/21_perform_unknown_operation.flx:8:5
-  |
-8 |     perform Console.read("x")
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
-  |     ------------------------- unknown operation in perform
+  examples/type_system/failing/21_perform_unknown_operation.flx:28:5
+   |
+28 |     perform Console.read("x")
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------- unknown operation in perform
 
 Hint:
   Add the operation to the effect declaration or rename it.

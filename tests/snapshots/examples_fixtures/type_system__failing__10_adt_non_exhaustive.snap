@@ -9,17 +9,17 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/10_adt_non_exhaustive.flx:13:5
+  examples/type_system/failing/10_adt_non_exhaustive.flx:72:5
    |
-13 |     match c {
+72 |     match c {
    |     ^^^^^^^^^
-14 |         Red -> "red",
+73 |         Red -> "red",
    | ^^^^^^^^^^^^^^^^^^^^^
-15 |         Green -> "green",
+74 |         Green -> "green",
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |         // Missing: Blue
+75 |         // Missing: Blue
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-17 |     }
+76 |     }
    | ^^^^^
 
 Hint:
@@ -30,9 +30,9 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
+  examples/type_system/failing/10_adt_non_exhaustive.flx:87:1
    |
-28 | print(pass(t))
+87 | print(pass(t))
    | ^^^^^^^^^^^^^^
    | -------------- top-level effectful expression
 
@@ -44,9 +44,9 @@ error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
+  examples/type_system/failing/10_adt_non_exhaustive.flx:87:1
    |
-28 | print(pass(t))
+87 | print(pass(t))
    | ^^^^^^^^^^^^^^
    | -------------- effectful top-level execution
 

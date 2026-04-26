@@ -9,26 +9,26 @@ Warning: Redundant Match Arm
 
 this arm is unreachable — earlier arms already cover it
 
-  examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:9:9
-  |
-9 |         _ -> "maybe",
-  |         ^^^^^^^^^^^^
+  examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:54:9
+   |
+54 |         _ -> "maybe",
+   |         ^^^^^^^^^^^^
 
 
 error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `expect_int`.
 
-  examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:14:32
+  examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:59:32
    |
- 1 | fn expect_int(x: Int) -> Int {
+46 | fn expect_int(x: Int) -> Int {
    | ---------------------------- `expect_int` expects `Int` as the 1st parameter
- 2 |     x
- 3 | }
+47 |     x
+48 | }
 ... |
-12 | 
-13 | fn main() -> Unit with IO {
-14 |     print(to_string(expect_int(choose(true))))
+57 | 
+58 | fn main() -> Unit with IO {
+59 |     print(to_string(expect_int(choose(true))))
    |                                ^^^^^^^^^^^^
    |                                ------------ this argument has type `String`
 

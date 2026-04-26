@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
 == compile ==
@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:2:8
-  |
-2 |     xs["0"]
-  |        ^^^
-  |        --- this expression has type `String`
+  examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:29:8
+   |
+29 |     xs["0"]
+   |        ^^^
+   |        --- this expression has type `String`
 
-  |        --- index expression is known at compile time
+   |        --- index expression is known at compile time
 
 Note:
   expected type: Int

@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:13:5
+  examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:45:5
    |
-13 |     run_needs_console_clock(only_console)
+45 |     run_needs_console_clock(only_console)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------------------- parameter 1 has type `() -> Unit with Console`
 

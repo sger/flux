@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/54_strict_any_param_rejected.flx
 == compile ==
@@ -9,11 +9,11 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/54_strict_any_param_rejected.flx:1:17
-  |
-1 | public fn id(x: Any) -> Int {
-  |                 ^^^
-  |                 --- unknown type used here
+  examples/type_system/failing/54_strict_any_param_rejected.flx:21:17
+   |
+21 | public fn id(x: Any) -> Int {
+   |                 ^^^
+   |                 --- unknown type used here
 
 Hint:
   Use a built-in type, an in-scope type parameter, or a declared ADT.

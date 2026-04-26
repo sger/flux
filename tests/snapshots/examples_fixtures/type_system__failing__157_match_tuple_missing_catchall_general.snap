@@ -9,16 +9,16 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/157_match_tuple_missing_catchall_general.flx:3:14
-  |
-3 |     let _x = match t {
-  |              ^^^^^^^^^
-4 |         (1, true) -> 1,
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-5 |         (2, false) -> 2,
-  | ^^^^^^^^^^^^^^^^^^^^^^^^
-6 |     }
-  | ^^^^^
+  examples/type_system/failing/157_match_tuple_missing_catchall_general.flx:28:14
+   |
+28 |     let _x = match t {
+   |              ^^^^^^^^^
+29 |         (1, true) -> 1,
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+30 |         (2, false) -> 2,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+31 |     }
+   | ^^^^^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

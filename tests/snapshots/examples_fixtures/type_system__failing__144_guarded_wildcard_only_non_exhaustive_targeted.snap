@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx:4:14
-  |
-4 |     let _y = match x {
-  |              ^^^^^^^^^
-5 |         _ if x > 0 -> 1
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-6 |     }
-  | ^^^^^
+  examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx:27:14
+   |
+27 |     let _y = match x {
+   |              ^^^^^^^^^
+28 |         _ if x > 0 -> 1
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+29 |     }
+   | ^^^^^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

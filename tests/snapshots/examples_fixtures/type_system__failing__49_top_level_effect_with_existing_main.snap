@@ -9,11 +9,11 @@ error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Console).
 
-  examples/type_system/failing/49_top_level_effect_with_existing_main.flx:3:1
-  |
-3 | print("top-level")
-  | ^^^^^^^^^^^^^^^^^^
-  | ------------------ top-level effectful expression
+  examples/type_system/failing/49_top_level_effect_with_existing_main.flx:23:1
+   |
+23 | print("top-level")
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
 
 Hint:
   Move this code into `fn main() with ... { ... }`.

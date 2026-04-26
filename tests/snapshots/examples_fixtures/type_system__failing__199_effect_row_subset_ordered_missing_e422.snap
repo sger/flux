@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:12:5
+  examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:44:5
    |
-12 |     run_needs_io_time(pure_worker)
+44 |     run_needs_io_time(pure_worker)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------------ parameter 1 has type `() -> Unit`
 

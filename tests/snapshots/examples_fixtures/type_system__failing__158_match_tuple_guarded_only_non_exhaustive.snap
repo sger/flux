@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx:3:14
-  |
-3 |     let _x = match t {
-  |              ^^^^^^^^^
-4 |         (a, b) if a > 0 && b -> 1,
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-5 |     }
-  | ^^^^^
+  examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx:26:14
+   |
+26 |     let _x = match t {
+   |              ^^^^^^^^^
+27 |         (a, b) if a > 0 && b -> 1,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |     }
+   | ^^^^^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.

@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/122_hash_missing_close_brace.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E034]: Missing Closing Delimiter
 
 Expected `}` to close hash literal.
 
-  examples/type_system/failing/122_hash_missing_close_brace.flx:2:1
-  |
-2 | let after = 3
-  | ^^^
+  examples/type_system/failing/122_hash_missing_close_brace.flx:21:1
+   |
+21 | let after = 3
+   | ^^^
 
 Hint:
   Hash literals use `{key: value, ...}` and must end with `}`.

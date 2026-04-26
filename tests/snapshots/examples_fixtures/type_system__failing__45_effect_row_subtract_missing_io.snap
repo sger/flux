@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:17:5
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
    |
-17 |     run_with_row(io_only)
+66 |     run_with_row(io_only)
    |     ^^^^^^^^^^^^^^^^^^^^^
    |     --------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
 
@@ -30,9 +30,9 @@ error[E400]: Missing Effect
 
 requires effect `FileSystem` but the enclosing context does not provide it
 
-  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:17:5
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
    |
-17 |     run_with_row(io_only)
+66 |     run_with_row(io_only)
    |     ^^^^^^^^^^^^^^^^^^^^^
    |     --------------------- requires `FileSystem`
 

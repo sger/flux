@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx
 == compile ==
@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx:4:32
-  |
-4 |     let value: Int = takes_int(mystery_value)
-  |                                ^^^^^^^^^^^^^
+  examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx:23:32
+   |
+23 |     let value: Int = takes_int(mystery_value)
+   |                                ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;

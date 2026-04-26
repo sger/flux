@@ -9,9 +9,9 @@ error[E421]: Effect Requirement Mismatch
 
 I cannot subtract effect `Console` from this effect row.
 
-  examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:20:13
+  examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:46:13
    |
-20 |     let _ = needs_linked_absence(row_var_worker, console_worker)
+46 |     let _ = needs_linked_absence(row_var_worker, console_worker)
    |             ^^^^^^^^^^^^^^^^^^^^
    |             -------------------- this call violates an effect-row subtraction constraint
 

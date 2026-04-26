@@ -9,14 +9,14 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx:4:1
-  |
-4 | match n {
-  | ^^^^^^^^^
-5 |     _ if n > 0 -> 1
-  | ^^^^^^^^^^^^^^^^^^^
-6 | };
-  | ^
+  examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx:27:1
+   |
+27 | match n {
+   | ^^^^^^^^^
+28 |     _ if n > 0 -> 1
+   | ^^^^^^^^^^^^^^^^^^^
+29 | };
+   | ^
 
 Hint:
   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
