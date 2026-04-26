@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/effects/failing/03_reserved_internal_primop.flx
+// error[E034]: Reserved Primop Name
+//
+// `__primop_println` is reserved for compiler-synthesized effect handlers.
+//
+//   examples/effects/failing/03_reserved_internal_primop.flx:24:5
+//    |
+// 24 |     __primop_println("not user-callable")
+//    |     ^^^^^^^^^^^^^^^^
+//    |     ---------------- reserved internal primop call
+//
+// Hint:
+//   Call the public effectful operation instead.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E034
+
 // Internal primop names are implementation details for synthesized handlers.
 
 fn main() {

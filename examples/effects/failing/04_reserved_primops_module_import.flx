@@ -1,3 +1,23 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/effects/failing/04_reserved_primops_module_import.flx
+// error[E083]: Reserved Primop Module
+//
+// `Flow.Primops` is reserved for the compiler's intrinsic implementation layer and is not user-importable.
+//
+//   examples/effects/failing/04_reserved_primops_module_import.flx:25:1
+//    |
+// 25 | import Flow.Primops
+//    | ^^^^^^^^^^^^^^^^^^^
+//    | ------------------- reserved internal module import
+//
+// Hint:
+//   Remove this import. Effectful prelude operations like `print`, `println`, `read_file`, and `now_ms` are available without an explicit import.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E083
+
 // `Flow.Primops` is the compiler's intrinsic implementation layer for
 // effectful prelude operations. It is not user-importable. Calls like
 // `println` and `read_file` work without any explicit import.
