@@ -1,23 +1,23 @@
 module Flow.Map {
 
-    public intrinsic fn get<m, k>(m: m, key: k) = primop HamtGet
+    public intrinsic fn get<k, v>(m: Map<k, v>, key: k) -> Option<v> = primop HamtGet
 
-    public intrinsic fn set<m, k, v>(m: m, key: k, value: v) = primop HamtSet
+    public intrinsic fn set<k, v>(m: Map<k, v>, key: k, value: v) -> Map<k, v> = primop HamtSet
 
-    public intrinsic fn delete<m, k>(m: m, key: k) = primop HamtDelete
+    public intrinsic fn delete<k, v>(m: Map<k, v>, key: k) -> Map<k, v> = primop HamtDelete
 
-    public intrinsic fn merge<m>(left: m, right: m) = primop HamtMerge
+    public intrinsic fn merge<k, v>(left: Map<k, v>, right: Map<k, v>) -> Map<k, v> = primop HamtMerge
 
-    public intrinsic fn keys<m>(m: m) = primop HamtKeys
+    public intrinsic fn keys<k, v>(m: Map<k, v>) -> Array<k> = primop HamtKeys
 
-    public intrinsic fn values<m>(m: m) = primop HamtValues
+    public intrinsic fn values<k, v>(m: Map<k, v>) -> Array<v> = primop HamtValues
 
-    public fn has<m, k>(m: m, key: k) -> Bool {
+    public fn has<k, v>(m: Map<k, v>, key: k) -> Bool {
         match get(m, key) {
             Some(_) -> true,
             _ -> false
         }
     }
 
-    public intrinsic fn size<m>(m: m) -> Int = primop HamtSize
+    public intrinsic fn size<k, v>(m: Map<k, v>) -> Int = primop HamtSize
 }

@@ -69,25 +69,27 @@ fn main() with IO {
     """
 
     // Parse row.
-    fn parse_row(line) {
+    fn parse_row(line: String) -> Array<Int> {
         split(trim(line), " ")
         |> Array.filter(\t -> trim(t) != "")
         |> Array.map(\t -> parse_int(t))
     }
 
     // Parse grid.
-    fn parse_grid(raw) {
+    fn parse_grid(raw: String) -> Array<Array<Int>> {
         split(trim(raw), "\n")
         |> Array.filter(\line -> trim(line) != "")
         |> Array.map(parse_row)
     }
 
-    let grid_data = parse_grid(grid)
+    let grid_data: Array<Array<Int>> = parse_grid(grid)
     print(len(grid_data))
-    print(Array.map(grid_data, Array.sum))
+    let row_sums: Array<Int> = Array.map(grid_data, Array.sum)
+    print(row_sums)
 
     // Interpolation inside multi-line strings
     let rows_count = len(grid_data)
+    let total: Int = Array.sum(row_sums)
     let first_row = Array.first(grid_data)
     let cols_count = match first_row {
         Some(row) -> len(row),
@@ -96,8 +98,8 @@ fn main() with IO {
 
     let summary = """
     Grid: #{rows_count} rows x #{cols_count} cols
-    Row sums: #{Array.map(grid_data, Array.sum)}
-    Total: #{Array.sum(Array.map(grid_data, Array.sum))}
+    Row sums: #{row_sums}
+    Total: #{total}
     """
 
     print(summary)

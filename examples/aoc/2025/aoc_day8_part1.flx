@@ -84,24 +84,17 @@ fn main() with IO, Time {
 
                 // Helper for dsu state.
                 fn dsu_state(parents, sizes) {
-                    let s = Map.set({}, "p", parents)
-                    Map.set(s, "sz", sizes)
+                    (parents, sizes)
                 }
 
                 // Helper for dsu parents.
                 fn dsu_parents(state) {
-                    match Map.get(state, "p") {
-                        Some(v) -> v,
-                        _ -> [||]
-                    }
+                    state.0
                 }
 
                 // Helper for dsu sizes.
                 fn dsu_sizes(state) {
-                    match Map.get(state, "sz") {
-                        Some(v) -> v,
-                        _ -> [||]
-                    }
+                    state.1
                 }
 
                 // Helper for union key.

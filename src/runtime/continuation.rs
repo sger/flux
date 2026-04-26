@@ -1,10 +1,9 @@
 use crate::runtime::{frame::Frame, handler_frame::HandlerFrame, value::Value};
 
-/// A captured one-shot delimited continuation.
+/// A captured delimited continuation.
 ///
 /// Created by `OpPerform` when a matching handler is found.
-/// Restored (exactly once) when the captured continuation value is called
-/// with a resume value.
+/// Restored when the captured continuation value is called with a resume value.
 ///
 /// The continuation holds a snapshot of:
 /// - The call frames that were active between the `handle` entry and the `perform` site.
@@ -38,9 +37,6 @@ pub struct Continuation {
     /// Handler marker whose state should be replaced when this continuation is
     /// resumed with `resume(value, next_state)`.
     pub state_marker: Option<u32>,
-
-    /// One-shot enforcement: set to `true` after the first resume.
-    pub used: bool,
 }
 
 impl Continuation {
@@ -92,7 +88,6 @@ impl Continuation {
                 entry_frame_index: outermost.entry_frame_index,
                 inner_handlers,
                 state_marker,
-                used: false,
             }),
         )))
     }
@@ -100,18 +95,15 @@ impl Continuation {
 
 /// Safety net for non-linear control flow (Perceus Section 2.7.1).
 ///
-/// If a continuation is dropped without being resumed (`used == false`),
-/// explicitly clear all captured values. Without this, Rc-wrapped values
-/// in the captured stack would leak — their refcounts would never reach
-/// zero because the continuation holds extra strong references.
+/// Explicitly clear captured values when the continuation is dropped. Without
+/// this, Rc-wrapped values in the captured stack would leak — their refcounts
+/// would never reach zero because the continuation holds extra strong
+/// references.
 impl Drop for Continuation {
     fn drop(&mut self) {
-        if !self.used {
-            // Drop all captured stack values — decrements their Rc counts.
-            self.stack.clear();
-            self.frames.clear();
-            self.inner_handlers.clear();
-        }
+        self.stack.clear();
+        self.frames.clear();
+        self.inner_handlers.clear();
     }
 }
 
@@ -137,7 +129,6 @@ mod tests {
             entry_frame_index: 1,
             inner_handlers: vec![],
             state_marker: None,
-            used: false,
         })));
         let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
             frames: vec![frame(10, 19)],
@@ -147,7 +138,6 @@ mod tests {
             entry_frame_index: 0,
             inner_handlers: vec![],
             state_marker: None,
-            used: false,
         })));
 
         let composed =

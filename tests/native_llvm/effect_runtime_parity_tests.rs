@@ -4,11 +4,6 @@
 //! `FLUX_YIELD_CHECKS=1` so the native path takes the new yield-based
 //! dispatch, and asserts stdout matches.
 //!
-//! `effect_multi_shot.flx` is intentionally excluded from the parity suite:
-//! the VM enforces one-shot continuations and errors at runtime, while the
-//! native yield path now supports multi-shot and prints the correct answer.
-//! See that fixture's header for details.
-
 #![cfg(feature = "llvm")]
 
 #[path = "../support/primop_parity.rs"]
@@ -128,6 +123,11 @@ fn effect_non_tr_discard_parity() {
 #[test]
 fn effect_conditional_resume_parity() {
     assert_parity_with_yield_checks("effect_conditional_resume.flx", "\"100\"");
+}
+
+#[test]
+fn effect_multi_shot_parity() {
+    assert_parity_with_yield_checks("effect_multi_shot.flx", "\"3\"");
 }
 
 #[test]

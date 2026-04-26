@@ -1,7 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// bug: VM uses one-shot Continuation capture; native uses Koka-style yield.
-//      Proposal 0162 Phase 1 promises behavior to match on this shape.
+// bug: tail-resumptive state-like handlers must match across VM and native.
 // parity-expected-stdout-begin
 // "42"
 // parity-expected-stdout-end

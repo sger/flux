@@ -2,17 +2,6 @@
 // expect: success
 // bug: Multi-shot resume — the handler invokes the continuation twice.
 //      Expected parity result: `resume(true) + resume(false) = 1 + 2 = 3`.
-//
-//      BLOCKED on default-on yield checks. Current state (2026-04-23):
-//        - Native: multi-shot works under FLUX_YIELD_CHECKS=1 (Proposal
-//          0162 Phase 3 slice 5-tr-fix + 5-tr-nested). Default-off yield
-//          checks means the parity harness invocation does not get the
-//          correct shape.
-//        - VM: one-shot enforcement still emits E1009; needs a matching
-//          multi-shot runtime before this fixture can go green.
-//      Flip to `parity: vm, llvm` + `expect: success` is staged here so
-//      the fixture reflects the intended contract; re-enable once yield
-//      checks are on by default and the VM gains multi-shot support.
 // parity-expected-stdout-begin
 // "3"
 // parity-expected-stdout-end
@@ -27,9 +16,6 @@ fn decide() -> Int with Flip {
 }
 
 fn main() with IO {
-    // Handler resumes twice, summing both branches. Today this must fail
-    // on the VM (one-shot enforcement) and is expected to fail on native
-    // too until the unified runtime lands.
     let result = decide() handle Flip {
         flip(resume) -> resume(true) + resume(false)
     }

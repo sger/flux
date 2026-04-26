@@ -57,24 +57,17 @@ fn main() with IO, Time {
 
     // Helper for result.
     fn result(count, memo) {
-        let r = Map.set({}, "count", count)
-        Map.set(r, "memo", memo)
+        (count, memo)
     }
 
     // Helper for result count.
     fn result_count(r) {
-        match Map.get(r, "count") {
-            Some(v) -> v,
-            _ -> 0
-        }
+        r.0
     }
 
     // Helper for result memo.
     fn result_memo(r) {
-        match Map.get(r, "memo") {
-            Some(v) -> v,
-            _ -> {}
-        }
+        r.1
     }
 
     // Parse entry.
