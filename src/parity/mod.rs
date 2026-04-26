@@ -388,4 +388,14 @@ pub enum MismatchDetail {
         normal: String,
         strict: String,
     },
+    DiagnosticCodes {
+        way: Way,
+        expected: Vec<String>,
+        actual: Vec<String>,
+    },
+    ExpectedStderr {
+        way: Way,
+        expected: String,
+        actual: String,
+    },
 }

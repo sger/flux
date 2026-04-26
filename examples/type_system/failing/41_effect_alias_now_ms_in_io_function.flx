@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
+// error[E400]: Missing Effect
+//
+// requires effect `Clock` but the enclosing context does not provide it
+//
+//   examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx:25:5
+//    |
+// 25 |     n()
+//    |     ^^^
+//    |     --- requires `Clock`
+//
+// Hint:
+//   annotate the enclosing function with `with Clock`
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E400
 
 // E400: aliasing `now_ms` must not bypass Time effect checks in `with IO` functions.
 

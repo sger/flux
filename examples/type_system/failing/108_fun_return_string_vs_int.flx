@@ -1,6 +1,51 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/108_fun_return_string_vs_int.flx
+// error[E300]: Return Type Mismatch
+//
+// The body of `bad` does not match its declared return type.
+//
+//   examples/type_system/failing/108_fun_return_string_vs_int.flx:51:5
+//    |
+// 50 | fn bad() -> Int {
+//    |             --- `bad` was declared to return `Int`
+// 51 |     "oops"
+//    |     ^^^^^^
+//    |     ------ this expression has type `String`
+//
+// Note:
+//   declared return type: Int
+//   body type: String
+//
+// Help:
+//   Return a `Int` value from `bad` or change its annotation.
+//
+//
+// error[E300]: Return Type Mismatch
+//
+// The body of `main` does not match its declared return type.
+//
+//   examples/type_system/failing/108_fun_return_string_vs_int.flx:55:5
+//    |
+// 54 | fn main() -> Unit {
+//    |              ---- `main` was declared to return `Unit`
+// 55 |     bad()
+//    |     ^^^^^
+//    |     ----- this expression has type `Int`
+//
+// Note:
+//   declared return type: Unit
+//   body type: Int
+//
+// Help:
+//   Return a `Unit` value from `main` or change its annotation.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
+// expect-error: E300
 
 fn bad() -> Int {
     "oops"

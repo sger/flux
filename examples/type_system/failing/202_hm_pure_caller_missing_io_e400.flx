@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/202_hm_pure_caller_missing_io_e400.flx
+// error[E400]: Missing Ambient Effect
+//
+// Call to `write_log` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/202_hm_pure_caller_missing_io_e400.flx:31:5
+//    |
+// 31 |     write_log("processing")
+//    |     ^^^^^^^^^
+//    |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E400
 
 // E400: pure function calls a function that requires IO.
 // Verifies that the HM-layer effect mismatch path emits a dedicated

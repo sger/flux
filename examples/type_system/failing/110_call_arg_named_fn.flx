@@ -1,6 +1,34 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/110_call_arg_named_fn.flx
+// error[E300]: Argument Type Mismatch
+//
+// I found the wrong type in the 1st argument to `greet`.
+//
+//   examples/type_system/failing/110_call_arg_named_fn.flx:38:20
+//    |
+// 33 | fn greet(name: String) -> String {
+//    | -------------------------------- `greet` expects `String` as the 1st parameter
+// 34 |     name
+// 35 | }
+// 36 |
+// 37 | fn main() -> Unit {
+// 38 |     let _x = greet(42)
+//    |                    ^^
+//    |                    -- this argument has type `Int`
+//
+// Note:
+//   expected argument type: String
+//   found argument type: Int
+//   the actual argument type is inferred from this expression
+//   the expected argument type comes from the function signature
+//
+// Help:
+//   Try `to_string(...)` to convert a `Int` into a `String`.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 fn greet(name: String) -> String {
     name

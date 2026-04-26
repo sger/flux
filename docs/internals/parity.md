@@ -2,7 +2,9 @@
 
 > Source: `src/parity/`
 
-The parity check compares the Flux VM and LLVM native backends on a fixture corpus, ensuring they produce the same observable behavior (stdout, stderr, exit code, and optionally shared IR surfaces). It is the primary mechanism for catching backend divergence.
+The parity checker compares Flux execution ways over a fixture corpus. Its main job is to catch observable drift between the maintained VM and LLVM backends, including successful program output, failure phase, compiler diagnostics, cache behavior, and strict-mode behavior.
+
+Use it when changing runtime behavior, compiler lowering, diagnostics, type checking, standard library behavior, or source-language semantics.
 
 ## Running
 
@@ -10,17 +12,20 @@ The parity check compares the Flux VM and LLVM native backends on a fixture corp
 # Single file
 cargo run -- parity-check examples/aoc/2024/day06.flx
 
-# Directory (all .flx files, sorted)
-cargo run -- parity-check examples/basics
+# Directory; recursively collects .flx files and sorts them
+cargo run -- parity-check examples/type_system
 
-# Two-phase: compile every fixture first (stop on failure), then parity
-cargo run -- parity-check examples/basics --compile
+# Two-phase run: validate/compile fixtures first, then run parity
+cargo run -- parity-check examples/type_system --compile
 
-# Force rebuild of per-backend parity binaries
-cargo run -- parity-check examples/basics --rebuild
+# Compare only selected ways
+cargo run -- parity-check examples/type_system --ways vm,llvm
+
+# Force rebuild of the per-backend parity binaries
+cargo run -- parity-check examples/type_system --rebuild
 ```
 
-The parity CLI lives at [`src/parity/cli.rs`](../../src/parity/cli.rs) and is dispatched from the top-level command surface.
+The parity CLI is implemented in [`src/parity/cli.rs`](../../src/parity/cli.rs).
 
 ## Architecture
 
@@ -30,11 +35,11 @@ fixture.flx
     ▼
 ┌─────────────────┐     ┌─────────────────┐
 │ parity_vm/flux  │     │ parity_native/  │
-│  (VM backend)   │     │  flux (LLVM)    │
+│  VM backend     │     │  flux --native  │
 └────────┬────────┘     └────────┬────────┘
          │                       │
          │ stdout/stderr/        │ stdout/stderr/
-         │ exit code             │ exit code
+         │ exit kind             │ exit kind
          ▼                       ▼
     ┌────────────────────────────────┐
     │       normalize & compare       │
@@ -46,167 +51,244 @@ fixture.flx
               └────────┘
 ```
 
-The framework builds two copies of the compiler with different feature sets:
+The framework builds two compiler binaries:
 
-- `target/parity_vm/debug/flux` — VM-only (no `--features llvm`)
-- `target/parity_native/debug/flux` — with `--features llvm`
+- `target/parity_vm/debug/flux` — VM-only build.
+- `target/parity_native/debug/flux` — build with `--features llvm`.
 
-This isolates VM and native backends into separate processes. Both share the on-disk cache (`target/flux/`).
+Parity subprocesses run with `NO_COLOR=1` so diagnostics are snapshot-friendly.
 
 ## Ways
 
-A "way" is one backend + execution mode. Defined in [`src/parity/mod.rs`](../../src/parity/mod.rs):
+A way is one backend plus one execution mode. The default is `vm,llvm`.
 
-| Way           | Binary     | Flags                    | Purpose                       |
-|---------------|------------|--------------------------|-------------------------------|
-| `vm`          | parity_vm  | `--no-cache`             | Fresh VM (default)            |
-| `llvm`        | parity_native | `--native --no-cache` | Fresh native (default)        |
-| `vm_cached`   | parity_vm  | (none)                   | Cached VM run                 |
-| `llvm_cached` | parity_native | `--native`            | Cached native run             |
-| `vm_strict`   | parity_vm  | `--strict --no-cache`    | VM with strict type mode      |
-| `llvm_strict` | parity_native | `--native --strict --no-cache` | Native with strict mode |
+| Way           | Binary          | Flags                              | Purpose                  |
+|---------------|-----------------|------------------------------------|--------------------------|
+| `vm`          | parity VM       | `--no-cache`                       | Fresh VM run             |
+| `llvm`        | parity native   | `--native --no-cache`              | Fresh LLVM/native run    |
+| `vm_cached`   | parity VM       | cache enabled                      | Cached VM run            |
+| `llvm_cached` | parity native   | `--native`, cache enabled          | Cached LLVM/native run   |
+| `vm_strict`   | parity VM       | `--strict --no-cache`              | VM strict-mode run       |
+| `llvm_strict` | parity native   | `--native --strict --no-cache`     | LLVM strict-mode run     |
 
-Select explicitly with `--ways vm,llvm_cached` or let per-fixture metadata choose.
+Fixtures can override the ways with metadata:
+
+```flux
+// parity: vm_strict, llvm_strict
+```
 
 ## Fixture Metadata
 
-Fixtures declare expected behavior via comments at the top of the file. Parsed by [`src/parity/fixture.rs`](../../src/parity/fixture.rs).
+Fixture metadata is parsed from `//` comments by [`src/parity/fixture.rs`](../../src/parity/fixture.rs). Metadata usually lives at the top of the `.flx` file.
 
-### Expected stdout block
+### Outcome
+
+```flux
+// expect: success
+// expect: compile_error
+// expect: runtime_error
+```
+
+- `success` is the default.
+- `compile_error` requires every selected way to fail during compilation.
+- `runtime_error` requires every selected way to fail at runtime.
+
+Expected failures are not loose skips. They are assertions: the failure phase, diagnostic codes, and normalized stderr must match.
+
+### Expected stdout
 
 ```flux
 // parity-expected-stdout-begin
-// "Part A: 4778"
-// "Part B: 1618"
+// Part A: 4778
+// Part B: 1618
 // parity-expected-stdout-end
-
-fn main() with IO {
-    print("Part A: 4778")
-    print("Part B: 1618")
-}
 ```
 
-Each content line has a single `// ` prefix stripped; everything after that is compared verbatim (preserves leading whitespace — important for multi-line string output).
+The parser strips one leading `// ` prefix from each content line. Internal whitespace is preserved.
 
-### Expectation markers
+### Expected stderr
+
+Compile-failing fixtures pin full normalized stderr inline:
 
 ```flux
-// expect: compile_error     // or: success (default) | runtime_error
-// bug: missing closing brace
-// parity: vm, llvm, vm_cached
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/01_compile_type_mismatch.flx
+// error[E300]: Argument Type Mismatch
+//
+// I found the wrong type in the 1st argument to `add`.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E300
 ```
 
-- `expect: success` (default) — all backends must succeed with matching stdout (if expected block is present).
-- `expect: compile_error` — all backends must exit non-zero; stdout comparison skipped (stderr is too volatile to pin).
-- `expect: runtime_error` — same semantics as `compile_error` for parity purposes.
-- `bug:` — freeform description; not enforced, surfaces in diagnostics.
-- `parity:` — override which ways to run.
+The stderr block is the golden rendered diagnostic. It catches changes to wording, spans, labels, hints, notes, and diagnostic ordering.
+
+Because the block is inline, adding or changing it can move source line numbers. Snapshot regeneration must be run to a fixed point: regenerate once, run again, and repeat until no snapshot changes remain.
+
+### Diagnostic codes
+
+```flux
+// expect-error: E300
+// expect-error: E400
+```
+
+`expect-error` is a stable semantic assertion layered on top of the full stderr snapshot. The checker extracts `error[E...]` codes from normalized stderr and compares the sorted list.
+
+Backend-specific diagnostic expectations are intentionally not supported. VM and LLVM diagnostics should be identical for the selected ways. If they differ, the fixture should fail parity unless it is explicitly skipped for a clear reason.
+
+### Skip
+
+```flux
+// skip: historical fixture currently compiles successfully
+```
+
+`skip:` reports the fixture as skipped instead of silently filtering it out. Use it only when the fixture does not currently represent an executable parity assertion, or when a known backend limitation makes comparison invalid.
+
+## What Is Compared
+
+For successful fixtures:
+
+1. all ways must have the same exit kind,
+2. normalized stdout must match across ways,
+3. normalized stderr must match when any way failed,
+4. expected stdout must match if a stdout block is present,
+5. cached ways must match their fresh base way,
+6. strict ways must obey the strict-mode compatibility rules.
+
+For `expect: compile_error` and `expect: runtime_error` fixtures:
+
+1. every selected way must fail in the expected phase,
+2. diagnostic codes must match `expect-error` metadata,
+3. normalized stderr must match the inline stderr snapshot when present,
+4. normalized stderr must match across VM and LLVM.
+
+Normalization lives in [`src/parity/normalize.rs`](../../src/parity/normalize.rs). It removes non-semantic noise such as build progress, backend banners, temp paths, leading `./` project path prefixes, ANSI color, and unstable internal type variable ids like `var #10603`.
 
 ## Verdicts
 
 Defined in [`src/parity/mod.rs`](../../src/parity/mod.rs):
 
-- **`Pass`** — all ways agree, stdout matches expected block (or no block present), exit codes satisfy the `expect:` declaration.
-- **`Mismatch { details }`** — ways disagree on stdout/stderr/exit code. Most common parity failure.
-- **`ExpectedOutputMismatch { expected, actual }`** — ways agree, but output doesn't match the fixture's expected block, or an `expect: compile_error` fixture unexpectedly succeeded.
-- **`Skip { reason }`** — fixture was skipped (e.g., LLVM backend not supported for this construct).
+- `Pass` — all requested assertions held.
+- `Mismatch { details }` — ways or expected diagnostics differed.
+- `ExpectedOutputMismatch { expected, actual }` — ways agreed, but expected stdout/stderr did not match.
+- `Skip { reason }` — fixture metadata requested a reported skip, or the native backend reported unsupported code.
 
-Non-`Pass` verdicts cause the CLI to exit with code 1.
+Important mismatch details include:
 
-## Comparison Layers
+- `ExitKind` — ways disagreed on success/compile error/runtime error/tool failure.
+- `Stdout` / `Stderr` — normalized streams differed across ways.
+- `DiagnosticCodes` — actual `error[E...]` codes differed from fixture metadata.
+- `ExpectedStderr` — a way's normalized stderr differed from the inline stderr block.
+- cache/strict/backend IR mismatch details for deeper parity surfaces.
 
-When ways run, the framework compares several surfaces:
-
-1. **Exit code** — must match across ways.
-2. **Normalized stdout** — `normalize()` in [`normalize.rs`](../../src/parity/normalize.rs) strips ANSI codes, timestamps, and absolute paths.
-3. **Normalized stderr** — same normalization.
-4. **Expected stdout block** — agreed output must match the fixture's declared expected output.
-5. **Cache parity** — for `*_cached` ways, verifies cache artifacts are created/reused correctly.
-6. **Strict parity** — for `*_strict` ways, verifies strict-mode behavior differs from normal only in allowed ways (`Success → CompileError` is allowed; anything else is a mismatch).
-
-Each comparison adds a `MismatchDetail` to the result on divergence.
-
-## Debug Surface Capture
-
-Flags to capture and compare intermediate IR surfaces:
-
-| Flag              | Captures                     | Implementation                |
-|-------------------|------------------------------|-------------------------------|
-| `--capture-core`  | Core IR (`--dump-core`)      | Shared by both backends       |
-| `--capture-aether`| Aether ownership annotations | Shared                        |
-| `--capture-repr`  | Backend representation       | Backend-specific contracts    |
-| `--capture-cfg`   | CFG IR (VM ways)             | VM-only                       |
-| `--capture-lir`   | LIR (LLVM ways)              | Native-only                   |
-| `--explain`       | All of the above             | For diagnosing the ladder     |
-
-When a mismatch occurs, the framework can explain **where** the divergence started. If Core surfaces match but CFG/LIR differ, the bug is in backend lowering. If Core itself differs, the bug is in the frontend.
-
-Ordered as a debug ladder: Core → Aether → Repr → Backend IR (CFG/LIR).
+Any non-pass verdict exits with code 1.
 
 ## The `--compile` Mode
 
-Two-phase mode: compile every fixture, then run parity against the warm cache.
+`--compile` is a two-phase run.
 
-### Phase 1: Compile
+### Phase 1: validate or warm
 
-For each fixture, runs both backends with cache enabled (no `--no-cache`). Cache is cleared per-file via `clear_cache_files` in [`runner.rs`](../../src/parity/runner.rs) to avoid cross-fixture pollution (native object files from different fixtures can produce incompatible exports for shared stdlib modules).
+For successful and runtime-error fixtures, parity first runs each declared base way with cache enabled. This warms cache artifacts for phase 2 and catches compile failures before the parity loop.
 
-Per-fixture outcome markers:
-- `COMPILE OK` — compiled cleanly (normal fixture).
-- `COMPILE EXPECTED FAIL` — fixture with `expect: compile_error`/`runtime_error` failed as declared.
-- `COMPILE UNEXPECTED OK` — fixture declared `expect: compile_error` but compiled successfully (bug regressed or fixture out of date). Stops the run.
-- `COMPILE FAIL` — compile failed without `expect` declaration. Stops the run.
-- `COMPILE SKIP` — LLVM backend reported the construct as unsupported.
+For `expect: compile_error` fixtures, parity does **not** use cache-warming semantics. Failed compiles do not produce useful cache artifacts, and enabling `--cache-dir` can change parser/type diagnostic cascades. Instead, compile-error fixtures are validated with the same fresh no-cache way used by normal parity.
 
-If any real failure occurs, Phase 2 is skipped and the run exits 1.
+Phase 1 messages:
 
-### Phase 2: Parity
+- `COMPILE OK` — success fixture compiled.
+- `COMPILE EXPECTED FAIL` — expected failure failed in the declared phase.
+- `COMPILE DIAGNOSTIC MISMATCH` — emitted error codes differed from `expect-error`.
+- `COMPILE STDERR MISMATCH` — ways emitted different normalized stderr.
+- `COMPILE EXPECTED STDERR MISMATCH` — stderr differed from the inline block.
+- `COMPILE UNEXPECTED OK` — expected failure compiled successfully.
+- `COMPILE FAIL` — success fixture failed to compile.
+- `COMPILE SKIP` — fixture or backend was skipped.
 
-Runs using `VmCached`/`LlvmCached` ways instead of fresh `--no-cache` ways, reusing artifacts from Phase 1.
+If phase 1 finds any real failure, phase 2 is skipped and the process exits 1.
 
-**Tradeoff**: `--compile` catches compile failures up-front with cleaner error output, at the cost of re-clearing + re-populating the cache per fixture (so it is not significantly faster than the default mode on first run; the savings come from not paying the compile cost twice per backend per file at parity time).
+### Phase 2: parity
 
-## Binary Staleness
+After a clean phase 1:
 
-The parity binaries are built with `CARGO_TARGET_DIR=target/parity_vm cargo build` and `CARGO_TARGET_DIR=target/parity_native cargo build --features llvm`. [`cli.rs::ensure_parity_binaries`](../../src/parity/cli.rs) checks source freshness and rebuilds automatically. `--rebuild` forces a rebuild.
+- success and runtime-error fixtures run as cached ways (`vm_cached`, `llvm_cached`) when metadata did not explicitly override ways,
+- compile-error fixtures stay on their original fresh ways (`vm`, `llvm`, or strict variants), because there is no valid cache artifact to exercise.
 
-If cache artifacts persist from an older binary, they may fail to link (undefined symbol errors on stdlib module exports). Clear with:
+## Debug Surface Capture
+
+Optional flags compare intermediate compiler surfaces:
+
+| Flag               | Captures                     | Purpose                       |
+|--------------------|------------------------------|-------------------------------|
+| `--capture-core`   | Core IR                      | Shared frontend/lowering IR   |
+| `--capture-aether` | Aether ownership report      | Ownership/reuse diagnostics   |
+| `--capture-repr`   | Backend representation       | Backend contract surface      |
+| `--capture-cfg`    | CFG IR                       | VM backend IR                 |
+| `--capture-lir`    | LIR                          | LLVM backend IR               |
+| `--explain`        | Multiple surfaces            | Locate where divergence began |
+
+Use the ladder Core -> Aether -> Repr -> backend IR (CFG/LIR). If Core differs, investigate frontend/shared lowering. If Core matches but CFG/LIR differs, investigate backend lowering.
+
+## Maintaining Diagnostic Snapshots
+
+There is currently no first-class snapshot update command. To update stderr snapshots safely:
+
+1. run the fixture through the same parity path you intend to verify,
+2. capture normalized stderr,
+3. write it into `parity-expected-stderr-begin/end`,
+4. repeat until the inline block no longer changes line numbers,
+5. run the full parity command.
+
+For the type-system suite, the expected verification is:
 
 ```bash
-rm -rf target/flux/native target/flux/interfaces target/flux/vm
+cargo test --lib parity:: -- --nocapture
+cargo run -- parity-check .\examples\type_system\ --compile
 ```
 
-This is normally unnecessary — `clear_cache_files` per-fixture handles it — but can be a recovery step if the cache ends up in an unexpected state.
+Do not accept stderr snapshot churn casually. Snapshot diffs are compiler UI changes and should be reviewed like other user-visible diagnostics.
+
+## Binary Staleness And Cache Recovery
+
+Parity binaries are rebuilt automatically when missing or stale. `--rebuild` forces a rebuild.
+
+If cache artifacts from an older compiler cause confusing failures, clear cache directories:
+
+```bash
+rm -rf target/flux/native target/flux/interfaces target/flux/vm target/parity-cache
+```
+
+On Windows, use the PowerShell equivalent with care.
 
 ## Extending
 
-To add a new way:
+To add a way:
 
-1. Add variant to `Way` enum in `src/parity/mod.rs`.
-2. Update `Way::parse`, `Way::backend_id`, `Way::is_cached`, `Way::is_strict`, `Way::base_way`.
-3. Handle the new way in `build_way_args` (flags to add).
-4. Add command format in `cargo_run_for_way` in `src/parity/report.rs`.
-5. Thread through `run_way`/`run_cached_way` in `src/parity/runner.rs` if special handling is needed.
+1. add a `Way` variant in [`src/parity/mod.rs`](../../src/parity/mod.rs),
+2. update parsing/display/helper methods,
+3. update runner argument construction,
+4. update report rendering,
+5. add tests or fixtures covering the new mode.
 
-To add a new mismatch comparison:
+To add a comparison:
 
-1. Add variant to `MismatchDetail` in `src/parity/mod.rs`.
-2. Extend the comparison pass in `src/parity/cli.rs::check_file`.
-3. Add rendering in `src/parity/report.rs::print_mismatch_detail`.
+1. add a `MismatchDetail` variant,
+2. extend comparison logic in [`src/parity/cli.rs`](../../src/parity/cli.rs),
+3. render it in [`src/parity/report.rs`](../../src/parity/report.rs),
+4. add focused tests where practical.
 
 ## Files
 
-| File                              | Purpose                                              |
-|-----------------------------------|------------------------------------------------------|
-| `src/parity/mod.rs`               | Core types: `Way`, `Verdict`, `MismatchDetail`, `RunResult` |
-| `src/parity/cli.rs`               | CLI entry point, fixture loop, compile phase, config |
-| `src/parity/runner.rs`            | Subprocess execution, cache management, debug capture |
-| `src/parity/fixture.rs`           | Fixture metadata parser (`expect:`, `parity-expected-stdout-begin`) |
-| `src/parity/normalize.rs`         | Output normalization (ANSI, paths, whitespace)       |
-| `src/parity/report.rs`            | Result rendering, diagnostics, mismatch explanation   |
+| File                        | Purpose                                      |
+|-----------------------------|----------------------------------------------|
+| `src/parity/mod.rs`         | Core types: ways, verdicts, mismatch details |
+| `src/parity/cli.rs`         | CLI, fixture loop, compile phase             |
+| `src/parity/runner.rs`      | Subprocess execution and cache management    |
+| `src/parity/fixture.rs`     | Fixture metadata parser                      |
+| `src/parity/normalize.rs`   | Output normalization                         |
+| `src/parity/report.rs`      | Result rendering and mismatch explanation    |
 
 ## Related
 
-- [Compiler Architecture](compiler_architecture.md) — how VM and native backends diverge after Aether
-- [Backend Representation Contracts](backend_representation_contracts.md) — the `repr` surface
-- [Aether Debugging](aether_debugging.md) — the `aether` debug surface
+- [Compiler Architecture](compiler_architecture.md)
+- [Backend Representation Contracts](backend_representation_contracts.md)
+- [Aether Debugging](aether_debugging.md)

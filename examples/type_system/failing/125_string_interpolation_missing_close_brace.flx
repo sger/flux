@@ -1,6 +1,37 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/125_string_interpolation_missing_close_brace.flx
+// error[E034]: Missing Closing Delimiter
+//
+// Expected `}` to close string interpolation.
+//
+//   examples/type_system/failing/125_string_interpolation_missing_close_brace.flx:36:24
+//    |
+// 36 | let msg = "Hello #{name"
+//    |                        ^
+//
+// Hint:
+//   Interpolation segments use `#{expr}` inside strings.
+//
+//
+// error[E071]: Unterminated String
+//
+// String literal is missing closing quote.
+//
+//   examples/type_system/failing/125_string_interpolation_missing_close_brace.flx:36:24
+//    |
+// 36 | let msg = "Hello #{name"
+//    |                        ^
+//
+// Hint:
+//   Add a closing " at the end of the string.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E034
+// expect-error: E071
 
 let msg = "Hello #{name"
 let after = 3

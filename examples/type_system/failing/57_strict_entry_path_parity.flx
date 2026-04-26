@@ -1,6 +1,23 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/57_strict_entry_path_parity.flx
+// error[E416]: Strict Function Annotation Required
+//
+// Public function `bad` must annotate all parameters in strict mode.
+//
+//   examples/type_system/failing/57_strict_entry_path_parity.flx:22:8
+//    |
+// 22 | public fn bad(x) -> Int {
+//    |        ^^^^^^^^^^^^^^^^
+//    |        ---------------- missing parameter type annotations
+//
+// Hint:
+//   Add explicit parameter types to the function signature.
+// parity-expected-stderr-end
+// parity: vm_strict, llvm_strict
 // expect: compile_error
+// expect-error: E416
 
 public fn bad(x) -> Int {
     x

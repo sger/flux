@@ -1,6 +1,72 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 3 errors • examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx
+// error[E004]: Undefined Variable
+//
+// I can't find a value named `mystery_value`.
+//
+//   examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:74:13
+//    |
+// 74 |     let w = mystery_value
+//    |             ^^^^^^^^^^^^^
+//
+// Hint:
+//   Define it first: let mystery_value = ...;
+//
+//
+// error[E300]: Type Mismatch
+//
+// I found a type mismatch.
+//
+//   examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:75:14
+//    |
+// 75 |     let _x = match w {
+//    |              ^^^^^^^^^
+// 76 |         W((1, 2)) -> 1,
+//    | ^^^^^^^^^^^^^^^^^^^^^^^
+// 77 |         W(1) -> 2,
+//    | ^^^^^^^^^^^^^^^^^^
+// 78 |         Z -> 0,
+//    | ^^^^^^^^^^^^^^^
+// 79 |     }
+//    | ^^^^^
+//
+// Note:
+//   expected type: (Int, Int)
+//   found type: Int
+//   the conflicting types meet at this expression
+//
+// Help:
+//   These two types are not compatible.
+//
+//
+// error[E015]: Non-Exhaustive Match
+//
+// Match is not exhaustive: 1 missing pattern.
+//
+//   examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:75:14
+//    |
+// 75 |     let _x = match w {
+//    |              ^^^^^^^^^
+// 76 |         W((1, 2)) -> 1,
+//    | ^^^^^^^^^^^^^^^^^^^^^^^
+// 77 |         W(1) -> 2,
+//    | ^^^^^^^^^^^^^^^^^^
+// 78 |         Z -> 0,
+//    | ^^^^^^^^^^^^^^^
+// 79 |     }
+//    | ^^^^^
+//
+// Hint:
+//   Add the missing pattern(s) or an unguarded `_ -> ...` catch-all.
+//
+// Found 3 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E004
+// expect-error: E015
+// expect-error: E300
 
 type Wrap<T> = W(T) | Z
 

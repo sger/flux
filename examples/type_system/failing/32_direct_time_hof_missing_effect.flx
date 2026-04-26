@@ -1,6 +1,21 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/32_direct_time_hof_missing_effect.flx
+// error[E004]: Undefined Variable
+//
+// I can't find a value named `time`.
+//
+//   examples/type_system/failing/32_direct_time_hof_missing_effect.flx:23:5
+//    |
+// 23 |     time(\() -> 1)
+//    |     ^^^^
+//
+// Hint:
+//   Define it first: let time = ...;
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E004
 
 // E400: `time(fn)` itself is Time-effectful.
 

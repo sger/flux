@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/17_handle_unknown_operation.flx
+// error[E401]: Unknown Effect Operation
+//
+// Handler for `Console` includes unknown operation `read`.
+//
+//   examples/type_system/failing/17_handle_unknown_operation.flx:29:9
+//    |
+// 29 |         read(resume) -> resume("x")
+//    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//    |         --------------------------- unknown operation arm
+//
+// Hint:
+//   Add this operation to the effect declaration or remove the arm.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E401
 
 // E401: handler arm references an operation not declared by the effect.
 

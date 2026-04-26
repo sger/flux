@@ -649,6 +649,7 @@ enum SpawnResult {
 fn spawn_with_timeout(binary: &Path, args: &[String], timeout: Duration) -> SpawnResult {
     let mut child = match Command::new(binary)
         .args(args)
+        .env("NO_COLOR", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

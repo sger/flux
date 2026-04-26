@@ -362,6 +362,26 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
             println!("  {}", cyan("stderr differs:"));
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
+        MismatchDetail::DiagnosticCodes {
+            way,
+            expected,
+            actual,
+        } => {
+            println!(
+                "  {} {way}: expected {:?}, actual {:?}",
+                cyan("diagnostic_codes:"),
+                expected,
+                actual
+            );
+        }
+        MismatchDetail::ExpectedStderr {
+            way,
+            expected,
+            actual,
+        } => {
+            println!("  {} {way}", cyan("expected_stderr differs:"));
+            print_inline_diff("expected".to_string(), expected, way.to_string(), actual);
+        }
         MismatchDetail::CoreMismatch {
             left_way,
             left,

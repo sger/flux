@@ -1,6 +1,760 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 50 errors • examples/type_system/failing/205_effect_max_errors_many_missing_io.flx
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:766:5
+//     |
+// 766 |     print(0)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:771:5
+//     |
+// 771 |     print(1)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:776:5
+//     |
+// 776 |     print(2)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:781:5
+//     |
+// 781 |     print(3)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:786:5
+//     |
+// 786 |     print(4)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:791:5
+//     |
+// 791 |     print(5)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:796:5
+//     |
+// 796 |     print(6)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:801:5
+//     |
+// 801 |     print(7)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:806:5
+//     |
+// 806 |     print(8)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:811:5
+//     |
+// 811 |     print(9)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:816:5
+//     |
+// 816 |     print(10)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:821:5
+//     |
+// 821 |     print(11)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:826:5
+//     |
+// 826 |     print(12)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:831:5
+//     |
+// 831 |     print(13)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:836:5
+//     |
+// 836 |     print(14)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:841:5
+//     |
+// 841 |     print(15)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:846:5
+//     |
+// 846 |     print(16)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:851:5
+//     |
+// 851 |     print(17)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:856:5
+//     |
+// 856 |     print(18)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:861:5
+//     |
+// 861 |     print(19)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:866:5
+//     |
+// 866 |     print(20)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:871:5
+//     |
+// 871 |     print(21)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:876:5
+//     |
+// 876 |     print(22)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:881:5
+//     |
+// 881 |     print(23)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:886:5
+//     |
+// 886 |     print(24)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:891:5
+//     |
+// 891 |     print(25)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:896:5
+//     |
+// 896 |     print(26)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:901:5
+//     |
+// 901 |     print(27)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:906:5
+//     |
+// 906 |     print(28)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:911:5
+//     |
+// 911 |     print(29)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:916:5
+//     |
+// 916 |     print(30)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:921:5
+//     |
+// 921 |     print(31)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:926:5
+//     |
+// 926 |     print(32)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:931:5
+//     |
+// 931 |     print(33)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:936:5
+//     |
+// 936 |     print(34)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:941:5
+//     |
+// 941 |     print(35)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:946:5
+//     |
+// 946 |     print(36)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:951:5
+//     |
+// 951 |     print(37)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:956:5
+//     |
+// 956 |     print(38)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:961:5
+//     |
+// 961 |     print(39)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:966:5
+//     |
+// 966 |     print(40)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:971:5
+//     |
+// 971 |     print(41)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:976:5
+//     |
+// 976 |     print(42)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:981:5
+//     |
+// 981 |     print(43)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:986:5
+//     |
+// 986 |     print(44)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:991:5
+//     |
+// 991 |     print(45)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:996:5
+//     |
+// 996 |     print(46)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1001:5
+//      |
+// 1001 |     print(47)
+//      |     ^^^^^^^^^
+//      |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1006:5
+//      |
+// 1006 |     print(48)
+//      |     ^^^^^^^^^
+//      |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1011:5
+//      |
+// 1011 |     print(49)
+//      |     ^^^^^^^^^
+//      |     --------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+// ... and 10 more errors not shown (use --max-errors to increase).
+//
+// Found 60 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
+// expect-error: E400
 
 // More than 50 independent effect diagnostics in one file.
 //

@@ -1,6 +1,43 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 2 errors • examples/type_system/failing/121_match_fat_arrow.flx
+// error[E034]: Missing Match Arm Arrow
+//
+// This match arm needs `->`, not `=>`.
+//
+//   examples/type_system/failing/121_match_fat_arrow.flx:43:25
+//    |
+// 43 |     let x = match 1 { 0 => 0, _ => 1 }
+//    |                         ^^
+//
+// Note:
+//   while parsing function `main` > `match` expression
+//
+// Help:
+//   Replace `=>` with `->`.
+//
+//
+// error[E034]: Missing Match Arm Arrow
+//
+// This match arm needs `->`, not `=>`.
+//
+//   examples/type_system/failing/121_match_fat_arrow.flx:43:33
+//    |
+// 43 |     let x = match 1 { 0 => 0, _ => 1 }
+//    |                                 ^^
+//
+// Note:
+//   while parsing function `main` > `match` expression
+//
+// Help:
+//   Replace `=>` with `->`.
+//
+// Found 2 errors.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E034
+// expect-error: E034
 
 fn main() -> Unit {
     let x = match 1 { 0 => 0, _ => 1 }

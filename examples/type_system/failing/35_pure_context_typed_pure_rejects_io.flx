@@ -1,6 +1,22 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx:24:5
+//    |
+// 24 |     print(x)
+//    |     ^^^^^^^^
+//    |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E400
 
 // A3 matrix: typed pure function rejects direct IO builtin call.
 

@@ -1,6 +1,28 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/23_generic_call_return_mismatch.flx
+// error[E300]: Annotation Type Mismatch
+//
+// The value of `x` does not match its type annotation.
+//
+//   examples/type_system/failing/23_generic_call_return_mismatch.flx:31:14
+//    |
+// 31 | let x: Int = identity("hello")
+//    |              ^^^^^^^^^^^^^^^^^
+//    |              ----------------- this value has type `String`
+//
+//    |        --- but `x` was annotated as `Int`
+//
+// Note:
+//   annotated type: Int
+//   value type: String
+//
+// Help:
+//   Change `x` to a `Int` value or update the annotation.
+// parity-expected-stderr-end
 // expect: compile_error
+// expect-error: E300
 
 // E055: static typed let mismatch through generic return instantiation.
 
