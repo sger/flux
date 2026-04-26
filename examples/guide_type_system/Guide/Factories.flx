@@ -1,3 +1,5 @@
+// root: examples/guide_type_system
+
 module Guide.Factories {
     type ResultI = Ok(Int) | Err(String)
 
