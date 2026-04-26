@@ -1,3 +1,9 @@
+// parity-expected-stdout-begin
+// true
+// false
+// [|1, 3, 5, 7|]
+// parity-expected-stdout-end
+
 import Flow.Array as Array
 
 data Tree {

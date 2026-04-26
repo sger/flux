@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
 // Effect-row concrete atom ordering is non-semantic.
 // Expected: compile/run success.
 

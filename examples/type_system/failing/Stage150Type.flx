@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // Helper module for stage-aware fixture 150/153.
 // Intentionally has a type diagnostic.
 

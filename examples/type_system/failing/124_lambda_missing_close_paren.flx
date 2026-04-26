@@ -1,2 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 let add = \(x, y -> x + y
 let after = 3

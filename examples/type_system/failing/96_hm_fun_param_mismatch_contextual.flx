@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E300: function-type parameter mismatch should report parameter-specific diagnostics.
 fn takes_int(x: Int) -> Int {
     x

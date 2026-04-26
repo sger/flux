@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "main handles IO"
+// parity-expected-stdout-end
+
 // A4 matrix: effectful operations are allowed inside `fn main() with ...`.
 
 fn main() -> Unit with IO {

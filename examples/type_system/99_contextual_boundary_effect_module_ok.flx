@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "step=1"
+// "oops 2"
+// parity-expected-stdout-end
+
 import TypeSystem.BoundaryUnknown
 import TypeSystem.EffectsChain
 import TypeSystem.RealProgramEffects

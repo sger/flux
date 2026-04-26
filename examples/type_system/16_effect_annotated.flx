@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// 5
+// 10
+// 5
+// 10
+// 7
+// parity-expected-stdout-end
+
 // Effect annotations: correct usage of `with IO`.
 //
 // Shows three cases:

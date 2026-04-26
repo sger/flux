@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "4"
+// parity-expected-stdout-end
+
 // Effect operation signature enforcement (passing case).
 // `Reader.read` declares `String -> Int`; perform + handle respect that.
 

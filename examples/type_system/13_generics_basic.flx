@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// 42
+// "hello"
+// 1
+// "one"
+// true
+// parity-expected-stdout-end
+
 // Generic functions: type parameters are declared with <T, ...> after the name.
 // The HM inference pass instantiates fresh type variables at each call site,
 // so the same function can be used at different types without duplication.

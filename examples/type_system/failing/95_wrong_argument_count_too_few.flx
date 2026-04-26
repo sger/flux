@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E056: statically-known call arity mismatch (too few arguments).
 fn add(a: Int, b: Int) -> Int {
     a + b

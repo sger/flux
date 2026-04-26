@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: direct builtin effect call inside a function with incompatible ambient effects.
 //
 // `tick` allows only Time, but `print` requires IO.

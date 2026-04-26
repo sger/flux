@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Guarded arm does not close coverage; unguarded fallback does.
 fn main() {
     let n = 3

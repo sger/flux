@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "strict mode"
+// parity-expected-stdout-end
+// expect: compile_error
+
 public fn log(msg) {
     print(msg)
 }

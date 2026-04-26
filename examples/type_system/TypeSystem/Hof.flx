@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+
 module TypeSystem.Hof {
     public fn apply_twice(f: (Int) -> Int, x: Int) -> Int {
         f(f(x))

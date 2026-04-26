@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 fn concrete_fn(x: Int) -> Int { x }
 fn any_param_fn(x: Any) -> Int { 0 }
 

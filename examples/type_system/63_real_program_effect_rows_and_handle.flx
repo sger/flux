@@ -1,3 +1,9 @@
+// parity-expected-stdout-begin
+// "step=20"
+// "console_only_value"
+// "39"
+// parity-expected-stdout-end
+
 import TypeSystem.RealProgramEffects as E
 
 effect LocalLog {

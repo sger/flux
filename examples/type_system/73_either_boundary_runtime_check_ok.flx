@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "7"
+// parity-expected-stdout-end
+
 fn unwrap_or_zero(input: Either<String, Int>) -> Int {
     match input {
         Left(_msg) -> 0,

@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// "[|1, 2, 4, 5|]"
+// "true"
+// "10"
+// "7"
+// "0"
+// parity-expected-stdout-end
+
 import TypeSystem.RealProgramBaseInterop as B
 
 fn main() with IO {

@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "console-only"
+// "7"
+// parity-expected-stdout-end
+
 // Concrete subtraction remains valid when the removed effect is absent.
 
 effect MyLog {

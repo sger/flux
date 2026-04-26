@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: subtraction syntax still requires remaining row effects (IO).
 
 effect Console {

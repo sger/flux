@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E422: callback effect row is missing required effects.
 
 fn run_needs_console_clock(f: (() -> Int with Console, Clock)) -> Int with Console, Clock {

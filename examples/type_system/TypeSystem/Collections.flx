@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+
 // Generic collection utilities module with typed higher-order functions.
 // Demonstrates: typed modules, generic functions, HOF, recursive typed functions.
 

@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "total=15"
+// parity-expected-stdout-end
+
 // Untyped helper (gradual style)
 fn main() with IO, Time {
     fn old_add(x, y) {

@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // Multi-module stage filtering fixture.
 // Entry has parse errors; imported module has type/effect diagnostics.
 // Entry is skipped, but independent imports still compile, so real suppression is exercised.

@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // Policy fixture (0.0.4): module ADT constructors are internal API.
 // External usage should go through module `public fn` factories/accessors.
 

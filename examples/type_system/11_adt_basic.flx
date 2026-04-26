@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// "Circle with radius 5"
+// "Rectangle 3x4"
+// "Point"
+// "Area of circle: 78.53975"
+// "Area of rectangle: 12"
+// parity-expected-stdout-end
+
 data Shape {
     Circle(Float),
     Rectangle(Float, Float),

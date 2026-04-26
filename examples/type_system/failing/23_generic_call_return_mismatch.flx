@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E055: static typed let mismatch through generic return instantiation.
 
 fn identity<T>(x: T) -> T { x }

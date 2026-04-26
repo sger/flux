@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "hi"
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E400: aliasing `print` must not bypass IO effect checks in pure functions.
 
 fn f() -> Int {

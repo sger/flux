@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
 // Generic identity keeps the value type precise across the boundary.
 
 fn identity<T>(x: T) -> T {

@@ -1,2 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 fn bad(x: (Int, String -> Int { x }
 let after = 1

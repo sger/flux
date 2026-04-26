@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // 0051 Stage 2: HM fallback catches argument type mismatch for module generic params.
 // M.prepend<T>(elem: T, xs: Array<T>) -- T and Array<T> are generic, convert_type_expr
 // returns None for both. Stage 2 uses HM's instantiated function type:

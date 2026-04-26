@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "0"
+// parity-expected-stdout-end
+
 data ResultI {
     OkI(Int),
     ErrI(Int),
