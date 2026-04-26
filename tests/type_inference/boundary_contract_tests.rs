@@ -62,7 +62,7 @@ fn typed_let_with_matching_annotation_compiles_in_strict_mode() {
             x
         }
     "#;
-    let _ = compile_strict(src).expect("well-typed annotated let must compile in strict mode");
+    compile_strict(src).expect("well-typed annotated let must compile in strict mode");
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn polymorphic_identity_compiles_in_strict_mode() {
         fn id(x) { x }
         fn main() { id(1) }
     "#;
-    let _ = compile_strict(src).expect("polymorphic identity must compile in strict mode");
+    compile_strict(src).expect("polymorphic identity must compile in strict mode");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

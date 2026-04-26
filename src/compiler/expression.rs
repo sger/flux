@@ -783,7 +783,7 @@ impl Compiler {
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
-                sorted_pairs.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                sorted_pairs.sort_by_key(|a| a.0.to_string());
 
                 for (key, value) in sorted_pairs {
                     self.compile_non_tail_expression(key)?;
@@ -3633,8 +3633,7 @@ impl Compiler {
                 }
 
                 use crate::types::type_constructor::TypeConstructor;
-                let returns_unit =
-                    matches!(op_ret, InferType::Con(TypeConstructor::Unit));
+                let returns_unit = matches!(op_ret, InferType::Con(TypeConstructor::Unit));
                 let resume_arg = if returns_unit {
                     "()".to_string()
                 } else {
@@ -3646,8 +3645,12 @@ impl Compiler {
                     format!("resume({resume_arg})")
                 };
 
-                skeleton_lines
-                    .push(format!("    {}({}) -> {}", op_name, params.join(", "), body));
+                skeleton_lines.push(format!(
+                    "    {}({}) -> {}",
+                    op_name,
+                    params.join(", "),
+                    body
+                ));
             }
 
             let skeleton = skeleton_lines.join(",\n");

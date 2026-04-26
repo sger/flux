@@ -115,13 +115,12 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
         .unwrap()
         .to_string_lossy()
         .replace('\\', "/");
-    let path_str = if let Some(rest) =
-        format!("{cwd}/examples/diagnostics/ice_demo.flx").strip_prefix('/')
-    {
-        format!("//?/{rest}")
-    } else {
-        format!("//?/{cwd}/examples/diagnostics/ice_demo.flx")
-    };
+    let path_str =
+        if let Some(rest) = format!("{cwd}/examples/diagnostics/ice_demo.flx").strip_prefix('/') {
+            format!("//?/{rest}")
+        } else {
+            format!("//?/{cwd}/examples/diagnostics/ice_demo.flx")
+        };
     let path_buf = PathBuf::from(path_str);
 
     let program = Program {
@@ -366,9 +365,7 @@ fn import_cycle_diagnostic_uses_stable_paths_and_import_span() {
 
     let err = topo_order(&nodes, &entry).unwrap_err();
     let rendered = err.render(
-        Some(
-            "import ModuleGraph.ModuleGraphCycleA\n\nModuleGraph.ModuleGraphCycleA.value();\n",
-        ),
+        Some("import ModuleGraph.ModuleGraphCycleA\n\nModuleGraph.ModuleGraphCycleA.value();\n"),
         None,
     );
 

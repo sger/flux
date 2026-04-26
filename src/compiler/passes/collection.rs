@@ -347,30 +347,28 @@ impl Compiler {
                 name,
                 span,
                 ..
-            } => {
-                if !self.file_path.replace('\\', "/").contains("lib/Flow/") {
-                    self.errors.push(
-                        Diagnostic::make_error_dynamic(
-                            "E034",
-                            "INTRINSIC DECLARATION OUTSIDE STDLIB",
-                            ErrorType::Compiler,
-                            format!(
-                                "`{}` is declared as an intrinsic bound to `{:?}` outside the Flow stdlib surface.",
-                                self.sym(*name),
-                                primop
-                            ),
-                            Some(
-                                "Move this intrinsic declaration into `lib/Flow/*` or use an ordinary `fn` wrapper instead."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            *span,
-                        )
-                        .with_category(DiagnosticCategory::NameResolution)
-                        .with_phase(DiagnosticPhase::Validation)
-                        .with_primary_label(*span, "intrinsic declarations are restricted to Flow stdlib modules"),
-                    );
-                }
+            } if !self.file_path.replace('\\', "/").contains("lib/Flow/") => {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E034",
+                        "INTRINSIC DECLARATION OUTSIDE STDLIB",
+                        ErrorType::Compiler,
+                        format!(
+                            "`{}` is declared as an intrinsic bound to `{:?}` outside the Flow stdlib surface.",
+                            self.sym(*name),
+                            primop
+                        ),
+                        Some(
+                            "Move this intrinsic declaration into `lib/Flow/*` or use an ordinary `fn` wrapper instead."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        *span,
+                    )
+                    .with_category(DiagnosticCategory::NameResolution)
+                    .with_phase(DiagnosticPhase::Validation)
+                    .with_primary_label(*span, "intrinsic declarations are restricted to Flow stdlib modules"),
+                );
             }
             Statement::Function { body, .. } | Statement::Module { body, .. } => {
                 self.validate_intrinsic_block(body);

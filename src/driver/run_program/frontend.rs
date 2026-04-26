@@ -66,8 +66,7 @@ pub(crate) fn build_program_context(
     }
 
     let mut program = program;
-    let mut primops_import_diags =
-        validate_no_primops_import(&program, parser.interner(), path);
+    let mut primops_import_diags = validate_no_primops_import(&program, parser.interner(), path);
     if !primops_import_diags.is_empty() {
         tag_and_attach_file(
             &mut primops_import_diags,

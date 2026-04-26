@@ -236,16 +236,16 @@ impl<'a> InferCtx<'a> {
     /// - `preloaded_effect_op_signatures`: generalized signatures for effect
     ///   operations,
     ///   keyed by `(effect, operation)`.
-    fn new(
-        interner: &'a Interner,
-        file_path: Rc<str>,
-        preloaded_base_schemes: HashMap<Identifier, Scheme>,
-        preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
-        known_flow_names: HashSet<Identifier>,
-        flow_module_symbol: Identifier,
-        preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
-        effect_row_aliases: HashMap<Identifier, EffectExpr>,
-    ) -> Self {
+    fn new(interner: &'a Interner, config: InferCtxConfig) -> Self {
+        let InferCtxConfig {
+            file_path,
+            preloaded_base_schemes,
+            preloaded_module_member_schemes,
+            known_flow_names,
+            flow_module_symbol,
+            preloaded_effect_op_signatures,
+            effect_row_aliases,
+        } = config;
         let mut env = TypeEnv::new();
         advance_counter_past_preloaded_schemes(
             &mut env,
@@ -457,6 +457,16 @@ impl<'a> InferCtx<'a> {
     }
 }
 
+struct InferCtxConfig {
+    file_path: Rc<str>,
+    preloaded_base_schemes: HashMap<Identifier, Scheme>,
+    preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    known_flow_names: HashSet<Identifier>,
+    flow_module_symbol: Identifier,
+    preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
+    effect_row_aliases: HashMap<Identifier, EffectExpr>,
+}
+
 pub use display::suggest_type_name;
 
 /// Pre-loaded data arguments required by [`infer_program`].
@@ -521,13 +531,15 @@ pub fn infer_program(
     let file: Rc<str> = config.file_path.unwrap_or_else(|| "".into());
     let mut ctx = InferCtx::new(
         interner,
-        file,
-        config.preloaded_base_schemes,
-        config.preloaded_module_member_schemes,
-        config.known_flow_names,
-        config.flow_module_symbol,
-        config.preloaded_effect_op_signatures,
-        config.effect_row_aliases,
+        InferCtxConfig {
+            file_path: file,
+            preloaded_base_schemes: config.preloaded_base_schemes,
+            preloaded_module_member_schemes: config.preloaded_module_member_schemes,
+            known_flow_names: config.known_flow_names,
+            flow_module_symbol: config.flow_module_symbol,
+            preloaded_effect_op_signatures: config.preloaded_effect_op_signatures,
+            effect_row_aliases: config.effect_row_aliases,
+        },
     );
     init_class_env(&mut ctx, config.class_env, interner);
     ctx.infer_program(program);

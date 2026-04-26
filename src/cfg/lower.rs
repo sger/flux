@@ -158,6 +158,7 @@ impl Lowerer {
         Self::bind_function_id_in_items(&mut self.top_level_items, name, function_id);
     }
 
+    #[allow(clippy::collapsible_match)]
     fn bind_function_id_in_items(
         items: &mut [IrTopLevelItem],
         name: Identifier,

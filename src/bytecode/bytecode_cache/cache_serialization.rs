@@ -366,7 +366,7 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
         let location = if loc_flag[0] == 0 {
             None
         } else {
-            let file_id = read_u32(reader)? as u32;
+            let file_id = read_u32(reader)?;
             let span = read_span(reader)?;
             Some(Location { file_id, span })
         };
@@ -378,7 +378,7 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
     let boundary_location = if boundary_flag[0] == 0 {
         None
     } else {
-        let file_id = read_u32(reader)? as u32;
+        let file_id = read_u32(reader)?;
         let span = read_span(reader)?;
         Some(Location { file_id, span })
     };

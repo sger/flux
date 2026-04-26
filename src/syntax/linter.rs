@@ -238,10 +238,7 @@ impl<'a> Linter<'a> {
     /// tail (`A + B | e`); comma is the canonical list separator otherwise.
     fn check_effect_separator_style(&mut self, effects: &[EffectExpr]) {
         for effect in effects {
-            if effect.contains_add()
-                && !effect.contains_subtract()
-                && !effect.is_open()
-            {
+            if effect.contains_add() && !effect.contains_subtract() && !effect.is_open() {
                 self.push_warning(
                     "EFFECT ROW SEPARATOR STYLE",
                     "W013",

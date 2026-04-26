@@ -82,10 +82,8 @@ impl AdtFields {
             (AdtFields::Three(a, _, _), 0) => *a = value,
             (AdtFields::Three(_, b, _), 1) => *b = value,
             (AdtFields::Three(_, _, c), 2) => *c = value,
-            (AdtFields::Many(v), i) => {
-                if i < v.len() {
-                    v[i] = value;
-                }
+            (AdtFields::Many(v), i) if i < v.len() => {
+                v[i] = value;
             }
             _ => {}
         }

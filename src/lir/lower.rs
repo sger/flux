@@ -151,10 +151,7 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
 /// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
 /// the legacy direct-perform path.
 fn native_yield_checks_enabled() -> bool {
-    match std::env::var("FLUX_YIELD_CHECKS") {
-        Ok(v) if v == "0" => false,
-        _ => true,
-    }
+    !matches!(std::env::var("FLUX_YIELD_CHECKS"), Ok(v) if v == "0")
 }
 
 fn native_builtin_effect_uses_direct_path(
