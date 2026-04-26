@@ -58,6 +58,7 @@ pub fn run_fixture_dir_snapshots(
     run_fixture_dir_snapshots_with_options(workspace_root, fixtures_dir_rel, false)
 }
 
+#[allow(dead_code)]
 pub fn run_fixture_dir_snapshots_stripping_parity_metadata(
     workspace_root: &Path,
     fixtures_dir_rel: &str,
@@ -87,13 +88,9 @@ fn run_fixture_dir_snapshots_with_options(
             .to_string_lossy()
             .replace('\\', "/");
         let snapshot = snapshot_name(&fixtures_root, &fixture);
-        let transcript = build_transcript_with_options(
-            &fixture,
-            &rel,
-            workspace_root,
-            strip_parity_metadata,
-        )
-            .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
+        let transcript =
+            build_transcript_with_options(&fixture, &rel, workspace_root, strip_parity_metadata)
+                .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
         cases.push(FixtureSnapshotCase {
             snapshot_name: snapshot,
             transcript,

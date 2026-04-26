@@ -28,9 +28,11 @@ pub fn normalize(raw: &str) -> String {
     }
 
     let joined = lines.join("\n");
-    normalize_type_variable_ids(&normalize_relative_path_prefixes(&normalize_temp_paths(&joined)))
-        .trim()
-        .to_string()
+    normalize_type_variable_ids(&normalize_relative_path_prefixes(&normalize_temp_paths(
+        &joined,
+    )))
+    .trim()
+    .to_string()
 }
 
 /// Replace absolute temp paths from native compilation with a placeholder.

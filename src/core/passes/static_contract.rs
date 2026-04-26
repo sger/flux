@@ -149,9 +149,7 @@ fn build_violation(def: &CoreDef, var: TypeVarId, span: Span) -> Diagnostic {
             var,
             boundary = kind.label(),
         ))
-        .with_hint_text(
-            "Add a type annotation or make the expression's result type unambiguous.",
-        );
+        .with_hint_text("Add a type annotation or make the expression's result type unambiguous.");
     diag.severity = Severity::Error;
     diag
 }

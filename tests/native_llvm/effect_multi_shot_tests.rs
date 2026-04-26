@@ -75,11 +75,7 @@ fn native_default_prints_3_on_multi_shot() {
         ok,
         "native backend (default yield path) must handle multi-shot cleanly, got:\n{out}"
     );
-    let last = out
-        .lines()
-        .filter(|l| !l.starts_with('['))
-        .last()
-        .unwrap_or_default();
+    let last = out.lines().rfind(|l| !l.starts_with('[')).unwrap_or_default();
     assert_eq!(
         last, "\"3\"",
         "native yield path should print 3 (= resume(true)=1 + resume(false)=2); got {last:?}"

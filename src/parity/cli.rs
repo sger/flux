@@ -354,10 +354,8 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         // expected phase and assert diagnostic code parity without pinning the
         // full rendered diagnostic text.
         let expected_kind = expected_exit_kind(opts.expect);
-        let all_expected_kind = !run_results.is_empty()
-            && run_results
-                .iter()
-                .all(|r| r.exit_kind == expected_kind);
+        let all_expected_kind =
+            !run_results.is_empty() && run_results.iter().all(|r| r.exit_kind == expected_kind);
         if all_expected_kind {
             let mut expected_failure_details =
                 collect_diagnostic_code_details(&run_results, opts.expected_errors);

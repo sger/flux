@@ -171,12 +171,10 @@ fn find_fn_end_idx(lines: &[String], start_idx: usize) -> usize {
                     seen_open = true;
                     depth += 1;
                 }
-                '}' => {
-                    if seen_open {
-                        depth = depth.saturating_sub(1);
-                        if depth == 0 {
-                            return idx + 1;
-                        }
+                '}' if seen_open => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return idx + 1;
                     }
                 }
                 _ => {}
