@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "The answer: 50"
+// "Point(10, 20)"
+// parity-expected-stdout-end
+
 let answer: Int = 42
 let label: String = "The answer"
 let point: (Int, Int) = (10, 20)

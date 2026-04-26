@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "n=12"
+// parity-expected-stdout-end
+
 fn main() with IO, Time {
     let inc: (Int) -> Int = \(x: Int) -> x + 1
     let fmt: (Int) -> String = \(x: Int) -> "n=#{x}"

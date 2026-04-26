@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Module-scoped public APIs are part of strict API checks.
 
 import TypeSystem.StrictPublicChecked as C

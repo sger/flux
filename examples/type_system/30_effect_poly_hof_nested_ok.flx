@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+
 // Nested higher-order wrappers preserve polymorphic effects.
 
 fn apply_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {

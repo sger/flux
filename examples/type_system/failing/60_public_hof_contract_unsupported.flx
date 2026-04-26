@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // Historical fixture: strict mode now permits function-typed public boundaries.
 public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
     f(x)

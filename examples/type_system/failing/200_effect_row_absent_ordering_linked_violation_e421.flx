@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E421: deferred Absent catches shared-row binding from a later argument.
 
 fn needs_linked_absence(

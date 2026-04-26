@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // A3 matrix: typed pure function rejects direct IO builtin call.
 
 fn pure_double(x: Int) -> Int {

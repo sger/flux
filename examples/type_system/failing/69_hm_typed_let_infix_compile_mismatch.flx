@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // HM hardening: known invalid infix in typed let should fail at compile time.
 
 fn old(v) {

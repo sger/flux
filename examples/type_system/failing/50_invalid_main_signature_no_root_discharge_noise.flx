@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E412 only: invalid main signature should suppress root-discharge noise (no E406 cascade).
 
 effect Console {

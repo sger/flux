@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // Private module helpers remain internal and are not strict API boundary targets.
 
 import TypeSystem.StrictPrivateHelpers as C

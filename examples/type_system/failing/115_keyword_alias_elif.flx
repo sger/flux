@@ -1,1 +1,5 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 if true { 1 } elif false { 2 } else { 3 }

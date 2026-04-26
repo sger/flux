@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 let answer: Int = 42.5
 let label: String = "The answer"
 let point: (Int, Int) = (10, 20)

@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E420: unresolved multiple effect variables in subtraction paths.
 
 fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {

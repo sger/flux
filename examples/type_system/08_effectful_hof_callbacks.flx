@@ -1,3 +1,10 @@
+// parity-expected-stdout-begin
+// "callback=10"
+// "callback=20"
+// "callback=30"
+// "done"
+// parity-expected-stdout-end
+
 fn main() with IO, Time {
     fn each_log(xs: List<Int>, f: (Int) -> Unit with IO) with IO {
         match xs {

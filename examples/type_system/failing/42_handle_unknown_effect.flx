@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E405: handling an undeclared effect should fail statically.
 
 fn main() -> Unit with IO {

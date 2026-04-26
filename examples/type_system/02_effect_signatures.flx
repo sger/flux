@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// skip: prints live Clock.now_ms output
+
 fn main() with Console, Clock {
     fn now_plus(delta: Int) -> Int with Clock {
         now_ms() + delta

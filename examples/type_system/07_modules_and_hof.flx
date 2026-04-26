@@ -1,3 +1,11 @@
+// parity-expected-stdout-begin
+// "module_doubled_sum=20"
+// 12
+// "n=5"
+// "n=6"
+// "done"
+// parity-expected-stdout-end
+
 import TypeSystem.Hof as Hof
 
 fn main() with IO {

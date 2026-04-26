@@ -1,3 +1,8 @@
+// parity-expected-stdout-begin
+// "io-only"
+// "10"
+// parity-expected-stdout-end
+
 // Surface syntax for effect rows with subtraction.
 // `Console + Clock - Clock` normalizes back to `Console`.
 

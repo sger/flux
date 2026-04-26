@@ -1,3 +1,7 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
 // E425: strict mode rejects unresolved perform argument types.
 // When a perform argument's type cannot be resolved by HM, strict mode
 // requires a concrete type annotation on the argument expression.

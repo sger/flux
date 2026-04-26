@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+
 // HOF callback effects propagate via explicit row tails.
 
 fn map_passthrough(xs, f) {
