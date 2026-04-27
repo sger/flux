@@ -1,13 +1,31 @@
 - Feature Name: Actor Concurrency Roadmap (Aether-Aware)
 - Start Date: 2026-03-21
-- Last Updated: 2026-04-18
-- Status: Draft (realistic implementation plan, 2026-04-18)
+- Last Updated: 2026-04-27
+- Status: **Deferred — re-scope as the isolation/reliability layer over [0174](0174_async_effect_concurrency.md)**. Phases re-target as described in 0174's "Relationship to 0143" section. Sendability rules (Phase B), supervision design (Phase C), and deterministic-scheduler advocacy (Phase D) remain authoritative for the actor layer when that work becomes timely.
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0026](superseded/0026_concurrency_model.md), [0065](superseded/0065_actor_effect_stdlib.md), [0066](superseded/0066_thread_per_actor_handler.md), [0067](superseded/0067_gchandle_actor_boundary_error.md), [0071](superseded/0071_mn_scheduler_actor_handler.md), [0095](superseded/0095_actor_runtime_architecture.md)
-- Depends on: [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
+- Depends on: [0174](0174_async_effect_concurrency.md) (Async Effect & Concurrency Roadmap — runtime substrate), [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
 
 # Proposal 0143: Actor Concurrency Roadmap (Aether-Aware)
+
+> **Deferral notice (2026-04-27).** [Proposal 0174](0174_async_effect_concurrency.md)
+> commits Flux to an Async-effect + libuv concurrency story aligned with the
+> stated project goal of HTTP microservices and data streams. 0143 is
+> retained as the canonical design for the **isolation and reliability
+> layer** that will sit on top of 0174 once Phase 3 (process-per-core) and
+> Phase 4 (HTTP/TLS/database) ship. The phase mapping below describes how
+> 0143's original phases re-target onto 0174:
+>
+> - **Phase A (thread-per-actor)** → subsumed by 0174 Phase 3 process-per-core. Actors become OS-process workers communicating via libuv pipes; isolation is stronger (process boundary) and libuv handles lifecycle.
+> - **Phase B (typed mailboxes + `Sendable<T>`)** → future proposal layered on 0174. Sendability becomes the type system for messages crossing channel/process boundaries.
+> - **Phase C (supervision + cancellation)** → Flux library built on 0174's `firstof`, `cancelable`, and `Process.wait`. Erlang-style supervision trees as userspace code over the I/O substrate.
+> - **Phase D (work-stealing M:N + deterministic test scheduler)** → the deterministic test scheduler is naturally expressed against 0174's scheduler-as-handler design and remains a strong differentiator. M:N work-stealing is reconsidered only if process-per-core proves insufficient.
+> - **Phases E–F** → unchanged in spirit; revisit after the layered story has real users.
+>
+> The technical content below remains authoritative for the actor design;
+> only the *delivery sequencing* changes. Read this proposal as "what
+> actor concurrency in Flux looks like once the I/O runtime exists."
 
 ## Summary
 [summary]: #summary
