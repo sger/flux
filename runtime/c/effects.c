@@ -25,16 +25,18 @@
 #include <string.h>
 
 /*
- * Yield state (global, single-threaded).
+ * Effect context (thread-local default).
  *
- * Concurrency: this runtime is not concurrency-ready. Yield state, evidence
- * state (current_evv, marker_counter — see below), and the legacy
- * direct-resume counters (flux_resume_called, flux_direct_resume_marker) are
- * all process globals. Any future actor / thread / fiber runtime must make
- * these state-local, either by moving them into an explicit scheduler
- * context or by switching to thread-local storage with appropriate
- * scheduling-point save/restore. This is tracked under proposal 0171
- * Track 5b as a known limitation, not a bug.
+ * The VM owns equivalent state in a Rust YieldState struct. Native/LLVM keeps
+ * a C ABI bridge here, but the mutable effect/evidence state now lives in an
+ * explicit FluxEffectContext instead of process-wide storage. Async remains a
+ * Rust module: future scheduler code can swap/install the active context
+ * around native calls without teaching C about tasks, reactors, or mio.
+ *
+ * `flux_yield_yielding` and `flux_resume_called` remain exported as legacy ABI
+ * mirrors for existing LLVM/runtime users. Internal runtime code reads and
+ * writes the active context; writes that affect these public flags sync the
+ * mirrors for compatibility.
  *
  * Yield-payload borrowing invariant (proposal 0171 Track 5b, item 3):
  *
@@ -55,15 +57,63 @@
  *     concurrency lands).
  */
 
-int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
-int32_t  flux_yield_marker      = 0;   /* target handler's marker */
-int64_t  flux_yield_clause      = 0;   /* operation clause closure */
-int64_t  flux_yield_op_arg      = 0;   /* performed argument (unused for 0-arity) */
-int64_t  flux_yield_op_state    = 0;   /* current handler parameter, or 0 when absent */
-int32_t  flux_yield_op_arity    = 0;   /* user-visible arity of the op (0 or 1) */
-int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
-int32_t  flux_yield_conts_count = 0;
-int64_t  flux_yield_evv         = 0;   /* current_evv at yield time (slice 5-tr-fix) */
+struct FluxEffectContext {
+    int32_t yield_yielding;       /* 0=no, 1=yielding, 2=final */
+    int32_t yield_marker;         /* target handler's marker */
+    int64_t yield_clause;         /* operation clause closure */
+    int64_t yield_op_arg;         /* performed argument (unused for 0-arity) */
+    int64_t yield_op_state;       /* current handler parameter, or 0 when absent */
+    int32_t yield_op_arity;       /* user-visible arity of the op (0 or 1) */
+    int64_t yield_conts[8];       /* accumulated continuation closures */
+    int32_t yield_conts_count;
+    int64_t yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
+    int64_t current_evv;          /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
+    int32_t marker_counter;
+    int32_t resume_called;
+    int32_t direct_resume_marker;
+};
+
+static __thread FluxEffectContext flux_default_effect_context;
+static __thread FluxEffectContext *flux_active_effect_context = NULL;
+
+/* Legacy ABI mirrors. Keep these as plain exported globals for now. */
+int32_t flux_yield_yielding = 0;
+int32_t flux_resume_called = 0;
+
+static FluxEffectContext *effect_ctx(void) {
+    if (!flux_active_effect_context) {
+        flux_active_effect_context = &flux_default_effect_context;
+    }
+    return flux_active_effect_context;
+}
+
+static void sync_public_effect_globals(FluxEffectContext *ctx) {
+    flux_yield_yielding = ctx->yield_yielding;
+    flux_resume_called = ctx->resume_called;
+}
+
+FluxEffectContext *flux_effect_context_default(void) {
+    return &flux_default_effect_context;
+}
+
+FluxEffectContext *flux_effect_context_current(void) {
+    return effect_ctx();
+}
+
+FluxEffectContext *flux_effect_context_set_current(FluxEffectContext *ctx) {
+    FluxEffectContext *old = effect_ctx();
+    flux_active_effect_context = ctx ? ctx : &flux_default_effect_context;
+    sync_public_effect_globals(effect_ctx());
+    return old;
+}
+
+void flux_effect_context_reset(FluxEffectContext *ctx) {
+    FluxEffectContext *target = ctx ? ctx : effect_ctx();
+    memset(target, 0, sizeof(*target));
+    if (target == effect_ctx()) {
+        sync_public_effect_globals(target);
+    }
+}
 
 /* ── Evidence vector ───────────────────────────────────────────────── */
 
@@ -92,9 +142,6 @@ typedef struct {
     int32_t count;  /* number of evidence entries */
     int64_t data[]; /* count * EVV_ENTRY_WORDS words */
 } EvvArray;
-
-static int64_t current_evv = 0;  /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
-static int32_t marker_counter = 0;
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
@@ -127,16 +174,17 @@ static void evv_dup_owned_fields(const int64_t *entry) {
 /* ── Public API ────────────────────────────────────────────────────── */
 
 int64_t flux_evv_get(void) {
-    return current_evv;
+    return effect_ctx()->current_evv;
 }
 
 void flux_evv_set(int64_t evv) {
-    current_evv = evv;
+    effect_ctx()->current_evv = evv;
 }
 
 int64_t flux_fresh_marker(void) {
-    marker_counter++;
-    return flux_tag_int((int64_t)marker_counter);
+    FluxEffectContext *ctx = effect_ctx();
+    ctx->marker_counter++;
+    return flux_tag_int((int64_t)ctx->marker_counter);
 }
 
 /*
@@ -221,7 +269,8 @@ static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
-    EvvArray *arr = evv_unbox(current_evv);
+    FluxEffectContext *ctx = effect_ctx();
+    EvvArray *arr = evv_unbox(ctx->current_evv);
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
@@ -234,19 +283,20 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
 
-    flux_yield_yielding    = 1;
-    flux_yield_marker      = m;
-    flux_yield_clause      = clause;
-    flux_yield_op_arg      = arg;
-    flux_yield_op_state    = entry[EVV_STATE_OFF];
-    flux_yield_op_arity    = (int32_t)flux_untag_int(arity);
-    flux_yield_conts_count = 0;
+    ctx->yield_yielding    = 1;
+    ctx->yield_marker      = m;
+    ctx->yield_clause      = clause;
+    ctx->yield_op_arg      = arg;
+    ctx->yield_op_state    = entry[EVV_STATE_OFF];
+    ctx->yield_op_arity    = (int32_t)flux_untag_int(arity);
+    ctx->yield_conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
      * this because an inner handle may unwind (restoring its parent evv)
      * before the outer handle's clause decides to resume into the inner
      * scope. */
-    flux_yield_evv         = current_evv;
+    ctx->yield_evv         = ctx->current_evv;
+    sync_public_effect_globals(ctx);
 
     return FLUX_YIELD_SENTINEL;
 }
@@ -289,12 +339,9 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  *   - counter == 1 : tail-resumptive                         → ok
  *   - counter >= 2 : multi-shot                              → E1201
  *
- * Single-threaded today, fits the rest of the runtime's global-state model.
- * This is a concurrency blocker until resume/effect state becomes fiber-local
- * or is threaded through an explicit runtime context.
+ * Stored in the active FluxEffectContext; the exported `flux_resume_called`
+ * symbol is only a compatibility mirror.
  */
-int32_t flux_resume_called = 0;
-int32_t flux_direct_resume_marker = 0;
 
 /*
  * Replace the parameterized handler state stored against `marker` in the
@@ -308,7 +355,8 @@ int32_t flux_direct_resume_marker = 0;
  * caller happened to pass the same tagged pointer.
  */
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
-    EvvArray *arr = evv_unbox(current_evv);
+    FluxEffectContext *ctx = effect_ctx();
+    EvvArray *arr = evv_unbox(ctx->current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
     if (idx >= 0) {
         int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
@@ -328,7 +376,9 @@ static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
  * unwinding and native multi-shot composition.
  */
 int64_t flux_resume_mark_called(int64_t value) {
-    flux_resume_called += 1;
+    FluxEffectContext *ctx = effect_ctx();
+    ctx->resume_called += 1;
+    sync_public_effect_globals(ctx);
     return value;
 }
 
@@ -358,8 +408,9 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 
 int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
     (void)closure_raw;
-    if (nargs >= 2 && flux_direct_resume_marker != 0) {
-        flux_update_state_for_marker(flux_direct_resume_marker, args_ptr[1]);
+    FluxEffectContext *ctx = effect_ctx();
+    if (nargs >= 2 && ctx->direct_resume_marker != 0) {
+        flux_update_state_for_marker(ctx->direct_resume_marker, args_ptr[1]);
     }
     return flux_resume_mark_called(args_ptr[0]);
 }
@@ -367,7 +418,8 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
-    EvvArray *arr = evv_unbox(current_evv);
+    FluxEffectContext *ctx = effect_ctx();
+    EvvArray *arr = evv_unbox(ctx->current_evv);
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
@@ -382,10 +434,11 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int64_t state = entry[EVV_STATE_OFF];
 
     /* Save & reset the counter so nested performs don't confuse the detector. */
-    int32_t saved_count = flux_resume_called;
-    int32_t saved_direct_marker = flux_direct_resume_marker;
-    flux_resume_called = 0;
-    flux_direct_resume_marker = marker;
+    int32_t saved_count = ctx->resume_called;
+    int32_t saved_direct_marker = ctx->direct_resume_marker;
+    ctx->resume_called = 0;
+    ctx->direct_resume_marker = marker;
+    sync_public_effect_globals(ctx);
 
     /*
      * Direct call: clause(resume, arg0, ..., argN).
@@ -422,7 +475,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
      * Both error bands require Phase 3 proper (yield-based unwinding
      * + multi-shot continuation composition) to lift the restriction.
      */
-    if (flux_resume_called == 0) {
+    if (ctx->resume_called == 0) {
         fprintf(stderr,
             "error[E1200]: Non-Tail-Resumptive Handler On Native\n"
             "\n"
@@ -436,7 +489,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "(the default) until Phase 3 lands.\n");
         abort();
     }
-    if (flux_resume_called >= 2) {
+    if (ctx->resume_called >= 2) {
         fprintf(stderr,
             "error[E1201]: Multi-Shot Handler On Native\n"
             "\n"
@@ -451,13 +504,14 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "backend also does not support multi-shot (it enforces\n"
             "one-shot continuations), so this program has no valid\n"
             "execution path — the handler needs to be rewritten.\n",
-            (int)flux_resume_called);
+            (int)ctx->resume_called);
         abort();
     }
 
     /* Restore the outer counter; we're now unwinding past this perform. */
-    flux_resume_called = saved_count;
-    flux_direct_resume_marker = saved_direct_marker;
+    ctx->resume_called = saved_count;
+    ctx->direct_resume_marker = saved_direct_marker;
+    sync_public_effect_globals(ctx);
 
     return result;
 }
@@ -469,13 +523,14 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
  * cont: a closure representing "the rest of this function's computation"
  */
 int64_t flux_yield_extend(int64_t cont) {
-    if (flux_yield_conts_count >= 8) {
+    FluxEffectContext *ctx = effect_ctx();
+    if (ctx->yield_conts_count >= 8) {
         /* Overflow: compose existing conts into one, then add the new one. */
         int64_t composed = flux_compose_conts();
-        flux_yield_conts[0] = composed;
-        flux_yield_conts_count = 1;
+        ctx->yield_conts[0] = composed;
+        ctx->yield_conts_count = 1;
     }
-    flux_yield_conts[flux_yield_conts_count++] = cont;
+    ctx->yield_conts[ctx->yield_conts_count++] = cont;
     return FLUX_YIELD_SENTINEL;
 }
 
@@ -546,20 +601,21 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
  * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
 int64_t flux_compose_conts(void) {
-    if (flux_yield_conts_count == 0) {
+    FluxEffectContext *ctx = effect_ctx();
+    if (ctx->yield_conts_count == 0) {
         return flux_make_none();
     }
-    if (flux_yield_conts_count == 1 && flux_yield_op_state == 0) {
-        int64_t result = flux_yield_conts[0];
-        flux_yield_conts_count = 0;
+    if (ctx->yield_conts_count == 1 && ctx->yield_op_state == 0) {
+        int64_t result = ctx->yield_conts[0];
+        ctx->yield_conts_count = 0;
         return result;
     }
 
     /* Package continuations into an array. */
-    int64_t *elems = flux_yield_conts;
-    int32_t count = flux_yield_conts_count;
+    int64_t *elems = ctx->yield_conts;
+    int32_t count = ctx->yield_conts_count;
     int64_t arr = flux_array_new(elems, count);
-    flux_yield_conts_count = 0;
+    ctx->yield_conts_count = 0;
 
     /* Build a trampoline closure by hand. The FluxClosure layout
      * (runtime/c/flux_rt.c lines 1025-1032):
@@ -567,7 +623,7 @@ int64_t flux_compose_conts(void) {
      *     int32_t applied_count; int32_t _pad; int64_t payload[]; }
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
-    int64_t marker = flux_tag_int((int64_t)flux_yield_marker);
+    int64_t marker = flux_tag_int((int64_t)ctx->yield_marker);
     uint32_t payload_bytes = (uint32_t)(2 * sizeof(int64_t)); /* conts + marker */
     uint32_t size = 24 + payload_bytes;
     void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
@@ -582,7 +638,7 @@ int64_t flux_compose_conts(void) {
     };
     struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
     clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
-    clo->remaining_arity = (flux_yield_op_state != 0) ? 2 : 1;
+    clo->remaining_arity = (ctx->yield_op_state != 0) ? 2 : 1;
     clo->capture_count   = 2;
     clo->applied_count   = 0;
     clo->_pad            = 0;
@@ -597,7 +653,9 @@ int64_t flux_compose_conts(void) {
  * Returns the yielding flag (0, 1, or 2) for LLVM to branch on.
  */
 int32_t flux_is_yielding(void) {
-    return flux_yield_yielding;
+    FluxEffectContext *ctx = effect_ctx();
+    sync_public_effect_globals(ctx);
+    return ctx->yield_yielding;
 }
 
 /*
@@ -613,6 +671,7 @@ int32_t flux_is_yielding(void) {
  *   - FLUX_YIELD_SENTINEL if yielding but marker doesn't match (propagate)
  */
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result) {
+    FluxEffectContext *ctx = effect_ctx();
     int32_t m = (int32_t)flux_untag_int(marker);
     int64_t result = body_result;
 
@@ -620,9 +679,9 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
      * A clause that calls `resume(v)` may trigger a nested perform inside
      * the composed continuation, which re-sets yielding=1. We catch the
      * re-yield here and run another iteration. */
-    while (flux_yield_yielding != 0) {
-        int is_ours = (flux_yield_marker == m);
-        int64_t yield_evv_local = flux_yield_evv;
+    while (ctx->yield_yielding != 0) {
+        int is_ours = (ctx->yield_marker == m);
+        int64_t yield_evv_local = ctx->yield_evv;
 
         if (!is_ours) {
             /* Slice 5-tr-nested: the re-yield targets a different handler.
@@ -631,9 +690,9 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
              * the yield-site evv: if found, service it inline using its
              * recorded clause and evv. Otherwise propagate. */
             EvvArray *arr = evv_unbox(yield_evv_local);
-            int idx = evv_lookup_by_marker(arr, flux_yield_marker);
+            int idx = evv_lookup_by_marker(arr, ctx->yield_marker);
             if (idx < 0) {
-                current_evv = saved_evv;
+                ctx->current_evv = saved_evv;
                 return FLUX_YIELD_SENTINEL;
             }
             /* Service inline. The clause + evv come from the yield state
@@ -646,31 +705,32 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * call so that any resume → composed-continuation → nested perform
          * finds the full installed handler chain (slice 5-tr-fix). */
 
-        int64_t clause   = flux_yield_clause;
-        int64_t op_arg   = flux_yield_op_arg;
-        int64_t op_state = flux_yield_op_state;
-        int32_t op_arity = flux_yield_op_arity;
+        int64_t clause   = ctx->yield_clause;
+        int64_t op_arg   = ctx->yield_op_arg;
+        int64_t op_state = ctx->yield_op_state;
+        int32_t op_arity = ctx->yield_op_arity;
         int64_t yield_evv = yield_evv_local;
 
         /* Build the resume closure from accumulated continuations. */
         int64_t resume_cont = flux_compose_conts();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
-        flux_yield_yielding    = 0;
-        flux_yield_marker      = 0;
-        flux_yield_clause      = 0;
-        flux_yield_op_arg      = 0;
-        flux_yield_op_state    = 0;
-        flux_yield_op_arity    = 0;
-        flux_yield_conts_count = 0;
-        flux_yield_evv         = 0;
+        ctx->yield_yielding    = 0;
+        ctx->yield_marker      = 0;
+        ctx->yield_clause      = 0;
+        ctx->yield_op_arg      = 0;
+        ctx->yield_op_state    = 0;
+        ctx->yield_op_arity    = 0;
+        ctx->yield_conts_count = 0;
+        ctx->yield_evv         = 0;
+        sync_public_effect_globals(ctx);
 
         /* Re-install the evv that was active at the yield site so the clause
          * — including any resume it calls into the composed continuation —
          * sees the full handler chain the yield was performed under (slice
          * 5-tr-fix: matters for nested handlers where an inner handle may
          * have unwound before the outer prompt decides to resume). */
-        current_evv = yield_evv;
+        ctx->current_evv = yield_evv;
 
         /* Call the handler clause: clause(resume, [arg], [state]). */
         if (op_state != 0 && op_arity <= 0) {
@@ -691,6 +751,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
     }
 
     /* No more yields — restore parent evv and return the final value. */
-    current_evv = saved_evv;
+    ctx->current_evv = saved_evv;
+    sync_public_effect_globals(ctx);
     return result;
 }

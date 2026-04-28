@@ -4,6 +4,7 @@
 //! self-contained binaries that link against `libflux_rt.a` (the C runtime
 //! from `runtime/c/`).
 
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -14,6 +15,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
+
+/// Optional native-link hook for the future Rust-owned async scheduler bridge.
+///
+/// Normal native runs do not set this and continue linking only the C runtime
+/// archive. Phase 1 can point this at a Rust staticlib/cdylib import archive
+/// once the scheduler bridge becomes a real linked runtime component.
+pub const FLUX_ASYNC_BRIDGE_ARCHIVE_ENV: &str = "FLUX_ASYNC_BRIDGE_ARCHIVE";
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -234,6 +242,18 @@ fn has_lld() -> bool {
     }
 }
 
+fn parse_extra_link_archives(value: Option<OsString>) -> Vec<PathBuf> {
+    value
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .filter(|path| !path.as_os_str().is_empty())
+        .collect()
+}
+
+fn configured_extra_link_archives() -> Vec<PathBuf> {
+    parse_extra_link_archives(std::env::var_os(FLUX_ASYNC_BRIDGE_ARCHIVE_ENV))
+}
+
 /// Link `.o`/`.obj` + runtime library → executable.
 ///
 /// Prefers `lld` (LLVM's linker) when available for faster linking.
@@ -242,6 +262,7 @@ fn run_linker(
     obj_paths: &[PathBuf],
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    extra_link_archives: &[PathBuf],
 ) -> Result<(), PipelineError> {
     if let Some(parent) = exe_path.parent() {
         fs::create_dir_all(parent)?;
@@ -268,6 +289,7 @@ fn run_linker(
                 cmd.arg(format!("/LIBPATH:{}", dir.display()));
                 cmd.arg("flux_rt.lib");
             }
+            cmd.args(extra_link_archives);
             // Link the C runtime and kernel libraries.
             cmd.args(["libcmt.lib", "kernel32.lib"]);
             let output = cmd.output()?;
@@ -289,6 +311,7 @@ fn run_linker(
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
             }
+            cmd.args(extra_link_archives);
             if cfg!(windows) {
                 // Windows: set subsystem and stack size via lld-link.
                 cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
@@ -310,7 +333,27 @@ pub fn link_objects(
     output_path: &Path,
     runtime_lib_dir: Option<&Path>,
 ) -> Result<(), PipelineError> {
-    run_linker(object_paths, output_path, runtime_lib_dir)
+    let extra_link_archives = configured_extra_link_archives();
+    run_linker(
+        object_paths,
+        output_path,
+        runtime_lib_dir,
+        &extra_link_archives,
+    )
+}
+
+pub fn link_objects_with_extra_archives(
+    object_paths: &[PathBuf],
+    output_path: &Path,
+    runtime_lib_dir: Option<&Path>,
+    extra_link_archives: &[PathBuf],
+) -> Result<(), PipelineError> {
+    run_linker(
+        object_paths,
+        output_path,
+        runtime_lib_dir,
+        extra_link_archives,
+    )
 }
 
 /// Bundle multiple `.o` files into a static archive (`.a` / `.lib`).
@@ -403,6 +446,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         std::slice::from_ref(&obj_path),
         &exe_path,
         config.runtime_lib_dir.as_deref(),
+        &configured_extra_link_archives(),
     )?;
 
     // Clean up intermediates (keep the output binary).
@@ -740,5 +784,34 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
             exit_code: output.status.code(),
             stderr: combined,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extra_link_archive_parser_accepts_path_lists() {
+        let joined = std::env::join_paths([
+            PathBuf::from("/tmp/libflux_async_bridge.a"),
+            PathBuf::from("/tmp/libother.a"),
+        ])
+        .expect("paths join");
+
+        let archives = parse_extra_link_archives(Some(joined));
+
+        assert_eq!(
+            archives,
+            vec![
+                PathBuf::from("/tmp/libflux_async_bridge.a"),
+                PathBuf::from("/tmp/libother.a"),
+            ]
+        );
+    }
+
+    #[test]
+    fn extra_link_archive_parser_ignores_absent_value() {
+        assert!(parse_extra_link_archives(None).is_empty());
     }
 }

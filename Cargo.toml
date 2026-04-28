@@ -6,6 +6,11 @@ authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
 license = "MIT"
 default-run = "flux"
 
+[lib]
+name = "flux"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
 [features]
 native = []
 llvm = ["native"]

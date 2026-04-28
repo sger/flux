@@ -33,6 +33,7 @@ pub mod runtime_type;
 pub mod value;
 pub mod yield_state;
 
+pub mod r#async;
 pub mod nanbox;
 
 pub trait RuntimeContext {

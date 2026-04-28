@@ -367,7 +367,33 @@ int64_t flux_ho_find(int64_t collection, int64_t func);
 
 /* ── Effect handlers (Koka-style yield model, Proposal 0134) ───────── */
 
-/* Yield state — accessible from LLVM IR for inline yield checks. */
+/* Effect context bridge.
+ * Async/scheduler code remains in Rust; native code can enter through these
+ * narrow C ABI hooks to swap scheduler-owned effect state around LLVM calls. */
+typedef struct FluxEffectContext FluxEffectContext;
+FluxEffectContext *flux_effect_context_default(void);
+FluxEffectContext *flux_effect_context_current(void);
+FluxEffectContext *flux_effect_context_set_current(FluxEffectContext *ctx);
+void flux_effect_context_reset(FluxEffectContext *ctx);
+
+/* Rust-owned async runtime bridge. These are native entry shapes for the
+ * future Rust scheduler; Phase 0 stubs are inert and do not expose mio/C-side
+ * scheduler state. */
+typedef struct { uint64_t raw; } FluxAsyncRuntimeHandle;
+typedef struct { uint64_t raw; } FluxAsyncContextHandle;
+typedef enum {
+    FLUX_ASYNC_STATUS_OK = 0,
+    FLUX_ASYNC_STATUS_INVALID_HANDLE = 1,
+    FLUX_ASYNC_STATUS_UNSUPPORTED = 2,
+} FluxAsyncStatus;
+
+FluxAsyncRuntimeHandle flux_async_runtime_default(void);
+FluxAsyncContextHandle flux_async_context_current(void);
+FluxAsyncContextHandle flux_async_context_enter(FluxAsyncContextHandle context);
+FluxAsyncStatus flux_async_context_leave(FluxAsyncContextHandle previous);
+FluxAsyncStatus flux_async_runtime_poll(FluxAsyncRuntimeHandle runtime);
+
+/* Legacy yield-state mirror — accessible from LLVM IR for inline yield checks. */
 extern int32_t flux_yield_yielding;
 
 /* Evidence vector management. */
