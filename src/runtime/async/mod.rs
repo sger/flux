@@ -7,6 +7,10 @@
 //! execution.
 
 pub mod backend;
+pub mod backends;
+pub mod blocking;
 pub mod bridge;
 pub mod context;
+pub mod driver;
 pub mod scheduler;
+pub mod worker;
