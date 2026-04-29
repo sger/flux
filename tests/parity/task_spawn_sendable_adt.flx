@@ -1,0 +1,18 @@
+// Proposal 0174 Phase 1a: structural ADTs are Sendable when every field is Sendable.
+// parity: vm
+// expect: success
+
+import Flow.Task as Task
+
+data Pair {
+    Pair(Int, String)
+}
+
+fn main() with IO {
+    let task = Task.spawn(fn() { Pair(20, "two") })
+    let result = match Task.blocking_join(task) {
+        Pair(n, s) -> to_string(n) + ":" + s,
+        _ -> "bad",
+    }
+    print(result)
+}

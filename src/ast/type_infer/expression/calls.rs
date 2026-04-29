@@ -1,3 +1,5 @@
+use crate::ast::free_vars::collect_free_vars;
+
 use super::*;
 
 /// Grouped inputs for [`InferCtx::infer_call_typed_callee`].
@@ -82,6 +84,9 @@ impl<'a> InferCtx<'a> {
                 fn_def_span,
                 ambient_effect_row,
             });
+            if self.is_task_spawn_call(input.function) {
+                self.emit_task_spawn_capture_constraints(input.arguments);
+            }
             // Emit class constraint after inference resolves argument types.
             if let Some(info) = class_method_info {
                 let resolved_type_args = self.propagate_resolved_class_call_effects(info);
@@ -109,6 +114,45 @@ impl<'a> InferCtx<'a> {
         }
 
         self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)
+    }
+
+    fn is_task_spawn_call(&self, function: &Expression) -> bool {
+        match function {
+            Expression::Identifier { name, .. } => self.interner.resolve(*name) == "spawn",
+            Expression::MemberAccess { object, member, .. } => {
+                matches!(object.as_ref(), Expression::Identifier { .. })
+                    && self.interner.resolve(*member) == "spawn"
+            }
+            _ => false,
+        }
+    }
+
+    fn emit_task_spawn_capture_constraints(&mut self, arguments: &[Expression]) {
+        let Some(action) = arguments.first() else {
+            return;
+        };
+        if !matches!(action, Expression::Function { .. }) {
+            return;
+        }
+        let Some(sendable) = self.interner.lookup("Sendable") else {
+            return;
+        };
+        let mut free_vars = collect_free_vars(action).into_iter().collect::<Vec<_>>();
+        free_vars.sort_by_key(|symbol| symbol.as_u32());
+        for symbol in free_vars {
+            if self.env.lookup_level(symbol).unwrap_or(0) == 0 {
+                continue;
+            }
+            let Some(scheme) = self.env.lookup(symbol).cloned() else {
+                continue;
+            };
+            self.emit_class_constraint(
+                sendable,
+                scheme.infer_type.apply_type_subst(&self.subst),
+                action.span(),
+                constraint::WantedClassConstraintOrigin::SchemeUse,
+            );
+        }
     }
 
     /// Infer calls where callee type resolves to `Fun`.

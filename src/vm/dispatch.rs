@@ -1316,13 +1316,26 @@ impl VM {
                 }
                 perform_args.reverse();
 
+                if let Some(result) =
+                    self.perform_builtin_suspend(&effect_name, &op_name, &perform_args)
+                {
+                    result?;
+                    return Ok(0);
+                }
+
                 // Find matching evidence entry (most recent wins).
-                let evv_index = self.evv.lookup(effect).ok_or_else(|| {
-                    format!(
+                let Some(evv_index) = self.evv.lookup(effect) else {
+                    if effect_name.as_ref() == "AsyncFail" && op_name.as_ref() == "raise" {
+                        let failure = perform_args.first().map(format_value).unwrap_or_else(|| {
+                            "AsyncFailed(\"missing failure payload\")".to_string()
+                        });
+                        return Err(format!("async failure: {failure}"));
+                    }
+                    return Err(format!(
                         "unhandled effect: {} (no matching handle block)",
                         effect_name
-                    )
-                })?;
+                    ));
+                };
                 let evidence = self.evv.get(evv_index).cloned().ok_or_else(|| {
                     format!(
                         "unhandled effect: {} (no matching handle block)",

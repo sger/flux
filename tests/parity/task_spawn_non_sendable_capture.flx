@@ -1,0 +1,10 @@
+// Proposal 0174 Phase 1a: Task.spawn requires Sendable captures.
+// expect: compile_error
+
+import Flow.Task as Task
+
+fn main() {
+    let captured = fn() { 41 };
+    let task = Task.spawn(fn() { captured() + 1 });
+    print(Task.blocking_join(task));
+}

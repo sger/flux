@@ -22,6 +22,10 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::StringLength => "string_length",
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
+        CorePrimOp::StringToBytes => "string_to_bytes",
+        CorePrimOp::BytesLength => "bytes_length",
+        CorePrimOp::BytesSlice => "bytes_slice",
+        CorePrimOp::BytesToString => "bytes_to_string",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::Split => "split",
         CorePrimOp::Trim => "trim",
@@ -89,6 +93,20 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskBlockingJoin => "task_blocking_join",
+        CorePrimOp::TaskCancel => "task_cancel",
+        CorePrimOp::AsyncSleep => "async_sleep",
+        CorePrimOp::AsyncYieldNow => "async_yield_now",
+        CorePrimOp::AsyncBoth => "async_both",
+        CorePrimOp::AsyncRace => "async_race",
+        CorePrimOp::AsyncTimeout => "async_timeout",
+        CorePrimOp::AsyncTimeoutResult => "async_timeout_result",
+        CorePrimOp::AsyncScope => "async_scope",
+        CorePrimOp::AsyncFork => "async_fork",
+        CorePrimOp::AsyncTry => "async_try",
+        CorePrimOp::AsyncFinally => "async_finally",
+        CorePrimOp::AsyncBracket => "async_bracket",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -232,6 +250,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::StringLength
             | CorePrimOp::StringConcat
             | CorePrimOp::StringSlice
+            | CorePrimOp::StringToBytes
+            | CorePrimOp::BytesLength
+            | CorePrimOp::BytesSlice
+            | CorePrimOp::BytesToString
             | CorePrimOp::ToString
             | CorePrimOp::Split
             | CorePrimOp::Trim
@@ -298,7 +320,21 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::AssertThrows
+            | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskBlockingJoin
+            | CorePrimOp::TaskCancel
+            | CorePrimOp::AsyncSleep
+            | CorePrimOp::AsyncYieldNow
+            | CorePrimOp::AsyncBoth
+            | CorePrimOp::AsyncRace
+            | CorePrimOp::AsyncTimeout
+            | CorePrimOp::AsyncTimeoutResult
+            | CorePrimOp::AsyncScope
+            | CorePrimOp::AsyncFork
+            | CorePrimOp::AsyncTry
+            | CorePrimOp::AsyncFinally
+            | CorePrimOp::AsyncBracket => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

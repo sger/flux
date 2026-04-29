@@ -1461,6 +1461,9 @@ fn builtin_classes_registered() {
     let semigroup = interner
         .lookup("Semigroup")
         .expect("Semigroup should be interned");
+    let sendable = interner
+        .lookup("Sendable")
+        .expect("Sendable should be interned");
 
     assert!(
         env.lookup_class(eq).is_some(),
@@ -1482,8 +1485,12 @@ fn builtin_classes_registered() {
         env.lookup_class(semigroup).is_some(),
         "Semigroup class should be registered"
     );
+    assert!(
+        env.lookup_class(sendable).is_some(),
+        "Sendable class should be registered"
+    );
 
-    for class_name in [eq, ord, num, show, semigroup] {
+    for class_name in [eq, ord, num, show, semigroup, sendable] {
         let class_def = env.lookup_class(class_name).expect("class should exist");
         for method in &class_def.methods {
             assert_eq!(
@@ -1504,6 +1511,7 @@ fn builtin_instances_registered() {
 
     let eq = interner.lookup("Eq").expect("Eq interned");
     let num = interner.lookup("Num").expect("Num interned");
+    let sendable = interner.lookup("Sendable").expect("Sendable interned");
 
     // Eq should have instances for Int, Float, String, Bool
     assert!(
@@ -1536,6 +1544,15 @@ fn builtin_instances_registered() {
         env.resolve_instance_for_type(num, "String", &interner)
             .is_none()
     );
+
+    // Sendable should have primitive instances for Phase 1a task boundaries.
+    for ty in ["Int", "Float", "String", "Bytes", "Bool", "Unit"] {
+        assert!(
+            env.resolve_instance_for_type(sendable, ty, &interner)
+                .is_some(),
+            "Sendable<{ty}> should be registered"
+        );
+    }
 }
 
 #[test]

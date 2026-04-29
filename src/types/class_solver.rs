@@ -149,7 +149,7 @@ fn has_structural_builtin_instance(
     seen: &mut HashSet<String>,
 ) -> bool {
     let class_name = interner.resolve(class_name);
-    if !matches!(class_name, "Eq" | "Ord") || type_args.len() != 1 {
+    if !matches!(class_name, "Eq" | "Ord" | "Sendable") || type_args.len() != 1 {
         return false;
     }
 
@@ -162,9 +162,11 @@ fn has_structural_builtin_instance(
         | InferType::App(TypeConstructor::Array, args) => args.first().is_some_and(|arg| {
             has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
         }),
-        InferType::App(TypeConstructor::Either, args) => args.iter().all(|arg| {
-            has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
-        }),
+        InferType::App(TypeConstructor::Either | TypeConstructor::Map, args) => {
+            args.iter().all(|arg| {
+                has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
+            })
+        }
         _ => false,
     }
 }
@@ -214,6 +216,7 @@ fn instantiate_context_type_expr(
                 "Float" => TypeConstructor::Float,
                 "Bool" => TypeConstructor::Bool,
                 "String" => TypeConstructor::String,
+                "Bytes" => TypeConstructor::Bytes,
                 "Unit" | "None" => TypeConstructor::Unit,
                 "Never" => TypeConstructor::Never,
                 "List" => TypeConstructor::List,

@@ -3290,6 +3290,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::StringLength => "string_length",
         CorePrimOp::StringConcat => "string_concat",
         CorePrimOp::StringSlice => "string_slice",
+        CorePrimOp::StringToBytes => "string_to_bytes",
+        CorePrimOp::BytesLength => "bytes_length",
+        CorePrimOp::BytesSlice => "bytes_slice",
+        CorePrimOp::BytesToString => "bytes_to_string",
         CorePrimOp::Split => "split",
         CorePrimOp::Trim => "trim",
         CorePrimOp::Upper => "upper",
@@ -3353,6 +3357,20 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskBlockingJoin => "task_blocking_join",
+        CorePrimOp::TaskCancel => "task_cancel",
+        CorePrimOp::AsyncSleep => "async_sleep",
+        CorePrimOp::AsyncYieldNow => "async_yield_now",
+        CorePrimOp::AsyncBoth => "async_both",
+        CorePrimOp::AsyncRace => "async_race",
+        CorePrimOp::AsyncTimeout => "async_timeout",
+        CorePrimOp::AsyncTimeoutResult => "async_timeout_result",
+        CorePrimOp::AsyncScope => "async_scope",
+        CorePrimOp::AsyncFork => "async_fork",
+        CorePrimOp::AsyncTry => "async_try",
+        CorePrimOp::AsyncFinally => "async_finally",
+        CorePrimOp::AsyncBracket => "async_bracket",
         // Arithmetic — dispatch to runtime
         CorePrimOp::Add | CorePrimOp::Concat => return "flux_rt_add".to_string(),
         CorePrimOp::Sub => return "flux_rt_sub".to_string(),
@@ -3513,6 +3531,23 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_call_closure_exact" => (
             LlvmType::i64(),
             vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
+        ),
+        "flux_task_spawn"
+        | "flux_task_blocking_join"
+        | "flux_task_cancel"
+        | "flux_async_sleep"
+        | "flux_async_scope"
+        | "flux_async_try" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_async_yield_now" => (LlvmType::i64(), vec![]),
+        "flux_async_both"
+        | "flux_async_race"
+        | "flux_async_timeout"
+        | "flux_async_timeout_result"
+        | "flux_async_fork"
+        | "flux_async_finally" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_async_bracket" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
         "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),

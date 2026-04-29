@@ -312,6 +312,39 @@ pub fn execute_core_primop(
                 ))
             }
         }
+        StringToBytes => {
+            let s = estr(&args[0], "string_to_bytes")?;
+            Ok(Value::Bytes(s.as_bytes().to_vec().into()))
+        }
+        BytesLength => {
+            let bytes = ebytes(&args[0], "bytes_length")?;
+            Ok(Value::Integer(bytes.len() as i64))
+        }
+        BytesSlice => {
+            let bytes = ebytes(&args[0], "bytes_slice")?;
+            let start = eint(&args[1], "bytes_slice")?;
+            let end = eint(&args[2], "bytes_slice")?;
+            let len = bytes.len() as i64;
+            let start = if start < 0 {
+                0
+            } else {
+                start.min(len) as usize
+            };
+            let end = if end < 0 { 0 } else { end.min(len) as usize };
+            if start >= end {
+                Ok(Value::Bytes(Vec::new().into()))
+            } else {
+                Ok(Value::Bytes(bytes[start..end].to_vec().into()))
+            }
+        }
+        BytesToString => {
+            let bytes = ebytes(&args[0], "bytes_to_string")?;
+            Ok(Value::String(
+                String::from_utf8_lossy(bytes.as_slice())
+                    .into_owned()
+                    .into(),
+            ))
+        }
         ToString => Ok(Value::String(format_value(&args[0]).into())),
         Split => {
             let s = estr(&args[0], "split")?;
@@ -419,6 +452,22 @@ pub fn execute_core_primop(
             Ok(Value::Array(lines.into()))
         }
 
+        // ── Task runtime (Proposal 0174 Phase 1a) ────────────────────
+        TaskSpawn => ctx.task_spawn(args[0].clone()),
+        TaskBlockingJoin => ctx.task_blocking_join(args[0].clone()),
+        TaskCancel => ctx.task_cancel(args[0].clone()),
+        AsyncSleep => ctx.async_sleep(args[0].clone()),
+        AsyncYieldNow => ctx.async_yield_now(),
+        AsyncBoth => ctx.async_both(args[0].clone(), args[1].clone()),
+        AsyncRace => ctx.async_race(args[0].clone(), args[1].clone()),
+        AsyncTimeout => ctx.async_timeout(args[0].clone(), args[1].clone()),
+        AsyncTimeoutResult => ctx.async_timeout_result(args[0].clone(), args[1].clone()),
+        AsyncScope => ctx.async_scope(args[0].clone()),
+        AsyncFork => ctx.async_fork(args[0].clone(), args[1].clone()),
+        AsyncTry => ctx.async_try(args[0].clone()),
+        AsyncFinally => ctx.async_finally(args[0].clone(), args[1].clone()),
+        AsyncBracket => ctx.async_bracket(args[0].clone(), args[1].clone(), args[2].clone()),
+
         // ── Control ───────────────────────────────────────────────────
         Unwrap => match &args[0] {
             Value::None => Err("unwrap called on None".into()),
@@ -483,6 +532,7 @@ pub fn execute_core_primop(
         // ── Polymorphic length ────────────────────────────────────────
         Len => match &args[0] {
             Value::String(s) => Ok(Value::Integer(s.len() as i64)),
+            Value::Bytes(bytes) => Ok(Value::Integer(bytes.len() as i64)),
             Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
             Value::Tuple(t) => Ok(Value::Integer(t.len() as i64)),
             Value::None | Value::EmptyList => Ok(Value::Integer(0)),
@@ -502,7 +552,7 @@ pub fn execute_core_primop(
                 Ok(Value::Integer(count))
             }
             Value::HashMap(node) => Ok(Value::Integer(rc_hamt::hamt_len(node) as i64)),
-            other => Err(terr("len", "String, Array, Tuple, or Map", other)),
+            other => Err(terr("len", "String, Bytes, Array, Tuple, or Map", other)),
         },
 
         // ── Effect handler ops (native-only, Koka-style yield model) ────
@@ -544,6 +594,13 @@ fn estr<'a>(v: &'a Value, op: &str) -> Result<&'a str, String> {
     match v {
         Value::String(s) => Ok(s.as_ref()),
         other => Err(terr(op, "String", other)),
+    }
+}
+
+fn ebytes<'a>(v: &'a Value, op: &str) -> Result<&'a Vec<u8>, String> {
+    match v {
+        Value::Bytes(bytes) => Ok(bytes.as_ref()),
+        other => Err(terr(op, "Bytes", other)),
     }
 }
 

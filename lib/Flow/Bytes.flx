@@ -1,0 +1,11 @@
+// Flow.Bytes — immutable byte buffer helper operations.
+
+module Flow.Bytes {
+
+    public intrinsic fn length(b: Bytes) -> Int = primop BytesLength
+
+    public intrinsic fn slice(b: Bytes, start: Int, end: Int) -> Bytes = primop BytesSlice
+
+    public intrinsic fn to_string(b: Bytes) -> String = primop BytesToString
+
+}

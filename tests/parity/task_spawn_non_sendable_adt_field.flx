@@ -1,0 +1,14 @@
+// Proposal 0174 Phase 1a: ADT Sendable derives from fields, so function fields fail.
+// expect: compile_error
+
+import Flow.Task as Task
+
+data HoldsFn {
+    HoldsFn(() -> Int)
+}
+
+fn main() {
+    let task = Task.spawn(fn() { HoldsFn(fn() { 1 }) })
+    let _ = Task.blocking_join(task)
+    ()
+}

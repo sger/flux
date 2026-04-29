@@ -1,0 +1,11 @@
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let result = A.try_(fn() {
+        A.finally(
+            fn() { A.fail(A.failed("body failed")) },
+            fn() { print("cleanup;") }
+        )
+    });
+    print(result);
+}

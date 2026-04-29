@@ -1,0 +1,20 @@
+// Flow.Task — Proposal 0174 Phase 1a task primitive.
+//
+// Phase 1a exposes OS-thread task parallelism through blocking_join. Phase 1b
+// adds fiber-suspending await with the Async effect.
+
+module Flow.Task {
+
+    public data Task<a> { Task(Int) }
+
+    public intrinsic fn spawn<a: Sendable>(action: (() -> a)) -> Task<a> = primop TaskSpawn
+
+    public intrinsic fn blocking_join<a: Sendable>(task: Task<a>) -> a = primop TaskBlockingJoin
+
+    public fn await<a: Sendable>(task: Task<a>) -> a with Async {
+        perform Suspend.await_task(task)
+    }
+
+    public intrinsic fn cancel<a>(task: Task<a>) -> Unit = primop TaskCancel
+
+}

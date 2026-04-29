@@ -1,0 +1,14 @@
+// parity: vm
+// expect: runtime_error
+// Scope body failure cancels forked suspended children before draining them.
+
+import Flow.Async as A
+
+fn main() with IO, Async, Panic {
+    A.scope(fn(scope) {
+        A.fork(scope, fn() {
+            A.sleep(1000)
+        });
+        panic("scope failed")
+    })
+}

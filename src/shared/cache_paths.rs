@@ -28,7 +28,11 @@ use sha2::{Digest, Sha256};
 /// with value getters.
 /// Epoch 9: parameterized handlers and default-handler unit resumes update
 /// cached module bytecode/global relocation shape.
-pub const CACHE_EPOCH: u16 = 10;
+/// Epoch 10: async Suspend builtin ops are seeded into cached module interfaces.
+/// Epoch 11: Bytes runtime constants and bytecode-cache object tag.
+/// Epoch 12: module interfaces preserve generic type-parameter class constraints
+/// such as `Task.spawn<a: Sendable>`.
+pub const CACHE_EPOCH: u16 = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

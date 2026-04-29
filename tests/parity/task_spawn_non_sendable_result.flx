@@ -1,0 +1,10 @@
+// Proposal 0174 Phase 1a: Task.spawn requires a Sendable result.
+// expect: compile_error
+
+import Flow.Task as Task
+
+fn main() {
+    let task = Task.spawn(fn() { fn() { 1 } });
+    let _ = Task.blocking_join(task);
+    ()
+}

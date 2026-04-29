@@ -1,0 +1,11 @@
+// parity: vm
+// expect: success
+// Proposal 0174 Phase 1b: Suspend.sleep resumes the captured VM continuation.
+
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let x = 40;
+    A.sleep(1);
+    print(x + 2)
+}

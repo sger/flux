@@ -1,0 +1,5 @@
+import Flow.Tcp as Tcp
+
+fn main() with IO {
+    print(42)
+}

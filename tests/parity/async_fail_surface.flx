@@ -1,0 +1,12 @@
+// parity: vm
+// expect: success
+// Proposal 0174 Phase 1b: AsyncFail.raise is the structured async error seam.
+
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let result = A.fail(A.failed("boom")) handle AsyncFail {
+        raise(_resume, _err) -> 41 + 1
+    }
+    print(result)
+}

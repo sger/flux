@@ -293,6 +293,7 @@ impl IrType {
             CoreType::Float => Self::Float,
             CoreType::Bool => Self::Bool,
             CoreType::String => Self::String,
+            CoreType::Bytes => Self::Tagged,
             CoreType::Unit => Self::Unit,
             CoreType::Never => Self::Never,
             CoreType::List(_) => Self::List,

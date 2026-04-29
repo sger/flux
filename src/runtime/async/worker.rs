@@ -11,7 +11,7 @@ use std::thread;
 
 use super::{
     backend::RuntimeTarget,
-    context::{RuntimeContext, TaskId, WorkerId},
+    context::{FiberId, RuntimeContext, TaskId, WorkerId},
     driver::{DriverError, RuntimeControlCommand, RuntimeControlHandle},
 };
 
@@ -81,6 +81,10 @@ impl WorkerState {
 
     pub fn new_task_context(&self, task_id: TaskId) -> RuntimeContext {
         RuntimeContext::for_task(task_id, self.id)
+    }
+
+    pub fn new_fiber_context(&self, task_id: TaskId, fiber_id: FiberId) -> RuntimeContext {
+        RuntimeContext::for_fiber(task_id, fiber_id, self.id)
     }
 }
 
@@ -181,6 +185,17 @@ mod tests {
         assert_eq!(ctx.task_id, TaskId(9));
         assert_eq!(ctx.home_worker, WorkerId(3));
         assert_eq!(ctx.target(), RuntimeTarget::Task(TaskId(9)));
+    }
+
+    #[test]
+    fn worker_builds_fiber_context_on_its_id() {
+        let worker = WorkerState::new(WorkerId(3));
+        let ctx = worker.new_fiber_context(TaskId(9), FiberId(12));
+
+        assert_eq!(ctx.task_id, TaskId(9));
+        assert_eq!(ctx.fiber_id, Some(FiberId(12)));
+        assert_eq!(ctx.home_worker, WorkerId(3));
+        assert_eq!(ctx.target(), RuntimeTarget::Fiber(FiberId(12)));
     }
 
     #[test]

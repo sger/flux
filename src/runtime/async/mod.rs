@@ -12,5 +12,8 @@ pub mod blocking;
 pub mod bridge;
 pub mod context;
 pub mod driver;
+pub mod runtime;
 pub mod scheduler;
+pub mod send_value;
+pub mod task;
 pub mod worker;

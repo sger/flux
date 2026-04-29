@@ -1,0 +1,135 @@
+// Flow.Async — Proposal 0174 Phase 1b structured concurrency surface.
+//
+// The functions here establish the source API over the Phase 1a task
+// substrate. The scheduler-sensitive combinators lower to runtime primops so
+// their implementation can move from OS tasks to the Phase 1b fiber loop
+// without changing user code.
+
+module Flow.Async {
+
+    public data Scope { Scope(Int) }
+
+    public data AsyncError {
+        AsyncCancelled,
+        AsyncTimedOut,
+        AsyncFailed(String),
+    }
+
+    public fn failed(message: String) -> AsyncError {
+        AsyncFailed(message)
+    }
+
+    public fn run_async<a>(action: (() -> a with Async)) -> a {
+        action()
+    }
+
+    intrinsic fn __scope<a>(
+        body: ((Scope) -> a with Suspend, Fork, GetContext, AsyncFail)
+    ) -> a = primop AsyncScope
+
+    public fn scope<a>(body: ((Scope) -> a with Async)) -> a with Async {
+        __scope(body)
+    }
+
+    intrinsic fn __fork<a>(
+        scope: Scope,
+        action: (() -> a with Suspend, Fork, GetContext, AsyncFail)
+    ) -> Unit = primop AsyncFork
+
+    public fn fork<a>(scope: Scope, action: (() -> a with Async)) -> Unit with Async {
+        __fork(scope, action)
+    }
+
+    intrinsic fn __both<a, b>(
+        left: (() -> a with Async),
+        right: (() -> b with Async)
+    ) -> (a, b) = primop AsyncBoth
+
+    public fn both<a, b>(
+        left: (() -> a with Async),
+        right: (() -> b with Async)
+    ) -> (a, b) with Async {
+        __both(left, right)
+    }
+
+    intrinsic fn __race<a>(
+        left: (() -> a with Async),
+        right: (() -> a with Async)
+    ) -> a = primop AsyncRace
+
+    public fn race<a>(
+        left: (() -> a with Async),
+        right: (() -> a with Async)
+    ) -> a with Async {
+        __race(left, right)
+    }
+
+    intrinsic fn __timeout<a>(
+        ms: Int,
+        action: (() -> a with Async)
+    ) -> Option<a> = primop AsyncTimeout
+
+    public fn timeout<a>(
+        ms: Int,
+        action: (() -> a with Async)
+    ) -> Option<a> with Async {
+        __timeout(ms, action)
+    }
+
+    intrinsic fn __timeout_result<a>(
+        ms: Int,
+        action: (() -> a with Async)
+    ) -> Either<AsyncError, a> = primop AsyncTimeoutResult
+
+    public fn timeout_result<a>(
+        ms: Int,
+        action: (() -> a with Async)
+    ) -> Either<AsyncError, a> with Async {
+        __timeout_result(ms, action)
+    }
+
+    intrinsic fn __try<a>(
+        body: (() -> a with Suspend, Fork, GetContext, AsyncFail)
+    ) -> Either<AsyncError, a> = primop AsyncTry
+
+    public fn try_<a>(body: (() -> a with Async)) -> Either<AsyncError, a> with Async {
+        __try(body)
+    }
+
+    intrinsic fn __finally<a>(
+        body: (() -> a with Suspend, Fork, GetContext, AsyncFail),
+        cleanup: (() -> Unit with Suspend, Fork, GetContext, AsyncFail)
+    ) -> a = primop AsyncFinally
+
+    public fn finally<a>(
+        body: (() -> a with Async),
+        cleanup: (() -> Unit with Async)
+    ) -> a with Async {
+        __finally(body, cleanup)
+    }
+
+    intrinsic fn __bracket<r, a>(
+        acquire: (() -> r with Suspend, Fork, GetContext, AsyncFail),
+        release: ((r) -> Unit with Suspend, Fork, GetContext, AsyncFail),
+        body: ((r) -> a with Suspend, Fork, GetContext, AsyncFail)
+    ) -> a = primop AsyncBracket
+
+    public fn bracket<r, a>(
+        acquire: (() -> r with Async),
+        release: ((r) -> Unit with Async),
+        body: ((r) -> a with Async)
+    ) -> a with Async {
+        __bracket(acquire, release, body)
+    }
+
+    public fn fail<a>(err: AsyncError) -> a with Async {
+        perform AsyncFail.raise(err)
+    }
+
+    public intrinsic fn yield_now() -> Unit with Async = primop AsyncYieldNow
+
+    public fn sleep(ms: Int) -> Unit with Async {
+        perform Suspend.sleep(ms)
+    }
+
+}

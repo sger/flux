@@ -627,7 +627,8 @@ impl Compiler {
             return false;
         }
 
-        let required_row = EffectRow::from_effect_exprs(&contract.effects);
+        let required_row =
+            EffectRow::from_effect_exprs_with_aliases(&contract.effects, &self.effect_row_aliases);
         let constraints =
             self.collect_effect_row_constraints_with_rows(&contract, arguments, param_effect_rows);
         let solution = solve_row_constraints(&constraints);

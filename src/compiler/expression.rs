@@ -937,6 +937,9 @@ impl Compiler {
                     return Ok(());
                 }
 
+                let argument_effect_contexts =
+                    self.expected_argument_function_effects(function, arguments.len());
+
                 if !is_self_non_tail_call {
                     self.compile_non_tail_expression(function)?;
                 }
@@ -949,11 +952,16 @@ impl Compiler {
                     }
                 }
 
-                for argument in arguments {
+                for (index, argument) in arguments.iter().enumerate() {
                     if is_self_tail_call {
                         self.compile_tail_call_argument(argument, &consumable_counts)?;
                     } else {
-                        self.compile_non_tail_expression(argument)?;
+                        self.compile_argument_with_effect_context(
+                            argument,
+                            argument_effect_contexts
+                                .get(index)
+                                .and_then(|effects| effects.as_deref()),
+                        )?;
                     }
                 }
 
@@ -1203,7 +1211,10 @@ impl Compiler {
         contract: &FnContract,
     ) -> CompileResult<()> {
         if !contract.effects.is_empty() {
-            let required_row = EffectRow::from_effect_exprs(&contract.effects);
+            let required_row = EffectRow::from_effect_exprs_with_aliases(
+                &contract.effects,
+                &self.effect_row_aliases,
+            );
             let constraints = self.collect_effect_row_constraints(contract, arguments);
             let solution = solve_row_constraints(&constraints);
 
@@ -1803,7 +1814,8 @@ impl Compiler {
                 continue;
             };
 
-            let expected = EffectRow::from_effect_exprs(param_effects);
+            let expected =
+                EffectRow::from_effect_exprs_with_aliases(param_effects, &self.effect_row_aliases);
             let Some(actual) = self.infer_argument_function_effect_row(argument, params.len())
             else {
                 // Keep current permissive behavior when argument effect info is unavailable.
@@ -1811,7 +1823,7 @@ impl Compiler {
             };
 
             constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            constraints.push(RowConstraint::Subset(actual.clone(), expected));
             for effect in param_effects {
                 self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
             }
@@ -1836,7 +1848,8 @@ impl Compiler {
                 self.collect_effect_expr_absence_constraints(left, actual, constraints);
                 self.collect_effect_expr_absence_constraints(right, actual, constraints);
 
-                let right_row = EffectRow::from_effect_expr(right);
+                let right_row =
+                    EffectRow::from_effect_expr_with_aliases(right, &self.effect_row_aliases);
 
                 for atom in right_row.atoms {
                     constraints.push(RowConstraint::Absent(actual.clone(), atom));
@@ -1851,13 +1864,20 @@ impl Compiler {
         expected_arity: usize,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => Some(
+                EffectRow::from_effect_exprs_with_aliases(effects, &self.effect_row_aliases),
+            ),
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
                 }
                 self.lookup_unqualified_contract(*name, expected_arity)
-                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .map(|contract| {
+                        EffectRow::from_effect_exprs_with_aliases(
+                            &contract.effects,
+                            &self.effect_row_aliases,
+                        )
+                    })
                     .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
             Expression::MemberAccess { object, member, .. } => {
@@ -1866,7 +1886,12 @@ impl Compiler {
                     .and_then(|module_name| {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
                     })
-                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .map(|contract| {
+                        EffectRow::from_effect_exprs_with_aliases(
+                            &contract.effects,
+                            &self.effect_row_aliases,
+                        )
+                    })
                     .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
             _ => self.infer_argument_effect_row_from_hm(argument),
@@ -1894,7 +1919,8 @@ impl Compiler {
                 continue;
             };
 
-            let expected = EffectRow::from_effect_exprs(param_effects);
+            let expected =
+                EffectRow::from_effect_exprs_with_aliases(param_effects, &self.effect_row_aliases);
             let Some(actual) = self.infer_argument_function_effect_row_with_rows(
                 argument,
                 params.len(),
@@ -1904,7 +1930,7 @@ impl Compiler {
             };
 
             constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            constraints.push(RowConstraint::Subset(actual.clone(), expected));
             for effect in param_effects {
                 self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
             }
@@ -1922,13 +1948,20 @@ impl Compiler {
         param_effect_rows: &HashMap<Symbol, EffectRow>,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => Some(
+                EffectRow::from_effect_exprs_with_aliases(effects, &self.effect_row_aliases),
+            ),
             Expression::Identifier { name, .. } => {
                 if let Some(local) = param_effect_rows.get(name).cloned() {
                     return Some(local);
                 }
                 self.lookup_unqualified_contract(*name, expected_arity)
-                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .map(|contract| {
+                        EffectRow::from_effect_exprs_with_aliases(
+                            &contract.effects,
+                            &self.effect_row_aliases,
+                        )
+                    })
                     .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
             Expression::MemberAccess { object, member, .. } => {
@@ -1937,7 +1970,12 @@ impl Compiler {
                     .and_then(|module_name| {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
                     })
-                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .map(|contract| {
+                        EffectRow::from_effect_exprs_with_aliases(
+                            &contract.effects,
+                            &self.effect_row_aliases,
+                        )
+                    })
                     .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
             _ => self.infer_argument_effect_row_from_hm(argument),
@@ -2192,6 +2230,56 @@ impl Compiler {
             expression,
             &format!("{context} is known at compile time"),
             "use a Bool expression, or make the condition/guard explicitly boolean".to_string(),
+        )
+    }
+
+    fn expected_argument_function_effects(
+        &self,
+        function: &Expression,
+        arity: usize,
+    ) -> Vec<Option<Vec<EffectExpr>>> {
+        let mut expected = vec![None; arity];
+        let Some(contract) = self.resolve_call_contract(function, arity) else {
+            return expected;
+        };
+
+        for (index, param) in contract.params.iter().enumerate().take(arity) {
+            let Some(TypeExpr::Function { effects, .. }) = param.as_ref() else {
+                continue;
+            };
+            expected[index] = Some(effects.clone());
+        }
+        expected
+    }
+
+    fn compile_argument_with_effect_context(
+        &mut self,
+        argument: &Expression,
+        contextual_effects: Option<&[EffectExpr]>,
+    ) -> CompileResult<()> {
+        let Expression::Function {
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body,
+            ..
+        } = argument
+        else {
+            return self.compile_non_tail_expression(argument);
+        };
+
+        let effective_effects = if effects.is_empty() {
+            contextual_effects.unwrap_or(effects)
+        } else {
+            effects
+        };
+        self.compile_function_literal(
+            parameters,
+            parameter_types,
+            return_type,
+            effective_effects,
+            body,
         )
     }
 

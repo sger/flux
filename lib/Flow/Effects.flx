@@ -47,8 +47,30 @@ module Flow.Effects {
     // `debug_labeled` / `debug_with`, which perform `Debug.trace`.
     effect Debug { trace: String -> Unit }
 
+    // ── Async scheduler seam (Proposal 0174 Phase 1b) ─────────
+    // User code writes `with Async`; the lower-level labels remain a
+    // runtime/library implementation detail.
+    effect Suspend {
+        sleep: Int -> Unit,
+        await_task: Task<a> -> a,
+        tcp_listen: (String, Int) -> TcpListener,
+        tcp_accept: TcpListener -> Tcp,
+        tcp_connect: (String, Int) -> Tcp,
+        tcp_read: (Tcp, Int) -> Bytes,
+        tcp_write: (Tcp, Bytes) -> Int,
+        tcp_close: Tcp -> Unit,
+        tcp_local_addr: Tcp -> String,
+        tcp_remote_addr: Tcp -> String,
+        tcp_close_listener: TcpListener -> Unit,
+        tcp_listener_local_addr: TcpListener -> String
+    }
+    effect Fork
+    effect GetContext
+    effect AsyncFail { raise: AsyncError -> a }
+
     // ── Aliases for ergonomics and backward compatibility ──────
     alias IO   = <Console | FileSystem | Stdin>
     alias Time = <Clock>
+    alias Async = <Suspend | Fork | GetContext | AsyncFail>
 
 }

@@ -1,0 +1,10 @@
+// parity: vm
+// expect: success
+// Proposal 0174 Phase 1b: Task.await source surface over Phase 1a tasks.
+
+import Flow.Task as Task
+
+fn main() with IO, Async {
+    let task = Task.spawn(fn() { 21 + 21 });
+    print(Task.await(task));
+}

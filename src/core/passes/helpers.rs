@@ -542,6 +542,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::StringLength
         | CorePrimOp::StringConcat
         | CorePrimOp::StringSlice
+        | CorePrimOp::StringToBytes
+        | CorePrimOp::BytesLength
+        | CorePrimOp::BytesSlice
+        | CorePrimOp::BytesToString
         | CorePrimOp::ToString
         | CorePrimOp::Split
         | CorePrimOp::Trim
@@ -582,7 +586,21 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::CmpEq
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
-        | CorePrimOp::AssertThrows => false,
+        | CorePrimOp::AssertThrows
+        | CorePrimOp::TaskSpawn
+        | CorePrimOp::TaskBlockingJoin
+        | CorePrimOp::TaskCancel
+        | CorePrimOp::AsyncSleep
+        | CorePrimOp::AsyncYieldNow
+        | CorePrimOp::AsyncBoth
+        | CorePrimOp::AsyncRace
+        | CorePrimOp::AsyncTimeout
+        | CorePrimOp::AsyncTimeoutResult
+        | CorePrimOp::AsyncScope
+        | CorePrimOp::AsyncFork
+        | CorePrimOp::AsyncTry
+        | CorePrimOp::AsyncFinally
+        | CorePrimOp::AsyncBracket => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

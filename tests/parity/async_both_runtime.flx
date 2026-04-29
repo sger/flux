@@ -1,0 +1,14 @@
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let pair = A.both(
+        fn() {
+            A.sleep(1);
+            20
+        },
+        fn() {
+            22
+        }
+    );
+    print(pair);
+}

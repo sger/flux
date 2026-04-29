@@ -6,6 +6,9 @@
 
 use std::{
     collections::HashSet,
+    fs,
+    net::ToSocketAddrs,
+    path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
 };
@@ -39,6 +42,29 @@ pub struct BlockingPool {
     sender: Option<mpsc::Sender<BlockingJob>>,
     workers: Vec<thread::JoinHandle<()>>,
     cancelled: Arc<Mutex<HashSet<RequestId>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockingServicesConfig {
+    pub fs_workers: usize,
+    pub dns_workers: usize,
+}
+
+impl Default for BlockingServicesConfig {
+    fn default() -> Self {
+        let workers = thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(2);
+        Self {
+            fs_workers: workers.min(4).max(1),
+            dns_workers: 2,
+        }
+    }
+}
+
+pub struct BlockingServices {
+    fs_pool: BlockingPool,
+    dns_pool: BlockingPool,
 }
 
 impl BlockingPool {
@@ -132,6 +158,77 @@ impl BlockingPool {
     }
 }
 
+impl BlockingServices {
+    pub fn new(config: BlockingServicesConfig, sink: BackendCompletionSink) -> Self {
+        Self {
+            fs_pool: BlockingPool::new(
+                BlockingPoolConfig {
+                    worker_count: config.fs_workers,
+                },
+                sink.clone(),
+            ),
+            dns_pool: BlockingPool::new(
+                BlockingPoolConfig {
+                    worker_count: config.dns_workers,
+                },
+                sink,
+            ),
+        }
+    }
+
+    pub fn read_file(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.fs_pool.submit(request_id, target, move || {
+            fs::read(&path)
+                .map(BackendCompletionPayload::Bytes)
+                .map_err(|err| io_error("file read failed", err))
+        })
+    }
+
+    pub fn write_file(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.fs_pool.submit(request_id, target, move || {
+            fs::write(&path, &bytes)
+                .map(|()| BackendCompletionPayload::Count(bytes.len()))
+                .map_err(|err| io_error("file write failed", err))
+        })
+    }
+
+    pub fn resolve_dns(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.dns_pool.submit(request_id, target, move || {
+            (host.as_str(), port)
+                .to_socket_addrs()
+                .map(|addresses| BackendCompletionPayload::AddressList(addresses.collect()))
+                .map_err(|err| io_error("dns resolve failed", err))
+        })
+    }
+
+    pub fn cancel(&self, handle: CancelHandle) -> Result<(), AsyncError> {
+        self.fs_pool.cancel(handle)?;
+        self.dns_pool.cancel(handle)?;
+        Ok(())
+    }
+}
+
+fn io_error(context: &str, error: std::io::Error) -> AsyncError {
+    AsyncError::new(AsyncErrorKind::Other, format!("{context}: {error}"))
+}
+
 fn take_cancelled(cancelled: &Arc<Mutex<HashSet<RequestId>>>, request_id: RequestId) -> bool {
     cancelled
         .lock()
@@ -143,9 +240,38 @@ fn take_cancelled(cancelled: &Arc<Mutex<HashSet<RequestId>>>, request_id: Reques
 mod tests {
     use super::*;
     use crate::runtime::r#async::{
-        backend::{RuntimeTarget, backend_completion_channel},
+        backend::{
+            BackendCompletion, BackendCompletionPayload, RuntimeTarget, backend_completion_channel,
+        },
         context::TaskId,
     };
+    use std::{
+        fs,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    fn poll_backend_completion(
+        source: &crate::runtime::r#async::backend::BackendCompletionSource,
+    ) -> BackendCompletion {
+        for _ in 0..100 {
+            if let Some(completion) = source
+                .poll_backend_completion()
+                .expect("completion queue readable")
+            {
+                return completion;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        panic!("timed out waiting for blocking completion")
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("flux_async_{name}_{unique}"))
+    }
 
     #[test]
     fn blocking_pool_publishes_backend_completion() {
@@ -164,7 +290,7 @@ mod tests {
             if completion.is_some() {
                 break;
             }
-            thread::yield_now();
+            thread::sleep(Duration::from_millis(1));
         }
         pool.shutdown();
 
@@ -191,10 +317,73 @@ mod tests {
             if source.pending().expect("completion queue readable") > 0 {
                 break;
             }
-            thread::yield_now();
+            thread::sleep(Duration::from_millis(1));
         }
         pool.shutdown();
 
         assert_eq!(source.pending().expect("completion queue readable"), 0);
+    }
+
+    #[test]
+    fn blocking_services_read_and_write_files_as_backend_bytes() {
+        let (sink, source) = backend_completion_channel();
+        let services = BlockingServices::new(
+            BlockingServicesConfig {
+                fs_workers: 1,
+                dns_workers: 1,
+            },
+            sink,
+        );
+        let path = temp_path("service_file");
+
+        services
+            .write_file(
+                RequestId(3),
+                RuntimeTarget::Task(TaskId(3)),
+                path.clone(),
+                b"flux".to_vec(),
+            )
+            .expect("write job submits");
+        let write = poll_backend_completion(&source);
+        assert_eq!(write.payload, Ok(BackendCompletionPayload::Count(4)));
+
+        services
+            .read_file(RequestId(4), RuntimeTarget::Task(TaskId(4)), path.clone())
+            .expect("read job submits");
+        let read = poll_backend_completion(&source);
+        assert_eq!(
+            read.payload,
+            Ok(BackendCompletionPayload::Bytes(b"flux".to_vec()))
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn blocking_services_resolves_dns_to_backend_addresses() {
+        let (sink, source) = backend_completion_channel();
+        let services = BlockingServices::new(
+            BlockingServicesConfig {
+                fs_workers: 1,
+                dns_workers: 1,
+            },
+            sink,
+        );
+        services
+            .resolve_dns(
+                RequestId(5),
+                RuntimeTarget::Task(TaskId(5)),
+                "localhost".to_string(),
+                80,
+            )
+            .expect("dns job submits");
+
+        let completion = poll_backend_completion(&source);
+        match completion.payload {
+            Ok(BackendCompletionPayload::AddressList(addresses)) => {
+                assert!(!addresses.is_empty());
+            }
+            other => panic!("expected address list, got {other:?}"),
+        }
     }
 }

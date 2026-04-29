@@ -1,0 +1,10 @@
+// parity: vm
+// expect: success
+// Proposal 0174 Phase 1a: source-visible Task.spawn + blocking_join smoke.
+
+import Flow.Task as Task
+
+fn main() with IO {
+    let t = Task.spawn(fn() { 42 });
+    print(Task.blocking_join(t));
+}

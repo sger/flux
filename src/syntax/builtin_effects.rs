@@ -48,6 +48,21 @@ pub const DIV: &str = "Div";
 /// redirected, or silenced). See proposal 0171 and `lib/Flow/Debug.flx`.
 pub const DEBUG: &str = "Debug";
 
+/// Async scheduler suspension seam (Proposal 0174 Phase 1b).
+pub const SUSPEND: &str = "Suspend";
+
+/// Async scheduler fiber fork seam (Proposal 0174 Phase 1b).
+pub const FORK: &str = "Fork";
+
+/// Async scheduler context lookup seam (Proposal 0174 Phase 1b).
+pub const GET_CONTEXT: &str = "GetContext";
+
+/// Async recoverable failure seam (Proposal 0174 Phase 1b).
+pub const ASYNC_FAIL: &str = "AsyncFail";
+
+/// User-facing async effect alias.
+pub const ASYNC: &str = "Async";
+
 /// Reserved non-determinism label. Documented in `Flow.Effects`, not
 /// operationally emitted by compiler primops in this slice.
 pub const NONDET: &str = "NonDet";
@@ -90,7 +105,19 @@ pub fn time_effect_symbol_opt(interner: &Interner) -> Option<Identifier> {
 pub fn is_known_function_effect_annotation_name(name: &str) -> bool {
     matches!(
         name,
-        IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV | DEBUG
+        IO | TIME
+            | ASYNC
+            | CONSOLE
+            | FILESYSTEM
+            | STDIN
+            | CLOCK
+            | PANIC
+            | DIV
+            | DEBUG
+            | SUSPEND
+            | FORK
+            | GET_CONTEXT
+            | ASYNC_FAIL
     )
 }
 

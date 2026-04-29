@@ -1370,6 +1370,7 @@ impl ClassEnv {
         let num = interner.intern("Num");
         let show = interner.intern("Show");
         let semigroup = interner.intern("Semigroup");
+        let sendable = interner.intern("Sendable");
 
         let eq_method = interner.intern("eq");
         let neq_method = interner.intern("neq");
@@ -1388,7 +1389,9 @@ impl ClassEnv {
         let int_name = interner.intern("Int");
         let float_name = interner.intern("Float");
         let string_name = interner.intern("String");
+        let bytes_name = interner.intern("Bytes");
         let bool_name = interner.intern("Bool");
+        let unit_name = interner.intern("Unit");
 
         let a_param = interner.intern("a");
 
@@ -1565,6 +1568,10 @@ impl ClassEnv {
             }],
         );
 
+        // Sendable: positive-only marker for values that may cross an
+        // explicit worker boundary (Proposal 0174 Phase 1a).
+        self.register_builtin_class(sendable, vec![a_param], vec![]);
+
         // ── Instance definitions ───────────────────────────────────────
 
         // Eq instances: Int, Float, String, Bool
@@ -1589,6 +1596,18 @@ impl ClassEnv {
 
         // Semigroup instances: String
         self.register_builtin_instance(semigroup, string_name);
+
+        // Sendable instances: primitive immutable values.
+        for ty in [
+            int_name,
+            float_name,
+            string_name,
+            bytes_name,
+            bool_name,
+            unit_name,
+        ] {
+            self.register_builtin_instance(sendable, ty);
+        }
     }
 
     /// Register a single built-in class definition.

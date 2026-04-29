@@ -10,10 +10,25 @@ pub(crate) struct EffectRow {
 
 impl EffectRow {
     /// Builds a row from an effect list, partitioning concrete atoms and row variables.
+    #[allow(dead_code)]
     pub(crate) fn from_effect_exprs(effects: &[EffectExpr]) -> Self {
         let mut row = Self::default();
         for effect in effects {
             let piece = Self::from_effect_expr(effect);
+            row.atoms.extend(piece.atoms);
+            row.vars.extend(piece.vars);
+        }
+        row
+    }
+
+    /// Builds a row after expanding source-level effect aliases such as `Async`.
+    pub(crate) fn from_effect_exprs_with_aliases(
+        effects: &[EffectExpr],
+        aliases: &HashMap<Symbol, EffectExpr>,
+    ) -> Self {
+        let mut row = Self::default();
+        for effect in effects {
+            let piece = Self::from_effect_expr_with_aliases(effect, aliases);
             row.atoms.extend(piece.atoms);
             row.vars.extend(piece.vars);
         }
@@ -52,6 +67,14 @@ impl EffectRow {
                 row
             }
         }
+    }
+
+    pub(crate) fn from_effect_expr_with_aliases(
+        effect: &EffectExpr,
+        aliases: &HashMap<Symbol, EffectExpr>,
+    ) -> Self {
+        let expanded = effect.expand_aliases(aliases);
+        Self::from_effect_expr(&expanded)
     }
 
     pub(crate) fn concrete_effects(&self, solution: &RowSolution) -> HashSet<Symbol> {

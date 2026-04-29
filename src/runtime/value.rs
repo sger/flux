@@ -268,6 +268,8 @@ pub enum Value {
     Boolean(bool),
     /// UTF-8 string value.
     String(Rc<String>),
+    /// Immutable byte buffer value.
+    Bytes(Rc<Vec<u8>>),
     /// Absence of value.
     None,
     /// Empty persistent list literal `[]`.
@@ -318,6 +320,7 @@ impl fmt::Display for Value {
             Value::Float(v) => write!(f, "{}", v),
             Value::Boolean(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "\"{}\"", v),
+            Value::Bytes(v) => write!(f, "<bytes {}>", v.len()),
             Value::None => write!(f, "None"),
             Value::EmptyList => write!(f, "[]"),
             Value::Some(v) => write!(f, "Some({})", v),
@@ -386,6 +389,7 @@ impl Value {
             Value::Float(_) => "Float",
             Value::Boolean(_) => "Bool",
             Value::String(_) => "String",
+            Value::Bytes(_) => "Bytes",
             Value::None => "None",
             Value::EmptyList => "List",
             Value::Some(_) => "Some",
@@ -447,6 +451,7 @@ impl Value {
             Value::Float(v) => v.to_string(),
             Value::Boolean(v) => v.to_string(),
             Value::String(v) => v.to_string(),
+            Value::Bytes(v) => format!("<bytes {}>", v.len()),
             Value::None => "None".to_string(),
             Value::EmptyList => "[]".to_string(),
             Value::Some(v) => format!("Some({})", v.to_string_value()),
@@ -545,6 +550,7 @@ pub fn format_value(value: &Value) -> String {
             let items: Vec<String> = elements.iter().map(format_value).collect();
             format!("[|{}|]", items.join(", "))
         }
+        Value::Bytes(bytes) => format!("<bytes {}>", bytes.len()),
         Value::Tuple(elements) => {
             let items: Vec<String> = elements.iter().map(format_value).collect();
             match items.len() {

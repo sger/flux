@@ -1,0 +1,8 @@
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let result = A.try_(fn() {
+        A.fail(A.failed("boom"))
+    });
+    print(result);
+}

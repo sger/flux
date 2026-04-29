@@ -6,7 +6,10 @@
 
 use std::{
     collections::VecDeque,
+    net::SocketAddr,
+    path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use crate::runtime::value::Value;
@@ -21,6 +24,9 @@ pub enum RuntimeTarget {
     Task(TaskId),
     Fiber(FiberId),
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IoHandle(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsyncErrorKind {
@@ -55,6 +61,8 @@ pub enum CompletionPayload {
     Bytes(Vec<u8>),
     Count(usize),
     Handle(u64),
+    Text(String),
+    AddressList(Vec<SocketAddr>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +71,8 @@ pub enum BackendCompletionPayload {
     Bytes(Vec<u8>),
     Count(usize),
     Handle(u64),
+    Text(String),
+    AddressList(Vec<SocketAddr>),
 }
 
 impl From<BackendCompletionPayload> for CompletionPayload {
@@ -72,6 +82,8 @@ impl From<BackendCompletionPayload> for CompletionPayload {
             BackendCompletionPayload::Bytes(bytes) => Self::Bytes(bytes),
             BackendCompletionPayload::Count(count) => Self::Count(count),
             BackendCompletionPayload::Handle(handle) => Self::Handle(handle),
+            BackendCompletionPayload::Text(text) => Self::Text(text),
+            BackendCompletionPayload::AddressList(addresses) => Self::AddressList(addresses),
         }
     }
 }
@@ -143,6 +155,10 @@ impl BackendCompletion {
             Ok(CompletionPayload::Bytes(bytes)) => Ok(BackendCompletionPayload::Bytes(bytes)),
             Ok(CompletionPayload::Count(count)) => Ok(BackendCompletionPayload::Count(count)),
             Ok(CompletionPayload::Handle(handle)) => Ok(BackendCompletionPayload::Handle(handle)),
+            Ok(CompletionPayload::Text(text)) => Ok(BackendCompletionPayload::Text(text)),
+            Ok(CompletionPayload::AddressList(addresses)) => {
+                Ok(BackendCompletionPayload::AddressList(addresses))
+            }
             Ok(CompletionPayload::Value(_)) => {
                 return Err(AsyncError::new(
                     AsyncErrorKind::InvalidInput,
@@ -267,6 +283,194 @@ pub trait AsyncBackend {
     fn poll_completion(&mut self) -> Option<Completion>;
 
     fn cancel(&mut self, handle: CancelHandle) -> Result<(), AsyncError>;
+
+    fn timer_start(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        duration: Duration,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, duration);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support timers",
+        ))
+    }
+
+    fn tcp_connect(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, host, port);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP connect",
+        ))
+    }
+
+    fn tcp_listen(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, host, port);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP listen",
+        ))
+    }
+
+    fn tcp_accept(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP accept",
+        ))
+    }
+
+    fn tcp_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle, max);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP read",
+        ))
+    }
+
+    fn tcp_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle, bytes);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP write",
+        ))
+    }
+
+    fn tcp_close(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP close",
+        ))
+    }
+
+    fn tcp_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP local_addr",
+        ))
+    }
+
+    fn tcp_remote_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP remote_addr",
+        ))
+    }
+
+    fn tcp_close_listener(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP listener close",
+        ))
+    }
+
+    fn tcp_listener_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, handle);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support TCP listener local_addr",
+        ))
+    }
+
+    fn dns_resolve(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, host, port);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support DNS resolution",
+        ))
+    }
+
+    fn file_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, path);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support file reads",
+        ))
+    }
+
+    fn file_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        let _ = (request_id, target, path, bytes);
+        Err(AsyncError::new(
+            AsyncErrorKind::InvalidInput,
+            "backend does not support file writes",
+        ))
+    }
 }
 
 impl AsyncBackend for BackendCompletionSource {
@@ -408,5 +612,38 @@ mod tests {
             .expect_err("source does not own reactor cancellation");
 
         assert_eq!(err.kind, AsyncErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn backend_default_timer_reports_unsupported() {
+        let (_sink, mut source) = backend_completion_channel();
+
+        let err = source
+            .timer_start(
+                RequestId(11),
+                RuntimeTarget::Task(TaskId(1)),
+                Duration::from_millis(1),
+            )
+            .expect_err("completion source is not a timer backend");
+
+        assert_eq!(err.kind, AsyncErrorKind::InvalidInput);
+        assert!(err.message.contains("timers"));
+    }
+
+    #[test]
+    fn backend_default_tcp_reports_unsupported() {
+        let (_sink, mut source) = backend_completion_channel();
+
+        let err = source
+            .tcp_connect(
+                RequestId(12),
+                RuntimeTarget::Task(TaskId(1)),
+                "localhost".to_string(),
+                80,
+            )
+            .expect_err("completion source is not a TCP backend");
+
+        assert_eq!(err.kind, AsyncErrorKind::InvalidInput);
+        assert!(err.message.contains("TCP connect"));
     }
 }

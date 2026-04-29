@@ -21,7 +21,7 @@ sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rayon = "1.11"
-mio = { version = "1.0", optional = true, features = ["os-poll"] }
+mio = { version = "1.0", optional = true, features = ["os-poll", "net"] }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
@@ -431,6 +431,10 @@ path = "tests/integration/compiler_optimization_tests.rs"
 [[test]]
 name = "compiler_rules_tests"
 path = "tests/integration/compiler_rules_tests.rs"
+
+[[test]]
+name = "async_type_effect_tests"
+path = "tests/integration/async_type_effect_tests.rs"
 
 [[test]]
 name = "cross_module_function_tests"

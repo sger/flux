@@ -1,0 +1,14 @@
+// parity: vm
+// expect: runtime_error
+// Scope join propagates the first forked child failure.
+
+import Flow.Async as A
+
+fn main() with IO, Async, Panic {
+    A.scope(fn(scope) {
+        A.fork(scope, fn() {
+            panic("child failed")
+        });
+        7
+    })
+}

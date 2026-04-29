@@ -471,7 +471,12 @@ fn load_and_link_artifact(
                 result.path.display()
             )
         })?;
-    linker.assemble_module(&artifact)?;
+    linker.assemble_module(&artifact).map_err(|err| {
+        format!(
+            "could not link module artifact for {}: {err}",
+            result.path.display()
+        )
+    })?;
     Ok(())
 }
 

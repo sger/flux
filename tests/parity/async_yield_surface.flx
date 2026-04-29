@@ -1,0 +1,7 @@
+import Flow.IO
+import Flow.Async as A
+
+fn main() with IO, Async {
+    A.yield_now();
+    println(9)
+}

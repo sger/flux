@@ -1,9 +1,24 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::mpsc, time::Duration};
 
+use crate::bytecode::bytecode::Bytecode;
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::value::format_value;
-use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
+use crate::runtime::{
+    r#async::{
+        backend::{
+            AsyncError, AsyncErrorKind, Completion, CompletionPayload, IoHandle, RequestId,
+            RuntimeTarget,
+        },
+        scheduler::SuspendedContinuation,
+        send_value::{SendClosure, SendValue},
+        task::{TaskCancelToken, TaskError, TaskHandle, TaskPriority},
+    },
+    closure::Closure,
+    continuation::Continuation,
+    frame::Frame,
+    value::Value,
+};
 
 use super::VM;
 
@@ -12,7 +27,547 @@ use super::VM;
 // We don't need it here since the IP is already advanced during capture, but kept for documentation.
 const _OP_PERFORM_SIZE: usize = 3;
 
+#[derive(Debug, Clone, Copy)]
+enum TcpAddrRequest {
+    Local,
+    Remote,
+}
+
+impl TcpAddrRequest {
+    fn op_name(self) -> &'static str {
+        match self {
+            TcpAddrRequest::Local => "tcp_local_addr",
+            TcpAddrRequest::Remote => "tcp_remote_addr",
+        }
+    }
+}
+
+fn run_send_closure_on_worker(
+    send_closure: SendClosure,
+    cancel_token: TaskCancelToken,
+) -> Result<SendValue, String> {
+    let constants = send_closure.constants_into_values();
+    let globals = send_closure.globals_into_values();
+    let action = send_closure.into_closure_value();
+    let mut worker_vm = VM::new(Bytecode {
+        instructions: vec![crate::bytecode::op_code::OpCode::OpReturn as u8],
+        constants,
+        debug_info: None,
+    });
+    worker_vm.async_cancel_token = Some(cancel_token);
+    for (index, global) in globals.into_iter().enumerate() {
+        if let Some(global) = global {
+            worker_vm.globals[index] = super::slot::to_slot(global);
+        }
+    }
+    let result = worker_vm.invoke_value(action, vec![])?;
+    SendValue::try_from_value(&result).map_err(VM::send_value_error)
+}
+
+fn join_send_task(
+    label: &str,
+    handle: TaskHandle<Result<SendValue, String>>,
+) -> Result<SendValue, String> {
+    match handle.blocking_join() {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(error)) => Err(error),
+        Err(TaskError::Canceled) => Err(format!("{label} was canceled")),
+        Err(TaskError::AlreadyJoined) => Err(format!("{label} was already joined")),
+        Err(TaskError::Shutdown) => Err(format!("{label} was shut down")),
+    }
+}
+
 impl VM {
+    pub(super) fn perform_builtin_suspend(
+        &mut self,
+        effect_name: &str,
+        op_name: &str,
+        perform_args: &[Value],
+    ) -> Option<Result<(), String>> {
+        match (effect_name, op_name) {
+            ("Suspend", "sleep") => Some(self.perform_suspend_sleep(perform_args)),
+            ("Suspend", "await_task") => Some(self.perform_suspend_await_task(perform_args)),
+            ("Suspend", "tcp_listen") => Some(self.perform_suspend_tcp_listen(perform_args)),
+            ("Suspend", "tcp_accept") => Some(self.perform_suspend_tcp_accept(perform_args)),
+            ("Suspend", "tcp_connect") => Some(self.perform_suspend_tcp_connect(perform_args)),
+            ("Suspend", "tcp_read") => Some(self.perform_suspend_tcp_read(perform_args)),
+            ("Suspend", "tcp_write") => Some(self.perform_suspend_tcp_write(perform_args)),
+            ("Suspend", "tcp_close") => Some(self.perform_suspend_tcp_close(perform_args)),
+            ("Suspend", "tcp_local_addr") => {
+                Some(self.perform_suspend_tcp_local_addr(perform_args))
+            }
+            ("Suspend", "tcp_remote_addr") => {
+                Some(self.perform_suspend_tcp_remote_addr(perform_args))
+            }
+            ("Suspend", "tcp_close_listener") => {
+                Some(self.perform_suspend_tcp_close_listener(perform_args))
+            }
+            ("Suspend", "tcp_listener_local_addr") => {
+                Some(self.perform_suspend_tcp_listener_local_addr(perform_args))
+            }
+            _ => None,
+        }
+    }
+
+    fn perform_suspend_sleep(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [Value::Integer(ms)] = perform_args else {
+            let got = perform_args
+                .first()
+                .map(Value::type_name)
+                .unwrap_or("missing");
+            return Err(format!("Suspend.sleep expects Int milliseconds, got {got}"));
+        };
+        let duration = Duration::from_millis((*ms).max(0) as u64);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_timer(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                duration,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+
+        let resume_value = match resumed
+            .cancel_handle
+            .filter(|handle| handle.request_id() == request_id)
+        {
+            _ => Value::None,
+        };
+        self.push(resumed.continuation)?;
+        self.push(resume_value)?;
+        self.execute_resume(1, None)?;
+        Ok(())
+    }
+
+    fn perform_suspend_tcp_connect(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [Value::String(host), Value::Integer(port)] = perform_args else {
+            return Err("Suspend.tcp_connect expects (String, Int)".to_string());
+        };
+        let port = u16::try_from(*port)
+            .map_err(|_| format!("Suspend.tcp_connect port out of range: {port}"))?;
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_connect(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                host.as_ref().clone(),
+                port,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Handle(handle))) => VM::make_tcp_value(handle),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_connect completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!("Suspend.tcp_connect failed: {}", error.message));
+            }
+            None => return Err("Suspend.tcp_connect completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_listen(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [Value::String(host), Value::Integer(port)] = perform_args else {
+            return Err("Suspend.tcp_listen expects (String, Int)".to_string());
+        };
+        let port = u16::try_from(*port)
+            .map_err(|_| format!("Suspend.tcp_listen port out of range: {port}"))?;
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_listen(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                host.as_ref().clone(),
+                port,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Handle(handle))) => VM::make_tcp_listener_value(handle),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_listen completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!("Suspend.tcp_listen failed: {}", error.message));
+            }
+            None => return Err("Suspend.tcp_listen completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_accept(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [listener] = perform_args else {
+            return Err("Suspend.tcp_accept expects TcpListener".to_string());
+        };
+        let handle = IoHandle(VM::tcp_listener_handle_from_value(listener)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_accept(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Handle(handle))) => VM::make_tcp_value(handle),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_accept completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!("Suspend.tcp_accept failed: {}", error.message));
+            }
+            None => return Err("Suspend.tcp_accept completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_read(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [conn, Value::Integer(max)] = perform_args else {
+            return Err("Suspend.tcp_read expects (Tcp, Int)".to_string());
+        };
+        let handle = IoHandle(VM::tcp_handle_from_value(conn)?);
+        let max = usize::try_from((*max).max(0))
+            .map_err(|_| format!("Suspend.tcp_read size out of range: {max}"))?;
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_read(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+                max,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Bytes(bytes))) => Value::Bytes(bytes.into()),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_read completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => return Err(format!("Suspend.tcp_read failed: {}", error.message)),
+            None => return Err("Suspend.tcp_read completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_write(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [conn, Value::Bytes(bytes)] = perform_args else {
+            return Err("Suspend.tcp_write expects (Tcp, Bytes)".to_string());
+        };
+        let handle = IoHandle(VM::tcp_handle_from_value(conn)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_write(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+                bytes.as_ref().clone(),
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Count(count))) => Value::Integer(count as i64),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_write completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => return Err(format!("Suspend.tcp_write failed: {}", error.message)),
+            None => return Err("Suspend.tcp_write completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_close(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [conn] = perform_args else {
+            return Err("Suspend.tcp_close expects Tcp".to_string());
+        };
+        let handle = IoHandle(VM::tcp_handle_from_value(conn)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_close(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Unit)) => {
+                self.resume_suspended_continuation(resumed, Value::None)
+            }
+            Some(Ok(other)) => Err(format!(
+                "Suspend.tcp_close completed with unexpected payload {other:?}"
+            )),
+            Some(Err(error)) => Err(format!("Suspend.tcp_close failed: {}", error.message)),
+            None => Err("Suspend.tcp_close completed without payload".to_string()),
+        }
+    }
+
+    fn perform_suspend_tcp_local_addr(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        self.perform_suspend_tcp_addr(perform_args, TcpAddrRequest::Local)
+    }
+
+    fn perform_suspend_tcp_remote_addr(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        self.perform_suspend_tcp_addr(perform_args, TcpAddrRequest::Remote)
+    }
+
+    fn perform_suspend_tcp_close_listener(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [listener] = perform_args else {
+            return Err("Suspend.tcp_close_listener expects TcpListener".to_string());
+        };
+        let handle = IoHandle(VM::tcp_listener_handle_from_value(listener)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_close_listener(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Unit)) => {
+                self.resume_suspended_continuation(resumed, Value::None)
+            }
+            Some(Ok(other)) => Err(format!(
+                "Suspend.tcp_close_listener completed with unexpected payload {other:?}"
+            )),
+            Some(Err(error)) => Err(format!(
+                "Suspend.tcp_close_listener failed: {}",
+                error.message
+            )),
+            None => Err("Suspend.tcp_close_listener completed without payload".to_string()),
+        }
+    }
+
+    fn perform_suspend_tcp_listener_local_addr(
+        &mut self,
+        perform_args: &[Value],
+    ) -> Result<(), String> {
+        let [listener] = perform_args else {
+            return Err("Suspend.tcp_listener_local_addr expects TcpListener".to_string());
+        };
+        let handle = IoHandle(VM::tcp_listener_handle_from_value(listener)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_tcp_listener_local_addr(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Text(text))) => Value::String(Rc::new(text)),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.tcp_listener_local_addr completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!(
+                    "Suspend.tcp_listener_local_addr failed: {}",
+                    error.message
+                ));
+            }
+            None => {
+                return Err("Suspend.tcp_listener_local_addr completed without payload".to_string());
+            }
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_tcp_addr(
+        &mut self,
+        perform_args: &[Value],
+        kind: TcpAddrRequest,
+    ) -> Result<(), String> {
+        let [conn] = perform_args else {
+            return Err(format!("Suspend.{} expects Tcp", kind.op_name()));
+        };
+        let handle = IoHandle(VM::tcp_handle_from_value(conn)?);
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = match kind {
+            TcpAddrRequest::Local => self.async_runtime.start_tcp_local_addr(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            ),
+            TcpAddrRequest::Remote => self.async_runtime.start_tcp_remote_addr(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                handle,
+            ),
+        }
+        .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Text(text))) => Value::String(Rc::new(text)),
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.{} completed with unexpected payload {other:?}",
+                    kind.op_name()
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!(
+                    "Suspend.{} failed: {}",
+                    kind.op_name(),
+                    error.message
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "Suspend.{} completed without payload",
+                    kind.op_name()
+                ));
+            }
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn wait_for_async_completion(
+        &mut self,
+        request_id: RequestId,
+    ) -> Result<SuspendedContinuation, String> {
+        loop {
+            if self
+                .async_cancel_token
+                .as_ref()
+                .is_some_and(TaskCancelToken::is_canceled)
+            {
+                self.async_runtime.request_cancel(request_id);
+                self.async_runtime.poll().map_err(VM::async_runtime_error)?;
+                return Err("async task was canceled".to_string());
+            }
+            self.drain_task_await_completions()?;
+            self.async_runtime.poll().map_err(VM::async_runtime_error)?;
+            if let Some(resumed) = self.async_runtime.pop_resumed_continuation() {
+                if resumed.request_id == request_id {
+                    return Ok(resumed);
+                }
+                return Err(format!(
+                    "unexpected async completion: expected {:?}, got {:?}",
+                    request_id, resumed.request_id
+                ));
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    fn resume_suspended_continuation(
+        &mut self,
+        resumed: SuspendedContinuation,
+        value: Value,
+    ) -> Result<(), String> {
+        self.push(resumed.continuation)?;
+        self.push(value)?;
+        self.execute_resume(1, None)?;
+        Ok(())
+    }
+
+    fn drain_task_await_completions(&mut self) -> Result<(), String> {
+        loop {
+            match self.task_await_rx.try_recv() {
+                Ok(completion) => {
+                    let target = RuntimeTarget::Task(self.async_task_id);
+                    let completion = match completion.result {
+                        Ok(value) => Completion::ok(
+                            completion.request_id,
+                            target,
+                            CompletionPayload::Value(value.into_value()),
+                        ),
+                        Err(error) => Completion::err(
+                            completion.request_id,
+                            target,
+                            AsyncError::new(AsyncErrorKind::Other, error),
+                        ),
+                    };
+                    self.async_runtime
+                        .deliver_local_completion(completion)
+                        .map_err(VM::async_runtime_error)?;
+                }
+                Err(mpsc::TryRecvError::Empty) => return Ok(()),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err("Task.await completion channel closed".to_string());
+                }
+            }
+        }
+    }
+
+    fn perform_suspend_await_task(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [task] = perform_args else {
+            return Err("Suspend.await_task expects one Task argument".to_string());
+        };
+        let task_id = VM::task_id_from_value(task)?;
+        let record = self
+            .task_registry
+            .tasks
+            .remove(&task_id)
+            .ok_or_else(|| format!("unknown Task handle {}", task_id))?;
+        if record.canceled {
+            return Err(format!("Task {} was canceled", task_id));
+        }
+        let handle = record
+            .handle
+            .ok_or_else(|| format!("Task {} was already joined", task_id))?;
+
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .park_task(self.async_task_id, continuation, None)
+            .map_err(VM::async_runtime_error)?;
+        let tx = self.task_await_tx.clone();
+        std::thread::spawn(move || {
+            let result = match handle.blocking_join() {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(error),
+                Err(TaskError::Canceled) => Err(format!("Task {} was canceled", task_id)),
+                Err(TaskError::AlreadyJoined) => {
+                    Err(format!("Task {} was already joined", task_id))
+                }
+                Err(TaskError::Shutdown) => Err(format!("Task {} was shut down", task_id)),
+            };
+            let _ = tx.send(super::VmTaskAwaitCompletion { request_id, result });
+        });
+
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let resume_value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::Value(value))) => value,
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.await_task completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(format!("Suspend.await_task failed: {}", error.message));
+            }
+            None => return Err("Suspend.await_task completed without payload".to_string()),
+        };
+        self.resume_suspended_continuation(resumed, resume_value)
+    }
+
     pub(super) fn capture_continuation_piece(
         &self,
         resume_slot: usize,
@@ -536,6 +1091,239 @@ impl RuntimeContext for VM {
         VM::invoke_value(self, callee, args)
     }
 
+    fn task_spawn(&mut self, action: Value) -> Result<Value, String> {
+        let task_id = self.task_registry.next_id.max(1);
+        self.task_registry.next_id = task_id + 1;
+        let send_closure = SendClosure::try_from_value_with_context(
+            &action,
+            self.constant_values(),
+            self.global_values(),
+        )
+        .map_err(VM::send_value_error)?;
+        let handle = self
+            .task_manager
+            .spawn(TaskPriority::NORMAL, move |cancel| {
+                run_send_closure_on_worker(send_closure, cancel)
+            })
+            .map_err(|err| format!("Task.spawn failed: {err:?}"))?;
+        self.task_registry.tasks.insert(
+            task_id,
+            super::VmTaskRecord {
+                handle: Some(handle),
+                canceled: false,
+            },
+        );
+        Ok(VM::make_task_value(task_id))
+    }
+
+    fn task_blocking_join(&mut self, task: Value) -> Result<Value, String> {
+        let task_id = VM::task_id_from_value(&task)?;
+        let record = self
+            .task_registry
+            .tasks
+            .remove(&task_id)
+            .ok_or_else(|| format!("unknown Task handle {}", task_id))?;
+        if record.canceled {
+            return Err(format!("Task {} was canceled", task_id));
+        }
+        let handle = record
+            .handle
+            .ok_or_else(|| format!("Task {} was already joined", task_id))?;
+        match handle.blocking_join() {
+            Ok(Ok(result)) => Ok(result.into_value()),
+            Ok(Err(error)) => Err(error),
+            Err(TaskError::Canceled) => Err(format!("Task {} was canceled", task_id)),
+            Err(TaskError::AlreadyJoined) => Err(format!("Task {} was already joined", task_id)),
+            Err(TaskError::Shutdown) => Err(format!("Task {} was shut down", task_id)),
+        }
+    }
+
+    fn task_cancel(&mut self, task: Value) -> Result<Value, String> {
+        let task_id = VM::task_id_from_value(&task)?;
+        let record = self
+            .task_registry
+            .tasks
+            .get_mut(&task_id)
+            .ok_or_else(|| format!("unknown Task handle {}", task_id))?;
+        if let Some(handle) = &record.handle {
+            record.canceled = handle.cancel();
+        }
+        Ok(Value::None)
+    }
+
+    fn async_sleep(&mut self, ms: Value) -> Result<Value, String> {
+        let Value::Integer(ms) = ms else {
+            return Err(format!(
+                "Async.sleep expects Int milliseconds, got {}",
+                ms.type_name()
+            ));
+        };
+        if ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+        }
+        Ok(Value::None)
+    }
+
+    fn async_yield_now(&mut self) -> Result<Value, String> {
+        std::thread::yield_now();
+        Ok(Value::None)
+    }
+
+    fn async_both(&mut self, left: Value, right: Value) -> Result<Value, String> {
+        let left = self.spawn_async_action(left)?;
+        let right = self.spawn_async_action(right)?;
+        let left = join_send_task("Async.both left branch", left)?.into_value();
+        let right = join_send_task("Async.both right branch", right)?.into_value();
+        Ok(Value::Tuple(Rc::new(vec![left, right])))
+    }
+
+    fn async_race(&mut self, left: Value, right: Value) -> Result<Value, String> {
+        enum RaceSide {
+            Left,
+            Right,
+        }
+
+        let left = self.spawn_async_action(left)?;
+        let right = self.spawn_async_action(right)?;
+        let left_cancel = left.clone();
+        let right_cancel = right.clone();
+        let (tx, rx) = mpsc::channel();
+        let left_tx = tx.clone();
+        std::thread::spawn(move || {
+            let _ = left_tx.send((
+                RaceSide::Left,
+                join_send_task("Async.race left branch", left),
+            ));
+        });
+        std::thread::spawn(move || {
+            let _ = tx.send((
+                RaceSide::Right,
+                join_send_task("Async.race right branch", right),
+            ));
+        });
+
+        let (winner, result) = rx
+            .recv()
+            .map_err(|_| "Async.race workers did not report a result".to_string())?;
+        match winner {
+            RaceSide::Left => {
+                let _ = right_cancel.cancel();
+            }
+            RaceSide::Right => {
+                let _ = left_cancel.cancel();
+            }
+        };
+        Ok(result?.into_value())
+    }
+
+    fn async_timeout(&mut self, ms: Value, action: Value) -> Result<Value, String> {
+        let Value::Integer(ms) = ms else {
+            return Err(format!(
+                "Async.timeout expects Int milliseconds, got {}",
+                ms.type_name()
+            ));
+        };
+        self.run_async_timeout(ms, action)
+    }
+
+    fn async_timeout_result(&mut self, ms: Value, action: Value) -> Result<Value, String> {
+        let Value::Integer(ms) = ms else {
+            return Err(format!(
+                "Async.timeout_result expects Int milliseconds, got {}",
+                ms.type_name()
+            ));
+        };
+        match self.run_async_timeout(ms, action)? {
+            Value::Some(value) => Ok(Value::Right(value)),
+            Value::None => Ok(Value::Left(Rc::new(Value::AdtUnit(Rc::new(
+                "AsyncTimedOut".to_string(),
+            ))))),
+            other => Err(format!(
+                "Async.timeout_result expected timeout to return Option, got {}",
+                other.type_name()
+            )),
+        }
+    }
+
+    fn async_scope(&mut self, body: Value) -> Result<Value, String> {
+        let scope_id = self.async_next_scope_id;
+        self.async_next_scope_id += 1;
+        self.async_scopes.insert(scope_id, Vec::new());
+
+        let body_result = self.invoke_unary_value(&body, VM::scope_value(scope_id));
+        let mut children = self.async_scopes.remove(&scope_id).unwrap_or_default();
+
+        let body_value = match body_result {
+            Ok(value) => value,
+            Err(error) => {
+                for child in &children {
+                    let _ = child.cancel();
+                }
+                for child in children {
+                    let _ = child.blocking_join();
+                }
+                return Err(error);
+            }
+        };
+
+        for child in children.drain(..) {
+            join_send_task("Async.scope child", child)?;
+        }
+        Ok(body_value)
+    }
+
+    fn async_fork(&mut self, scope: Value, action: Value) -> Result<Value, String> {
+        let scope_id = VM::scope_id_from_value(&scope)?;
+        let handle = self.spawn_async_action(action)?;
+        let children = self
+            .async_scopes
+            .get_mut(&scope_id)
+            .ok_or_else(|| format!("unknown or closed Async scope {}", scope_id))?;
+        children.push(handle);
+        Ok(Value::None)
+    }
+
+    fn async_try(&mut self, body: Value) -> Result<Value, String> {
+        match self.invoke_value(body, Vec::new()) {
+            Ok(value) => Ok(Value::Right(Rc::new(value))),
+            Err(error) => Ok(Value::Left(Rc::new(VM::async_failed_value(error)))),
+        }
+    }
+
+    fn async_finally(&mut self, body: Value, cleanup: Value) -> Result<Value, String> {
+        let body_result = self.invoke_value(body, Vec::new());
+        let cleanup_result = self.invoke_value(cleanup, Vec::new());
+
+        match (body_result, cleanup_result) {
+            (Ok(value), Ok(_)) => Ok(value),
+            (Ok(_), Err(cleanup_error)) => Err(cleanup_error),
+            (Err(body_error), Ok(_)) => Err(body_error),
+            (Err(body_error), Err(cleanup_error)) => {
+                Err(format!("{body_error}; cleanup failed: {cleanup_error}"))
+            }
+        }
+    }
+
+    fn async_bracket(
+        &mut self,
+        acquire: Value,
+        release: Value,
+        body: Value,
+    ) -> Result<Value, String> {
+        let resource = self.invoke_value(acquire, Vec::new())?;
+        let body_result = self.invoke_unary_value(&body, resource.clone());
+        let release_result = self.invoke_unary_value(&release, resource);
+
+        match (body_result, release_result) {
+            (Ok(value), Ok(_)) => Ok(value),
+            (Ok(_), Err(release_error)) => Err(release_error),
+            (Err(body_error), Ok(_)) => Err(body_error),
+            (Err(body_error), Err(release_error)) => {
+                Err(format!("{body_error}; release failed: {release_error}"))
+            }
+        }
+    }
+
     fn invoke_base_function_borrowed(
         &mut self,
         _base_fn_index: usize,
@@ -573,5 +1361,77 @@ impl RuntimeContext for VM {
             Value::Closure(closure) => closure.function.contract.as_ref(),
             _ => None,
         }
+    }
+}
+
+impl VM {
+    fn scope_value(scope_id: i64) -> Value {
+        Value::Adt(Rc::new(crate::runtime::value::AdtValue {
+            constructor: Rc::new("Scope".to_string()),
+            fields: crate::runtime::value::AdtFields::One(Value::Integer(scope_id)),
+        }))
+    }
+
+    fn async_failed_value(error: String) -> Value {
+        let raw = error
+            .strip_prefix("async failure: ")
+            .unwrap_or(error.as_str());
+        let message = raw
+            .strip_prefix("AsyncFailed(\"")
+            .and_then(|message| message.strip_suffix("\")"))
+            .unwrap_or(raw)
+            .to_string();
+        Value::Adt(Rc::new(crate::runtime::value::AdtValue {
+            constructor: Rc::new("AsyncFailed".to_string()),
+            fields: crate::runtime::value::AdtFields::One(Value::String(Rc::new(message))),
+        }))
+    }
+
+    fn scope_id_from_value(scope: &Value) -> Result<i64, String> {
+        match scope {
+            Value::Adt(adt) if adt.constructor.as_ref() == "Scope" => match adt.fields.get(0) {
+                Some(Value::Integer(id)) => Ok(*id),
+                Some(other) => Err(format!("Scope id must be Int, got {}", other.type_name())),
+                None => Err("Scope value is missing id field".to_string()),
+            },
+            other => Err(format!("expected Scope handle, got {}", other.type_name())),
+        }
+    }
+
+    fn run_async_timeout(&mut self, ms: i64, action: Value) -> Result<Value, String> {
+        let timeout = Duration::from_millis(ms.max(0) as u64);
+        let handle = self.spawn_async_action(action)?;
+        let cancel = handle.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(join_send_task("Async.timeout action", handle));
+        });
+        match rx.recv_timeout(timeout) {
+            Ok(result) => Ok(Value::Some(Rc::new(result?.into_value()))),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = cancel.cancel();
+                Ok(Value::None)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err("Async.timeout worker did not report a result".to_string())
+            }
+        }
+    }
+
+    fn spawn_async_action(
+        &mut self,
+        action: Value,
+    ) -> Result<TaskHandle<Result<SendValue, String>>, String> {
+        let send_closure = SendClosure::try_from_value_with_context(
+            &action,
+            self.constant_values(),
+            self.global_values(),
+        )
+        .map_err(VM::send_value_error)?;
+        self.task_manager
+            .spawn(TaskPriority::NORMAL, move |cancel| {
+                run_send_closure_on_worker(send_closure, cancel)
+            })
+            .map_err(|err| format!("Async branch spawn failed: {err:?}"))
     }
 }

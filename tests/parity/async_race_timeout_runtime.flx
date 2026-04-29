@@ -1,0 +1,28 @@
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let winner = A.race(
+        fn() {
+            1
+        },
+        fn() {
+            A.sleep(25);
+            2
+        }
+    );
+    let timed = A.timeout(
+        1,
+        fn() {
+            A.sleep(25);
+            9
+        }
+    );
+    let timed_result = A.timeout_result(
+        1,
+        fn() {
+            A.sleep(25);
+            9
+        }
+    );
+    print(to_string(winner) + ":" + to_string(timed) + ":" + to_string(timed_result));
+}

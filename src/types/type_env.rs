@@ -62,6 +62,7 @@ pub struct TypeEnv {
 struct TypeBindingEntry {
     scheme: Scheme,
     def_span: Option<Span>,
+    level: u32,
 }
 
 impl TypeEnv {
@@ -109,7 +110,11 @@ impl TypeEnv {
         self.bindings
             .entry(name)
             .or_default()
-            .push(TypeBindingEntry { scheme, def_span });
+            .push(TypeBindingEntry {
+                scheme,
+                def_span,
+                level: self.level,
+            });
         if let Some(marker) = self.scope_markers.last_mut() {
             marker.push(name);
         }
@@ -130,6 +135,11 @@ impl TypeEnv {
     /// Look up a name's definition span O(1) via shadow stack top.
     pub fn lookup_span(&self, name: Identifier) -> Option<Span> {
         self.bindings.get(&name)?.last().and_then(|e| e.def_span)
+    }
+
+    /// Look up the scope level where a name's currently visible binding was defined.
+    pub fn lookup_level(&self, name: Identifier) -> Option<u32> {
+        self.bindings.get(&name)?.last().map(|e| e.level)
     }
 
     /// Push a new empty scope and bump the level.
@@ -247,6 +257,7 @@ impl TypeEnv {
                     "Float" => TypeConstructor::Float,
                     "Bool" => TypeConstructor::Bool,
                     "String" => TypeConstructor::String,
+                    "Bytes" => TypeConstructor::Bytes,
                     "Unit" | "None" => TypeConstructor::Unit,
                     "Never" => TypeConstructor::Never,
                     "List" => TypeConstructor::List,
@@ -417,6 +428,9 @@ impl TypeEnv {
                 TypeConstructor::Float => Ok(RuntimeType::Float),
                 TypeConstructor::Bool => Ok(RuntimeType::Bool),
                 TypeConstructor::String => Ok(RuntimeType::String),
+                TypeConstructor::Bytes => Err(RuntimeTypeLoweringError::new(
+                    RuntimeTypeLoweringIssue::UnsupportedNominalType,
+                )),
                 TypeConstructor::Unit | TypeConstructor::Never => Ok(RuntimeType::Unit),
                 TypeConstructor::List
                 | TypeConstructor::Array

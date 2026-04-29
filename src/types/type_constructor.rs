@@ -17,6 +17,8 @@ pub enum TypeConstructor {
     Bool,
     /// Primitive UTF-8 string.
     String,
+    /// Primitive immutable byte buffer.
+    Bytes,
     /// Unit type (spelled `None` in source-level type annotations).
     Unit,
     /// Bottom type (non-returning computations).
@@ -51,6 +53,7 @@ impl TypeConstructor {
             | TypeConstructor::Float
             | TypeConstructor::Bool
             | TypeConstructor::String
+            | TypeConstructor::Bytes
             | TypeConstructor::Unit
             | TypeConstructor::Never => Kind::Type,
 
@@ -89,6 +92,7 @@ impl fmt::Display for TypeConstructor {
             TypeConstructor::Float => write!(f, "Float"),
             TypeConstructor::Bool => write!(f, "Bool"),
             TypeConstructor::String => write!(f, "String"),
+            TypeConstructor::Bytes => write!(f, "Bytes"),
             TypeConstructor::Unit => write!(f, "Unit"),
             TypeConstructor::Never => write!(f, "Never"),
             TypeConstructor::List => write!(f, "List"),
@@ -112,6 +116,7 @@ mod tests {
         assert_eq!(TypeConstructor::Float.to_string(), "Float");
         assert_eq!(TypeConstructor::Bool.to_string(), "Bool");
         assert_eq!(TypeConstructor::String.to_string(), "String");
+        assert_eq!(TypeConstructor::Bytes.to_string(), "Bytes");
         assert_eq!(TypeConstructor::Unit.to_string(), "Unit");
         assert_eq!(TypeConstructor::Never.to_string(), "Never");
         assert_eq!(TypeConstructor::List.to_string(), "List");

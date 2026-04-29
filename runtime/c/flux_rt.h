@@ -140,7 +140,12 @@ static inline int flux_val_is_float(int64_t val) {
 /* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
 /*
  * Every heap object has an 8-byte FluxHeader at (payload - 8):
- *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *   { _Atomic int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *
+ * Refcount encoding:
+ *   rc > 0: thread-local count, non-atomic fast path
+ *   rc < 0: cross-worker shared count, atomic path, magnitude is the count
+ *   rc = 0: dead / ready to free
  *
  * flux_gc_alloc_header: allocate with explicit scan_fsize and obj_tag
  * flux_gc_alloc: backward-compatible (scan_fsize=0, obj_tag=0)
@@ -166,6 +171,8 @@ extern char *flux_arena_limit;
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
 int  flux_rc_is_unique(int64_t val);
+void flux_rc_share(int64_t val);
+void flux_rc_share_deep(int64_t val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
@@ -200,6 +207,13 @@ int64_t flux_int_to_string(int64_t n);
 int64_t flux_float_to_string(int64_t f);
 int64_t flux_string_to_int(int64_t s);
 int     flux_string_eq(int64_t a, int64_t b);
+
+/* Immutable byte buffers currently share the same native blob layout as
+ * strings. They remain distinct at the Flux type level. */
+int64_t flux_string_to_bytes(int64_t s);
+int64_t flux_bytes_to_string(int64_t b);
+int64_t flux_bytes_length(int64_t b);
+int64_t flux_bytes_slice(int64_t b, int64_t start, int64_t end);
 
 /* Access raw C string pointer and length (valid until next GC). */
 const char *flux_string_data(int64_t s);
@@ -376,22 +390,43 @@ FluxEffectContext *flux_effect_context_current(void);
 FluxEffectContext *flux_effect_context_set_current(FluxEffectContext *ctx);
 void flux_effect_context_reset(FluxEffectContext *ctx);
 
-/* Rust-owned async runtime bridge. These are native entry shapes for the
- * future Rust scheduler; Phase 0 stubs are inert and do not expose mio/C-side
- * scheduler state. */
+/* Rust-owned async runtime bridge. Native code sees opaque handles and polls
+ * the Rust scheduler through this narrow ABI; mio and scheduler internals stay
+ * out of the C runtime. */
 typedef struct { uint64_t raw; } FluxAsyncRuntimeHandle;
 typedef struct { uint64_t raw; } FluxAsyncContextHandle;
 typedef enum {
     FLUX_ASYNC_STATUS_OK = 0,
     FLUX_ASYNC_STATUS_INVALID_HANDLE = 1,
     FLUX_ASYNC_STATUS_UNSUPPORTED = 2,
+    FLUX_ASYNC_STATUS_RUNTIME_ERROR = 3,
 } FluxAsyncStatus;
 
 FluxAsyncRuntimeHandle flux_async_runtime_default(void);
+FluxAsyncRuntimeHandle flux_async_runtime_create(void);
+FluxAsyncStatus flux_async_runtime_destroy(FluxAsyncRuntimeHandle runtime);
 FluxAsyncContextHandle flux_async_context_current(void);
 FluxAsyncContextHandle flux_async_context_enter(FluxAsyncContextHandle context);
 FluxAsyncStatus flux_async_context_leave(FluxAsyncContextHandle previous);
 FluxAsyncStatus flux_async_runtime_poll(FluxAsyncRuntimeHandle runtime);
+
+/* Phase 1a Task ABI. Native code enters Rust-owned task management through
+ * these narrow shims; full Flux heap transfer requires Sendable validation and
+ * shared-promotion/copy discipline before values can cross workers. */
+int64_t flux_task_spawn(int64_t action);
+int64_t flux_task_blocking_join(int64_t task);
+int64_t flux_task_cancel(int64_t task);
+int64_t flux_async_sleep(int64_t ms);
+int64_t flux_async_yield_now(void);
+int64_t flux_async_both(int64_t left, int64_t right);
+int64_t flux_async_race(int64_t left, int64_t right);
+int64_t flux_async_timeout(int64_t ms, int64_t action);
+int64_t flux_async_timeout_result(int64_t ms, int64_t action);
+int64_t flux_async_scope(int64_t body);
+int64_t flux_async_fork(int64_t scope, int64_t action);
+int64_t flux_async_try(int64_t body);
+int64_t flux_async_finally(int64_t body, int64_t cleanup);
+int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body);
 
 /* Legacy yield-state mirror — accessible from LLVM IR for inline yield checks. */
 extern int32_t flux_yield_yielding;

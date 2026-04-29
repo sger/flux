@@ -21,6 +21,9 @@
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
+#else
+#include <unistd.h>
+#include <sched.h>
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -1260,6 +1263,22 @@ int64_t flux_parse_int(int64_t s) {
     return flux_string_to_int(s);
 }
 
+int64_t flux_string_to_bytes(int64_t s) {
+    return flux_string_new(flux_string_data(s), flux_string_len(s));
+}
+
+int64_t flux_bytes_to_string(int64_t b) {
+    return flux_string_new(flux_string_data(b), flux_string_len(b));
+}
+
+int64_t flux_bytes_length(int64_t b) {
+    return flux_string_length(b);
+}
+
+int64_t flux_bytes_slice(int64_t b, int64_t start, int64_t end) {
+    return flux_string_slice(b, start, end);
+}
+
 /* parse_ints(arr) → parse each string element of arr as an int. */
 int64_t flux_parse_ints(int64_t arr) {
     if (!flux_is_ptr(arr)) return flux_array_new(NULL, 0);
@@ -2439,6 +2458,132 @@ int64_t flux_get_global(int64_t idx) {
 
 void flux_set_global(int64_t idx, int64_t val) {
     if (idx >= 0 && idx < 256) flux_globals[idx] = val;
+}
+
+/* ── Phase 1a Task ABI stubs ───────────────────────────────────────── */
+
+static int64_t flux_task_unimplemented(const char *name) {
+    char buf[160];
+    int len = snprintf(buf, sizeof(buf),
+                       "%s requires the Phase 1a Rust task value bridge",
+                       name);
+    if (len < 0) {
+        flux_panic(flux_string_new("task runtime unavailable", 24));
+    }
+    if (len >= (int)sizeof(buf)) {
+        len = (int)sizeof(buf) - 1;
+    }
+    flux_panic(flux_string_new(buf, (uint32_t)len));
+    return FLUX_NONE;
+}
+
+int64_t flux_task_spawn(int64_t action) {
+    (void)action;
+    return flux_task_unimplemented("Task.spawn");
+}
+
+int64_t flux_task_blocking_join(int64_t task) {
+    (void)task;
+    return flux_task_unimplemented("Task.blocking_join");
+}
+
+int64_t flux_task_cancel(int64_t task) {
+    (void)task;
+    return flux_task_unimplemented("Task.cancel");
+}
+
+int64_t flux_async_sleep(int64_t ms) {
+    if (!flux_is_int(ms)) {
+        flux_panic(flux_string_new("Async.sleep expects Int milliseconds", 36));
+        return FLUX_NONE;
+    }
+    int64_t raw_ms = flux_untag_int(ms);
+    if (raw_ms <= 0) {
+        return FLUX_NONE;
+    }
+#if defined(_MSC_VER) || defined(_WIN32)
+    Sleep((DWORD)raw_ms);
+#else
+    usleep((useconds_t)raw_ms * 1000);
+#endif
+    return FLUX_NONE;
+}
+
+int64_t flux_async_yield_now(void) {
+#if defined(_MSC_VER) || defined(_WIN32)
+    Sleep(0);
+#else
+    sched_yield();
+#endif
+    return FLUX_NONE;
+}
+
+static int64_t flux_async_unimplemented(const char *name) {
+    char buf[176];
+    int len = snprintf(buf, sizeof(buf),
+                       "%s requires the native Rust async bridge",
+                       name);
+    if (len < 0) {
+        flux_panic(flux_string_new("async runtime unavailable", 25));
+    }
+    if (len >= (int)sizeof(buf)) {
+        len = (int)sizeof(buf) - 1;
+    }
+    flux_panic(flux_string_new(buf, (uint32_t)len));
+    return FLUX_NONE;
+}
+
+int64_t flux_async_both(int64_t left, int64_t right) {
+    (void)left;
+    (void)right;
+    return flux_async_unimplemented("Async.both");
+}
+
+int64_t flux_async_race(int64_t left, int64_t right) {
+    (void)left;
+    (void)right;
+    return flux_async_unimplemented("Async.race");
+}
+
+int64_t flux_async_timeout(int64_t ms, int64_t action) {
+    (void)ms;
+    (void)action;
+    return flux_async_unimplemented("Async.timeout");
+}
+
+int64_t flux_async_timeout_result(int64_t ms, int64_t action) {
+    (void)ms;
+    (void)action;
+    return flux_async_unimplemented("Async.timeout_result");
+}
+
+int64_t flux_async_scope(int64_t body) {
+    (void)body;
+    return flux_async_unimplemented("Async.scope");
+}
+
+int64_t flux_async_fork(int64_t scope, int64_t action) {
+    (void)scope;
+    (void)action;
+    return flux_async_unimplemented("Async.fork");
+}
+
+int64_t flux_async_try(int64_t body) {
+    (void)body;
+    return flux_async_unimplemented("Async.try");
+}
+
+int64_t flux_async_finally(int64_t body, int64_t cleanup) {
+    (void)body;
+    (void)cleanup;
+    return flux_async_unimplemented("Async.finally");
+}
+
+int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body) {
+    (void)acquire;
+    (void)release;
+    (void)body;
+    return flux_async_unimplemented("Async.bracket");
 }
 
 /* ── Runtime-callable type predicates ──────────────────────────────── */

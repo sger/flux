@@ -1,0 +1,16 @@
+// parity: vm
+// expect: runtime_error
+
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let value = A.both(
+        fn() {
+            A.fail(A.failed("left failed"))
+        },
+        fn() {
+            2
+        }
+    );
+    print(value);
+}

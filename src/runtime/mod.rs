@@ -38,6 +38,53 @@ pub mod nanbox;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+    fn task_spawn(&mut self, _action: Value) -> Result<Value, String> {
+        Err("Task.spawn is not supported by this runtime context".to_string())
+    }
+    fn task_blocking_join(&mut self, _task: Value) -> Result<Value, String> {
+        Err("Task.blocking_join is not supported by this runtime context".to_string())
+    }
+    fn task_cancel(&mut self, _task: Value) -> Result<Value, String> {
+        Err("Task.cancel is not supported by this runtime context".to_string())
+    }
+    fn async_sleep(&mut self, _ms: Value) -> Result<Value, String> {
+        Err("Async.sleep is not supported by this runtime context".to_string())
+    }
+    fn async_yield_now(&mut self) -> Result<Value, String> {
+        Err("Async.yield_now is not supported by this runtime context".to_string())
+    }
+    fn async_both(&mut self, _left: Value, _right: Value) -> Result<Value, String> {
+        Err("Async.both is not supported by this runtime context".to_string())
+    }
+    fn async_race(&mut self, _left: Value, _right: Value) -> Result<Value, String> {
+        Err("Async.race is not supported by this runtime context".to_string())
+    }
+    fn async_timeout(&mut self, _ms: Value, _action: Value) -> Result<Value, String> {
+        Err("Async.timeout is not supported by this runtime context".to_string())
+    }
+    fn async_timeout_result(&mut self, _ms: Value, _action: Value) -> Result<Value, String> {
+        Err("Async.timeout_result is not supported by this runtime context".to_string())
+    }
+    fn async_scope(&mut self, _body: Value) -> Result<Value, String> {
+        Err("Async.scope is not supported by this runtime context".to_string())
+    }
+    fn async_fork(&mut self, _scope: Value, _action: Value) -> Result<Value, String> {
+        Err("Async.fork is not supported by this runtime context".to_string())
+    }
+    fn async_try(&mut self, _body: Value) -> Result<Value, String> {
+        Err("Async.try_ is not supported by this runtime context".to_string())
+    }
+    fn async_finally(&mut self, _body: Value, _cleanup: Value) -> Result<Value, String> {
+        Err("Async.finally is not supported by this runtime context".to_string())
+    }
+    fn async_bracket(
+        &mut self,
+        _acquire: Value,
+        _release: Value,
+        _body: Value,
+    ) -> Result<Value, String> {
+        Err("Async.bracket is not supported by this runtime context".to_string())
+    }
     fn invoke_base_function_borrowed(
         &mut self,
         base_fn_index: usize,

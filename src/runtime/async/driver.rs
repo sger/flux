@@ -5,7 +5,7 @@
 //! loop can later run inside a reactor/worker coordinator.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -94,6 +94,8 @@ pub struct RuntimeDriver<B> {
     backend: B,
     commands: VecDeque<RuntimeCommand>,
     control_commands: SharedControlQueue,
+    completed: VecDeque<SuspendedContinuation>,
+    canceled: HashSet<RequestId>,
     stopped: bool,
 }
 
@@ -104,6 +106,8 @@ impl<B> RuntimeDriver<B> {
             backend,
             commands: VecDeque::new(),
             control_commands: Arc::new(Mutex::new(VecDeque::new())),
+            completed: VecDeque::new(),
+            canceled: HashSet::new(),
             stopped: false,
         }
     }
@@ -140,6 +144,24 @@ impl<B> RuntimeDriver<B> {
             .len())
     }
 
+    pub fn pending_completed_continuations(&self) -> usize {
+        self.completed.len()
+    }
+
+    pub fn pop_completed_continuation(&mut self) -> Option<SuspendedContinuation> {
+        self.completed.pop_front()
+    }
+
+    pub fn deliver_local_completion(&mut self, completion: Completion) -> Result<(), DriverError> {
+        let continuation = self.scheduler.deliver_completion(&completion)?;
+        self.completed.push_back(continuation);
+        Ok(())
+    }
+
+    pub fn was_canceled(&self, request_id: RequestId) -> bool {
+        self.canceled.contains(&request_id)
+    }
+
     pub fn control_handle(&self) -> RuntimeControlHandle {
         RuntimeControlHandle {
             commands: Arc::clone(&self.control_commands),
@@ -161,7 +183,11 @@ impl<B: AsyncBackend> RuntimeDriver<B> {
         tick.commands = self.drain_runtime_commands()?;
         tick.commands += self.drain_control_commands()?;
         while let Some(completion) = self.backend.poll_completion() {
-            self.deliver_completion(&completion)?;
+            if self.canceled.remove(&completion.request_id) {
+                continue;
+            }
+            let continuation = self.deliver_completion(&completion)?;
+            self.completed.push_back(continuation);
             tick.completions += 1;
         }
         Ok(tick)
@@ -210,6 +236,7 @@ impl<B: AsyncBackend> RuntimeDriver<B> {
                 }
                 RuntimeCommand::Cancel(request_id) => {
                     let wait = self.scheduler.cancel_wait(request_id)?;
+                    self.canceled.insert(request_id);
                     if let Some(cancel_handle) = wait.cancel_handle {
                         self.backend.cancel(cancel_handle)?;
                     }
@@ -239,6 +266,7 @@ impl<B: AsyncBackend> RuntimeDriver<B> {
                 }
                 RuntimeControlCommand::Cancel(request_id) => {
                     let wait = self.scheduler.cancel_wait(request_id)?;
+                    self.canceled.insert(request_id);
                     if let Some(cancel_handle) = wait.cancel_handle {
                         self.backend.cancel(cancel_handle)?;
                     }
@@ -359,6 +387,11 @@ mod tests {
                 .expect("worker exists"),
             Some(target)
         );
+        let completed = driver
+            .pop_completed_continuation()
+            .expect("completed continuation is retained for VM resume");
+        assert_eq!(completed.request_id, request_id);
+        assert_eq!(completed.continuation, Value::Integer(42));
         assert!(driver.scheduler().waits().is_empty());
     }
 
@@ -449,6 +482,7 @@ mod tests {
         assert_eq!(tick.commands, 1);
         assert!(driver.scheduler().waits().is_empty());
         assert_eq!(driver.backend().cancelled, vec![cancel_handle]);
+        assert!(driver.was_canceled(request_id));
     }
 
     #[test]
@@ -536,6 +570,53 @@ mod tests {
         assert_eq!(tick.commands, 1);
         assert!(driver.scheduler().waits().is_empty());
         assert_eq!(driver.backend().cancelled, vec![cancel_handle]);
+    }
+
+    #[test]
+    fn driver_ignores_late_completion_after_cancel() {
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 1 });
+        let (task_id, _) = scheduler.spawn_task().expect("task spawns");
+        let request_id = scheduler.allocate_request_id();
+        let target = RuntimeTarget::Task(task_id);
+        let cancel_handle = CancelHandle::new(request_id, target);
+        scheduler
+            .park(
+                SuspendedContinuation::new(request_id, target, Value::Integer(64))
+                    .with_cancel_handle(cancel_handle),
+            )
+            .expect("park succeeds");
+        let backend = FakeBackend::default();
+        let mut driver = RuntimeDriver::new(scheduler, backend);
+        driver.submit_runtime_command(RuntimeCommand::Cancel(request_id));
+        driver.tick().expect("cancel succeeds");
+        driver
+            .backend_mut()
+            .push(Completion::ok(request_id, target, CompletionPayload::Unit));
+
+        let tick = driver.tick().expect("late canceled completion is ignored");
+
+        assert_eq!(
+            tick,
+            DriverTick {
+                commands: 0,
+                completions: 0,
+            }
+        );
+        assert_eq!(driver.pending_completed_continuations(), 0);
+        assert_eq!(
+            driver
+                .scheduler_mut()
+                .pop_ready(WorkerId(0))
+                .expect("worker exists"),
+            Some(target)
+        );
+        assert_eq!(
+            driver
+                .scheduler_mut()
+                .pop_ready(WorkerId(0))
+                .expect("worker exists"),
+            None
+        );
     }
 
     #[test]

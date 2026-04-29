@@ -1,0 +1,7 @@
+import Flow.IO
+import Flow.Async as A
+
+fn main() with IO, Async {
+    A.sleep(1);
+    println(7)
+}

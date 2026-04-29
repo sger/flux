@@ -630,6 +630,11 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
     );
     let resolved_expr_types = resolve_expr_types(ctx.expr_types, &ctx.subst);
     let resolved_class_constraints = resolve_class_constraints(ctx.class_constraints, &ctx.subst);
+    let resolved_class_constraints = expand_sendable_adt_constraints(
+        resolved_class_constraints,
+        &ctx.adt_constructor_types,
+        ctx.interner,
+    );
 
     InferProgramResult {
         type_env: ctx.env,
@@ -669,11 +674,22 @@ fn resolve_module_member_schemes(
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
+            let forall_set = forall.iter().copied().collect::<HashSet<_>>();
+            let constraints = scheme
+                .constraints
+                .into_iter()
+                .filter(|constraint| {
+                    constraint
+                        .type_vars
+                        .iter()
+                        .all(|var| forall_set.contains(var))
+                })
+                .collect();
             (
                 key,
                 Scheme {
                     forall,
-                    constraints: Vec::new(),
+                    constraints,
                     infer_type: resolved_type,
                 },
             )
@@ -738,6 +754,196 @@ fn resolve_class_constraints(
             c
         })
         .collect()
+}
+
+fn expand_sendable_adt_constraints(
+    class_constraints: Vec<constraint::WantedClassConstraint>,
+    adt_constructor_types: &HashMap<Identifier, AdtConstructorTypeInfo>,
+    interner: &Interner,
+) -> Vec<constraint::WantedClassConstraint> {
+    let Some(sendable) = interner.lookup("Sendable") else {
+        return class_constraints;
+    };
+
+    let mut constructors_by_adt: HashMap<Identifier, Vec<&AdtConstructorTypeInfo>> = HashMap::new();
+    for info in adt_constructor_types.values() {
+        constructors_by_adt
+            .entry(info.adt_name)
+            .or_default()
+            .push(info);
+    }
+
+    let mut expanded = Vec::new();
+    for constraint in class_constraints {
+        if constraint.class_name != sendable || constraint.type_args.len() != 1 {
+            expanded.push(constraint);
+            continue;
+        }
+
+        let ty = constraint.type_args[0].clone();
+        if !expand_sendable_type(
+            &constraint,
+            ty,
+            &constructors_by_adt,
+            interner,
+            &mut HashSet::new(),
+            &mut expanded,
+        ) {
+            expanded.push(constraint);
+        }
+    }
+
+    expanded
+}
+
+fn expand_sendable_type(
+    source: &constraint::WantedClassConstraint,
+    ty: InferType,
+    constructors_by_adt: &HashMap<Identifier, Vec<&AdtConstructorTypeInfo>>,
+    interner: &Interner,
+    expanding_adts: &mut HashSet<Identifier>,
+    out: &mut Vec<constraint::WantedClassConstraint>,
+) -> bool {
+    let (adt_name, type_args) = match ty {
+        InferType::Con(TypeConstructor::Adt(adt_name)) => (adt_name, Vec::new()),
+        InferType::App(TypeConstructor::Adt(adt_name), type_args) => (adt_name, type_args),
+        _ => return false,
+    };
+
+    if is_non_sendable_runtime_handle(adt_name, interner) {
+        return false;
+    }
+
+    let Some(constructors) = constructors_by_adt.get(&adt_name) else {
+        return false;
+    };
+
+    if !expanding_adts.insert(adt_name) {
+        return true;
+    }
+
+    let mut converted_all_fields = true;
+    for constructor in constructors {
+        let type_param_subst = if constructor.type_params.len() == type_args.len() {
+            constructor
+                .type_params
+                .iter()
+                .copied()
+                .zip(type_args.iter().cloned())
+                .collect::<HashMap<_, _>>()
+        } else {
+            converted_all_fields = false;
+            break;
+        };
+
+        for field in &constructor.fields {
+            let Some(field_ty) = type_expr_to_infer_type(field, &type_param_subst, interner) else {
+                converted_all_fields = false;
+                break;
+            };
+
+            if !expand_sendable_type(
+                source,
+                field_ty.clone(),
+                constructors_by_adt,
+                interner,
+                expanding_adts,
+                out,
+            ) {
+                out.push(constraint::WantedClassConstraint {
+                    class_name: source.class_name,
+                    type_args: vec![field_ty],
+                    span: source.span,
+                    origin: source.origin,
+                    originated_from_concrete_type: source.originated_from_concrete_type,
+                });
+            }
+        }
+    }
+
+    expanding_adts.remove(&adt_name);
+    converted_all_fields
+}
+
+fn is_non_sendable_runtime_handle(adt_name: Identifier, interner: &Interner) -> bool {
+    matches!(
+        interner.resolve(adt_name),
+        "Tcp" | "TcpListener" | "Connection" | "Listener"
+    )
+}
+
+fn type_expr_to_infer_type(
+    expr: &TypeExpr,
+    type_param_subst: &HashMap<Identifier, InferType>,
+    interner: &Interner,
+) -> Option<InferType> {
+    match expr {
+        TypeExpr::Named { name, args, .. } => {
+            if args.is_empty()
+                && interner
+                    .resolve(*name)
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_lowercase())
+            {
+                return type_param_subst.get(name).cloned();
+            }
+
+            let arg_tys: Option<Vec<InferType>> = args
+                .iter()
+                .map(|arg| type_expr_to_infer_type(arg, type_param_subst, interner))
+                .collect();
+            let arg_tys = arg_tys?;
+            let type_constructor = match interner.resolve(*name) {
+                "Int" => TypeConstructor::Int,
+                "Float" => TypeConstructor::Float,
+                "Bool" => TypeConstructor::Bool,
+                "String" => TypeConstructor::String,
+                "Bytes" => TypeConstructor::Bytes,
+                "Unit" | "None" => TypeConstructor::Unit,
+                "Never" => TypeConstructor::Never,
+                "List" => TypeConstructor::List,
+                "Array" => TypeConstructor::Array,
+                "Map" => TypeConstructor::Map,
+                "Option" => TypeConstructor::Option,
+                "Either" => TypeConstructor::Either,
+                _ => TypeConstructor::Adt(*name),
+            };
+
+            if arg_tys.is_empty() {
+                Some(InferType::Con(type_constructor))
+            } else {
+                Some(InferType::App(type_constructor, arg_tys))
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => Some(InferType::Tuple(
+            elements
+                .iter()
+                .map(|elem| type_expr_to_infer_type(elem, type_param_subst, interner))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            let param_tys = params
+                .iter()
+                .map(|param| type_expr_to_infer_type(param, type_param_subst, interner))
+                .collect::<Option<Vec<_>>>()?;
+            let ret_ty = type_expr_to_infer_type(ret, type_param_subst, interner)?;
+            let concrete_effects: HashSet<Identifier> = effects
+                .iter()
+                .flat_map(EffectExpr::normalized_concrete_names)
+                .collect();
+            Some(InferType::Fun(
+                param_tys,
+                Box::new(ret_ty),
+                InferEffectRow::closed_from_symbols(concrete_effects),
+            ))
+        }
+    }
 }
 
 /// Convert a statement span into a stable hashable key for binding-scheme lookup.

@@ -2352,8 +2352,13 @@ impl Compiler {
         let filesystem_sym = self.interner.intern(be::FILESYSTEM);
         let stdin_sym = self.interner.intern(be::STDIN);
         let clock_sym = self.interner.intern(be::CLOCK);
+        let suspend_sym = self.interner.intern(be::SUSPEND);
+        let fork_sym = self.interner.intern(be::FORK);
+        let get_context_sym = self.interner.intern(be::GET_CONTEXT);
+        let async_fail_sym = self.interner.intern(be::ASYNC_FAIL);
         let io_sym = self.interner.intern(be::IO);
         let time_sym = self.interner.intern(be::TIME);
+        let async_sym = self.interner.intern(be::ASYNC);
 
         let named = |name| EffectExpr::Named { name, span };
         let add = |l, r| EffectExpr::Add {
@@ -2372,6 +2377,17 @@ impl Compiler {
         self.effect_row_aliases
             .entry(time_sym)
             .or_insert(named(clock_sym));
+
+        let async_expansion = add(
+            add(
+                add(named(suspend_sym), named(fork_sym)),
+                named(get_context_sym),
+            ),
+            named(async_fail_sym),
+        );
+        self.effect_row_aliases
+            .entry(async_sym)
+            .or_insert(async_expansion);
     }
 
     pub(in crate::compiler) fn seed_builtin_effect_operations(&mut self) {
@@ -2379,6 +2395,10 @@ impl Compiler {
         use crate::types::type_constructor::TypeConstructor as TC;
 
         let user_declared: HashSet<Symbol> = self.user_declared_effect_names.clone();
+        let async_error_sym = self.interner.intern("AsyncError");
+        let task_sym = self.interner.intern("Task");
+        let tcp_sym = self.interner.intern("Tcp");
+        let tcp_listener_sym = self.interner.intern("TcpListener");
         let mut add_op = |effect: &str, op: &str, scheme: Scheme| {
             let effect = self.interner.intern(effect);
             // If a user `effect E { ... }` declaration shares this builtin's
@@ -2401,7 +2421,12 @@ impl Compiler {
         let unit = || InferType::Con(TC::Unit);
         let string = || InferType::Con(TC::String);
         let int = || InferType::Con(TC::Int);
+        let bytes = || InferType::Con(TC::Bytes);
         let array_string = || InferType::App(TC::Array, vec![InferType::Con(TC::String)]);
+        let async_error = || InferType::Con(TC::Adt(async_error_sym));
+        let task = |inner| InferType::App(TC::Adt(task_sym), vec![inner]);
+        let tcp = || InferType::Con(TC::Adt(tcp_sym));
+        let tcp_listener = || InferType::Con(TC::Adt(tcp_listener_sym));
         let pure = InferEffectRow::closed_empty();
         let poly_print = || Scheme {
             forall: vec![9000],
@@ -2437,6 +2462,59 @@ impl Compiler {
         // performing this operation. Output goes to stderr via the
         // DebugTrace primop.
         add_op(be::DEBUG, "trace", mono(vec![string()], unit()));
+        add_op(be::SUSPEND, "sleep", mono(vec![int()], unit()));
+        add_op(
+            be::SUSPEND,
+            "await_task",
+            Scheme {
+                forall: vec![9002],
+                constraints: vec![],
+                infer_type: InferType::Fun(
+                    vec![task(InferType::Var(9002))],
+                    Box::new(InferType::Var(9002)),
+                    pure.clone(),
+                ),
+            },
+        );
+        add_op(
+            be::SUSPEND,
+            "tcp_connect",
+            mono(vec![string(), int()], tcp()),
+        );
+        add_op(
+            be::SUSPEND,
+            "tcp_listen",
+            mono(vec![string(), int()], tcp_listener()),
+        );
+        add_op(be::SUSPEND, "tcp_accept", mono(vec![tcp_listener()], tcp()));
+        add_op(be::SUSPEND, "tcp_read", mono(vec![tcp(), int()], bytes()));
+        add_op(be::SUSPEND, "tcp_write", mono(vec![tcp(), bytes()], int()));
+        add_op(be::SUSPEND, "tcp_close", mono(vec![tcp()], unit()));
+        add_op(be::SUSPEND, "tcp_local_addr", mono(vec![tcp()], string()));
+        add_op(be::SUSPEND, "tcp_remote_addr", mono(vec![tcp()], string()));
+        add_op(
+            be::SUSPEND,
+            "tcp_close_listener",
+            mono(vec![tcp_listener()], unit()),
+        );
+        add_op(
+            be::SUSPEND,
+            "tcp_listener_local_addr",
+            mono(vec![tcp_listener()], string()),
+        );
+        add_op(
+            be::ASYNC_FAIL,
+            "raise",
+            Scheme {
+                forall: vec![9001],
+                constraints: vec![],
+                infer_type: InferType::Fun(
+                    vec![async_error()],
+                    Box::new(InferType::Var(9001)),
+                    pure.clone(),
+                ),
+            },
+        );
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -3891,7 +3969,8 @@ impl Compiler {
                 span: Span::default(),
             });
         }
-        let required = EffectRow::from_effect_exprs(&effects_as_expr);
+        let required =
+            EffectRow::from_effect_exprs_with_aliases(&effects_as_expr, &self.effect_row_aliases);
 
         let mut constraints = Vec::new();
         if let Some(contract) = contract {
@@ -3905,7 +3984,10 @@ impl Compiler {
                     continue;
                 };
 
-                let expected = EffectRow::from_effect_exprs(param_effects);
+                let expected = EffectRow::from_effect_exprs_with_aliases(
+                    param_effects,
+                    &self.effect_row_aliases,
+                );
                 let Some(actual) = self.infer_argument_effect_row_for_inference(
                     argument,
                     params.len(),
@@ -3915,7 +3997,7 @@ impl Compiler {
                     continue;
                 };
                 constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-                constraints.push(RowConstraint::Subset(expected, actual.clone()));
+                constraints.push(RowConstraint::Subset(actual.clone(), expected));
                 for effect in param_effects {
                     self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
                 }
@@ -3936,7 +4018,9 @@ impl Compiler {
         use crate::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => Some(
+                EffectRow::from_effect_exprs_with_aliases(effects, &self.effect_row_aliases),
+            ),
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
@@ -3959,14 +4043,22 @@ impl Compiler {
                                 span: Span::default(),
                             })
                             .collect();
-                        EffectRow::from_effect_exprs(&effect_exprs)
+                        EffectRow::from_effect_exprs_with_aliases(
+                            &effect_exprs,
+                            &self.effect_row_aliases,
+                        )
                     })
                     .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
             Expression::MemberAccess { object, member, .. } => self
                 .resolve_module_name_from_expr(object)
                 .and_then(|module| self.lookup_contract(Some(module), *member, expected_arity))
-                .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                .map(|contract| {
+                    EffectRow::from_effect_exprs_with_aliases(
+                        &contract.effects,
+                        &self.effect_row_aliases,
+                    )
+                })
                 .or_else(|| self.infer_argument_effect_row_from_hm(argument)),
             _ => {
                 let _ = call_arguments;
@@ -4448,6 +4540,7 @@ impl Compiler {
                 | "Float"
                 | "Bool"
                 | "String"
+                | "Bytes"
                 | "Unit"
                 | "None"
                 | "Never"
@@ -6206,10 +6299,13 @@ impl Compiler {
     {
         self.function_param_counts.push(num_params);
         self.function_effects.push(
-            effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect(),
+            effect_rows::EffectRow::from_effect_exprs_with_aliases(
+                effects,
+                &self.effect_row_aliases,
+            )
+            .atoms
+            .into_iter()
+            .collect(),
         );
         self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
@@ -6244,7 +6340,13 @@ impl Compiler {
             let Some(Some(TypeExpr::Function { effects, .. })) = parameter_types.get(index) else {
                 continue;
             };
-            rows.insert(*param, effect_rows::EffectRow::from_effect_exprs(effects));
+            rows.insert(
+                *param,
+                effect_rows::EffectRow::from_effect_exprs_with_aliases(
+                    effects,
+                    &self.effect_row_aliases,
+                ),
+            );
         }
         rows
     }

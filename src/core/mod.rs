@@ -93,6 +93,7 @@ pub enum CoreType {
     Float,
     Bool,
     String,
+    Bytes,
     Unit,
     Never,
     List(Box<CoreType>),
@@ -120,6 +121,7 @@ impl CoreType {
                 TypeConstructor::Float => CoreType::Float,
                 TypeConstructor::Bool => CoreType::Bool,
                 TypeConstructor::String => CoreType::String,
+                TypeConstructor::Bytes => CoreType::Bytes,
                 TypeConstructor::Unit => CoreType::Unit,
                 TypeConstructor::Never => CoreType::Never,
                 TypeConstructor::List
@@ -241,6 +243,7 @@ impl CoreType {
             | CoreType::Float
             | CoreType::Bool
             | CoreType::String
+            | CoreType::Bytes
             | CoreType::Unit
             | CoreType::Never => {}
             CoreType::Abstract(CoreAbstractType::Named(_, args)) => {
@@ -289,6 +292,7 @@ impl FluxRep {
             CoreType::Bool => FluxRep::BoolRep,
             CoreType::Unit | CoreType::Never => FluxRep::UnitRep,
             CoreType::String
+            | CoreType::Bytes
             | CoreType::List(_)
             | CoreType::Array(_)
             | CoreType::Tuple(_)
@@ -335,7 +339,9 @@ impl FluxRep {
                     "Float" => FluxRep::FloatRep,
                     "Bool" => FluxRep::BoolRep,
                     "Unit" | "Never" => FluxRep::UnitRep,
-                    "String" | "Array" | "List" | "Map" | "Option" | "Either" => FluxRep::BoxedRep,
+                    "String" | "Bytes" | "Array" | "List" | "Map" | "Option" | "Either" => {
+                        FluxRep::BoxedRep
+                    }
                     _ => {
                         // Named type with no args could be an ADT (boxed) or a
                         // type variable (tagged). Single-char names are likely
@@ -624,7 +630,27 @@ pub enum CorePrimOp {
     FCosh = 151,
     FTanh = 152,
     FTruncate = 153,
-    // ── Next free ID: 154 ─────────────────────────────────────────────
+
+    // ── Async/task runtime (Proposal 0174 Phase 1a) ──────────────────
+    TaskSpawn = 155,
+    TaskBlockingJoin = 156,
+    TaskCancel = 157,
+    AsyncSleep = 158,
+    AsyncYieldNow = 159,
+    StringToBytes = 160,
+    BytesLength = 161,
+    BytesSlice = 162,
+    BytesToString = 163,
+    AsyncBoth = 164,
+    AsyncRace = 165,
+    AsyncTimeout = 166,
+    AsyncTimeoutResult = 167,
+    AsyncScope = 168,
+    AsyncFork = 169,
+    AsyncTry = 170,
+    AsyncFinally = 171,
+    AsyncBracket = 172,
+    // ── Next free ID: 173 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -666,6 +692,24 @@ impl CorePrimOp {
             "FTanh" => return Some(Self::FTanh),
             "FTruncate" => return Some(Self::FTruncate),
             "DebugTrace" => return Some(Self::DebugTrace),
+            "TaskSpawn" => return Some(Self::TaskSpawn),
+            "TaskBlockingJoin" => return Some(Self::TaskBlockingJoin),
+            "TaskCancel" => return Some(Self::TaskCancel),
+            "AsyncSleep" => return Some(Self::AsyncSleep),
+            "AsyncYieldNow" => return Some(Self::AsyncYieldNow),
+            "StringToBytes" => return Some(Self::StringToBytes),
+            "BytesLength" => return Some(Self::BytesLength),
+            "BytesSlice" => return Some(Self::BytesSlice),
+            "BytesToString" => return Some(Self::BytesToString),
+            "AsyncBoth" => return Some(Self::AsyncBoth),
+            "AsyncRace" => return Some(Self::AsyncRace),
+            "AsyncTimeout" => return Some(Self::AsyncTimeout),
+            "AsyncTimeoutResult" => return Some(Self::AsyncTimeoutResult),
+            "AsyncScope" => return Some(Self::AsyncScope),
+            "AsyncFork" => return Some(Self::AsyncFork),
+            "AsyncTry" => return Some(Self::AsyncTry),
+            "AsyncFinally" => return Some(Self::AsyncFinally),
+            "AsyncBracket" => return Some(Self::AsyncBracket),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -700,6 +744,10 @@ impl CorePrimOp {
             // builtin-helper call and the primop is never invoked at runtime.
             Self::StringConcat => Some("string_concat_builtin"),
             Self::StringSlice => Some("string_slice_builtin"),
+            Self::StringToBytes => Some("string_to_bytes"),
+            Self::BytesLength => Some("bytes_length"),
+            Self::BytesSlice => Some("bytes_slice"),
+            Self::BytesToString => Some("bytes_to_string"),
             Self::Len => Some("len"),
             Self::IDiv => Some("idiv"),
             Self::IMod => Some("imod"),
@@ -740,6 +788,20 @@ impl CorePrimOp {
             Self::FCosh => Some("fcosh"),
             Self::FTanh => Some("ftanh"),
             Self::FTruncate => Some("ftruncate"),
+            Self::TaskSpawn => Some("task_spawn"),
+            Self::TaskBlockingJoin => Some("task_blocking_join"),
+            Self::TaskCancel => Some("task_cancel"),
+            Self::AsyncSleep => Some("async_sleep"),
+            Self::AsyncYieldNow => Some("async_yield_now"),
+            Self::AsyncBoth => Some("async_both"),
+            Self::AsyncRace => Some("async_race"),
+            Self::AsyncTimeout => Some("async_timeout"),
+            Self::AsyncTimeoutResult => Some("async_timeout_result"),
+            Self::AsyncScope => Some("async_scope"),
+            Self::AsyncFork => Some("async_fork"),
+            Self::AsyncTry => Some("async_try"),
+            Self::AsyncFinally => Some("async_finally"),
+            Self::AsyncBracket => Some("async_bracket"),
             _ => None,
         }
     }
@@ -889,6 +951,24 @@ impl CorePrimOp {
             152 => FTanh,
             153 => FTruncate,
             154 => DebugTrace,
+            155 => TaskSpawn,
+            156 => TaskBlockingJoin,
+            157 => TaskCancel,
+            158 => AsyncSleep,
+            159 => AsyncYieldNow,
+            160 => StringToBytes,
+            161 => BytesLength,
+            162 => BytesSlice,
+            163 => BytesToString,
+            164 => AsyncBoth,
+            165 => AsyncRace,
+            166 => AsyncTimeout,
+            167 => AsyncTimeoutResult,
+            168 => AsyncScope,
+            169 => AsyncFork,
+            170 => AsyncTry,
+            171 => AsyncFinally,
+            172 => AsyncBracket,
             _ => return None,
         };
         Some(op)
@@ -913,6 +993,9 @@ impl CorePrimOp {
             ("bit_shl", 2, CorePrimOp::BitShl),
             ("bit_shr", 2, CorePrimOp::BitShr),
             ("bit_xor", 2, CorePrimOp::BitXor),
+            ("bytes_length", 1, CorePrimOp::BytesLength),
+            ("bytes_slice", 3, CorePrimOp::BytesSlice),
+            ("bytes_to_string", 1, CorePrimOp::BytesToString),
             ("clock_now", 0, CorePrimOp::ClockNow),
             ("cmp_eq", 2, CorePrimOp::CmpEq),
             ("cmp_ne", 2, CorePrimOp::CmpNe),
@@ -1017,7 +1100,22 @@ impl CorePrimOp {
             ("string_length", 1, CorePrimOp::StringLength),
             ("string_slice", 3, CorePrimOp::StringSlice),
             ("string_slice_builtin", 3, CorePrimOp::StringSlice),
+            ("string_to_bytes", 1, CorePrimOp::StringToBytes),
             ("substring", 3, CorePrimOp::Substring),
+            ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
+            ("task_cancel", 1, CorePrimOp::TaskCancel),
+            ("task_spawn", 1, CorePrimOp::TaskSpawn),
+            ("async_sleep", 1, CorePrimOp::AsyncSleep),
+            ("async_yield_now", 0, CorePrimOp::AsyncYieldNow),
+            ("async_both", 2, CorePrimOp::AsyncBoth),
+            ("async_race", 2, CorePrimOp::AsyncRace),
+            ("async_timeout", 2, CorePrimOp::AsyncTimeout),
+            ("async_timeout_result", 2, CorePrimOp::AsyncTimeoutResult),
+            ("async_scope", 1, CorePrimOp::AsyncScope),
+            ("async_fork", 2, CorePrimOp::AsyncFork),
+            ("async_try", 1, CorePrimOp::AsyncTry),
+            ("async_finally", 2, CorePrimOp::AsyncFinally),
+            ("async_bracket", 3, CorePrimOp::AsyncBracket),
             ("sqrt", 1, CorePrimOp::FSqrt),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
@@ -1038,20 +1136,24 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time => 0,
+            ClockNow | ReadStdin | Time | AsyncYieldNow => 0,
             Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
             | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
-            | FAtan | FSinh | FCosh | FTanh | FTruncate => 1,
+            | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
+            | TaskCancel | AsyncSleep | StringToBytes | BytesLength | BytesToString
+            | AsyncScope | AsyncTry => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
-            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr => 2,
-            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | AsyncBoth
+            | AsyncRace | AsyncTimeout | AsyncTimeoutResult | AsyncFork | AsyncFinally => 2,
+            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring | BytesSlice
+            | AsyncBracket => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,

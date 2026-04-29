@@ -145,9 +145,22 @@ impl<'a> InferCtx<'a> {
         forall.extend(row_var_env.values().copied());
         forall.sort_unstable();
         forall.dedup();
+        let constraints = type_params
+            .iter()
+            .filter_map(|param| {
+                let type_var = tp_map.get(&param.name).copied()?;
+                Some(param.constraints.iter().map(move |&class_name| {
+                    constraint::SchemeConstraint {
+                        class_name,
+                        type_vars: vec![type_var],
+                    }
+                }))
+            })
+            .flatten()
+            .collect();
         Some(Scheme {
             forall,
-            constraints: Vec::new(),
+            constraints,
             infer_type: fn_ty,
         })
     }

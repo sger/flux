@@ -163,6 +163,9 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::Interpolate
         | CorePrimOp::StringConcat
         | CorePrimOp::StringSlice
+        | CorePrimOp::StringToBytes
+        | CorePrimOp::BytesSlice
+        | CorePrimOp::BytesToString
         | CorePrimOp::ToString
         | CorePrimOp::Split
         | CorePrimOp::Trim
@@ -184,10 +187,21 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::HamtSet
         | CorePrimOp::HamtDelete
         | CorePrimOp::HamtKeys
-        | CorePrimOp::HamtValues => FluxRep::BoxedRep,
+        | CorePrimOp::HamtValues
+        | CorePrimOp::AsyncBoth
+        | CorePrimOp::AsyncRace
+        | CorePrimOp::AsyncTimeout
+        | CorePrimOp::AsyncTimeoutResult
+        | CorePrimOp::AsyncScope
+        | CorePrimOp::AsyncFork
+        | CorePrimOp::AsyncTry
+        | CorePrimOp::AsyncFinally
+        | CorePrimOp::AsyncBracket => FluxRep::BoxedRep,
 
         // Length operations → IntRep
-        CorePrimOp::StringLength | CorePrimOp::ArrayLen => FluxRep::IntRep,
+        CorePrimOp::StringLength | CorePrimOp::BytesLength | CorePrimOp::ArrayLen => {
+            FluxRep::IntRep
+        }
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
         CorePrimOp::Print

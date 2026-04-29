@@ -1,13 +1,46 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc, sync::mpsc};
 
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, evidence::EvidenceVector,
-        frame::Frame, hamt, handler_frame::HandlerFrame, leak_detector, value::Value,
+        r#async::{
+            backend::RequestId,
+            context::TaskId,
+            runtime::{AsyncRuntime, AsyncRuntimeError},
+            scheduler::SchedulerConfig,
+            send_value::{SendValue, SendValueError},
+            task::{TaskCancelToken, TaskHandle, TaskManager, TaskManagerConfig},
+        },
+        closure::Closure,
+        compiled_function::CompiledFunction,
+        evidence::EvidenceVector,
+        frame::Frame,
+        hamt,
+        handler_frame::HandlerFrame,
+        leak_detector,
+        value::{AdtFields, AdtValue, Value},
         yield_state::YieldState,
     },
 };
+
+#[cfg(feature = "async-mio")]
+use crate::runtime::r#async::{
+    backend::AsyncError,
+    backends::mio::{
+        MioBackend, MioBackendHandle, MioDriverBackend, MioReactorRunLimit, MioReactorRunReport,
+        spawn_mio_reactor_until_stopped,
+    },
+};
+#[cfg(feature = "async-mio")]
+type VmAsyncBackend = MioDriverBackend;
+#[cfg(not(feature = "async-mio"))]
+use crate::runtime::r#async::backends::ThreadTimerBackend as VmAsyncBackend;
+
+#[cfg(feature = "async-mio")]
+struct VmMioReactor {
+    handle: MioBackendHandle,
+    thread: Option<std::thread::JoinHandle<Result<MioReactorRunReport, AsyncError>>>,
+}
 
 mod binary_ops;
 mod comparison_ops;
@@ -87,6 +120,35 @@ pub struct VM {
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
     pub(crate) cc_stack: Vec<profiling::CostCentreStackEntry>,
+    task_registry: VmTaskRegistry,
+    task_manager: TaskManager,
+    async_runtime: AsyncRuntime<VmAsyncBackend>,
+    #[cfg(feature = "async-mio")]
+    async_mio_reactor: Option<VmMioReactor>,
+    async_task_id: TaskId,
+    task_await_tx: mpsc::Sender<VmTaskAwaitCompletion>,
+    task_await_rx: mpsc::Receiver<VmTaskAwaitCompletion>,
+    async_next_scope_id: i64,
+    async_scopes: HashMap<i64, Vec<TaskHandle<Result<SendValue, String>>>>,
+    async_cancel_token: Option<TaskCancelToken>,
+}
+
+#[derive(Debug, Default)]
+struct VmTaskRegistry {
+    next_id: i64,
+    tasks: HashMap<i64, VmTaskRecord>,
+}
+
+#[derive(Debug)]
+struct VmTaskRecord {
+    handle: Option<TaskHandle<Result<SendValue, String>>>,
+    canceled: bool,
+}
+
+#[derive(Debug)]
+struct VmTaskAwaitCompletion {
+    request_id: RequestId,
+    result: Result<SendValue, String>,
 }
 
 impl VM {
@@ -94,6 +156,17 @@ impl VM {
         let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
         let main_closure = Closure::new(Rc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
+        #[cfg(feature = "async-mio")]
+        let (async_backend, async_mio_reactor) = Self::new_async_backend();
+        #[cfg(not(feature = "async-mio"))]
+        let async_backend = Self::new_async_backend();
+
+        let mut async_runtime =
+            AsyncRuntime::new(SchedulerConfig { worker_count: 1 }, async_backend);
+        let (async_task_id, _) = async_runtime
+            .spawn_task()
+            .expect("VM async runtime task allocation cannot fail");
+        let (task_await_tx, task_await_rx) = mpsc::channel();
 
         Self {
             constants: bytecode.constants.into_iter().map(slot::to_slot).collect(),
@@ -111,7 +184,142 @@ impl VM {
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),
+            task_registry: VmTaskRegistry::default(),
+            task_manager: TaskManager::new(TaskManagerConfig::default()),
+            async_runtime,
+            #[cfg(feature = "async-mio")]
+            async_mio_reactor: Some(async_mio_reactor),
+            async_task_id,
+            task_await_tx,
+            task_await_rx,
+            async_next_scope_id: 1,
+            async_scopes: HashMap::new(),
+            async_cancel_token: None,
         }
+    }
+
+    fn make_task_value(task_id: i64) -> Value {
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("Task".to_string()),
+            fields: AdtFields::One(Value::Integer(task_id)),
+        }))
+    }
+
+    #[cfg(feature = "async-mio")]
+    fn new_async_backend() -> (VmAsyncBackend, VmMioReactor) {
+        let backend = MioBackend::new().expect("VM mio async backend initialization cannot fail");
+        let driver_backend = backend.driver_backend();
+        let handle = backend.handle();
+        let thread = spawn_mio_reactor_until_stopped(
+            backend,
+            MioReactorRunLimit {
+                max_ticks: usize::MAX,
+                timeout: Some(std::time::Duration::from_millis(10)),
+            },
+        );
+        (
+            driver_backend,
+            VmMioReactor {
+                handle,
+                thread: Some(thread),
+            },
+        )
+    }
+
+    #[cfg(not(feature = "async-mio"))]
+    fn new_async_backend() -> VmAsyncBackend {
+        VmAsyncBackend::new()
+    }
+
+    fn task_id_from_value(task: &Value) -> Result<i64, String> {
+        match task {
+            Value::Adt(adt) if adt.constructor.as_ref() == "Task" => match adt.fields.get(0) {
+                Some(Value::Integer(id)) => Ok(*id),
+                Some(other) => Err(format!(
+                    "Task handle id must be Int, got {}",
+                    other.type_name()
+                )),
+                None => Err("Task handle is missing id field".to_string()),
+            },
+            other => Err(format!("expected Task handle, got {}", other.type_name())),
+        }
+    }
+
+    fn make_tcp_value(handle: u64) -> Value {
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("Tcp".to_string()),
+            fields: AdtFields::One(Value::Integer(handle as i64)),
+        }))
+    }
+
+    fn make_tcp_listener_value(handle: u64) -> Value {
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("TcpListener".to_string()),
+            fields: AdtFields::One(Value::Integer(handle as i64)),
+        }))
+    }
+
+    fn tcp_handle_from_value(conn: &Value) -> Result<u64, String> {
+        match conn {
+            Value::Adt(adt) if adt.constructor.as_ref() == "Tcp" => match adt.fields.get(0) {
+                Some(Value::Integer(id)) if *id >= 0 => Ok(*id as u64),
+                Some(Value::Integer(id)) => {
+                    Err(format!("Tcp handle id must be non-negative, got {id}"))
+                }
+                Some(other) => Err(format!(
+                    "Tcp handle id must be Int, got {}",
+                    other.type_name()
+                )),
+                None => Err("Tcp handle is missing id field".to_string()),
+            },
+            other => Err(format!("expected Tcp handle, got {}", other.type_name())),
+        }
+    }
+
+    fn tcp_listener_handle_from_value(listener: &Value) -> Result<u64, String> {
+        match listener {
+            Value::Adt(adt) if adt.constructor.as_ref() == "TcpListener" => {
+                match adt.fields.get(0) {
+                    Some(Value::Integer(id)) if *id >= 0 => Ok(*id as u64),
+                    Some(Value::Integer(id)) => Err(format!(
+                        "TcpListener handle id must be non-negative, got {id}"
+                    )),
+                    Some(other) => Err(format!(
+                        "TcpListener handle id must be Int, got {}",
+                        other.type_name()
+                    )),
+                    None => Err("TcpListener handle is missing id field".to_string()),
+                }
+            }
+            other => Err(format!(
+                "expected TcpListener handle, got {}",
+                other.type_name()
+            )),
+        }
+    }
+
+    pub(crate) fn constant_values(&self) -> Vec<Value> {
+        self.constants.iter().map(slot::from_slot_ref).collect()
+    }
+
+    pub(crate) fn global_values(&self) -> Vec<Value> {
+        self.globals.iter().map(slot::from_slot_ref).collect()
+    }
+
+    pub(crate) fn send_value_error(error: SendValueError) -> String {
+        match error {
+            SendValueError::UnsupportedType(ty) => {
+                format!("value of type {ty} cannot cross a Task worker boundary")
+            }
+            SendValueError::UnsupportedMapKey => {
+                "map key cannot cross a Task worker boundary".to_string()
+            }
+            SendValueError::NotAClosure => "Task.spawn expects a closure".to_string(),
+        }
+    }
+
+    pub(crate) fn async_runtime_error(error: AsyncRuntimeError) -> String {
+        format!("async runtime error: {error:?}")
     }
 
     pub fn set_trace(&mut self, enabled: bool) {
@@ -640,6 +848,18 @@ impl VM {
             let ext_val = std::mem::replace(e, Value::None);
             *g = slot::to_slot(ext_val);
             *e = vm_val;
+        }
+    }
+}
+
+#[cfg(feature = "async-mio")]
+impl Drop for VM {
+    fn drop(&mut self) {
+        if let Some(mut reactor) = self.async_mio_reactor.take() {
+            let _ = reactor.handle.stop();
+            if let Some(thread) = reactor.thread.take() {
+                let _ = thread.join();
+            }
         }
     }
 }

@@ -521,6 +521,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::StringLength => out.push_str("StringLength"),
         CorePrimOp::StringConcat => out.push_str("StringConcat"),
         CorePrimOp::StringSlice => out.push_str("StringSlice"),
+        CorePrimOp::StringToBytes => out.push_str("StringToBytes"),
+        CorePrimOp::BytesLength => out.push_str("BytesLength"),
+        CorePrimOp::BytesSlice => out.push_str("BytesSlice"),
+        CorePrimOp::BytesToString => out.push_str("BytesToString"),
         CorePrimOp::ToString => out.push_str("ToString"),
         CorePrimOp::Split => out.push_str("Split"),
         CorePrimOp::Trim => out.push_str("Trim"),
@@ -561,6 +565,20 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::CmpNe => out.push_str("CmpNe"),
         CorePrimOp::Try => out.push_str("Try"),
         CorePrimOp::AssertThrows => out.push_str("AssertThrows"),
+        CorePrimOp::TaskSpawn => out.push_str("TaskSpawn"),
+        CorePrimOp::TaskBlockingJoin => out.push_str("TaskBlockingJoin"),
+        CorePrimOp::TaskCancel => out.push_str("TaskCancel"),
+        CorePrimOp::AsyncSleep => out.push_str("AsyncSleep"),
+        CorePrimOp::AsyncYieldNow => out.push_str("AsyncYieldNow"),
+        CorePrimOp::AsyncBoth => out.push_str("AsyncBoth"),
+        CorePrimOp::AsyncRace => out.push_str("AsyncRace"),
+        CorePrimOp::AsyncTimeout => out.push_str("AsyncTimeout"),
+        CorePrimOp::AsyncTimeoutResult => out.push_str("AsyncTimeoutResult"),
+        CorePrimOp::AsyncScope => out.push_str("AsyncScope"),
+        CorePrimOp::AsyncFork => out.push_str("AsyncFork"),
+        CorePrimOp::AsyncTry => out.push_str("AsyncTry"),
+        CorePrimOp::AsyncFinally => out.push_str("AsyncFinally"),
+        CorePrimOp::AsyncBracket => out.push_str("AsyncBracket"),
         // Effect handlers (Koka-style yield model)
         CorePrimOp::EvvGet => out.push_str("EvvGet"),
         CorePrimOp::EvvSet => out.push_str("EvvSet"),
@@ -650,6 +668,7 @@ fn collect_core_bound_var_order(
         | CoreType::Float
         | CoreType::Bool
         | CoreType::String
+        | CoreType::Bytes
         | CoreType::Unit
         | CoreType::Never
         | CoreType::Abstract(_) => {}
@@ -670,6 +689,7 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
             CoreType::Float => "Float".to_string(),
             CoreType::Bool => "Bool".to_string(),
             CoreType::String => "String".to_string(),
+            CoreType::Bytes => "Bytes".to_string(),
             CoreType::Unit => "Unit".to_string(),
             CoreType::Never => "Never".to_string(),
             CoreType::Var(var) => names

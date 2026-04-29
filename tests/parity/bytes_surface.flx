@@ -1,0 +1,8 @@
+import Flow.String as String
+import Flow.Bytes as Bytes
+
+fn main() with IO {
+    let bytes = String.to_bytes("hello")
+    let middle = Bytes.slice(bytes, 1, 4)
+    print(Bytes.to_string(middle) + ":" + to_string(Bytes.length(bytes)))
+}

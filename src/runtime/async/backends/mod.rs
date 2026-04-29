@@ -6,6 +6,8 @@
 
 #[cfg(feature = "async-mio")]
 pub mod mio;
+pub mod thread_timer;
 
 #[cfg(feature = "async-mio")]
 pub use mio::MioBackend;
+pub use thread_timer::ThreadTimerBackend;

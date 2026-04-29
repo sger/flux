@@ -75,6 +75,34 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
         ("Flow.Map.values", _, 1) | (_, "map_values", 1) => Some(CorePrimOp::HamtValues),
         ("Flow.Map.size", _, 1) | (_, "map_size", 1) => Some(CorePrimOp::HamtSize),
         ("Flow.Map.has", _, 2) | (_, "map_has", 2) => Some(CorePrimOp::HamtContains),
+        ("Flow.Task.spawn", _, 1) | (_, "task_spawn", 1) => Some(CorePrimOp::TaskSpawn),
+        ("Flow.Task.blocking_join", _, 1) | (_, "task_blocking_join", 1) => {
+            Some(CorePrimOp::TaskBlockingJoin)
+        }
+        ("Flow.Task.cancel", _, 1) | (_, "task_cancel", 1) => Some(CorePrimOp::TaskCancel),
+        ("Flow.Async.sleep", _, 1) | (_, "async_sleep", 1) => Some(CorePrimOp::AsyncSleep),
+        ("Flow.Async.yield_now", _, 0) | (_, "async_yield_now", 0) => {
+            Some(CorePrimOp::AsyncYieldNow)
+        }
+        ("Flow.Async.both", _, 2) | (_, "async_both", 2) => Some(CorePrimOp::AsyncBoth),
+        ("Flow.Async.race", _, 2) | (_, "async_race", 2) => Some(CorePrimOp::AsyncRace),
+        ("Flow.Async.timeout", _, 2) | (_, "async_timeout", 2) => Some(CorePrimOp::AsyncTimeout),
+        ("Flow.Async.timeout_result", _, 2) | (_, "async_timeout_result", 2) => {
+            Some(CorePrimOp::AsyncTimeoutResult)
+        }
+        ("Flow.Async.scope", _, 1) | (_, "async_scope", 1) => Some(CorePrimOp::AsyncScope),
+        ("Flow.Async.fork", _, 2) | (_, "async_fork", 2) => Some(CorePrimOp::AsyncFork),
+        ("Flow.Async.try_", _, 1) | (_, "async_try", 1) => Some(CorePrimOp::AsyncTry),
+        ("Flow.Async.finally", _, 2) | (_, "async_finally", 2) => Some(CorePrimOp::AsyncFinally),
+        ("Flow.Async.bracket", _, 3) | (_, "async_bracket", 3) => Some(CorePrimOp::AsyncBracket),
+        ("Flow.String.to_bytes", _, 1) | (_, "string_to_bytes", 1) => {
+            Some(CorePrimOp::StringToBytes)
+        }
+        ("Flow.Bytes.length", _, 1) | (_, "bytes_length", 1) => Some(CorePrimOp::BytesLength),
+        ("Flow.Bytes.slice", _, 3) | (_, "bytes_slice", 3) => Some(CorePrimOp::BytesSlice),
+        ("Flow.Bytes.to_string", _, 1) | (_, "bytes_to_string", 1) => {
+            Some(CorePrimOp::BytesToString)
+        }
         (_, "safe_div", 2) => Some(CorePrimOp::SafeDiv),
         (_, "safe_mod", 2) => Some(CorePrimOp::SafeMod),
         _ => None,

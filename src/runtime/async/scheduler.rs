@@ -4,13 +4,13 @@
 //! shape that the Phase 1a worker pool will wrap with OS threads: request ids,
 //! parked continuations, worker-local ready queues, and completion delivery.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::runtime::value::Value;
 
 use super::{
-    backend::{CancelHandle, Completion, RequestId, RuntimeTarget},
-    context::{FiberId, TaskId, WorkerId},
+    backend::{AsyncError, CancelHandle, Completion, CompletionPayload, RequestId, RuntimeTarget},
+    context::{CancelScopeId, FiberId, TaskId, WorkerId},
     worker::WorkerState,
 };
 
@@ -30,6 +30,7 @@ pub enum SchedulerError {
     UnknownWorker(WorkerId),
     UnknownTask(TaskId),
     UnknownFiber(FiberId),
+    UnknownCancelScope(CancelScopeId),
     Wait(WaitError),
 }
 
@@ -45,6 +46,33 @@ pub struct SuspendedContinuation {
     pub target: RuntimeTarget,
     pub continuation: Value,
     pub cancel_handle: Option<CancelHandle>,
+    pub completion: Option<Result<CompletionPayload, AsyncError>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FiberStatus {
+    Ready,
+    Parked,
+    Canceled,
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FiberRecord {
+    pub id: FiberId,
+    pub task_id: TaskId,
+    pub parent: Option<FiberId>,
+    pub cancel_scope: CancelScopeId,
+    pub home_worker: WorkerId,
+    pub status: FiberStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelScopeRecord {
+    pub id: CancelScopeId,
+    pub parent: Option<CancelScopeId>,
+    pub canceled: bool,
+    fibers: HashSet<FiberId>,
 }
 
 impl SuspendedContinuation {
@@ -54,6 +82,7 @@ impl SuspendedContinuation {
             target,
             continuation,
             cancel_handle: None,
+            completion: None,
         }
     }
 
@@ -96,6 +125,38 @@ impl TaskIdAllocator {
 }
 
 #[derive(Debug, Default)]
+pub struct FiberIdAllocator {
+    next: u64,
+}
+
+impl FiberIdAllocator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn next_id(&mut self) -> FiberId {
+        self.next = self.next.wrapping_add(1);
+        FiberId(self.next)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct CancelScopeIdAllocator {
+    next: u64,
+}
+
+impl CancelScopeIdAllocator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn next_id(&mut self) -> CancelScopeId {
+        self.next = self.next.wrapping_add(1);
+        CancelScopeId(self.next)
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct WaitRegistry {
     waits: HashMap<RequestId, SuspendedContinuation>,
 }
@@ -117,8 +178,12 @@ pub struct SchedulerState {
     waits: WaitRegistry,
     task_home: HashMap<TaskId, WorkerId>,
     fiber_home: HashMap<FiberId, WorkerId>,
+    fibers: HashMap<FiberId, FiberRecord>,
+    cancel_scopes: HashMap<CancelScopeId, CancelScopeRecord>,
     request_ids: RequestIdAllocator,
     task_ids: TaskIdAllocator,
+    fiber_ids: FiberIdAllocator,
+    cancel_scope_ids: CancelScopeIdAllocator,
     next_worker: usize,
 }
 
@@ -133,8 +198,12 @@ impl SchedulerState {
             waits: WaitRegistry::new(),
             task_home: HashMap::new(),
             fiber_home: HashMap::new(),
+            fibers: HashMap::new(),
+            cancel_scopes: HashMap::new(),
             request_ids: RequestIdAllocator::new(),
             task_ids: TaskIdAllocator::new(),
+            fiber_ids: FiberIdAllocator::new(),
+            cancel_scope_ids: CancelScopeIdAllocator::new(),
             next_worker: 0,
         }
     }
@@ -165,6 +234,78 @@ impl SchedulerState {
         self.register_task_home(task_id, worker_id)?;
         self.enqueue(worker_id, RuntimeTarget::Task(task_id))?;
         Ok((task_id, worker_id))
+    }
+
+    pub fn open_cancel_scope(
+        &mut self,
+        parent: Option<CancelScopeId>,
+    ) -> Result<CancelScopeId, SchedulerError> {
+        if let Some(parent) = parent {
+            self.ensure_cancel_scope(parent)?;
+        }
+        let id = self.cancel_scope_ids.next_id();
+        self.cancel_scopes.insert(
+            id,
+            CancelScopeRecord {
+                id,
+                parent,
+                canceled: false,
+                fibers: HashSet::new(),
+            },
+        );
+        Ok(id)
+    }
+
+    pub fn spawn_fiber(
+        &mut self,
+        task_id: TaskId,
+        parent: Option<FiberId>,
+        cancel_scope: CancelScopeId,
+    ) -> Result<(FiberId, WorkerId), SchedulerError> {
+        self.ensure_cancel_scope(cancel_scope)?;
+        let home_worker = match parent {
+            Some(parent) => {
+                let parent_record = self
+                    .fibers
+                    .get(&parent)
+                    .ok_or(SchedulerError::UnknownFiber(parent))?;
+                if parent_record.task_id != task_id {
+                    return Err(SchedulerError::UnknownTask(task_id));
+                }
+                parent_record.home_worker
+            }
+            None => *self
+                .task_home
+                .get(&task_id)
+                .ok_or(SchedulerError::UnknownTask(task_id))?,
+        };
+        let fiber_id = self.fiber_ids.next_id();
+        self.register_fiber_home(fiber_id, home_worker)?;
+        let status = if self.is_scope_canceled(cancel_scope)? {
+            FiberStatus::Canceled
+        } else {
+            FiberStatus::Ready
+        };
+        self.fibers.insert(
+            fiber_id,
+            FiberRecord {
+                id: fiber_id,
+                task_id,
+                parent,
+                cancel_scope,
+                home_worker,
+                status,
+            },
+        );
+        self.cancel_scopes
+            .get_mut(&cancel_scope)
+            .expect("scope was checked above")
+            .fibers
+            .insert(fiber_id);
+        if status == FiberStatus::Ready {
+            self.enqueue(home_worker, RuntimeTarget::Fiber(fiber_id))?;
+        }
+        Ok((fiber_id, home_worker))
     }
 
     pub fn register_task_home(
@@ -202,8 +343,60 @@ impl SchedulerState {
         }
     }
 
+    pub fn fiber(&self, fiber_id: FiberId) -> Option<&FiberRecord> {
+        self.fibers.get(&fiber_id)
+    }
+
+    pub fn cancel_scope(&self, scope_id: CancelScopeId) -> Option<&CancelScopeRecord> {
+        self.cancel_scopes.get(&scope_id)
+    }
+
+    pub fn is_scope_canceled(&self, scope_id: CancelScopeId) -> Result<bool, SchedulerError> {
+        let mut current = Some(scope_id);
+        while let Some(scope) = current {
+            let record = self
+                .cancel_scopes
+                .get(&scope)
+                .ok_or(SchedulerError::UnknownCancelScope(scope))?;
+            if record.canceled {
+                return Ok(true);
+            }
+            current = record.parent;
+        }
+        Ok(false)
+    }
+
+    pub fn cancel_scope_tree(
+        &mut self,
+        scope_id: CancelScopeId,
+    ) -> Result<Vec<FiberId>, SchedulerError> {
+        self.ensure_cancel_scope(scope_id)?;
+        let descendants = self.descendant_scopes(scope_id);
+        let mut canceled_fibers = Vec::new();
+        for scope in descendants {
+            if let Some(record) = self.cancel_scopes.get_mut(&scope) {
+                record.canceled = true;
+                for fiber in record.fibers.iter().copied() {
+                    if let Some(fiber_record) = self.fibers.get_mut(&fiber)
+                        && fiber_record.status != FiberStatus::Completed
+                    {
+                        fiber_record.status = FiberStatus::Canceled;
+                        canceled_fibers.push(fiber);
+                    }
+                }
+            }
+        }
+        Ok(canceled_fibers)
+    }
+
     pub fn park(&mut self, wait: SuspendedContinuation) -> Result<(), SchedulerError> {
         self.home_worker_for(wait.target)?;
+        if let RuntimeTarget::Fiber(fiber_id) = wait.target
+            && let Some(fiber) = self.fibers.get_mut(&fiber_id)
+            && fiber.status != FiberStatus::Canceled
+        {
+            fiber.status = FiberStatus::Parked;
+        }
         self.waits.insert(wait)?;
         Ok(())
     }
@@ -219,8 +412,17 @@ impl SchedulerState {
         &mut self,
         completion: &Completion,
     ) -> Result<SuspendedContinuation, SchedulerError> {
-        let wait = self.waits.complete(completion)?;
+        let mut wait = self.waits.complete(completion)?;
+        wait.completion = Some(completion.payload.clone());
         let worker_id = self.home_worker_for(wait.target)?;
+        if let RuntimeTarget::Fiber(fiber_id) = wait.target
+            && let Some(fiber) = self.fibers.get_mut(&fiber_id)
+        {
+            if fiber.status == FiberStatus::Canceled {
+                return Ok(wait);
+            }
+            fiber.status = FiberStatus::Ready;
+        }
         self.enqueue(worker_id, wait.target)?;
         Ok(wait)
     }
@@ -257,6 +459,28 @@ impl SchedulerState {
     ) -> Result<&mut WorkerState, SchedulerError> {
         self.worker_mut(worker_id)
             .ok_or(SchedulerError::UnknownWorker(worker_id))
+    }
+
+    fn ensure_cancel_scope(&self, scope_id: CancelScopeId) -> Result<(), SchedulerError> {
+        self.cancel_scopes
+            .get(&scope_id)
+            .map(|_| ())
+            .ok_or(SchedulerError::UnknownCancelScope(scope_id))
+    }
+
+    fn descendant_scopes(&self, scope_id: CancelScopeId) -> Vec<CancelScopeId> {
+        let mut out = vec![scope_id];
+        let mut idx = 0;
+        while idx < out.len() {
+            let current = out[idx];
+            for (candidate, record) in &self.cancel_scopes {
+                if record.parent == Some(current) && !out.contains(candidate) {
+                    out.push(*candidate);
+                }
+            }
+            idx += 1;
+        }
+        out
     }
 
     fn select_worker(&mut self) -> WorkerId {
@@ -340,6 +564,20 @@ mod tests {
         let mut ids = TaskIdAllocator::new();
         assert_eq!(ids.next_id(), TaskId(1));
         assert_eq!(ids.next_id(), TaskId(2));
+    }
+
+    #[test]
+    fn fiber_ids_start_at_one() {
+        let mut ids = FiberIdAllocator::new();
+        assert_eq!(ids.next_id(), FiberId(1));
+        assert_eq!(ids.next_id(), FiberId(2));
+    }
+
+    #[test]
+    fn cancel_scope_ids_start_at_one() {
+        let mut ids = CancelScopeIdAllocator::new();
+        assert_eq!(ids.next_id(), CancelScopeId(1));
+        assert_eq!(ids.next_id(), CancelScopeId(2));
     }
 
     #[test]
@@ -511,6 +749,142 @@ mod tests {
             scheduler.pop_ready(WorkerId(1)).expect("worker exists"),
             Some(target)
         );
+    }
+
+    #[test]
+    fn scheduler_spawns_fiber_on_parent_task_worker() {
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 2 });
+        let (first_task, first_worker) = scheduler.spawn_task().expect("first task");
+        let (second_task, second_worker) = scheduler.spawn_task().expect("second task");
+        assert_eq!((first_task, first_worker), (TaskId(1), WorkerId(0)));
+        assert_eq!((second_task, second_worker), (TaskId(2), WorkerId(1)));
+        let scope = scheduler.open_cancel_scope(None).expect("scope opens");
+
+        let (fiber_id, worker_id) = scheduler
+            .spawn_fiber(second_task, None, scope)
+            .expect("fiber spawns");
+
+        assert_eq!((fiber_id, worker_id), (FiberId(1), WorkerId(1)));
+        let record = scheduler.fiber(fiber_id).expect("fiber record exists");
+        assert_eq!(record.task_id, second_task);
+        assert_eq!(record.parent, None);
+        assert_eq!(record.cancel_scope, scope);
+        assert_eq!(record.status, FiberStatus::Ready);
+        assert_eq!(
+            scheduler.pop_ready(WorkerId(1)).expect("worker exists"),
+            Some(RuntimeTarget::Task(second_task))
+        );
+        assert_eq!(
+            scheduler.pop_ready(WorkerId(1)).expect("worker exists"),
+            Some(RuntimeTarget::Fiber(fiber_id))
+        );
+    }
+
+    #[test]
+    fn child_fiber_stays_on_parent_fiber_worker() {
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 2 });
+        let (task_id, worker_id) = scheduler.spawn_task().expect("task spawns");
+        let scope = scheduler.open_cancel_scope(None).expect("scope opens");
+        let (parent, parent_worker) = scheduler
+            .spawn_fiber(task_id, None, scope)
+            .expect("parent fiber spawns");
+
+        let (child, child_worker) = scheduler
+            .spawn_fiber(task_id, Some(parent), scope)
+            .expect("child fiber spawns");
+
+        assert_eq!(worker_id, WorkerId(0));
+        assert_eq!(parent_worker, worker_id);
+        assert_eq!(child_worker, worker_id);
+        assert_eq!(
+            scheduler.fiber(child).expect("child exists").parent,
+            Some(parent)
+        );
+    }
+
+    #[test]
+    fn cancel_scope_tree_marks_child_scopes_and_fibers_cancelled() {
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 1 });
+        let (task_id, _) = scheduler.spawn_task().expect("task spawns");
+        let parent_scope = scheduler
+            .open_cancel_scope(None)
+            .expect("parent scope opens");
+        let child_scope = scheduler
+            .open_cancel_scope(Some(parent_scope))
+            .expect("child scope opens");
+        let (parent_fiber, _) = scheduler
+            .spawn_fiber(task_id, None, parent_scope)
+            .expect("parent fiber spawns");
+        let (child_fiber, _) = scheduler
+            .spawn_fiber(task_id, Some(parent_fiber), child_scope)
+            .expect("child fiber spawns");
+
+        let canceled = scheduler
+            .cancel_scope_tree(parent_scope)
+            .expect("scope cancels");
+
+        assert_eq!(canceled.len(), 2);
+        assert!(canceled.contains(&parent_fiber));
+        assert!(canceled.contains(&child_fiber));
+        assert!(
+            scheduler
+                .cancel_scope(parent_scope)
+                .expect("parent scope exists")
+                .canceled
+        );
+        assert!(
+            scheduler
+                .cancel_scope(child_scope)
+                .expect("child scope exists")
+                .canceled
+        );
+        assert_eq!(
+            scheduler.fiber(parent_fiber).expect("parent exists").status,
+            FiberStatus::Canceled
+        );
+        assert_eq!(
+            scheduler.fiber(child_fiber).expect("child exists").status,
+            FiberStatus::Canceled
+        );
+    }
+
+    #[test]
+    fn cancelled_fiber_completion_is_not_requeued() {
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 1 });
+        let (task_id, _) = scheduler.spawn_task().expect("task spawns");
+        let scope = scheduler.open_cancel_scope(None).expect("scope opens");
+        let (fiber_id, worker_id) = scheduler
+            .spawn_fiber(task_id, None, scope)
+            .expect("fiber spawns");
+        assert_eq!(
+            scheduler.pop_ready(worker_id).expect("worker exists"),
+            Some(RuntimeTarget::Task(task_id))
+        );
+        assert_eq!(
+            scheduler.pop_ready(worker_id).expect("worker exists"),
+            Some(RuntimeTarget::Fiber(fiber_id))
+        );
+        let request_id = scheduler.allocate_request_id();
+        let target = RuntimeTarget::Fiber(fiber_id);
+        scheduler
+            .park(SuspendedContinuation::new(
+                request_id,
+                target,
+                Value::Integer(99),
+            ))
+            .expect("fiber parks");
+        scheduler
+            .cancel_scope_tree(scope)
+            .expect("scope cancellation succeeds");
+
+        let completion = Completion::ok(request_id, target, CompletionPayload::Unit);
+        let wait = scheduler
+            .deliver_completion(&completion)
+            .expect("late completion is consumed");
+
+        assert_eq!(wait.continuation, Value::Integer(99));
+        assert_eq!(scheduler.pop_ready(worker_id).expect("worker exists"), None);
+        assert!(scheduler.waits().is_empty());
     }
 
     #[test]

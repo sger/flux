@@ -7,24 +7,45 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BinaryHeap, HashSet, VecDeque},
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    io::{Read, Write},
+    net::{Shutdown, SocketAddr, ToSocketAddrs},
+    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
 
-use mio::{Events, Poll, Token, Waker};
+use crate::runtime::r#async::blocking::{BlockingServices, BlockingServicesConfig};
+use mio::{
+    Events, Interest, Poll, Token, Waker,
+    net::{TcpListener, TcpStream},
+};
 
 use crate::runtime::r#async::backend::{
     AsyncBackend, AsyncError, AsyncErrorKind, BackendCompletion, BackendCompletionPayload,
-    BackendCompletionSink, BackendCompletionSource, CancelHandle, Completion, RequestId,
+    BackendCompletionSink, BackendCompletionSource, CancelHandle, Completion, IoHandle, RequestId,
     RuntimeTarget, backend_completion_channel,
 };
 
 const WAKE_TOKEN: Token = Token(0);
+const FIRST_IO_TOKEN: usize = 1;
 
 fn io_error(context: &str, error: std::io::Error) -> AsyncError {
     AsyncError::new(AsyncErrorKind::Other, format!("{context}: {error}"))
+}
+
+fn resolve_tcp_addr(host: &str, port: u16) -> Result<SocketAddr, AsyncError> {
+    (host, port)
+        .to_socket_addrs()
+        .map_err(|err| io_error("mio tcp resolve failed", err))?
+        .next()
+        .ok_or_else(|| {
+            AsyncError::new(
+                AsyncErrorKind::InvalidInput,
+                format!("no TCP address resolved for {host}:{port}"),
+            )
+        })
 }
 
 pub struct MioBackend {
@@ -36,6 +57,12 @@ pub struct MioBackend {
     completion_source: BackendCompletionSource,
     timers: BinaryHeap<Reverse<TimerEntry>>,
     cancelled: HashSet<RequestId>,
+    next_token: usize,
+    next_io_handle: u64,
+    tcp_streams: HashMap<IoHandle, TcpStream>,
+    tcp_listeners: HashMap<IoHandle, TcpListener>,
+    tcp_waits: HashMap<Token, TcpWait>,
+    services: BlockingServices,
     stopped: bool,
 }
 
@@ -58,6 +85,77 @@ pub enum MioCommand {
         request_id: RequestId,
         target: RuntimeTarget,
         duration: Duration,
+    },
+    TcpConnect {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    },
+    TcpListen {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    },
+    TcpAccept {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    TcpRead {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    },
+    TcpWrite {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    },
+    TcpClose {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    TcpLocalAddr {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    TcpRemoteAddr {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    TcpCloseListener {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    TcpListenerLocalAddr {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    },
+    DnsResolve {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    },
+    FileRead {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    },
+    FileWrite {
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
     },
     Cancel(CancelHandle),
     Stop,
@@ -127,6 +225,27 @@ struct TimerEntry {
     target: RuntimeTarget,
 }
 
+#[derive(Debug)]
+struct TcpWait {
+    request_id: RequestId,
+    target: RuntimeTarget,
+    kind: TcpWaitKind,
+}
+
+#[derive(Debug)]
+enum TcpWaitKind {
+    Connect { stream: TcpStream },
+    Accept { handle: IoHandle },
+    Read { handle: IoHandle, max: usize },
+    Write { handle: IoHandle, bytes: Vec<u8> },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TcpAddrKind {
+    Local,
+    Remote,
+}
+
 impl std::fmt::Debug for MioBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MioBackend")
@@ -146,6 +265,8 @@ impl MioBackend {
                 .map_err(|err| io_error("mio waker init failed", err))?,
         );
         let (completion_sink, completion_source) = backend_completion_channel();
+        let services =
+            BlockingServices::new(BlockingServicesConfig::default(), completion_sink.clone());
         Ok(Self {
             poll,
             waker,
@@ -155,6 +276,12 @@ impl MioBackend {
             completion_source,
             timers: BinaryHeap::new(),
             cancelled: HashSet::new(),
+            next_token: FIRST_IO_TOKEN,
+            next_io_handle: 1,
+            tcp_streams: HashMap::new(),
+            tcp_listeners: HashMap::new(),
+            tcp_waits: HashMap::new(),
+            services,
             stopped: false,
         })
     }
@@ -189,6 +316,18 @@ impl MioBackend {
 
     pub fn pending_timers(&self) -> usize {
         self.timers.len()
+    }
+
+    pub fn pending_tcp_waits(&self) -> usize {
+        self.tcp_waits.len()
+    }
+
+    pub fn tcp_handle_count(&self) -> usize {
+        self.tcp_streams.len()
+    }
+
+    pub fn tcp_listener_count(&self) -> usize {
+        self.tcp_listeners.len()
     }
 
     pub fn is_stopped(&self) -> bool {
@@ -263,6 +402,68 @@ impl MioBackend {
             request_id,
             target,
             duration,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_connect_command(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpConnect {
+            request_id,
+            target,
+            host: host.into(),
+            port,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn dns_resolve_command(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::DnsResolve {
+            request_id,
+            target,
+            host: host.into(),
+            port,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn file_read_command(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::FileRead {
+            request_id,
+            target,
+            path,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn file_write_command(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::FileWrite {
+            request_id,
+            target,
+            path,
+            bytes,
         })?;
         Ok(CancelHandle::new(request_id, target))
     }
@@ -342,9 +543,22 @@ impl MioBackend {
         self.poll
             .poll(&mut self.events, timeout)
             .map_err(|err| io_error("mio poll failed", err))?;
+        self.drain_tcp_events()?;
         commands += self.drain_commands()?;
         self.drain_expired_timers()?;
         Ok(commands)
+    }
+
+    fn allocate_token(&mut self) -> Token {
+        let token = Token(self.next_token);
+        self.next_token += 1;
+        token
+    }
+
+    fn allocate_io_handle(&mut self) -> IoHandle {
+        let handle = IoHandle(self.next_io_handle);
+        self.next_io_handle += 1;
+        handle
     }
 
     fn insert_timer(
@@ -388,8 +602,106 @@ impl MioBackend {
                 } => {
                     self.insert_timer(request_id, target, Instant::now() + duration)?;
                 }
+                MioCommand::TcpConnect {
+                    request_id,
+                    target,
+                    host,
+                    port,
+                } => {
+                    self.start_tcp_connect(request_id, target, host, port)?;
+                }
+                MioCommand::TcpListen {
+                    request_id,
+                    target,
+                    host,
+                    port,
+                } => {
+                    self.finish_tcp_listen(request_id, target, host, port)?;
+                }
+                MioCommand::TcpAccept {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.start_tcp_accept(request_id, target, handle)?;
+                }
+                MioCommand::TcpRead {
+                    request_id,
+                    target,
+                    handle,
+                    max,
+                } => {
+                    self.start_tcp_read(request_id, target, handle, max)?;
+                }
+                MioCommand::TcpWrite {
+                    request_id,
+                    target,
+                    handle,
+                    bytes,
+                } => {
+                    self.start_tcp_write(request_id, target, handle, bytes)?;
+                }
+                MioCommand::TcpClose {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.finish_tcp_close(request_id, target, handle)?;
+                }
+                MioCommand::TcpLocalAddr {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.finish_tcp_addr(request_id, target, handle, TcpAddrKind::Local)?;
+                }
+                MioCommand::TcpRemoteAddr {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.finish_tcp_addr(request_id, target, handle, TcpAddrKind::Remote)?;
+                }
+                MioCommand::TcpCloseListener {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.finish_tcp_close_listener(request_id, target, handle)?;
+                }
+                MioCommand::TcpListenerLocalAddr {
+                    request_id,
+                    target,
+                    handle,
+                } => {
+                    self.finish_tcp_listener_addr(request_id, target, handle)?;
+                }
+                MioCommand::DnsResolve {
+                    request_id,
+                    target,
+                    host,
+                    port,
+                } => {
+                    self.services.resolve_dns(request_id, target, host, port)?;
+                }
+                MioCommand::FileRead {
+                    request_id,
+                    target,
+                    path,
+                } => {
+                    self.services.read_file(request_id, target, path)?;
+                }
+                MioCommand::FileWrite {
+                    request_id,
+                    target,
+                    path,
+                    bytes,
+                } => {
+                    self.services.write_file(request_id, target, path, bytes)?;
+                }
                 MioCommand::Cancel(handle) => {
                     self.cancelled.insert(handle.request_id());
+                    self.services.cancel(handle)?;
                 }
                 MioCommand::Stop => {
                     self.stopped = true;
@@ -398,6 +710,440 @@ impl MioBackend {
             drained += 1;
         }
         Ok(drained)
+    }
+
+    fn start_tcp_connect(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<(), AsyncError> {
+        let addr = resolve_tcp_addr(&host, port)?;
+        let mut stream =
+            TcpStream::connect(addr).map_err(|err| io_error("mio tcp connect failed", err))?;
+        let token = self.allocate_token();
+        self.poll
+            .registry()
+            .register(&mut stream, token, Interest::WRITABLE)
+            .map_err(|err| io_error("mio tcp connect register failed", err))?;
+        self.tcp_waits.insert(
+            token,
+            TcpWait {
+                request_id,
+                target,
+                kind: TcpWaitKind::Connect { stream },
+            },
+        );
+        Ok(())
+    }
+
+    fn finish_tcp_listen(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<(), AsyncError> {
+        let addr = resolve_tcp_addr(&host, port)?;
+        let listener =
+            TcpListener::bind(addr).map_err(|err| io_error("mio tcp listen failed", err))?;
+        let handle = self.allocate_io_handle();
+        self.tcp_listeners.insert(handle, listener);
+        self.completion_sink.submit(BackendCompletion::ok(
+            request_id,
+            target,
+            BackendCompletionPayload::Handle(handle.0),
+        ))?;
+        Ok(())
+    }
+
+    fn start_tcp_accept(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<(), AsyncError> {
+        let Some(listener) = self.tcp_listeners.get_mut(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
+            ))?;
+            return Ok(());
+        };
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                let stream_handle = self.allocate_io_handle();
+                self.tcp_streams.insert(stream_handle, stream);
+                self.completion_sink.submit(BackendCompletion::ok(
+                    request_id,
+                    target,
+                    BackendCompletionPayload::Handle(stream_handle.0),
+                ))?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                let token = self.allocate_token();
+                let listener = self
+                    .tcp_listeners
+                    .get_mut(&handle)
+                    .expect("listener presence checked above");
+                self.poll
+                    .registry()
+                    .register(listener, token, Interest::READABLE)
+                    .map_err(|err| io_error("mio tcp accept register failed", err))?;
+                self.tcp_waits.insert(
+                    token,
+                    TcpWait {
+                        request_id,
+                        target,
+                        kind: TcpWaitKind::Accept { handle },
+                    },
+                );
+            }
+            Err(err) => {
+                self.completion_sink.submit(BackendCompletion::err(
+                    request_id,
+                    target,
+                    io_error("mio tcp accept failed", err),
+                ))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn start_tcp_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    ) -> Result<(), AsyncError> {
+        if max == 0 {
+            self.completion_sink.submit(BackendCompletion::ok(
+                request_id,
+                target,
+                BackendCompletionPayload::Bytes(Vec::new()),
+            ))?;
+            return Ok(());
+        }
+        let Some(stream) = self.tcp_streams.get_mut(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
+            ))?;
+            return Ok(());
+        };
+        let mut buf = vec![0; max];
+        match stream.read(&mut buf) {
+            Ok(n) => {
+                buf.truncate(n);
+                self.completion_sink.submit(BackendCompletion::ok(
+                    request_id,
+                    target,
+                    BackendCompletionPayload::Bytes(buf),
+                ))?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                let token = self.allocate_token();
+                let stream = self
+                    .tcp_streams
+                    .get_mut(&handle)
+                    .expect("handle presence checked above");
+                self.poll
+                    .registry()
+                    .register(stream, token, Interest::READABLE)
+                    .map_err(|err| io_error("mio tcp read register failed", err))?;
+                self.tcp_waits.insert(
+                    token,
+                    TcpWait {
+                        request_id,
+                        target,
+                        kind: TcpWaitKind::Read { handle, max },
+                    },
+                );
+            }
+            Err(err) => {
+                self.completion_sink.submit(BackendCompletion::err(
+                    request_id,
+                    target,
+                    io_error("mio tcp read failed", err),
+                ))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn start_tcp_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    ) -> Result<(), AsyncError> {
+        let Some(stream) = self.tcp_streams.get_mut(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
+            ))?;
+            return Ok(());
+        };
+        match stream.write(&bytes) {
+            Ok(n) => {
+                self.completion_sink.submit(BackendCompletion::ok(
+                    request_id,
+                    target,
+                    BackendCompletionPayload::Count(n),
+                ))?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                let token = self.allocate_token();
+                let stream = self
+                    .tcp_streams
+                    .get_mut(&handle)
+                    .expect("handle presence checked above");
+                self.poll
+                    .registry()
+                    .register(stream, token, Interest::WRITABLE)
+                    .map_err(|err| io_error("mio tcp write register failed", err))?;
+                self.tcp_waits.insert(
+                    token,
+                    TcpWait {
+                        request_id,
+                        target,
+                        kind: TcpWaitKind::Write { handle, bytes },
+                    },
+                );
+            }
+            Err(err) => {
+                self.completion_sink.submit(BackendCompletion::err(
+                    request_id,
+                    target,
+                    io_error("mio tcp write failed", err),
+                ))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_tcp_close(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<(), AsyncError> {
+        let Some(stream) = self.tcp_streams.remove(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
+            ))?;
+            return Ok(());
+        };
+        let _ = stream.shutdown(Shutdown::Both);
+        self.completion_sink.submit(BackendCompletion::ok(
+            request_id,
+            target,
+            BackendCompletionPayload::Unit,
+        ))?;
+        Ok(())
+    }
+
+    fn finish_tcp_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        kind: TcpAddrKind,
+    ) -> Result<(), AsyncError> {
+        let Some(stream) = self.tcp_streams.get(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
+            ))?;
+            return Ok(());
+        };
+        let addr = match kind {
+            TcpAddrKind::Local => stream
+                .local_addr()
+                .map_err(|err| io_error("mio tcp local_addr failed", err)),
+            TcpAddrKind::Remote => stream
+                .peer_addr()
+                .map_err(|err| io_error("mio tcp remote_addr failed", err)),
+        };
+        match addr {
+            Ok(addr) => self.completion_sink.submit(BackendCompletion::ok(
+                request_id,
+                target,
+                BackendCompletionPayload::Text(addr.to_string()),
+            ))?,
+            Err(error) => {
+                self.completion_sink
+                    .submit(BackendCompletion::err(request_id, target, error))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_tcp_close_listener(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<(), AsyncError> {
+        if self.tcp_listeners.remove(&handle).is_none() {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
+            ))?;
+            return Ok(());
+        }
+        self.completion_sink.submit(BackendCompletion::ok(
+            request_id,
+            target,
+            BackendCompletionPayload::Unit,
+        ))?;
+        Ok(())
+    }
+
+    fn finish_tcp_listener_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<(), AsyncError> {
+        let Some(listener) = self.tcp_listeners.get(&handle) else {
+            self.completion_sink.submit(BackendCompletion::err(
+                request_id,
+                target,
+                AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
+            ))?;
+            return Ok(());
+        };
+        match listener
+            .local_addr()
+            .map_err(|err| io_error("mio tcp listener local_addr failed", err))
+        {
+            Ok(addr) => self.completion_sink.submit(BackendCompletion::ok(
+                request_id,
+                target,
+                BackendCompletionPayload::Text(addr.to_string()),
+            ))?,
+            Err(error) => {
+                self.completion_sink
+                    .submit(BackendCompletion::err(request_id, target, error))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn drain_tcp_events(&mut self) -> Result<(), AsyncError> {
+        let tokens: Vec<Token> = self
+            .events
+            .iter()
+            .filter_map(|event| {
+                let token = event.token();
+                (token != WAKE_TOKEN).then_some(token)
+            })
+            .collect();
+        for token in tokens {
+            let Some(wait) = self.tcp_waits.remove(&token) else {
+                continue;
+            };
+            if self.cancelled.remove(&wait.request_id) {
+                self.drop_tcp_wait(wait)?;
+                continue;
+            }
+            self.complete_tcp_wait(token, wait)?;
+        }
+        Ok(())
+    }
+
+    fn drop_tcp_wait(&mut self, wait: TcpWait) -> Result<(), AsyncError> {
+        match wait.kind {
+            TcpWaitKind::Connect { mut stream } => self
+                .poll
+                .registry()
+                .deregister(&mut stream)
+                .map_err(|err| io_error("mio tcp connect deregister failed", err)),
+            TcpWaitKind::Accept { handle } => {
+                if let Some(listener) = self.tcp_listeners.get_mut(&handle) {
+                    let _ = self.poll.registry().deregister(listener);
+                }
+                Ok(())
+            }
+            TcpWaitKind::Read { handle, .. } | TcpWaitKind::Write { handle, .. } => {
+                if let Some(stream) = self.tcp_streams.get_mut(&handle) {
+                    let _ = self.poll.registry().deregister(stream);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn complete_tcp_wait(&mut self, token: Token, wait: TcpWait) -> Result<(), AsyncError> {
+        let request_id = wait.request_id;
+        match wait.kind {
+            TcpWaitKind::Connect { mut stream } => {
+                self.poll
+                    .registry()
+                    .deregister(&mut stream)
+                    .map_err(|err| io_error("mio tcp connect deregister failed", err))?;
+                match stream
+                    .take_error()
+                    .map_err(|err| io_error("mio tcp connect status failed", err))?
+                {
+                    Some(err) => self.completion_sink.submit(BackendCompletion::err(
+                        wait.request_id,
+                        wait.target,
+                        io_error("mio tcp connect failed", err),
+                    ))?,
+                    None => {
+                        let handle = self.allocate_io_handle();
+                        self.tcp_streams.insert(handle, stream);
+                        self.completion_sink.submit(BackendCompletion::ok(
+                            wait.request_id,
+                            wait.target,
+                            BackendCompletionPayload::Handle(handle.0),
+                        ))?;
+                    }
+                }
+            }
+            TcpWaitKind::Accept { handle } => {
+                if let Some(listener) = self.tcp_listeners.get_mut(&handle) {
+                    self.poll
+                        .registry()
+                        .deregister(listener)
+                        .map_err(|err| io_error("mio tcp accept deregister failed", err))?;
+                }
+                self.start_tcp_accept(wait.request_id, wait.target, handle)?;
+            }
+            TcpWaitKind::Read { handle, max } => {
+                if let Some(stream) = self.tcp_streams.get_mut(&handle) {
+                    self.poll
+                        .registry()
+                        .deregister(stream)
+                        .map_err(|err| io_error("mio tcp read deregister failed", err))?;
+                }
+                self.start_tcp_read(wait.request_id, wait.target, handle, max)?;
+            }
+            TcpWaitKind::Write { handle, bytes } => {
+                if let Some(stream) = self.tcp_streams.get_mut(&handle) {
+                    self.poll
+                        .registry()
+                        .deregister(stream)
+                        .map_err(|err| io_error("mio tcp write deregister failed", err))?;
+                }
+                self.start_tcp_write(wait.request_id, wait.target, handle, bytes)?;
+            }
+        }
+        self.cancelled.remove(&request_id);
+        self.tcp_waits.remove(&token);
+        Ok(())
     }
 
     fn timeout_with_next_timer(&self, timeout: Option<Duration>) -> Option<Duration> {
@@ -486,6 +1232,200 @@ impl MioBackendHandle {
         self.submit_command(MioCommand::Cancel(handle))
     }
 
+    pub fn tcp_connect(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpConnect {
+            request_id,
+            target,
+            host: host.into(),
+            port,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_listen(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpListen {
+            request_id,
+            target,
+            host: host.into(),
+            port,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_accept(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpAccept {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_read(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpRead {
+            request_id,
+            target,
+            handle,
+            max,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_write(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpWrite {
+            request_id,
+            target,
+            handle,
+            bytes,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_close(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpClose {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_local_addr(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpLocalAddr {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_remote_addr(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpRemoteAddr {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_close_listener(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpCloseListener {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn tcp_listener_local_addr(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::TcpListenerLocalAddr {
+            request_id,
+            target,
+            handle,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn dns_resolve(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::DnsResolve {
+            request_id,
+            target,
+            host: host.into(),
+            port,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn file_read(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::FileRead {
+            request_id,
+            target,
+            path,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    pub fn file_write(
+        &self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.submit_command(MioCommand::FileWrite {
+            request_id,
+            target,
+            path,
+            bytes,
+        })?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
     pub fn stop(&self) -> Result<(), AsyncError> {
         self.submit_command(MioCommand::Stop)
     }
@@ -499,6 +1439,140 @@ impl AsyncBackend for MioDriverBackend {
     fn cancel(&mut self, handle: CancelHandle) -> Result<(), AsyncError> {
         self.handle.cancel(handle)
     }
+
+    fn timer_start(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        duration: Duration,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle
+            .schedule_timer_after(request_id, target, duration)
+    }
+
+    fn tcp_connect(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_connect(request_id, target, host, port)
+    }
+
+    fn tcp_listen(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_listen(request_id, target, host, port)
+    }
+
+    fn tcp_accept(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_accept(request_id, target, handle)
+    }
+
+    fn tcp_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_read(request_id, target, handle, max)
+    }
+
+    fn tcp_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_write(request_id, target, handle, bytes)
+    }
+
+    fn tcp_close(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_close(request_id, target, handle)
+    }
+
+    fn tcp_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_local_addr(request_id, target, handle)
+    }
+
+    fn tcp_remote_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_remote_addr(request_id, target, handle)
+    }
+
+    fn tcp_close_listener(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.tcp_close_listener(request_id, target, handle)
+    }
+
+    fn tcp_listener_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle
+            .tcp_listener_local_addr(request_id, target, handle)
+    }
+
+    fn dns_resolve(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.dns_resolve(request_id, target, host, port)
+    }
+
+    fn file_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.file_read(request_id, target, path)
+    }
+
+    fn file_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.handle.file_write(request_id, target, path, bytes)
+    }
 }
 
 impl AsyncBackend for MioBackend {
@@ -510,14 +1584,194 @@ impl AsyncBackend for MioBackend {
     }
 
     fn cancel(&mut self, handle: CancelHandle) -> Result<(), AsyncError> {
-        self.submit_command(MioCommand::Cancel(handle))
+        self.cancelled.insert(handle.request_id());
+        self.services.cancel(handle)
+    }
+
+    fn timer_start(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        duration: Duration,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.schedule_timer_after(request_id, target, duration)
+    }
+
+    fn tcp_connect(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.start_tcp_connect(request_id, target, host, port)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_listen(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_listen(request_id, target, host, port)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_accept(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.start_tcp_accept(request_id, target, handle)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        max: usize,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.start_tcp_read(request_id, target, handle, max)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.start_tcp_write(request_id, target, handle, bytes)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_close(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_close(request_id, target, handle)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_addr(request_id, target, handle, TcpAddrKind::Local)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_remote_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_addr(request_id, target, handle, TcpAddrKind::Remote)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_close_listener(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_close_listener(request_id, target, handle)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn tcp_listener_local_addr(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        handle: IoHandle,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.finish_tcp_listener_addr(request_id, target, handle)?;
+        Ok(CancelHandle::new(request_id, target))
+    }
+
+    fn dns_resolve(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        host: String,
+        port: u16,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.services.resolve_dns(request_id, target, host, port)
+    }
+
+    fn file_read(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.services.read_file(request_id, target, path)
+    }
+
+    fn file_write(
+        &mut self,
+        request_id: RequestId,
+        target: RuntimeTarget,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    ) -> Result<CancelHandle, AsyncError> {
+        self.services.write_file(request_id, target, path, bytes)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
+    use std::{
+        fs,
+        io::ErrorKind,
+        net::TcpListener,
+        thread,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("flux_mio_{name}_{unique}"))
+    }
+
+    fn poll_until_completion(backend: &mut MioBackend) -> Completion {
+        for _ in 0..100 {
+            if let Some(completion) = backend.poll_completion() {
+                return completion;
+            }
+            backend
+                .reactor_tick(Some(Duration::from_millis(10)))
+                .expect("reactor tick succeeds");
+        }
+        panic!("timed out waiting for mio completion")
+    }
+
+    fn bind_loopback_or_skip() -> Option<TcpListener> {
+        match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => Some(listener),
+            Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+                eprintln!("skipping loopback TCP test: {err}");
+                None
+            }
+            Err(err) => panic!("bind loopback listener: {err}"),
+        }
+    }
 
     #[test]
     fn backend_starts_with_no_completions() {
@@ -732,6 +1986,324 @@ mod tests {
             .expect("driver can consume completion later");
         assert_eq!(completion.request_id, RequestId(11));
         assert_eq!(completion.payload, Ok(CompletionPayload::Unit));
+    }
+
+    #[test]
+    fn async_backend_timer_start_schedules_timer() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        let handle = AsyncBackend::timer_start(
+            &mut backend,
+            RequestId(29),
+            RuntimeTarget::Task(TaskId(29)),
+            Duration::from_millis(0),
+        )
+        .expect("timer schedules through trait");
+
+        assert_eq!(handle.request_id(), RequestId(29));
+        let completion = backend
+            .poll_completion()
+            .expect("expired timer completes immediately");
+        assert_eq!(completion.request_id, RequestId(29));
+        assert_eq!(completion.payload, Ok(CompletionPayload::Unit));
+    }
+
+    #[test]
+    fn tcp_connect_completes_with_opaque_handle() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let Some(listener) = bind_loopback_or_skip() else {
+            return;
+        };
+        let addr = listener.local_addr().expect("listener address");
+        let server = thread::spawn(move || {
+            let (_stream, _addr) = listener.accept().expect("accept client");
+        });
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        AsyncBackend::tcp_connect(
+            &mut backend,
+            RequestId(30),
+            RuntimeTarget::Task(TaskId(30)),
+            addr.ip().to_string(),
+            addr.port(),
+        )
+        .expect("connect schedules");
+
+        let completion = poll_until_completion(&mut backend);
+        assert_eq!(completion.request_id, RequestId(30));
+        assert!(matches!(
+            completion.payload,
+            Ok(CompletionPayload::Handle(handle)) if handle > 0
+        ));
+        assert_eq!(backend.tcp_handle_count(), 1);
+        server.join().expect("server thread joins");
+    }
+
+    #[test]
+    fn tcp_write_then_read_roundtrips_loopback_bytes() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+        use std::io::{Read, Write};
+
+        let Some(listener) = bind_loopback_or_skip() else {
+            return;
+        };
+        let addr = listener.local_addr().expect("listener address");
+        let server = thread::spawn(move || {
+            let (mut stream, _addr) = listener.accept().expect("accept client");
+            let mut buf = [0; 4];
+            stream.read_exact(&mut buf).expect("server reads ping");
+            assert_eq!(&buf, b"ping");
+            stream.write_all(b"pong").expect("server writes pong");
+        });
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        AsyncBackend::tcp_connect(
+            &mut backend,
+            RequestId(31),
+            RuntimeTarget::Task(TaskId(31)),
+            addr.ip().to_string(),
+            addr.port(),
+        )
+        .expect("connect schedules");
+        let connect = poll_until_completion(&mut backend);
+        let handle = match connect.payload {
+            Ok(CompletionPayload::Handle(handle)) => IoHandle(handle),
+            other => panic!("expected TCP handle, got {other:?}"),
+        };
+
+        AsyncBackend::tcp_write(
+            &mut backend,
+            RequestId(32),
+            RuntimeTarget::Task(TaskId(32)),
+            handle,
+            b"ping".to_vec(),
+        )
+        .expect("write schedules");
+        let write = poll_until_completion(&mut backend);
+        assert_eq!(write.payload, Ok(CompletionPayload::Count(4)));
+
+        AsyncBackend::tcp_read(
+            &mut backend,
+            RequestId(33),
+            RuntimeTarget::Task(TaskId(33)),
+            handle,
+            4,
+        )
+        .expect("read schedules");
+        let read = poll_until_completion(&mut backend);
+        assert_eq!(read.payload, Ok(CompletionPayload::Bytes(b"pong".to_vec())));
+
+        server.join().expect("server thread joins");
+    }
+
+    #[test]
+    fn tcp_addr_and_close_complete_for_connected_handle() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let Some(listener) = bind_loopback_or_skip() else {
+            return;
+        };
+        let addr = listener.local_addr().expect("listener address");
+        let server = thread::spawn(move || {
+            let (_stream, _addr) = listener.accept().expect("accept client");
+            thread::sleep(Duration::from_millis(50));
+        });
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        AsyncBackend::tcp_connect(
+            &mut backend,
+            RequestId(41),
+            RuntimeTarget::Task(TaskId(41)),
+            addr.ip().to_string(),
+            addr.port(),
+        )
+        .expect("connect schedules");
+        let connect = poll_until_completion(&mut backend);
+        let handle = match connect.payload {
+            Ok(CompletionPayload::Handle(handle)) => IoHandle(handle),
+            other => panic!("expected TCP handle, got {other:?}"),
+        };
+
+        AsyncBackend::tcp_local_addr(
+            &mut backend,
+            RequestId(42),
+            RuntimeTarget::Task(TaskId(42)),
+            handle,
+        )
+        .expect("local_addr schedules");
+        let local = poll_until_completion(&mut backend);
+        assert!(matches!(local.payload, Ok(CompletionPayload::Text(text)) if text.contains(':')));
+
+        AsyncBackend::tcp_remote_addr(
+            &mut backend,
+            RequestId(43),
+            RuntimeTarget::Task(TaskId(43)),
+            handle,
+        )
+        .expect("remote_addr schedules");
+        let remote = poll_until_completion(&mut backend);
+        assert_eq!(
+            remote.payload,
+            Ok(CompletionPayload::Text(addr.to_string()))
+        );
+
+        AsyncBackend::tcp_close(
+            &mut backend,
+            RequestId(44),
+            RuntimeTarget::Task(TaskId(44)),
+            handle,
+        )
+        .expect("close schedules");
+        let close = poll_until_completion(&mut backend);
+        assert_eq!(close.payload, Ok(CompletionPayload::Unit));
+        assert_eq!(backend.tcp_handle_count(), 0);
+
+        server.join().expect("server thread joins");
+    }
+
+    #[test]
+    fn tcp_listen_accept_and_close_listener_complete() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        let listen_result = AsyncBackend::tcp_listen(
+            &mut backend,
+            RequestId(45),
+            RuntimeTarget::Task(TaskId(45)),
+            "127.0.0.1".to_string(),
+            0,
+        );
+        if listen_result
+            .as_ref()
+            .is_err_and(|err| err.message.contains("Operation not permitted"))
+        {
+            return;
+        }
+        listen_result.expect("listen schedules");
+        let listen = poll_until_completion(&mut backend);
+        let listener_handle = match listen.payload {
+            Ok(CompletionPayload::Handle(handle)) => IoHandle(handle),
+            other => panic!("expected listener handle, got {other:?}"),
+        };
+        assert_eq!(backend.tcp_listener_count(), 1);
+
+        AsyncBackend::tcp_listener_local_addr(
+            &mut backend,
+            RequestId(46),
+            RuntimeTarget::Task(TaskId(46)),
+            listener_handle,
+        )
+        .expect("listener addr schedules");
+        let listener_addr = poll_until_completion(&mut backend);
+        let addr = match listener_addr.payload {
+            Ok(CompletionPayload::Text(text)) => text,
+            other => panic!("expected listener addr, got {other:?}"),
+        };
+
+        let client = thread::spawn(move || {
+            std::net::TcpStream::connect(addr).expect("client connects");
+        });
+
+        AsyncBackend::tcp_accept(
+            &mut backend,
+            RequestId(47),
+            RuntimeTarget::Task(TaskId(47)),
+            listener_handle,
+        )
+        .expect("accept schedules");
+        let accepted = poll_until_completion(&mut backend);
+        assert!(matches!(
+            accepted.payload,
+            Ok(CompletionPayload::Handle(handle)) if handle > 0
+        ));
+        client.join().expect("client thread joins");
+
+        AsyncBackend::tcp_close_listener(
+            &mut backend,
+            RequestId(48),
+            RuntimeTarget::Task(TaskId(48)),
+            listener_handle,
+        )
+        .expect("listener close schedules");
+        let close = poll_until_completion(&mut backend);
+        assert_eq!(close.payload, Ok(CompletionPayload::Unit));
+        assert_eq!(backend.tcp_listener_count(), 0);
+    }
+
+    #[test]
+    fn file_service_completes_through_mio_backend() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let path = temp_path("file_service");
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        AsyncBackend::file_write(
+            &mut backend,
+            RequestId(34),
+            RuntimeTarget::Task(TaskId(34)),
+            path.clone(),
+            b"phase1".to_vec(),
+        )
+        .expect("file write schedules");
+        let write = poll_until_completion(&mut backend);
+        assert_eq!(write.payload, Ok(CompletionPayload::Count(6)));
+
+        AsyncBackend::file_read(
+            &mut backend,
+            RequestId(35),
+            RuntimeTarget::Task(TaskId(35)),
+            path.clone(),
+        )
+        .expect("file read schedules");
+        let read = poll_until_completion(&mut backend);
+        assert_eq!(
+            read.payload,
+            Ok(CompletionPayload::Bytes(b"phase1".to_vec()))
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn dns_service_completes_through_mio_backend() {
+        use crate::runtime::r#async::{
+            backend::{AsyncBackend, CompletionPayload, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let mut backend = MioBackend::new().expect("mio backend initializes");
+        AsyncBackend::dns_resolve(
+            &mut backend,
+            RequestId(36),
+            RuntimeTarget::Task(TaskId(36)),
+            "localhost".to_string(),
+            80,
+        )
+        .expect("dns resolve schedules");
+        let completion = poll_until_completion(&mut backend);
+        match completion.payload {
+            Ok(CompletionPayload::AddressList(addresses)) => assert!(!addresses.is_empty()),
+            other => panic!("expected address list, got {other:?}"),
+        }
     }
 
     #[test]

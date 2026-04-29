@@ -1,0 +1,12 @@
+// Proposal 0174 Phase 1a: immutable Bytes values are Sendable across Task.spawn.
+// parity: vm
+// expect: success
+
+import Flow.Bytes as Bytes
+import Flow.String as String
+import Flow.Task as Task
+
+fn main() with IO {
+    let task = Task.spawn(fn() { String.to_bytes("hello") })
+    print(Bytes.to_string(Task.blocking_join(task)))
+}

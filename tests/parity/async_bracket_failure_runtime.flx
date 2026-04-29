@@ -1,0 +1,12 @@
+import Flow.Async as A
+
+fn main() with IO, Async {
+    let result = A.try_(fn() {
+        A.bracket(
+            fn() { "conn" },
+            fn(_resource) { print("release;") },
+            fn(_resource) { A.fail(A.failed("body failed")) }
+        )
+    });
+    print(result);
+}

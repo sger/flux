@@ -77,6 +77,18 @@ pub(super) fn read_string(reader: &mut File) -> Option<String> {
     String::from_utf8(buf).ok()
 }
 
+fn write_bytes(writer: &mut File, value: &[u8]) -> std::io::Result<()> {
+    write_u32(writer, value.len() as u32)?;
+    writer.write_all(value)
+}
+
+fn read_bytes(reader: &mut File) -> Option<Vec<u8>> {
+    let len = read_u32(reader)? as usize;
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf).ok()?;
+    Some(buf)
+}
+
 pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()> {
     match obj {
         Value::Integer(value) => {
@@ -90,6 +102,10 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
         Value::String(value) => {
             writer.write_all(&[2])?;
             write_string(writer, value)
+        }
+        Value::Bytes(value) => {
+            writer.write_all(&[18])?;
+            write_bytes(writer, value)
         }
         Value::Function(func) => {
             writer.write_all(&[3])?;
@@ -185,6 +201,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
         0 => Some(Value::Integer(read_i64(reader)?)),
         1 => Some(Value::Float(read_f64(reader)?)),
         2 => Some(Value::String(read_string(reader)?.into())),
+        18 => Some(Value::Bytes(std::rc::Rc::new(read_bytes(reader)?))),
         3 => {
             let num_locals = read_u16(reader)? as usize;
             let num_parameters = read_u16(reader)? as usize;

@@ -1,0 +1,14 @@
+// Proposal 0174 Phase 1a: top-level functions are code references, not heap captures.
+// parity: vm
+// expect: success
+
+import Flow.Task as Task
+
+fn helper() -> Int {
+    41
+}
+
+fn main() with IO {
+    let task = Task.spawn(fn() { helper() + 1 });
+    print(Task.blocking_join(task));
+}

@@ -83,6 +83,7 @@ fn find_unbound_var(
         | CoreType::Float
         | CoreType::Bool
         | CoreType::String
+        | CoreType::Bytes
         | CoreType::Unit
         | CoreType::Never => None,
         CoreType::Var(var) => {

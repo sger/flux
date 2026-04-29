@@ -1,0 +1,12 @@
+// parity: vm
+// expect: success
+// Proposal 0174 Phase 1b: Task.await resumes the captured VM continuation.
+
+import Flow.Task as Task
+
+fn main() with IO, Async {
+    let base = 40;
+    let task = Task.spawn(fn() { 2 });
+    let value = Task.await(task);
+    print(base + value)
+}

@@ -1,0 +1,53 @@
+// Flow.Tcp — TCP client operations backed by Suspend.
+
+module Flow.Tcp {
+
+    public data Tcp {
+        Tcp(Int)
+    }
+
+    public data TcpListener {
+        TcpListener(Int)
+    }
+
+    public fn listen(host: String, port: Int) -> TcpListener with Async {
+        perform Suspend.tcp_listen(host, port)
+    }
+
+    public fn accept(listener: TcpListener) -> Tcp with Async {
+        perform Suspend.tcp_accept(listener)
+    }
+
+    public fn connect(host: String, port: Int) -> Tcp with Async {
+        perform Suspend.tcp_connect(host, port)
+    }
+
+    public fn read(conn: Tcp, max: Int) -> Bytes with Async {
+        perform Suspend.tcp_read(conn, max)
+    }
+
+    public fn write(conn: Tcp, bytes: Bytes) -> Int with Async {
+        perform Suspend.tcp_write(conn, bytes)
+    }
+
+    public fn close(conn: Tcp) -> Unit with Async {
+        perform Suspend.tcp_close(conn)
+    }
+
+    public fn local_addr(conn: Tcp) -> String with Async {
+        perform Suspend.tcp_local_addr(conn)
+    }
+
+    public fn remote_addr(conn: Tcp) -> String with Async {
+        perform Suspend.tcp_remote_addr(conn)
+    }
+
+    public fn close_listener(listener: TcpListener) -> Unit with Async {
+        perform Suspend.tcp_close_listener(listener)
+    }
+
+    public fn listener_local_addr(listener: TcpListener) -> String with Async {
+        perform Suspend.tcp_listener_local_addr(listener)
+    }
+
+}

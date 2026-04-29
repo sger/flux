@@ -3,7 +3,10 @@
  *
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
- *   - int32_t refcount    (1 = unique, >1 = shared)
+ *   - _Atomic int32_t refcount
+ *       > 0: thread-local count, updated non-atomically by the owning worker
+ *       < 0: shared count, magnitude is the reference count, updated atomically
+ *       = 0: dead / ready to free
  *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
@@ -23,6 +26,10 @@
  * flux_drop decrements; when it hits 0, recursively drops scan_fsize
  * child fields then frees the block.
  *
+ * Proposal 0174 Phase 1a: hybrid atomic-on-share RC. Objects stay on the
+ * cheap non-atomic path until an explicit cross-worker transfer calls
+ * flux_rc_share or flux_rc_share_deep.
+ *
  * Phase 7 (Proposal 0140): bump arena for fast-path allocation.
  * A 1 MB arena is allocated once at init.  flux_gc_alloc_header tries
  * to bump-allocate from the arena; on overflow it falls back to malloc.
@@ -33,11 +40,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdatomic.h>
 
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
 typedef struct {
-    int32_t  refcount;     /* 1 = unique, >1 = shared, 0 = ready to free */
+    _Atomic int32_t refcount; /* >0 local, <0 shared, 0 dead */
     uint8_t  scan_fsize;   /* number of child tagged fields to scan */
     uint8_t  obj_tag;      /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
     uint16_t _reserved;
@@ -55,6 +63,41 @@ _Static_assert(sizeof(FluxHeader) == 8, "FluxHeader must be 8 bytes");
 
 static inline FluxHeader *header_of(void *payload) {
     return (FluxHeader *)((char *)payload - FLUX_HEADER_SIZE);
+}
+
+static inline int32_t flux_rc_load(FluxHeader *hdr) {
+    return atomic_load_explicit(&hdr->refcount, memory_order_relaxed);
+}
+
+static inline void flux_rc_init(FluxHeader *hdr) {
+    atomic_init(&hdr->refcount, 1);
+}
+
+static inline void flux_rc_retain(FluxHeader *hdr) {
+    int32_t rc = flux_rc_load(hdr);
+    if (rc < 0) {
+        atomic_fetch_sub_explicit(&hdr->refcount, 1, memory_order_relaxed);
+    } else {
+        atomic_store_explicit(&hdr->refcount, rc + 1, memory_order_relaxed);
+    }
+}
+
+static inline int flux_rc_release_is_zero(FluxHeader *hdr) {
+    int32_t rc = flux_rc_load(hdr);
+    if (rc < 0) {
+        int32_t old = atomic_fetch_add_explicit(&hdr->refcount, 1, memory_order_acq_rel);
+        return old == -1;
+    }
+    rc--;
+    atomic_store_explicit(&hdr->refcount, rc, memory_order_relaxed);
+    return rc == 0;
+}
+
+static inline void flux_rc_mark_shared_header(FluxHeader *hdr) {
+    int32_t rc = flux_rc_load(hdr);
+    if (rc > 0) {
+        atomic_store_explicit(&hdr->refcount, -rc, memory_order_release);
+    }
 }
 
 static inline size_t align_up(size_t n, size_t align) {
@@ -118,7 +161,7 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
         }
     }
 
-    hdr->refcount   = 1;
+    flux_rc_init(hdr);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
     hdr->_reserved  = 0;
@@ -156,7 +199,7 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
         abort();
     }
 
-    hdr->refcount   = 1;
+    flux_rc_init(hdr);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
     hdr->_reserved  = 0;
@@ -212,6 +255,7 @@ static int flux_scan_offset(uint8_t obj_tag) {
 }
 
 static inline void flux_block_free(void *ptr);
+void flux_rc_share_deep(int64_t val);
 
 /*
  * Evidence vectors are not compatible with the generic scan_fsize scanner:
@@ -239,12 +283,54 @@ static void flux_drop_evidence(void *ptr) {
     flux_block_free(ptr);
 }
 
+static void flux_rc_share_deep_ptr(void *ptr) {
+    FluxHeader *hdr = header_of(ptr);
+    int32_t rc = flux_rc_load(hdr);
+    if (rc < 0) return;
+
+    flux_rc_mark_shared_header(hdr);
+
+    if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
+        FluxEvvArray *evv = (FluxEvvArray *)ptr;
+        for (int32_t i = 0; i < evv->count; i++) {
+            int64_t *entry = &evv->data[i * FLUX_EVV_ENTRY_WORDS];
+            flux_rc_share_deep(entry[FLUX_EVV_HANDLER_OFF]);
+            flux_rc_share_deep(entry[FLUX_EVV_PARENT_OFF]);
+            flux_rc_share_deep(entry[FLUX_EVV_STATE_OFF]);
+        }
+        return;
+    }
+
+    uint16_t scan_fsize = hdr->scan_fsize;
+    if (scan_fsize == 0) return;
+
+    int offset = flux_scan_offset(hdr->obj_tag);
+    int64_t *fields = (int64_t *)((char *)ptr + offset * 8);
+    for (uint16_t i = 0; i < scan_fsize; i++) {
+        flux_rc_share_deep(fields[i]);
+    }
+}
+
+void flux_rc_share(int64_t val) {
+    if (!flux_is_ptr(val)) return;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return;
+    flux_rc_mark_shared_header(header_of(ptr));
+}
+
+void flux_rc_share_deep(int64_t val) {
+    if (!flux_is_ptr(val)) return;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return;
+    flux_rc_share_deep_ptr(ptr);
+}
+
 void flux_dup(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    hdr->refcount++;
+    flux_rc_retain(hdr);
 }
 
 /*
@@ -259,8 +345,7 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     void *child = flux_untag_ptr(val);
     if (!child) return NULL;
     FluxHeader *hdr = header_of(child);
-    if (--hdr->refcount > 0) return NULL;
-    return child;
+    return flux_rc_release_is_zero(hdr) ? child : NULL;
 }
 
 static inline void flux_block_free(void *ptr) {
@@ -347,7 +432,7 @@ void flux_drop(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    if (--hdr->refcount > 0) return;
+    if (!flux_rc_release_is_zero(hdr)) return;
 
     if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
         flux_drop_evidence(ptr);
@@ -363,7 +448,7 @@ int flux_rc_is_unique(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 1;
     FluxHeader *hdr = header_of(ptr);
-    return hdr->refcount == 1;
+    return flux_rc_load(hdr) == 1;
 }
 
 /* ── Lifecycle (no-ops for API compatibility) ──────────────────────── */
