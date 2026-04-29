@@ -231,7 +231,12 @@ pub fn emit_llvm_module_with_options(
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
     for func in &program.functions {
         if func.capture_vars.is_empty() && func.qualified_name != "main" {
-            let wrapper = emit_closure_wrapper(func, Linkage::External);
+            let wrapper_linkage = if is_synthetic_typeclass_support(func) {
+                Linkage::Internal
+            } else {
+                Linkage::External
+            };
+            let wrapper = emit_closure_wrapper(func, wrapper_linkage);
             module.functions.push(wrapper);
         }
     }
@@ -556,6 +561,10 @@ fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
             },
         }],
     }
+}
+
+fn is_synthetic_typeclass_support(func: &LirFunction) -> bool {
+    func.qualified_name.starts_with("__dict_") || func.qualified_name.starts_with("__tc_")
 }
 
 // ── Worker/Wrapper eligibility (Proposal 0140 Phase 10) ────────────────────
@@ -933,7 +942,11 @@ impl<'a> FnEmitter<'a> {
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
             LlvmFunction {
-                linkage: Linkage::External,
+                linkage: if is_synthetic_typeclass_support(self.func) {
+                    Linkage::Internal
+                } else {
+                    Linkage::External
+                },
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),

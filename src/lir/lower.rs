@@ -3639,6 +3639,38 @@ impl<'a> FnLower<'a> {
             self.lower_expr(&args[0])
         };
 
+        if self.is_suspend_sleep_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::AsyncSleep,
+                args: vec![arg],
+            });
+            return result;
+        }
+        if self.is_suspend_await_task_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::TaskBlockingJoin,
+                args: vec![arg],
+            });
+            return result;
+        }
+        if self.is_async_fail_raise_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: None,
+                op: CorePrimOp::Panic,
+                args: vec![arg],
+            });
+            self.emit(LirInstr::Const {
+                dst: result,
+                value: LirConst::None,
+            });
+            return result;
+        }
+
         // Effect tag and operation tag as NaN-boxed integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
@@ -3731,6 +3763,38 @@ impl<'a> FnLower<'a> {
             self.lower_expr_aether(&args[0])
         };
 
+        if self.is_suspend_sleep_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::AsyncSleep,
+                args: vec![arg],
+            });
+            return result;
+        }
+        if self.is_suspend_await_task_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op: CorePrimOp::TaskBlockingJoin,
+                args: vec![arg],
+            });
+            return result;
+        }
+        if self.is_async_fail_raise_perform(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            self.emit(LirInstr::PrimCall {
+                dst: None,
+                op: CorePrimOp::Panic,
+                args: vec![arg],
+            });
+            self.emit(LirInstr::Const {
+                dst: result,
+                value: LirConst::None,
+            });
+            return result;
+        }
+
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -3795,6 +3859,48 @@ impl<'a> FnLower<'a> {
         }
 
         result
+    }
+
+    fn is_suspend_sleep_perform(
+        &self,
+        effect: Identifier,
+        operation: Identifier,
+        arity: usize,
+    ) -> bool {
+        let Some(interner) = self.interner else {
+            return false;
+        };
+        arity == 1
+            && interner.try_resolve(effect) == Some(crate::syntax::builtin_effects::SUSPEND)
+            && interner.try_resolve(operation) == Some("sleep")
+    }
+
+    fn is_suspend_await_task_perform(
+        &self,
+        effect: Identifier,
+        operation: Identifier,
+        arity: usize,
+    ) -> bool {
+        let Some(interner) = self.interner else {
+            return false;
+        };
+        arity == 1
+            && interner.try_resolve(effect) == Some(crate::syntax::builtin_effects::SUSPEND)
+            && interner.try_resolve(operation) == Some("await_task")
+    }
+
+    fn is_async_fail_raise_perform(
+        &self,
+        effect: Identifier,
+        operation: Identifier,
+        arity: usize,
+    ) -> bool {
+        let Some(interner) = self.interner else {
+            return false;
+        };
+        arity == 1
+            && interner.try_resolve(effect) == Some(crate::syntax::builtin_effects::ASYNC_FAIL)
+            && interner.try_resolve(operation) == Some("raise")
     }
 
     /// Create an identity closure: a function that returns its argument.

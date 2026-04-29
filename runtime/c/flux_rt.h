@@ -115,6 +115,7 @@ static inline double flux_unbox_float(int64_t val) {
 #define FLUX_OBJ_EVIDENCE 0xF7
 #define FLUX_OBJ_FLOAT    0xF8
 #define FLUX_OBJ_THUNK    0xF9
+#define FLUX_OBJ_TASK     0xFA
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.

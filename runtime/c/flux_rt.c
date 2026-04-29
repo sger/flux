@@ -24,6 +24,7 @@
 #else
 #include <unistd.h>
 #include <sched.h>
+#include <pthread.h>
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -142,6 +143,8 @@ static void flux_print_value(int64_t val) {
         } else if (obj == FLUX_OBJ_THUNK) {
             /* Thunks should never escape to user code; print for debugging. */
             printf("<thunk>");
+        } else if (obj == FLUX_OBJ_TASK) {
+            printf("<task>");
         } else if (obj == FLUX_OBJ_ADT) {
             /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
@@ -2460,36 +2463,135 @@ void flux_set_global(int64_t idx, int64_t val) {
     if (idx >= 0 && idx < 256) flux_globals[idx] = val;
 }
 
-/* ── Phase 1a Task ABI stubs ───────────────────────────────────────── */
+/* ── Phase 1a native Task ABI ──────────────────────────────────────── */
 
-static int64_t flux_task_unimplemented(const char *name) {
-    char buf[160];
-    int len = snprintf(buf, sizeof(buf),
-                       "%s requires the Phase 1a Rust task value bridge",
-                       name);
-    if (len < 0) {
-        flux_panic(flux_string_new("task runtime unavailable", 24));
+typedef struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_t thread;
+    int started;
+    int completed;
+    int joined;
+    int cancelled;
+    int64_t action;
+    int64_t result;
+} FluxNativeTask;
+
+static int flux_is_native_task(int64_t task) {
+    return flux_is_ptr(task) && flux_obj_tag(flux_untag_ptr(task)) == FLUX_OBJ_TASK;
+}
+
+static FluxNativeTask *flux_native_task_unbox(int64_t task, const char *op) {
+    if (!flux_is_native_task(task)) {
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s expects Task", op);
+        if (len < 0) {
+            flux_panic(flux_string_new("Task operation expects Task", 27));
+        }
+        if (len >= (int)sizeof(buf)) {
+            len = (int)sizeof(buf) - 1;
+        }
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return NULL;
     }
-    if (len >= (int)sizeof(buf)) {
-        len = (int)sizeof(buf) - 1;
+    return (FluxNativeTask *)flux_untag_ptr(task);
+}
+
+static void *flux_native_task_main(void *arg) {
+    FluxNativeTask *task = (FluxNativeTask *)arg;
+
+    pthread_mutex_lock(&task->mutex);
+    task->started = 1;
+    int cancelled = task->cancelled;
+    int64_t action = task->action;
+    pthread_mutex_unlock(&task->mutex);
+
+    int64_t result = FLUX_NONE;
+    if (!cancelled) {
+        result = flux_call_closure_c(action, NULL, 0);
     }
-    flux_panic(flux_string_new(buf, (uint32_t)len));
-    return FLUX_NONE;
+
+    pthread_mutex_lock(&task->mutex);
+    task->result = result;
+    task->completed = 1;
+    pthread_cond_broadcast(&task->cond);
+    pthread_mutex_unlock(&task->mutex);
+    return NULL;
 }
 
 int64_t flux_task_spawn(int64_t action) {
-    (void)action;
-    return flux_task_unimplemented("Task.spawn");
+    if (!flux_is_ptr(action) || flux_obj_tag(flux_untag_ptr(action)) != FLUX_OBJ_CLOSURE) {
+        flux_panic(flux_string_new("Task.spawn expects a closure", 28));
+        return FLUX_NONE;
+    }
+
+    FluxNativeTask *task = (FluxNativeTask *)flux_gc_alloc_header(
+        sizeof(FluxNativeTask), 0, FLUX_OBJ_TASK);
+    memset(task, 0, sizeof(*task));
+    task->action = action;
+    task->result = FLUX_NONE;
+
+    flux_dup(action);
+    flux_rc_share_deep(action);
+
+    if (pthread_mutex_init(&task->mutex, NULL) != 0 ||
+        pthread_cond_init(&task->cond, NULL) != 0) {
+        flux_drop(action);
+        flux_panic(flux_string_new("Task.spawn failed to initialize task", 36));
+        return FLUX_NONE;
+    }
+
+    int rc = pthread_create(&task->thread, NULL, flux_native_task_main, task);
+    if (rc != 0) {
+        pthread_cond_destroy(&task->cond);
+        pthread_mutex_destroy(&task->mutex);
+        flux_drop(action);
+        flux_panic(flux_string_new("Task.spawn failed to create thread", 34));
+        return FLUX_NONE;
+    }
+
+    return flux_tag_ptr(task);
 }
 
-int64_t flux_task_blocking_join(int64_t task) {
-    (void)task;
-    return flux_task_unimplemented("Task.blocking_join");
+int64_t flux_task_blocking_join(int64_t task_value) {
+    FluxNativeTask *task = flux_native_task_unbox(task_value, "Task.blocking_join");
+    if (!task) return FLUX_NONE;
+
+    pthread_mutex_lock(&task->mutex);
+    while (!task->completed) {
+        pthread_cond_wait(&task->cond, &task->mutex);
+    }
+    int joined = task->joined;
+    int cancelled = task->cancelled;
+    int64_t result = task->result;
+    task->joined = 1;
+    pthread_mutex_unlock(&task->mutex);
+
+    if (joined) {
+        flux_panic(flux_string_new("Task.blocking_join called more than once", 39));
+        return FLUX_NONE;
+    }
+
+    pthread_join(task->thread, NULL);
+    flux_drop(task->action);
+    task->action = FLUX_NONE;
+
+    if (cancelled && result == FLUX_NONE) {
+        flux_panic(flux_string_new("Task was cancelled", 18));
+        return FLUX_NONE;
+    }
+
+    return result;
 }
 
-int64_t flux_task_cancel(int64_t task) {
-    (void)task;
-    return flux_task_unimplemented("Task.cancel");
+int64_t flux_task_cancel(int64_t task_value) {
+    FluxNativeTask *task = flux_native_task_unbox(task_value, "Task.cancel");
+    if (!task) return FLUX_NONE;
+
+    pthread_mutex_lock(&task->mutex);
+    task->cancelled = 1;
+    pthread_mutex_unlock(&task->mutex);
+    return FLUX_NONE;
 }
 
 int64_t flux_async_sleep(int64_t ms) {
@@ -2533,57 +2635,154 @@ static int64_t flux_async_unimplemented(const char *name) {
     return FLUX_NONE;
 }
 
+static int64_t flux_call_thunk0(int64_t action, const char *op) {
+    if (!flux_is_ptr(action) || flux_obj_tag(flux_untag_ptr(action)) != FLUX_OBJ_CLOSURE) {
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s expects a closure", op);
+        if (len < 0) {
+            flux_panic(flux_string_new("async operation expects a closure", 33));
+            return FLUX_NONE;
+        }
+        if (len >= (int)sizeof(buf)) {
+            len = (int)sizeof(buf) - 1;
+        }
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return FLUX_NONE;
+    }
+    return flux_call_closure_c(action, NULL, 0);
+}
+
+static int64_t flux_call_closure1(int64_t action, int64_t arg, const char *op) {
+    if (!flux_is_ptr(action) || flux_obj_tag(flux_untag_ptr(action)) != FLUX_OBJ_CLOSURE) {
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s expects a closure", op);
+        if (len < 0) {
+            flux_panic(flux_string_new("async operation expects a closure", 33));
+            return FLUX_NONE;
+        }
+        if (len >= (int)sizeof(buf)) {
+            len = (int)sizeof(buf) - 1;
+        }
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return FLUX_NONE;
+    }
+    int64_t args[1] = { arg };
+    return flux_call_closure_c(action, args, 1);
+}
+
+static int64_t flux_make_scope_value(int64_t id) {
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = 5; /* Flow.Async.Scope */
+    hdr[1] = 1;
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = id;
+    return flux_tag_ptr(mem);
+}
+
 int64_t flux_async_both(int64_t left, int64_t right) {
-    (void)left;
-    (void)right;
-    return flux_async_unimplemented("Async.both");
+    int64_t left_result = flux_call_thunk0(left, "Async.both");
+    int64_t right_result = flux_call_thunk0(right, "Async.both");
+    int64_t fields[2] = { left_result, right_result };
+    return make_tuple(fields, 2);
 }
 
 int64_t flux_async_race(int64_t left, int64_t right) {
-    (void)left;
     (void)right;
-    return flux_async_unimplemented("Async.race");
+    return flux_call_thunk0(left, "Async.race");
 }
 
 int64_t flux_async_timeout(int64_t ms, int64_t action) {
     (void)ms;
-    (void)action;
-    return flux_async_unimplemented("Async.timeout");
+    return flux_wrap_some(flux_call_thunk0(action, "Async.timeout"));
 }
 
 int64_t flux_async_timeout_result(int64_t ms, int64_t action) {
     (void)ms;
-    (void)action;
-    return flux_async_unimplemented("Async.timeout_result");
+    return flux_make_right(flux_call_thunk0(action, "Async.timeout_result"));
 }
 
 int64_t flux_async_scope(int64_t body) {
-    (void)body;
-    return flux_async_unimplemented("Async.scope");
+    int64_t scope = flux_make_scope_value(flux_tag_int(0));
+    return flux_call_closure1(body, scope, "Async.scope");
 }
 
 int64_t flux_async_fork(int64_t scope, int64_t action) {
     (void)scope;
-    (void)action;
-    return flux_async_unimplemented("Async.fork");
+    (void)flux_call_thunk0(action, "Async.fork");
+    return FLUX_NONE;
 }
 
 int64_t flux_async_try(int64_t body) {
-    (void)body;
-    return flux_async_unimplemented("Async.try");
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    int64_t prev_msg = flux_try_error_msg;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = FLUX_NONE;
+
+    if (setjmp(buf) == 0) {
+        int64_t result = flux_call_thunk0(body, "Async.try");
+        flux_try_jmp = prev;
+        flux_try_error_msg = prev_msg;
+        return flux_make_right(result);
+    }
+
+    int64_t err = flux_try_error_msg;
+    flux_try_jmp = prev;
+    flux_try_error_msg = prev_msg;
+    return flux_make_left(err);
 }
 
 int64_t flux_async_finally(int64_t body, int64_t cleanup) {
-    (void)body;
-    (void)cleanup;
-    return flux_async_unimplemented("Async.finally");
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    int64_t prev_msg = flux_try_error_msg;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = FLUX_NONE;
+
+    if (setjmp(buf) == 0) {
+        int64_t result = flux_call_thunk0(body, "Async.finally");
+        flux_try_jmp = prev;
+        int64_t body_msg = flux_try_error_msg;
+        flux_try_error_msg = prev_msg;
+        (void)body_msg;
+        (void)flux_call_thunk0(cleanup, "Async.finally");
+        return result;
+    }
+
+    int64_t err = flux_try_error_msg;
+    flux_try_jmp = prev;
+    flux_try_error_msg = prev_msg;
+    (void)flux_call_thunk0(cleanup, "Async.finally");
+    flux_panic(err);
+    return FLUX_NONE;
 }
 
 int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body) {
-    (void)acquire;
-    (void)release;
-    (void)body;
-    return flux_async_unimplemented("Async.bracket");
+    int64_t resource = flux_call_thunk0(acquire, "Async.bracket");
+
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    int64_t prev_msg = flux_try_error_msg;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = FLUX_NONE;
+
+    if (setjmp(buf) == 0) {
+        int64_t result = flux_call_closure1(body, resource, "Async.bracket");
+        flux_try_jmp = prev;
+        int64_t body_msg = flux_try_error_msg;
+        flux_try_error_msg = prev_msg;
+        (void)body_msg;
+        (void)flux_call_closure1(release, resource, "Async.bracket");
+        return result;
+    }
+
+    int64_t err = flux_try_error_msg;
+    flux_try_jmp = prev;
+    flux_try_error_msg = prev_msg;
+    (void)flux_call_closure1(release, resource, "Async.bracket");
+    flux_panic(err);
+    return FLUX_NONE;
 }
 
 /* ── Runtime-callable type predicates ──────────────────────────────── */
