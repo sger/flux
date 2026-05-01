@@ -3,12 +3,78 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     diagnostics::position::Span,
     runtime::runtime_type::RuntimeType,
-    syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
+    syntax::{
+        Identifier, builtin_effects as be, effect_expr::EffectExpr, interner::Interner,
+        type_expr::TypeExpr,
+    },
     types::{
         TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
         type_constructor::TypeConstructor, type_subst::TypeSubst,
     },
 };
+
+/// Replace any `EffectExpr::Named { name: "Async" }` with the four-label
+/// expansion `Suspend + Fork + GetContext + AsyncFail`. Other names pass
+/// through unchanged.
+///
+/// This mirrors the canonical `Flow.Effects` alias and the seed in
+/// [`crate::compiler::Compiler::seed_builtin_effect_aliases`]. Normally the
+/// AST-level alias-expansion pass handles this, but module-scoped helper
+/// functions whose parameter types contain `(() -> T with Async)` reach
+/// inference with the unexpanded form. Doing the expansion at the
+/// `TypeExpr → InferType` boundary makes the conversion idempotent for
+/// the builtin alias.
+pub fn expand_async_alias_in_effects(
+    effects: &[EffectExpr],
+    interner: &Interner,
+) -> Vec<EffectExpr> {
+    let async_sym = match interner.lookup(be::ASYNC) {
+        Some(sym) => sym,
+        None => return effects.to_vec(),
+    };
+    effects
+        .iter()
+        .map(|e| expand_async_alias_in_effect(e, async_sym, interner))
+        .collect()
+}
+
+fn expand_async_alias_in_effect(
+    e: &EffectExpr,
+    async_sym: Identifier,
+    interner: &Interner,
+) -> EffectExpr {
+    match e {
+        EffectExpr::Named { name, span } if *name == async_sym => {
+            let suspend = interner.lookup(be::SUSPEND);
+            let fork = interner.lookup(be::FORK);
+            let get_ctx = interner.lookup(be::GET_CONTEXT);
+            let async_fail = interner.lookup(be::ASYNC_FAIL);
+            match (suspend, fork, get_ctx, async_fail) {
+                (Some(s), Some(f), Some(g), Some(a)) => {
+                    let n = |sym| EffectExpr::Named { name: sym, span: *span };
+                    let add = |l, r| EffectExpr::Add {
+                        left: Box::new(l),
+                        right: Box::new(r),
+                        span: *span,
+                    };
+                    add(add(add(n(s), n(f)), n(g)), n(a))
+                }
+                _ => e.clone(),
+            }
+        }
+        EffectExpr::Add { left, right, span } => EffectExpr::Add {
+            left: Box::new(expand_async_alias_in_effect(left, async_sym, interner)),
+            right: Box::new(expand_async_alias_in_effect(right, async_sym, interner)),
+            span: *span,
+        },
+        EffectExpr::Subtract { left, right, span } => EffectExpr::Subtract {
+            left: Box::new(expand_async_alias_in_effect(left, async_sym, interner)),
+            right: Box::new(expand_async_alias_in_effect(right, async_sym, interner)),
+            span: *span,
+        },
+        _ => e.clone(),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeTypeLoweringIssue {
@@ -331,9 +397,21 @@ impl TypeEnv {
                     row_var_env,
                     row_var_counter,
                 )?;
-                let effect_row =
-                    InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
-                        .ok()?;
+                // Defensive: expand the `Async` builtin alias before normalizing.
+                // The AST-level alias-expansion pass should already have handled
+                // this, but unannotated nested function-type slots (e.g. in
+                // module-scoped helpers) sometimes reach inference still
+                // mentioning `Async` directly. Normalizing here keeps the
+                // annotated form `(() -> T with Async)` and the call-site row
+                // (`Suspend, Fork, GetContext, AsyncFail`) referentially equal.
+                let normalized_effects: Vec<EffectExpr> =
+                    expand_async_alias_in_effects(effects, interner);
+                let effect_row = InferEffectRow::from_effect_exprs(
+                    &normalized_effects,
+                    row_var_env,
+                    row_var_counter,
+                )
+                .ok()?;
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }
         }

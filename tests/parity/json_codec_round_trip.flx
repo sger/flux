@@ -1,0 +1,119 @@
+// Manual JSON codec round-trip (proposal 0174 Phase 2).
+//
+// `Flow.JsonCodec` ships ordinary helpers rather than a `JsonEncode` /
+// `JsonDecode` type class because cross-module class dispatch isn't
+// fully wired through the `__tc_*` table yet. This fixture demonstrates
+// that the helper API is sufficient to round-trip a small named-record
+// data type — the shape `deriving (JsonEncode, JsonDecode)` will produce
+// once the deriving pass lands.
+
+import Flow.Json as Json
+import Flow.Json exposing (..)
+import Flow.JsonCodec as Codec
+import Flow.Map as Map
+
+data User {
+    User {
+        name: String,
+        age: Int,
+        active: Bool,
+    }
+}
+
+fn encode_user(u: User) -> Json {
+    let pairs: Map<String, Json> = {
+        "name": Codec.from_string(u.name),
+        "age": Codec.from_int(u.age),
+        "active": Codec.from_bool(u.active),
+    }
+    Codec.from_object(pairs)
+}
+
+fn decode_user(j: Json) -> Either<JsonError, User> {
+    match Codec.to_object(j) {
+        Left(err) -> Left(err),
+        Right(fields) -> decode_user_fields(fields),
+    }
+}
+
+fn decode_user_fields(fields: Map<String, Json>) -> Either<JsonError, User> {
+    match Codec.require_field(fields, "name") {
+        Left(err) -> Left(err),
+        Right(name_v) -> decode_user_name(fields, name_v),
+    }
+}
+
+fn decode_user_name(
+    fields: Map<String, Json>,
+    name_v: Json,
+) -> Either<JsonError, User> {
+    match Codec.to_string_value(name_v) {
+        Left(err) -> Left(err),
+        Right(name) -> decode_user_age(fields, name),
+    }
+}
+
+fn decode_user_age(
+    fields: Map<String, Json>,
+    name: String,
+) -> Either<JsonError, User> {
+    match Codec.require_field(fields, "age") {
+        Left(err) -> Left(err),
+        Right(age_v) -> decode_user_age_value(fields, name, age_v),
+    }
+}
+
+fn decode_user_age_value(
+    fields: Map<String, Json>,
+    name: String,
+    age_v: Json,
+) -> Either<JsonError, User> {
+    match Codec.to_int(age_v) {
+        Left(err) -> Left(err),
+        Right(age) -> decode_user_active(fields, name, age),
+    }
+}
+
+fn decode_user_active(
+    fields: Map<String, Json>,
+    name: String,
+    age: Int,
+) -> Either<JsonError, User> {
+    match Codec.require_field(fields, "active") {
+        Left(err) -> Left(err),
+        Right(active_v) -> decode_user_finalize(name, age, active_v),
+    }
+}
+
+fn decode_user_finalize(
+    name: String,
+    age: Int,
+    active_v: Json,
+) -> Either<JsonError, User> {
+    match Codec.to_bool(active_v) {
+        Left(err) -> Left(err),
+        Right(active) -> Right(User { name: name, age: age, active: active }),
+    }
+}
+
+fn user_to_string(u: User) -> String {
+    "User { name: " + u.name
+        + ", age: " + to_string(u.age)
+        + ", active: " + to_string(u.active)
+        + " }"
+}
+
+fn main() with IO {
+    let alice = User { name: "Alice", age: 30, active: true }
+    let encoded = encode_user(alice)
+    let s = Json.stringify(encoded)
+    print("encoded: " + s)
+
+    match Json.parse(s) {
+        Left(_) -> print("parse: FAIL"),
+        Right(j) -> match decode_user(j) {
+            Left(_) -> print("decode: FAIL"),
+            Right(u) -> print("round-trip: " + user_to_string(u)),
+        },
+    }
+}

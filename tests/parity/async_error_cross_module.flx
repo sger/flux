@@ -1,0 +1,30 @@
+// Cross-module visibility of AsyncError constructors (proposal 0174 Phase 1b
+// follow-up). Verifies that `import Flow.Async exposing (..)` makes every
+// constructor of `AsyncError` resolvable both as a value (construction) and
+// as a pattern (match arm).
+
+import Flow.Async exposing (..)
+
+fn classify(err: AsyncError) -> String {
+    match err {
+        AsyncCancelled -> "cancelled",
+        AsyncTimedOut -> "timed_out",
+        AsyncFailed(msg) -> "failed:" + msg,
+        IoError(_code, _msg, syscall) -> "io:" + syscall,
+        DnsError(_code, _msg, host) -> "dns:" + host,
+        TlsError(_code, _msg) -> "tls",
+        ProtocolError(_code, _msg) -> "protocol",
+        ConnectionClosed -> "closed",
+        InvalidAddress(addr) -> "invalid:" + addr,
+    }
+}
+
+fn main() with IO {
+    print(classify(AsyncCancelled))
+    print(classify(AsyncTimedOut))
+    print(classify(AsyncFailed("boom")))
+    print(classify(IoError(54, "refused", "connect")))
+    print(classify(DnsError(0, "nxdomain", "example.invalid")))
+    print(classify(ConnectionClosed))
+    print(classify(InvalidAddress("not a host")))
+}

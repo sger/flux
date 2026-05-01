@@ -439,6 +439,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                         &module_source_hash,
                         &module_semantic_config_hash,
                         core.as_core(),
+                        Some(&node.program),
                         request.compiler.cached_member_schemes(),
                         &exported_runtime_contracts,
                         &request.compiler.module_function_visibility,

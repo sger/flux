@@ -435,8 +435,12 @@ fn generate_from_statements(
                         .map(|method| method.effects.clone())
                         .unwrap_or_else(|| method_sig.effects.clone());
 
+                    // Always public so that instances declared inside a
+                    // module (e.g. stdlib `module Flow.JsonCodec`) export
+                    // their `__tc_*` mangled functions through the module
+                    // interface for importing modules to link against.
                     let fn_stmt = Statement::Function {
-                        is_public: false,
+                        is_public: true,
                         intrinsic: None,
                         fip: None,
                         name: mangled_sym,

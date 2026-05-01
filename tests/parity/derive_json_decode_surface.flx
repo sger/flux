@@ -1,0 +1,39 @@
+// Proposal 0174 Phase 2: structure-driven `deriving (Decode)` synthesis,
+// invoked through the surface `decode(j)` call.
+//
+// Return-type-driven dispatch: at the call site, the inferrer knows the
+// expected type is `Either<JsonError, User>`, so the dispatcher matches
+// the class method's return-type pattern (`Either<JsonError, a>`) against
+// it and resolves `a = User`, then picks the synthesized `Decode<User>`
+// instance.
+//
+// parity: vm
+// expect: success
+
+import Flow.Json as Json
+import Flow.JsonCodec exposing (..)
+
+data User {
+    User {
+        name: String,
+        age: Int,
+    }
+} deriving (Decode)
+
+fn decode_user(j: Json) -> Either<JsonError, User> {
+    decode(j)
+}
+
+fn print_user(u: User) with IO {
+    print("name=" + u.name + " age=" + to_string(u.age))
+}
+
+fn main() with IO {
+    match Json.parse("{\"name\":\"a\",\"age\":1}") {
+        Right(j) -> match decode_user(j) {
+            Right(u) -> print_user(u),
+            Left(_) -> print("decode failed"),
+        },
+        Left(_) -> print("parse failed"),
+    }
+}

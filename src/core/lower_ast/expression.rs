@@ -160,12 +160,12 @@ impl<'a> super::AstLowerer<'a> {
                 function,
                 arguments,
                 span,
-                ..
+                id: call_id,
             } => {
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
                 // resolve directly to the mangled instance function.
-                if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments) {
+                if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *call_id) {
                     let method_name = match function.as_ref() {
                         Expression::Identifier { name, .. } => *name,
                         Expression::MemberAccess { member, .. } => *member,

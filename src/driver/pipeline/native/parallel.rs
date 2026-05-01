@@ -256,6 +256,7 @@ fn compile_parallel_native_module(
                         &source_hash,
                         &semantic_config_hash,
                         core.as_core(),
+                        Some(&node.program),
                         compiler.cached_member_schemes(),
                         &exported_runtime_contracts,
                         &compiler.module_function_visibility,

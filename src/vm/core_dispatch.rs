@@ -467,6 +467,10 @@ pub fn execute_core_primop(
         AsyncTry => ctx.async_try(args[0].clone()),
         AsyncFinally => ctx.async_finally(args[0].clone(), args[1].clone()),
         AsyncBracket => ctx.async_bracket(args[0].clone(), args[1].clone(), args[2].clone()),
+        ChannelBounded => ctx.channel_bounded(args[0].clone()),
+        ChannelSend => ctx.channel_send(args[0].clone(), args[1].clone()),
+        ChannelRecv => ctx.channel_recv(args[0].clone()),
+        ChannelClose => ctx.channel_close(args[0].clone()),
 
         // ── Control ───────────────────────────────────────────────────
         Unwrap => match &args[0] {

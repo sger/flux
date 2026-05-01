@@ -660,7 +660,11 @@ pub enum CorePrimOp {
     TcpRemoteAddr = 180,
     TcpCloseListener = 181,
     TcpListenerLocalAddr = 182,
-    // ── Next free ID: 183 ─────────────────────────────────────────────
+    ChannelBounded = 183,
+    ChannelSend = 184,
+    ChannelRecv = 185,
+    ChannelClose = 186,
+    // ── Next free ID: 187 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -730,6 +734,10 @@ impl CorePrimOp {
             "TcpRemoteAddr" => return Some(Self::TcpRemoteAddr),
             "TcpCloseListener" => return Some(Self::TcpCloseListener),
             "TcpListenerLocalAddr" => return Some(Self::TcpListenerLocalAddr),
+            "ChannelBounded" => return Some(Self::ChannelBounded),
+            "ChannelSend" => return Some(Self::ChannelSend),
+            "ChannelRecv" => return Some(Self::ChannelRecv),
+            "ChannelClose" => return Some(Self::ChannelClose),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -832,6 +840,10 @@ impl CorePrimOp {
             Self::TcpRemoteAddr => Some("tcp_remote_addr"),
             Self::TcpCloseListener => Some("tcp_close_listener"),
             Self::TcpListenerLocalAddr => Some("tcp_listener_local_addr"),
+            Self::ChannelBounded => Some("channel_bounded"),
+            Self::ChannelSend => Some("channel_send"),
+            Self::ChannelRecv => Some("channel_recv"),
+            Self::ChannelClose => Some("channel_close"),
             _ => None,
         }
     }
@@ -1009,6 +1021,10 @@ impl CorePrimOp {
             180 => TcpRemoteAddr,
             181 => TcpCloseListener,
             182 => TcpListenerLocalAddr,
+            183 => ChannelBounded,
+            184 => ChannelSend,
+            185 => ChannelRecv,
+            186 => ChannelClose,
             _ => return None,
         };
         Some(op)
@@ -1170,6 +1186,10 @@ impl CorePrimOp {
                 1,
                 CorePrimOp::TcpListenerLocalAddr,
             ),
+            ("channel_bounded", 1, CorePrimOp::ChannelBounded),
+            ("channel_send", 2, CorePrimOp::ChannelSend),
+            ("channel_recv", 1, CorePrimOp::ChannelRecv),
+            ("channel_close", 1, CorePrimOp::ChannelClose),
             ("sqrt", 1, CorePrimOp::FSqrt),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
@@ -1199,7 +1219,8 @@ impl CorePrimOp {
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | AsyncSleep | StringToBytes | BytesLength | BytesToString
             | AsyncScope | AsyncTry | TcpAccept | TcpClose | TcpLocalAddr | TcpRemoteAddr
-            | TcpCloseListener | TcpListenerLocalAddr => 1,
+            | TcpCloseListener | TcpListenerLocalAddr | ChannelBounded | ChannelRecv
+            | ChannelClose => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
@@ -1207,7 +1228,7 @@ impl CorePrimOp {
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
             | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | AsyncBoth
             | AsyncRace | AsyncTimeout | AsyncTimeoutResult | AsyncFork | AsyncFinally
-            | TcpListen | TcpConnect | TcpRead | TcpWrite => 2,
+            | TcpListen | TcpConnect | TcpRead | TcpWrite | ChannelSend => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring | BytesSlice
             | AsyncBracket => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate

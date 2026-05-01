@@ -125,9 +125,18 @@ fn build_instance_dictionaries(
             for method_sig in &class_def.methods {
                 let method_str = interner.resolve(method_sig.name).to_string();
                 let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
-                let mangled_sym = match interner.lookup(&mangled_str) {
-                    Some(sym) => sym,
-                    None => continue,
+                // Prefer the qualified `<Module>.__tc_*` form when the
+                // instance lives inside a module — that's where the
+                // bytecode global is bound. Fall back to bare for built-in /
+                // top-level instances.
+                let mangled_sym = instance
+                    .instance_module
+                    .as_identifier()
+                    .and_then(|module_sym| interner.try_resolve(module_sym))
+                    .and_then(|module_str| interner.lookup(&format!("{module_str}.{mangled_str}")))
+                    .or_else(|| interner.lookup(&mangled_str));
+                let Some(mangled_sym) = mangled_sym else {
+                    continue;
                 };
 
                 tuple_fields.push(CoreExpr::external_var(mangled_sym, span));
@@ -202,7 +211,12 @@ fn build_contextual_dictionary_expr(
         .filter_map(|method_sig| {
             let method_str = interner.resolve(method_sig.name).to_string();
             let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
-            let mangled_sym = interner.lookup(&mangled_str)?;
+            let mangled_sym = instance
+                .instance_module
+                .as_identifier()
+                .and_then(|module_sym| interner.try_resolve(module_sym))
+                .and_then(|module_str| interner.lookup(&format!("{module_str}.{mangled_str}")))
+                .or_else(|| interner.lookup(&mangled_str))?;
             Some(build_contextual_dictionary_method_closure(
                 mangled_sym,
                 method_sig.arity,

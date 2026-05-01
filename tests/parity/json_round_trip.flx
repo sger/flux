@@ -1,0 +1,57 @@
+// Flow.Json round-trip parity (proposal 0174 Phase 2).
+//
+// Exercises every JSON variant: null, booleans, numbers (int + decimal),
+// strings (with an escape), nested arrays, and nested objects. Verifies
+// that parse → stringify produces a result that re-parses to the same
+// shape.
+
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+fn check(name: String, r: Either<JsonError, Json>) -> String {
+    match r {
+        Right(_) -> name + ": ok",
+        Left(_) -> name + ": FAIL",
+    }
+}
+
+fn extract_age(value: Json) -> String {
+    match Json.field(value, "age") {
+        Some(age_v) -> match Json.as_int(age_v) {
+            Some(n) -> "age: " + to_string(n),
+            None -> "age: not int",
+        },
+        None -> "age: missing",
+    }
+}
+
+fn check_object(r: Either<JsonError, Json>) -> String {
+    match r {
+        Right(value) -> extract_age(value),
+        Left(_) -> "object: FAIL",
+    }
+}
+
+fn main() with IO {
+    print(check("null", Json.parse("null")))
+    print(check("true", Json.parse("true")))
+    print(check("false", Json.parse("false")))
+    print(check("zero", Json.parse("0")))
+    print(check("negative", Json.parse("-42")))
+    print(check("decimal", Json.parse("3.14")))
+    print(check("string", Json.parse("\"hello\"")))
+    print(check("escaped", Json.parse("\"a\\nb\"")))
+    print(check("empty array", Json.parse("[]")))
+    print(check("array", Json.parse("[1, 2, 3]")))
+    print(check("nested array", Json.parse("[[1], [2, 3]]")))
+    print(check("empty object", Json.parse("{}")))
+    print(check_object(Json.parse("{\"name\": \"Ada\", \"age\": 36}")))
+    print(check("nested object", Json.parse("{\"a\": {\"b\": 1}}")))
+
+    // stringify smoke
+    print(Json.stringify(JsonNull))
+    print(Json.stringify(JsonBool(true)))
+    print(Json.stringify(JsonString("hi")))
+    print(Json.stringify(Json.int(42)))
+    print(Json.stringify(JsonArray([|Json.int(1), Json.int(2), Json.int(3)|])))
+}

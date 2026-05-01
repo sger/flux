@@ -89,6 +89,7 @@ pub fn build_interface(
     source_hash: &[u8; 32],
     semantic_config_hash: &[u8; 32],
     program: &CoreProgram,
+    ast_program: Option<&crate::syntax::program::Program>,
     schemes: &HashMap<(Identifier, Identifier), Scheme>,
     runtime_contracts: &HashMap<(Identifier, Identifier), FunctionContract>,
     visibility: &HashMap<(Identifier, Identifier), bool>,
@@ -110,6 +111,14 @@ pub fn build_interface(
     if let Some(env) = class_env {
         interface.public_classes = collect_public_class_entries(env, module_sym, interner);
         interface.public_instances = collect_public_instance_entries(env, module_sym, interner);
+    }
+
+    // Proposal 0152 follow-up: collect `public data` declarations from
+    // this module's AST so importing modules can resolve cross-module
+    // named-field constructor calls and patterns when this dep is
+    // loaded from a `.flxi` cache hit.
+    if let Some(ast) = ast_program {
+        interface.public_data = collect_public_data_entries(ast, module_sym);
     }
 
     for def in &program.defs {
@@ -148,6 +157,7 @@ pub fn build_interface(
     }
     collect_symbols_from_public_classes(&interface.public_classes, &mut symbols);
     collect_symbols_from_public_instances(&interface.public_instances, &mut symbols);
+    collect_symbols_from_public_data(&interface.public_data, &mut symbols);
     for &sym in &symbols {
         interface
             .symbol_table
@@ -156,6 +166,61 @@ pub fn build_interface(
 
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
     interface
+}
+
+/// Proposal 0152 follow-up: walk the AST for `public data` declarations
+/// owned by `module_sym` and snapshot enough metadata (variants, field
+/// names, field types) for an importing module's HM inference to resolve
+/// named-field constructor calls and patterns. Only recurses into
+/// `Statement::Module` whose name matches `module_sym` to avoid leaking
+/// nested-module ADTs into the wrong owner's interface.
+fn collect_public_data_entries(
+    program: &crate::syntax::program::Program,
+    module_sym: Identifier,
+) -> Vec<crate::types::module_interface::PublicDataEntry> {
+    use crate::syntax::statement::Statement;
+    use crate::types::module_interface::{PublicDataEntry, PublicDataVariantEntry};
+    let mut entries = Vec::new();
+    fn walk(
+        statements: &[Statement],
+        module_sym: Identifier,
+        in_module: bool,
+        entries: &mut Vec<PublicDataEntry>,
+    ) {
+        for stmt in statements {
+            match stmt {
+                Statement::Data {
+                    is_public: true,
+                    name,
+                    type_params,
+                    variants,
+                    ..
+                } if in_module => {
+                    entries.push(PublicDataEntry {
+                        name: *name,
+                        type_params: type_params.clone(),
+                        variants: variants
+                            .iter()
+                            .map(|v| PublicDataVariantEntry {
+                                name: v.name,
+                                fields: v.fields.clone(),
+                                field_names: v.field_names.clone(),
+                            })
+                            .collect(),
+                    });
+                }
+                Statement::Module { name, body, .. } => {
+                    walk(&body.statements, module_sym, *name == module_sym, entries);
+                }
+                _ => {}
+            }
+        }
+    }
+    // Top-level data declarations (no surrounding module wrapper) belong
+    // to the module being emitted.
+    walk(&program.statements, module_sym, true, &mut entries);
+    entries.sort_by_key(|e| e.name.as_u32());
+    entries
 }
 
 /// Proposal 0151, Phase 2: extract every `public class` declared in
@@ -316,6 +381,29 @@ fn collect_symbols_from_public_instances(
     }
 }
 
+fn collect_symbols_from_public_data(
+    entries: &[crate::types::module_interface::PublicDataEntry],
+    out: &mut HashSet<Symbol>,
+) {
+    for entry in entries {
+        out.insert(entry.name);
+        for &type_param in &entry.type_params {
+            out.insert(type_param);
+        }
+        for variant in &entry.variants {
+            out.insert(variant.name);
+            for ty in &variant.fields {
+                collect_symbols_from_type_expr(ty, out);
+            }
+            if let Some(field_names) = &variant.field_names {
+                for &fname in field_names {
+                    out.insert(fname);
+                }
+            }
+        }
+    }
+}
+
 fn collect_symbols_from_class_constraint(
     constraint: &crate::syntax::type_class::ClassConstraint,
     out: &mut HashSet<Symbol>,
@@ -422,12 +510,14 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         exports: &'a [CanonicalExport<'a>],
         public_classes: &'a [PublicClassEntry],
         public_instances: &'a [PublicInstanceEntry],
+        public_data: &'a [crate::types::module_interface::PublicDataEntry],
     }
 
     let canonical = CanonicalInterface {
         exports: &exports,
         public_classes: &interface.public_classes,
         public_instances: &interface.public_instances,
+        public_data: &interface.public_data,
     };
 
     let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
@@ -651,6 +741,7 @@ mod tests {
             &hash,
             &semantic_hash,
             &program,
+            None,
             &schemes,
             &HashMap::new(),
             &visibility,
@@ -717,6 +808,7 @@ mod tests {
             &hash,
             &semantic_hash,
             &program,
+            None,
             &schemes,
             &HashMap::new(),
             &visibility,
@@ -780,6 +872,7 @@ mod tests {
             &hash,
             &semantic_hash,
             &program,
+            None,
             &schemes,
             &HashMap::new(),
             &visibility,

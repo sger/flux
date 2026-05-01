@@ -328,6 +328,64 @@ fn remap_public_instance_entry(
     }
 }
 
+/// Build the HM scheme for an ADT constructor of an imported public `data`
+/// declaration. Used when preloading dependency modules so that constructor
+/// references in the importing module type-check to a concrete ADT type
+/// rather than a fresh type variable.
+///
+/// For `data Foo<a> { Bar(a, Int) }`, the constructor `Bar` gets the scheme
+/// `forall a. (a, Int) -> Foo<a>`. For zero-field variants, the scheme is
+/// just `forall a. Foo<a>`.
+fn build_adt_constructor_scheme(
+    adt_name: Identifier,
+    type_params: &[Identifier],
+    fields: &[TypeExpr],
+    interner: &Interner,
+) -> Scheme {
+    let mut type_param_map: HashMap<Identifier, TypeVarId> = HashMap::new();
+    let mut next_var: TypeVarId = 0;
+    for &name in type_params {
+        type_param_map.insert(name, next_var);
+        next_var += 1;
+    }
+    let mut row_var_env = HashMap::new();
+    let field_tys: Vec<InferType> = fields
+        .iter()
+        .map(|ty| {
+            TypeEnv::convert_type_expr_rec(
+                ty,
+                &type_param_map,
+                interner,
+                &mut row_var_env,
+                &mut next_var,
+            )
+            .unwrap_or_else(|| InferType::Var(0))
+        })
+        .collect();
+    let result_ty = if type_params.is_empty() {
+        InferType::Con(crate::types::type_constructor::TypeConstructor::Adt(adt_name))
+    } else {
+        let args = type_params
+            .iter()
+            .map(|name| InferType::Var(*type_param_map.get(name).expect("registered above")))
+            .collect();
+        InferType::App(
+            crate::types::type_constructor::TypeConstructor::Adt(adt_name),
+            args,
+        )
+    };
+    let body = if field_tys.is_empty() {
+        result_ty
+    } else {
+        InferType::Fun(
+            field_tys,
+            Box::new(result_ty),
+            InferEffectRow::closed_empty(),
+        )
+    };
+    crate::types::scheme::generalize(&body, &HashSet::new())
+}
+
 fn build_public_class_method_scheme(
     class_def: &crate::types::class_env::ClassDef,
     method: &crate::types::class_env::MethodSig,
@@ -563,6 +621,20 @@ fn preload_imported_instance_schemes(
         }
         preloaded_imported_globals.insert(mangled_sym);
         native_symbols.insert(mangled_sym, format!("flux_{module_qualifier}_{mangled}"));
+
+        // Also register the qualified `<Module>.__tc_*` global. Instances
+        // declared inside a module emit their `__tc_*` mangled function at
+        // the qualified bytecode global slot (see `compile_module_statement`),
+        // so the importing module needs the qualified symbol marked as a
+        // preloaded import to link the cross-module global slot.
+        if let Some(instance_module_sym) = instance_def.instance_module.as_identifier() {
+            let qualified_mangled_sym =
+                interner.intern_join(instance_module_sym, mangled_sym);
+            if !symbol_table.exists_in_current_scope(qualified_mangled_sym) {
+                symbol_table.define(qualified_mangled_sym, Span::default());
+            }
+            preloaded_imported_globals.insert(qualified_mangled_sym);
+        }
         let specialized_param_types = method
             .param_types
             .iter()
@@ -1007,6 +1079,13 @@ pub struct Compiler {
     pub(super) next_native_constructor_tag: i32,
     pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
     pub(super) preloaded_adt_variants: HashMap<Symbol, Vec<Symbol>>,
+    /// Cross-module ADT constructor metadata used by HM inference to
+    /// resolve constructor calls and named-field syntax against `data`
+    /// declarations imported from other modules.
+    pub(super) preloaded_adt_constructor_types:
+        HashMap<Symbol, crate::ast::type_infer::AdtConstructorTypeInfo>,
+    /// Type parameters of cross-module ADTs, keyed by ADT name.
+    pub(super) preloaded_adt_type_params: HashMap<Symbol, Vec<Symbol>>,
     pub(super) adt_contract_specs: HashMap<Symbol, AdtContractSpec>,
     pub(crate) preloaded_imported_globals: HashSet<Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
@@ -1106,6 +1185,44 @@ impl Compiler {
         self.current_module_kind == ModuleKind::FlowStdlib
     }
 
+    /// Return `true` when the given `__tc_*` mangled function corresponds to
+    /// an instance whose `instance_module` matches `module_sym`.
+    ///
+    /// Used by `inject_generated_dispatch_functions` to decide whether a
+    /// generated dispatch function should be placed inside the file's module
+    /// block (so it gets exported through the module interface) or kept at
+    /// the file top-level.
+    fn tc_function_belongs_to_module(&self, mangled: Symbol, module_sym: Symbol) -> bool {
+        for instance in &self.class_env.instances {
+            let Some(instance_module) = instance.instance_module.as_identifier() else {
+                continue;
+            };
+            if instance_module != module_sym {
+                continue;
+            }
+            let class_str = self.interner.resolve(instance.class_name).to_string();
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|a| a.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let Some(class_def) = self.class_env.lookup_class(instance.class_name) else {
+                continue;
+            };
+            for method in &class_def.methods {
+                let method_str = self.interner.resolve(method.name).to_string();
+                let candidate = format!("__tc_{class_str}_{type_key}_{method_str}");
+                if let Some(candidate_sym) = self.interner.lookup(&candidate)
+                    && candidate_sym == mangled
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub(super) fn inject_generated_dispatch_functions(
         &self,
         program: &Program,
@@ -1118,46 +1235,84 @@ impl Compiler {
             .count();
 
         if module_count == 1 {
+            // Find the file's enclosing module name. `__tc_*` functions whose
+            // corresponding instance was declared inside this module go inside
+            // the module block (so they're exported through the normal
+            // module-interface path); other `__tc_*` (built-in instances,
+            // top-level user instances) stay at file top level for backward
+            // compatibility with single-file user programs.
+            let enclosing_module = program.statements.iter().find_map(|stmt| match stmt {
+                Statement::Module { name, .. } => Some(*name),
+                _ => None,
+            });
             let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
                 generated.into_iter().partition(|stmt| match stmt {
-                    Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
+                    Statement::Function { name, .. } => {
+                        let resolved = self.sym(*name);
+                        if !resolved.starts_with("__tc_") {
+                            return false;
+                        }
+                        // If the matching instance lives inside the file's
+                        // module, place this `__tc_*` inside the module.
+                        // Otherwise (built-in / no module / different module)
+                        // keep at top-level.
+                        let Some(file_module) = enclosing_module else {
+                            return true;
+                        };
+                        !self.tc_function_belongs_to_module(*name, file_module)
+                    }
                     _ => false,
                 });
-            let statements = program
-                .statements
-                .iter()
-                .cloned()
-                .enumerate()
-                .flat_map(|(idx, stmt)| {
-                    let mut emitted = Vec::new();
-                    if idx == 0 {
-                        emitted.extend(top_level_generated.clone());
+            // Insert top-level generated dispatch functions after the leading
+            // `Statement::Import` block so they can reference imported
+            // modules by qualified name.
+            let mut statements: Vec<Statement> = Vec::new();
+            let mut top_level_generated_owned = top_level_generated.clone();
+            let mut emitted_top_level = false;
+            for stmt in program.statements.iter().cloned() {
+                if !emitted_top_level && !matches!(stmt, Statement::Import { .. }) {
+                    statements.append(&mut top_level_generated_owned);
+                    emitted_top_level = true;
+                }
+                match stmt {
+                    Statement::Module { name, body, span } => {
+                        let mut module_statements = module_generated.clone();
+                        module_statements.extend(body.statements.iter().cloned());
+                        statements.push(Statement::Module {
+                            name,
+                            body: crate::syntax::block::Block {
+                                statements: module_statements,
+                                span: body.span,
+                            },
+                            span,
+                        });
                     }
-                    match stmt {
-                        Statement::Module { name, body, span } => {
-                            let mut module_statements = module_generated.clone();
-                            module_statements.extend(body.statements.iter().cloned());
-                            emitted.push(Statement::Module {
-                                name,
-                                body: crate::syntax::block::Block {
-                                    statements: module_statements,
-                                    span: body.span,
-                                },
-                                span,
-                            });
-                        }
-                        other => emitted.push(other),
-                    }
-                    emitted
-                })
-                .collect();
+                    other => statements.push(other),
+                }
+            }
+            if !emitted_top_level {
+                statements.append(&mut top_level_generated_owned);
+            }
             Program {
                 statements,
                 span: program.span,
             }
         } else {
-            let mut statements = generated;
-            statements.extend(program.statements.iter().cloned());
+            // No top-level `module { ... }` block. Place generated functions
+            // after any leading `Statement::Import` declarations so they can
+            // reference imported modules by qualified name.
+            let mut statements: Vec<Statement> = Vec::new();
+            let mut generated = generated;
+            let mut iter = program.statements.iter().cloned().peekable();
+            while let Some(stmt) = iter.peek() {
+                if matches!(stmt, Statement::Import { .. }) {
+                    statements.push(iter.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            statements.append(&mut generated);
+            statements.extend(iter);
             Program {
                 statements,
                 span: program.span,
@@ -1215,6 +1370,8 @@ impl Compiler {
             next_native_constructor_tag: 5,
             preloaded_ctor_field_names: HashMap::new(),
             preloaded_adt_variants: HashMap::new(),
+            preloaded_adt_constructor_types: HashMap::new(),
+            preloaded_adt_type_params: HashMap::new(),
             adt_contract_specs: HashMap::new(),
             preloaded_imported_globals: HashSet::new(),
             static_type_scopes: vec![HashMap::new()],
@@ -1518,6 +1675,8 @@ impl Compiler {
             preloaded_adt_variants,
             preloaded_effect_ops,
             preloaded_effect_sigs,
+            preloaded_adt_ctor_types,
+            preloaded_adt_tparams,
         ) = match mode {
             LoweringPreparationMode::Fresh => (
                 HashMap::new(),
@@ -1526,6 +1685,8 @@ impl Compiler {
                 HashMap::new(),
                 HashMap::new(),
                 5,
+                HashMap::new(),
+                HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
@@ -1542,6 +1703,8 @@ impl Compiler {
                 self.preloaded_adt_variants.clone(),
                 self.effect_ops_registry.clone(),
                 self.effect_op_signatures.clone(),
+                self.preloaded_adt_constructor_types.clone(),
+                self.preloaded_adt_type_params.clone(),
             ),
         };
 
@@ -1564,6 +1727,8 @@ impl Compiler {
         self.next_native_constructor_tag = preloaded_next_ctor_tag;
         self.preloaded_ctor_field_names = preloaded_ctor_field_names;
         self.preloaded_adt_variants = preloaded_adt_variants;
+        self.preloaded_adt_constructor_types = preloaded_adt_ctor_types;
+        self.preloaded_adt_type_params = preloaded_adt_tparams;
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
         self.effect_ops_registry = preloaded_effect_ops;
@@ -1594,7 +1759,7 @@ impl Compiler {
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
 
-        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .preloaded_imported_globals
                 .iter()
@@ -1871,6 +2036,57 @@ impl Compiler {
             &mut self.preloaded_imported_globals,
             &mut self.interner,
         );
+
+        // Proposal 0152 follow-up: populate `preloaded_adt_constructor_types`
+        // and `preloaded_ctor_field_names` from the cached interface so HM
+        // inference and the named-field desugar pass can resolve cross-module
+        // record constructors / patterns / `.field` access against deps that
+        // hit the `.flxi` cache.
+        for data_entry in &interface.public_data {
+            let adt_name = remap_identifier(data_entry.name, &symbol_remap);
+            let type_params: Vec<Identifier> = data_entry
+                .type_params
+                .iter()
+                .map(|sym| remap_identifier(*sym, &symbol_remap))
+                .collect();
+            let mut adt_variant_names: Vec<Identifier> =
+                Vec::with_capacity(data_entry.variants.len());
+            for variant in &data_entry.variants {
+                let variant_name = remap_identifier(variant.name, &symbol_remap);
+                adt_variant_names.push(variant_name);
+                let fields: Vec<crate::syntax::type_expr::TypeExpr> = variant
+                    .fields
+                    .iter()
+                    .map(|t| remap_type_expr(t, &symbol_remap))
+                    .collect();
+                let field_names: Option<Vec<Identifier>> = variant.field_names.as_ref().map(|ns| {
+                    ns.iter()
+                        .map(|sym| remap_identifier(*sym, &symbol_remap))
+                        .collect()
+                });
+                if let Some(names) = field_names.clone() {
+                    self.preloaded_ctor_field_names
+                        .entry(variant_name)
+                        .or_insert(names);
+                }
+                self.preloaded_adt_constructor_types
+                    .entry(variant_name)
+                    .or_insert_with(|| {
+                        crate::ast::type_infer::AdtConstructorTypeInfo::new(
+                            adt_name,
+                            type_params.clone(),
+                            fields,
+                            field_names,
+                        )
+                    });
+            }
+            self.preloaded_adt_variants
+                .entry(adt_name)
+                .or_insert(adt_variant_names);
+            self.preloaded_adt_type_params
+                .entry(adt_name)
+                .or_insert(type_params);
+        }
     }
 
     pub fn preload_dependency_program(&mut self, program: &Program) {
@@ -1878,9 +2094,27 @@ impl Compiler {
             crate::ast::desugar_named_fields::collect_named_field_metadata(program);
         self.preloaded_ctor_field_names.extend(ctor_field_names);
         self.preloaded_adt_variants.extend(adt_variants);
+        // Cross-module ADT constructor metadata for HM inference
+        // (Proposal 0152 follow-up): without this, importing modules can't
+        // resolve named-field constructors / patterns or `.field` access on
+        // `data` types defined elsewhere.
+        self.collect_imported_adt_constructor_types(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_native_constructor_tags(program);
+        // Proposal 0174 follow-up: register `public data` ADTs from dependency
+        // modules into the local AdtRegistry so cross-module pattern matches
+        // resolve their constructors. Without this, an importing module sees
+        // the ADT type via cached schemes but `lookup_constructor` misses on
+        // the exposed variant names and emits E081.
+        self.preload_imported_adt_constructors(program);
+        // Proposal 0145 follow-up: register `public class` / `public instance`
+        // declarations from dependency modules into `imported_public_classes` /
+        // `imported_public_instances`. Without this, the from-source preload
+        // path misses class/instance metadata that the cached `.flxi` path
+        // would otherwise carry, so cross-module class dispatch fails to
+        // resolve any instance.
+        self.preload_imported_classes_and_instances(program);
         // Proposal 0161 B1: populate alias table before contract collection.
         self.collect_effect_aliases_for_contracts(program);
         self.collect_module_contracts(program);
@@ -1889,6 +2123,55 @@ impl Compiler {
         }
         self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
         self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+    }
+
+    fn preload_imported_classes_and_instances(&mut self, program: &Program) {
+        let mut env = crate::types::class_env::ClassEnv::new();
+        env.register_builtins(&mut self.interner);
+        let _ = env.collect_from_statements(&program.statements, &self.interner);
+        for class_def in env.classes.values() {
+            if !class_def.is_public {
+                continue;
+            }
+            let class_id = class_def.class_id();
+            self.imported_public_classes
+                .entry(class_id)
+                .or_insert_with(|| class_def.clone());
+        }
+        for instance_def in &env.instances {
+            if !instance_def.is_public {
+                continue;
+            }
+            let class_def = match self.imported_public_classes.get(&instance_def.class_id) {
+                Some(def) => def.clone(),
+                None => match env.lookup_class(instance_def.class_name) {
+                    Some(def) => def.clone(),
+                    None => continue,
+                },
+            };
+            let already_present = self.imported_public_instances.iter().any(|existing| {
+                existing.class_id == instance_def.class_id
+                    && existing.type_args.len() == instance_def.type_args.len()
+                    && existing
+                        .type_args
+                        .iter()
+                        .zip(instance_def.type_args.iter())
+                        .all(|(a, b)| a.structural_eq(b))
+            });
+            if already_present {
+                continue;
+            }
+            preload_imported_instance_schemes(
+                &mut self.symbol_table,
+                &mut self.preloaded_imported_globals,
+                &mut self.imported_instance_method_schemes,
+                &mut self.imported_instance_method_native_symbols,
+                instance_def,
+                &class_def,
+                &mut self.interner,
+            );
+            self.imported_public_instances.push(instance_def.clone());
+        }
     }
 
     pub fn build_native_extern_symbols(
@@ -2211,8 +2494,16 @@ impl Compiler {
     }
 
     fn collect_adt_definitions(&mut self, program: &Program) {
+        // Preserve ADTs registered via `preload_imported_adt_constructors` so
+        // cross-module pattern matches still resolve their constructors after
+        // the local-collection reset.
+        let preserved_constructors = self.adt_registry.constructors.clone();
+        let preserved_adts = self.adt_registry.adts.clone();
+        let preserved_field_index = self.field_registry.clone();
         self.adt_registry = AdtRegistry::new();
-        self.field_registry = FieldRegistry::new();
+        self.adt_registry.constructors = preserved_constructors;
+        self.adt_registry.adts = preserved_adts;
+        self.field_registry = preserved_field_index;
         self.adt_contract_specs.clear();
         for statement in &program.statements {
             self.collect_adt_definitions_from_stmt(statement, None);
@@ -2617,6 +2908,111 @@ impl Compiler {
         }
     }
 
+    /// Register `public data` ADTs from a dependency module's program into the
+    /// local AdtRegistry, so cross-module pattern matches resolve to the
+    /// imported variants. Private ADTs are skipped (proposal 0151 visibility).
+    fn preload_imported_adt_constructors(&mut self, program: &Program) {
+        for statement in &program.statements {
+            self.preload_imported_adt_constructors_from_stmt(statement, None);
+        }
+    }
+
+    fn preload_imported_adt_constructors_from_stmt(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
+        match statement {
+            Statement::Data {
+                is_public,
+                name,
+                type_params,
+                variants,
+                ..
+            } if *is_public => {
+                if self.adt_registry.lookup_adt(*name).is_none() {
+                    self.adt_registry
+                        .register_adt(*name, variants, &self.interner);
+                    self.field_registry.register_adt(*name, variants);
+                }
+                // Proposal 0145 follow-up: register HM schemes for each public
+                // ADT constructor so cross-module call sites can resolve to a
+                // concrete type. Without this, `Box(7)` in an importing module
+                // gets a fresh type variable, which prevents `try_resolve_class_call`
+                // from picking the right `__tc_*` instance function.
+                if let Some(module) = module_name {
+                    for variant in variants {
+                        let scheme = build_adt_constructor_scheme(
+                            *name,
+                            type_params,
+                            &variant.fields,
+                            &self.interner,
+                        );
+                        self.cached_member_schemes
+                            .entry((module, variant.name))
+                            .or_insert(scheme);
+                        self.module_function_visibility
+                            .entry((module, variant.name))
+                            .or_insert(true);
+                    }
+                }
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.preload_imported_adt_constructors_from_stmt(nested, Some(*name));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Walk an imported program's `Statement::Data` declarations and record
+    /// each variant's `AdtConstructorTypeInfo` into
+    /// `preloaded_adt_constructor_types`. This is the cross-module twin of
+    /// `predeclare_data_constructors_in_statements` in HM inference: it
+    /// makes `data Foo { Foo { a, b } }` declared in another module visible
+    /// to the importing module's HM phase, which lets named-field syntax
+    /// (`Foo { a: 1, b: "x" }`) and field-access desugaring resolve.
+    fn collect_imported_adt_constructor_types(&mut self, program: &Program) {
+        for stmt in &program.statements {
+            self.collect_imported_adt_constructor_types_from_stmt(stmt);
+        }
+    }
+
+    fn collect_imported_adt_constructor_types_from_stmt(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Data {
+                is_public,
+                name,
+                type_params,
+                variants,
+                ..
+            } if *is_public => {
+                self.preloaded_adt_type_params
+                    .entry(*name)
+                    .or_insert_with(|| type_params.clone());
+                for variant in variants {
+                    self.preloaded_adt_constructor_types
+                        .entry(variant.name)
+                        .or_insert_with(|| {
+                            crate::ast::type_infer::AdtConstructorTypeInfo::new(
+                                *name,
+                                type_params.clone(),
+                                variant.fields.clone(),
+                                variant.field_names.clone(),
+                            )
+                        });
+                }
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_imported_adt_constructor_types_from_stmt(nested);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_native_constructor_tags_from_statement(&mut self, statement: &Statement) {
         match statement {
             Statement::Data { variants, .. } => {
@@ -2968,6 +3364,8 @@ impl Compiler {
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
+            preloaded_adt_constructor_types: self.preloaded_adt_constructor_types.clone(),
+            preloaded_adt_type_params: self.preloaded_adt_type_params.clone(),
         }
     }
 

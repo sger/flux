@@ -121,8 +121,9 @@ pub fn to_runtime_contract_checked(
         return Ok(None);
     }
 
-    let effects = contract
-        .effects
+    let expanded_outer =
+        crate::types::type_env::expand_async_alias_in_effects(&contract.effects, interner);
+    let effects = expanded_outer
         .iter()
         .flat_map(EffectExpr::normalized_names)
         .collect::<Vec<_>>();
@@ -214,7 +215,12 @@ fn convert_type_expr_rec(
                 .map(|param| convert_type_expr_rec(param, env, bindings, active_adts))
                 .collect::<Result<Vec<_>, _>>()?;
             let ret = convert_type_expr_rec(ret, env, bindings, active_adts)?;
-            let mut effect_set = effects
+            // Expand the builtin `Async` alias before normalizing, so callers
+            // and callees see the same fine-grained row regardless of whether
+            // the surface annotation used the alias.
+            let expanded =
+                crate::types::type_env::expand_async_alias_in_effects(effects, env.interner);
+            let mut effect_set = expanded
                 .iter()
                 .flat_map(EffectExpr::normalized_names)
                 .collect::<Vec<_>>();

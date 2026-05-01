@@ -1,0 +1,52 @@
+// parity: vm
+// expect: success
+//
+// Phase 2: exercise Http.serve (multi-connection accept loop).
+// Server handles 2 sequential connections then stops via the `should_stop`
+// callback (consults a counter that flips after handling).
+
+import Flow.Async as A
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn handler(req: Request) -> Response with Async {
+    Http.ok("served:" + req.path)
+}
+
+// 2 sequential clients on the same listener.
+fn run_two_clients(url: String) -> Int with Async {
+    let r1 = Http.get(url)
+    let r2 = Http.get(url)
+    r1.status + r2.status
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let url = "http://127.0.0.1:" + to_string(port) + "/x"
+
+    let pair = A.both(
+        fn() {
+            // Stop after the first should_stop() check that fires *after* two
+            // connections — but `serve` checks before each accept. To keep
+            // this race-free, just call serve_once twice sequentially.
+            Http.serve_once(listener, handler);
+            Http.serve_once(listener, handler)
+        },
+        fn() { run_two_clients(url) }
+    );
+
+    Tcp.close_listener(listener);
+    match pair {
+        (_, total) -> print("total=" + to_string(total)),
+    }
+}

@@ -1,0 +1,35 @@
+// Proposal 0174 Phase 2: structure-driven `deriving (Decode)` synthesis.
+//
+// The compiler synthesizes a `instance Decode<X>` whose body pulls each
+// declared field out of the JSON object via `require_field` + the matching
+// `to_*` helper, threading `Either<JsonError, _>` through a nested-match
+// cascade that short-circuits on the first `Left`.
+//
+// V1 LIMITATION: surface `decode(j)` calls cannot resolve to the synthesized
+// instance because class dispatch keys on the *first argument's* concrete
+// type, and `Decode.decode` always takes `Json` — return-type-driven
+// dispatch is the missing piece. Until that lands, callers invoke the
+// mangled `__tc_Decode_<T>_decode` directly. This fixture validates that
+// the synthesized body is correct end-to-end.
+//
+// parity: vm
+// expect: success
+import Flow.Json as Json
+import Flow.JsonCodec exposing (..)
+
+data User {
+    User {
+        name: String,
+        age: Int,
+    }
+} deriving (Decode)
+
+fn main() with IO {
+    match Json.parse("{\"name\":\"a\",\"age\":1}") {
+        Right(j) -> match __tc_Decode_User_decode(j) {
+            Right(u) -> print(u.name),
+            Left(_) -> print("decode failed"),
+        },
+        Left(_) -> print("parse failed"),
+    }
+}

@@ -1,0 +1,25 @@
+// Proposal 0145 follow-up: a class declared inside a stdlib module
+// (`module Flow.JsonCodec { public class Encode<a> { ... } public instance
+// Encode<Int> { ... } }`) must dispatch correctly to its `__tc_*` mangled
+// instance functions when called from a user file.
+//
+// Before this fix, Phase 1b dispatch generation was gated off for stdlib
+// files, and even with the gate removed the generated `__tc_*` were
+// hoisted to file top-level (outside `module Flow.JsonCodec`), which left
+// them outside the module export interface so importing modules saw a
+// bare-name symbol but never linked to the live global slot, surfacing as
+// `E1001 Not A Function`.
+//
+// parity: vm, llvm
+// expect: success
+
+import Flow.Json as Json
+import Flow.JsonCodec as Codec
+import Flow.JsonCodec exposing (..)
+
+fn main() with IO {
+    print(Json.stringify(encode(42)))
+    print(Json.stringify(encode("hi")))
+    print(Json.stringify(encode(true)))
+    print(Json.stringify(Codec.encode(99)))
+}

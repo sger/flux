@@ -78,8 +78,12 @@ impl Compiler {
         // positional equivalents so every downstream phase (AST-fallback
         // bytecode, Core lowering, LLVM) sees only classic AST forms.
         {
-            let (ctor_field_names, adt_variants) =
+            let (local_ctor_field_names, local_adt_variants) =
                 collect_named_field_metadata(final_program.as_ref());
+            let mut ctor_field_names = self.preloaded_ctor_field_names.clone();
+            ctor_field_names.extend(local_ctor_field_names);
+            let mut adt_variants = self.preloaded_adt_variants.clone();
+            adt_variants.extend(local_adt_variants);
             let mut ctx = NamedFieldDesugarCtx {
                 ctor_field_names: &ctor_field_names,
                 adt_variants: &adt_variants,

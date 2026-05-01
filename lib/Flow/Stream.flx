@@ -1,0 +1,161 @@
+// Flow.Stream — pull-based async streams (proposal 0174 Phase 2).
+//
+// A `Stream<a>` is a lazy cons-list whose tail is gated behind an
+// `Async` thunk: each pull yields one item and a continuation, or
+// terminates. This is the same shape Lean 4 uses for its async
+// streams; OCaml/Eio uses interior-mutable thunks instead. Flux
+// chooses the lazy-list shape because it is pure functional and
+// does not require first-class references.
+
+import Flow.Array as Array
+
+module Flow.Stream {
+
+    public data Stream<a> {
+        StreamEnd,
+        StreamYield(a, (() -> Stream<a> with Async)),
+    }
+
+    // ── Sources ──────────────────────────────────────────────────────
+
+    public fn empty<a>() -> Stream<a> {
+        StreamEnd
+    }
+
+    public fn once<a>(value: a) -> Stream<a> {
+        StreamYield(value, fn() { StreamEnd })
+    }
+
+    public fn from_array<a>(items: Array<a>) -> Stream<a> {
+        from_array_at(items, 0)
+    }
+
+    fn from_array_at<a>(items: Array<a>, idx: Int) -> Stream<a> {
+        if idx >= Array.length(items) {
+            StreamEnd
+        } else {
+            from_array_yield(items, idx, items[idx])
+        }
+    }
+
+    fn from_array_yield<a>(items: Array<a>, idx: Int, head: Option<a>) -> Stream<a> {
+        match head {
+            None -> StreamEnd,
+            Some(v) -> StreamYield(v, fn() { from_array_at(items, idx + 1) }),
+        }
+    }
+
+    public fn range(start: Int, stop: Int) -> Stream<Int> {
+        if start >= stop {
+            StreamEnd
+        } else {
+            StreamYield(start, fn() { range(start + 1, stop) })
+        }
+    }
+
+    // ── Transformers ─────────────────────────────────────────────────
+
+    public fn map<a, b>(s: Stream<a>, f: (a) -> b) -> Stream<b> {
+        match s {
+            StreamEnd -> StreamEnd,
+            StreamYield(x, tail) -> map_step(x, tail, f),
+        }
+    }
+
+    fn map_step<a, b>(x: a, tail: (() -> Stream<a> with Async), f: (a) -> b) -> Stream<b> {
+        StreamYield(f(x), fn() { map(tail(), f) })
+    }
+
+    // ── Filtering ────────────────────────────────────────────────────
+    //
+    // Filter is currently consume-time: callers fold or to_array with a
+    // predicate-aware accumulator. A `filter` combinator that returns a
+    // lazy `Stream<a>` is deferred until lambda effect-row propagation
+    // is friendlier; the practical workloads in scope (fold, take,
+    // map+sum) are unaffected.
+
+    public fn take<a>(s: Stream<a>, n: Int) -> Stream<a> {
+        if n <= 0 {
+            StreamEnd
+        } else {
+            take_match(s, n)
+        }
+    }
+
+    fn take_match<a>(s: Stream<a>, n: Int) -> Stream<a> {
+        match s {
+            StreamEnd -> StreamEnd,
+            StreamYield(x, tail) -> StreamYield(x, fn() { take(tail(), n - 1) }),
+        }
+    }
+
+    public fn drop<a>(s: Stream<a>, n: Int) -> Stream<a> with Async {
+        if n <= 0 {
+            s
+        } else {
+            drop_match(s, n)
+        }
+    }
+
+    fn drop_match<a>(s: Stream<a>, n: Int) -> Stream<a> with Async {
+        match s {
+            StreamEnd -> StreamEnd,
+            StreamYield(_, tail) -> drop(tail(), n - 1),
+        }
+    }
+
+    public fn concat<a>(s: Stream<a>, t: Stream<a>) -> Stream<a> {
+        match s {
+            StreamEnd -> t,
+            StreamYield(x, tail) -> StreamYield(x, fn() { concat(tail(), t) }),
+        }
+    }
+
+    // ── Sinks ────────────────────────────────────────────────────────
+
+    public fn fold<a, b>(s: Stream<a>, init: b, f: (b, a) -> b) -> b with Async {
+        match s {
+            StreamEnd -> init,
+            StreamYield(x, tail) -> fold(tail(), f(init, x), f),
+        }
+    }
+
+    public fn to_array<a>(s: Stream<a>) -> Array<a> with Async {
+        to_array_acc(s, [||])
+    }
+
+    fn to_array_acc<a>(s: Stream<a>, acc: Array<a>) -> Array<a> with Async {
+        match s {
+            StreamEnd -> acc,
+            StreamYield(x, tail) -> to_array_acc(tail(), Array.push(acc, x)),
+        }
+    }
+
+    public fn count<a>(s: Stream<a>) -> Int with Async {
+        count_acc(s, 0)
+    }
+
+    fn count_acc<a>(s: Stream<a>, acc: Int) -> Int with Async {
+        match s {
+            StreamEnd -> acc,
+            StreamYield(_, tail) -> count_acc(tail(), acc + 1),
+        }
+    }
+
+    // ── Inspection ──────────────────────────────────────────────────
+
+    public fn next<a>(s: Stream<a>) -> Option<a> {
+        match s {
+            StreamEnd -> None,
+            StreamYield(x, _) -> Some(x),
+        }
+    }
+
+    public fn is_empty<a>(s: Stream<a>) -> Bool {
+        match s {
+            StreamEnd -> true,
+            StreamYield(_, _) -> false,
+        }
+    }
+
+}

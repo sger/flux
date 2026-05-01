@@ -131,6 +131,23 @@ pub struct VM {
     async_next_scope_id: i64,
     async_scopes: HashMap<i64, Vec<TaskHandle<Result<SendValue, String>>>>,
     async_cancel_token: Option<TaskCancelToken>,
+    /// Per-VM channel registry (proposal 0174 Phase 1b). Channels are
+    /// VM-local for now; cross-Task delivery promotes to a process-wide
+    /// registry once the fiber loop lands.
+    channel_registry: VmChannelRegistry,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct VmChannelRegistry {
+    pub(crate) next_id: i64,
+    pub(crate) channels: HashMap<i64, VmChannelRecord>,
+}
+
+#[derive(Debug)]
+pub(crate) struct VmChannelRecord {
+    pub(crate) sender: Option<std::sync::mpsc::SyncSender<SendValue>>,
+    pub(crate) receiver: std::sync::mpsc::Receiver<SendValue>,
+    pub(crate) closed: bool,
 }
 
 #[derive(Debug, Default)]
@@ -227,6 +244,7 @@ impl VM {
             async_next_scope_id: 1,
             async_scopes: HashMap::new(),
             async_cancel_token: None,
+            channel_registry: VmChannelRegistry::default(),
         }
     }
 
@@ -267,6 +285,7 @@ impl VM {
             async_next_scope_id: 1,
             async_scopes: HashMap::new(),
             async_cancel_token: None,
+            channel_registry: VmChannelRegistry::default(),
         }
     }
 
@@ -301,6 +320,30 @@ impl VM {
     #[cfg(not(feature = "async-mio"))]
     fn new_async_backend() -> VmAsyncBackend {
         VmAsyncBackend::new()
+    }
+
+    pub(crate) fn make_channel_value(channel_id: i64) -> Value {
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("Channel".to_string()),
+            fields: AdtFields::One(Value::Integer(channel_id)),
+        }))
+    }
+
+    pub(crate) fn channel_id_from_value(channel: &Value) -> Result<i64, String> {
+        match channel {
+            Value::Adt(adt) if adt.constructor.as_ref() == "Channel" => match adt.fields.get(0) {
+                Some(Value::Integer(id)) => Ok(*id),
+                Some(other) => Err(format!(
+                    "Channel handle id must be Int, got {}",
+                    other.type_name()
+                )),
+                None => Err("Channel handle is missing id field".to_string()),
+            },
+            other => Err(format!(
+                "expected Channel handle, got {}",
+                other.type_name()
+            )),
+        }
     }
 
     fn task_id_from_value(task: &Value) -> Result<i64, String> {

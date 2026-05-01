@@ -1,0 +1,47 @@
+// parity: vm
+// expect: success
+//
+// Phase 2: exercise Http.serve end-to-end. The server side runs an
+// accept loop bounded by `should_stop` (one connection then stop).
+// The client side issues a Http.get against the loopback listener.
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn handler(req: Request) -> Response with Async {
+    Http.ok("served:" + req.path)
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let url = "http://127.0.0.1:" + to_string(port) + "/hello"
+
+    let pair = A.both(
+        fn() {
+            // Server: handle one request, then stop.
+            Http.serve_once(listener, handler)
+        },
+        fn() {
+            let response = Http.get(url)
+            response.status
+        }
+    );
+
+    Tcp.close_listener(listener);
+    match pair {
+        (_, status) -> print("status=" + to_string(status)),
+    }
+}

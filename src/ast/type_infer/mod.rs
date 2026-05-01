@@ -64,13 +64,33 @@ pub use display::{display_infer_type, render_scheme_canonical};
 // ── ADT metadata ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-struct AdtConstructorTypeInfo {
-    adt_name: Identifier,
-    type_params: Vec<Identifier>,
-    fields: Vec<TypeExpr>,
+pub struct AdtConstructorTypeInfo {
+    pub(crate) adt_name: Identifier,
+    pub(crate) type_params: Vec<Identifier>,
+    pub(crate) fields: Vec<TypeExpr>,
     /// Field names for named-field variants (Proposal 0152).
     /// `None` for positional variants. When `Some`, length matches `fields`.
-    field_names: Option<Vec<Identifier>>,
+    pub(crate) field_names: Option<Vec<Identifier>>,
+}
+
+impl AdtConstructorTypeInfo {
+    /// Build from raw ADT metadata. Used by the compiler when preloading
+    /// imported (cross-module) ADT constructors so the inference pass
+    /// can resolve constructor calls and named-field syntax against
+    /// `data` declarations that live in another module.
+    pub fn new(
+        adt_name: Identifier,
+        type_params: Vec<Identifier>,
+        fields: Vec<TypeExpr>,
+        field_names: Option<Vec<Identifier>>,
+    ) -> Self {
+        Self {
+            adt_name,
+            type_params,
+            fields,
+            field_names,
+        }
+    }
 }
 
 // ── Diagnostic context ───────────────────────────────────────────────────────
@@ -245,6 +265,8 @@ impl<'a> InferCtx<'a> {
             flow_module_symbol,
             preloaded_effect_op_signatures,
             effect_row_aliases,
+            preloaded_adt_constructor_types,
+            preloaded_adt_type_params,
         } = config;
         let mut env = TypeEnv::new();
         advance_counter_past_preloaded_schemes(
@@ -267,8 +289,8 @@ impl<'a> InferCtx<'a> {
             binding_schemes_by_span: HashMap::new(),
             known_flow_names,
             flow_module_symbol,
-            adt_constructor_types: HashMap::new(),
-            adt_type_params: HashMap::new(),
+            adt_constructor_types: preloaded_adt_constructor_types,
+            adt_type_params: preloaded_adt_type_params,
             effect_op_signatures: preloaded_effect_op_signatures,
             effect_row_aliases,
             ambient_effect_rows: Vec::new(),
@@ -472,6 +494,8 @@ struct InferCtxConfig {
     flow_module_symbol: Identifier,
     preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
     effect_row_aliases: HashMap<Identifier, EffectExpr>,
+    preloaded_adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
+    preloaded_adt_type_params: HashMap<Identifier, Vec<Identifier>>,
 }
 
 pub use display::suggest_type_name;
@@ -503,6 +527,12 @@ pub struct InferProgramConfig {
     pub effect_row_aliases: HashMap<Identifier, EffectExpr>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
+    /// Constructor metadata for ADTs declared in *imported* modules.
+    /// Used to seed `adt_constructor_types` so cross-module constructor
+    /// calls (`Foo { a: 1, b: "x" }` for an imported `Foo`) resolve.
+    pub preloaded_adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
+    /// Type parameters keyed by ADT name, for imported ADTs.
+    pub preloaded_adt_type_params: HashMap<Identifier, Vec<Identifier>>,
 }
 
 /// Run Algorithm W (Hindley-Milner) over the entire program.
@@ -546,6 +576,8 @@ pub fn infer_program(
             flow_module_symbol: config.flow_module_symbol,
             preloaded_effect_op_signatures: config.preloaded_effect_op_signatures,
             effect_row_aliases: config.effect_row_aliases,
+            preloaded_adt_constructor_types: config.preloaded_adt_constructor_types,
+            preloaded_adt_type_params: config.preloaded_adt_type_params,
         },
     );
     init_class_env(&mut ctx, config.class_env, interner);

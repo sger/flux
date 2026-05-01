@@ -316,6 +316,7 @@ impl<'a> AstLowerer<'a> {
         &self,
         name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
     ) -> Option<Identifier> {
         let class_env = self.class_env?;
         let interner = self.interner?;
@@ -323,14 +324,35 @@ impl<'a> AstLowerer<'a> {
         // Check if this name is a class method.
         let (class_name, _class_def) = class_env.method_to_class(name)?;
 
-        // Try compile-time resolution: if the first argument's type is concrete,
-        // find the matching instance and build the mangled name from all of
-        // the instance's type args (supporting multi-param classes).
-        if let Some(first_arg) = arguments.first()
-            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _concrete_type_args)) = class_env
-                .resolve_method_call_instance_from_first_arg(class_name, first_arg_type, interner)
-        {
+        // First-argument-driven resolution: if the first argument's type is
+        // concrete, find the matching instance and build the mangled name
+        // from all of the instance's type args (supporting multi-param
+        // classes).
+        let resolved_instance = arguments
+            .first()
+            .and_then(|first_arg| self.hm_expr_types.get(&first_arg.expr_id()))
+            .and_then(|first_arg_type| {
+                class_env.resolve_method_call_instance_from_first_arg(
+                    class_name,
+                    first_arg_type,
+                    interner,
+                )
+            })
+            .or_else(|| {
+                // Return-type-driven resolution: when the first-argument type
+                // can't disambiguate (e.g. `Decode.decode(j: Json) -> Either<JsonError, a>`
+                // always takes `Json` as arg 0), fall back to the call's own
+                // resolved HM type.
+                let call_return_type = self.hm_expr_types.get(&call_id)?;
+                class_env.resolve_method_call_instance_from_return_type(
+                    class_name,
+                    name,
+                    call_return_type,
+                    interner,
+                )
+            });
+
+        if let Some((instance, _concrete_type_args)) = resolved_instance {
             // Build mangled name from the instance head exactly as dispatch
             // generation does. This preserves higher-kinded heads such as
             // `Functor<List>` while still allowing first-argument instance
@@ -344,6 +366,21 @@ impl<'a> AstLowerer<'a> {
             let class_str = interner.resolve(class_name);
             let method_str = interner.resolve(name);
             let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            // When the instance was declared inside a module (stdlib classes
+            // such as `Flow.JsonCodec.Encode`), the `__tc_*` global lives at
+            // `<Module>.__tc_*` because module-scoped functions get the
+            // qualified bytecode global slot. Try the qualified form first
+            // so cross-module dispatch reaches the live global, and fall
+            // back to the bare form for built-in instances and user
+            // top-level instances.
+            if let Some(module_sym) = instance.instance_module.as_identifier()
+                && let Some(module_str) = interner.try_resolve(module_sym)
+            {
+                let qualified = format!("{module_str}.{mangled}");
+                if let Some(sym) = interner.lookup(&qualified) {
+                    return Some(sym);
+                }
+            }
             if let Some(sym) = interner.lookup(&mangled) {
                 return Some(sym);
             }
@@ -358,17 +395,18 @@ impl<'a> AstLowerer<'a> {
         &self,
         function: &crate::syntax::expression::Expression,
         arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
     ) -> Option<Identifier> {
         match function {
             crate::syntax::expression::Expression::Identifier { name, .. } => {
-                self.try_resolve_class_call(*name, arguments)
+                self.try_resolve_class_call(*name, arguments, call_id)
             }
             crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
                 let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
                 else {
                     return None;
                 };
-                self.try_resolve_class_call(*member, arguments)
+                self.try_resolve_class_call(*member, arguments, call_id)
             }
             _ => None,
         }

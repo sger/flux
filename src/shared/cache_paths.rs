@@ -32,7 +32,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 11: Bytes runtime constants and bytecode-cache object tag.
 /// Epoch 12: module interfaces preserve generic type-parameter class constraints
 /// such as `Task.spawn<a: Sendable>`.
-pub const CACHE_EPOCH: u16 = 12;
+/// Epoch 13: module interfaces carry `public_data` ADT entries so importing
+/// modules can resolve cross-module named-field constructors / patterns
+/// against deps loaded from a `.flxi` cache hit (Proposal 0152 follow-up).
+pub const CACHE_EPOCH: u16 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

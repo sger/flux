@@ -1,0 +1,113 @@
+// parity: vm
+// expect: success
+//
+// Phase 2 HTTP polish: server-side keep-alive.
+//
+// Server uses `Http.serve_keep_alive(listener, handler, 2)` which
+// processes up to 2 requests on a single connection before closing.
+// Client side is hand-rolled over `Tcp`: it connects once, writes two
+// HTTP/1.1 requests pipelined back-to-back, then reads the combined
+// response stream.
+//
+// Validates:
+//   1. The first response carries `Connection: keep-alive`.
+//   2. The second response carries `Connection: close` (the loop's
+//      last iteration signals the client that this is the final one).
+//   3. Both responses round-trip a 200 with the expected bodies.
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn handler(req: Request) -> Response with Async {
+    Http.ok("served:" + req.path)
+}
+
+// Read everything until peer closes. Server will close after the second
+// response, signalled by `Connection: close` in the headers.
+fn drain_socket(conn) -> String with Async {
+    drain_loop(conn, "")
+}
+
+fn drain_loop(conn, acc: String) -> String with Async {
+    let chunk = Tcp.read(conn, 4096)
+    let chunk_text = Bytes.to_string(chunk)
+    if len(chunk_text) == 0 {
+        acc
+    } else {
+        drain_loop(conn, acc + chunk_text)
+    }
+}
+
+fn count_substring(haystack: String, needle: String) -> Int {
+    count_substring_loop(haystack, needle, 0, len(haystack), len(needle), 0)
+}
+
+fn count_substring_loop(
+    haystack: String,
+    needle: String,
+    i: Int,
+    h_len: Int,
+    n_len: Int,
+    acc: Int,
+) -> Int {
+    if n_len == 0 || i + n_len > h_len {
+        acc
+    } else if String.string_slice(haystack, i, i + n_len) == needle {
+        count_substring_loop(haystack, needle, i + n_len, h_len, n_len, acc + 1)
+    } else {
+        count_substring_loop(haystack, needle, i + 1, h_len, n_len, acc)
+    }
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+
+    let pair = A.both(
+        fn() {
+            // Server: keep-alive for up to 2 requests.
+            Http.serve_keep_alive(listener, handler, 2)
+        },
+        fn() {
+            // Client: hand-roll two requests on a single connection.
+            let conn = Tcp.connect("127.0.0.1", port)
+            let req1 =
+                "GET /one HTTP/1.1\r\n" +
+                "Host: 127.0.0.1\r\n" +
+                "\r\n"
+            let req2 =
+                "GET /two HTTP/1.1\r\n" +
+                "Host: 127.0.0.1\r\n" +
+                "Connection: close\r\n" +
+                "\r\n"
+            let _ = Tcp.write(conn, String.to_bytes(req1 + req2))
+            let raw = drain_socket(conn)
+            Tcp.close(conn);
+            // Expect two `200 OK` status lines and one `Connection: close`
+            // (on the second response). First response carries keep-alive.
+            let ok_count = count_substring(raw, "200 OK")
+            let close_count = count_substring(raw, "Connection: close")
+            let keep_count = count_substring(raw, "Connection: keep-alive")
+            "ok=" + to_string(ok_count) +
+                " keep=" + to_string(keep_count) +
+                " close=" + to_string(close_count)
+        }
+    );
+
+    Tcp.close_listener(listener);
+    match pair {
+        (handled, summary) -> print("handled=" + to_string(handled) + " " + summary),
+    }
+}

@@ -564,7 +564,10 @@ fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
 }
 
 fn is_synthetic_typeclass_support(func: &LirFunction) -> bool {
-    func.qualified_name.starts_with("__dict_") || func.qualified_name.starts_with("__tc_")
+    func.qualified_name.starts_with("__dict_")
+        || func.qualified_name.starts_with("__tc_")
+        || func.qualified_name.contains(".__tc_")
+        || func.qualified_name.contains(".__dict_")
 }
 
 // ── Worker/Wrapper eligibility (Proposal 0140 Phase 10) ────────────────────

@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::ast::derive_codec::derive_codec_instances_in_program;
 use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
 use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
@@ -40,7 +41,15 @@ impl Compiler {
             &self.user_declared_effect_names,
         );
         self.routed_call_perform_ids = routing.routed_call_perform_ids;
-        let routed_program = routing.program;
+        let mut routed_program = routing.program;
+
+        // Phase 0c (Proposal 0174 Phase 2): synthesize `Encode` / `Decode`
+        // instances for every `data X { ... } deriving (...)` clause that
+        // mentions the codec classes. Runs before Phase 1 collection so
+        // class/instance registration sees the generated `Statement::Instance`
+        // alongside hand-written ones.
+        derive_codec_instances_in_program(&mut routed_program, &mut self.interner);
+
         let program = &routed_program;
 
         // Phase 1: Collect definitions + validate structure
@@ -50,7 +59,7 @@ impl Compiler {
         // This injects mangled instance methods + dispatch functions into the
         // program AST so they compile through the normal pipeline.
         let class_augmented;
-        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        let program = if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .symbol_table
                 .all_symbol_names()

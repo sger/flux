@@ -533,6 +533,25 @@ impl Compiler {
                     // Unqualified access to an exposed module member.
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
+                    } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                        // Zero-arg ADT constructor exposed via `import M exposing (..)`.
+                        // The exposed name has no associated function symbol, so fall
+                        // through to the constructor-as-value path used inside modules.
+                        if info.arity != 0 {
+                            let name_str = self.interner.resolve(name).to_string();
+                            return Err(Self::boxed(
+                                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Constructor `{}` expects {} argument(s) but got 0.",
+                                        name_str, info.arity
+                                    )),
+                            ));
+                        }
+                        let constructor_name = self.interner.resolve(name).to_string();
+                        let const_idx =
+                            self.add_constant(Value::String(Rc::new(constructor_name.clone())));
+                        self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
@@ -4385,6 +4404,18 @@ impl Compiler {
             let class_str = self.interner.resolve(class_name);
             let method_str = self.interner.resolve(name);
             let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+            // Prefer the qualified form (`<Module>.__tc_*`) when the
+            // instance lives inside a module — that's where the bytecode
+            // global is bound. Fall back to bare for built-in / top-level
+            // instances.
+            if let Some(module_sym) = instance.instance_module.as_identifier()
+                && let Some(module_str) = self.interner.try_resolve(module_sym)
+            {
+                let qualified = format!("{module_str}.{mangled}");
+                if let Some(sym) = self.interner.lookup(&qualified) {
+                    return Some(sym);
+                }
+            }
             if let Some(sym) = self.interner.lookup(&mangled) {
                 return Some(sym);
             }

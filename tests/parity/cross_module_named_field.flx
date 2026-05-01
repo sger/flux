@@ -1,0 +1,29 @@
+// Cross-module named-field constructor + pattern + field access.
+//
+// Validates the fix for the gap where `Foo { a: 1, b: "x" }` from an
+// importing module raised E082, named-field patterns raised E085, and
+// `f.a` field access fell back to OpIndex with E1009 at runtime.
+//
+// Uses Flow.Http's `Response` ADT (defined in `module Flow.Http`) from
+// the importing program. Constructs via the named-field syntax,
+// destructures via a named-field pattern, and projects fields directly.
+//
+// parity: vm
+// expect: success
+
+import Flow.Http as Http
+import Flow.Http exposing (Response)
+import Flow.Map as Map
+
+fn describe(r: Response) -> String {
+    match r {
+        Response { status, headers: _, body } -> to_string(status) + ":" + body,
+    }
+}
+
+fn main() with IO {
+    let headers: Map<String, String> = {}
+    let r = Response { status: 201, headers: headers, body: "hello" }
+    print(describe(r));
+    print(to_string(r.status) + "/" + r.body)
+}

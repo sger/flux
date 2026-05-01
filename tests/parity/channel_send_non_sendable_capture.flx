@@ -1,0 +1,13 @@
+// Proposal 0174 Phase 1b: Channel.send must reject closures whose captures
+// are not Sendable. Mirrors task_spawn_non_sendable_capture but for the
+// channel boundary.
+// parity: vm, llvm
+// expect: compile_error
+
+import Flow.Channel as Channel
+
+fn main() with IO, Async {
+    let ch = Channel.bounded(2)
+    let captured = fn() { 41 }
+    Channel.send(ch, fn() { captured() + 1 });
+}

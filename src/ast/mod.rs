@@ -1,5 +1,6 @@
 pub mod complexity;
 pub mod constant_fold;
+pub mod derive_codec;
 pub mod desugar;
 pub mod desugar_named_fields;
 pub mod expand_effect_aliases;

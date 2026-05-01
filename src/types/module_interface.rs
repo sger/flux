@@ -97,6 +97,34 @@ pub struct PublicInstanceEntry {
     pub pinned_row_placeholder: Option<String>,
 }
 
+/// Proposal 0152 follow-up (cross-module named-field support): a
+/// `public data` ADT variant recorded in a module interface. Captures
+/// the metadata HM inference needs to resolve named-field constructor
+/// calls and patterns against ADTs imported from another module.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicDataVariantEntry {
+    /// Variant constructor name (e.g. `Foo` for `data Bar { Foo { ... } }`).
+    pub name: Identifier,
+    /// Field types in declaration order.
+    #[serde(default)]
+    pub fields: Vec<TypeExpr>,
+    /// Field names for named-field variants. `None` for positional.
+    #[serde(default)]
+    pub field_names: Option<Vec<Identifier>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicDataEntry {
+    /// ADT type name (e.g. `Bar`).
+    pub name: Identifier,
+    /// ADT type parameters in declaration order.
+    #[serde(default)]
+    pub type_params: Vec<Identifier>,
+    /// Variant entries.
+    #[serde(default)]
+    pub variants: Vec<PublicDataVariantEntry>,
+}
+
 /// Serializable compiled interface for a Flux module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleInterface {
@@ -157,6 +185,13 @@ pub struct ModuleInterface {
     /// by `(class_module, class_name, head_type_repr)`.
     #[serde(default)]
     pub public_instances: Vec<PublicInstanceEntry>,
+    /// Proposal 0152 follow-up: `public data` ADT entries owned by this
+    /// module. Each entry captures the type parameters and variants
+    /// (including field names for named-field records) so importing
+    /// modules can resolve cross-module named-field constructor calls
+    /// and patterns when this dep is loaded from a `.flxi` cache hit.
+    #[serde(default)]
+    pub public_data: Vec<PublicDataEntry>,
 }
 
 /// Sub-reason for a dependency fingerprint cache miss.
@@ -228,6 +263,7 @@ impl ModuleInterface {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            public_data: Vec::new(),
         }
     }
 }

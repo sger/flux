@@ -117,6 +117,10 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::TcpRemoteAddr => "tcp_remote_addr",
         CorePrimOp::TcpCloseListener => "tcp_close_listener",
         CorePrimOp::TcpListenerLocalAddr => "tcp_listener_local_addr",
+        CorePrimOp::ChannelBounded => "channel_bounded",
+        CorePrimOp::ChannelSend => "channel_send",
+        CorePrimOp::ChannelRecv => "channel_recv",
+        CorePrimOp::ChannelClose => "channel_close",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -354,7 +358,11 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::TcpLocalAddr
             | CorePrimOp::TcpRemoteAddr
             | CorePrimOp::TcpCloseListener
-            | CorePrimOp::TcpListenerLocalAddr => {
+            | CorePrimOp::TcpListenerLocalAddr
+            | CorePrimOp::ChannelBounded
+            | CorePrimOp::ChannelSend
+            | CorePrimOp::ChannelRecv
+            | CorePrimOp::ChannelClose => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

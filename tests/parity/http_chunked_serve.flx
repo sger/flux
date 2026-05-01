@@ -1,0 +1,54 @@
+// parity: vm
+// expect: success
+//
+// Phase 2 HTTP polish: server-side chunked transfer encoding.
+//
+// Server uses `Http.chunked_ok(...)` (which sets `Transfer-Encoding:
+// chunked` on the response). The serializer wraps the body in a single
+// chunk plus terminator. The client uses `Http.get`, which round-trips
+// through the existing chunked decoder.
+
+import Flow.Async as A
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.Map as Map
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn handler(req: Request) -> Response with Async {
+    Http.with_header(
+        Http.chunked_ok("served-chunked:" + req.path),
+        "X-Served-By",
+        "flow.http",
+    )
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let url = "http://127.0.0.1:" + to_string(port) + "/hello"
+
+    let pair = A.both(
+        fn() { Http.serve_once(listener, handler) },
+        fn() {
+            let response = Http.get(url)
+            let header = match Map.get(response.headers, "x-served-by") {
+                Some(value) -> value,
+                None -> "missing",
+            }
+            response.body + "|x-served-by=" + header
+        }
+    );
+
+    Tcp.close_listener(listener);
+    match pair {
+        (_, summary) -> print(summary),
+    }
+}

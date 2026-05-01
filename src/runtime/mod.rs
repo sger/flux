@@ -85,6 +85,18 @@ pub trait RuntimeContext {
     ) -> Result<Value, String> {
         Err("Async.bracket is not supported by this runtime context".to_string())
     }
+    fn channel_bounded(&mut self, _capacity: Value) -> Result<Value, String> {
+        Err("Channel.bounded is not supported by this runtime context".to_string())
+    }
+    fn channel_send(&mut self, _channel: Value, _msg: Value) -> Result<Value, String> {
+        Err("Channel.send is not supported by this runtime context".to_string())
+    }
+    fn channel_recv(&mut self, _channel: Value) -> Result<Value, String> {
+        Err("Channel.recv is not supported by this runtime context".to_string())
+    }
+    fn channel_close(&mut self, _channel: Value) -> Result<Value, String> {
+        Err("Channel.close is not supported by this runtime context".to_string())
+    }
     fn invoke_base_function_borrowed(
         &mut self,
         base_fn_index: usize,

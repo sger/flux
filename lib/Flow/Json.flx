@@ -1,0 +1,541 @@
+// Flow.Json — RFC 8259 JSON parser + printer (proposal 0174 Phase 2).
+//
+// Pure Flux, no compiler changes. The AST is `data Json`; `parse` is a
+// recursive-descent parser that returns `Either<JsonError, Json>`, and
+// `stringify` produces a compact string representation. Codec generation
+// via `deriving (Json.Encode, Json.Decode)` lands in a follow-up phase
+// against this module's API.
+//
+// Numeric handling: every JSON number parses as `Float`. JSON exponent
+// notation (`1e10`) is not yet supported; `.` and a fractional tail is
+// the common case for the proposal's microservice example.
+
+import Flow.Array as Array
+import Flow.Map as Map
+import Flow.String as String
+
+module Flow.Json {
+
+    public data Json {
+        JsonNull,
+        JsonBool(Bool),
+        // Numbers are stored as their raw lexeme so the AST can represent
+        // any RFC 8259 number losslessly. Use `as_int` / `as_float` to
+        // extract a typed value (Flux does not currently expose an
+        // Int-to-Float cast, so the AST stays string-based).
+        JsonNumber(String),
+        JsonString(String),
+        JsonArray(Array<Json>),
+        JsonObject(Map<String, Json>),
+    }
+
+    public data JsonError {
+        JsonError {
+            message: String,
+            position: Int,
+        }
+    }
+
+    // Cross-module helper: named-record literal `JsonError { ... }` is not
+    // currently usable from importing modules, so callers (e.g.,
+    // `Flow.JsonCodec`) construct errors via this function.
+    public fn make_error(message: String) -> JsonError {
+        JsonError { message: message, position: 0 }
+    }
+
+    public fn make_error_at(message: String, position: Int) -> JsonError {
+        JsonError { message: message, position: position }
+    }
+
+    // ── Internal parse state ─────────────────────────────────────────
+    // ParseOk(value, next_position) | ParseErr(error)
+
+    data ParseResult<a> {
+        ParseOk(a, Int),
+        ParseErr(JsonError),
+    }
+
+    fn err<a>(message: String, position: Int) -> ParseResult<a> {
+        ParseErr(JsonError { message: message, position: position })
+    }
+
+    // ── Public surface ───────────────────────────────────────────────
+
+    public fn parse(input: String) -> Either<JsonError, Json> {
+        let after_ws = skip_whitespace(input, 0)
+        finish_parse(input, parse_value(input, after_ws))
+    }
+
+    fn finish_parse(input: String, result: ParseResult<Json>) -> Either<JsonError, Json> {
+        match result {
+            ParseErr(error) -> Left(error),
+            ParseOk(value, next) -> finish_after_value(input, value, next),
+        }
+    }
+
+    fn finish_after_value(
+        input: String,
+        value: Json,
+        next: Int,
+    ) -> Either<JsonError, Json> {
+        let trailing = skip_whitespace(input, next)
+        if trailing == String.string_len(input) {
+            Right(value)
+        } else {
+            Left(JsonError {
+                message: "trailing characters after JSON value",
+                position: trailing,
+            })
+        }
+    }
+
+    public fn stringify(value: Json) -> String {
+        match value {
+            JsonNull -> "null",
+            JsonBool(b) -> if b { "true" } else { "false" },
+            JsonNumber(lexeme) -> lexeme,
+            JsonString(s) -> escape_string(s),
+            JsonArray(items) -> stringify_array(items),
+            JsonObject(fields) -> stringify_object(fields),
+        }
+    }
+
+    // ── Construction helpers ─────────────────────────────────────────
+
+    public fn null_() -> Json { JsonNull }
+    public fn bool_(b: Bool) -> Json { JsonBool(b) }
+    public fn int(n: Int) -> Json { JsonNumber(to_string(n)) }
+    public fn number_lexeme(lexeme: String) -> Json { JsonNumber(lexeme) }
+    public fn string(s: String) -> Json { JsonString(s) }
+    public fn array(items: Array<Json>) -> Json { JsonArray(items) }
+    public fn object(fields: Map<String, Json>) -> Json { JsonObject(fields) }
+
+    // ── Lookup / extraction helpers ──────────────────────────────────
+
+    public fn field(value: Json, key: String) -> Option<Json> {
+        match value {
+            JsonObject(fields) -> Map.get(fields, key),
+            _ -> None,
+        }
+    }
+
+    public fn as_string(value: Json) -> Option<String> {
+        match value {
+            JsonString(s) -> Some(s),
+            _ -> None,
+        }
+    }
+
+    public fn as_int(value: Json) -> Option<Int> {
+        match value {
+            JsonNumber(lexeme) -> Some(parse_int(lexeme)),
+            _ -> None,
+        }
+    }
+
+    public fn as_number_lexeme(value: Json) -> Option<String> {
+        match value {
+            JsonNumber(lexeme) -> Some(lexeme),
+            _ -> None,
+        }
+    }
+
+    public fn as_bool(value: Json) -> Option<Bool> {
+        match value {
+            JsonBool(b) -> Some(b),
+            _ -> None,
+        }
+    }
+
+    public fn as_array(value: Json) -> Option<Array<Json>> {
+        match value {
+            JsonArray(items) -> Some(items),
+            _ -> None,
+        }
+    }
+
+    // ── Parser core (recursive-descent) ──────────────────────────────
+
+    fn parse_value(input: String, raw_pos: Int) -> ParseResult<Json> {
+        let pos = skip_whitespace(input, raw_pos)
+        if pos >= String.string_len(input) {
+            err("unexpected end of input", pos)
+        } else {
+            dispatch_value(input, pos, char_at(input, pos))
+        }
+    }
+
+    fn dispatch_value(input: String, pos: Int, c: String) -> ParseResult<Json> {
+        if c == "{" {
+            parse_object(input, pos)
+        } else if c == "[" {
+            parse_array(input, pos)
+        } else if c == "\"" {
+            parse_string(input, pos)
+        } else if c == "t" || c == "f" {
+            parse_bool(input, pos)
+        } else if c == "n" {
+            parse_null(input, pos)
+        } else if c == "-" || is_digit(c) {
+            parse_number(input, pos)
+        } else {
+            err("unexpected character: " + c, pos)
+        }
+    }
+
+    fn parse_null(input: String, pos: Int) -> ParseResult<Json> {
+        if expect_literal(input, pos, "null") {
+            ParseOk(JsonNull, pos + 4)
+        } else {
+            err("expected `null`", pos)
+        }
+    }
+
+    fn parse_bool(input: String, pos: Int) -> ParseResult<Json> {
+        if expect_literal(input, pos, "true") {
+            ParseOk(JsonBool(true), pos + 4)
+        } else if expect_literal(input, pos, "false") {
+            ParseOk(JsonBool(false), pos + 5)
+        } else {
+            err("expected boolean", pos)
+        }
+    }
+
+    fn parse_number(input: String, pos: Int) -> ParseResult<Json> {
+        let end = scan_number_end(input, pos)
+        if end == pos {
+            err("expected number", pos)
+        } else {
+            number_lexeme_to_result(String.string_slice(input, pos, end), end)
+        }
+    }
+
+    fn number_lexeme_to_result(lexeme: String, end: Int) -> ParseResult<Json> {
+        ParseOk(JsonNumber(lexeme), end)
+    }
+
+    fn parse_string(input: String, pos: Int) -> ParseResult<Json> {
+        let body_start = pos + 1
+        finish_string(input, body_start, scan_string_end(input, body_start))
+    }
+
+    fn finish_string(
+        input: String,
+        body_start: Int,
+        scan: Either<JsonError, Int>,
+    ) -> ParseResult<Json> {
+        match scan {
+            Left(error) -> ParseErr(error),
+            Right(end) -> ParseOk(
+                JsonString(unescape_string(String.string_slice(input, body_start, end))),
+                end + 1,
+            ),
+        }
+    }
+
+    fn parse_array(input: String, pos: Int) -> ParseResult<Json> {
+        let inner_pos = skip_whitespace(input, pos + 1)
+        if inner_pos < String.string_len(input) && char_at(input, inner_pos) == "]" {
+            ParseOk(JsonArray([||]), inner_pos + 1)
+        } else {
+            parse_array_items(input, inner_pos, [||])
+        }
+    }
+
+    fn parse_array_items(input: String, pos: Int, acc: Array<Json>) -> ParseResult<Json> {
+        match parse_value(input, pos) {
+            ParseErr(error) -> ParseErr(error),
+            ParseOk(item, next) -> array_after_item(input, Array.push(acc, item), next),
+        }
+    }
+
+    fn array_after_item(input: String, acc: Array<Json>, next: Int) -> ParseResult<Json> {
+        let after = skip_whitespace(input, next)
+        if after >= String.string_len(input) {
+            err("unexpected end of input inside array", after)
+        } else {
+            array_dispatch_separator(input, acc, after, char_at(input, after))
+        }
+    }
+
+    fn array_dispatch_separator(
+        input: String,
+        acc: Array<Json>,
+        after: Int,
+        c: String,
+    ) -> ParseResult<Json> {
+        if c == "," {
+            parse_array_items(input, skip_whitespace(input, after + 1), acc)
+        } else if c == "]" {
+            ParseOk(JsonArray(acc), after + 1)
+        } else {
+            err("expected `,` or `]` in array", after)
+        }
+    }
+
+    fn parse_object(input: String, pos: Int) -> ParseResult<Json> {
+        let inner_pos = skip_whitespace(input, pos + 1)
+        if inner_pos < String.string_len(input) && char_at(input, inner_pos) == "}" {
+            ParseOk(JsonObject({}), inner_pos + 1)
+        } else {
+            parse_object_pairs(input, inner_pos, {})
+        }
+    }
+
+    fn parse_object_pairs(
+        input: String,
+        pos: Int,
+        acc: Map<String, Json>,
+    ) -> ParseResult<Json> {
+        if pos >= String.string_len(input) || char_at(input, pos) != "\"" {
+            err("expected string key in object", pos)
+        } else {
+            object_after_key(input, acc, parse_string(input, pos))
+        }
+    }
+
+    fn object_after_key(
+        input: String,
+        acc: Map<String, Json>,
+        key_result: ParseResult<Json>,
+    ) -> ParseResult<Json> {
+        match key_result {
+            ParseErr(error) -> ParseErr(error),
+            ParseOk(key_json, after_key) -> object_expect_colon(
+                input,
+                acc,
+                key_string_or_empty(key_json),
+                after_key,
+            ),
+        }
+    }
+
+    fn key_string_or_empty(key_json: Json) -> String {
+        match key_json {
+            JsonString(s) -> s,
+            _ -> "",
+        }
+    }
+
+    fn object_expect_colon(
+        input: String,
+        acc: Map<String, Json>,
+        key: String,
+        after_key: Int,
+    ) -> ParseResult<Json> {
+        let after_colon_ws = skip_whitespace(input, after_key)
+        if after_colon_ws >= String.string_len(input)
+            || char_at(input, after_colon_ws) != ":"
+        {
+            err("expected `:` after object key", after_colon_ws)
+        } else {
+            object_parse_value(input, acc, key, after_colon_ws + 1)
+        }
+    }
+
+    fn object_parse_value(
+        input: String,
+        acc: Map<String, Json>,
+        key: String,
+        after_colon: Int,
+    ) -> ParseResult<Json> {
+        let after_value_pos = skip_whitespace(input, after_colon)
+        match parse_value(input, after_value_pos) {
+            ParseErr(error) -> ParseErr(error),
+            ParseOk(value, after_value) -> object_after_value(
+                input,
+                Map.set(acc, key, value),
+                after_value,
+            ),
+        }
+    }
+
+    fn object_after_value(
+        input: String,
+        acc: Map<String, Json>,
+        after_value: Int,
+    ) -> ParseResult<Json> {
+        let after = skip_whitespace(input, after_value)
+        if after >= String.string_len(input) {
+            err("unexpected end of input inside object", after)
+        } else {
+            object_dispatch_separator(input, acc, after, char_at(input, after))
+        }
+    }
+
+    fn object_dispatch_separator(
+        input: String,
+        acc: Map<String, Json>,
+        after: Int,
+        c: String,
+    ) -> ParseResult<Json> {
+        if c == "," {
+            parse_object_pairs(input, skip_whitespace(input, after + 1), acc)
+        } else if c == "}" {
+            ParseOk(JsonObject(acc), after + 1)
+        } else {
+            err("expected `,` or `}` in object", after)
+        }
+    }
+
+    // ── Lexer-level helpers ──────────────────────────────────────────
+
+    fn char_at(s: String, i: Int) -> String {
+        let cs = String.chars(s)
+        match cs[i] {
+            Some(c) -> c,
+            None -> "",
+        }
+    }
+
+    fn skip_whitespace(input: String, pos: Int) -> Int {
+        if pos >= String.string_len(input) {
+            pos
+        } else {
+            skip_whitespace_dispatch(input, pos, char_at(input, pos))
+        }
+    }
+
+    fn skip_whitespace_dispatch(input: String, pos: Int, c: String) -> Int {
+        if c == " " || c == "\t" || c == "\n" || c == "\r" {
+            skip_whitespace(input, pos + 1)
+        } else {
+            pos
+        }
+    }
+
+    fn expect_literal(input: String, pos: Int, lit: String) -> Bool {
+        let len_lit = String.string_len(lit)
+        if pos + len_lit > String.string_len(input) {
+            false
+        } else {
+            String.string_slice(input, pos, pos + len_lit) == lit
+        }
+    }
+
+    fn is_digit(c: String) -> Bool {
+        c == "0" || c == "1" || c == "2" || c == "3" || c == "4"
+            || c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
+    }
+
+    fn scan_number_end(input: String, pos: Int) -> Int {
+        let after_sign = if char_at(input, pos) == "-" { pos + 1 } else { pos }
+        let after_int = scan_digits(input, after_sign)
+        if char_at(input, after_int) == "." {
+            scan_digits(input, after_int + 1)
+        } else {
+            after_int
+        }
+    }
+
+    fn scan_digits(input: String, pos: Int) -> Int {
+        if pos < String.string_len(input) && is_digit(char_at(input, pos)) {
+            scan_digits(input, pos + 1)
+        } else {
+            pos
+        }
+    }
+
+    fn scan_string_end(input: String, pos: Int) -> Either<JsonError, Int> {
+        if pos >= String.string_len(input) {
+            Left(JsonError {
+                message: "unterminated string",
+                position: pos,
+            })
+        } else {
+            scan_string_dispatch(input, pos, char_at(input, pos))
+        }
+    }
+
+    fn scan_string_dispatch(
+        input: String,
+        pos: Int,
+        c: String,
+    ) -> Either<JsonError, Int> {
+        if c == "\"" {
+            Right(pos)
+        } else if c == "\\" {
+            scan_string_end(input, pos + 2)
+        } else {
+            scan_string_end(input, pos + 1)
+        }
+    }
+
+    // ── String escaping ──────────────────────────────────────────────
+
+    fn unescape_string(raw: String) -> String {
+        unescape_loop(raw, 0, "")
+    }
+
+    fn unescape_loop(raw: String, i: Int, acc: String) -> String {
+        if i >= String.string_len(raw) {
+            acc
+        } else {
+            unescape_step(raw, i, acc, char_at(raw, i))
+        }
+    }
+
+    fn unescape_step(raw: String, i: Int, acc: String, c: String) -> String {
+        if c == "\\" {
+            unescape_loop(raw, i + 2, acc + decode_escape(char_at(raw, i + 1)))
+        } else {
+            unescape_loop(raw, i + 1, acc + c)
+        }
+    }
+
+    fn decode_escape(next: String) -> String {
+        if next == "n" { "\n" }
+        else if next == "t" { "\t" }
+        else if next == "r" { "\r" }
+        else if next == "\"" { "\"" }
+        else if next == "\\" { "\\" }
+        else if next == "/" { "/" }
+        else { next }
+    }
+
+    fn escape_string(s: String) -> String {
+        "\"" + escape_loop(s, 0, "") + "\""
+    }
+
+    fn escape_loop(s: String, i: Int, acc: String) -> String {
+        if i >= String.string_len(s) {
+            acc
+        } else {
+            escape_loop(s, i + 1, acc + encode_escape(char_at(s, i)))
+        }
+    }
+
+    fn encode_escape(c: String) -> String {
+        if c == "\"" { "\\\"" }
+        else if c == "\\" { "\\\\" }
+        else if c == "\n" { "\\n" }
+        else if c == "\t" { "\\t" }
+        else if c == "\r" { "\\r" }
+        else { c }
+    }
+
+    // ── Stringify helpers ────────────────────────────────────────────
+
+    fn stringify_array(items: Array<Json>) -> String {
+        "[" + String.join(Array.map(items, stringify), ",") + "]"
+    }
+
+    fn stringify_object(fields: Map<String, Json>) -> String {
+        let entries = Array.map(Map.keys(fields), fn(key) {
+            stringify_pair(key, lookup_or_null(fields, key))
+        })
+        "{" + String.join(entries, ",") + "}"
+    }
+
+    fn stringify_pair(key: String, value: Json) -> String {
+        escape_string(key) + ":" + stringify(value)
+    }
+
+    fn lookup_or_null(fields: Map<String, Json>, key: String) -> Json {
+        match Map.get(fields, key) {
+            Some(v) -> v,
+            None -> JsonNull,
+        }
+    }
+
+}

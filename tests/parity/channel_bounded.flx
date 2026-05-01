@@ -1,0 +1,32 @@
+// Bounded channel smoke test (proposal 0174 Phase 1b).
+//
+// Exercises bounded(capacity) → send → recv → close. Verifies that:
+// - send buffers up to capacity messages,
+// - recv returns Some(msg) in FIFO order,
+// - after close, buffered messages still drain, then recv returns None.
+
+import Flow.Channel as Channel
+
+fn main() with IO, Async {
+    let ch = Channel.bounded(4)
+    Channel.send(ch, 10);
+    Channel.send(ch, 20);
+    Channel.send(ch, 30);
+    match Channel.recv(ch) {
+        Some(x) -> print("a:" + to_string(x)),
+        None -> print("a:none"),
+    }
+    match Channel.recv(ch) {
+        Some(x) -> print("b:" + to_string(x)),
+        None -> print("b:none"),
+    }
+    Channel.close(ch);
+    match Channel.recv(ch) {
+        Some(x) -> print("c:" + to_string(x)),
+        None -> print("c:none"),
+    }
+    match Channel.recv(ch) {
+        Some(x) -> print("d:" + to_string(x)),
+        None -> print("d:none"),
+    }
+}

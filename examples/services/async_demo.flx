@@ -1,0 +1,165 @@
+// Async Demo — a service showcasing async/await primitives.
+//
+// While the accept loop is sequential (Tcp handles can't currently
+// cross fiber boundaries, so one connection at a time), each request
+// handler can do **real concurrent work** via Async.both, Async.race,
+// Async.timeout, and Async.sleep.
+//
+// Endpoints:
+//   GET /fast         → 200 after a single 50ms sleep
+//   GET /aggregate    → 200, runs two 200ms tasks in parallel via
+//                        Async.both, returns combined JSON. The total
+//                        wall time is ~200ms (not 400ms).
+//   GET /race         → 200, Async.race between a 100ms task and a
+//                        300ms task. The 100ms task wins.
+//   GET /timeout      → 408 if the inner task exceeds the deadline,
+//                        200 otherwise.
+//
+// Run:
+//   cargo run -- examples/services/async_demo.flx
+//
+// Try (`time` shows the latency advantage of Async.both):
+//   curl -s http://127.0.0.1:8081/fast
+//   time curl -s http://127.0.0.1:8081/aggregate
+//   curl -s http://127.0.0.1:8081/race
+//   curl -s http://127.0.0.1:8081/timeout
+//
+// The accept loop stays sequential — to fan out across connections
+// we'd need Sendable Tcp handles. The runtime *is* multi-threaded (mio
+// reactor + work-stealing scheduler in src/runtime/async/), it just
+// can't move TCP connections between fibers yet. Within a single
+// request handler though, the multi-threaded scheduler runs the
+// `Async.both` branches in parallel — visible by timing `/aggregate`
+// (one ~200ms sleep) vs running the two slow paths serially.
+
+import Flow.Async as A
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+// ── "Upstream" work (simulated) ────────────────────────────────────
+//
+// These would normally call out via Http.get. To keep the example
+// self-contained and the timing predictable, we stub them with a
+// sleep + a fixed payload.
+
+fn fetch_users() -> String with Async {
+    A.sleep(200);
+    "{\"users\":[\"alice\",\"bob\"]}"
+}
+
+fn fetch_orders() -> String with Async {
+    A.sleep(200);
+    "{\"orders\":[101,102,103]}"
+}
+
+fn fast_path() -> String with Async {
+    A.sleep(100);
+    "fast"
+}
+
+fn slow_path() -> String with Async {
+    A.sleep(300);
+    "slow"
+}
+
+fn maybe_slow() -> String with Async {
+    A.sleep(500);
+    "{\"value\":\"finally\"}"
+}
+
+// ── Handlers ────────────────────────────────────────────────────────
+
+fn json_response(status: Int, body: String) -> Response {
+    Http.with_header(
+        Http.make_response(status, {}, body),
+        "Content-Type",
+        "application/json",
+    )
+}
+
+fn handle_fast() -> Response with Async {
+    A.sleep(50);
+    json_response(200, "{\"hello\":\"flux\"}")
+}
+
+fn handle_aggregate() -> Response with Async {
+    let pair = A.both(
+        fn() { fetch_users() },
+        fn() { fetch_orders() }
+    );
+    match pair {
+        (users, orders) -> json_response(
+            200,
+            "{\"users_payload\":" + users +
+                ",\"orders_payload\":" + orders + "}",
+        ),
+    }
+}
+
+fn handle_race() -> Response with Async {
+    let winner = A.race(
+        fn() { fast_path() },
+        fn() { slow_path() }
+    );
+    json_response(200, "{\"winner\":\"" + winner + "\"}")
+}
+
+fn handle_timeout() -> Response with Async {
+    match A.timeout(150, fn() { maybe_slow() }) {
+        Some(value) -> json_response(200, value),
+        None -> json_response(408, "{\"error\":\"deadline exceeded\"}"),
+    }
+}
+
+fn handle_not_found() -> Response {
+    json_response(404, "{\"error\":\"not found\"}")
+}
+
+fn route(req: Request) -> Response with Async {
+    if req.method == "GET" && req.path == "/fast" {
+        handle_fast()
+    } else if req.method == "GET" && req.path == "/aggregate" {
+        handle_aggregate()
+    } else if req.method == "GET" && req.path == "/race" {
+        handle_race()
+    } else if req.method == "GET" && req.path == "/timeout" {
+        handle_timeout()
+    } else {
+        handle_not_found()
+    }
+}
+
+// ── Accept loop (sequential, blocked on non-Sendable Tcp) ──────────
+
+fn serve_forever(listener) -> Unit with IO, Time, Async {
+    let conn = Tcp.accept(listener);
+    let req = Http.read_request(conn);
+    let started = now_ms();
+    let resp = route(req);
+    let elapsed = now_ms() - started;
+    let _ = Tcp.write(conn, String.to_bytes(Http.build_response_text(resp)));
+    Tcp.close(conn);
+    print("[" + req.method + "] " + req.path + " -> " +
+        to_string(resp.status) + " (" + to_string(elapsed) + "ms)");
+    serve_forever(listener)
+}
+
+// ── Entry ──────────────────────────────────────────────────────────
+
+fn run_server() -> Unit with IO, Time, Async {
+    let port = 8081;
+    let listener = Tcp.listen("127.0.0.1", port);
+    print("async-demo listening on http://127.0.0.1:" + to_string(port));
+    print("  GET /fast       50ms response");
+    print("  GET /aggregate  two 200ms tasks in parallel via Async.both");
+    print("  GET /race       Async.race between 100ms and 300ms tasks");
+    print("  GET /timeout    Async.timeout(150ms) on a 500ms task");
+    serve_forever(listener);
+    Tcp.close_listener(listener)
+}
+
+fn main() with IO, Time {
+    A.run_async(fn() { run_server() })
+}

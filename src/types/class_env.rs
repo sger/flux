@@ -1258,6 +1258,80 @@ impl ClassEnv {
         Some(first)
     }
 
+    /// Resolve a class instance using the call site's expected *return type*.
+    ///
+    /// Used for return-type-driven dispatch (e.g. `Decode<a>` whose method
+    /// `decode(j: Json) -> Either<JsonError, a>` always takes `Json` as the
+    /// first argument — first-arg resolution always picks `Decode<Json>`,
+    /// which is the wrong instance). The class type variable's binding is
+    /// recovered by matching the method's declared `return_type` (with type
+    /// params) against the call site's resolved return type.
+    ///
+    /// Falls through silently when the class's return type doesn't reference
+    /// any class type parameters, when zero or multiple instances match, or
+    /// when the binding extraction fails for any reason. Callers should treat
+    /// `None` as "no compile-time match" and let dictionary elaboration take
+    /// over.
+    pub fn resolve_method_call_instance_from_return_type(
+        &self,
+        class_name: Identifier,
+        method_name: Identifier,
+        actual_return_type: &InferType,
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, Vec<InferType>)> {
+        let class_def = self.lookup_class(class_name)?;
+        let method = class_def.methods.iter().find(|m| m.name == method_name)?;
+
+        // Extract the class type-var bindings from the return type pattern.
+        let mut subst: HashMap<Identifier, InferType> = HashMap::new();
+        if !Self::match_instance_type_expr(
+            &method.return_type,
+            actual_return_type,
+            &mut subst,
+            interner,
+        ) {
+            return None;
+        }
+
+        // The class declares its type parameters in `class_def.type_params`.
+        // Resolve each in order from `subst`. If the class has parameters that
+        // didn't appear in the return-type pattern (and so didn't get bound),
+        // bail — we don't have enough information to pick an instance.
+        let resolved_args: Vec<InferType> = class_def
+            .type_params
+            .iter()
+            .map(|tp| subst.get(tp).cloned())
+            .collect::<Option<Vec<_>>>()?;
+
+        // Reuse the existing instance resolver with the resolved type args.
+        let mut matches = self.instances.iter().filter_map(|inst| {
+            if inst.class_name != class_name {
+                return None;
+            }
+            if inst.type_args.len() != resolved_args.len() {
+                return None;
+            }
+            let mut subst = HashMap::new();
+            for (pat, actual) in inst.type_args.iter().zip(resolved_args.iter()) {
+                if !Self::match_instance_type_expr(pat, actual, &mut subst, interner) {
+                    return None;
+                }
+            }
+            let concrete_type_args = inst
+                .type_args
+                .iter()
+                .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                .collect::<Option<Vec<_>>>()?;
+            Some((inst, concrete_type_args))
+        });
+
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first)
+    }
+
     /// Resolve the dictionary reference needed for a concrete class application.
     ///
     /// For plain instances this returns a leaf `ResolvedDictionaryRef` pointing
@@ -1354,7 +1428,15 @@ impl ClassEnv {
                 .iter()
                 .map(|method_sig| {
                     let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&format!("__tc_{class_str}_{type_name}_{method_str}"))
+                    let mangled = format!("__tc_{class_str}_{type_name}_{method_str}");
+                    instance
+                        .instance_module
+                        .as_identifier()
+                        .and_then(|module_sym| interner.try_resolve(module_sym))
+                        .and_then(|module_str| {
+                            interner.lookup(&format!("{module_str}.{mangled}"))
+                        })
+                        .or_else(|| interner.lookup(&mangled))
                 })
                 .collect()
         })

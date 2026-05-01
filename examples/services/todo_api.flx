@@ -1,0 +1,164 @@
+// Todo API — a minimal real HTTP/JSON service in Flux.
+//
+// Endpoints:
+//   GET  /todos       → 200 with `{"todos":[{"id":N,"text":"..."},...]}`
+//   POST /todos       → 201 with the newly-added todo (request body must
+//                        be `{"text":"<your task>"}`)
+//   anything else     → 404 with `{"error":"not found"}`
+//
+// State (the todo list) is threaded through the accept loop. The server
+// runs on port 8080. Press Ctrl-C to stop.
+//
+// Run with:
+//   cargo run -- examples/services/todo_api.flx
+//
+// Try it from another terminal:
+//   curl -s http://127.0.0.1:8080/todos
+//   curl -s -X POST -d '{"text":"hello"}' http://127.0.0.1:8080/todos
+//   curl -s http://127.0.0.1:8080/todos
+
+import Flow.Array as Array
+import Flow.Async as A
+import Flow.Http as Http
+import Flow.Http exposing (Request, Response)
+import Flow.Json as Json
+import Flow.JsonCodec exposing (..)
+import Flow.Map as Map
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+// ── Domain model ────────────────────────────────────────────────────
+
+data Todo {
+    Todo {
+        id: Int,
+        text: String,
+    }
+}
+
+fn todo_to_json(t: Todo) -> Json {
+    let pairs = {
+        "id": from_int(t.id),
+        "text": from_string(t.text),
+    }
+    from_object(pairs)
+}
+
+fn todos_to_response_body(todos: Array<Todo>) -> String {
+    let items = Array.map(todos, todo_to_json)
+    let pairs = {
+        "todos": from_array(items),
+    }
+    Json.stringify(from_object(pairs))
+}
+
+// ── Routing ─────────────────────────────────────────────────────────
+//
+// Handlers return `(next_todos, response)`. The loop threads the new
+// state forward.
+
+fn handle_get_todos(todos: Array<Todo>) -> (Array<Todo>, Response) {
+    let body = todos_to_response_body(todos);
+    (todos, json_response(200, body))
+}
+
+fn handle_post_todos(todos: Array<Todo>, body: String) -> (Array<Todo>, Response) {
+    match Json.parse(body) {
+        Right(parsed) -> match parse_text_field(parsed) {
+            Some(text) -> add_todo(todos, text),
+            None -> reject(todos, 400, "missing or invalid 'text' field"),
+        },
+        Left(_) -> reject(todos, 400, "invalid JSON"),
+    }
+}
+
+fn parse_text_field(j: Json) -> Option<String> {
+    match to_object(j) {
+        Right(fields) -> match Map.get(fields, "text") {
+            Some(text_json) -> match to_string_value(text_json) {
+                Right(s) -> Some(s),
+                Left(_) -> None,
+            },
+            None -> None,
+        },
+        Left(_) -> None,
+    }
+}
+
+fn add_todo(todos: Array<Todo>, text: String) -> (Array<Todo>, Response) {
+    let next_id = Array.length(todos) + 1;
+    let new_todo = Todo { id: next_id, text: text };
+    let next_todos = Array.push(todos, new_todo);
+    let body = Json.stringify(todo_to_json(new_todo));
+    (next_todos, json_response(201, body))
+}
+
+fn reject(todos: Array<Todo>, status: Int, message: String) -> (Array<Todo>, Response) {
+    (todos, json_response(status, "{\"error\":\"" + message + "\"}"))
+}
+
+fn handle_not_found(todos: Array<Todo>) -> (Array<Todo>, Response) {
+    reject(todos, 404, "not found")
+}
+
+fn json_response(status: Int, body: String) -> Response {
+    Http.with_header(
+        Http.make_response(status, {}, body),
+        "Content-Type",
+        "application/json",
+    )
+}
+
+fn route(todos: Array<Todo>, req: Request) -> (Array<Todo>, Response) {
+    if req.method == "GET" && req.path == "/todos" {
+        handle_get_todos(todos)
+    } else if req.method == "POST" && req.path == "/todos" {
+        handle_post_todos(todos, req.body)
+    } else {
+        handle_not_found(todos)
+    }
+}
+
+// ── Accept loop ─────────────────────────────────────────────────────
+
+fn serve_forever(listener, todos: Array<Todo>) -> Unit with IO, Async {
+    let conn = Tcp.accept(listener);
+    let req = Http.read_request(conn);
+    let result = route(todos, req);
+    match result {
+        (next_todos, resp) -> finish(listener, conn, req, resp, next_todos),
+    }
+}
+
+fn finish(
+    listener,
+    conn,
+    req: Request,
+    resp: Response,
+    next_todos: Array<Todo>,
+) -> Unit with IO, Async {
+    let _ = Tcp.write(conn, String.to_bytes(Http.build_response_text(resp)));
+    Tcp.close(conn);
+    print("[" + req.method + "] " + req.path + " -> " + to_string(resp.status));
+    serve_forever(listener, next_todos)
+}
+
+// ── Entry ───────────────────────────────────────────────────────────
+
+fn run_server() -> Unit with IO, Async {
+    let port = 8080;
+    let listener = Tcp.listen("127.0.0.1", port);
+    print("todo-api listening on http://127.0.0.1:" + to_string(port));
+    print("  GET  /todos      list todos");
+    print("  POST /todos      add a todo (body: {\"text\":\"...\"})");
+    let initial: Array<Todo> = [|
+        Todo { id: 1, text: "buy milk" },
+        Todo { id: 2, text: "write Flux services" },
+    |];
+    serve_forever(listener, initial);
+    Tcp.close_listener(listener)
+}
+
+fn main() with IO {
+    A.run_async(fn() { run_server() })
+}

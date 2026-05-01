@@ -390,7 +390,14 @@ fn build_qualified_names(
             .map(|i| i.resolve(def.name).to_string())
             .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
         let base = match entry_qualifier {
-            Some(_) if bare.starts_with("__tc_") || bare.starts_with("__dict_") => bare,
+            Some(_)
+                if bare.starts_with("__tc_")
+                    || bare.starts_with("__dict_")
+                    || bare.contains(".__tc_")
+                    || bare.contains(".__dict_") =>
+            {
+                bare
+            }
             Some(qual) if def.is_anonymous => format!("{qual}_expr_{}", def.binder.id.0),
             Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
                 format!("{qual}_{bare}")

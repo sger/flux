@@ -1,0 +1,136 @@
+// Flow.JsonCodec — JSON encoding/decoding helpers (proposal 0174 Phase 2).
+//
+// Ships plain `from_*` / `to_*` functions plus `Encode<a>` / `Decode<a>`
+// type classes with primitive instances (Int, String, Bool). User code can:
+//   1. Call the helpers directly (`from_int(42)`),
+//   2. Write `instance Encode<MyType> { fn encode(x) { ... } }` by hand,
+//   3. Use `data X { ... } deriving (Encode)` for single-variant
+//      named-record types with primitive fields — the compiler synthesizes
+//      the instance body for you.
+//
+// Decoder deriving is on the roadmap; today only `Encode` synthesis runs.
+
+import Flow.Array as Array
+import Flow.Json as Json
+import Flow.Json exposing (..)
+import Flow.Map as Map
+
+module Flow.JsonCodec {
+
+    // ── Primitive encoders ───────────────────────────────────────────
+
+    public fn from_int(value: Int) -> Json {
+        JsonNumber(to_string(value))
+    }
+
+    public fn from_string(value: String) -> Json {
+        JsonString(value)
+    }
+
+    public fn from_bool(value: Bool) -> Json {
+        JsonBool(value)
+    }
+
+    public fn from_array(items: Array<Json>) -> Json {
+        JsonArray(items)
+    }
+
+    public fn from_object(fields: Map<String, Json>) -> Json {
+        JsonObject(fields)
+    }
+
+    // ── Primitive decoders ───────────────────────────────────────────
+
+    public fn to_int(value: Json) -> Either<JsonError, Int> {
+        match value {
+            JsonNumber(lexeme) -> Right(parse_int(lexeme)),
+            _ -> Left(Json.make_error("expected number for Int")),
+        }
+    }
+
+    public fn to_string_value(value: Json) -> Either<JsonError, String> {
+        match value {
+            JsonString(s) -> Right(s),
+            _ -> Left(Json.make_error("expected string for String")),
+        }
+    }
+
+    public fn to_bool(value: Json) -> Either<JsonError, Bool> {
+        match value {
+            JsonBool(b) -> Right(b),
+            _ -> Left(Json.make_error("expected bool for Bool")),
+        }
+    }
+
+    public fn to_array(value: Json) -> Either<JsonError, Array<Json>> {
+        match value {
+            JsonArray(items) -> Right(items),
+            _ -> Left(Json.make_error("expected array")),
+        }
+    }
+
+    public fn to_object(value: Json) -> Either<JsonError, Map<String, Json>> {
+        match value {
+            JsonObject(fields) -> Right(fields),
+            _ -> Left(Json.make_error("expected object")),
+        }
+    }
+
+    // ── Field helpers for object decoders ────────────────────────────
+    //
+    // User-written decoder bodies typically pull each named field out of
+    // a parsed object, decode each child value, and reassemble the ADT.
+    // These helpers keep the per-field code short.
+
+    public fn require_field(
+        fields: Map<String, Json>,
+        key: String
+    ) -> Either<JsonError, Json> {
+        match Map.get(fields, key) {
+            Some(value) -> Right(value),
+            None -> Left(Json.make_error("missing field: " + key)),
+        }
+    }
+
+    public fn optional_field(
+        fields: Map<String, Json>,
+        key: String
+    ) -> Option<Json> {
+        Map.get(fields, key)
+    }
+
+    // ── Encode / Decode classes ──────────────────────────────────────
+
+    public class Encode<a> {
+        fn encode(x: a) -> Json
+    }
+
+    public class Decode<a> {
+        fn decode(j: Json) -> Either<JsonError, a>
+    }
+
+    public instance Encode<Int> {
+        fn encode(x) { from_int(x) }
+    }
+
+    public instance Encode<String> {
+        fn encode(x) { from_string(x) }
+    }
+
+    public instance Encode<Bool> {
+        fn encode(x) { from_bool(x) }
+    }
+
+    public instance Decode<Int> {
+        fn decode(j) { to_int(j) }
+    }
+
+    public instance Decode<String> {
+        fn decode(j) { to_string_value(j) }
+    }
+
+    public instance Decode<Bool> {
+        fn decode(j) { to_bool(j) }
+    }
+
+}

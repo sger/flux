@@ -1,0 +1,28 @@
+// Proposal 0174 Phase 2: structure-driven `deriving (Encode)` synthesis.
+//
+// The compiler walks each `data X { ... } deriving (Encode, ...)` clause
+// and synthesizes a matching `instance Encode<X>` whose body matches the
+// data's variants/fields and emits a JSON object via the primitive
+// `Flow.JsonCodec.from_*` helpers.
+//
+// V1 supports single-variant named-record types with primitive (Int /
+// String / Bool) fields. Sum types and recursive ADTs land in V2.
+//
+// parity: vm, llvm
+// expect: success
+
+import Flow.Json as Json
+import Flow.JsonCodec exposing (..)
+
+data User {
+    User {
+        name: String,
+        age: Int,
+        active: Bool,
+    }
+} deriving (Encode)
+
+fn main() with IO {
+    let alice = User { name: "Alice", age: 30, active: true }
+    print(Json.stringify(encode(alice)))
+}

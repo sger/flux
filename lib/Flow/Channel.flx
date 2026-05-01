@@ -1,13 +1,11 @@
 // Flow.Channel — Sendable<a> bounded MPSC channels (proposal 0174 Phase 1b).
 //
-// This module ships the user-facing surface. The runtime backing is a stub
-// for now: `bounded`, `send`, `recv`, and `close` raise `AsyncFail` so that
-// downstream code can be written against the API while the channel registry
-// (per-channel SyncSender/Receiver pair, fiber-aware blocking) lands as a
-// follow-up runtime change. The signatures match the proposal exactly so the
-// surface freezes early.
-
-import Flow.Async as Async
+// Channels are VM-local for now: `bounded` allocates a `std::sync::mpsc`
+// sync_channel and registers it in the VM's per-VM channel registry.
+// `send` / `recv` block the calling worker thread until the operation can
+// complete. Cross-Task delivery (via `Task.spawn`) promotes channels to a
+// process-wide registry once the fiber loop lands; the surface stays the
+// same.
 
 module Flow.Channel {
 
@@ -15,20 +13,19 @@ module Flow.Channel {
         Channel(Int)
     }
 
-    public fn bounded<a>(_capacity: Int) -> Channel<a> with Async {
-        Async.fail(Async.failed("Flow.Channel.bounded: runtime not implemented"))
-    }
+    public intrinsic fn bounded<a: Sendable>(
+        capacity: Int
+    ) -> Channel<a> with Async = primop ChannelBounded
 
-    public fn send<a>(_ch: Channel<a>, _msg: a) -> Unit with Async {
-        Async.fail(Async.failed("Flow.Channel.send: runtime not implemented"))
-    }
+    public intrinsic fn send<a: Sendable>(
+        ch: Channel<a>,
+        msg: a
+    ) -> Unit with Async = primop ChannelSend
 
-    public fn recv<a>(_ch: Channel<a>) -> Option<a> with Async {
-        Async.fail(Async.failed("Flow.Channel.recv: runtime not implemented"))
-    }
+    public intrinsic fn recv<a: Sendable>(
+        ch: Channel<a>
+    ) -> Option<a> with Async = primop ChannelRecv
 
-    public fn close<a>(_ch: Channel<a>) -> Unit with Async {
-        Async.fail(Async.failed("Flow.Channel.close: runtime not implemented"))
-    }
+    public intrinsic fn close<a>(ch: Channel<a>) -> Unit with Async = primop ChannelClose
 
 }

@@ -1,0 +1,37 @@
+// Flow.Stream combinators parity (proposal 0174 Phase 2).
+//
+// Exercises range, map, take, drop, fold, count, to_array, append.
+
+import Flow.Stream as Stream
+
+fn double(n: Int) -> Int { n * 2 }
+fn even(n: Int) -> Bool { n % 2 == 0 }
+
+fn main() with IO, Async {
+    let s1 = Stream.range(1, 6)
+    print("sum 1..5: " + to_string(
+        Stream.fold(s1, 0, fn(acc, x) { acc + x })
+    ))
+
+    let s2 = Stream.map(Stream.range(1, 4), double)
+    print("doubled 1..3: " + to_string(Stream.to_array(s2)))
+
+    print("evens via fold (1..10): " + to_string(
+        Stream.fold(Stream.range(1, 10), 0, fn(acc, x) { if even(x) { acc + 1 } else { acc } })
+    ))
+
+    let s3 = Stream.take(Stream.range(1, 100), 4)
+    print("take 4 of 1..99: " + to_string(Stream.to_array(s3)))
+
+    let s4 = Stream.drop(Stream.range(1, 7), 3)
+    print("drop 3 of 1..6: " + to_string(Stream.to_array(s4)))
+
+    let s5 = Stream.concat(Stream.range(1, 3), Stream.range(10, 12))
+    print("concat 1..2 ++ 10..11: " + to_string(Stream.to_array(s5)))
+
+    let s6 = Stream.from_array([|"a", "b", "c"|])
+    print("from_array count: " + to_string(Stream.count(s6)))
+
+    print("once 7 next: " + to_string(Stream.next(Stream.once(7))))
+    print("empty is_empty: " + to_string(Stream.is_empty(Stream.empty())))
+}

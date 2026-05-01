@@ -1215,6 +1215,80 @@ impl RuntimeContext for VM {
         Ok(Value::None)
     }
 
+    fn channel_bounded(&mut self, capacity: Value) -> Result<Value, String> {
+        let Value::Integer(capacity) = capacity else {
+            return Err(format!(
+                "Channel.bounded expects Int capacity, got {}",
+                capacity.type_name()
+            ));
+        };
+        let cap = capacity.max(0) as usize;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<SendValue>(cap);
+        let id = self.channel_registry.next_id.max(1);
+        self.channel_registry.next_id = id + 1;
+        self.channel_registry.channels.insert(
+            id,
+            super::VmChannelRecord {
+                sender: Some(tx),
+                receiver: rx,
+                closed: false,
+            },
+        );
+        Ok(VM::make_channel_value(id))
+    }
+
+    fn channel_send(&mut self, channel: Value, msg: Value) -> Result<Value, String> {
+        let id = VM::channel_id_from_value(&channel)?;
+        let send_value = SendValue::try_from_value(&msg).map_err(VM::send_value_error)?;
+        let record = self
+            .channel_registry
+            .channels
+            .get(&id)
+            .ok_or_else(|| format!("unknown Channel handle {}", id))?;
+        if record.closed {
+            return Err(format!("Channel {} is closed", id));
+        }
+        let sender = record.sender.as_ref().ok_or_else(|| {
+            format!("Channel {} sender was dropped", id)
+        })?;
+        sender
+            .send(send_value)
+            .map_err(|_| format!("Channel {} receiver disconnected", id))?;
+        Ok(Value::None)
+    }
+
+    fn channel_recv(&mut self, channel: Value) -> Result<Value, String> {
+        let id = VM::channel_id_from_value(&channel)?;
+        let record = self
+            .channel_registry
+            .channels
+            .get(&id)
+            .ok_or_else(|| format!("unknown Channel handle {}", id))?;
+        // Closed channel returns whatever is buffered, then None.
+        if record.closed && record.sender.is_none() {
+            return match record.receiver.try_recv() {
+                Ok(msg) => Ok(Value::Some(Rc::new(msg.into_value()))),
+                Err(_) => Ok(Value::None),
+            };
+        }
+        match record.receiver.recv() {
+            Ok(msg) => Ok(Value::Some(Rc::new(msg.into_value()))),
+            Err(_) => Ok(Value::None),
+        }
+    }
+
+    fn channel_close(&mut self, channel: Value) -> Result<Value, String> {
+        let id = VM::channel_id_from_value(&channel)?;
+        let record = self
+            .channel_registry
+            .channels
+            .get_mut(&id)
+            .ok_or_else(|| format!("unknown Channel handle {}", id))?;
+        record.closed = true;
+        record.sender = None; // drop sender so receivers wake up with disconnect
+        Ok(Value::None)
+    }
+
     fn async_sleep(&mut self, ms: Value) -> Result<Value, String> {
         let Value::Integer(ms) = ms else {
             return Err(format!(

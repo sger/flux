@@ -7,6 +7,7 @@
 // keep-alive, TLS, and binary bodies arrive in later slices — bodies
 // round-trip through String for now.
 
+import Flow.Array as Array
 import Flow.Bytes as Bytes
 import Flow.List as List
 import Flow.Map as Map
@@ -36,6 +37,15 @@ module Flow.Http {
     public data Response {
         Response {
             status: Int,
+            headers: Map<String, String>,
+            body: String,
+        }
+    }
+
+    public data Request {
+        Request {
+            method: String,
+            path: String,
             headers: Map<String, String>,
             body: String,
         }
@@ -194,19 +204,166 @@ module Flow.Http {
     fn assemble_response(status_line: String, header_lines: List<String>, body: String) -> Option<Response> {
         let status = parse_status_line(status_line)
         let headers = parse_headers(header_lines, empty_headers())
-        let expected = match Map.get(headers, "content-length") {
-            Some(value) -> parse_int(value),
-            None -> len(body),
+        let is_chunked = match Map.get(headers, "transfer-encoding") {
+            Some(value) -> lower(value) == "chunked",
+            None -> false,
         }
-        if len(body) >= expected {
-            Some(Response {
-                status: status,
-                headers: headers,
-                body: String.string_slice(body, 0, expected),
-            })
+        if is_chunked {
+            match decode_chunked(body) {
+                Some(decoded) -> Some(Response {
+                    status: status,
+                    headers: headers,
+                    body: decoded,
+                }),
+                None -> None,
+            }
         } else {
-            None
+            let expected = match Map.get(headers, "content-length") {
+                Some(value) -> parse_int(value),
+                None -> len(body),
+            }
+            if len(body) >= expected {
+                Some(Response {
+                    status: status,
+                    headers: headers,
+                    body: String.string_slice(body, 0, expected),
+                })
+            } else {
+                None
+            }
         }
+    }
+
+    // ── Chunked transfer decoding (RFC 7230 §4.1) ────────────────────
+    //
+    // A chunked body is a sequence of chunks followed by a terminator:
+    //
+    //   <size-hex>\r\n
+    //   <data of size bytes>\r\n
+    //   ... repeated ...
+    //   0\r\n
+    //   \r\n              (optional trailers, then final empty line)
+    //
+    // Returns Some(decoded) once the terminator is reached. While the
+    // body is incomplete, returns None so the read loop keeps draining
+    // the socket. Trailers are ignored; an empty final chunk signals end.
+
+    fn decode_chunked(body: String) -> Option<String> {
+        decode_chunked_loop(body, 0, len(body), "")
+    }
+
+    fn decode_chunked_loop(body: String, pos: Int, total: Int, acc: String) -> Option<String> {
+        if pos >= total {
+            None
+        } else {
+            match find_crlf(body, pos, total) {
+                None -> None,
+                Some(line_end) -> on_chunk_size_line(body, pos, line_end, total, acc),
+            }
+        }
+    }
+
+    fn on_chunk_size_line(
+        body: String,
+        line_start: Int,
+        line_end: Int,
+        total: Int,
+        acc: String,
+    ) -> Option<String> {
+        let raw_size_line = String.string_slice(body, line_start, line_end)
+        let size_token = chunk_size_token(raw_size_line)
+        let size = parse_hex_int(size_token)
+        let data_start = line_end + 2
+        if size == 0 {
+            // Terminator chunk. Skip optional trailers up to the closing
+            // "\r\n" after the trailers section.
+            after_chunk_terminator(body, data_start, total, acc)
+        } else {
+            let data_end = data_start + size
+            // Need data_end + 2 bytes available (for trailing CRLF).
+            if data_end + 2 > total {
+                None
+            } else {
+                let chunk_data = String.string_slice(body, data_start, data_end)
+                decode_chunked_loop(body, data_end + 2, total, acc + chunk_data)
+            }
+        }
+    }
+
+    // The chunk-size line may carry chunk extensions after `;`. Drop
+    // anything from the first `;` onward.
+    fn chunk_size_token(line: String) -> String {
+        match index_of(line, ";") {
+            Some(idx) -> String.string_slice(line, 0, idx),
+            None -> line,
+        }
+    }
+
+    fn after_chunk_terminator(
+        body: String,
+        pos: Int,
+        total: Int,
+        acc: String,
+    ) -> Option<String> {
+        if pos + 2 > total {
+            None
+        } else if String.string_slice(body, pos, pos + 2) == "\r\n" {
+            // Empty trailer section — done.
+            Some(acc)
+        } else {
+            // Skip trailer line then loop.
+            match find_crlf(body, pos, total) {
+                None -> None,
+                Some(line_end) -> after_chunk_terminator(body, line_end + 2, total, acc),
+            }
+        }
+    }
+
+    fn find_crlf(s: String, start: Int, total: Int) -> Option<Int> {
+        if start + 1 >= total {
+            None
+        } else if String.string_slice(s, start, start + 2) == "\r\n" {
+            Some(start)
+        } else {
+            find_crlf(s, start + 1, total)
+        }
+    }
+
+    fn parse_hex_int(s: String) -> Int {
+        parse_hex_loop(s, 0, len(s), 0)
+    }
+
+    fn parse_hex_loop(s: String, i: Int, n: Int, acc: Int) -> Int {
+        if i >= n {
+            acc
+        } else {
+            let digit = hex_digit_value(String.string_slice(s, i, i + 1))
+            if digit < 0 {
+                acc
+            } else {
+                parse_hex_loop(s, i + 1, n, acc * 16 + digit)
+            }
+        }
+    }
+
+    fn hex_digit_value(c: String) -> Int {
+        if c == "0" { 0 }
+        else if c == "1" { 1 }
+        else if c == "2" { 2 }
+        else if c == "3" { 3 }
+        else if c == "4" { 4 }
+        else if c == "5" { 5 }
+        else if c == "6" { 6 }
+        else if c == "7" { 7 }
+        else if c == "8" { 8 }
+        else if c == "9" { 9 }
+        else if c == "a" || c == "A" { 10 }
+        else if c == "b" || c == "B" { 11 }
+        else if c == "c" || c == "C" { 12 }
+        else if c == "d" || c == "D" { 13 }
+        else if c == "e" || c == "E" { 14 }
+        else if c == "f" || c == "F" { 15 }
+        else { -1 }
     }
 
     fn split_crlf(s: String) -> List<String> {
@@ -261,6 +418,434 @@ module Flow.Http {
 
     public fn post(url: String, body: String) -> Response with Async {
         request(Post, url, body)
+    }
+
+    // ── Server side ──────────────────────────────────────────────────
+    //
+    // `serve` accepts connections in a loop until `should_stop()` returns
+    // true. Each connection is handled inline (sequential): read request,
+    // call handler, write response, close. A future iteration will fork
+    // each connection into the surrounding scope for true concurrency,
+    // once we have a fork-with-handle primitive that respects the listener
+    // lifetime.
+
+    public fn ok(body: String) -> Response {
+        Response {
+            status: 200,
+            headers: empty_headers(),
+            body: body,
+        }
+    }
+
+    public fn not_found(body: String) -> Response {
+        Response {
+            status: 404,
+            headers: empty_headers(),
+            body: body,
+        }
+    }
+
+    public fn chunked_ok(body: String) -> Response {
+        let headers = Map.set(empty_headers(), "transfer-encoding", "chunked")
+        Response {
+            status: 200,
+            headers: headers,
+            body: body,
+        }
+    }
+
+    // Build a Response from its components. Equivalent to writing
+    // `Response { status, headers, body }` directly, but works from
+    // importing modules where named-field constructors for cross-module
+    // ADTs aren't currently accepted by the parser.
+    public fn make_response(
+        status: Int,
+        headers: Map<String, String>,
+        body: String
+    ) -> Response {
+        Response {
+            status: status,
+            headers: headers,
+            body: body,
+        }
+    }
+
+    // Mirror of `make_response` for `Request`.
+    public fn make_request(
+        method: String,
+        path: String,
+        headers: Map<String, String>,
+        body: String
+    ) -> Request {
+        Request {
+            method: method,
+            path: path,
+            headers: headers,
+            body: body,
+        }
+    }
+
+    public fn with_header(response: Response, name: String, value: String) -> Response {
+        Response {
+            status: response.status,
+            headers: Map.set(response.headers, name, value),
+            body: response.body,
+        }
+    }
+
+    public fn status_text(code: Int) -> String {
+        if code == 200 { "OK" }
+        else if code == 201 { "Created" }
+        else if code == 204 { "No Content" }
+        else if code == 301 { "Moved Permanently" }
+        else if code == 302 { "Found" }
+        else if code == 400 { "Bad Request" }
+        else if code == 401 { "Unauthorized" }
+        else if code == 403 { "Forbidden" }
+        else if code == 404 { "Not Found" }
+        else if code == 500 { "Internal Server Error" }
+        else if code == 503 { "Service Unavailable" }
+        else { "OK" }
+    }
+
+    public fn build_response_text(response: Response) -> String {
+        build_response_text_keep(response, false)
+    }
+
+    // Build a response with explicit connection disposition. When
+    // `keep_alive` is true, the framing emits `Connection: keep-alive`
+    // instead of `Connection: close`, signalling the client that the
+    // server is willing to handle more requests on this socket.
+    fn build_response_text_keep(response: Response, keep_alive: Bool) -> String {
+        // Detect user-supplied chunked transfer encoding; if present, encode
+        // the body in chunked form and emit Transfer-Encoding instead of
+        // Content-Length. Otherwise emit Content-Length with the raw body.
+        let is_chunked = match Map.get(response.headers, "transfer-encoding") {
+            Some(value) -> lower(value) == "chunked",
+            None -> false,
+        }
+        let connection_header = if keep_alive {
+            "Connection: keep-alive\r\n"
+        } else {
+            "Connection: close\r\n"
+        }
+        let status_line =
+            "HTTP/1.1 " + to_string(response.status) + " " + status_text(response.status) + "\r\n"
+        let framing_headers = if is_chunked {
+            "Transfer-Encoding: chunked\r\n" + connection_header
+        } else {
+            "Content-Length: " + to_string(len(response.body)) + "\r\n" + connection_header
+        }
+        let user_headers = serialize_user_headers(response.headers)
+        let body_text = if is_chunked {
+            encode_chunked(response.body)
+        } else {
+            response.body
+        }
+        status_line + framing_headers + user_headers + "\r\n" + body_text
+    }
+
+    // Serialize user-supplied response headers, skipping the framing headers
+    // we manage internally to avoid duplicates.
+    fn serialize_user_headers(headers: Map<String, String>) -> String {
+        let keys = Map.keys(headers)
+        Array.fold(keys, "", fn(acc, key) {
+            let lk = lower(key)
+            if is_managed_header(lk) {
+                acc
+            } else {
+                match Map.get(headers, key) {
+                    Some(value) -> acc + key + ": " + value + "\r\n",
+                    None -> acc,
+                }
+            }
+        })
+    }
+
+    fn is_managed_header(name: String) -> Bool {
+        name == "content-length"
+            || name == "transfer-encoding"
+            || name == "connection"
+    }
+
+    // Encode `body` as a single chunked frame plus terminator. For now we
+    // emit one chunk for the entire body — streaming-on-write will need a
+    // different API (e.g. `serve_streaming`) once we have writer state.
+    fn encode_chunked(body: String) -> String {
+        let n = len(body)
+        if n == 0 {
+            "0\r\n\r\n"
+        } else {
+            int_to_hex(n) + "\r\n" + body + "\r\n" + "0\r\n\r\n"
+        }
+    }
+
+    fn int_to_hex(value: Int) -> String {
+        if value == 0 {
+            "0"
+        } else {
+            int_to_hex_loop(value, "")
+        }
+    }
+
+    fn int_to_hex_loop(value: Int, acc: String) -> String {
+        if value == 0 {
+            acc
+        } else {
+            let digit = value % 16
+            let rest = value / 16
+            int_to_hex_loop(rest, hex_digit_string(digit) + acc)
+        }
+    }
+
+    fn hex_digit_string(d: Int) -> String {
+        if d == 0 { "0" }
+        else if d == 1 { "1" }
+        else if d == 2 { "2" }
+        else if d == 3 { "3" }
+        else if d == 4 { "4" }
+        else if d == 5 { "5" }
+        else if d == 6 { "6" }
+        else if d == 7 { "7" }
+        else if d == 8 { "8" }
+        else if d == 9 { "9" }
+        else if d == 10 { "a" }
+        else if d == 11 { "b" }
+        else if d == 12 { "c" }
+        else if d == 13 { "d" }
+        else if d == 14 { "e" }
+        else if d == 15 { "f" }
+        else { "?" }
+    }
+
+    public fn read_request(conn) -> Request with Async {
+        match read_request_with_buf(conn, "") {
+            (req, _rest) -> req,
+        }
+    }
+
+    // Read one full HTTP request from `conn`, treating `initial_buf` as
+    // bytes already received but not yet consumed. Returns the parsed
+    // request plus any bytes that arrived past the end of this request
+    // (typically the head of the next pipelined request).
+    fn read_request_with_buf(conn, initial_buf: String) -> (Request, String) with Async {
+        // Try to satisfy the request from the carried-over buffer first
+        // (avoids a blocking read if the previous iteration already
+        // received the next request).
+        match try_parse_request_with_remainder(initial_buf) {
+            Some(pair) -> pair,
+            None -> read_request_loop(conn, initial_buf),
+        }
+    }
+
+    fn read_request_loop(conn, acc: String) -> (Request, String) with Async {
+        let chunk = Tcp.read(conn, 4096)
+        let chunk_text = Bytes.to_string(chunk)
+        let combined = acc + chunk_text
+        match try_parse_request_with_remainder(combined) {
+            Some(pair) -> pair,
+            None -> on_request_pending(conn, combined, len(chunk_text)),
+        }
+    }
+
+    fn on_request_pending(conn, combined: String, chunk_len: Int) -> (Request, String) with Async {
+        if chunk_len == 0 {
+            empty_request_pair(combined)
+        } else {
+            read_request_loop(conn, combined)
+        }
+    }
+
+    fn empty_request_pair(buffered: String) -> (Request, String) {
+        let req = Request {
+            method: "",
+            path: "",
+            headers: empty_headers(),
+            body: buffered,
+        };
+        (req, "")
+    }
+
+    fn try_parse_request(buffer: String) -> Option<Request> {
+        match try_parse_request_with_remainder(buffer) {
+            Some(pair) -> match pair {
+                (req, _rest) -> Some(req),
+            },
+            None -> None,
+        }
+    }
+
+    // Like `try_parse_request`, but on success also returns the unconsumed
+    // tail of `buffer` (bytes belonging to a subsequent pipelined request).
+    // Used by the keep-alive loop to carry overflow bytes forward.
+    fn try_parse_request_with_remainder(buffer: String) -> Option<(Request, String)> {
+        match index_of(buffer, "\r\n\r\n") {
+            None -> None,
+            Some(header_end) -> finish_parse_request(buffer, header_end),
+        }
+    }
+
+    fn finish_parse_request(buffer: String, header_end: Int) -> Option<(Request, String)> {
+        let head = String.string_slice(buffer, 0, header_end)
+        let body_start = header_end + 4
+        let total = len(buffer)
+        let after_headers = String.string_slice(buffer, body_start, total)
+        let lines = split_crlf(head)
+        match lines {
+            [] -> None,
+            [request_line | header_lines] -> assemble_request(request_line, header_lines, after_headers),
+        }
+    }
+
+    fn assemble_request(
+        request_line: String,
+        header_lines: List<String>,
+        after_headers: String
+    ) -> Option<(Request, String)> {
+        let parts = split(request_line, " ")
+        let method = match parts[0] {
+            Some(m) -> m,
+            None -> "",
+        }
+        let path = match parts[1] {
+            Some(p) -> p,
+            None -> "/",
+        }
+        let headers = parse_headers(header_lines, empty_headers())
+        let expected = match Map.get(headers, "content-length") {
+            Some(value) -> parse_int(value),
+            None -> 0,
+        }
+        let available = len(after_headers)
+        if available >= expected {
+            let body = String.string_slice(after_headers, 0, expected)
+            let remainder = String.string_slice(after_headers, expected, available)
+            let req = Request {
+                method: method,
+                path: path,
+                headers: headers,
+                body: body,
+            };
+            Some((req, remainder))
+        } else {
+            None
+        }
+    }
+
+    // serve_once accepts and handles a single connection on the given
+    // listener, then returns. Primarily for tests and bounded servers.
+    public fn serve_once(
+        listener,
+        handler: ((Request) -> Response with Async)
+    ) -> Unit with Async {
+        let conn = Tcp.accept(listener)
+        let req = read_request(conn)
+        let response = handler(req)
+        let _ = Tcp.write(conn, String.to_bytes(build_response_text(response)))
+        Tcp.close(conn)
+    }
+
+    // Whether a request signals `Connection: close` (HTTP/1.1 default is
+    // keep-alive; only an explicit close header opts out).
+    fn request_wants_close(req: Request) -> Bool {
+        match Map.get(req.headers, "connection") {
+            Some(value) -> lower(value) == "close",
+            None -> false,
+        }
+    }
+
+    // Whether a parsed request looks valid (i.e. headers parsed cleanly
+    // and a method was set). When false, the keep-alive loop treats the
+    // connection as drained and stops.
+    fn request_is_valid(req: Request) -> Bool {
+        len(req.method) > 0
+    }
+
+    // serve_keep_alive accepts a single connection and processes up to
+    // `max_requests` requests on it before closing. Each handled request
+    // emits `Connection: keep-alive` so the client knows the socket is
+    // reusable. The loop exits early if the client signals
+    // `Connection: close`, the peer closes the socket, or the request
+    // limit is reached. Returns the number of requests handled.
+    public fn serve_keep_alive(
+        listener,
+        handler: ((Request) -> Response with Async),
+        max_requests: Int
+    ) -> Int with Async {
+        let conn = Tcp.accept(listener)
+        let n = keep_alive_loop(conn, handler, max_requests, 0, "")
+        Tcp.close(conn);
+        n
+    }
+
+    fn keep_alive_loop(
+        conn,
+        handler: ((Request) -> Response with Async),
+        max_requests: Int,
+        handled: Int,
+        carryover: String
+    ) -> Int with Async {
+        if handled >= max_requests {
+            handled
+        } else {
+            let pair = read_request_with_buf(conn, carryover)
+            match pair {
+                (req, remainder) -> handle_keep_alive_request(
+                    conn, handler, max_requests, handled, req, remainder
+                ),
+            }
+        }
+    }
+
+    fn handle_keep_alive_request(
+        conn,
+        handler: ((Request) -> Response with Async),
+        max_requests: Int,
+        handled: Int,
+        req: Request,
+        remainder: String
+    ) -> Int with Async {
+        if !request_is_valid(req) {
+            handled
+        } else {
+            let client_wants_close = request_wants_close(req)
+            let last_response = handled + 1 >= max_requests || client_wants_close
+            let keep_alive = !last_response
+            let response = handler(req)
+            let _ = Tcp.write(
+                conn,
+                String.to_bytes(build_response_text_keep(response, keep_alive)),
+            )
+            if last_response {
+                handled + 1
+            } else {
+                keep_alive_loop(conn, handler, max_requests, handled + 1, remainder)
+            }
+        }
+    }
+
+    // Multi-connection accept loop. Bounded by `should_stop`, called between
+    // each accepted connection. Returns the number of connections handled.
+    public fn serve(
+        listener,
+        should_stop: (() -> Bool with Async),
+        handler: ((Request) -> Response with Async)
+    ) -> Int with Async {
+        serve_count(listener, should_stop, handler, 0)
+    }
+
+    fn serve_count(
+        listener,
+        should_stop: (() -> Bool with Async),
+        handler: ((Request) -> Response with Async),
+        n: Int
+    ) -> Int with Async {
+        if should_stop() {
+            n
+        } else {
+            serve_once(listener, handler);
+            serve_count(listener, should_stop, handler, n + 1)
+        }
     }
 
 }

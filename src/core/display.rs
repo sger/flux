@@ -589,6 +589,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::TcpRemoteAddr => out.push_str("TcpRemoteAddr"),
         CorePrimOp::TcpCloseListener => out.push_str("TcpCloseListener"),
         CorePrimOp::TcpListenerLocalAddr => out.push_str("TcpListenerLocalAddr"),
+        CorePrimOp::ChannelBounded => out.push_str("ChannelBounded"),
+        CorePrimOp::ChannelSend => out.push_str("ChannelSend"),
+        CorePrimOp::ChannelRecv => out.push_str("ChannelRecv"),
+        CorePrimOp::ChannelClose => out.push_str("ChannelClose"),
         // Effect handlers (Koka-style yield model)
         CorePrimOp::EvvGet => out.push_str("EvvGet"),
         CorePrimOp::EvvSet => out.push_str("EvvSet"),
