@@ -13,10 +13,32 @@ module Flow.Async {
         AsyncCancelled,
         AsyncTimedOut,
         AsyncFailed(String),
+        IoError(Int, String, String),
+        DnsError(Int, String, String),
+        TlsError(Int, String),
+        ProtocolError(Int, String),
+        ConnectionClosed,
+        InvalidAddress(String),
     }
 
     public fn failed(message: String) -> AsyncError {
         AsyncFailed(message)
+    }
+
+    public fn io_error(code: Int, message: String, syscall: String) -> AsyncError {
+        IoError(code, message, syscall)
+    }
+
+    public fn dns_error(code: Int, message: String, host: String) -> AsyncError {
+        DnsError(code, message, host)
+    }
+
+    public fn protocol_error(code: Int, message: String) -> AsyncError {
+        ProtocolError(code, message)
+    }
+
+    public fn invalid_address(input: String) -> AsyncError {
+        InvalidAddress(input)
     }
 
     public fn run_async<a>(action: (() -> a with Async)) -> a {
@@ -93,7 +115,13 @@ module Flow.Async {
     ) -> Either<AsyncError, a> = primop AsyncTry
 
     public fn try_<a>(body: (() -> a with Async)) -> Either<AsyncError, a> with Async {
-        __try(body)
+        let result = (fn() {
+            let value = body();
+            Right(value)
+        })() handle AsyncFail {
+            raise(_resume, err) -> Left(err)
+        };
+        result
     }
 
     intrinsic fn __finally<a>(
@@ -105,7 +133,12 @@ module Flow.Async {
         body: (() -> a with Async),
         cleanup: (() -> Unit with Async)
     ) -> a with Async {
-        __finally(body, cleanup)
+        let result = try_(body);
+        cleanup();
+        match result {
+            Left(err) -> fail(err),
+            Right(value) -> value,
+        }
     }
 
     intrinsic fn __bracket<r, a>(
@@ -119,7 +152,13 @@ module Flow.Async {
         release: ((r) -> Unit with Async),
         body: ((r) -> a with Async)
     ) -> a with Async {
-        __bracket(acquire, release, body)
+        let resource = acquire();
+        let result = try_(fn() { body(resource) });
+        release(resource);
+        match result {
+            Left(err) -> fail(err),
+            Right(value) -> value,
+        }
     }
 
     public fn fail<a>(err: AsyncError) -> a with Async {

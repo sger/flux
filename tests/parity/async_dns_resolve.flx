@@ -1,0 +1,18 @@
+// Resolves localhost — the platform resolver always knows this name and
+// the answer is stable enough for parity.
+
+import Flow.Dns as Dns
+import Flow.String as String
+
+fn main() with IO, Async {
+    let addr = Dns.resolve("localhost", 80)
+    // `addr` is "127.0.0.1:80" or "[::1]:80" depending on the platform; the
+    // important thing for parity is that resolution succeeded and produced a
+    // non-empty address with the expected port.
+    let ok = String.str_contains(addr, ":80")
+    if ok {
+        print("resolved: ok")
+    } else {
+        print("resolved: " + addr)
+    }
+}

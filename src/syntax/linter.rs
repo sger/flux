@@ -460,6 +460,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
             Statement::EffectAlias { .. } => {}
+            Statement::TypeAlias { .. } => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }

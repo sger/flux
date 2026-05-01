@@ -5,7 +5,7 @@
 //! rule that OS threads publish backend-safe completions only.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     net::ToSocketAddrs,
     path::PathBuf,
@@ -17,6 +17,11 @@ use super::backend::{
     AsyncError, AsyncErrorKind, BackendCompletion, BackendCompletionPayload, BackendCompletionSink,
     CancelHandle, RequestId, RuntimeTarget,
 };
+
+/// Per-request route table shared with the reactor: completions for a
+/// `RequestId` are delivered to the registered sink (the originating worker
+/// VM's source) rather than the backend's primary sink.
+pub type BlockingRouteTable = Arc<Mutex<HashMap<RequestId, BackendCompletionSink>>>;
 
 type BlockingResult = Result<BackendCompletionPayload, AsyncError>;
 type BlockingWork = Box<dyn FnOnce() -> BlockingResult + Send + 'static>;
@@ -68,7 +73,11 @@ pub struct BlockingServices {
 }
 
 impl BlockingPool {
-    pub fn new(config: BlockingPoolConfig, sink: BackendCompletionSink) -> Self {
+    pub fn new(
+        config: BlockingPoolConfig,
+        sink: BackendCompletionSink,
+        routes: BlockingRouteTable,
+    ) -> Self {
         let worker_count = config.worker_count.max(1);
         let (sender, receiver) = mpsc::channel::<BlockingJob>();
         let receiver = Arc::new(Mutex::new(receiver));
@@ -79,6 +88,7 @@ impl BlockingPool {
             let receiver = Arc::clone(&receiver);
             let cancelled = Arc::clone(&cancelled);
             let sink = sink.clone();
+            let routes = Arc::clone(&routes);
             workers.push(thread::spawn(move || {
                 loop {
                     let job = {
@@ -105,7 +115,15 @@ impl BlockingPool {
                         continue;
                     }
 
-                    if sink.submit(completion).is_err() {
+                    let routed = routes
+                        .lock()
+                        .ok()
+                        .and_then(|mut routes| routes.remove(&completion.request_id));
+                    let result = match routed {
+                        Some(target_sink) => target_sink.submit(completion),
+                        None => sink.submit(completion),
+                    };
+                    if result.is_err() {
                         return;
                     }
                 }
@@ -159,19 +177,25 @@ impl BlockingPool {
 }
 
 impl BlockingServices {
-    pub fn new(config: BlockingServicesConfig, sink: BackendCompletionSink) -> Self {
+    pub fn new(
+        config: BlockingServicesConfig,
+        sink: BackendCompletionSink,
+        routes: BlockingRouteTable,
+    ) -> Self {
         Self {
             fs_pool: BlockingPool::new(
                 BlockingPoolConfig {
                     worker_count: config.fs_workers,
                 },
                 sink.clone(),
+                Arc::clone(&routes),
             ),
             dns_pool: BlockingPool::new(
                 BlockingPoolConfig {
                     worker_count: config.dns_workers,
                 },
                 sink,
+                routes,
             ),
         }
     }
@@ -273,10 +297,14 @@ mod tests {
         std::env::temp_dir().join(format!("flux_async_{name}_{unique}"))
     }
 
+    fn empty_routes() -> BlockingRouteTable {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
     #[test]
     fn blocking_pool_publishes_backend_completion() {
         let (sink, source) = backend_completion_channel();
-        let pool = BlockingPool::new(BlockingPoolConfig { worker_count: 1 }, sink);
+        let pool = BlockingPool::new(BlockingPoolConfig { worker_count: 1 }, sink, empty_routes());
         pool.submit(RequestId(1), RuntimeTarget::Task(TaskId(1)), || {
             Ok(BackendCompletionPayload::Count(42))
         })
@@ -302,7 +330,7 @@ mod tests {
     #[test]
     fn blocking_pool_suppresses_cancelled_job_completion() {
         let (sink, source) = backend_completion_channel();
-        let pool = BlockingPool::new(BlockingPoolConfig { worker_count: 1 }, sink);
+        let pool = BlockingPool::new(BlockingPoolConfig { worker_count: 1 }, sink, empty_routes());
         let (unblock, wait) = mpsc::channel();
         let handle = pool
             .submit(RequestId(2), RuntimeTarget::Task(TaskId(2)), move || {
@@ -333,6 +361,7 @@ mod tests {
                 dns_workers: 1,
             },
             sink,
+            empty_routes(),
         );
         let path = temp_path("service_file");
 
@@ -368,6 +397,7 @@ mod tests {
                 dns_workers: 1,
             },
             sink,
+            empty_routes(),
         );
         services
             .resolve_dns(
@@ -385,5 +415,44 @@ mod tests {
             }
             other => panic!("expected address list, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn blocking_pool_routes_completion_to_per_request_sink() {
+        let (primary_sink, primary_source) = backend_completion_channel();
+        let (worker_sink, worker_source) = backend_completion_channel();
+        let routes: BlockingRouteTable = Arc::new(Mutex::new(HashMap::new()));
+        let routed_request = RequestId(101);
+        routes
+            .lock()
+            .expect("route table lock")
+            .insert(routed_request, worker_sink);
+
+        let pool = BlockingPool::new(
+            BlockingPoolConfig { worker_count: 1 },
+            primary_sink,
+            Arc::clone(&routes),
+        );
+        pool.submit(routed_request, RuntimeTarget::Task(TaskId(7)), || {
+            Ok(BackendCompletionPayload::Count(99))
+        })
+        .expect("job submits");
+
+        let completion = poll_backend_completion(&worker_source);
+        assert_eq!(completion.request_id, routed_request);
+        assert_eq!(completion.payload, Ok(BackendCompletionPayload::Count(99)));
+        assert_eq!(
+            primary_source.pending().expect("primary source readable"),
+            0,
+            "routed completion must not appear on the primary sink",
+        );
+        assert!(
+            !routes
+                .lock()
+                .expect("route table lock")
+                .contains_key(&routed_request),
+            "route entry must be removed after delivery",
+        );
+        pool.shutdown();
     }
 }

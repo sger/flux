@@ -1,0 +1,30 @@
+// Exercises Tcp.with_connection / Tcp.with_listener bracket combinators.
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn main() with IO, Async {
+    let result = Tcp.with_listener("127.0.0.1", 0, fn(listener) {
+        let port = port_from_addr(Tcp.listener_local_addr(listener))
+        Tcp.with_connection("127.0.0.1", port, fn(client) {
+            let server = Tcp.accept(listener)
+            let _w1 = Tcp.write(client, String.to_bytes("ping"))
+            let incoming = Tcp.read(server, 4)
+            let _w2 = Tcp.write(server, incoming)
+            let reply = Tcp.read(client, 4)
+            Tcp.close(server);
+            Bytes.to_string(reply)
+        })
+    })
+    print("got: " + result)
+}

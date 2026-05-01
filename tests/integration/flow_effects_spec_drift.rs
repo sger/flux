@@ -52,6 +52,7 @@ fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
         "Suspend",
         BTreeSet::from([
             "await_task",
+            "dns_resolve",
             "sleep",
             "tcp_accept",
             "tcp_close",
@@ -205,6 +206,61 @@ fn flow_effects_spec_labels_match_seed() {
             extra_ops,
         );
     }
+}
+
+/// Drift check between the authoritative `Suspend` operation set and the VM's
+/// `perform_builtin_suspend` dispatch router. Every seeded operation must have
+/// a `("Suspend", "<op>")` arm; any arm without a corresponding seed entry is
+/// also a drift bug (the operation could never be performed by user code).
+#[test]
+fn vm_suspend_dispatch_arms_match_seed() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dispatch_path = workspace_root
+        .join("src")
+        .join("vm")
+        .join("function_call.rs");
+    let source = std::fs::read_to_string(&dispatch_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dispatch_path.display()));
+
+    // Extract every (`"Suspend"`, `"<op>"`) literal pair appearing in the file.
+    // The router uses tuple-pattern matches of the exact shape
+    // `("Suspend", "tcp_connect") => ...`, so a textual scan is sufficient and
+    // avoids dragging in syn/rustc.
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    let needle = "(\"Suspend\", \"";
+    let mut cursor = 0usize;
+    while let Some(start) = source[cursor..].find(needle) {
+        let abs = cursor + start + needle.len();
+        if let Some(end_offset) = source[abs..].find('"') {
+            found.insert(source[abs..abs + end_offset].to_string());
+            cursor = abs + end_offset + 1;
+        } else {
+            break;
+        }
+    }
+
+    let expected: BTreeSet<String> = authoritative_labels()
+        .get("Suspend")
+        .expect("Suspend authoritative label")
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+
+    let missing_arms: Vec<_> = expected.difference(&found).cloned().collect();
+    let extra_arms: Vec<_> = found.difference(&expected).cloned().collect();
+
+    assert!(
+        missing_arms.is_empty() && extra_arms.is_empty(),
+        "\n\
+         Suspend dispatch drift in src/vm/function_call.rs:\n  \
+           ops seeded in compiler but missing from `perform_builtin_suspend`: {:?}\n  \
+           ops dispatched by VM but not seeded by compiler: {:?}\n\
+         \n\
+         Every seeded Suspend operation must be wired through the VM dispatch \
+         router so user code that performs it actually reaches a runtime handler.\n",
+        missing_arms,
+        extra_arms,
+    );
 }
 
 #[test]

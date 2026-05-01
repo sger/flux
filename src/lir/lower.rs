@@ -95,6 +95,22 @@ fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
         ("Flow.Async.try_", _, 1) | (_, "async_try", 1) => Some(CorePrimOp::AsyncTry),
         ("Flow.Async.finally", _, 2) | (_, "async_finally", 2) => Some(CorePrimOp::AsyncFinally),
         ("Flow.Async.bracket", _, 3) | (_, "async_bracket", 3) => Some(CorePrimOp::AsyncBracket),
+        ("Flow.Tcp.listen", _, 2) | (_, "tcp_listen", 2) => Some(CorePrimOp::TcpListen),
+        ("Flow.Tcp.accept", _, 1) | (_, "tcp_accept", 1) => Some(CorePrimOp::TcpAccept),
+        ("Flow.Tcp.connect", _, 2) | (_, "tcp_connect", 2) => Some(CorePrimOp::TcpConnect),
+        ("Flow.Tcp.read", _, 2) | (_, "tcp_read", 2) => Some(CorePrimOp::TcpRead),
+        ("Flow.Tcp.write", _, 2) | (_, "tcp_write", 2) => Some(CorePrimOp::TcpWrite),
+        ("Flow.Tcp.close", _, 1) | (_, "tcp_close", 1) => Some(CorePrimOp::TcpClose),
+        ("Flow.Tcp.local_addr", _, 1) | (_, "tcp_local_addr", 1) => Some(CorePrimOp::TcpLocalAddr),
+        ("Flow.Tcp.remote_addr", _, 1) | (_, "tcp_remote_addr", 1) => {
+            Some(CorePrimOp::TcpRemoteAddr)
+        }
+        ("Flow.Tcp.close_listener", _, 1) | (_, "tcp_close_listener", 1) => {
+            Some(CorePrimOp::TcpCloseListener)
+        }
+        ("Flow.Tcp.listener_local_addr", _, 1) | (_, "tcp_listener_local_addr", 1) => {
+            Some(CorePrimOp::TcpListenerLocalAddr)
+        }
         ("Flow.String.to_bytes", _, 1) | (_, "string_to_bytes", 1) => {
             Some(CorePrimOp::StringToBytes)
         }
@@ -923,6 +939,12 @@ struct FnLower<'a> {
     /// and the capture vars baked into that closure. Used to bypass closure
     /// dispatch for local recursive calls on the native path.
     direct_closure_vars: HashMap<LirVar, KnownClosureTarget>,
+    /// Maps closure vars produced by MakeExternClosure to their native symbol.
+    /// Exact-arity calls can use the direct native ABI instead of the generic
+    /// closure trampoline; partial application still uses the closure value.
+    direct_extern_vars: HashMap<LirVar, ImportedNativeSymbol>,
+    /// Same tracking keyed by source binder, for let-bound imported functions.
+    direct_extern_binders: HashMap<CoreBinderId, ImportedNativeSymbol>,
     /// Maps CoreBinderId → LirFuncId for top-level functions.
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     /// Maps CoreBinderId → module-qualified name.
@@ -995,6 +1017,8 @@ impl<'a> FnLower<'a> {
             name_binder_map: ctx.name_binder_map,
             direct_func_vars: HashMap::new(),
             direct_closure_vars: HashMap::new(),
+            direct_extern_vars: HashMap::new(),
+            direct_extern_binders: HashMap::new(),
             binder_func_id_map: ctx.binder_func_id_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
@@ -1315,9 +1339,10 @@ impl<'a> FnLower<'a> {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
-                            symbol: extern_fn.symbol,
+                            symbol: extern_fn.symbol.clone(),
                             arity: extern_fn.arity,
                         });
+                        self.direct_extern_vars.insert(dst, extern_fn);
                         dst
                     } else {
                         let dst = self.fresh_var();
@@ -1332,6 +1357,9 @@ impl<'a> FnLower<'a> {
 
             CoreExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr(rhs);
+                if let Some(extern_fn) = self.direct_extern_vars.get(&rhs_var).cloned() {
+                    self.direct_extern_binders.insert(var.id, extern_fn);
+                }
                 self.bind(var.id, rhs_var);
                 self.lower_expr(body)
             }
@@ -1923,9 +1951,10 @@ impl<'a> FnLower<'a> {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
-                            symbol: extern_fn.symbol,
+                            symbol: extern_fn.symbol.clone(),
                             arity: extern_fn.arity,
                         });
+                        self.direct_extern_vars.insert(dst, extern_fn);
                         return dst;
                     }
                 }
@@ -1938,9 +1967,10 @@ impl<'a> FnLower<'a> {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
-                        symbol: extern_fn.symbol,
+                        symbol: extern_fn.symbol.clone(),
                         arity: extern_fn.arity,
                     });
+                    self.direct_extern_vars.insert(dst, extern_fn);
                     return dst;
                 }
 
@@ -2085,6 +2115,9 @@ impl<'a> FnLower<'a> {
             } => self.lower_call_expr_aether(func, args, Some(arg_modes)),
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
+                if let Some(extern_fn) = self.direct_extern_vars.get(&rhs_var).cloned() {
+                    self.direct_extern_binders.insert(var.id, extern_fn);
+                }
                 self.bind(var.id, rhs_var);
                 self.lower_expr_aether(body)
             }
@@ -2505,9 +2538,10 @@ impl<'a> FnLower<'a> {
                         let dst = self.fresh_var();
                         self.emit(LirInstr::MakeExternClosure {
                             dst,
-                            symbol: extern_fn.symbol,
+                            symbol: extern_fn.symbol.clone(),
                             arity: extern_fn.arity,
                         });
+                        self.direct_extern_vars.insert(dst, extern_fn);
                         return dst;
                     }
                 }
@@ -2521,9 +2555,10 @@ impl<'a> FnLower<'a> {
                     let dst = self.fresh_var();
                     self.emit(LirInstr::MakeExternClosure {
                         dst,
-                        symbol: extern_fn.symbol,
+                        symbol: extern_fn.symbol.clone(),
                         arity: extern_fn.arity,
                     });
+                    self.direct_extern_vars.insert(dst, extern_fn);
                     return dst;
                 }
 
@@ -2998,8 +3033,12 @@ impl<'a> FnLower<'a> {
             }
             _ => (None, None),
         };
+
         let direct_external_symbol = if direct_func_id.is_none() {
             match func {
+                CoreExpr::Var { var, .. } if var.binder.is_some() => var
+                    .binder
+                    .and_then(|binder| self.direct_extern_binders.get(&binder).cloned()),
                 CoreExpr::Var { var, .. } if var.binder.is_none() => {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
@@ -3022,9 +3061,9 @@ impl<'a> FnLower<'a> {
         };
 
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-        self.dup_owned_call_args(&arg_vars, arg_modes);
 
         if let Some(func_id) = direct_func_id {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             let result = self.fresh_var();
@@ -3055,7 +3094,10 @@ impl<'a> FnLower<'a> {
             return result;
         }
 
-        if let Some(extern_fn) = direct_external_symbol {
+        if let Some(extern_fn) = direct_external_symbol
+            && extern_fn.arity == arg_vars.len()
+        {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             let result = self.fresh_var();
@@ -3089,6 +3131,7 @@ impl<'a> FnLower<'a> {
 
         let func_var = self.lower_expr(func);
         if let Some(&func_id) = self.direct_func_vars.get(&func_var) {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             let result = self.fresh_var();
@@ -3113,6 +3156,7 @@ impl<'a> FnLower<'a> {
             return result;
         }
         if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             let result = self.fresh_var();
@@ -3139,10 +3183,40 @@ impl<'a> FnLower<'a> {
             self.switch_to_block(cont_idx);
             return result;
         }
+        if let Some(extern_fn) = self.direct_extern_vars.get(&func_var).cloned()
+            && extern_fn.arity == arg_vars.len()
+        {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectExtern {
+                    symbol: extern_fn.symbol,
+                },
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
             && let Some(op) = resolve_library_primop(&name, arg_vars.len())
                 .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
         {
+            self.dup_owned_call_args(&arg_vars, arg_modes);
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall {
                 dst: Some(dst),
@@ -3157,6 +3231,7 @@ impl<'a> FnLower<'a> {
         let result = self.fresh_var();
         self.func.blocks[cont_idx].params.push(result);
 
+        self.dup_owned_call_args(&arg_vars, arg_modes);
         self.set_terminator(LirTerminator::Call {
             dst: result,
             func: func_var,
@@ -3228,6 +3303,9 @@ impl<'a> FnLower<'a> {
         };
         let direct_external_symbol = if direct_func_id.is_none() {
             match func {
+                AetherExpr::Var { var, .. } if var.binder.is_some() => var
+                    .binder
+                    .and_then(|binder| self.direct_extern_binders.get(&binder).cloned()),
                 AetherExpr::Var { var, .. } if var.binder.is_none() => {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
@@ -3280,7 +3358,9 @@ impl<'a> FnLower<'a> {
             return result;
         }
 
-        if let Some(extern_fn) = direct_external_symbol {
+        if let Some(extern_fn) = direct_external_symbol
+            && extern_fn.arity == arg_vars.len()
+        {
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             let result = self.fresh_var();
@@ -3346,6 +3426,32 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::DirectClosure {
                     func_id: target.func_id,
                     captures: target.captures,
+                },
+                suppress_yield_check: false,
+                yield_cont: None,
+            });
+            self.switch_to_block(cont_idx);
+            return result;
+        }
+        if let Some(extern_fn) = self.direct_extern_vars.get(&func_var).cloned()
+            && extern_fn.arity == arg_vars.len()
+        {
+            let cont_idx = self.new_block();
+            let cont_id = BlockId(cont_idx as u32);
+            let result = self.fresh_var();
+            self.func.blocks[cont_idx].params.push(result);
+            let dummy = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: dummy,
+                value: LirConst::None,
+            });
+            self.set_terminator(LirTerminator::Call {
+                dst: result,
+                func: dummy,
+                args: arg_vars,
+                cont: cont_id,
+                kind: CallKind::DirectExtern {
+                    symbol: extern_fn.symbol,
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
@@ -3627,6 +3733,17 @@ impl<'a> FnLower<'a> {
     ) -> LirVar {
         use crate::core::CorePrimOp;
 
+        if let Some(op) = self.suspend_tcp_primop(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            let lowered_args = args.iter().map(|arg| self.lower_expr(arg)).collect();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op,
+                args: lowered_args,
+            });
+            return result;
+        }
+
         // Lower the argument (currently single-arg effects).
         let arg = if args.is_empty() {
             let none = self.fresh_var();
@@ -3657,20 +3774,6 @@ impl<'a> FnLower<'a> {
             });
             return result;
         }
-        if self.is_async_fail_raise_perform(effect, operation, args.len()) {
-            let result = self.fresh_var();
-            self.emit(LirInstr::PrimCall {
-                dst: None,
-                op: CorePrimOp::Panic,
-                args: vec![arg],
-            });
-            self.emit(LirInstr::Const {
-                dst: result,
-                value: LirConst::None,
-            });
-            return result;
-        }
-
         // Effect tag and operation tag as NaN-boxed integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
@@ -3752,6 +3855,17 @@ impl<'a> FnLower<'a> {
     ) -> LirVar {
         use crate::core::CorePrimOp;
 
+        if let Some(op) = self.suspend_tcp_primop(effect, operation, args.len()) {
+            let result = self.fresh_var();
+            let lowered_args = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+            self.emit(LirInstr::PrimCall {
+                dst: Some(result),
+                op,
+                args: lowered_args,
+            });
+            return result;
+        }
+
         let arg = if args.is_empty() {
             let none = self.fresh_var();
             self.emit(LirInstr::Const {
@@ -3781,20 +3895,6 @@ impl<'a> FnLower<'a> {
             });
             return result;
         }
-        if self.is_async_fail_raise_perform(effect, operation, args.len()) {
-            let result = self.fresh_var();
-            self.emit(LirInstr::PrimCall {
-                dst: None,
-                op: CorePrimOp::Panic,
-                args: vec![arg],
-            });
-            self.emit(LirInstr::Const {
-                dst: result,
-                value: LirConst::None,
-            });
-            return result;
-        }
-
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -3889,18 +3989,29 @@ impl<'a> FnLower<'a> {
             && interner.try_resolve(operation) == Some("await_task")
     }
 
-    fn is_async_fail_raise_perform(
+    fn suspend_tcp_primop(
         &self,
         effect: Identifier,
         operation: Identifier,
         arity: usize,
-    ) -> bool {
-        let Some(interner) = self.interner else {
-            return false;
-        };
-        arity == 1
-            && interner.try_resolve(effect) == Some(crate::syntax::builtin_effects::ASYNC_FAIL)
-            && interner.try_resolve(operation) == Some("raise")
+    ) -> Option<CorePrimOp> {
+        let interner = self.interner?;
+        if interner.try_resolve(effect) != Some(crate::syntax::builtin_effects::SUSPEND) {
+            return None;
+        }
+        match (interner.try_resolve(operation)?, arity) {
+            ("tcp_listen", 2) => Some(CorePrimOp::TcpListen),
+            ("tcp_accept", 1) => Some(CorePrimOp::TcpAccept),
+            ("tcp_connect", 2) => Some(CorePrimOp::TcpConnect),
+            ("tcp_read", 2) => Some(CorePrimOp::TcpRead),
+            ("tcp_write", 2) => Some(CorePrimOp::TcpWrite),
+            ("tcp_close", 1) => Some(CorePrimOp::TcpClose),
+            ("tcp_local_addr", 1) => Some(CorePrimOp::TcpLocalAddr),
+            ("tcp_remote_addr", 1) => Some(CorePrimOp::TcpRemoteAddr),
+            ("tcp_close_listener", 1) => Some(CorePrimOp::TcpCloseListener),
+            ("tcp_listener_local_addr", 1) => Some(CorePrimOp::TcpListenerLocalAddr),
+            _ => None,
+        }
     }
 
     /// Create an identity closure: a function that returns its argument.

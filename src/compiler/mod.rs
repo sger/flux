@@ -1019,6 +1019,11 @@ pub struct Compiler {
     /// (Proposal 0161 B1). Populated during statement collection and
     /// consumed by the pre-inference alias-expansion pass.
     pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
+    /// Transparent type aliases declared via `alias Name<a, b> = TypeExpr`
+    /// (Proposal 0174 prerequisite). Populated during statement collection and
+    /// consumed by the pre-inference type-alias expansion pass.
+    pub(super) type_aliases:
+        HashMap<Symbol, (Vec<Symbol>, crate::syntax::type_expr::TypeExpr)>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
     /// Effect names that have at least one user-written `effect E { ... }`
@@ -1219,6 +1224,7 @@ impl Compiler {
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
             effect_row_aliases: HashMap::new(),
+            type_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
             user_declared_effect_names: HashSet::new(),
             preloaded_effect_op_signatures: HashMap::new(),
@@ -1292,6 +1298,7 @@ impl Compiler {
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
+        self.type_aliases.clear();
         self.seed_builtin_effect_aliases();
         self.seed_builtin_effect_operations();
     }
@@ -2267,6 +2274,7 @@ impl Compiler {
     /// expanded rows as the later AST-level expansion pass will produce.
     pub(in crate::compiler) fn collect_effect_aliases_for_contracts(&mut self, program: &Program) {
         self.effect_row_aliases.clear();
+        self.type_aliases.clear();
         self.seed_builtin_effect_aliases();
         for statement in &program.statements {
             self.collect_effect_aliases_for_contracts_from_stmt(statement);
@@ -2284,6 +2292,12 @@ impl Compiler {
                 // single-pass, so aliases must already be closed when stored.
                 let expanded = expansion.expand_aliases(&self.effect_row_aliases);
                 self.effect_row_aliases.insert(*name, expanded);
+            }
+            Statement::TypeAlias {
+                name, params, body, ..
+            } => {
+                self.type_aliases
+                    .insert(*name, (params.clone(), body.clone()));
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2318,6 +2332,13 @@ impl Compiler {
             } => {
                 let expanded = expansion.expand_aliases(&self.effect_row_aliases);
                 self.effect_row_aliases.insert(*name, expanded);
+            }
+            // Proposal 0174 prerequisite: `alias Name<a> = TypeExpr`.
+            Statement::TypeAlias {
+                name, params, body, ..
+            } => {
+                self.type_aliases
+                    .insert(*name, (params.clone(), body.clone()));
             }
             Statement::Module { body, .. } => {
                 for nested in &body.statements {
@@ -2501,6 +2522,11 @@ impl Compiler {
             be::SUSPEND,
             "tcp_listener_local_addr",
             mono(vec![tcp_listener()], string()),
+        );
+        add_op(
+            be::SUSPEND,
+            "dns_resolve",
+            mono(vec![string(), int()], string()),
         );
         add_op(
             be::ASYNC_FAIL,
@@ -4550,6 +4576,7 @@ impl Compiler {
                 | "Option"
                 | "Either"
         ) || self.adt_registry.lookup_adt(name).is_some()
+            || self.type_aliases.contains_key(&name)
     }
 
     fn strict_missing_ambient_effects(

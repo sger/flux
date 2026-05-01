@@ -598,13 +598,7 @@ module Flow.List {
     }
 
     public fn to_array<a>(xs: List<a>) -> Array<a> {
-        fn to_array_go(ys, acc) {
-            match ys {
-                [h | t] -> to_array_go(t, Array.push(acc, h)),
-                _ -> acc
-            }
-        }
-        to_array_go(xs, [||])
+        fold(xs, [||], fn(acc, x) { Array.push(acc, x) })
     }
 
 }

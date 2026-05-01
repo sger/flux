@@ -1,0 +1,57 @@
+// Cancellation propagation through `Async.scope` + `Async.fork`.
+//
+// `scope` opens a structured cancel scope. `fork(scope, action)` spawns
+// a child fiber tied to that scope. If the scope body raises, all
+// outstanding forked children are cancelled and joined before the
+// failure propagates out of the scope. `bracket` ensures resources are
+// released exactly once on the unwind path; `try_` catches the
+// `AsyncError` on the boundary.
+//
+// This example demonstrates each piece in turn:
+//   1. happy-path: scope returns a value, forked children complete
+//   2. unwind:     bracket release runs even when body fails
+//   3. catch:      try_ converts an `AsyncError` to `Either`
+//
+// Run:
+//   cargo run -- examples/async/cancellation_propagation.flx
+//   cargo run --features llvm -- examples/async/cancellation_propagation.flx --native
+
+import Flow.Async as A
+
+fn main() with IO, Async {
+    // 1. Happy path: scope returns once forked children settle.
+    let value = A.scope(fn(scope) {
+        A.fork(scope, fn() {
+            A.sleep(1)
+        });
+        A.fork(scope, fn() {
+            A.sleep(2)
+        });
+        "scope returned"
+    });
+    print(value);
+
+    // 2. Unwind: bracket release runs even when the body fails.
+    let bracket_result = A.try_(fn() {
+        A.bracket(
+            fn() { "acquired" },
+            fn(_resource) { print("released") },
+            fn(_resource) { A.fail(A.failed("body raised")) }
+        )
+    });
+    let bracket_msg = match bracket_result {
+        Right(value) -> "bracket: completed with " + value,
+        Left(_) -> "bracket: caught AsyncFailed",
+    };
+    print(bracket_msg);
+
+    // 3. Catch: try_ surfaces an AsyncError as Left.
+    let caught = A.try_(fn() {
+        A.fail(A.failed("explicit failure"))
+    });
+    let caught_msg = match caught {
+        Right(_) -> "try_: completed (unexpected)",
+        Left(_) -> "try_: caught error",
+    };
+    print(caught_msg)
+}

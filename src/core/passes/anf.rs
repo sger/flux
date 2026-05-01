@@ -166,6 +166,13 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::StringToBytes
         | CorePrimOp::BytesSlice
         | CorePrimOp::BytesToString
+        | CorePrimOp::TcpListen
+        | CorePrimOp::TcpAccept
+        | CorePrimOp::TcpConnect
+        | CorePrimOp::TcpRead
+        | CorePrimOp::TcpLocalAddr
+        | CorePrimOp::TcpRemoteAddr
+        | CorePrimOp::TcpListenerLocalAddr
         | CorePrimOp::ToString
         | CorePrimOp::Split
         | CorePrimOp::Trim
@@ -199,9 +206,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::AsyncBracket => FluxRep::BoxedRep,
 
         // Length operations → IntRep
-        CorePrimOp::StringLength | CorePrimOp::BytesLength | CorePrimOp::ArrayLen => {
-            FluxRep::IntRep
-        }
+        CorePrimOp::StringLength
+        | CorePrimOp::BytesLength
+        | CorePrimOp::ArrayLen
+        | CorePrimOp::TcpWrite => FluxRep::IntRep,
 
         // I/O → UnitRep (print/println) or BoxedRep (read)
         CorePrimOp::Print

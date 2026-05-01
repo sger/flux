@@ -1,0 +1,41 @@
+// TCP echo server (single-shot demo).
+//
+// Demonstrates Flow.Tcp + Flow.Async listening on a loopback port,
+// accepting a client connection, echoing the bytes back, and shutting
+// down. The proposal calls for a 10k-connection variant; this is the
+// minimal shape exercising listen / accept / connect / read / write /
+// close through the Async effect end-to-end.
+//
+// Run:
+//   cargo run -- examples/async/tcp_echo_server.flx
+//   cargo run --features llvm -- examples/async/tcp_echo_server.flx --native
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let client = Tcp.connect("127.0.0.1", port)
+    let server = Tcp.accept(listener)
+    let _ = Tcp.write(client, String.to_bytes("hello"))
+    let incoming = Tcp.read(server, 5)
+    let echoed = Tcp.write(server, incoming)
+    let reply = Tcp.read(client, 5)
+    let received = Bytes.to_string(incoming)
+    let replied = Bytes.to_string(reply)
+    Tcp.close(server);
+    Tcp.close(client);
+    Tcp.close_listener(listener);
+    print("server got: " + received + " (" + to_string(echoed) + " bytes echoed), client got: " + replied)
+}

@@ -11,6 +11,7 @@
 
 #include "flux_rt.h"
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,10 @@
 #include <unistd.h>
 #include <sched.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -145,6 +150,8 @@ static void flux_print_value(int64_t val) {
             printf("<thunk>");
         } else if (obj == FLUX_OBJ_TASK) {
             printf("<task>");
+        } else if (obj == FLUX_OBJ_SCOPE) {
+            printf("<scope>");
         } else if (obj == FLUX_OBJ_ADT) {
             /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
@@ -988,7 +995,7 @@ void flux_panic(int64_t msg) {
         flux_try_error_msg = msg;
         longjmp(*flux_try_jmp, 1);
     }
-    if (flux_is_ptr(msg)) {
+    if (flux_is_ptr(msg) && flux_obj_tag(flux_untag_ptr(msg)) == FLUX_OBJ_STRING) {
         uint32_t len = flux_string_len(msg);
         const char *data = flux_string_data(msg);
         fprintf(stderr, "panic: %.*s\n", (int)len, data);
@@ -2473,9 +2480,30 @@ typedef struct {
     int completed;
     int joined;
     int cancelled;
+    int detached;
+    int failed;
     int64_t action;
     int64_t result;
+    int64_t error;
 } FluxNativeTask;
+
+typedef struct {
+    pthread_mutex_t mutex;
+    uint32_t count;
+    uint32_t cap;
+    FluxNativeTask **tasks;
+} FluxNativeScope;
+
+static __thread FluxNativeTask *flux_current_native_task = NULL;
+
+static int flux_current_task_cancelled(void) {
+    FluxNativeTask *task = flux_current_native_task;
+    if (!task) return 0;
+    pthread_mutex_lock(&task->mutex);
+    int cancelled = task->cancelled;
+    pthread_mutex_unlock(&task->mutex);
+    return cancelled;
+}
 
 static int flux_is_native_task(int64_t task) {
     return flux_is_ptr(task) && flux_obj_tag(flux_untag_ptr(task)) == FLUX_OBJ_TASK;
@@ -2506,16 +2534,42 @@ static void *flux_native_task_main(void *arg) {
     int64_t action = task->action;
     pthread_mutex_unlock(&task->mutex);
 
+    int failed = 0;
     int64_t result = FLUX_NONE;
+    int64_t error = FLUX_NONE;
     if (!cancelled) {
-        result = flux_call_closure_c(action, NULL, 0);
+        jmp_buf buf;
+        jmp_buf *prev = flux_try_jmp;
+        int64_t prev_msg = flux_try_error_msg;
+        FluxNativeTask *prev_task = flux_current_native_task;
+        flux_try_jmp = &buf;
+        flux_try_error_msg = FLUX_NONE;
+        flux_current_native_task = task;
+        if (setjmp(buf) == 0) {
+            result = flux_call_closure_c(action, NULL, 0);
+        } else {
+            failed = 1;
+            error = flux_try_error_msg;
+        }
+        flux_current_native_task = prev_task;
+        flux_try_jmp = prev;
+        flux_try_error_msg = prev_msg;
     }
 
     pthread_mutex_lock(&task->mutex);
     task->result = result;
+    task->failed = failed;
+    task->error = error;
     task->completed = 1;
+    int detached = task->detached;
     pthread_cond_broadcast(&task->cond);
     pthread_mutex_unlock(&task->mutex);
+    if (detached && action != FLUX_NONE) {
+        flux_drop(action);
+        pthread_mutex_lock(&task->mutex);
+        task->action = FLUX_NONE;
+        pthread_mutex_unlock(&task->mutex);
+    }
     return NULL;
 }
 
@@ -2530,6 +2584,7 @@ int64_t flux_task_spawn(int64_t action) {
     memset(task, 0, sizeof(*task));
     task->action = action;
     task->result = FLUX_NONE;
+    task->error = FLUX_NONE;
 
     flux_dup(action);
     flux_rc_share_deep(action);
@@ -2563,7 +2618,9 @@ int64_t flux_task_blocking_join(int64_t task_value) {
     }
     int joined = task->joined;
     int cancelled = task->cancelled;
+    int failed = task->failed;
     int64_t result = task->result;
+    int64_t error = task->error;
     task->joined = 1;
     pthread_mutex_unlock(&task->mutex);
 
@@ -2580,6 +2637,10 @@ int64_t flux_task_blocking_join(int64_t task_value) {
         flux_panic(flux_string_new("Task was cancelled", 18));
         return FLUX_NONE;
     }
+    if (failed) {
+        flux_panic(error);
+        return FLUX_NONE;
+    }
 
     return result;
 }
@@ -2594,6 +2655,88 @@ int64_t flux_task_cancel(int64_t task_value) {
     return FLUX_NONE;
 }
 
+static FluxNativeTask *flux_native_task_spawn_raw(int64_t action, const char *op) {
+    int64_t task_value = flux_task_spawn(action);
+    FluxNativeTask *task = flux_native_task_unbox(task_value, op);
+    flux_rc_share_deep(task_value);
+    return task;
+}
+
+static int flux_native_task_is_completed(FluxNativeTask *task) {
+    pthread_mutex_lock(&task->mutex);
+    int completed = task->completed;
+    pthread_mutex_unlock(&task->mutex);
+    return completed;
+}
+
+static void flux_native_task_cancel_raw(FluxNativeTask *task) {
+    pthread_mutex_lock(&task->mutex);
+    task->cancelled = 1;
+    pthread_mutex_unlock(&task->mutex);
+}
+
+static void flux_native_task_detach_cancel_raw(FluxNativeTask *task) {
+    pthread_mutex_lock(&task->mutex);
+    task->cancelled = 1;
+    task->detached = 1;
+    task->joined = 1;
+    int completed = task->completed;
+    int64_t action = task->action;
+    task->action = FLUX_NONE;
+    pthread_mutex_unlock(&task->mutex);
+
+    pthread_detach(task->thread);
+    if (completed && action != FLUX_NONE) {
+        flux_drop(action);
+    }
+}
+
+static int64_t flux_native_task_join_raw(FluxNativeTask *task, int rethrow) {
+    pthread_mutex_lock(&task->mutex);
+    while (!task->completed) {
+        pthread_cond_wait(&task->cond, &task->mutex);
+    }
+    int joined = task->joined;
+    int cancelled = task->cancelled;
+    int failed = task->failed;
+    int64_t result = task->result;
+    int64_t error = task->error;
+    task->joined = 1;
+    pthread_mutex_unlock(&task->mutex);
+
+    if (joined) {
+        if (rethrow) {
+            flux_panic(flux_string_new("Task joined more than once", 26));
+        }
+        return FLUX_NONE;
+    }
+
+    pthread_join(task->thread, NULL);
+    flux_drop(task->action);
+    task->action = FLUX_NONE;
+
+    if (cancelled && result == FLUX_NONE) {
+        if (rethrow) {
+            flux_panic(flux_string_new("Task was cancelled", 18));
+        }
+        return FLUX_NONE;
+    }
+    if (failed) {
+        if (rethrow) {
+            flux_panic(error);
+        }
+        return error;
+    }
+    return result;
+}
+
+static int flux_native_task_failed(FluxNativeTask *task) {
+    pthread_mutex_lock(&task->mutex);
+    int failed = task->failed;
+    pthread_mutex_unlock(&task->mutex);
+    return failed;
+}
+
 int64_t flux_async_sleep(int64_t ms) {
     if (!flux_is_int(ms)) {
         flux_panic(flux_string_new("Async.sleep expects Int milliseconds", 36));
@@ -2603,11 +2746,18 @@ int64_t flux_async_sleep(int64_t ms) {
     if (raw_ms <= 0) {
         return FLUX_NONE;
     }
+    while (raw_ms > 0) {
+        if (flux_current_task_cancelled()) {
+            return FLUX_NONE;
+        }
+        int64_t chunk = raw_ms > 10 ? 10 : raw_ms;
 #if defined(_MSC_VER) || defined(_WIN32)
-    Sleep((DWORD)raw_ms);
+        Sleep((DWORD)chunk);
 #else
-    usleep((useconds_t)raw_ms * 1000);
+        usleep((useconds_t)chunk * 1000);
 #endif
+        raw_ms -= chunk;
+    }
     return FLUX_NONE;
 }
 
@@ -2670,46 +2820,241 @@ static int64_t flux_call_closure1(int64_t action, int64_t arg, const char *op) {
     return flux_call_closure_c(action, args, 1);
 }
 
-static int64_t flux_make_scope_value(int64_t id) {
-    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+static FluxNativeScope *flux_native_scope_new(void) {
+    FluxNativeScope *scope = (FluxNativeScope *)flux_gc_alloc_header(
+        sizeof(FluxNativeScope), 0, FLUX_OBJ_SCOPE);
+    memset(scope, 0, sizeof(*scope));
+    pthread_mutex_init(&scope->mutex, NULL);
+    return scope;
+}
+
+static int64_t flux_async_timed_out_value(void) {
+    void *mem = flux_gc_alloc_header(8, 0, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
-    hdr[0] = 5; /* Flow.Async.Scope */
-    hdr[1] = 1;
-    int64_t *fields = (int64_t *)((char *)mem + 8);
-    fields[0] = id;
+    hdr[0] = 7; /* Flow.Async.AsyncTimedOut */
+    hdr[1] = 0;
     return flux_tag_ptr(mem);
 }
 
+static FluxNativeScope *flux_native_scope_unbox(int64_t scope_value, const char *op) {
+    if (!flux_is_ptr(scope_value) || flux_obj_tag(flux_untag_ptr(scope_value)) != FLUX_OBJ_SCOPE) {
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s expects Scope", op);
+        if (len < 0) {
+            flux_panic(flux_string_new("async operation expects Scope", 29));
+            return NULL;
+        }
+        if (len >= (int)sizeof(buf)) {
+            len = (int)sizeof(buf) - 1;
+        }
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return NULL;
+    }
+    return (FluxNativeScope *)flux_untag_ptr(scope_value);
+}
+
+static void flux_native_scope_add(FluxNativeScope *scope, FluxNativeTask *task) {
+    pthread_mutex_lock(&scope->mutex);
+    if (scope->count == scope->cap) {
+        uint32_t next_cap = scope->cap == 0 ? 4 : scope->cap * 2;
+        FluxNativeTask **next = (FluxNativeTask **)realloc(
+            scope->tasks, sizeof(FluxNativeTask *) * next_cap);
+        if (!next) {
+            pthread_mutex_unlock(&scope->mutex);
+            flux_panic(flux_string_new("Async.scope failed to grow child list", 38));
+            return;
+        }
+        scope->tasks = next;
+        scope->cap = next_cap;
+    }
+    scope->tasks[scope->count++] = task;
+    pthread_mutex_unlock(&scope->mutex);
+}
+
+static int64_t flux_native_scope_join_children(FluxNativeScope *scope, int rethrow) {
+    int64_t first_error = FLUX_NONE;
+    pthread_mutex_lock(&scope->mutex);
+    uint32_t count = scope->count;
+    FluxNativeTask **tasks = scope->tasks;
+    pthread_mutex_unlock(&scope->mutex);
+
+    for (uint32_t i = 0; i < count; i++) {
+        int64_t value = flux_native_task_join_raw(tasks[i], 0);
+        if (first_error == FLUX_NONE && flux_native_task_failed(tasks[i])) {
+            first_error = value;
+        }
+    }
+
+    if (first_error != FLUX_NONE && rethrow) {
+        flux_panic(first_error);
+    }
+    return first_error;
+}
+
+static void flux_native_scope_cancel_children(FluxNativeScope *scope) {
+    pthread_mutex_lock(&scope->mutex);
+    uint32_t count = scope->count;
+    FluxNativeTask **tasks = scope->tasks;
+    pthread_mutex_unlock(&scope->mutex);
+
+    for (uint32_t i = 0; i < count; i++) {
+        flux_native_task_cancel_raw(tasks[i]);
+    }
+}
+
+static void flux_native_scope_clear_children(FluxNativeScope *scope) {
+    pthread_mutex_lock(&scope->mutex);
+    FluxNativeTask **tasks = scope->tasks;
+    scope->tasks = NULL;
+    scope->count = 0;
+    scope->cap = 0;
+    pthread_mutex_unlock(&scope->mutex);
+    free(tasks);
+}
+
+static void flux_timespec_add_ms(struct timespec *ts, int64_t ms) {
+    if (ms < 0) ms = 0;
+    ts->tv_sec += (time_t)(ms / 1000);
+    ts->tv_nsec += (long)((ms % 1000) * 1000000L);
+    if (ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec += 1;
+        ts->tv_nsec -= 1000000000L;
+    }
+}
+
+static int flux_native_task_wait_ms(FluxNativeTask *task, int64_t ms) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    flux_timespec_add_ms(&deadline, ms);
+
+    pthread_mutex_lock(&task->mutex);
+    while (!task->completed) {
+        int rc = pthread_cond_timedwait(&task->cond, &task->mutex, &deadline);
+        if (rc == ETIMEDOUT && !task->completed) {
+            pthread_mutex_unlock(&task->mutex);
+            return 0;
+        }
+    }
+    pthread_mutex_unlock(&task->mutex);
+    return 1;
+}
+
 int64_t flux_async_both(int64_t left, int64_t right) {
-    int64_t left_result = flux_call_thunk0(left, "Async.both");
-    int64_t right_result = flux_call_thunk0(right, "Async.both");
+    FluxNativeTask *left_task = flux_native_task_spawn_raw(left, "Async.both");
+    FluxNativeTask *right_task = flux_native_task_spawn_raw(right, "Async.both");
+    int64_t left_result = flux_native_task_join_raw(left_task, 0);
+    int left_failed = flux_native_task_failed(left_task);
+    int64_t right_result = flux_native_task_join_raw(right_task, 0);
+    int right_failed = flux_native_task_failed(right_task);
+    if (left_failed) {
+        flux_panic(left_result);
+        return FLUX_NONE;
+    }
+    if (right_failed) {
+        flux_panic(right_result);
+        return FLUX_NONE;
+    }
     int64_t fields[2] = { left_result, right_result };
     return make_tuple(fields, 2);
 }
 
 int64_t flux_async_race(int64_t left, int64_t right) {
-    (void)right;
-    return flux_call_thunk0(left, "Async.race");
+    FluxNativeTask *left_task = flux_native_task_spawn_raw(left, "Async.race");
+    FluxNativeTask *right_task = flux_native_task_spawn_raw(right, "Async.race");
+    FluxNativeTask *winner = NULL;
+    FluxNativeTask *loser = NULL;
+    while (!winner) {
+        if (flux_native_task_is_completed(left_task)) {
+            winner = left_task;
+            loser = right_task;
+            break;
+        }
+        if (flux_native_task_is_completed(right_task)) {
+            winner = right_task;
+            loser = left_task;
+            break;
+        }
+#if defined(_MSC_VER) || defined(_WIN32)
+        Sleep(1);
+#else
+        usleep(1000);
+#endif
+    }
+    flux_native_task_detach_cancel_raw(loser);
+    int64_t result = flux_native_task_join_raw(winner, 0);
+    if (flux_native_task_failed(winner)) {
+        flux_panic(result);
+        return FLUX_NONE;
+    }
+    return result;
 }
 
 int64_t flux_async_timeout(int64_t ms, int64_t action) {
-    (void)ms;
-    return flux_wrap_some(flux_call_thunk0(action, "Async.timeout"));
+    int64_t raw_ms = flux_is_int(ms) ? flux_untag_int(ms) : 0;
+    FluxNativeTask *task = flux_native_task_spawn_raw(action, "Async.timeout");
+    if (!flux_native_task_wait_ms(task, raw_ms)) {
+        flux_native_task_detach_cancel_raw(task);
+        return FLUX_NONE;
+    }
+    int64_t result = flux_native_task_join_raw(task, 0);
+    if (flux_native_task_failed(task)) {
+        flux_panic(result);
+        return FLUX_NONE;
+    }
+    return flux_wrap_some(result);
 }
 
 int64_t flux_async_timeout_result(int64_t ms, int64_t action) {
-    (void)ms;
-    return flux_make_right(flux_call_thunk0(action, "Async.timeout_result"));
+    int64_t raw_ms = flux_is_int(ms) ? flux_untag_int(ms) : 0;
+    FluxNativeTask *task = flux_native_task_spawn_raw(action, "Async.timeout_result");
+    if (!flux_native_task_wait_ms(task, raw_ms)) {
+        flux_native_task_detach_cancel_raw(task);
+        return flux_make_left(flux_async_timed_out_value());
+    }
+    int64_t result = flux_native_task_join_raw(task, 0);
+    if (flux_native_task_failed(task)) {
+        return flux_make_left(result);
+    }
+    return flux_make_right(result);
 }
 
 int64_t flux_async_scope(int64_t body) {
-    int64_t scope = flux_make_scope_value(flux_tag_int(0));
-    return flux_call_closure1(body, scope, "Async.scope");
+    FluxNativeScope *scope = flux_native_scope_new();
+    int64_t scope_value = flux_tag_ptr(scope);
+
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    int64_t prev_msg = flux_try_error_msg;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = FLUX_NONE;
+
+    if (setjmp(buf) == 0) {
+        int64_t result = flux_call_closure1(body, scope_value, "Async.scope");
+        flux_try_jmp = prev;
+        flux_try_error_msg = prev_msg;
+        int64_t child_error = flux_native_scope_join_children(scope, 0);
+        flux_native_scope_clear_children(scope);
+        if (child_error != FLUX_NONE) {
+            flux_panic(child_error);
+        }
+        return result;
+    }
+
+    int64_t err = flux_try_error_msg;
+    flux_try_jmp = prev;
+    flux_try_error_msg = prev_msg;
+    flux_native_scope_cancel_children(scope);
+    (void)flux_native_scope_join_children(scope, 0);
+    flux_native_scope_clear_children(scope);
+    flux_panic(err);
+    return FLUX_NONE;
 }
 
 int64_t flux_async_fork(int64_t scope, int64_t action) {
-    (void)scope;
-    (void)flux_call_thunk0(action, "Async.fork");
+    FluxNativeScope *native_scope = flux_native_scope_unbox(scope, "Async.fork");
+    if (!native_scope) return FLUX_NONE;
+    FluxNativeTask *task = flux_native_task_spawn_raw(action, "Async.fork");
+    flux_native_scope_add(native_scope, task);
     return FLUX_NONE;
 }
 
@@ -2783,6 +3128,243 @@ int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body) {
     (void)flux_call_closure1(release, resource, "Async.bracket");
     flux_panic(err);
     return FLUX_NONE;
+}
+
+/* ── Native TCP compatibility shims ────────────────────────────────── */
+
+static void flux_tcp_panic(const char *op, const char *detail) {
+    char buf[256];
+    int len = snprintf(buf, sizeof(buf), "%s failed: %s", op, detail ? detail : "unknown error");
+    if (len < 0) {
+        flux_panic(flux_string_new("TCP operation failed", 20));
+        return;
+    }
+    if (len >= (int)sizeof(buf)) {
+        len = (int)sizeof(buf) - 1;
+    }
+    flux_panic(flux_string_new(buf, (uint32_t)len));
+}
+
+static char *flux_string_to_cstr(int64_t value, const char *op) {
+    if (!flux_is_ptr(value) || flux_obj_tag(flux_untag_ptr(value)) != FLUX_OBJ_STRING) {
+        flux_tcp_panic(op, "expected String");
+        return NULL;
+    }
+    uint32_t len = flux_string_len(value);
+    char *buf = (char *)malloc((size_t)len + 1);
+    if (!buf) {
+        flux_tcp_panic(op, "out of memory");
+        return NULL;
+    }
+    memcpy(buf, flux_string_data(value), len);
+    buf[len] = '\0';
+    return buf;
+}
+
+static int flux_tcp_port(int64_t port, const char *op) {
+    if (!flux_is_int(port)) {
+        flux_tcp_panic(op, "expected Int port");
+        return 0;
+    }
+    int64_t raw = flux_untag_int(port);
+    if (raw < 0 || raw > 65535) {
+        flux_tcp_panic(op, "port out of range");
+        return 0;
+    }
+    return (int)raw;
+}
+
+static int flux_tcp_fd(int64_t value, const char *op) {
+    if (!flux_is_int(value)) {
+        flux_tcp_panic(op, "expected TCP handle");
+        return -1;
+    }
+    int64_t raw = flux_untag_int(value);
+    if (raw < 0 || raw > INT32_MAX) {
+        flux_tcp_panic(op, "invalid TCP handle");
+        return -1;
+    }
+    return (int)raw;
+}
+
+static int flux_tcp_socket_for(const char *host, int port, int passive, const char *op) {
+    char service[16];
+    snprintf(service, sizeof(service), "%d", port);
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = passive ? AI_PASSIVE : 0;
+
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(host, service, &hints, &res);
+    if (gai != 0) {
+        flux_tcp_panic(op, gai_strerror(gai));
+        return -1;
+    }
+
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) {
+            continue;
+        }
+        if (passive) {
+            int yes = 1;
+            (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+            if (bind(fd, ai->ai_addr, ai->ai_addrlen) == 0 && listen(fd, 128) == 0) {
+                break;
+            }
+        } else if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+            break;
+        }
+        close(fd);
+        fd = -1;
+    }
+
+    freeaddrinfo(res);
+    if (fd < 0) {
+        flux_tcp_panic(op, strerror(errno));
+    }
+    return fd;
+}
+
+static int64_t flux_tcp_addr_string(int fd, int peer, const char *op) {
+    struct sockaddr_storage addr;
+    socklen_t len = sizeof(addr);
+    int rc = peer
+        ? getpeername(fd, (struct sockaddr *)&addr, &len)
+        : getsockname(fd, (struct sockaddr *)&addr, &len);
+    if (rc != 0) {
+        flux_tcp_panic(op, strerror(errno));
+        return FLUX_NONE;
+    }
+
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+    rc = getnameinfo(
+        (struct sockaddr *)&addr,
+        len,
+        host,
+        sizeof(host),
+        service,
+        sizeof(service),
+        NI_NUMERICHOST | NI_NUMERICSERV);
+    if (rc != 0) {
+        flux_tcp_panic(op, gai_strerror(rc));
+        return FLUX_NONE;
+    }
+
+    char buf[NI_MAXHOST + NI_MAXSERV + 2];
+    int out = snprintf(buf, sizeof(buf), "%s:%s", host, service);
+    if (out < 0) {
+        flux_tcp_panic(op, "address formatting failed");
+        return FLUX_NONE;
+    }
+    if (out >= (int)sizeof(buf)) {
+        out = (int)sizeof(buf) - 1;
+    }
+    return flux_string_new(buf, (uint32_t)out);
+}
+
+int64_t flux_tcp_listen(int64_t host_value, int64_t port_value) {
+    char *host = flux_string_to_cstr(host_value, "Tcp.listen");
+    int port = flux_tcp_port(port_value, "Tcp.listen");
+    int fd = flux_tcp_socket_for(host, port, 1, "Tcp.listen");
+    free(host);
+    return fd >= 0 ? flux_tag_int(fd) : FLUX_NONE;
+}
+
+int64_t flux_tcp_accept(int64_t listener) {
+    int fd = flux_tcp_fd(listener, "Tcp.accept");
+    int conn = accept(fd, NULL, NULL);
+    if (conn < 0) {
+        flux_tcp_panic("Tcp.accept", strerror(errno));
+        return FLUX_NONE;
+    }
+    return flux_tag_int(conn);
+}
+
+int64_t flux_tcp_connect(int64_t host_value, int64_t port_value) {
+    char *host = flux_string_to_cstr(host_value, "Tcp.connect");
+    int port = flux_tcp_port(port_value, "Tcp.connect");
+    int fd = flux_tcp_socket_for(host, port, 0, "Tcp.connect");
+    free(host);
+    return fd >= 0 ? flux_tag_int(fd) : FLUX_NONE;
+}
+
+int64_t flux_tcp_read(int64_t conn, int64_t max_value) {
+    int fd = flux_tcp_fd(conn, "Tcp.read");
+    if (!flux_is_int(max_value)) {
+        flux_tcp_panic("Tcp.read", "expected Int byte count");
+        return FLUX_NONE;
+    }
+    int64_t max = flux_untag_int(max_value);
+    if (max <= 0) {
+        return flux_string_new("", 0);
+    }
+    char *buf = (char *)malloc((size_t)max);
+    if (!buf) {
+        flux_tcp_panic("Tcp.read", "out of memory");
+        return FLUX_NONE;
+    }
+    ssize_t nread = recv(fd, buf, (size_t)max, 0);
+    if (nread < 0) {
+        free(buf);
+        flux_tcp_panic("Tcp.read", strerror(errno));
+        return FLUX_NONE;
+    }
+    int64_t result = flux_string_new(buf, (uint32_t)nread);
+    free(buf);
+    return result;
+}
+
+int64_t flux_tcp_write(int64_t conn, int64_t bytes) {
+    int fd = flux_tcp_fd(conn, "Tcp.write");
+    if (!flux_is_ptr(bytes) || flux_obj_tag(flux_untag_ptr(bytes)) != FLUX_OBJ_STRING) {
+        flux_tcp_panic("Tcp.write", "expected Bytes");
+        return FLUX_NONE;
+    }
+    const char *data = flux_string_data(bytes);
+    uint32_t len = flux_string_len(bytes);
+    ssize_t nwritten = send(fd, data, len, 0);
+    if (nwritten < 0) {
+        flux_tcp_panic("Tcp.write", strerror(errno));
+        return FLUX_NONE;
+    }
+    return flux_tag_int((int64_t)nwritten);
+}
+
+int64_t flux_tcp_close(int64_t conn) {
+    int fd = flux_tcp_fd(conn, "Tcp.close");
+    if (close(fd) != 0) {
+        flux_tcp_panic("Tcp.close", strerror(errno));
+    }
+    return FLUX_NONE;
+}
+
+int64_t flux_tcp_local_addr(int64_t conn) {
+    return flux_tcp_addr_string(flux_tcp_fd(conn, "Tcp.local_addr"), 0, "Tcp.local_addr");
+}
+
+int64_t flux_tcp_remote_addr(int64_t conn) {
+    return flux_tcp_addr_string(flux_tcp_fd(conn, "Tcp.remote_addr"), 1, "Tcp.remote_addr");
+}
+
+int64_t flux_tcp_close_listener(int64_t listener) {
+    int fd = flux_tcp_fd(listener, "Tcp.close_listener");
+    if (close(fd) != 0) {
+        flux_tcp_panic("Tcp.close_listener", strerror(errno));
+    }
+    return FLUX_NONE;
+}
+
+int64_t flux_tcp_listener_local_addr(int64_t listener) {
+    return flux_tcp_addr_string(
+        flux_tcp_fd(listener, "Tcp.listener_local_addr"),
+        0,
+        "Tcp.listener_local_addr");
 }
 
 /* ── Runtime-callable type predicates ──────────────────────────────── */

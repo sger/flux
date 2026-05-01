@@ -7,7 +7,7 @@ use crate::{
             backend::RequestId,
             context::TaskId,
             runtime::{AsyncRuntime, AsyncRuntimeError},
-            scheduler::SchedulerConfig,
+            scheduler::{RequestIdAllocator, SchedulerConfig},
             send_value::{SendValue, SendValueError},
             task::{TaskCancelToken, TaskHandle, TaskManager, TaskManagerConfig},
         },
@@ -37,7 +37,7 @@ type VmAsyncBackend = MioDriverBackend;
 use crate::runtime::r#async::backends::ThreadTimerBackend as VmAsyncBackend;
 
 #[cfg(feature = "async-mio")]
-struct VmMioReactor {
+pub struct VmMioReactor {
     handle: MioBackendHandle,
     thread: Option<std::thread::JoinHandle<Result<MioReactorRunReport, AsyncError>>>,
 }
@@ -153,14 +153,88 @@ struct VmTaskAwaitCompletion {
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
-        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
-        let main_closure = Closure::new(Rc::new(main_fn), vec![]);
-        let main_frame = Frame::new(Rc::new(main_closure), 0);
         #[cfg(feature = "async-mio")]
         let (async_backend, async_mio_reactor) = Self::new_async_backend();
         #[cfg(not(feature = "async-mio"))]
         let async_backend = Self::new_async_backend();
+        #[cfg(feature = "async-mio")]
+        return Self::new_with_backend(bytecode, async_backend, Some(async_mio_reactor));
+        #[cfg(not(feature = "async-mio"))]
+        return Self::new_with_backend(bytecode, async_backend);
+    }
 
+    #[cfg(feature = "async-mio")]
+    pub fn new_with_backend(
+        bytecode: Bytecode,
+        async_backend: VmAsyncBackend,
+        async_mio_reactor: Option<VmMioReactor>,
+    ) -> Self {
+        Self::new_with_backend_and_ids(bytecode, async_backend, async_mio_reactor, None)
+    }
+
+    /// Variant of `new_with_backend` that lets the caller seed the
+    /// `RequestId` allocator. When `request_ids` is `Some`, the new VM
+    /// shares that allocator with another VM (typically the parent that
+    /// spawned it via `Async.both`/etc.), so completion-routing keys are
+    /// unique across the process.
+    #[cfg(feature = "async-mio")]
+    pub fn new_with_backend_and_ids(
+        bytecode: Bytecode,
+        async_backend: VmAsyncBackend,
+        async_mio_reactor: Option<VmMioReactor>,
+        request_ids: Option<RequestIdAllocator>,
+    ) -> Self {
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
+        let main_closure = Closure::new(Rc::new(main_fn), vec![]);
+        let main_frame = Frame::new(Rc::new(main_closure), 0);
+        let mut async_runtime = match request_ids {
+            Some(ids) => AsyncRuntime::with_request_ids(
+                SchedulerConfig { worker_count: 1 },
+                async_backend,
+                ids,
+            ),
+            None => AsyncRuntime::new(SchedulerConfig { worker_count: 1 }, async_backend),
+        };
+        let (async_task_id, _) = async_runtime
+            .spawn_task()
+            .expect("VM async runtime task allocation cannot fail");
+        let (task_await_tx, task_await_rx) = mpsc::channel();
+
+        Self {
+            constants: bytecode.constants.into_iter().map(slot::to_slot).collect(),
+            stack: vec![slot::uninit(); INITIAL_STACK_SIZE],
+            sp: 0,
+            last_popped: slot::to_slot(Value::None),
+            globals: vec![slot::to_slot(Value::None); GLOBALS_SIZE],
+            frames: vec![main_frame],
+            frame_index: 0,
+            trace: false,
+            tail_arg_scratch: Vec::new(),
+            handler_stack: Vec::new(),
+            evv: EvidenceVector::new(),
+            yield_state: YieldState::new(),
+            profiling: false,
+            cost_centres: Vec::new(),
+            cc_stack: Vec::new(),
+            task_registry: VmTaskRegistry::default(),
+            task_manager: TaskManager::new(TaskManagerConfig::default()),
+            async_runtime,
+            #[cfg(feature = "async-mio")]
+            async_mio_reactor,
+            async_task_id,
+            task_await_tx,
+            task_await_rx,
+            async_next_scope_id: 1,
+            async_scopes: HashMap::new(),
+            async_cancel_token: None,
+        }
+    }
+
+    #[cfg(not(feature = "async-mio"))]
+    pub fn new_with_backend(bytecode: Bytecode, async_backend: VmAsyncBackend) -> Self {
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
+        let main_closure = Closure::new(Rc::new(main_fn), vec![]);
+        let main_frame = Frame::new(Rc::new(main_closure), 0);
         let mut async_runtime =
             AsyncRuntime::new(SchedulerConfig { worker_count: 1 }, async_backend);
         let (async_task_id, _) = async_runtime
@@ -187,8 +261,6 @@ impl VM {
             task_registry: VmTaskRegistry::default(),
             task_manager: TaskManager::new(TaskManagerConfig::default()),
             async_runtime,
-            #[cfg(feature = "async-mio")]
-            async_mio_reactor: Some(async_mio_reactor),
             async_task_id,
             task_await_tx,
             task_await_rx,

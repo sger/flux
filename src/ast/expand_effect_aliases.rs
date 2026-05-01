@@ -87,7 +87,8 @@ fn expand_stmt(stmt: &mut Statement, aliases: &HashMap<Identifier, EffectExpr>) 
         Statement::Import { .. }
         | Statement::Data { .. }
         | Statement::EffectDecl { .. }
-        | Statement::EffectAlias { .. } => {}
+        | Statement::EffectAlias { .. }
+        | Statement::TypeAlias { .. } => {}
     }
 }
 

@@ -1,0 +1,49 @@
+// Timeout-bounded action with `Async.timeout` and `timeout_result`.
+//
+// `timeout(ms, body)` races `body` against a timer; the first to
+// complete wins and the loser is cancelled.
+//   - `timeout`        -> Option<a>                 (None on timeout)
+//   - `timeout_result` -> Either<AsyncError, a>     (Left(AsyncTimedOut) on timeout)
+//
+// The proposal calls for "timeout-bounded connect" specifically; the
+// surface API is identical regardless of what is being bounded, so
+// this example demonstrates both win and timeout cases over the same
+// combinator that would wrap `Tcp.connect`.
+//
+// Run:
+//   cargo run -- examples/async/timeout_connect.flx
+//   cargo run --features llvm -- examples/async/timeout_connect.flx --native
+
+import Flow.Async as A
+
+fn slow_work(label: String) -> String with Async {
+    A.sleep(50);
+    "completed " + label
+}
+
+fn fast_work(label: String) -> String with Async {
+    "completed " + label
+}
+
+fn main() with IO, Async {
+    let won = A.timeout(100, fn() { fast_work("fast") })
+    let lost = A.timeout(1, fn() { slow_work("slow") })
+    let lost_result = A.timeout_result(1, fn() { slow_work("slow") })
+
+    let won_msg = match won {
+        Some(text) -> "won: " + text,
+        None -> "won: timeout (unexpected)",
+    };
+    let lost_msg = match lost {
+        Some(text) -> "lost: completed unexpectedly with " + text,
+        None -> "lost: timed out",
+    };
+    let lost_result_msg = match lost_result {
+        Right(text) -> "lost_result: " + text,
+        Left(_) -> "lost_result: AsyncTimedOut",
+    };
+
+    print(won_msg);
+    print(lost_msg);
+    print(lost_result_msg)
+}

@@ -1,3 +1,6 @@
+// parity: vm, llvm
+// expect: success
+
 import Flow.IO
 import Flow.Async as A
 

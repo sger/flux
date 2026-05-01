@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: runtime_error
 // Scope body failure cancels forked suspended children before draining them.
 

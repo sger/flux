@@ -1,0 +1,96 @@
+// parity: vm
+// expect: success
+//
+// Phase 2 first slice for Flow.Http: fetch from a loopback server via
+// Http.get inside an Async.both branch. Server side is a hand-rolled
+// HTTP/1.1 responder over Flow.Tcp. Client side uses Flow.Http.
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.Http as Http
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn drain_request(conn) -> String with Async {
+    drain_request_loop(conn, "")
+}
+
+fn drain_request_loop(conn, acc: String) -> String with Async {
+    let chunk = Tcp.read(conn, 1024)
+    let combined = acc + Bytes.to_string(chunk)
+    if len(combined) == 0 {
+        combined
+    } else {
+        let idx = match index_of(combined, "\r\n\r\n") {
+            Some(_) -> 1,
+            None -> 0,
+        }
+        if idx == 1 {
+            combined
+        } else {
+            drain_request_loop(conn, combined)
+        }
+    }
+}
+
+fn index_of(haystack: String, needle: String) -> Option<Int> {
+    let h = len(haystack)
+    let n = len(needle)
+    if n == 0 || n > h {
+        None
+    } else {
+        index_of_loop(haystack, needle, 0, h - n + 1, n)
+    }
+}
+
+fn index_of_loop(haystack: String, needle: String, i: Int, end: Int, n: Int) -> Option<Int> {
+    if i >= end {
+        None
+    } else if String.string_slice(haystack, i, i + n) == needle {
+        Some(i)
+    } else {
+        index_of_loop(haystack, needle, i + 1, end, n)
+    }
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let url = "http://127.0.0.1:" + to_string(port) + "/hello"
+
+    let pair = A.both(
+        fn() {
+            // Server: drain the request, write a 200 response.
+            let conn = Tcp.accept(listener)
+            let _ = drain_request(conn)
+            let body = "hello, flux"
+            let response =
+                "HTTP/1.1 200 OK\r\n" +
+                "Content-Length: " + to_string(len(body)) + "\r\n" +
+                "Connection: close\r\n" +
+                "\r\n" +
+                body
+            let written = Tcp.write(conn, String.to_bytes(response))
+            Tcp.close(conn);
+            written
+        },
+        fn() {
+            // Client: full Http.get round-trip.
+            let response = Http.get(url)
+            response.status
+        }
+    );
+
+    Tcp.close_listener(listener);
+    match pair {
+        (written, status) -> print("written=" + to_string(written) + " status=" + to_string(status)),
+    }
+}

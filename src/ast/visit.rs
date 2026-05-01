@@ -160,6 +160,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         Statement::Data { .. } => {}
         Statement::EffectDecl { .. } => {}
         Statement::EffectAlias { .. } => {}
+        Statement::TypeAlias { .. } => {}
         Statement::Class { methods, .. } => {
             for method in methods {
                 if let Some(body) = method.default_body.as_ref() {

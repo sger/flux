@@ -718,6 +718,16 @@ pub enum IrTopLevelItem {
         expansion: EffectExpr,
         span: Span,
     },
+    /// `alias Name<a, b> = TypeExpr` (Proposal 0174 prerequisite).
+    /// Pre-expanded before IR; this variant is preserved for lossless
+    /// round-trip and exhaustive matching only.
+    TypeAlias {
+        is_public: bool,
+        name: Identifier,
+        params: Vec<Identifier>,
+        body: TypeExpr,
+        span: Span,
+    },
     Class {
         name: Identifier,
         type_params: Vec<Identifier>,

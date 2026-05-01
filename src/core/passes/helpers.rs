@@ -600,7 +600,17 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::AsyncFork
         | CorePrimOp::AsyncTry
         | CorePrimOp::AsyncFinally
-        | CorePrimOp::AsyncBracket => false,
+        | CorePrimOp::AsyncBracket
+        | CorePrimOp::TcpListen
+        | CorePrimOp::TcpAccept
+        | CorePrimOp::TcpConnect
+        | CorePrimOp::TcpRead
+        | CorePrimOp::TcpWrite
+        | CorePrimOp::TcpClose
+        | CorePrimOp::TcpLocalAddr
+        | CorePrimOp::TcpRemoteAddr
+        | CorePrimOp::TcpCloseListener
+        | CorePrimOp::TcpListenerLocalAddr => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

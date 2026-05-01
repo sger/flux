@@ -1,4 +1,5 @@
 // Proposal 0174 Phase 1a: Task.spawn requires Sendable captures.
+// parity: vm, llvm
 // expect: compile_error
 
 import Flow.Task as Task

@@ -3384,6 +3384,16 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::AsyncTry => "async_try",
         CorePrimOp::AsyncFinally => "async_finally",
         CorePrimOp::AsyncBracket => "async_bracket",
+        CorePrimOp::TcpListen => "tcp_listen",
+        CorePrimOp::TcpAccept => "tcp_accept",
+        CorePrimOp::TcpConnect => "tcp_connect",
+        CorePrimOp::TcpRead => "tcp_read",
+        CorePrimOp::TcpWrite => "tcp_write",
+        CorePrimOp::TcpClose => "tcp_close",
+        CorePrimOp::TcpLocalAddr => "tcp_local_addr",
+        CorePrimOp::TcpRemoteAddr => "tcp_remote_addr",
+        CorePrimOp::TcpCloseListener => "tcp_close_listener",
+        CorePrimOp::TcpListenerLocalAddr => "tcp_listener_local_addr",
         // Arithmetic — dispatch to runtime
         CorePrimOp::Add | CorePrimOp::Concat => return "flux_rt_add".to_string(),
         CorePrimOp::Sub => return "flux_rt_sub".to_string(),
@@ -3557,7 +3567,17 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         | "flux_async_timeout"
         | "flux_async_timeout_result"
         | "flux_async_fork"
-        | "flux_async_finally" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        | "flux_async_finally"
+        | "flux_tcp_listen"
+        | "flux_tcp_connect"
+        | "flux_tcp_read"
+        | "flux_tcp_write" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_accept"
+        | "flux_tcp_close"
+        | "flux_tcp_local_addr"
+        | "flux_tcp_remote_addr"
+        | "flux_tcp_close_listener"
+        | "flux_tcp_listener_local_addr" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_async_bracket" => (
             LlvmType::i64(),
             vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],

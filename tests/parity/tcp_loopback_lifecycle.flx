@@ -1,0 +1,37 @@
+// parity: vm, llvm
+// expect: success
+
+import Flow.Bytes as Bytes
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn has_text(s: String) -> Bool {
+    len(s) > 0
+}
+
+fn main() with IO, Async {
+    let listener = Tcp.listen("127.0.0.1", 0)
+    let port = port_from_addr(Tcp.listener_local_addr(listener))
+    let client = Tcp.connect("127.0.0.1", port)
+    let server = Tcp.accept(listener)
+    let _ = Tcp.write(client, String.to_bytes("ping"))
+    let bytes = Tcp.read(server, 4)
+    let text = Bytes.to_string(bytes)
+    let count = Tcp.write(server, String.to_bytes(text + "!"))
+    let reply = Tcp.read(client, 5)
+    let local = Tcp.local_addr(client)
+    let remote = Tcp.remote_addr(client)
+    let result = (count, Bytes.to_string(reply), has_text(local), has_text(remote))
+    Tcp.close(server);
+    Tcp.close(client);
+    Tcp.close_listener(listener);
+    print(result)
+}

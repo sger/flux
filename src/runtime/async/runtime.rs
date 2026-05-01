@@ -15,7 +15,9 @@ use super::{
     driver::{
         DriverError, DriverRunLimit, DriverRunReport, DriverTick, RuntimeCommand, RuntimeDriver,
     },
-    scheduler::{SchedulerConfig, SchedulerError, SchedulerState, SuspendedContinuation},
+    scheduler::{
+        RequestIdAllocator, SchedulerConfig, SchedulerError, SchedulerState, SuspendedContinuation,
+    },
 };
 use crate::runtime::value::Value;
 
@@ -47,6 +49,26 @@ impl<B> AsyncRuntime<B> {
         Self {
             driver: RuntimeDriver::new(SchedulerState::new(config), backend),
         }
+    }
+
+    /// Construct a runtime whose scheduler draws `RequestId`s from the given
+    /// shared allocator. Use this for child VMs spawned by `Async.both`/etc.
+    /// so they don't allocate ids that collide with the parent's.
+    pub fn with_request_ids(
+        config: SchedulerConfig,
+        backend: B,
+        request_ids: RequestIdAllocator,
+    ) -> Self {
+        Self {
+            driver: RuntimeDriver::new(
+                SchedulerState::with_request_ids(config, request_ids),
+                backend,
+            ),
+        }
+    }
+
+    pub fn request_id_allocator(&self) -> RequestIdAllocator {
+        self.driver.scheduler().request_id_allocator()
     }
 
     pub fn from_driver(driver: RuntimeDriver<B>) -> Self {

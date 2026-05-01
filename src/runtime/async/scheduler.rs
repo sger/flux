@@ -5,6 +5,10 @@
 //! parked continuations, worker-local ready queues, and completion delivery.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use crate::runtime::value::Value;
 
@@ -92,19 +96,40 @@ impl SuspendedContinuation {
     }
 }
 
-#[derive(Debug, Default)]
+/// Shared `RequestId` allocator. Wrapped in `Arc<AtomicU64>` so children
+/// spawned by `Async.both` / `Async.race` / `Async.fork` (each with their
+/// own `SchedulerState`) draw from the same id space as the parent. This
+/// keeps the per-process route table keyed by `RequestId` unambiguous: no
+/// two pending operations across VMs can collide on the same id.
+#[derive(Debug, Clone)]
 pub struct RequestIdAllocator {
-    next: u64,
+    next: Arc<AtomicU64>,
+}
+
+impl Default for RequestIdAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RequestIdAllocator {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            next: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Build a child allocator that shares the same atomic counter.
+    pub fn share(&self) -> Self {
+        Self {
+            next: Arc::clone(&self.next),
+        }
     }
 
     pub fn next_id(&mut self) -> RequestId {
-        self.next = self.next.wrapping_add(1);
-        RequestId(self.next)
+        // `fetch_add` returns the previous value; bias by 1 so ids start at 1.
+        let id = self.next.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        RequestId(id)
     }
 }
 
@@ -189,6 +214,13 @@ pub struct SchedulerState {
 
 impl SchedulerState {
     pub fn new(config: SchedulerConfig) -> Self {
+        Self::with_request_ids(config, RequestIdAllocator::new())
+    }
+
+    /// Build a scheduler that draws `RequestId`s from `request_ids`. Pass a
+    /// shared allocator (`RequestIdAllocator::share`) when constructing a
+    /// child VM so its ids don't collide with the parent's.
+    pub fn with_request_ids(config: SchedulerConfig, request_ids: RequestIdAllocator) -> Self {
         let worker_count = config.worker_count.max(1);
         let workers = (0..worker_count)
             .map(|idx| WorkerState::new(WorkerId(idx as u32)))
@@ -200,7 +232,7 @@ impl SchedulerState {
             fiber_home: HashMap::new(),
             fibers: HashMap::new(),
             cancel_scopes: HashMap::new(),
-            request_ids: RequestIdAllocator::new(),
+            request_ids,
             task_ids: TaskIdAllocator::new(),
             fiber_ids: FiberIdAllocator::new(),
             cancel_scope_ids: CancelScopeIdAllocator::new(),
@@ -226,6 +258,12 @@ impl SchedulerState {
 
     pub fn allocate_request_id(&mut self) -> RequestId {
         self.request_ids.next_id()
+    }
+
+    /// Return a shared handle to the same atomic `RequestId` allocator.
+    /// Used by child VMs to draw from the same id space as the parent.
+    pub fn request_id_allocator(&self) -> RequestIdAllocator {
+        self.request_ids.share()
     }
 
     pub fn spawn_task(&mut self) -> Result<(TaskId, WorkerId), SchedulerError> {

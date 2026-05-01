@@ -116,6 +116,7 @@ static inline double flux_unbox_float(int64_t val) {
 #define FLUX_OBJ_FLOAT    0xF8
 #define FLUX_OBJ_THUNK    0xF9
 #define FLUX_OBJ_TASK     0xFA
+#define FLUX_OBJ_SCOPE    0xFB
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
@@ -428,6 +429,16 @@ int64_t flux_async_fork(int64_t scope, int64_t action);
 int64_t flux_async_try(int64_t body);
 int64_t flux_async_finally(int64_t body, int64_t cleanup);
 int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body);
+int64_t flux_tcp_listen(int64_t host, int64_t port);
+int64_t flux_tcp_accept(int64_t listener);
+int64_t flux_tcp_connect(int64_t host, int64_t port);
+int64_t flux_tcp_read(int64_t conn, int64_t max);
+int64_t flux_tcp_write(int64_t conn, int64_t bytes);
+int64_t flux_tcp_close(int64_t conn);
+int64_t flux_tcp_local_addr(int64_t conn);
+int64_t flux_tcp_remote_addr(int64_t conn);
+int64_t flux_tcp_close_listener(int64_t listener);
+int64_t flux_tcp_listener_local_addr(int64_t listener);
 
 /* Legacy yield-state mirror — accessible from LLVM IR for inline yield checks. */
 extern int32_t flux_yield_yielding;

@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: runtime_error
 // Scope join propagates the first forked child failure.
 

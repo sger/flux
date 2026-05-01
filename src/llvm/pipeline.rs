@@ -12,9 +12,38 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
+
+struct RuntimeBuildLock {
+    path: PathBuf,
+}
+
+impl RuntimeBuildLock {
+    fn acquire(path: PathBuf) -> Result<Self, PipelineError> {
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(Self { path }),
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => return Err(PipelineError::Io(err)),
+            }
+        }
+    }
+}
+
+impl Drop for RuntimeBuildLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
 
 /// Optional native-link hook for the future Rust-owned async scheduler bridge.
 ///
@@ -593,10 +622,9 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     };
     let lib_path = runtime_c_dir.join(lib_name);
 
-    if lib_path.exists() {
-        // Check if any .c or .h file is newer than the library
+    let runtime_sources_newer = || {
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
-        let sources_newer = lib_mtime.is_none_or(|lib_t| {
+        lib_mtime.is_none_or(|lib_t| {
             let mut newer = false;
             for ext in &["c", "h"] {
                 if let Ok(entries) = std::fs::read_dir(runtime_c_dir) {
@@ -612,10 +640,18 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 }
             }
             newer
-        });
-        if !sources_newer {
+        })
+    };
+
+    if lib_path.exists() {
+        if !runtime_sources_newer() {
             return Ok(());
         }
+    }
+
+    let _build_lock = RuntimeBuildLock::acquire(runtime_c_dir.join(format!("{lib_name}.lock")))?;
+    if lib_path.exists() && !runtime_sources_newer() {
+        return Ok(());
     }
 
     eprintln!("[c2l] Building C runtime ({lib_name})...");
@@ -629,6 +665,12 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "array.c",
     ];
     let mut obj_files = Vec::new();
+    let obj_dir = runtime_c_dir.join(format!(
+        ".flux_rt_build_{}_{}",
+        std::process::id(),
+        NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&obj_dir)?;
 
     match &toolchain {
         CToolchain::Msvc { cc, lib_tool } => {
@@ -637,7 +679,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", ".obj"));
+                let obj = obj_dir.join(c_file.replace(".c", ".obj"));
                 let output = Command::new(cc)
                     .args(["/nologo", "/c", "/O2", "/W3"])
                     .arg(format!("/Fo{}", obj.display()))
@@ -664,7 +706,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
+                let obj = obj_dir.join(c_file.replace(".c", obj_ext));
                 let output = Command::new(cc)
                     .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
                     .arg("-o")
@@ -686,10 +728,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         }
     }
 
-    // Clean up object files
-    for obj in &obj_files {
-        let _ = std::fs::remove_file(obj);
-    }
+    let _ = std::fs::remove_dir_all(&obj_dir);
 
     eprintln!("[c2l] Built {}", lib_path.display());
     Ok(())

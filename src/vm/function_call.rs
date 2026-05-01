@@ -45,15 +45,28 @@ impl TcpAddrRequest {
 fn run_send_closure_on_worker(
     send_closure: SendClosure,
     cancel_token: TaskCancelToken,
+    #[cfg(feature = "async-mio")]
+    parent_backend: crate::runtime::r#async::backends::mio::MioDriverBackend,
+    #[cfg(feature = "async-mio")]
+    parent_request_ids: crate::runtime::r#async::scheduler::RequestIdAllocator,
 ) -> Result<SendValue, String> {
     let constants = send_closure.constants_into_values();
     let globals = send_closure.globals_into_values();
     let action = send_closure.into_closure_value();
-    let mut worker_vm = VM::new(Bytecode {
+    let bytecode = Bytecode {
         instructions: vec![crate::bytecode::op_code::OpCode::OpReturn as u8],
         constants,
         debug_info: None,
-    });
+    };
+    #[cfg(feature = "async-mio")]
+    let mut worker_vm = VM::new_with_backend_and_ids(
+        bytecode,
+        parent_backend.child(),
+        None,
+        Some(parent_request_ids),
+    );
+    #[cfg(not(feature = "async-mio"))]
+    let mut worker_vm = VM::new(bytecode);
     worker_vm.async_cancel_token = Some(cancel_token);
     for (index, global) in globals.into_iter().enumerate() {
         if let Some(global) = global {
@@ -105,6 +118,7 @@ impl VM {
             ("Suspend", "tcp_listener_local_addr") => {
                 Some(self.perform_suspend_tcp_listener_local_addr(perform_args))
             }
+            ("Suspend", "dns_resolve") => Some(self.perform_suspend_dns_resolve(perform_args)),
             _ => None,
         }
     }
@@ -166,7 +180,7 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!("Suspend.tcp_connect failed: {}", error.message));
+                return Err(VM::format_suspend_error("tcp_connect", &error));
             }
             None => return Err("Suspend.tcp_connect completed without payload".to_string()),
         };
@@ -198,7 +212,7 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!("Suspend.tcp_listen failed: {}", error.message));
+                return Err(VM::format_suspend_error("tcp_listen", &error));
             }
             None => return Err("Suspend.tcp_listen completed without payload".to_string()),
         };
@@ -228,7 +242,7 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!("Suspend.tcp_accept failed: {}", error.message));
+                return Err(VM::format_suspend_error("tcp_accept", &error));
             }
             None => return Err("Suspend.tcp_accept completed without payload".to_string()),
         };
@@ -260,7 +274,7 @@ impl VM {
                     "Suspend.tcp_read completed with unexpected payload {other:?}"
                 ));
             }
-            Some(Err(error)) => return Err(format!("Suspend.tcp_read failed: {}", error.message)),
+            Some(Err(error)) => return Err(VM::format_suspend_error("tcp_read", &error)),
             None => return Err("Suspend.tcp_read completed without payload".to_string()),
         };
         self.resume_suspended_continuation(resumed, value)
@@ -289,7 +303,7 @@ impl VM {
                     "Suspend.tcp_write completed with unexpected payload {other:?}"
                 ));
             }
-            Some(Err(error)) => return Err(format!("Suspend.tcp_write failed: {}", error.message)),
+            Some(Err(error)) => return Err(VM::format_suspend_error("tcp_write", &error)),
             None => return Err("Suspend.tcp_write completed without payload".to_string()),
         };
         self.resume_suspended_continuation(resumed, value)
@@ -317,7 +331,7 @@ impl VM {
             Some(Ok(other)) => Err(format!(
                 "Suspend.tcp_close completed with unexpected payload {other:?}"
             )),
-            Some(Err(error)) => Err(format!("Suspend.tcp_close failed: {}", error.message)),
+            Some(Err(error)) => Err(VM::format_suspend_error("tcp_close", &error)),
             None => Err("Suspend.tcp_close completed without payload".to_string()),
         }
     }
@@ -352,10 +366,7 @@ impl VM {
             Some(Ok(other)) => Err(format!(
                 "Suspend.tcp_close_listener completed with unexpected payload {other:?}"
             )),
-            Some(Err(error)) => Err(format!(
-                "Suspend.tcp_close_listener failed: {}",
-                error.message
-            )),
+            Some(Err(error)) => Err(VM::format_suspend_error("tcp_close_listener", &error)),
             None => Err("Suspend.tcp_close_listener completed without payload".to_string()),
         }
     }
@@ -386,14 +397,55 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!(
-                    "Suspend.tcp_listener_local_addr failed: {}",
-                    error.message
-                ));
+                return Err(VM::format_suspend_error("tcp_listener_local_addr", &error));
             }
             None => {
                 return Err("Suspend.tcp_listener_local_addr completed without payload".to_string());
             }
+        };
+        self.resume_suspended_continuation(resumed, value)
+    }
+
+    fn perform_suspend_dns_resolve(&mut self, perform_args: &[Value]) -> Result<(), String> {
+        let [Value::String(host), Value::Integer(port)] = perform_args else {
+            return Err("Suspend.dns_resolve expects (String, Int)".to_string());
+        };
+        let port = u16::try_from(*port)
+            .map_err(|_| format!("Suspend.dns_resolve port out of range: {port}"))?;
+        let continuation = self.capture_continuation_piece(self.sp, 4);
+        let request_id = self
+            .async_runtime
+            .start_dns_resolve(
+                RuntimeTarget::Task(self.async_task_id),
+                continuation,
+                host.as_ref().clone(),
+                port,
+            )
+            .map_err(VM::async_runtime_error)?;
+        let resumed = self.wait_for_async_completion(request_id)?;
+        let value = match resumed.completion.clone() {
+            Some(Ok(CompletionPayload::AddressList(addrs))) => {
+                if let Some(first) = addrs.first() {
+                    Value::String(Rc::new(first.to_string()))
+                } else {
+                    return Err(VM::format_suspend_error(
+                        "dns_resolve",
+                        &crate::runtime::r#async::backend::AsyncError::new(
+                            crate::runtime::r#async::backend::AsyncErrorKind::Other,
+                            "no addresses resolved",
+                        ),
+                    ));
+                }
+            }
+            Some(Ok(other)) => {
+                return Err(format!(
+                    "Suspend.dns_resolve completed with unexpected payload {other:?}"
+                ));
+            }
+            Some(Err(error)) => {
+                return Err(VM::format_suspend_error("dns_resolve", &error));
+            }
+            None => return Err("Suspend.dns_resolve completed without payload".to_string()),
         };
         self.resume_suspended_continuation(resumed, value)
     }
@@ -431,11 +483,7 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!(
-                    "Suspend.{} failed: {}",
-                    kind.op_name(),
-                    error.message
-                ));
+                return Err(VM::format_suspend_error(kind.op_name(), &error));
             }
             None => {
                 return Err(format!(
@@ -561,7 +609,7 @@ impl VM {
                 ));
             }
             Some(Err(error)) => {
-                return Err(format!("Suspend.await_task failed: {}", error.message));
+                return Err(VM::format_suspend_error("await_task", &error));
             }
             None => return Err("Suspend.await_task completed without payload".to_string()),
         };
@@ -1100,10 +1148,26 @@ impl RuntimeContext for VM {
             self.global_values(),
         )
         .map_err(VM::send_value_error)?;
+        #[cfg(feature = "async-mio")]
+        let parent_backend = self.async_runtime.backend().clone();
+        #[cfg(feature = "async-mio")]
+        let parent_request_ids = self.async_runtime.request_id_allocator();
         let handle = self
             .task_manager
             .spawn(TaskPriority::NORMAL, move |cancel| {
-                run_send_closure_on_worker(send_closure, cancel)
+                #[cfg(feature = "async-mio")]
+                {
+                    run_send_closure_on_worker(
+                        send_closure,
+                        cancel,
+                        parent_backend,
+                        parent_request_ids,
+                    )
+                }
+                #[cfg(not(feature = "async-mio"))]
+                {
+                    run_send_closure_on_worker(send_closure, cancel)
+                }
             })
             .map_err(|err| format!("Task.spawn failed: {err:?}"))?;
         self.task_registry.tasks.insert(
@@ -1373,9 +1437,33 @@ impl VM {
     }
 
     fn async_failed_value(error: String) -> Value {
+        // Errors crossing the suspend boundary may carry a structured kind tag of
+        // the form "async failure[Kind]: <message>" injected by `format_suspend_error`.
+        // Decode that tag here so user code receives the matching AsyncError variant.
         let raw = error
             .strip_prefix("async failure: ")
             .unwrap_or(error.as_str());
+
+        if let Some(rest) = raw.strip_prefix("async failure[") {
+            if let Some(close) = rest.find("]: ") {
+                let kind = &rest[..close];
+                let message = rest[close + 3..].to_string();
+                return VM::async_error_from_kind(kind, message);
+            }
+        }
+
+        // Unit-constructor pass-through: `format_value` renders nullary AsyncError
+        // constructors as their bare name. Preserve the variant rather than
+        // collapsing to AsyncFailed.
+        match raw {
+            "AsyncCancelled" => return Value::AdtUnit(Rc::new("AsyncCancelled".to_string())),
+            "AsyncTimedOut" => return Value::AdtUnit(Rc::new("AsyncTimedOut".to_string())),
+            "ConnectionClosed" => {
+                return Value::AdtUnit(Rc::new("ConnectionClosed".to_string()));
+            }
+            _ => {}
+        }
+
         let message = raw
             .strip_prefix("AsyncFailed(\"")
             .and_then(|message| message.strip_suffix("\")"))
@@ -1385,6 +1473,50 @@ impl VM {
             constructor: Rc::new("AsyncFailed".to_string()),
             fields: crate::runtime::value::AdtFields::One(Value::String(Rc::new(message))),
         }))
+    }
+
+    fn async_error_from_kind(kind: &str, message: String) -> Value {
+        let unit = |name: &str| {
+            Value::AdtUnit(Rc::new(name.to_string()))
+        };
+        let one_string = |name: &str, s: String| {
+            Value::Adt(Rc::new(crate::runtime::value::AdtValue {
+                constructor: Rc::new(name.to_string()),
+                fields: crate::runtime::value::AdtFields::One(Value::String(Rc::new(s))),
+            }))
+        };
+        let io_error = |code: i64, msg: String, syscall: &str| {
+            Value::Adt(Rc::new(crate::runtime::value::AdtValue {
+                constructor: Rc::new("IoError".to_string()),
+                fields: crate::runtime::value::AdtFields::Many(vec![
+                    Value::Integer(code),
+                    Value::String(Rc::new(msg)),
+                    Value::String(Rc::new(syscall.to_string())),
+                ]),
+            }))
+        };
+        match kind {
+            "Cancelled" => unit("AsyncCancelled"),
+            "TimedOut" => unit("AsyncTimedOut"),
+            "Closed" => unit("ConnectionClosed"),
+            "ConnectionRefused" => io_error(0, message, "connect"),
+            "InvalidInput" => one_string("InvalidAddress", message),
+            "WouldBlock" => io_error(0, message, "wouldblock"),
+            "Other" | _ => one_string("AsyncFailed", message),
+        }
+    }
+
+    pub(super) fn format_suspend_error(op: &str, error: &AsyncError) -> String {
+        let kind = match error.kind {
+            AsyncErrorKind::Cancelled => "Cancelled",
+            AsyncErrorKind::Closed => "Closed",
+            AsyncErrorKind::ConnectionRefused => "ConnectionRefused",
+            AsyncErrorKind::InvalidInput => "InvalidInput",
+            AsyncErrorKind::TimedOut => "TimedOut",
+            AsyncErrorKind::WouldBlock => "WouldBlock",
+            AsyncErrorKind::Other => "Other",
+        };
+        format!("async failure[{kind}]: Suspend.{op} failed: {}", error.message)
     }
 
     fn scope_id_from_value(scope: &Value) -> Result<i64, String> {
@@ -1428,9 +1560,25 @@ impl VM {
             self.global_values(),
         )
         .map_err(VM::send_value_error)?;
+        #[cfg(feature = "async-mio")]
+        let parent_backend = self.async_runtime.backend().clone();
+        #[cfg(feature = "async-mio")]
+        let parent_request_ids = self.async_runtime.request_id_allocator();
         self.task_manager
             .spawn(TaskPriority::NORMAL, move |cancel| {
-                run_send_closure_on_worker(send_closure, cancel)
+                #[cfg(feature = "async-mio")]
+                {
+                    run_send_closure_on_worker(
+                        send_closure,
+                        cancel,
+                        parent_backend,
+                        parent_request_ids,
+                    )
+                }
+                #[cfg(not(feature = "async-mio"))]
+                {
+                    run_send_closure_on_worker(send_closure, cancel)
+                }
             })
             .map_err(|err| format!("Async branch spawn failed: {err:?}"))
     }

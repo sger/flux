@@ -107,6 +107,16 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::AsyncTry => "async_try",
         CorePrimOp::AsyncFinally => "async_finally",
         CorePrimOp::AsyncBracket => "async_bracket",
+        CorePrimOp::TcpListen => "tcp_listen",
+        CorePrimOp::TcpAccept => "tcp_accept",
+        CorePrimOp::TcpConnect => "tcp_connect",
+        CorePrimOp::TcpRead => "tcp_read",
+        CorePrimOp::TcpWrite => "tcp_write",
+        CorePrimOp::TcpClose => "tcp_close",
+        CorePrimOp::TcpLocalAddr => "tcp_local_addr",
+        CorePrimOp::TcpRemoteAddr => "tcp_remote_addr",
+        CorePrimOp::TcpCloseListener => "tcp_close_listener",
+        CorePrimOp::TcpListenerLocalAddr => "tcp_listener_local_addr",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -334,7 +344,17 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::AsyncFork
             | CorePrimOp::AsyncTry
             | CorePrimOp::AsyncFinally
-            | CorePrimOp::AsyncBracket => {
+            | CorePrimOp::AsyncBracket
+            | CorePrimOp::TcpListen
+            | CorePrimOp::TcpAccept
+            | CorePrimOp::TcpConnect
+            | CorePrimOp::TcpRead
+            | CorePrimOp::TcpWrite
+            | CorePrimOp::TcpClose
+            | CorePrimOp::TcpLocalAddr
+            | CorePrimOp::TcpRemoteAddr
+            | CorePrimOp::TcpCloseListener
+            | CorePrimOp::TcpListenerLocalAddr => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

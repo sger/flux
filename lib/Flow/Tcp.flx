@@ -1,5 +1,7 @@
 // Flow.Tcp — TCP client operations backed by Suspend.
 
+import Flow.Async as Async
+
 module Flow.Tcp {
 
     public data Tcp {
@@ -48,6 +50,30 @@ module Flow.Tcp {
 
     public fn listener_local_addr(listener: TcpListener) -> String with Async {
         perform Suspend.tcp_listener_local_addr(listener)
+    }
+
+    public fn with_connection<a>(
+        host: String,
+        port: Int,
+        body: ((Tcp) -> a with Async)
+    ) -> a with Async {
+        Async.bracket(
+            fn() { connect(host, port) },
+            fn(conn) { close(conn) },
+            body
+        )
+    }
+
+    public fn with_listener<a>(
+        host: String,
+        port: Int,
+        body: ((TcpListener) -> a with Async)
+    ) -> a with Async {
+        Async.bracket(
+            fn() { listen(host, port) },
+            fn(listener) { close_listener(listener) },
+            body
+        )
     }
 
 }

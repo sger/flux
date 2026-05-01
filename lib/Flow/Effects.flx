@@ -62,7 +62,8 @@ module Flow.Effects {
         tcp_local_addr: Tcp -> String,
         tcp_remote_addr: Tcp -> String,
         tcp_close_listener: TcpListener -> Unit,
-        tcp_listener_local_addr: TcpListener -> String
+        tcp_listener_local_addr: TcpListener -> String,
+        dns_resolve: (String, Int) -> String
     }
     effect Fork
     effect GetContext

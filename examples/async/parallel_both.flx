@@ -1,0 +1,61 @@
+// Parallel TCP fetch with `Async.both`.
+//
+// Two independent loopback servers; the parent fiber forks two
+// branches that each read from a different connection. `both` joins
+// the tuple. TCP handles created in the parent are visible inside
+// each branch via the shared `mio` reactor with per-branch completion
+// routing.
+//
+// Run:
+//   cargo run -- examples/async/parallel_both.flx
+//   cargo run --features llvm -- examples/async/parallel_both.flx --native
+
+import Flow.Async as A
+import Flow.Bytes as Bytes
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+fn port_from_addr(addr: String) -> Int {
+    let parts = split(addr, ":")
+    match parts[1] {
+        Some(port) -> parse_int(port),
+        _ -> 0,
+    }
+}
+
+fn main() with IO, Async {
+    let listener_a = Tcp.listen("127.0.0.1", 0)
+    let listener_b = Tcp.listen("127.0.0.1", 0)
+    let port_a = port_from_addr(Tcp.listener_local_addr(listener_a))
+    let port_b = port_from_addr(Tcp.listener_local_addr(listener_b))
+
+    let client_a = Tcp.connect("127.0.0.1", port_a)
+    let client_b = Tcp.connect("127.0.0.1", port_b)
+    let server_a = Tcp.accept(listener_a)
+    let server_b = Tcp.accept(listener_b)
+
+    let wa = Tcp.write(client_a, String.to_bytes("alpha"))
+    let wb = Tcp.write(client_b, String.to_bytes("beta"))
+
+    let pair = A.both(
+        fn() {
+            let bytes = Tcp.read(server_a, 5)
+            Bytes.to_string(bytes)
+        },
+        fn() {
+            let bytes = Tcp.read(server_b, 4)
+            Bytes.to_string(bytes)
+        }
+    );
+
+    Tcp.close(server_a);
+    Tcp.close(server_b);
+    Tcp.close(client_a);
+    Tcp.close(client_b);
+    Tcp.close_listener(listener_a);
+    Tcp.close_listener(listener_b);
+
+    match pair {
+        (a, b) -> print("a=" + a + " (" + to_string(wa) + " written), b=" + b + " (" + to_string(wb) + " written)"),
+    }
+}

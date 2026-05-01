@@ -141,6 +141,20 @@ pub enum Statement {
         expansion: EffectExpr,
         span: Span,
     },
+    /// `alias Name<a, b> = TypeExpr` — declares a transparent type alias
+    /// (proposal 0174 prerequisite).
+    ///
+    /// Aliases are fully transparent: every reference to `Name<...>` is
+    /// substituted with `body[a := arg0, b := arg1, ...]` in a pre-inference
+    /// pass. Recursion through aliases is rejected; depth is capped to defend
+    /// against pathological input.
+    TypeAlias {
+        is_public: bool,
+        name: Identifier,
+        params: Vec<Identifier>,
+        body: TypeExpr,
+        span: Span,
+    },
     /// Type class declaration: class Eq<a> => Ord<a> { methods... }
     ///
     /// Proposal 0151: `is_public` controls whether the class name and its
@@ -211,6 +225,7 @@ impl Statement {
             Statement::Data { span, .. } => span.start,
             Statement::EffectDecl { span, .. } => span.start,
             Statement::EffectAlias { span, .. } => span.start,
+            Statement::TypeAlias { span, .. } => span.start,
             Statement::Class { span, .. } => span.start,
             Statement::Instance { span, .. } => span.start,
         }
@@ -229,6 +244,7 @@ impl Statement {
             Statement::Data { span, .. } => *span,
             Statement::EffectDecl { span, .. } => *span,
             Statement::EffectAlias { span, .. } => *span,
+            Statement::TypeAlias { span, .. } => *span,
             Statement::Class { span, .. } => *span,
             Statement::Instance { span, .. } => *span,
         }
@@ -469,6 +485,28 @@ impl fmt::Display for Statement {
                 name, expansion, ..
             } => {
                 write!(f, "alias {} = <{}>", name, expansion)
+            }
+            Statement::TypeAlias {
+                is_public,
+                name,
+                params,
+                body,
+                ..
+            } => {
+                let prefix = if *is_public { "public " } else { "" };
+                if params.is_empty() {
+                    write!(f, "{}alias {} = {}", prefix, name, body)
+                } else {
+                    let rendered: Vec<String> = params.iter().map(|p| p.to_string()).collect();
+                    write!(
+                        f,
+                        "{}alias {}<{}> = {}",
+                        prefix,
+                        name,
+                        rendered.join(", "),
+                        body
+                    )
+                }
             }
             Statement::Class {
                 name,
@@ -768,6 +806,35 @@ impl Statement {
                     interner.resolve(*name),
                     expansion.display_with(interner)
                 )
+            }
+            Statement::TypeAlias {
+                is_public,
+                name,
+                params,
+                body,
+                ..
+            } => {
+                let prefix = if *is_public { "public " } else { "" };
+                if params.is_empty() {
+                    format!(
+                        "{}alias {} = {}",
+                        prefix,
+                        interner.resolve(*name),
+                        body.display_with(interner)
+                    )
+                } else {
+                    let rendered: Vec<String> = params
+                        .iter()
+                        .map(|p| interner.resolve(*p).to_string())
+                        .collect();
+                    format!(
+                        "{}alias {}<{}> = {}",
+                        prefix,
+                        interner.resolve(*name),
+                        rendered.join(", "),
+                        body.display_with(interner)
+                    )
+                }
             }
             Statement::Class {
                 name,

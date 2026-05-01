@@ -1,0 +1,13 @@
+// Flow.Dns — DNS resolution backed by the Suspend seam's blocking pool.
+
+module Flow.Dns {
+
+    // Resolve a (host, port) pair to a single "ip:port" string. Returns the
+    // first address the platform resolver yielded; subsequent addresses are
+    // currently dropped — a richer Array<String> surface arrives once the
+    // VM payload supports it natively.
+    public fn resolve(host: String, port: Int) -> String with Async {
+        perform Suspend.dns_resolve(host, port)
+    }
+
+}

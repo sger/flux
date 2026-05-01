@@ -1,0 +1,266 @@
+// Flow.Http — minimal HTTP/1.1 client over Flow.Tcp + Flow.Async.
+//
+// Phase 2 first slice: enough surface to fetch from a loopback server.
+// Implementation is hand-rolled (no llhttp yet); supports the request
+// shape `<METHOD> <PATH> HTTP/1.1\r\nHost: ...\r\nContent-Length: ...\r\n\r\n<body>`
+// and a response with explicit `Content-Length`. Chunked transfer,
+// keep-alive, TLS, and binary bodies arrive in later slices — bodies
+// round-trip through String for now.
+
+import Flow.Bytes as Bytes
+import Flow.List as List
+import Flow.Map as Map
+import Flow.String as String
+import Flow.Tcp as Tcp
+
+module Flow.Http {
+
+    public data Method {
+        Get,
+        Post,
+        Put,
+        Delete,
+        Patch,
+        Head,
+        Options,
+    }
+
+    public data Url {
+        Url {
+            host: String,
+            port: Int,
+            path: String,
+        }
+    }
+
+    public data Response {
+        Response {
+            status: Int,
+            headers: Map<String, String>,
+            body: String,
+        }
+    }
+
+    public fn method_to_string(method: Method) -> String {
+        match method {
+            Get -> "GET",
+            Post -> "POST",
+            Put -> "PUT",
+            Delete -> "DELETE",
+            Patch -> "PATCH",
+            Head -> "HEAD",
+            Options -> "OPTIONS",
+        }
+    }
+
+    fn strip_prefix(s: String, prefix: String) -> String {
+        if String.starts_with(s, prefix) {
+            String.string_slice(s, len(prefix), len(s))
+        } else {
+            s
+        }
+    }
+
+    // Find the first occurrence of `needle` in `haystack`; returns 0-based
+    // index or None.
+    fn index_of(haystack: String, needle: String) -> Option<Int> {
+        let h = len(haystack)
+        let n = len(needle)
+        if n == 0 || n > h {
+            None
+        } else {
+            index_of_loop(haystack, needle, 0, h - n + 1, n)
+        }
+    }
+
+    fn index_of_loop(haystack: String, needle: String, i: Int, end: Int, n: Int) -> Option<Int> {
+        if i >= end {
+            None
+        } else if String.string_slice(haystack, i, i + n) == needle {
+            Some(i)
+        } else {
+            index_of_loop(haystack, needle, i + 1, end, n)
+        }
+    }
+
+    // Parse `http://host[:port]/path` into a Url. Defaults: port 80, path "/".
+    public fn parse_url(url: String) -> Url {
+        let after_scheme = strip_prefix(url, "http://")
+        let total = len(after_scheme)
+        let split_index = match index_of(after_scheme, "/") {
+            Some(i) -> i,
+            None -> -1,
+        }
+        let host_port = if split_index < 0 {
+            after_scheme
+        } else {
+            String.string_slice(after_scheme, 0, split_index)
+        }
+        let path = if split_index < 0 {
+            "/"
+        } else {
+            String.string_slice(after_scheme, split_index, total)
+        }
+        let host_port_len = len(host_port)
+        let colon = match index_of(host_port, ":") {
+            Some(i) -> i,
+            None -> -1,
+        }
+        let host = if colon < 0 {
+            host_port
+        } else {
+            String.string_slice(host_port, 0, colon)
+        }
+        let port = if colon < 0 {
+            80
+        } else {
+            parse_int(String.string_slice(host_port, colon + 1, host_port_len))
+        }
+        Url {
+            host: host,
+            port: port,
+            path: path,
+        }
+    }
+
+    fn build_request_text(method: Method, url: Url, body: String) -> String {
+        let body_len = len(body)
+        let host_header = if url.port == 80 {
+            url.host
+        } else {
+            url.host + ":" + to_string(url.port)
+        }
+        method_to_string(method) + " " + url.path + " HTTP/1.1\r\n" +
+            "Host: " + host_header + "\r\n" +
+            "Content-Length: " + to_string(body_len) + "\r\n" +
+            "Connection: close\r\n" +
+            "\r\n" +
+            body
+    }
+
+    fn read_response(conn) -> Response with Async {
+        read_response_loop(conn, "")
+    }
+
+    fn read_response_loop(conn, acc: String) -> Response with Async {
+        let chunk = Tcp.read(conn, 4096)
+        let chunk_text = Bytes.to_string(chunk)
+        let combined = acc + chunk_text
+        let parsed = try_parse_response(combined)
+        match parsed {
+            Some(response) -> response,
+            None -> on_response_pending(conn, combined, len(chunk_text)),
+        }
+    }
+
+    fn on_response_pending(conn, combined: String, chunk_len: Int) -> Response with Async {
+        if chunk_len == 0 {
+            // Peer closed before headers parsed; surface what we have.
+            Response {
+                status: 0,
+                headers: empty_headers(),
+                body: combined,
+            }
+        } else {
+            read_response_loop(conn, combined)
+        }
+    }
+
+    fn empty_headers() -> Map<String, String> {
+        let init: Map<String, String> = {}
+        init
+    }
+
+    fn try_parse_response(buffer: String) -> Option<Response> {
+        let header_idx = index_of(buffer, "\r\n\r\n")
+        match header_idx {
+            None -> None,
+            Some(header_end) -> finish_parse_response(buffer, header_end),
+        }
+    }
+
+    fn finish_parse_response(buffer: String, header_end: Int) -> Option<Response> {
+        let head = String.string_slice(buffer, 0, header_end)
+        let body_start = header_end + 4
+        let total = len(buffer)
+        let body = String.string_slice(buffer, body_start, total)
+        let lines = split_crlf(head)
+        match lines {
+            [] -> None,
+            [status_line | header_lines] -> assemble_response(status_line, header_lines, body),
+        }
+    }
+
+    fn assemble_response(status_line: String, header_lines: List<String>, body: String) -> Option<Response> {
+        let status = parse_status_line(status_line)
+        let headers = parse_headers(header_lines, empty_headers())
+        let expected = match Map.get(headers, "content-length") {
+            Some(value) -> parse_int(value),
+            None -> len(body),
+        }
+        if len(body) >= expected {
+            Some(Response {
+                status: status,
+                headers: headers,
+                body: String.string_slice(body, 0, expected),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn split_crlf(s: String) -> List<String> {
+        split_crlf_acc(s, 0, len(s), 0, [])
+    }
+
+    fn split_crlf_acc(s: String, start: Int, n: Int, i: Int, acc: List<String>) -> List<String> {
+        if i + 1 >= n {
+            List.reverse([String.string_slice(s, start, n) | acc])
+        } else if String.string_slice(s, i, i + 2) == "\r\n" {
+            split_crlf_acc(s, i + 2, n, i + 2, [String.string_slice(s, start, i) | acc])
+        } else {
+            split_crlf_acc(s, start, n, i + 1, acc)
+        }
+    }
+
+    fn parse_status_line(line: String) -> Int {
+        let parts = split(line, " ")
+        match parts[1] {
+            Some(code) -> parse_int(code),
+            None -> 0,
+        }
+    }
+
+    fn parse_headers(lines: List<String>, acc: Map<String, String>) -> Map<String, String> {
+        match lines {
+            [] -> acc,
+            [head | tail] -> parse_headers(tail, accumulate_header(acc, head)),
+        }
+    }
+
+    fn accumulate_header(acc: Map<String, String>, line: String) -> Map<String, String> {
+        match index_of(line, ": ") {
+            Some(i) -> Map.set(acc, lower(String.string_slice(line, 0, i)), String.string_slice(line, i + 2, len(line))),
+            None -> acc,
+        }
+    }
+
+    public fn request(method: Method, url_str: String, body: String) -> Response with Async {
+        let url = parse_url(url_str)
+        let conn = Tcp.connect(url.host, url.port)
+        let req = build_request_text(method, url, body)
+        let _ = Tcp.write(conn, String.to_bytes(req))
+        let response = read_response(conn)
+        Tcp.close(conn);
+        response
+    }
+
+    public fn get(url: String) -> Response with Async {
+        request(Get, url, "")
+    }
+
+    public fn post(url: String, body: String) -> Response with Async {
+        request(Post, url, body)
+    }
+
+}

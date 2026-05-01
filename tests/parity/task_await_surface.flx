@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // Proposal 0174 Phase 1b: Task.await source surface over Phase 1a tasks.
 

@@ -16,7 +16,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::runtime::r#async::blocking::{BlockingServices, BlockingServicesConfig};
+use crate::runtime::r#async::blocking::{
+    BlockingRouteTable, BlockingServices, BlockingServicesConfig,
+};
 use mio::{
     Events, Interest, Poll, Token, Waker,
     net::{TcpListener, TcpStream},
@@ -64,14 +66,18 @@ pub struct MioBackend {
     tcp_waits: HashMap<Token, TcpWait>,
     services: BlockingServices,
     stopped: bool,
+    routes: SharedRouteTable,
 }
 
 type SharedCommandQueue = Arc<Mutex<VecDeque<MioCommand>>>;
+type SharedRouteTable = BlockingRouteTable;
 
 #[derive(Clone)]
 pub struct MioBackendHandle {
     commands: SharedCommandQueue,
     waker: Arc<Waker>,
+    routes: SharedRouteTable,
+    sink: Option<BackendCompletionSink>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +167,30 @@ pub enum MioCommand {
     Stop,
 }
 
+impl MioCommand {
+    fn request_id(&self) -> Option<RequestId> {
+        match self {
+            MioCommand::ScheduleTimer { request_id, .. }
+            | MioCommand::ScheduleTimerAfter { request_id, .. }
+            | MioCommand::TcpConnect { request_id, .. }
+            | MioCommand::TcpListen { request_id, .. }
+            | MioCommand::TcpAccept { request_id, .. }
+            | MioCommand::TcpRead { request_id, .. }
+            | MioCommand::TcpWrite { request_id, .. }
+            | MioCommand::TcpClose { request_id, .. }
+            | MioCommand::TcpLocalAddr { request_id, .. }
+            | MioCommand::TcpRemoteAddr { request_id, .. }
+            | MioCommand::TcpCloseListener { request_id, .. }
+            | MioCommand::TcpListenerLocalAddr { request_id, .. }
+            | MioCommand::DnsResolve { request_id, .. }
+            | MioCommand::FileRead { request_id, .. }
+            | MioCommand::FileWrite { request_id, .. } => Some(*request_id),
+            MioCommand::Cancel(handle) => Some(handle.request_id()),
+            MioCommand::Stop => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MioReactorTick {
     pub commands: usize,
@@ -218,6 +248,28 @@ pub struct MioDriverBackend {
     handle: MioBackendHandle,
 }
 
+impl MioDriverBackend {
+    /// Build a child driver that shares this driver's reactor but owns a
+    /// fresh completion channel. Commands submitted through the child
+    /// register routes back to its sink, so completions return to the
+    /// child's source rather than the parent's primary sink.
+    pub fn child(&self) -> Self {
+        let (sink, source) = backend_completion_channel();
+        Self {
+            source,
+            handle: self.handle.with_completion_sink(sink),
+        }
+    }
+
+    pub fn handle(&self) -> &MioBackendHandle {
+        &self.handle
+    }
+
+    pub fn source(&self) -> &BackendCompletionSource {
+        &self.source
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct TimerEntry {
     deadline: Instant,
@@ -265,8 +317,12 @@ impl MioBackend {
                 .map_err(|err| io_error("mio waker init failed", err))?,
         );
         let (completion_sink, completion_source) = backend_completion_channel();
-        let services =
-            BlockingServices::new(BlockingServicesConfig::default(), completion_sink.clone());
+        let routes: SharedRouteTable = Arc::new(Mutex::new(HashMap::new()));
+        let services = BlockingServices::new(
+            BlockingServicesConfig::default(),
+            completion_sink.clone(),
+            Arc::clone(&routes),
+        );
         Ok(Self {
             poll,
             waker,
@@ -283,6 +339,7 @@ impl MioBackend {
             tcp_waits: HashMap::new(),
             services,
             stopped: false,
+            routes,
         })
     }
 
@@ -342,10 +399,22 @@ impl MioBackend {
         &mut self,
         completion: BackendCompletion,
     ) -> Result<(), AsyncError> {
-        self.completion_sink.submit(completion)?;
+        self.submit_routed(completion)?;
         self.waker
             .wake()
             .map_err(|err| io_error("mio wake failed", err))
+    }
+
+    fn submit_routed(&self, completion: BackendCompletion) -> Result<(), AsyncError> {
+        let routed = self
+            .routes
+            .lock()
+            .map_err(|_| AsyncError::new(AsyncErrorKind::Other, "mio route table poisoned"))?
+            .remove(&completion.request_id);
+        match routed {
+            Some(sink) => sink.submit(completion),
+            None => self.completion_sink.submit(completion),
+        }
     }
 
     pub fn submit_command(&mut self, command: MioCommand) -> Result<(), AsyncError> {
@@ -356,6 +425,8 @@ impl MioBackend {
         MioBackendHandle {
             commands: Arc::clone(&self.commands),
             waker: Arc::clone(&self.waker),
+            routes: Arc::clone(&self.routes),
+            sink: None,
         }
     }
 
@@ -750,7 +821,7 @@ impl MioBackend {
             TcpListener::bind(addr).map_err(|err| io_error("mio tcp listen failed", err))?;
         let handle = self.allocate_io_handle();
         self.tcp_listeners.insert(handle, listener);
-        self.completion_sink.submit(BackendCompletion::ok(
+        self.submit_routed(BackendCompletion::ok(
             request_id,
             target,
             BackendCompletionPayload::Handle(handle.0),
@@ -765,7 +836,7 @@ impl MioBackend {
         handle: IoHandle,
     ) -> Result<(), AsyncError> {
         let Some(listener) = self.tcp_listeners.get_mut(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
@@ -776,7 +847,7 @@ impl MioBackend {
             Ok((stream, _addr)) => {
                 let stream_handle = self.allocate_io_handle();
                 self.tcp_streams.insert(stream_handle, stream);
-                self.completion_sink.submit(BackendCompletion::ok(
+                self.submit_routed(BackendCompletion::ok(
                     request_id,
                     target,
                     BackendCompletionPayload::Handle(stream_handle.0),
@@ -802,7 +873,7 @@ impl MioBackend {
                 );
             }
             Err(err) => {
-                self.completion_sink.submit(BackendCompletion::err(
+                self.submit_routed(BackendCompletion::err(
                     request_id,
                     target,
                     io_error("mio tcp accept failed", err),
@@ -820,7 +891,7 @@ impl MioBackend {
         max: usize,
     ) -> Result<(), AsyncError> {
         if max == 0 {
-            self.completion_sink.submit(BackendCompletion::ok(
+            self.submit_routed(BackendCompletion::ok(
                 request_id,
                 target,
                 BackendCompletionPayload::Bytes(Vec::new()),
@@ -828,7 +899,7 @@ impl MioBackend {
             return Ok(());
         }
         let Some(stream) = self.tcp_streams.get_mut(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
@@ -839,7 +910,7 @@ impl MioBackend {
         match stream.read(&mut buf) {
             Ok(n) => {
                 buf.truncate(n);
-                self.completion_sink.submit(BackendCompletion::ok(
+                self.submit_routed(BackendCompletion::ok(
                     request_id,
                     target,
                     BackendCompletionPayload::Bytes(buf),
@@ -865,7 +936,7 @@ impl MioBackend {
                 );
             }
             Err(err) => {
-                self.completion_sink.submit(BackendCompletion::err(
+                self.submit_routed(BackendCompletion::err(
                     request_id,
                     target,
                     io_error("mio tcp read failed", err),
@@ -883,7 +954,7 @@ impl MioBackend {
         bytes: Vec<u8>,
     ) -> Result<(), AsyncError> {
         let Some(stream) = self.tcp_streams.get_mut(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
@@ -892,7 +963,7 @@ impl MioBackend {
         };
         match stream.write(&bytes) {
             Ok(n) => {
-                self.completion_sink.submit(BackendCompletion::ok(
+                self.submit_routed(BackendCompletion::ok(
                     request_id,
                     target,
                     BackendCompletionPayload::Count(n),
@@ -918,7 +989,7 @@ impl MioBackend {
                 );
             }
             Err(err) => {
-                self.completion_sink.submit(BackendCompletion::err(
+                self.submit_routed(BackendCompletion::err(
                     request_id,
                     target,
                     io_error("mio tcp write failed", err),
@@ -935,7 +1006,7 @@ impl MioBackend {
         handle: IoHandle,
     ) -> Result<(), AsyncError> {
         let Some(stream) = self.tcp_streams.remove(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
@@ -943,7 +1014,7 @@ impl MioBackend {
             return Ok(());
         };
         let _ = stream.shutdown(Shutdown::Both);
-        self.completion_sink.submit(BackendCompletion::ok(
+        self.submit_routed(BackendCompletion::ok(
             request_id,
             target,
             BackendCompletionPayload::Unit,
@@ -959,7 +1030,7 @@ impl MioBackend {
         kind: TcpAddrKind,
     ) -> Result<(), AsyncError> {
         let Some(stream) = self.tcp_streams.get(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP handle"),
@@ -975,7 +1046,7 @@ impl MioBackend {
                 .map_err(|err| io_error("mio tcp remote_addr failed", err)),
         };
         match addr {
-            Ok(addr) => self.completion_sink.submit(BackendCompletion::ok(
+            Ok(addr) => self.submit_routed(BackendCompletion::ok(
                 request_id,
                 target,
                 BackendCompletionPayload::Text(addr.to_string()),
@@ -995,14 +1066,14 @@ impl MioBackend {
         handle: IoHandle,
     ) -> Result<(), AsyncError> {
         if self.tcp_listeners.remove(&handle).is_none() {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
             ))?;
             return Ok(());
         }
-        self.completion_sink.submit(BackendCompletion::ok(
+        self.submit_routed(BackendCompletion::ok(
             request_id,
             target,
             BackendCompletionPayload::Unit,
@@ -1017,7 +1088,7 @@ impl MioBackend {
         handle: IoHandle,
     ) -> Result<(), AsyncError> {
         let Some(listener) = self.tcp_listeners.get(&handle) else {
-            self.completion_sink.submit(BackendCompletion::err(
+            self.submit_routed(BackendCompletion::err(
                 request_id,
                 target,
                 AsyncError::new(AsyncErrorKind::InvalidInput, "unknown TCP listener handle"),
@@ -1028,7 +1099,7 @@ impl MioBackend {
             .local_addr()
             .map_err(|err| io_error("mio tcp listener local_addr failed", err))
         {
-            Ok(addr) => self.completion_sink.submit(BackendCompletion::ok(
+            Ok(addr) => self.submit_routed(BackendCompletion::ok(
                 request_id,
                 target,
                 BackendCompletionPayload::Text(addr.to_string()),
@@ -1097,7 +1168,7 @@ impl MioBackend {
                     .take_error()
                     .map_err(|err| io_error("mio tcp connect status failed", err))?
                 {
-                    Some(err) => self.completion_sink.submit(BackendCompletion::err(
+                    Some(err) => self.submit_routed(BackendCompletion::err(
                         wait.request_id,
                         wait.target,
                         io_error("mio tcp connect failed", err),
@@ -1105,7 +1176,7 @@ impl MioBackend {
                     None => {
                         let handle = self.allocate_io_handle();
                         self.tcp_streams.insert(handle, stream);
-                        self.completion_sink.submit(BackendCompletion::ok(
+                        self.submit_routed(BackendCompletion::ok(
                             wait.request_id,
                             wait.target,
                             BackendCompletionPayload::Handle(handle.0),
@@ -1169,7 +1240,7 @@ impl MioBackend {
             if self.cancelled.remove(&timer.request_id) {
                 continue;
             }
-            self.completion_sink.submit(BackendCompletion::ok(
+            self.submit_routed(BackendCompletion::ok(
                 timer.request_id,
                 timer.target,
                 BackendCompletionPayload::Unit,
@@ -1190,7 +1261,22 @@ impl std::fmt::Debug for MioBackendHandle {
 }
 
 impl MioBackendHandle {
+    pub fn with_completion_sink(&self, sink: BackendCompletionSink) -> Self {
+        Self {
+            commands: Arc::clone(&self.commands),
+            waker: Arc::clone(&self.waker),
+            routes: Arc::clone(&self.routes),
+            sink: Some(sink),
+        }
+    }
+
     pub fn submit_command(&self, command: MioCommand) -> Result<(), AsyncError> {
+        if let (Some(sink), Some(request_id)) = (self.sink.as_ref(), command.request_id()) {
+            self.routes
+                .lock()
+                .map_err(|_| AsyncError::new(AsyncErrorKind::Other, "mio route table poisoned"))?
+                .insert(request_id, sink.clone());
+        }
         self.commands
             .lock()
             .map_err(|_| AsyncError::new(AsyncErrorKind::Other, "mio command queue poisoned"))?
@@ -1748,6 +1834,19 @@ mod tests {
             .expect("system clock after epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("flux_mio_{name}_{unique}"))
+    }
+
+    fn poll_backend_completion(source: &BackendCompletionSource) -> BackendCompletion {
+        for _ in 0..200 {
+            if let Some(completion) = source
+                .poll_backend_completion()
+                .expect("completion source readable")
+            {
+                return completion;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("timed out waiting for routed backend completion")
     }
 
     fn poll_until_completion(backend: &mut MioBackend) -> Completion {
@@ -2715,5 +2814,158 @@ mod tests {
                 .expect("worker exists"),
             None
         );
+    }
+
+    #[test]
+    fn split_driver_backend_delivers_tcp_listen_completion_to_scheduler() {
+        use crate::runtime::{
+            r#async::{
+                backend::{CompletionPayload, RequestId, RuntimeTarget},
+                context::{TaskId, WorkerId},
+                driver::RuntimeDriver,
+                scheduler::{SchedulerConfig, SchedulerState, SuspendedContinuation},
+            },
+            value::Value,
+        };
+
+        if bind_loopback_or_skip().is_none() {
+            return;
+        }
+
+        let backend = MioBackend::new().expect("mio backend initializes");
+        let handle = backend.handle();
+        let mut driver_backend = backend.driver_backend();
+        let mut scheduler = SchedulerState::new(SchedulerConfig { worker_count: 1 });
+        let (task_id, worker_id) = scheduler.spawn_task().expect("task spawns");
+        assert_eq!((task_id, worker_id), (TaskId(1), WorkerId(0)));
+
+        let request_id = RequestId(17);
+        let target = RuntimeTarget::Task(task_id);
+        let cancel_handle = driver_backend
+            .tcp_listen(request_id, target, "127.0.0.1".to_string(), 0)
+            .expect("tcp listen command submits");
+        scheduler
+            .park(
+                SuspendedContinuation::new(request_id, target, Value::Integer(17))
+                    .with_cancel_handle(cancel_handle),
+            )
+            .expect("wait parks");
+
+        let reactor = spawn_mio_reactor_until_stopped(
+            backend,
+            MioReactorRunLimit {
+                max_ticks: usize::MAX,
+                timeout: Some(Duration::from_millis(10)),
+            },
+        );
+        let mut driver = RuntimeDriver::new(scheduler, driver_backend);
+        let mut resumed = None;
+        for _ in 0..100 {
+            driver.tick().expect("driver ticks");
+            if let Some(continuation) = driver.pop_completed_continuation() {
+                resumed = Some(continuation);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        handle.stop().expect("stop command submits");
+        let report = reactor
+            .join()
+            .expect("reactor thread joins")
+            .expect("reactor runs");
+        assert!(report.stopped);
+
+        let resumed = resumed.expect("tcp listen completion resumes continuation");
+        assert_eq!(resumed.request_id, request_id);
+        assert_eq!(resumed.target, target);
+        match resumed.completion.expect("completion payload exists") {
+            Ok(CompletionPayload::Handle(handle)) => assert!(handle > 0),
+            other => panic!("expected TCP listener handle, got {other:?}"),
+        }
+        assert_eq!(
+            driver
+                .scheduler_mut()
+                .pop_ready(worker_id)
+                .expect("worker exists"),
+            Some(target)
+        );
+    }
+
+    #[test]
+    fn child_driver_routes_dns_completion_to_child_source() {
+        use crate::runtime::r#async::{
+            backend::{BackendCompletion, BackendCompletionPayload, RequestId, RuntimeTarget},
+            context::TaskId,
+        };
+
+        let backend = MioBackend::new().expect("mio backend initializes");
+        let handle = backend.handle();
+        let parent_driver = backend.driver_backend();
+        let child_driver = parent_driver.child();
+
+        let parent_request = RequestId(901);
+        let child_request = RequestId(902);
+        let parent_target = RuntimeTarget::Task(TaskId(1));
+        let child_target = RuntimeTarget::Task(TaskId(2));
+
+        parent_driver
+            .handle()
+            .submit_command(MioCommand::DnsResolve {
+                request_id: parent_request,
+                target: parent_target,
+                host: "localhost".to_string(),
+                port: 80,
+            })
+            .expect("parent dns command submits");
+        child_driver
+            .handle()
+            .submit_command(MioCommand::DnsResolve {
+                request_id: child_request,
+                target: child_target,
+                host: "localhost".to_string(),
+                port: 80,
+            })
+            .expect("child dns command submits");
+
+        let reactor = spawn_mio_reactor_until_stopped(
+            backend,
+            MioReactorRunLimit {
+                max_ticks: usize::MAX,
+                timeout: Some(Duration::from_millis(10)),
+            },
+        );
+
+        let parent_completion: BackendCompletion = poll_backend_completion(parent_driver.source());
+        let child_completion: BackendCompletion = poll_backend_completion(child_driver.source());
+
+        handle.stop().expect("stop command submits");
+        let report = reactor
+            .join()
+            .expect("reactor thread joins")
+            .expect("reactor runs");
+        assert!(report.stopped);
+
+        assert_eq!(parent_completion.request_id, parent_request);
+        match parent_completion.payload {
+            Ok(BackendCompletionPayload::AddressList(addresses)) => {
+                assert!(
+                    !addresses.is_empty(),
+                    "parent dns resolves at least one address"
+                );
+            }
+            other => panic!("expected parent address list, got {other:?}"),
+        }
+
+        assert_eq!(child_completion.request_id, child_request);
+        match child_completion.payload {
+            Ok(BackendCompletionPayload::AddressList(addresses)) => {
+                assert!(
+                    !addresses.is_empty(),
+                    "child dns resolves at least one address"
+                );
+            }
+            other => panic!("expected child address list, got {other:?}"),
+        }
     }
 }

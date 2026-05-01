@@ -1,0 +1,42 @@
+// Transparent type alias prerequisite for proposal 0174.
+//
+// Exercises three shapes:
+//   1. monomorphic alias (`alias Name = String`)
+//   2. parameterized function alias (`alias Predicate<a> = (a) -> Bool`)
+//   3. nested alias chain — alias body that references another alias
+
+import Flow.Async exposing (..)
+
+alias Name = String
+
+alias Predicate<a> = (a) -> Bool
+
+alias ResumeFn<a> = (Either<AsyncError, a>) -> Unit
+alias Callback<a> = (Int, ResumeFn<a>) -> Unit
+
+fn even(n: Int) -> Bool {
+    n % 2 == 0
+}
+
+fn use_pred(p: Predicate<Int>, x: Int) -> Bool {
+    p(x)
+}
+
+fn run_callback(cb: Callback<Int>) {
+    cb(0, fn(_result) { })
+}
+
+fn main() with IO {
+    let label: Name = "predicate"
+    print(label)
+
+    let pred: Predicate<Int> = even
+    if use_pred(pred, 8) {
+        print("8 is even")
+    } else {
+        print("nope")
+    }
+
+    run_callback(fn(_id, _resume) { })
+    print("aliases expanded ok")
+}

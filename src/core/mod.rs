@@ -650,7 +650,17 @@ pub enum CorePrimOp {
     AsyncTry = 170,
     AsyncFinally = 171,
     AsyncBracket = 172,
-    // ── Next free ID: 173 ─────────────────────────────────────────────
+    TcpListen = 173,
+    TcpAccept = 174,
+    TcpConnect = 175,
+    TcpRead = 176,
+    TcpWrite = 177,
+    TcpClose = 178,
+    TcpLocalAddr = 179,
+    TcpRemoteAddr = 180,
+    TcpCloseListener = 181,
+    TcpListenerLocalAddr = 182,
+    // ── Next free ID: 183 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -710,6 +720,16 @@ impl CorePrimOp {
             "AsyncTry" => return Some(Self::AsyncTry),
             "AsyncFinally" => return Some(Self::AsyncFinally),
             "AsyncBracket" => return Some(Self::AsyncBracket),
+            "TcpListen" => return Some(Self::TcpListen),
+            "TcpAccept" => return Some(Self::TcpAccept),
+            "TcpConnect" => return Some(Self::TcpConnect),
+            "TcpRead" => return Some(Self::TcpRead),
+            "TcpWrite" => return Some(Self::TcpWrite),
+            "TcpClose" => return Some(Self::TcpClose),
+            "TcpLocalAddr" => return Some(Self::TcpLocalAddr),
+            "TcpRemoteAddr" => return Some(Self::TcpRemoteAddr),
+            "TcpCloseListener" => return Some(Self::TcpCloseListener),
+            "TcpListenerLocalAddr" => return Some(Self::TcpListenerLocalAddr),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -802,6 +822,16 @@ impl CorePrimOp {
             Self::AsyncTry => Some("async_try"),
             Self::AsyncFinally => Some("async_finally"),
             Self::AsyncBracket => Some("async_bracket"),
+            Self::TcpListen => Some("tcp_listen"),
+            Self::TcpAccept => Some("tcp_accept"),
+            Self::TcpConnect => Some("tcp_connect"),
+            Self::TcpRead => Some("tcp_read"),
+            Self::TcpWrite => Some("tcp_write"),
+            Self::TcpClose => Some("tcp_close"),
+            Self::TcpLocalAddr => Some("tcp_local_addr"),
+            Self::TcpRemoteAddr => Some("tcp_remote_addr"),
+            Self::TcpCloseListener => Some("tcp_close_listener"),
+            Self::TcpListenerLocalAddr => Some("tcp_listener_local_addr"),
             _ => None,
         }
     }
@@ -969,6 +999,16 @@ impl CorePrimOp {
             170 => AsyncTry,
             171 => AsyncFinally,
             172 => AsyncBracket,
+            173 => TcpListen,
+            174 => TcpAccept,
+            175 => TcpConnect,
+            176 => TcpRead,
+            177 => TcpWrite,
+            178 => TcpClose,
+            179 => TcpLocalAddr,
+            180 => TcpRemoteAddr,
+            181 => TcpCloseListener,
+            182 => TcpListenerLocalAddr,
             _ => return None,
         };
         Some(op)
@@ -1116,6 +1156,20 @@ impl CorePrimOp {
             ("async_try", 1, CorePrimOp::AsyncTry),
             ("async_finally", 2, CorePrimOp::AsyncFinally),
             ("async_bracket", 3, CorePrimOp::AsyncBracket),
+            ("tcp_listen", 2, CorePrimOp::TcpListen),
+            ("tcp_accept", 1, CorePrimOp::TcpAccept),
+            ("tcp_connect", 2, CorePrimOp::TcpConnect),
+            ("tcp_read", 2, CorePrimOp::TcpRead),
+            ("tcp_write", 2, CorePrimOp::TcpWrite),
+            ("tcp_close", 1, CorePrimOp::TcpClose),
+            ("tcp_local_addr", 1, CorePrimOp::TcpLocalAddr),
+            ("tcp_remote_addr", 1, CorePrimOp::TcpRemoteAddr),
+            ("tcp_close_listener", 1, CorePrimOp::TcpCloseListener),
+            (
+                "tcp_listener_local_addr",
+                1,
+                CorePrimOp::TcpListenerLocalAddr,
+            ),
             ("sqrt", 1, CorePrimOp::FSqrt),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
@@ -1144,14 +1198,16 @@ impl CorePrimOp {
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | AsyncSleep | StringToBytes | BytesLength | BytesToString
-            | AsyncScope | AsyncTry => 1,
+            | AsyncScope | AsyncTry | TcpAccept | TcpClose | TcpLocalAddr | TcpRemoteAddr
+            | TcpCloseListener | TcpListenerLocalAddr => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
             | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | AsyncBoth
-            | AsyncRace | AsyncTimeout | AsyncTimeoutResult | AsyncFork | AsyncFinally => 2,
+            | AsyncRace | AsyncTimeout | AsyncTimeoutResult | AsyncFork | AsyncFinally
+            | TcpListen | TcpConnect | TcpRead | TcpWrite => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring | BytesSlice
             | AsyncBracket => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate

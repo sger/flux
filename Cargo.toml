@@ -12,6 +12,7 @@ path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 
 [features]
+default = ["async-mio"]
 async-mio = ["dep:mio"]
 native = []
 llvm = ["native"]

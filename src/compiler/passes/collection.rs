@@ -134,6 +134,7 @@ impl Compiler {
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
             | Statement::EffectAlias { .. }
+            | Statement::TypeAlias { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }
@@ -329,6 +330,7 @@ impl Compiler {
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
             | Statement::EffectAlias { .. }
+            | Statement::TypeAlias { .. }
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }

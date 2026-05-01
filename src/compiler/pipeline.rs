@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
+use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
@@ -77,10 +78,17 @@ impl Compiler {
         // downstream phases (predeclaration, inference, codegen) never see
         // unexpanded aliases.
         let alias_expanded;
-        let program: &Program = if !self.effect_row_aliases.is_empty() {
+        let program: &Program = if !self.effect_row_aliases.is_empty()
+            || !self.type_aliases.is_empty()
+        {
             alias_expanded = {
                 let mut owned: Program = program.clone();
-                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                if !self.effect_row_aliases.is_empty() {
+                    expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                }
+                if !self.type_aliases.is_empty() {
+                    expand_type_aliases_in_program(&mut owned, &self.type_aliases);
+                }
                 owned
             };
             &alias_expanded

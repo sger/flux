@@ -402,10 +402,17 @@ impl<'a> InferCtx<'a> {
         relevant_constraints: &[constraint::WantedClassConstraint],
         env_free_vars: &HashSet<TypeVarId>,
     ) -> Scheme {
+        let resolved_constraints =
+            resolve_class_constraints(relevant_constraints.to_vec(), &self.subst);
+        let relevant_constraints = expand_sendable_adt_constraints(
+            resolved_constraints,
+            &self.adt_constructor_types,
+            self.interner,
+        );
         let finalized = finalize_binding_class_constraints(
             infer_type,
             env_free_vars,
-            relevant_constraints,
+            &relevant_constraints,
             &self.subst,
             self.class_env.as_ref(),
             self.interner,

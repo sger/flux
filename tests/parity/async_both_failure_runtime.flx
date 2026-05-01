@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: runtime_error
 
 import Flow.Async as A

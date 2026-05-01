@@ -274,9 +274,12 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
-        fprintf(stderr, "flux_yield_to: unhandled effect (htag=0x%llx)\n",
-                (unsigned long long)(uint64_t)htag);
-        abort();
+        if ((int32_t)flux_untag_int(arity) > 0) {
+            flux_panic(arg);
+        } else {
+            flux_panic(flux_string_new("unhandled effect", 16));
+        }
+        return FLUX_YIELD_SENTINEL;
     }
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];

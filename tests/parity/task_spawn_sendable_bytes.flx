@@ -1,5 +1,5 @@
 // Proposal 0174 Phase 1a: immutable Bytes values are Sendable across Task.spawn.
-// parity: vm
+// parity: vm, llvm
 // expect: success
 
 import Flow.Bytes as Bytes

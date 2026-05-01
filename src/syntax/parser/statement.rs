@@ -121,6 +121,11 @@ impl Parser {
                 self.next_token(); // data
                 self.parse_data_statement(true)
             }
+            // Proposal 0174 prerequisite: `public alias Name<a> = TypeExpr`.
+            TokenType::Public if self.is_peek_token(TokenType::Alias) => {
+                self.next_token(); // alias
+                self.parse_alias_statement(true)
+            }
             TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
@@ -2271,14 +2276,28 @@ impl Parser {
     /// Expansion happens at type-inference time; see
     /// `Compiler::effect_alias_table`.
     pub(super) fn parse_effect_alias_statement(&mut self) -> Option<Statement> {
+        self.parse_alias_statement(false)
+    }
+
+    /// Parses `alias Name = ...` and `public alias Name<a, b> = ...`.
+    ///
+    /// Three accepted shapes:
+    /// - `alias Name = <E1 | E2 | ...>` — effect-row alias (proposal 0161 B1).
+    /// - `alias Name = TypeExpr` — transparent type alias (proposal 0174).
+    /// - `alias Name<a, b> = TypeExpr` — parameterized transparent type alias.
+    ///
+    /// Disambiguation: type parameters force the type-alias path. Without type
+    /// parameters, the RHS shape decides — leading `<` is an effect-row body,
+    /// anything else is a type expression.
+    pub(super) fn parse_alias_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
-            "Missing Effect Alias Name",
+            "Missing Alias Name",
             DiagnosticCategory::ParserDeclaration,
             "Expected alias name after `alias`.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = <E1 | E2 | ...>` or `alias Name<a> = TypeExpr`.".to_string(),
         ) {
             return None;
         }
@@ -2287,31 +2306,84 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        // Optional type parameters: `alias Name<a, b> = ...`
+        let mut params: Vec<crate::syntax::Identifier> = Vec::new();
+        let has_params = self.is_peek_token(TokenType::Lt);
+        if has_params {
+            self.next_token(); // consume `<`
+            // First param.
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Type Parameter Name",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected a type parameter name inside `<...>`.".to_string(),
+                "Type aliases use `alias Name<a, b> = TypeExpr`.".to_string(),
+            ) {
+                return None;
+            }
+            params.push(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            );
+            while self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // `,`
+                if !self.expect_peek_context_with_details(
+                    TokenType::Ident,
+                    "Missing Type Parameter Name",
+                    DiagnosticCategory::ParserDeclaration,
+                    "Expected a type parameter name after `,`.".to_string(),
+                    "Type aliases use `alias Name<a, b> = TypeExpr`.".to_string(),
+                ) {
+                    return None;
+                }
+                params.push(
+                    self.current_token
+                        .symbol
+                        .expect("ident token should have symbol"),
+                );
+            }
+            if !self.expect_peek_context_with_details(
+                TokenType::Gt,
+                "Missing `>` after type parameters",
+                DiagnosticCategory::ParserSeparator,
+                "Expected `>` to close the type parameter list.".to_string(),
+                "Type aliases use `alias Name<a, b> = TypeExpr`.".to_string(),
+            ) {
+                return None;
+            }
+        }
+
         if !self.expect_peek_context_with_details(
             TokenType::Assign,
-            "Missing `=` in Effect Alias",
+            "Missing `=` in Alias",
             DiagnosticCategory::ParserSeparator,
             "Expected `=` after alias name.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = ...`.".to_string(),
         ) {
             return None;
         }
 
-        if !self.expect_peek_context_with_details(
-            TokenType::Lt,
-            "Missing `<` in Effect Alias Body",
-            DiagnosticCategory::ParserSeparator,
-            "Expected `<` to begin the effect-row body.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
-        ) {
-            return None;
+        // Disambiguate: type-parameterized aliases must take a TypeExpr RHS.
+        // Otherwise leading `<` chooses the effect-row path.
+        if !has_params && self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume `<`
+            let expansion = self.parse_effect_alias_body()?;
+            return Some(Statement::EffectAlias {
+                name,
+                expansion,
+                span: self.span_from(start),
+            });
         }
 
-        let expansion = self.parse_effect_alias_body()?;
-
-        Some(Statement::EffectAlias {
+        // Type alias: parse a type expression as the RHS.
+        self.next_token(); // step onto the first RHS token
+        let body = self.parse_type_expr()?;
+        Some(Statement::TypeAlias {
+            is_public,
             name,
-            expansion,
+            params,
+            body,
             span: self.span_from(start),
         })
     }
