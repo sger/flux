@@ -3,8 +3,33 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/guide/list_basic.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `__dict_Eq_Int`.
+
+  examples/guide/list_basic.flx:86:11
+   |
+86 |     print(contains(xs, 2))
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let __dict_Eq_Int = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `__dict_Eq_Int`.
+
+  examples/guide/list_basic.flx:87:11
+   |
+87 |     print(contains(xs, 9))
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let __dict_Eq_Int = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

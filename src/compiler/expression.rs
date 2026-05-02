@@ -1264,29 +1264,46 @@ impl Compiler {
                 .collect();
             required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
 
-            for required_name in required_effects {
-                if !self.is_effect_available(required_name) {
-                    let function_name = self.call_function_name(function);
-                    let missing = self.sym(required_name).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E400",
-                            "MISSING EFFECT",
-                            ErrorType::Compiler,
-                            format!(
-                                "Call to `{}` requires effect `{}` in this function signature.",
-                                function_name, missing
-                            ),
-                            Some(format!("Add `with {}` to the enclosing function.", missing)),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_display_title("Missing Ambient Effect")
-                        .with_category(DiagnosticCategory::Effects)
-                        .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                        .with_primary_label(function.span(), "effectful call occurs here"),
-                    ));
-                }
+            let missing: Vec<String> = required_effects
+                .iter()
+                .filter(|sym| !self.is_effect_available(**sym))
+                .map(|sym| self.sym(*sym).to_string())
+                .collect();
+            if !missing.is_empty() {
+                let function_name = self.call_function_name(function);
+                let joined = missing.join(", ");
+                let (msg, hint) = if missing.len() == 1 {
+                    (
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            function_name, joined
+                        ),
+                        format!("Add `with {}` to the enclosing function.", joined),
+                    )
+                } else {
+                    (
+                        format!(
+                            "Call to `{}` requires effects `{}` in this function signature.",
+                            function_name, joined
+                        ),
+                        format!("Add `with {}` to the enclosing function.", joined),
+                    )
+                };
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        ErrorType::Compiler,
+                        msg,
+                        Some(hint),
+                        self.file_path.clone(),
+                        function.span(),
+                    )
+                    .with_display_title("Missing Ambient Effect")
+                    .with_category(DiagnosticCategory::Effects)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+                    .with_primary_label(function.span(), "effectful call occurs here"),
+                ));
             }
         }
 

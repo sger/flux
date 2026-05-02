@@ -1,10 +1,35 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/tests/array_test.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `__dict_Eq_Int`.
+
+  examples/tests/array_test.flx:18:17
+   |
+18 |     assert_true(contains([1, 2, 3], 2))
+   |                 ^^^^^^^^
+
+Hint:
+  Define it first: let __dict_Eq_Int = ...;
+
+
+error[E004]: Undefined Variable
+
+I can't find a value named `__dict_Eq_Int`.
+
+  examples/tests/array_test.flx:22:18
+   |
+22 |     assert_false(contains([1, 2, 3], 99))
+   |                  ^^^^^^^^
+
+Hint:
+  Define it first: let __dict_Eq_Int = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

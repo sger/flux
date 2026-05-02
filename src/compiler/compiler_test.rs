@@ -578,6 +578,7 @@ fn preload_module_interface_remaps_adt_symbols_across_sessions() {
         symbol_table: std::collections::HashMap::from([(old_adt_id, "Color".to_string())]),
         public_classes: Vec::new(),
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     // Session 2: fresh compiler. "Color" will get a different symbol ID.
@@ -641,6 +642,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
         symbol_table: std::collections::HashMap::from([(old_effect_id, "IO".to_string())]),
         public_classes: Vec::new(),
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     let mut compiler = Compiler::new();
@@ -690,6 +692,7 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -997,6 +1000,7 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -1076,6 +1080,7 @@ module Local {
             pinned_row_placeholder: None,
         }],
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -1153,6 +1158,7 @@ import Example.StdLog as StdLog
             pinned_row_placeholder: None,
         }],
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
     let instance_interface = ModuleInterface {
         module_name: "Example.StdLog".to_string(),
@@ -1188,6 +1194,7 @@ import Example.StdLog as StdLog
             }],
             pinned_row_placeholder: None,
         }],
+        public_data: Vec::new(),
     };
 
     compiler.preload_module_interface(&class_interface);
@@ -1274,6 +1281,7 @@ module Local {
             pinned_row_placeholder: None,
         }],
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
 
     compiler.preload_module_interface(&interface);

@@ -1582,6 +1582,8 @@ mod tests {
                 preloaded_effect_op_signatures: HashMap::new(),
                 effect_row_aliases: HashMap::new(),
                 class_env: None,
+                preloaded_adt_constructor_types: HashMap::new(),
+                preloaded_adt_type_params: HashMap::new(),
             },
         );
         let types = hm.expr_types;

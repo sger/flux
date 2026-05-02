@@ -202,6 +202,8 @@ pub fn infer_fixture(rel: &str) -> InferredFixture {
             preloaded_effect_op_signatures: effect_op_sigs,
             effect_row_aliases: HashMap::new(),
             class_env: Some(class_env),
+            preloaded_adt_constructor_types: HashMap::new(),
+            preloaded_adt_type_params: HashMap::new(),
         },
     );
     InferredFixture {

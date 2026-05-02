@@ -324,6 +324,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             pinned_row_placeholder: None,
         }],
         public_instances: Vec::new(),
+        public_data: Vec::new(),
     };
     let instance_interface = ModuleInterface {
         module_name: "Example.StdLog".to_string(),
@@ -359,6 +360,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             }],
             pinned_row_placeholder: None,
         }],
+        public_data: Vec::new(),
     };
 
     let rendered = compile_per_module_llvm_ir_with_preloaded_interfaces(

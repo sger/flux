@@ -35,6 +35,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         &source_hash,
         &config_hash,
         core.as_core(),
+        None,
         compiler.cached_member_schemes(),
         &exported_runtime_contracts,
         &compiler.module_function_visibility,

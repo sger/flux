@@ -483,10 +483,19 @@ fn plan_expr(
             let alts = branch_plans
                 .into_iter()
                 .map(|(pat, guard, rhs, alt_span, env_without_pats)| {
-                    let compensation: Vec<_> = joined
-                        .owned
-                        .iter()
-                        .cloned()
+                    // Materialize `joined.owned` (a HashSet) into a sorted Vec
+                    // before consumption so the resulting `drop X in drop Y in ...`
+                    // chain is stable across runs. Without this, HashSet
+                    // iteration order leaks into Aether snapshot output and
+                    // produces flaky aether_cli_snapshots failures (the same
+                    // fixture flips drop ordering between runs).
+                    //
+                    // Descending: combined with the trailing `rev()` + fold,
+                    // this places the larger-id binder as the outermost drop.
+                    let mut owned_sorted: Vec<_> = joined.owned.iter().cloned().collect();
+                    owned_sorted.sort_by_key(|id| std::cmp::Reverse(id.0));
+                    let compensation: Vec<_> = owned_sorted
+                        .into_iter()
                         .filter(|binder_id| {
                             !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
                         })

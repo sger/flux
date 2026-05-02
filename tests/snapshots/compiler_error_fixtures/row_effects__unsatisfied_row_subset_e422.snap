@@ -5,29 +5,30 @@ Fixture: examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Parameter Type Mismatch
+error[E300]: Argument Type Mismatch
 
-Parameter 1 has the wrong type.
+I found the wrong type in the 1st argument to `run_needs_io_time`.
 
-  examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx:14:5
+  examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx:14:23
    |
+ 4 | fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+   | ----------------------------------------------------------------------- `run_needs_io_time` expects `() -> Int with IO, Time` as the 1st parameter
+ 5 |     f()
+ 6 | }
+... |
+12 | 
+13 | fn main() with IO, Time {
 14 |     run_needs_io_time(only_io)
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     -------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
-
-   |     -------------------------- this type mismatch is reported here
+   |                       ^^^^^^^
+   |                       ------- this argument has type `() -> Int with Console, FileSystem, Stdin`
 
 Note:
-  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock
-  found parameter type: () -> Unit with Console, FileSystem, Stdin
-  the conflicting types meet at this expression
+  expected argument type: () -> Int with IO, Time
+  found argument type: () -> Int with Console, FileSystem, Stdin
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock` consistently.
-
-
-Note: Downstream Errors Suppressed
-
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+  Pass a `() -> Int with IO, Time` value as the 1st argument.
 == stdout ==
 <not executed>

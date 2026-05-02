@@ -6,7 +6,6 @@ use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
-use crate::types::class_dispatch::generate_dispatch_functions;
 
 use super::{Compiler, MainValidationState};
 
@@ -65,11 +64,13 @@ impl Compiler {
                 .all_symbol_names()
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>();
-            let extra = generate_dispatch_functions(
+            let emit_builtins = !self.is_flow_library_file();
+            let extra = crate::types::class_dispatch::generate_dispatch_functions_with_opts(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                emit_builtins,
             );
             if !extra.is_empty() {
                 class_augmented = self.inject_generated_dispatch_functions(program, extra);

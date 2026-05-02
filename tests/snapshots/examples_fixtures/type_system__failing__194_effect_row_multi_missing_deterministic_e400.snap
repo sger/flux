@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 error[E400]: Missing Ambient Effect
 
-Call to `call_requires_clock_console` requires effect `Clock` in this function signature.
+Call to `call_requires_clock_console` requires effects `Clock, Console` in this function signature.
 
   examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:34:5
    |
@@ -16,6 +16,6 @@ Call to `call_requires_clock_console` requires effect `Clock` in this function s
    |     --------------------------- effectful call occurs here
 
 Hint:
-  Add `with Clock` to the enclosing function.
+  Add `with Clock, Console` to the enclosing function.
 == stdout ==
 <not executed>

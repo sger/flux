@@ -939,6 +939,7 @@ mod tests {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            public_data: Vec::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();
@@ -1120,6 +1121,7 @@ mod tests {
             &hash,
             &cfg,
             &program,
+            None,
             &schemes,
             &HashMap::new(),
             &visibility,
@@ -1151,6 +1153,7 @@ mod tests {
             &hash,
             &cfg,
             &program,
+            None,
             &schemes,
             &HashMap::new(),
             &visibility,

@@ -34,6 +34,27 @@ pub fn generate_dispatch_functions(
     interner: &mut Interner,
     additional_reserved_names: &HashSet<Identifier>,
 ) -> Vec<Statement> {
+    generate_dispatch_functions_with_opts(
+        statements,
+        class_env,
+        interner,
+        additional_reserved_names,
+        true,
+    )
+}
+
+/// Like [`generate_dispatch_functions`] but lets the caller suppress emission
+/// of built-in instance functions (`__tc_Eq_Int_eq`, etc.). Stdlib modules
+/// pass `emit_builtins=false` so only one bytecode object — the entry's —
+/// emits the global builtin definitions; otherwise the linker would see
+/// duplicate symbols across every stdlib `.flx` that has any `instance`.
+pub fn generate_dispatch_functions_with_opts(
+    statements: &[Statement],
+    class_env: &ClassEnv,
+    interner: &mut Interner,
+    additional_reserved_names: &HashSet<Identifier>,
+    emit_builtins: bool,
+) -> Vec<Statement> {
     let mut generated = Vec::new();
     let mut reserved_names = collect_existing_function_names(statements);
     reserved_names.extend(additional_reserved_names.iter().copied());
@@ -55,7 +76,12 @@ pub fn generate_dispatch_functions(
         &mut generated,
         &mut dispatch_table,
     );
-    if needs_builtin_dispatch_support(statements) {
+    for stmt in &generated {
+        if let Statement::Function { name, .. } = stmt {
+            reserved_names.insert(*name);
+        }
+    }
+    if emit_builtins && needs_builtin_dispatch_support(statements) {
         generate_builtin_instance_functions(
             class_env,
             interner,

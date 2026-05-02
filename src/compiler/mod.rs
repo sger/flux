@@ -1771,11 +1771,13 @@ impl Compiler {
                         .is_some_and(|resolved| resolved.starts_with("__tc_"))
                 })
                 .collect::<HashSet<_>>();
-            let extra = crate::types::class_dispatch::generate_dispatch_functions(
+            let emit_builtins = !self.is_flow_library_file();
+            let extra = crate::types::class_dispatch::generate_dispatch_functions_with_opts(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                emit_builtins,
             );
             if extra.is_empty() {
                 let final_inference = self.infer_final_program(program);
@@ -2044,6 +2046,8 @@ impl Compiler {
         // hit the `.flxi` cache.
         for data_entry in &interface.public_data {
             let adt_name = remap_identifier(data_entry.name, &symbol_remap);
+            self.module_function_visibility
+                .insert((module_name, adt_name), true);
             let type_params: Vec<Identifier> = data_entry
                 .type_params
                 .iter()
@@ -3059,6 +3063,14 @@ impl Compiler {
                         .insert((module_name, *name), *is_public);
                     self.module_member_is_value
                         .insert((module_name, *name), true);
+                }
+            }
+            Statement::Data {
+                is_public, name, ..
+            } => {
+                if let Some(module_name) = module_name {
+                    self.module_function_visibility
+                        .insert((module_name, *name), *is_public);
                 }
             }
             Statement::Module { name, body, .. } => {

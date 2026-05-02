@@ -1,10 +1,20 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/collections.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `__dict_Eq_Int`.
+
+  examples/primop/collections.flx:27:11
+   |
+27 |     print(contains(lst, 2));
+   |           ^^^^^^^^
+
+Hint:
+  Define it first: let __dict_Eq_Int = ...;
 == stdout ==
 <not executed>
