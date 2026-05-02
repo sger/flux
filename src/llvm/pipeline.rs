@@ -280,7 +280,34 @@ fn parse_extra_link_archives(value: Option<OsString>) -> Vec<PathBuf> {
 }
 
 fn configured_extra_link_archives() -> Vec<PathBuf> {
-    parse_extra_link_archives(std::env::var_os(FLUX_ASYNC_BRIDGE_ARCHIVE_ENV))
+    let mut archives = parse_extra_link_archives(std::env::var_os(FLUX_ASYNC_BRIDGE_ARCHIVE_ENV));
+    if archives.is_empty()
+        && let Some(auto) = autodetect_async_bridge_archive()
+    {
+        archives.push(auto);
+    }
+    archives
+}
+
+/// Locate the Flux Rust staticlib (`libflux.a` / `flux.lib`) next to the
+/// currently running compiler binary. The C runtime calls into FFI symbols
+/// exported by `src/runtime/async/bridge.rs` (e.g. `flux_async_runtime_*`),
+/// which only resolve when the staticlib is linked into emitted native
+/// binaries. Cargo writes both `flux` and `libflux.a` into the same target
+/// profile directory, so we walk up from `current_exe`.
+fn autodetect_async_bridge_archive() -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let dir = current_exe.parent()?;
+    let candidate = if cfg!(windows) {
+        dir.join("flux.lib")
+    } else {
+        dir.join("libflux.a")
+    };
+    if candidate.exists() {
+        Some(candidate)
+    } else {
+        None
+    }
 }
 
 /// Link `.o`/`.obj` + runtime library → executable.

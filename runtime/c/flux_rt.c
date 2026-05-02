@@ -2746,16 +2746,28 @@ int64_t flux_async_sleep(int64_t ms) {
     if (raw_ms <= 0) {
         return FLUX_NONE;
     }
+    /* Sleep on the Rust mio reactor (epoll/kqueue) instead of busy-looping on
+     * usleep. Chunk at ~50 ms granularity so cooperative cancellation still
+     * gets a check window for long sleeps. */
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
     while (raw_ms > 0) {
         if (flux_current_task_cancelled()) {
             return FLUX_NONE;
         }
-        int64_t chunk = raw_ms > 10 ? 10 : raw_ms;
+        int64_t chunk = raw_ms > 50 ? 50 : raw_ms;
+        FluxAsyncStatus status = flux_async_runtime_sleep_blocking(runtime, chunk);
+        if (status == FLUX_ASYNC_STATUS_CANCELLED) {
+            return FLUX_NONE;
+        }
+        if (status != FLUX_ASYNC_STATUS_OK) {
+            /* Fall back to OS sleep if the bridge reports an error so we don't
+             * spin or panic on a transient runtime issue. */
 #if defined(_MSC_VER) || defined(_WIN32)
-        Sleep((DWORD)chunk);
+            Sleep((DWORD)chunk);
 #else
-        usleep((useconds_t)chunk * 1000);
+            usleep((useconds_t)chunk * 1000);
 #endif
+        }
         raw_ms -= chunk;
     }
     return FLUX_NONE;
@@ -2767,6 +2779,37 @@ int64_t flux_async_yield_now(void) {
 #else
     sched_yield();
 #endif
+    return FLUX_NONE;
+}
+
+/* Channel primops are VM-only for now — native lowering emits calls to these
+ * stubs so accidental use produces a clear panic rather than a link-time
+ * symbol miss. */
+int64_t flux_channel_bounded(int64_t cap) {
+    (void)cap;
+    flux_panic(flux_string_new(
+        "Channel.bounded is currently VM-only on the native backend", 58));
+    return FLUX_NONE;
+}
+
+int64_t flux_channel_send(int64_t channel, int64_t value) {
+    (void)channel; (void)value;
+    flux_panic(flux_string_new(
+        "Channel.send is currently VM-only on the native backend", 55));
+    return FLUX_NONE;
+}
+
+int64_t flux_channel_recv(int64_t channel) {
+    (void)channel;
+    flux_panic(flux_string_new(
+        "Channel.recv is currently VM-only on the native backend", 55));
+    return FLUX_NONE;
+}
+
+int64_t flux_channel_close(int64_t channel) {
+    (void)channel;
+    flux_panic(flux_string_new(
+        "Channel.close is currently VM-only on the native backend", 56));
     return FLUX_NONE;
 }
 
@@ -3130,11 +3173,25 @@ int64_t flux_async_bracket(int64_t acquire, int64_t release, int64_t body) {
     return FLUX_NONE;
 }
 
-/* ── Native TCP compatibility shims ────────────────────────────────── */
+/* ── Native TCP shims (routed through Rust mio bridge) ────────────────
+ *
+ * Native TCP handles are opaque mio `IoHandle` values produced by the Rust
+ * reactor and carried as tagged ints. Each operation calls into a blocking
+ * shim in `src/runtime/async/bridge.rs` that drives the reactor on a
+ * sibling thread. Bytes/text payloads come back as Rust-allocated heap
+ * buffers; we copy them into Flux objects and immediately free the
+ * Rust allocation. */
 
-static void flux_tcp_panic(const char *op, const char *detail) {
-    char buf[256];
-    int len = snprintf(buf, sizeof(buf), "%s failed: %s", op, detail ? detail : "unknown error");
+static void flux_tcp_panic_buffer(const char *op, FluxAsyncBuffer err) {
+    char buf[512];
+    int len;
+    if (err.ptr != NULL && err.len > 0) {
+        size_t take = err.len < sizeof(buf) - 64 ? err.len : sizeof(buf) - 64;
+        len = snprintf(buf, sizeof(buf), "%s failed: %.*s", op, (int)take, (const char *)err.ptr);
+    } else {
+        len = snprintf(buf, sizeof(buf), "%s failed", op);
+    }
+    flux_async_runtime_free_buffer(err);
     if (len < 0) {
         flux_panic(flux_string_new("TCP operation failed", 20));
         return;
@@ -3145,226 +3202,203 @@ static void flux_tcp_panic(const char *op, const char *detail) {
     flux_panic(flux_string_new(buf, (uint32_t)len));
 }
 
-static char *flux_string_to_cstr(int64_t value, const char *op) {
-    if (!flux_is_ptr(value) || flux_obj_tag(flux_untag_ptr(value)) != FLUX_OBJ_STRING) {
-        flux_tcp_panic(op, "expected String");
-        return NULL;
-    }
-    uint32_t len = flux_string_len(value);
-    char *buf = (char *)malloc((size_t)len + 1);
-    if (!buf) {
-        flux_tcp_panic(op, "out of memory");
-        return NULL;
-    }
-    memcpy(buf, flux_string_data(value), len);
-    buf[len] = '\0';
-    return buf;
-}
-
 static int flux_tcp_port(int64_t port, const char *op) {
     if (!flux_is_int(port)) {
-        flux_tcp_panic(op, "expected Int port");
+        FluxAsyncBuffer empty = { NULL, 0 };
+        (void)empty;
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s failed: expected Int port", op);
+        if (len < 0) len = 0;
+        if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+        flux_panic(flux_string_new(buf, (uint32_t)len));
         return 0;
     }
     int64_t raw = flux_untag_int(port);
     if (raw < 0 || raw > 65535) {
-        flux_tcp_panic(op, "port out of range");
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s failed: port out of range", op);
+        if (len < 0) len = 0;
+        if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+        flux_panic(flux_string_new(buf, (uint32_t)len));
         return 0;
     }
     return (int)raw;
 }
 
-static int flux_tcp_fd(int64_t value, const char *op) {
+static uint64_t flux_tcp_io_handle(int64_t value, const char *op) {
     if (!flux_is_int(value)) {
-        flux_tcp_panic(op, "expected TCP handle");
-        return -1;
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s failed: expected TCP handle", op);
+        if (len < 0) len = 0;
+        if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return 0;
     }
     int64_t raw = flux_untag_int(value);
-    if (raw < 0 || raw > INT32_MAX) {
-        flux_tcp_panic(op, "invalid TCP handle");
-        return -1;
+    if (raw <= 0) {
+        char buf[96];
+        int len = snprintf(buf, sizeof(buf), "%s failed: invalid TCP handle", op);
+        if (len < 0) len = 0;
+        if (len >= (int)sizeof(buf)) len = (int)sizeof(buf) - 1;
+        flux_panic(flux_string_new(buf, (uint32_t)len));
+        return 0;
     }
-    return (int)raw;
+    return (uint64_t)raw;
 }
 
-static int flux_tcp_socket_for(const char *host, int port, int passive, const char *op) {
-    char service[16];
-    snprintf(service, sizeof(service), "%d", port);
+/* Common helper: convert a (host, port) pair plus a listen/connect bridge
+ * call into a tagged Int IoHandle, panicking on any failure. */
+typedef FluxAsyncStatus (*FluxTcpHostPortShim)(
+    FluxAsyncRuntimeHandle, const uint8_t *, size_t, uint16_t,
+    uint64_t *, FluxAsyncBuffer *);
 
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = passive ? AI_PASSIVE : 0;
-
-    struct addrinfo *res = NULL;
-    int gai = getaddrinfo(host, service, &hints, &res);
-    if (gai != 0) {
-        flux_tcp_panic(op, gai_strerror(gai));
-        return -1;
-    }
-
-    int fd = -1;
-    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
-        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) {
-            continue;
-        }
-        if (passive) {
-            int yes = 1;
-            (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-            if (bind(fd, ai->ai_addr, ai->ai_addrlen) == 0 && listen(fd, 128) == 0) {
-                break;
-            }
-        } else if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
-            break;
-        }
-        close(fd);
-        fd = -1;
-    }
-
-    freeaddrinfo(res);
-    if (fd < 0) {
-        flux_tcp_panic(op, strerror(errno));
-    }
-    return fd;
-}
-
-static int64_t flux_tcp_addr_string(int fd, int peer, const char *op) {
-    struct sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-    int rc = peer
-        ? getpeername(fd, (struct sockaddr *)&addr, &len)
-        : getsockname(fd, (struct sockaddr *)&addr, &len);
-    if (rc != 0) {
-        flux_tcp_panic(op, strerror(errno));
+static int64_t flux_tcp_host_port_call(
+    FluxTcpHostPortShim shim, const char *op, int64_t host_value, int64_t port_value)
+{
+    if (!flux_is_ptr(host_value) || flux_obj_tag(flux_untag_ptr(host_value)) != FLUX_OBJ_STRING) {
+        char msg[96];
+        int len = snprintf(msg, sizeof(msg), "%s failed: expected String host", op);
+        if (len < 0) len = 0;
+        if (len >= (int)sizeof(msg)) len = (int)sizeof(msg) - 1;
+        flux_panic(flux_string_new(msg, (uint32_t)len));
         return FLUX_NONE;
     }
+    int port = flux_tcp_port(port_value, op);
+    const char *host = flux_string_data(host_value);
+    uint32_t host_len = flux_string_len(host_value);
 
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
-    rc = getnameinfo(
-        (struct sockaddr *)&addr,
-        len,
-        host,
-        sizeof(host),
-        service,
-        sizeof(service),
-        NI_NUMERICHOST | NI_NUMERICSERV);
-    if (rc != 0) {
-        flux_tcp_panic(op, gai_strerror(rc));
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    uint64_t handle = 0;
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = shim(
+        runtime, (const uint8_t *)host, (size_t)host_len, (uint16_t)port, &handle, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer(op, err);
         return FLUX_NONE;
     }
-
-    char buf[NI_MAXHOST + NI_MAXSERV + 2];
-    int out = snprintf(buf, sizeof(buf), "%s:%s", host, service);
-    if (out < 0) {
-        flux_tcp_panic(op, "address formatting failed");
-        return FLUX_NONE;
-    }
-    if (out >= (int)sizeof(buf)) {
-        out = (int)sizeof(buf) - 1;
-    }
-    return flux_string_new(buf, (uint32_t)out);
+    return flux_tag_int((int64_t)handle);
 }
 
 int64_t flux_tcp_listen(int64_t host_value, int64_t port_value) {
-    char *host = flux_string_to_cstr(host_value, "Tcp.listen");
-    int port = flux_tcp_port(port_value, "Tcp.listen");
-    int fd = flux_tcp_socket_for(host, port, 1, "Tcp.listen");
-    free(host);
-    return fd >= 0 ? flux_tag_int(fd) : FLUX_NONE;
-}
-
-int64_t flux_tcp_accept(int64_t listener) {
-    int fd = flux_tcp_fd(listener, "Tcp.accept");
-    int conn = accept(fd, NULL, NULL);
-    if (conn < 0) {
-        flux_tcp_panic("Tcp.accept", strerror(errno));
-        return FLUX_NONE;
-    }
-    return flux_tag_int(conn);
+    return flux_tcp_host_port_call(
+        flux_async_runtime_tcp_listen_blocking, "Tcp.listen", host_value, port_value);
 }
 
 int64_t flux_tcp_connect(int64_t host_value, int64_t port_value) {
-    char *host = flux_string_to_cstr(host_value, "Tcp.connect");
-    int port = flux_tcp_port(port_value, "Tcp.connect");
-    int fd = flux_tcp_socket_for(host, port, 0, "Tcp.connect");
-    free(host);
-    return fd >= 0 ? flux_tag_int(fd) : FLUX_NONE;
+    return flux_tcp_host_port_call(
+        flux_async_runtime_tcp_connect_blocking, "Tcp.connect", host_value, port_value);
+}
+
+int64_t flux_tcp_accept(int64_t listener) {
+    uint64_t listener_handle = flux_tcp_io_handle(listener, "Tcp.accept");
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    uint64_t conn_handle = 0;
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_accept_blocking(
+        runtime, listener_handle, &conn_handle, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer("Tcp.accept", err);
+        return FLUX_NONE;
+    }
+    return flux_tag_int((int64_t)conn_handle);
 }
 
 int64_t flux_tcp_read(int64_t conn, int64_t max_value) {
-    int fd = flux_tcp_fd(conn, "Tcp.read");
+    uint64_t handle = flux_tcp_io_handle(conn, "Tcp.read");
     if (!flux_is_int(max_value)) {
-        flux_tcp_panic("Tcp.read", "expected Int byte count");
+        flux_panic(flux_string_new("Tcp.read failed: expected Int byte count", 41));
         return FLUX_NONE;
     }
     int64_t max = flux_untag_int(max_value);
     if (max <= 0) {
         return flux_string_new("", 0);
     }
-    char *buf = (char *)malloc((size_t)max);
-    if (!buf) {
-        flux_tcp_panic("Tcp.read", "out of memory");
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    FluxAsyncBuffer out = { NULL, 0 };
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_read_blocking(
+        runtime, handle, (size_t)max, &out, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer("Tcp.read", err);
         return FLUX_NONE;
     }
-    ssize_t nread = recv(fd, buf, (size_t)max, 0);
-    if (nread < 0) {
-        free(buf);
-        flux_tcp_panic("Tcp.read", strerror(errno));
-        return FLUX_NONE;
-    }
-    int64_t result = flux_string_new(buf, (uint32_t)nread);
-    free(buf);
+    int64_t result = flux_string_new((const char *)out.ptr, (uint32_t)out.len);
+    flux_async_runtime_free_buffer(out);
     return result;
 }
 
 int64_t flux_tcp_write(int64_t conn, int64_t bytes) {
-    int fd = flux_tcp_fd(conn, "Tcp.write");
+    uint64_t handle = flux_tcp_io_handle(conn, "Tcp.write");
     if (!flux_is_ptr(bytes) || flux_obj_tag(flux_untag_ptr(bytes)) != FLUX_OBJ_STRING) {
-        flux_tcp_panic("Tcp.write", "expected Bytes");
+        flux_panic(flux_string_new("Tcp.write failed: expected Bytes", 32));
         return FLUX_NONE;
     }
     const char *data = flux_string_data(bytes);
     uint32_t len = flux_string_len(bytes);
-    ssize_t nwritten = send(fd, data, len, 0);
-    if (nwritten < 0) {
-        flux_tcp_panic("Tcp.write", strerror(errno));
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    size_t count = 0;
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_write_blocking(
+        runtime, handle, (const uint8_t *)data, (size_t)len, &count, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer("Tcp.write", err);
         return FLUX_NONE;
     }
-    return flux_tag_int((int64_t)nwritten);
+    return flux_tag_int((int64_t)count);
 }
 
 int64_t flux_tcp_close(int64_t conn) {
-    int fd = flux_tcp_fd(conn, "Tcp.close");
-    if (close(fd) != 0) {
-        flux_tcp_panic("Tcp.close", strerror(errno));
+    uint64_t handle = flux_tcp_io_handle(conn, "Tcp.close");
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_close_blocking(runtime, handle, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer("Tcp.close", err);
     }
     return FLUX_NONE;
-}
-
-int64_t flux_tcp_local_addr(int64_t conn) {
-    return flux_tcp_addr_string(flux_tcp_fd(conn, "Tcp.local_addr"), 0, "Tcp.local_addr");
-}
-
-int64_t flux_tcp_remote_addr(int64_t conn) {
-    return flux_tcp_addr_string(flux_tcp_fd(conn, "Tcp.remote_addr"), 1, "Tcp.remote_addr");
 }
 
 int64_t flux_tcp_close_listener(int64_t listener) {
-    int fd = flux_tcp_fd(listener, "Tcp.close_listener");
-    if (close(fd) != 0) {
-        flux_tcp_panic("Tcp.close_listener", strerror(errno));
+    uint64_t handle = flux_tcp_io_handle(listener, "Tcp.close_listener");
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_close_listener_blocking(
+        runtime, handle, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer("Tcp.close_listener", err);
     }
     return FLUX_NONE;
 }
 
+static int64_t flux_tcp_addr_call(
+    FluxAsyncTcpAddrKind kind, const char *op, int64_t value)
+{
+    uint64_t handle = flux_tcp_io_handle(value, op);
+    FluxAsyncRuntimeHandle runtime = flux_async_runtime_default();
+    FluxAsyncBuffer text = { NULL, 0 };
+    FluxAsyncBuffer err = { NULL, 0 };
+    FluxAsyncStatus status = flux_async_runtime_tcp_addr_blocking(
+        runtime, handle, kind, &text, &err);
+    if (status != FLUX_ASYNC_STATUS_OK) {
+        flux_tcp_panic_buffer(op, err);
+        return FLUX_NONE;
+    }
+    int64_t result = flux_string_new((const char *)text.ptr, (uint32_t)text.len);
+    flux_async_runtime_free_buffer(text);
+    return result;
+}
+
+int64_t flux_tcp_local_addr(int64_t conn) {
+    return flux_tcp_addr_call(FLUX_ASYNC_TCP_ADDR_LOCAL, "Tcp.local_addr", conn);
+}
+
+int64_t flux_tcp_remote_addr(int64_t conn) {
+    return flux_tcp_addr_call(FLUX_ASYNC_TCP_ADDR_REMOTE, "Tcp.remote_addr", conn);
+}
+
 int64_t flux_tcp_listener_local_addr(int64_t listener) {
-    return flux_tcp_addr_string(
-        flux_tcp_fd(listener, "Tcp.listener_local_addr"),
-        0,
-        "Tcp.listener_local_addr");
+    return flux_tcp_addr_call(
+        FLUX_ASYNC_TCP_ADDR_LISTENER_LOCAL, "Tcp.listener_local_addr", listener);
 }
 
 /* ── Runtime-callable type predicates ──────────────────────────────── */

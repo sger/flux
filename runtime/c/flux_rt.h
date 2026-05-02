@@ -402,6 +402,7 @@ typedef enum {
     FLUX_ASYNC_STATUS_INVALID_HANDLE = 1,
     FLUX_ASYNC_STATUS_UNSUPPORTED = 2,
     FLUX_ASYNC_STATUS_RUNTIME_ERROR = 3,
+    FLUX_ASYNC_STATUS_CANCELLED = 4,
 } FluxAsyncStatus;
 
 FluxAsyncRuntimeHandle flux_async_runtime_default(void);
@@ -411,6 +412,62 @@ FluxAsyncContextHandle flux_async_context_current(void);
 FluxAsyncContextHandle flux_async_context_enter(FluxAsyncContextHandle context);
 FluxAsyncStatus flux_async_context_leave(FluxAsyncContextHandle previous);
 FluxAsyncStatus flux_async_runtime_poll(FluxAsyncRuntimeHandle runtime);
+/* Block the calling thread on the mio reactor for `ms` milliseconds. Returns
+ * FLUX_ASYNC_STATUS_OK on success. Negative or zero `ms` returns immediately. */
+FluxAsyncStatus flux_async_runtime_sleep_blocking(FluxAsyncRuntimeHandle runtime, int64_t ms);
+
+/* ── TCP blocking shims ─────────────────────────────────────────────────
+ *
+ * Each shim drives `mio` on a sibling thread and parks the calling thread
+ * until completion. Bytes/text payloads come back as Rust-allocated heap
+ * buffers — C must copy them out and call `flux_async_runtime_free_buffer`
+ * to release. On error (status != FLUX_ASYNC_STATUS_OK) the `out_err`
+ * buffer holds a UTF-8 message; on success it is untouched. */
+typedef struct {
+    uint8_t *ptr;
+    size_t   len;
+} FluxAsyncBuffer;
+
+typedef enum {
+    FLUX_ASYNC_TCP_ADDR_LOCAL = 0,
+    FLUX_ASYNC_TCP_ADDR_REMOTE = 1,
+    FLUX_ASYNC_TCP_ADDR_LISTENER_LOCAL = 2,
+} FluxAsyncTcpAddrKind;
+
+void flux_async_runtime_free_buffer(FluxAsyncBuffer buffer);
+
+FluxAsyncStatus flux_async_runtime_tcp_listen_blocking(
+    FluxAsyncRuntimeHandle runtime,
+    const uint8_t *host_ptr, size_t host_len, uint16_t port,
+    uint64_t *out_handle, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_connect_blocking(
+    FluxAsyncRuntimeHandle runtime,
+    const uint8_t *host_ptr, size_t host_len, uint16_t port,
+    uint64_t *out_handle, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_accept_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t listener,
+    uint64_t *out_handle, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_read_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t handle, size_t max,
+    FluxAsyncBuffer *out_buf, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_write_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t handle,
+    const uint8_t *buf_ptr, size_t buf_len,
+    size_t *out_count, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_close_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t handle, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_close_listener_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t listener, FluxAsyncBuffer *out_err);
+
+FluxAsyncStatus flux_async_runtime_tcp_addr_blocking(
+    FluxAsyncRuntimeHandle runtime, uint64_t handle, FluxAsyncTcpAddrKind kind,
+    FluxAsyncBuffer *out_text, FluxAsyncBuffer *out_err);
 
 /* Phase 1a Task ABI. Native code enters Rust-owned task management through
  * these narrow shims; full Flux heap transfer requires Sendable validation and
@@ -439,6 +496,13 @@ int64_t flux_tcp_local_addr(int64_t conn);
 int64_t flux_tcp_remote_addr(int64_t conn);
 int64_t flux_tcp_close_listener(int64_t listener);
 int64_t flux_tcp_listener_local_addr(int64_t listener);
+
+/* Channel primops are VM-only on native; these stubs panic with a clear
+ * message if invoked by emitted native code. */
+int64_t flux_channel_bounded(int64_t cap);
+int64_t flux_channel_send(int64_t channel, int64_t value);
+int64_t flux_channel_recv(int64_t channel);
+int64_t flux_channel_close(int64_t channel);
 
 /* Legacy yield-state mirror — accessible from LLVM IR for inline yield checks. */
 extern int32_t flux_yield_yielding;

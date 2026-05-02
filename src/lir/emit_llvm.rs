@@ -3456,6 +3456,13 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Unwrap => return "flux_unwrap".to_string(),
         CorePrimOp::SafeDiv => return "flux_safe_div".to_string(),
         CorePrimOp::SafeMod => return "flux_safe_mod".to_string(),
+        // Channel primops are VM-only for now; native lowering routes to a
+        // panic stub so accidental use surfaces a clear error rather than a
+        // link-time symbol miss.
+        CorePrimOp::ChannelBounded => return "flux_channel_bounded".to_string(),
+        CorePrimOp::ChannelSend => return "flux_channel_send".to_string(),
+        CorePrimOp::ChannelRecv => return "flux_channel_recv".to_string(),
+        CorePrimOp::ChannelClose => return "flux_channel_close".to_string(),
     };
 
     // Look up in builtins table for the C name.
