@@ -1202,9 +1202,9 @@ impl VM {
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
                 let arms = Rc::new(arms);
-                let saved_evv = self.evv.clone();
-                let marker = self.yield_state.fresh_marker();
-                self.evv = self.evv.insert(effect, marker, arms.clone());
+                let saved_evv = self.context.evidence.clone();
+                let marker = self.context.yield_state.fresh_marker();
+                self.context.evidence = self.context.evidence.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
@@ -1260,9 +1260,9 @@ impl VM {
                     .map(|(op, closure)| HandlerArm { op, closure })
                     .collect();
                 let arms = Rc::new(arms);
-                let saved_evv = self.evv.clone();
-                let marker = self.yield_state.fresh_marker();
-                self.evv = self.evv.insert(effect, marker, arms.clone());
+                let saved_evv = self.context.evidence.clone();
+                let marker = self.context.yield_state.fresh_marker();
+                self.context.evidence = self.context.evidence.insert(effect, marker, arms.clone());
                 self.handler_stack.push(HandlerFrame {
                     effect,
                     arms,
@@ -1280,7 +1280,7 @@ impl VM {
             OpCode::OpEndHandle => {
                 // No operands. Pops the top handler from handler_stack.
                 if let Some(handler) = self.handler_stack.pop() {
-                    self.evv = handler.saved_evv;
+                    self.context.evidence = handler.saved_evv;
                 }
                 Ok(1)
             }
@@ -1317,18 +1317,23 @@ impl VM {
                 perform_args.reverse();
 
                 // Find matching evidence entry (most recent wins).
-                let evv_index = self.evv.lookup(effect).ok_or_else(|| {
+                let evv_index = self.context.evidence.lookup(effect).ok_or_else(|| {
                     format!(
                         "unhandled effect: {} (no matching handle block)",
                         effect_name
                     )
                 })?;
-                let evidence = self.evv.get(evv_index).cloned().ok_or_else(|| {
-                    format!(
-                        "unhandled effect: {} (no matching handle block)",
-                        effect_name
-                    )
-                })?;
+                let evidence = self
+                    .context
+                    .evidence
+                    .get(evv_index)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "unhandled effect: {} (no matching handle block)",
+                            effect_name
+                        )
+                    })?;
                 let handler_pos = self
                     .handler_stack
                     .iter()
@@ -1403,17 +1408,19 @@ impl VM {
                     let inner_handlers: Vec<HandlerFrame> =
                         self.handler_stack[handler_pos + 1..].to_vec();
 
-                    self.yield_state.yielding = crate::runtime::yield_state::Yielding::Pending;
-                    self.yield_state.marker = evidence.marker;
-                    self.yield_state.clause = Some(Rc::new(HandlerArm {
+                    self.context.yield_state.yielding =
+                        crate::runtime::yield_state::Yielding::Pending;
+                    self.context.yield_state.marker = evidence.marker;
+                    self.context.yield_state.clause = Some(Rc::new(HandlerArm {
                         op,
                         closure: arm_closure.clone(),
                     }));
-                    self.yield_state.op_arg = perform_args.first().cloned();
-                    self.yield_state.conts.clear();
+                    self.context.yield_state.op_arg = perform_args.first().cloned();
+                    self.context.yield_state.conts.clear();
 
                     // Capture the current frame's post-perform continuation.
-                    self.yield_state
+                    self.context
+                        .yield_state
                         .extend(self.capture_continuation_piece(self.sp, 4));
 
                     // Unwind outer frames up to the matching handler boundary,
@@ -1422,20 +1429,21 @@ impl VM {
                         let return_slot = self.pop_frame_return_slot();
                         self.reset_sp(return_slot)?;
                         if self.frame_index > handler.entry_frame_index {
-                            self.yield_state
+                            self.context
+                                .yield_state
                                 .extend(self.capture_continuation_piece(self.sp, 0));
                         }
                     }
 
                     let state_marker = handler.state.as_ref().map(|_| handler.marker);
                     let cont_val = Continuation::compose(
-                        &self.yield_state.conts,
+                        &self.context.yield_state.conts,
                         inner_handlers,
                         state_marker,
                     )?;
                     self.handler_stack.truncate(handler_pos + 1);
                     self.reset_sp(handler.entry_sp)?;
-                    self.yield_state.clear();
+                    self.context.yield_state.clear();
 
                     self.push(Value::Closure(arm_closure))?;
                     self.push(cont_val)?;
@@ -1451,8 +1459,9 @@ impl VM {
                 }
             }
             OpCode::OpReturnCheck => {
-                if self.yield_state.is_yielding() {
-                    self.yield_state
+                if self.context.yield_state.is_yielding() {
+                    self.context
+                        .yield_state
                         .extend(self.capture_continuation_piece(self.sp, 0));
                 }
                 Ok(1)
