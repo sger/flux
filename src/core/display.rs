@@ -574,6 +574,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::Unwrap => out.push_str("Unwrap"),
         CorePrimOp::SafeDiv => out.push_str("SafeDiv"),
         CorePrimOp::SafeMod => out.push_str("SafeMod"),
+        // Concurrency (proposal 0174 D5-a)
+        CorePrimOp::TaskSpawn => out.push_str("TaskSpawn"),
+        CorePrimOp::TaskBlockingJoin => out.push_str("TaskBlockingJoin"),
+        CorePrimOp::TaskCancel => out.push_str("TaskCancel"),
     }
 }
 

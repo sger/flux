@@ -1,19 +1,21 @@
-// Flow.Task — task spawning surface (proposal 0174 Phase 1a-vi follow-up).
+// Flow.Task — task spawning surface (proposal 0174 Phase 1a-vi + D5-a).
 //
-// User-facing API for the Phase 1a Rust [`TaskScheduler`]. The compile-
-// time surface — including the `Sendable<a>` constraint that gates which
-// values may cross a worker boundary — is what this module pins.
+// User-facing API for the Phase 1a Rust [`TaskScheduler`]. The `Sendable<a>`
+// constraint gates which values may cross a worker boundary.
 //
-// **Runtime status:** the LLVM C-shim wiring (`flux_task_spawn` etc.) and
-// the global Rust scheduler singleton accessible through the C ABI are
-// not yet landed. Calling `spawn` / `blocking_join` / `cancel` at runtime
-// today panics. The type-level contract — task ids, the `Task<a>` data
-// type, the `Sendable<a>` bound on `spawn`/`blocking_join` — is wired and
-// will not change when the runtime arrives.
+// **Backend status:**
+// - **VM:** `spawn` runs the body synchronously on the calling thread,
+//   stashes the result, and returns a handle. `blocking_join` returns the
+//   stored value. This is correct sequentially-equivalent semantics; real
+//   M:N parallelism on the VM path is gated on a separate value-promotion
+//   slice (Rust `Value` is `!Send`).
+// - **Native (LLVM):** the C stubs in `runtime/c/tasks.c` abort at runtime;
+//   the bridge to the Rust scheduler lands in proposal 0174 D5-b/c.
 //
-// Once the C-shim slice lands, the function bodies are replaced by
-// `intrinsic = primop TaskSpawn` (etc.) — the public signatures stay
-// fixed.
+// Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
+// require `Sendable<a>`; `cancel` is unconstrained on `a`. Users who write
+// against this surface today will get parallelism for free once the
+// runtime work lands — no source changes required.
 
 module Flow.Task {
 
@@ -21,23 +23,40 @@ module Flow.Task {
     /// allocated by the runtime scheduler.
     public data Task<a> { Task(Int) }
 
+    /// Compiler intrinsic — directly maps to `CorePrimOp::TaskSpawn`. The
+    /// action's return type stays polymorphic so the VM dispatch can return
+    /// `Value::Integer(task_id)` to user code that wraps it in `Task(...)`.
+    intrinsic fn task_spawn_id<a>(action: () -> a) -> Int = primop TaskSpawn
+
+    /// Compiler intrinsic — `CorePrimOp::TaskBlockingJoin`. The result type
+    /// is polymorphic; the runtime returns whatever value was stashed by
+    /// the matching `task_spawn_id` call.
+    intrinsic fn task_join_id<a>(id: Int) -> a = primop TaskBlockingJoin
+
+    /// Compiler intrinsic — `CorePrimOp::TaskCancel`. Returns Unit.
+    intrinsic fn task_cancel_id(id: Int) -> Unit = primop TaskCancel
+
     /// Schedule `action` on a worker thread. Returns immediately with a
     /// handle. The result type `a` must be `Sendable` so the worker can
     /// hand the produced value back to the joiner across threads.
     public fn spawn<a: Sendable>(action: () -> a) -> Task<a> {
-        panic("Flow.Task.spawn: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+        Task(task_spawn_id(action))
     }
 
     /// Block the calling thread until the task finishes, then return its
     /// result.
     public fn blocking_join<a: Sendable>(t: Task<a>) -> a {
-        panic("Flow.Task.blocking_join: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+        match t {
+            Task(id) -> task_join_id(id)
+        }
     }
 
     /// Mark the task cancelled. Pre-pickup short-circuits the body;
     /// post-completion is a no-op; in-flight cancellation surfaces only at
     /// fiber yield points (Phase 1b). Idempotent.
     public fn cancel<a>(t: Task<a>) -> Unit {
-        panic("Flow.Task.cancel: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+        match t {
+            Task(id) -> task_cancel_id(id)
+        }
     }
 }

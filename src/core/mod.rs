@@ -624,7 +624,14 @@ pub enum CorePrimOp {
     FCosh = 151,
     FTanh = 152,
     FTruncate = 153,
-    // ── Next free ID: 154 ─────────────────────────────────────────────
+
+    // ── Concurrency (proposal 0174 D5-a) ──────────────────────────────
+    // Discriminants 154 reserved for DebugTrace above; the next slot is
+    // 155.
+    TaskSpawn = 155,
+    TaskBlockingJoin = 156,
+    TaskCancel = 157,
+    // ── Next free ID: 158 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -666,6 +673,9 @@ impl CorePrimOp {
             "FTanh" => return Some(Self::FTanh),
             "FTruncate" => return Some(Self::FTruncate),
             "DebugTrace" => return Some(Self::DebugTrace),
+            "TaskSpawn" => return Some(Self::TaskSpawn),
+            "TaskBlockingJoin" => return Some(Self::TaskBlockingJoin),
+            "TaskCancel" => return Some(Self::TaskCancel),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -740,6 +750,9 @@ impl CorePrimOp {
             Self::FCosh => Some("fcosh"),
             Self::FTanh => Some("ftanh"),
             Self::FTruncate => Some("ftruncate"),
+            Self::TaskSpawn => Some("task_spawn"),
+            Self::TaskBlockingJoin => Some("task_blocking_join"),
+            Self::TaskCancel => Some("task_cancel"),
             _ => None,
         }
     }
@@ -889,6 +902,9 @@ impl CorePrimOp {
             152 => FTanh,
             153 => FTruncate,
             154 => DebugTrace,
+            155 => TaskSpawn,
+            156 => TaskBlockingJoin,
+            157 => TaskCancel,
             _ => return None,
         };
         Some(op)
@@ -1019,6 +1035,9 @@ impl CorePrimOp {
             ("string_slice_builtin", 3, CorePrimOp::StringSlice),
             ("substring", 3, CorePrimOp::Substring),
             ("sqrt", 1, CorePrimOp::FSqrt),
+            ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
+            ("task_cancel", 1, CorePrimOp::TaskCancel),
+            ("task_spawn", 1, CorePrimOp::TaskSpawn),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
             ("trim", 1, CorePrimOp::Trim),
@@ -1044,7 +1063,8 @@ impl CorePrimOp {
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
             | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
-            | FAtan | FSinh | FCosh | FTanh | FTruncate => 1,
+            | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
+            | TaskCancel => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe

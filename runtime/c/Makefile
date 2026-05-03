@@ -16,7 +16,7 @@ AR      ?= ar
 CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS ?=
 
-SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c
+SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c tasks.c
 OBJS    = $(SRCS:.c=.o)
 LIB     = libflux_rt.a
 
