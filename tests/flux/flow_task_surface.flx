@@ -1,0 +1,45 @@
+// Flow.Task surface tests (proposal 0174 Phase 1a-vi follow-up).
+//
+// These tests prove the **type-level** contract of Flow.Task. The runtime
+// FFI bridge is not yet wired, so each call site is wrapped in a closure
+// that's defined but never invoked — that way the type-checker validates
+// the surface (Sendable<a> bound, return types, polymorphism) without
+// triggering the panic body of `spawn`/`blocking_join`/`cancel`.
+
+import Flow.Task as Task
+
+fn test_spawn_join_int_typechecks() {
+    // Int satisfies Sendable via the built-in primitive instance.
+    let _check = fn() {
+        let t = Task.spawn(fn() { 42 });
+        Task.blocking_join(t)
+    };
+    assert_eq(1, 1)
+}
+
+fn test_spawn_join_list_int_typechecks() {
+    // List<Int> auto-derives Sendable structurally.
+    let _check = fn() {
+        let t = Task.spawn(fn() { [1, 2, 3] });
+        Task.blocking_join(t)
+    };
+    assert_eq(1, 1)
+}
+
+fn test_spawn_join_tuple_typechecks() {
+    // Tuples derive Sendable when every element is Sendable.
+    let _check = fn() {
+        let t = Task.spawn(fn() { (7, "ok", true) });
+        Task.blocking_join(t)
+    };
+    assert_eq(1, 1)
+}
+
+fn test_cancel_is_unconstrained() {
+    // cancel has no Sendable bound — works for any task.
+    let _check = fn() {
+        let t = Task.spawn(fn() { 99 });
+        Task.cancel(t)
+    };
+    assert_eq(1, 1)
+}

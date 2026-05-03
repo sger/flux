@@ -56,14 +56,14 @@ target the original proposal aimed at.
 | 1a-iii — Worker pool + `RuntimeTarget` | ✅ | [`task_manager.rs`](../../src/runtime/async/task_manager.rs): N-thread worker pool with a shared per-priority FIFO (`MAX_PRIO = 2`), `Condvar`-parked workers, `start`/`submit`/`shutdown` lifecycle, `Drop` joins on teardown to keep libtest from wedging on Windows. [`runtime_target.rs`](../../src/runtime/async/runtime_target.rs): `TaskId` + `RuntimeTarget` enum (Task variant; Fiber variant lands in 1b). End-to-end completion routing waits on the actual `Task<a>` user surface (1a-vi). |
 | 1a-iv — Hybrid atomic-on-share RC | ✅ (C side) | [`runtime/c/rc.c`](../../runtime/c/rc.c): `FluxHeader.refcount` is now `_Atomic(int32_t)` with sign-bit encoding (`rc > 0` ST mode, relaxed; `rc < 0` MT mode, atomic; last MT drop is acq_rel). New API in [`flux_rt.h`](../../runtime/c/flux_rt.h): `flux_rc_promote` (recursive ST → MT promotion with release ordering, walks evidence vectors and standard scan offsets), `flux_rc_is_shared`. LLVM-emitted inline `rc == 1` reuse/uniqueness checks (in [`prelude.rs`](../../src/llvm/codegen/prelude.rs)) naturally fail for negative refcounts and fall back to `flux_drop` — no LLVM changes required. **Rust `Value` mirror deferred to 1a-vi**, where `Task.spawn` is the first cross-worker consumer; until then the VM stays single-threaded so `Rc<T>` semantics are still sound. Regression coverage: the full native-LLVM test suite (which exercises dup/drop heavily) passes unchanged, proving the ST hot path is encoding-equivalent. MT-path tests land alongside the first consumer in 1a-vi. |
 | 1a-v — `Sendable<T>` type class | ✅ (primitives + structural) | Marker class registered in [`class_env.rs`](../../src/types/class_env.rs)'s `register_builtins`, no methods. Built-in primitive instances: `Int`, `Float`, `String`, `Bool`, `Unit`. Positive-only structural derivation in [`class_solver.rs`](../../src/types/class_solver.rs)'s `has_structural_builtin_instance`: tuples, `Option`, `List`, `Array`, `Map`, `Either` auto-derive `Sendable` when their element types satisfy it. Closures, opaque runtime handles, and ADTs without an explicit instance fail with the standard E440 "no instance" diagnostic — absence means "not sendable." Tests in [`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) cover the positive primitive/tuple/collection cases plus a closure negative case. **ADT auto-derivation is not yet wired** — currently every user-defined ADT requires an explicit `instance Sendable<Foo> {}`. The recursive-on-fields synthesis is straightforward to add when the first ADT consumer arrives in 1a-vi/1a-vii. |
-| 1a-vi — `Task<a>` + `Flow.Task` | ✅ (Rust scheduler) | [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs): `TaskScheduler` wraps the 1a-iii [`TaskManager`](../../src/runtime/async/task_manager.rs) with per-task `Arc<TaskState>` (outcome `Mutex` + `Condvar` + cancel `AtomicBool`). `spawn(action: FnOnce() -> T + Send + 'static)` returns a `TaskHandle<T>`; `blocking_join` consumes it and surfaces `TaskJoinError::Cancelled`/`Panicked` for non-value outcomes (panics are caught by the worker so the pool isn't poisoned). Cancellation: pre-pickup short-circuits the body; post-completion is a no-op; mid-flight runs to completion (yield points come in 1b). 7 tests cover happy path, parallel execution across workers, panic isolation, cancel-before-pickup, cancel-after-completion, and Drop-joins-promptly. **`Flow.Task` Flux source + LLVM C-shim wiring + `flux_rc_promote` integration deferred to a follow-up slice** — that's where Flux closures actually cross worker boundaries and the MT-RC encoding from 1a-iv first runs end-to-end. |
+| 1a-vi — `Task<a>` + `Flow.Task` | ✅ Rust scheduler + Flux source surface | **Rust scheduler:** [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs) — `TaskScheduler` wraps the 1a-iii [`TaskManager`](../../src/runtime/async/task_manager.rs) with per-task `Arc<TaskState>` (outcome `Mutex` + `Condvar` + cancel `AtomicBool`). `spawn(action: FnOnce() -> T + Send + 'static)` returns a `TaskHandle<T>`; `blocking_join` consumes it and surfaces `TaskJoinError::Cancelled`/`Panicked` for non-value outcomes (panics are caught by the worker so the pool isn't poisoned). Cancellation: pre-pickup short-circuits the body; post-completion is a no-op; mid-flight runs to completion (yield points come in 1b). 7 unit tests. **Flux source surface:** [`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) — `data Task<a> { TaskHandle(Int) }` plus `spawn<a: Sendable>` / `blocking_join<a: Sendable>` / `cancel<a>` signatures. Bodies currently panic — the type-level contract is fixed; the runtime FFI bridge that lets these actually run on workers lives in the next follow-up slice. [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs) drives the [`tests/flux/flow_task_surface.flx`](../../tests/flux/flow_task_surface.flx) fixture through the full CLI to verify Int / List / tuple / `cancel<a>` all type-check at the use site. **Known gap:** cross-module class-bound enforcement on function types (the inline `Sendable` solver fails correctly, but the imported `Task.spawn` doesn't currently flag function-typed payloads) — pre-existing, separate slice. **LLVM C-shim wiring + `flux_rc_promote` integration deferred** — that's where Flux closures actually cross worker boundaries and the MT-RC encoding from 1a-iv first runs end-to-end. |
 | 1a-vii — TCP readiness state machines | ✅ | New `IoHandle` type and `CompletionPayload::TcpHandle` variant in [`backend.rs`](../../src/runtime/async/backend.rs); `AsyncBackend` extended with `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close` (default impls panic; in-memory backend left unimplemented since real-socket round-trips have no deterministic stub). [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs) gets a per-iteration TCP command queue (owning thread → reactor) and per-`IoHandle` `TcpConnState` holding pending connect/read/write requests. The reactor resolves a pending connect on writable + `take_error()`, services pending reads on readable (`WouldBlock` is "wait for next event", empty buffer = EOF), and loops writes through `WouldBlock` so partial writes resume from the recorded offset under the same `RequestId`. Loopback echo round-trip and refused-connect tests prove the cross-thread substrate end-to-end. **Cancellation of in-flight TCP ops not yet wired** — falls back to the registry-side cancel-set rewrite from 0e (sound but does some wasted I/O work); explicit reactor-side teardown lands when there's a consumer for it. |
 | **Phase 1b** — Fiber layer + structured concurrency | ⏳ | Three-effect seam, fibers, `scope` / `both` / `race` / `timeout`. |
 | **Phase 2** — HTTP/1.1 + JSON + Streams | ⏳ | |
 | **Phase 3** — TLS + database client | ⏳ | |
 | **Phase 4** — `io_uring` backend (optional) | ⏳ | |
 
-Test count at end of slice 1a-vii: **2461 passed / 0 failed** under `cargo test --all --all-features`.
+Test count at end of slice 1a-vi follow-up (Flux source surface): **2462 passed / 0 failed** under `cargo test --all --all-features`.
 
 ## Relationship to 0143
 
@@ -1881,3 +1881,100 @@ are finalized without resuming the fiber twice.
 This is the entire concurrency model for Phases 1a, 1b, 2, and 3.
 Phase 4's optional io_uring backend slots in below the `AsyncBackend` layer
 without changing anything above it.
+
+## Deferred follow-up issues
+
+Surfaced while landing slices of this proposal but not load-bearing for the
+slice that surfaced them. Each one is its own future slice; collected here so
+they don't get lost between rows of the Progress table.
+
+### D1 — Cross-module class-bound enforcement on function types
+
+*Surfaced by: 1a-v / 1a-vi follow-up.*
+
+The local `Sendable` solver correctly fails when a constrained generic is
+**defined inline** and applied to a function type — verified by
+[`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs)'s
+`sendable_function_type_has_no_instance` and a hand-rolled `wrap_send`
+example. When the same generic is **defined in a module and called via
+import**, the constraint solver does not flag function-typed payloads at the
+call site. The same gap reproduces with `List.contains<a: Eq>` accepting a
+`List<Int -> Int>` without raising a no-instance error, so this is not
+specific to `Sendable` — it's a pre-existing compiler issue affecting every
+imported class-constrained generic.
+
+Until this is closed, the runtime safety of `Task.spawn` (and any other
+imported `Sendable`-bounded API) against function-typed payloads rests on
+the eventual native FFI / Aether boundary, not on the type system. Local
+inline call sites are still checked correctly.
+
+Likely root cause to investigate: how class constraints survive the module
+interface (`.flxi`) round trip and whether `solve_class_constraints` sees
+the full constraint set for imported callees. Probably one fix is enough
+to close the gap for every existing class.
+
+### D2 — `data Task(Int)` constructor-name shadowing in type positions
+
+*Surfaced by: 1a-vi follow-up.*
+
+The proposal text uses `data Task<a> { Task(Int) }` — same name for the type
+and the single-argument constructor. With this spelling, subsequent type
+positions like `fn spawn<a>(...) -> Task<a>` are misparsed (the `Task<a>`
+return type comes out as the constructor `Task` applied to a type
+parameter, leaving signatures that look like `(...) -> a`).
+[`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) works around this by naming
+the constructor `TaskHandle`.
+
+Likely root cause: the parser's type-expression production resolves the
+identifier as a constructor before checking whether it's in a type position.
+A small fix in the type-expression parser (or a same-name allowance in
+`data` declarations of the proposal's preferred spelling) should close it.
+Either restore the `Task(Int)` spelling once fixed or note in the style
+guide that constructor names must differ from their owning data type.
+
+### D3 — Reactor-side cancellation of in-flight TCP ops
+
+*Surfaced by: 1a-vii.*
+
+`MioBackend::cancel` records the request id in the cancel set and drops any
+already-queued completion, but it doesn't walk the per-handle
+`TcpConnState` to clear pending reads/writes. The mio-side completion still
+fires on the next event; the registry rewrites it to
+`Error("cancelled")` (semantically correct) but the read/write itself
+already happened. Wasted I/O, not a correctness issue. The fix is a small
+extension to `cancel`: look up which handle's `pending_read`/`pending_write`
+holds this `RequestId` and clear it.
+
+### D4 — `Sendable` ADT auto-derivation
+
+*Surfaced by: 1a-v.*
+
+`Sendable` derives structurally over tuples, `Option`, `List`, `Array`,
+`Map`, `Either`. User-declared ADTs need an explicit
+`instance Sendable<Foo> {}` today. Auto-derivation (recursive on field
+types, positive-only) is straightforward to bolt onto
+`has_structural_builtin_instance` once an ADT consumer arrives.
+
+### D5 — Native FFI bridge for `Flow.Task`
+
+*Surfaced by: 1a-vi follow-up.*
+
+`Flow.Task.spawn` / `blocking_join` / `cancel` panic at runtime today —
+their bodies are placeholders. End-to-end execution requires:
+
+1. A `[lib]` crate-type `staticlib` artifact exposing `extern "C"`
+   shims (`flux_task_spawn`, `flux_task_blocking_join`, `flux_task_cancel`).
+2. A global Rust [`TaskScheduler<i64>`](../../src/runtime/async/task_scheduler.rs)
+   singleton initialised on first use.
+3. Native-side promotion of the closure value through `flux_rc_promote`
+   before the worker thread takes ownership; symmetric promotion of the
+   result on completion.
+4. New `CorePrimOp` variants (`TaskSpawn` / `TaskBlockingJoin` /
+   `TaskCancel`) and their LLVM/VM dispatch — replacing the `panic` bodies
+   with `intrinsic = primop ...` declarations.
+5. End-to-end native test: `cargo native examples/.../task_spawn.flx`
+   runs N tasks across worker threads and joins their results.
+
+This is the slice where the MT-RC encoding from 1a-iv first runs end-to-end
+and where the `Sendable` boundary becomes load-bearing rather than
+advisory.
