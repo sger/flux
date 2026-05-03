@@ -1890,7 +1890,8 @@ they don't get lost between rows of the Progress table.
 
 ### D1 — Cross-module class-bound enforcement on function types
 
-*Surfaced by: 1a-v / 1a-vi follow-up.*
+*Surfaced by: 1a-v / 1a-vi follow-up. Investigation pass deepened the
+known scope; multi-piece refactor.*
 
 The local `Sendable` solver correctly fails when a constrained generic is
 **defined inline** and applied to a function type — verified by
@@ -1899,19 +1900,44 @@ The local `Sendable` solver correctly fails when a constrained generic is
 example. When the same generic is **defined in a module and called via
 import**, the constraint solver does not flag function-typed payloads at the
 call site. The same gap reproduces with `List.contains<a: Eq>` accepting a
-`List<Int -> Int>` without raising a no-instance error, so this is not
-specific to `Sendable` — it's a pre-existing compiler issue affecting every
-imported class-constrained generic.
+`List<Int -> Int>` without raising a no-instance error.
 
-Until this is closed, the runtime safety of `Task.spawn` (and any other
-imported `Sendable`-bounded API) against function-typed payloads rests on
-the eventual native FFI / Aether boundary, not on the type system. Local
-inline call sites are still checked correctly.
+**Root cause located.** `resolve_module_member_schemes` in
+[`src/ast/type_infer/mod.rs`](../../src/ast/type_infer/mod.rs) explicitly
+sets `constraints: Vec::new()` when finalizing schemes for export. The
+sibling `resolve_binding_schemes_by_span` preserves them. So
+`scheme.instantiate(...)` at every imported-callee call site emits an
+empty obligation list, and the solver never sees the bound.
 
-Likely root cause to investigate: how class constraints survive the module
-interface (`.flxi`) round trip and whether `solve_class_constraints` sees
-the full constraint set for imported callees. Probably one fix is enough
-to close the gap for every existing class.
+**Why the one-line fix isn't enough.** Changing `Vec::new()` to
+`scheme.constraints` does close the type-system gap (verified — imported
+`List.contains` rejects `List<Int -> Int>` and imported `Task.spawn`
+rejects function-typed payloads with the proper `Sendable` diagnostic).
+But it cascades into two further problems that need their own slices:
+
+1. **Linker collision on built-in dicts.** Every module with any
+   constrained function calls
+   [`build_instance_dictionaries`](../../src/core/passes/dict_elaborate.rs),
+   which emits a `CoreDef` per concrete instance
+   (`__dict_Sendable_String`, `__dict_Eq_Int`, …). After preserving
+   constraints, more modules trigger the path. lld-link reports duplicate
+   symbols across the per-module object files (e.g. `Assert.obj` and
+   `List.obj` both define `flux___dict_Sendable_String`). Fix needs
+   either internal/private linkage on dict CoreDefs or call-site-driven
+   dedup so only modules that actually reference an instance emit it.
+2. **Aether-pipeline determinism.** With more constraints flowing,
+   `dict_elaborate` adds dict params to more functions; the downstream
+   reuse-spec / RC pipeline iterates `HashSet`-typed live/owned/borrowed
+   fields and would surface latent process-randomized hash order in the
+   emitted code. **Already fixed independently** by switching `AetherEnv`
+   to `BTreeSet` and by an explicit sort at the one capture-iteration
+   site in [`insert.rs`](../../src/aether/insert.rs) — defensive
+   improvements that are sound on their own and stay in place.
+
+**Status:** the constraint-preservation change is reverted in the working
+tree (tests stay green at 2462) so D1 lands as a cohesive multi-step
+slice once the linker/dict-emission story is also fixed. The Aether-side
+determinism wins remain landed.
 
 ### D2 — ~~`data Task(Int)` constructor-name shadowing~~ (resolved: false alarm)
 

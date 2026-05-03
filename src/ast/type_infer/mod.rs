@@ -658,6 +658,18 @@ fn resolve_instantiated_expr_vars(
 }
 
 /// Apply the final substitution to imported/module-member schemes.
+///
+/// **Constraints are intentionally dropped here** — see proposal 0174 D1.
+/// Preserving them would close the cross-module class-bound enforcement gap
+/// (one-line change), but it surfaces a downstream linker collision: every
+/// module that has any constrained function calls
+/// [`build_instance_dictionaries`](crate::core::passes::dict_elaborate),
+/// which emits a CoreDef per built-in instance (`__dict_Sendable_String`,
+/// `__dict_Eq_Int`, …). Today these CoreDefs use external linkage by
+/// convention; if two modules emit them, lld-link reports duplicate
+/// symbols. Closing D1 properly therefore needs either internal/private
+/// linkage on dict CoreDefs or call-site-driven dedup. Tracked as D1 in
+/// the proposal's "Deferred follow-up issues" section.
 fn resolve_module_member_schemes(
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     subst: &TypeSubst,
