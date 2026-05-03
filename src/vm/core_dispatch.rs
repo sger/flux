@@ -512,6 +512,36 @@ pub fn execute_core_primop(
             op
         )),
 
+        // ── Concurrency (proposal 0174 D5-a) ─────────────────────────
+        //
+        // VM implementation is **sequential / degenerate**: spawn invokes
+        // the closure synchronously on the calling thread and stashes the
+        // result in a thread-local table keyed by a fresh task id. join
+        // returns the stored value; cancel drops the entry and tags the id
+        // as cancelled so a subsequent join surfaces an error.
+        //
+        // Real M:N parallelism (running on the
+        // [`TaskScheduler`](crate::runtime::r#async::task_scheduler) worker
+        // pool) is gated on the staticlib + extern-C bridge from D5-b/c.
+        // VM `Value` is `Rc<...>` which is `!Send`, so genuine parallel
+        // execution on the VM path needs a separate value-promotion story.
+        TaskSpawn => {
+            let result = ctx.invoke_value(args[0].clone(), vec![])?;
+            let id = vm_task_state::store(result);
+            Ok(Value::Integer(id))
+        }
+        TaskBlockingJoin => match &args[0] {
+            Value::Integer(id) => vm_task_state::take(*id),
+            other => Err(terr("task_blocking_join", "Int", other)),
+        },
+        TaskCancel => match &args[0] {
+            Value::Integer(id) => {
+                vm_task_state::cancel(*id);
+                Ok(Value::None)
+            }
+            other => Err(terr("task_cancel", "Int", other)),
+        },
+
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
         | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
@@ -719,5 +749,56 @@ fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
             a.type_name(),
             b.type_name()
         )),
+    }
+}
+
+// ── VM-side task state (proposal 0174 D5-a, sequential dispatch) ───────────
+//
+// Thread-local because VM `Value` carries `Rc<...>` which is `!Send`. Genuine
+// cross-worker tasks land in D5-b/c via the staticlib bridge to the Rust
+// scheduler.
+mod vm_task_state {
+    use super::Value;
+    use std::cell::RefCell;
+    use std::collections::{HashMap, HashSet};
+
+    thread_local! {
+        static NEXT_ID: RefCell<i64> = const { RefCell::new(1) };
+        static RESULTS: RefCell<HashMap<i64, Value>> = RefCell::new(HashMap::new());
+        static CANCELLED: RefCell<HashSet<i64>> = RefCell::new(HashSet::new());
+    }
+
+    /// Allocate a fresh task id and stash the closure's result against it.
+    pub(super) fn store(v: Value) -> i64 {
+        let id = NEXT_ID.with(|n| {
+            let mut n = n.borrow_mut();
+            let id = *n;
+            *n += 1;
+            id
+        });
+        RESULTS.with(|r| r.borrow_mut().insert(id, v));
+        id
+    }
+
+    /// Consume the stored result for `id`. Returns an error if the task was
+    /// cancelled (matches the [`TaskJoinError::Cancelled`] semantics from
+    /// the Rust scheduler) or never existed.
+    pub(super) fn take(id: i64) -> Result<Value, String> {
+        if CANCELLED.with(|c| c.borrow_mut().remove(&id)) {
+            // Drop any stored value too; cancellation wins.
+            RESULTS.with(|r| r.borrow_mut().remove(&id));
+            return Err(format!("task {id} was cancelled"));
+        }
+        RESULTS
+            .with(|r| r.borrow_mut().remove(&id))
+            .ok_or_else(|| format!("task {id} not found (already joined or never spawned)"))
+    }
+
+    /// Mark a task cancelled. Idempotent. A subsequent `take` surfaces the
+    /// cancellation; if the task was already joined, the cancel is a no-op.
+    pub(super) fn cancel(id: i64) {
+        CANCELLED.with(|c| {
+            c.borrow_mut().insert(id);
+        });
     }
 }

@@ -1998,24 +1998,69 @@ skipped when an instance for the same head already exists.
 
 ### D5 — Native FFI bridge for `Flow.Task`
 
-*Surfaced by: 1a-vi follow-up.*
+*Surfaced by: 1a-vi follow-up. Sub-divided into D5-a (VM end-to-end) and
+D5-b/c (native FFI bridge). D5-a is **resolved**; D5-b/c remain.*
 
-`Flow.Task.spawn` / `blocking_join` / `cancel` panic at runtime today —
-their bodies are placeholders. End-to-end execution requires:
+#### D5-a — VM-side end-to-end ✅
 
-1. A `[lib]` crate-type `staticlib` artifact exposing `extern "C"`
-   shims (`flux_task_spawn`, `flux_task_blocking_join`, `flux_task_cancel`).
-2. A global Rust [`TaskScheduler<i64>`](../../src/runtime/async/task_scheduler.rs)
-   singleton initialised on first use.
-3. Native-side promotion of the closure value through `flux_rc_promote`
-   before the worker thread takes ownership; symmetric promotion of the
-   result on completion.
-4. New `CorePrimOp` variants (`TaskSpawn` / `TaskBlockingJoin` /
-   `TaskCancel`) and their LLVM/VM dispatch — replacing the `panic` bodies
-   with `intrinsic = primop ...` declarations.
-5. End-to-end native test: `cargo native examples/.../task_spawn.flx`
-   runs N tasks across worker threads and joins their results.
+[`Flow.Task.spawn`](../../lib/Flow/Task.flx) / `blocking_join` / `cancel`
+now run for real on the VM backend. Implementation:
 
-This is the slice where the MT-RC encoding from 1a-iv first runs end-to-end
-and where the `Sendable` boundary becomes load-bearing rather than
-advisory.
+- Three new `CorePrimOp` variants — `TaskSpawn = 155`,
+  `TaskBlockingJoin = 156`, `TaskCancel = 157` — wired through
+  [`core/mod.rs`](../../src/core/mod.rs) (enum + `from_id` + `from_name`
+  TABLE + `intrinsic_helper_name` + `arity`),
+  [`core/display.rs`](../../src/core/display.rs),
+  [`core/to_ir/primop.rs`](../../src/core/to_ir/primop.rs),
+  [`core/passes/{primop_promote, helpers, disciplined_inline, specialize}.rs`](../../src/core/passes/),
+  and [`lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs).
+- [`Flow.Task`](../../lib/Flow/Task.flx) replaced its panic bodies with
+  three private `intrinsic fn ... = primop ...` declarations and three
+  thin public wrappers that wrap the `Int` task id in `Task<a>` and
+  pattern-match it back out. Public `Sendable<a>` bound is preserved.
+- VM dispatch in [`vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs):
+  thread-local `RefCell<HashMap<i64, Value>>` stores results keyed by a
+  fresh task id; thread-local `HashSet` tracks cancellations.
+  `TaskSpawn` invokes the closure via `RuntimeContext::invoke_value`,
+  stashes the result, returns the id; `TaskBlockingJoin` consumes the
+  entry; `TaskCancel` flips the cancel flag (a subsequent join surfaces
+  an error). Sequentially equivalent to the eventual parallel semantics.
+- Native (LLVM) dispatch lowers to `flux_task_spawn` /
+  `flux_task_blocking_join` / `flux_task_cancel` calls; the C stubs in
+  [`runtime/c/tasks.c`](../../runtime/c/tasks.c) link cleanly and abort
+  with a clear diagnostic if invoked. Loud failure rather than silent
+  corruption while D5-b/c is open.
+- End-to-end fixture
+  [`tests/flux/flow_task_surface.flx`](../../tests/flux/flow_task_surface.flx)
+  upgraded from "type-check inside an unused closure" to **6 round-trip
+  tests** that actually run on the VM: Int / String / List / tuple / cancel
+  / two-independent-spawns. Driven through `flux --test` from
+  [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs).
+
+**Why VM is sequential.** VM `Value` carries `Rc<...>` (`!Send`), so genuine
+parallel execution on the VM path needs a separate value-promotion story
+(reuse of the C-side hybrid atomic-on-share scheme from 1a-iv, mirrored
+into the VM's `Value` representation). That's deliberately deferred: the
+sequential VM dispatch is correct for every Phase-1a use case that doesn't
+race against itself.
+
+#### D5-b — Staticlib infrastructure ⏳
+
+Add `[lib] crate-type = ["lib", "staticlib"]` to
+[Cargo.toml](../../Cargo.toml) so `cargo build` produces both `flux.exe`
+and a `libflux.a` (or `flux.lib` on Windows-MSVC) artifact. Update the
+LLVM pipeline ([`src/llvm/pipeline.rs`](../../src/llvm/pipeline.rs)) so
+native linking pulls the staticlib in alongside `libflux_rt.a`.
+
+#### D5-c — Real `extern "C"` shims ⏳
+
+Wire the panicking
+[`runtime/c/tasks.c`](../../runtime/c/tasks.c) stubs to a global
+[`TaskScheduler<i64>`](../../src/runtime/async/task_scheduler.rs)
+singleton via `extern "C"` Rust functions exposed by the staticlib from
+D5-b. Before crossing the boundary the closure value (and any captures)
+go through `flux_rc_promote`; the result goes through it on the way back.
+End-to-end test: a `cargo native` Flux program that spawns N tasks,
+joins them, and asserts results match. This is also the slice where the
+MT-RC encoding from 1a-iv first runs end-to-end and where the `Sendable`
+boundary becomes load-bearing rather than advisory.

@@ -582,7 +582,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::CmpEq
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
-        | CorePrimOp::AssertThrows => false,
+        | CorePrimOp::AssertThrows
+        | CorePrimOp::TaskSpawn
+        | CorePrimOp::TaskBlockingJoin
+        | CorePrimOp::TaskCancel => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

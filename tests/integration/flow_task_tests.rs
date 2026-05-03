@@ -52,7 +52,7 @@ fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
     assert!(success, "Flow.Task surface tests must pass:\n{stdout}");
     assert!(
-        stdout.contains("4 passed"),
-        "expected 4 passing tests, got:\n{stdout}"
+        stdout.contains("6 passed"),
+        "expected 6 passing tests, got:\n{stdout}"
     );
 }

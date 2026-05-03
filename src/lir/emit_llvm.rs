@@ -3412,6 +3412,13 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Unwrap => return "flux_unwrap".to_string(),
         CorePrimOp::SafeDiv => return "flux_safe_div".to_string(),
         CorePrimOp::SafeMod => return "flux_safe_mod".to_string(),
+        // Concurrency (proposal 0174 D5-a). The LLVM/native side
+        // currently links against C stubs in `runtime/c/tasks.c` that
+        // abort at runtime. The full FFI bridge to the Rust scheduler
+        // lands in D5-b/c.
+        CorePrimOp::TaskSpawn => return "flux_task_spawn".to_string(),
+        CorePrimOp::TaskBlockingJoin => return "flux_task_blocking_join".to_string(),
+        CorePrimOp::TaskCancel => return "flux_task_cancel".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3517,6 +3524,11 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
         "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),
         "flux_unbox_float_rt" => (LlvmType::Double, vec![LlvmType::i64()]),
+        // Concurrency (proposal 0174 D5-a). C stubs in `runtime/c/tasks.c`
+        // abort at runtime; the full Rust-scheduler bridge lands in D5-b/c.
+        "flux_task_spawn" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_blocking_join" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_cancel" => (LlvmType::i64(), vec![LlvmType::i64()]),
         _ => return None,
     };
     Some(LlvmDecl {
