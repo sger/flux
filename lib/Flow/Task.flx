@@ -1,0 +1,48 @@
+// Flow.Task — task spawning surface (proposal 0174 Phase 1a-vi follow-up).
+//
+// User-facing API for the Phase 1a Rust [`TaskScheduler`]. The compile-
+// time surface — including the `Sendable<a>` constraint that gates which
+// values may cross a worker boundary — is what this module pins.
+//
+// **Runtime status:** the LLVM C-shim wiring (`flux_task_spawn` etc.) and
+// the global Rust scheduler singleton accessible through the C ABI are
+// not yet landed. Calling `spawn` / `blocking_join` / `cancel` at runtime
+// today panics. The type-level contract — task ids, the `Task<a>` data
+// type, the `Sendable<a>` bound on `spawn`/`blocking_join` — is wired and
+// will not change when the runtime arrives.
+//
+// Once the C-shim slice lands, the function bodies are replaced by
+// `intrinsic = primop TaskSpawn` (etc.) — the public signatures stay
+// fixed.
+
+module Flow.Task {
+
+    /// Handle to a task running on the worker pool. Wraps an opaque task id
+    /// allocated by the runtime scheduler.
+    ///
+    /// The constructor is `TaskHandle` rather than `Task` so the type and
+    /// constructor names don't collide in type-position parses (Flux
+    /// otherwise has trouble distinguishing `Task<a>` the type from
+    /// `Task(...)` the 1-arg constructor application).
+    public data Task<a> { TaskHandle(Int) }
+
+    /// Schedule `action` on a worker thread. Returns immediately with a
+    /// handle. The result type `a` must be `Sendable` so the worker can
+    /// hand the produced value back to the joiner across threads.
+    public fn spawn<a: Sendable>(action: () -> a) -> Task<a> {
+        panic("Flow.Task.spawn: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+    }
+
+    /// Block the calling thread until the task finishes, then return its
+    /// result.
+    public fn blocking_join<a: Sendable>(t: Task<a>) -> a {
+        panic("Flow.Task.blocking_join: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+    }
+
+    /// Mark the task cancelled. Pre-pickup short-circuits the body;
+    /// post-completion is a no-op; in-flight cancellation surfaces only at
+    /// fiber yield points (Phase 1b). Idempotent.
+    public fn cancel<a>(t: Task<a>) -> Unit {
+        panic("Flow.Task.cancel: native runtime wiring not yet landed (proposal 0174 Phase 1a-vi follow-up)")
+    }
+}
