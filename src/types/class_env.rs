@@ -1370,6 +1370,7 @@ impl ClassEnv {
         let num = interner.intern("Num");
         let show = interner.intern("Show");
         let semigroup = interner.intern("Semigroup");
+        let sendable = interner.intern("Sendable");
 
         let eq_method = interner.intern("eq");
         let neq_method = interner.intern("neq");
@@ -1589,6 +1590,24 @@ impl ClassEnv {
 
         // Semigroup instances: String
         self.register_builtin_instance(semigroup, string_name);
+
+        // Sendable: marker class, no methods (proposal 0174 Phase 1a-v).
+        // Authorizes a value to cross a worker-thread boundary
+        // (`Channel.send`, `Task.spawn`). Positive-only auto-derivation:
+        // primitives have explicit instances below; the constraint solver
+        // synthesises structural instances for tuples and persistent
+        // collections (`Option`, `List`, `Array`, `Map`, `Either`) whose
+        // element types are themselves `Sendable`. Closures, opaque
+        // runtime handles, and ADTs without an explicit instance simply
+        // do not satisfy the constraint — there are no negative
+        // instances; absence of an instance means "not sendable."
+        self.register_builtin_class(sendable, vec![a_param], vec![]);
+
+        // Sendable instances: Int, Float, String, Bool, Unit.
+        let unit_name = interner.intern("Unit");
+        for ty in [int_name, float_name, string_name, bool_name, unit_name] {
+            self.register_builtin_instance(sendable, ty);
+        }
     }
 
     /// Register a single built-in class definition.
