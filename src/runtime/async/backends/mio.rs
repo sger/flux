@@ -101,6 +101,14 @@ enum TcpCommand {
     Close {
         handle: IoHandle,
     },
+    /// Walk every live connection and clear any pending read or write that
+    /// matches `req`, so the reactor stops doing I/O work on the cancelled
+    /// caller's behalf (proposal 0174 D3). The cancel-set / completion-drop
+    /// path in [`MioBackend::cancel`] already handles a fired-but-not-yet-
+    /// delivered completion; this command handles the *not-yet-fired* case.
+    CancelRequest {
+        req: RequestId,
+    },
 }
 
 /// Shared state between the owning thread and the reactor thread.
@@ -212,10 +220,14 @@ impl AsyncBackend for MioBackend {
     }
 
     fn cancel(&self, req: RequestId) {
-        // Record the cancellation so the reactor skips firing it. Also drop
-        // any already-queued completion for the request — once the registry
-        // has marked the entry cancelled, the synthetic-cancelled-error path
-        // owns delivery, not the original timer fire.
+        // Three layers, all needed:
+        //   1. Cancelled set: timer-heap entries skip firing on this req.
+        //   2. Completions queue: drop any already-queued completion so the
+        //      caller never observes the pre-cancel payload.
+        //   3. TcpCommand::CancelRequest: reactor walks live connections and
+        //      clears any pending read/write that targets `req` so it stops
+        //      doing I/O work on a cancelled caller's behalf (D3).
+        // Then wake so the reactor processes (3) and prunes (1) promptly.
         if let Some(()) = self.with_shared(|shared| {
             shared
                 .cancelled
@@ -227,8 +239,11 @@ impl AsyncBackend for MioBackend {
                 .lock()
                 .expect("completions poisoned")
                 .retain(|c| c.request_id != req);
-            // Wake the reactor so it can prune cancelled head-of-heap entries
-            // promptly rather than waiting on its next deadline.
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::CancelRequest { req });
             let _ = shared.waker.wake();
         }) {
             // ran
@@ -495,6 +510,29 @@ fn drain_tcp_commands(
                     let _ = registry.deregister(&mut c.stream);
                     // Pending requests against a closed handle are dropped
                     // silently per the docs on AsyncBackend::tcp_close.
+                }
+            }
+            TcpCommand::CancelRequest { req } => {
+                // Walk every live connection and clear matching pending ops.
+                // No completion is produced for the cancelled request — the
+                // caller's continuation has already been routed through
+                // [`RequestRegistry::cancel`] / `deliver`, which owns the
+                // synthetic `Error("cancelled")` if the fiber needs to
+                // observe the cancellation. The reactor's only job here is
+                // to stop spending I/O on the cancelled work.
+                for c in conns.values_mut() {
+                    if c.pending_read.as_ref().is_some_and(|p| p.request_id == req) {
+                        c.pending_read = None;
+                    }
+                    if c.pending_write
+                        .as_ref()
+                        .is_some_and(|p| p.request_id == req)
+                    {
+                        c.pending_write = None;
+                    }
+                    if c.pending_connect == Some(req) {
+                        c.pending_connect = None;
+                    }
                 }
             }
         }
@@ -853,6 +891,75 @@ mod tests {
         backend.tcp_close(handle);
         backend.shutdown().unwrap();
         server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_cancel_clears_pending_read_so_no_completion_fires() {
+        // Proposal 0174 D3 regression: `cancel(req)` against a pending
+        // tcp_read must walk the connection and clear `pending_read` so
+        // the reactor doesn't service the read on the cancelled caller's
+        // behalf. Before the D3 fix, the reactor still read from the
+        // socket on the next readable event and produced a completion;
+        // the registry would rewrite it to `Error("cancelled")` so the
+        // caller-visible semantics were correct, but the I/O work was
+        // wasted and the cancelled request id leaked one completion into
+        // the queue.
+        use std::io::Write as _;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Server thread accepts and writes after a delay so we have time
+        // to cancel before the data lands.
+        let server = thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            // Wait a moment so the client's cancel happens first.
+            thread::sleep(Duration::from_millis(80));
+            let _ = conn.write_all(b"data-after-cancel");
+            thread::sleep(Duration::from_millis(40));
+        });
+
+        let backend = MioBackend::new();
+        backend.start().unwrap();
+
+        // Connect.
+        backend.tcp_connect(RequestId(201), addr);
+        let connected = wait_for(&backend, Duration::from_secs(5)).expect("connect must complete");
+        let handle = match connected.payload {
+            CompletionPayload::TcpHandle(h) => h,
+            other => panic!("expected TcpHandle, got {other:?}"),
+        };
+
+        // Submit a read, then immediately cancel before any data arrives.
+        let read_req = RequestId(202);
+        backend.tcp_read(read_req, handle, 64);
+        backend.cancel(read_req);
+
+        // No completion for the cancelled read should ever appear,
+        // even after the server actually writes data and the socket
+        // becomes readable.
+        let observed = wait_for(&backend, Duration::from_millis(400));
+        assert!(
+            observed.is_none(),
+            "cancelled tcp_read must not produce a completion: got {observed:?}"
+        );
+
+        // The handle is still usable: a fresh read against it picks up
+        // whatever the socket has buffered.
+        let fresh_req = RequestId(203);
+        backend.tcp_read(fresh_req, handle, 64);
+        let fresh = wait_for(&backend, Duration::from_secs(5))
+            .expect("post-cancel read on the same handle must work");
+        assert_eq!(fresh.request_id, fresh_req);
+        match fresh.payload {
+            CompletionPayload::Bytes(_) => {}
+            CompletionPayload::Error(_) => {} // tolerated: server may have closed
+            other => panic!("expected Bytes/Error, got {other:?}"),
+        }
+
+        backend.tcp_close(handle);
+        backend.shutdown().unwrap();
+        let _ = server.join();
     }
 
     #[test]
