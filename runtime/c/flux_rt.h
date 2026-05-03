@@ -162,10 +162,18 @@ void  flux_gc_pop_root(void);
 extern char *flux_arena_hp;
 extern char *flux_arena_limit;
 
-/* Aether RC: dup/drop for pointer-tagged heap values. */
+/* Aether RC: dup/drop for pointer-tagged heap values.
+ *
+ * Hybrid atomic-on-share refcount (proposal 0174 Phase 1a-iv): the rc
+ * field is sign-bit-encoded. rc > 0 = single-threaded mode (relaxed
+ * non-atomic ops); rc < 0 = thread-shared mode, |rc| references
+ * (atomic ops). flux_rc_promote flips ST → MT recursively at cross-
+ * worker boundaries; flux_rc_is_shared reports the current mode. */
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
 int  flux_rc_is_unique(int64_t val);
+int  flux_rc_is_shared(int64_t val);
+void flux_rc_promote(int64_t val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
