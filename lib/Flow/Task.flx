@@ -19,12 +19,7 @@ module Flow.Task {
 
     /// Handle to a task running on the worker pool. Wraps an opaque task id
     /// allocated by the runtime scheduler.
-    ///
-    /// The constructor is `TaskHandle` rather than `Task` so the type and
-    /// constructor names don't collide in type-position parses (Flux
-    /// otherwise has trouble distinguishing `Task<a>` the type from
-    /// `Task(...)` the 1-arg constructor application).
-    public data Task<a> { TaskHandle(Int) }
+    public data Task<a> { Task(Int) }
 
     /// Schedule `action` on a worker thread. Returns immediately with a
     /// handle. The result type `a` must be `Sendable` so the worker can
