@@ -52,7 +52,7 @@ target the original proposal aimed at.
 | 0e — `AsyncBackend` + registry + integration | ✅ | [`backend.rs`](../../src/runtime/async/backend.rs), [`request_registry.rs`](../../src/runtime/async/request_registry.rs), [`backends/in_memory.rs`](../../src/runtime/async/backends/in_memory.rs); the three proposal-mandated invariant tests in [`phase0_integration_tests.rs`](../../src/runtime/async/phase0_integration_tests.rs). |
 | **Phase 1a** — Multi-threaded runtime substrate | 🚧 in progress | |
 | 1a-i — `mio` dependency + reactor skeleton | ✅ | [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs): dedicated reactor thread owning `mio::Poll`; `start`/`shutdown` lifecycle with `Waker`-driven wake + `JoinHandle` cleanup; `Drop` joins to guard against leaked threads on Windows. No I/O sources registered yet. |
-| 1a-ii — Timer service | ⏳ | Runtime-owned min-heap, `timer_start(req, ms)` → `Completion`. |
+| 1a-ii — Timer service | ✅ | [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs): runtime-owned `BinaryHeap` of `(deadline, RequestId)`; `Poll::poll` uses next deadline as its timeout; expired entries produce `CompletionPayload::Unit` into a shared completions queue. `cancel(req)` suppresses the fire and drops any already-queued completion. `timer_start` and `next_completion` extend the [`AsyncBackend`](../../src/runtime/async/backend.rs) trait; the in-memory test backend implements them with deterministic semantics. |
 | 1a-iii — Worker pool + `RuntimeTarget` | ⏳ | N OS threads, shared priority queue, completion routing; `RequestRegistry` wrapped in a `Mutex`. |
 | 1a-iv — Hybrid atomic-on-share RC | ⏳ | Sign-bit-encoded `_Atomic(int32_t)` in [`runtime/c/rc.c`](../../runtime/c/rc.c) + Rust mirror. |
 | 1a-v — `Sendable<T>` type class | ⏳ | Auto-derived in [`dict_elaborate.rs`](../../src/core/passes/dict_elaborate.rs); positive-only. |
@@ -63,7 +63,7 @@ target the original proposal aimed at.
 | **Phase 3** — TLS + database client | ⏳ | |
 | **Phase 4** — `io_uring` backend (optional) | ⏳ | |
 
-Test count at end of slice 1a-i: **2432 passed / 0 failed** under `cargo test --all --all-features`.
+Test count at end of slice 1a-ii: **2437 passed / 0 failed** under `cargo test --all --all-features`.
 
 ## Relationship to 0143
 

@@ -65,6 +65,17 @@ impl AsyncBackend for InMemoryBackend {
     fn cancel(&self, req: RequestId) {
         self.pending.borrow_mut().retain(|c| c.request_id != req);
     }
+
+    /// Deterministic semantics: ignore the delay and queue a `Unit` completion
+    /// immediately so tests can drive timers by polling [`Self::next_completion`].
+    /// Real wall-clock timing lives in the `mio` backend.
+    fn timer_start(&self, req: RequestId, _ms: u64) {
+        self.enqueue(req, CompletionPayload::Unit);
+    }
+
+    fn next_completion(&self) -> Option<Completion> {
+        self.tick()
+    }
 }
 
 #[cfg(test)]
@@ -119,5 +130,14 @@ mod tests {
         b.enqueue(RequestId(7), CompletionPayload::Unit);
         b.shutdown().unwrap();
         assert_eq!(b.pending_len(), 0);
+    }
+
+    #[test]
+    fn timer_start_queues_unit_completion_immediately() {
+        let b = InMemoryBackend::new();
+        b.timer_start(RequestId(11), 9_999);
+        let c = b.next_completion().expect("timer fires deterministically");
+        assert_eq!(c.request_id, RequestId(11));
+        assert_eq!(c.payload, CompletionPayload::Unit);
     }
 }
