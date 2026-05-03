@@ -5,3 +5,4 @@
 //! Phase 1a adds [`mio`] as the production backend behind the same trait.
 
 pub mod in_memory;
+pub mod mio;

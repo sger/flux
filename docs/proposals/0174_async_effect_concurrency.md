@@ -40,6 +40,31 @@ removed: hybrid RC ships in Phase 1a, following Lean's and Koka's
 actual production scheme rather than the misread "atomic everywhere"
 target the original proposal aimed at.
 
+## Progress
+
+| Phase / slice | Status | What landed |
+|---|---|---|
+| **Phase 0** — Concurrency-ready effect runtime | ✅ done | All four mandated invariants pass: VM and native runtime each host multiple suspended effects with independent state; `Suspend → completion → resume` round-trips deterministically; cancellation before completion delivers a synthesised cancelled error; abandoned continuations clean up without leaks. |
+| 0a — Audit | ✅ | Catalogued the 13 process-globals in [`runtime/c/effects.c`](../../runtime/c/effects.c) and confirmed VM yield/evidence state is already per-instance. |
+| 0b — `EffectContext` | ✅ | [`src/runtime/async/context.rs`](../../src/runtime/async/context.rs) — scheduler-owned effect/fiber context (yield state, evidence vector, continuation token, cancel scope, home worker). |
+| 0c — VM migration | ✅ | [`Vm`](../../src/vm/mod.rs) routes yield/evidence state through `EffectContext` instead of separate fields. |
+| 0d — Native C runtime migration | ✅ | [`runtime/c/effects.c`](../../runtime/c/effects.c): all 13 globals moved into a per-thread `FluxEffectContext` (`_Thread_local` / `__declspec(thread)`); vestigial extern declarations removed from [`flux_rt.h`](../../runtime/c/flux_rt.h). |
+| 0e — `AsyncBackend` + registry + integration | ✅ | [`backend.rs`](../../src/runtime/async/backend.rs), [`request_registry.rs`](../../src/runtime/async/request_registry.rs), [`backends/in_memory.rs`](../../src/runtime/async/backends/in_memory.rs); the three proposal-mandated invariant tests in [`phase0_integration_tests.rs`](../../src/runtime/async/phase0_integration_tests.rs). |
+| **Phase 1a** — Multi-threaded runtime substrate | 🚧 in progress | |
+| 1a-i — `mio` dependency + reactor skeleton | ✅ | [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs): dedicated reactor thread owning `mio::Poll`; `start`/`shutdown` lifecycle with `Waker`-driven wake + `JoinHandle` cleanup; `Drop` joins to guard against leaked threads on Windows. No I/O sources registered yet. |
+| 1a-ii — Timer service | ⏳ | Runtime-owned min-heap, `timer_start(req, ms)` → `Completion`. |
+| 1a-iii — Worker pool + `RuntimeTarget` | ⏳ | N OS threads, shared priority queue, completion routing; `RequestRegistry` wrapped in a `Mutex`. |
+| 1a-iv — Hybrid atomic-on-share RC | ⏳ | Sign-bit-encoded `_Atomic(int32_t)` in [`runtime/c/rc.c`](../../runtime/c/rc.c) + Rust mirror. |
+| 1a-v — `Sendable<T>` type class | ⏳ | Auto-derived in [`dict_elaborate.rs`](../../src/core/passes/dict_elaborate.rs); positive-only. |
+| 1a-vi — `Task<a>` + `Flow.Task` | ⏳ | `spawn` / `blocking_join` / `cancel` against the substrate. |
+| 1a-vii — TCP readiness state machines | ⏳ | `tcp_connect` / `tcp_read` / `tcp_write` over `mio` registration; backend-owned `Vec<u8>` buffers. |
+| **Phase 1b** — Fiber layer + structured concurrency | ⏳ | Three-effect seam, fibers, `scope` / `both` / `race` / `timeout`. |
+| **Phase 2** — HTTP/1.1 + JSON + Streams | ⏳ | |
+| **Phase 3** — TLS + database client | ⏳ | |
+| **Phase 4** — `io_uring` backend (optional) | ⏳ | |
+
+Test count at end of slice 1a-i: **2432 passed / 0 failed** under `cargo test --all --all-features`.
+
 ## Relationship to 0143
 
 [Proposal 0143](0143_actor_concurrency_roadmap.md) specifies an
