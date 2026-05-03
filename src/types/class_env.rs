@@ -262,6 +262,16 @@ impl ClassEnv {
         self.enforce_instance_visibility(&data_info, &mut diagnostics, interner);
         self.enforce_class_signature_visibility(&data_info, &mut diagnostics, interner);
 
+        // Proposal 0174 D4: synthesize `Sendable<Foo>` for user-declared ADTs.
+        // Positive-only — we only synthesize when no field type contains a
+        // function type. The contextual instance bounds every type
+        // parameter `a` of `Foo` with `Sendable<a>`, so the existing
+        // contextual-instance solver does the recursive checking at use
+        // sites. Explicit user instances win if both exist (synthesis
+        // skips when an instance for the same head already lives in
+        // `self.instances`).
+        Self::synthesize_sendable_instances(statements, ModulePath::EMPTY, self, interner);
+
         diagnostics
     }
 
@@ -420,6 +430,155 @@ impl ClassEnv {
                 Self::collect_named_types(ret, out);
             }
         }
+    }
+
+    /// Proposal 0174 D4 — synthesize `Sendable<Foo>` instances for user-
+    /// declared ADTs. Positive-only: we synthesize an instance only when
+    /// no field type anywhere in the ADT contains a function type, since
+    /// closures are the canonical non-`Sendable` shape and Phase 1 does
+    /// not promote them across worker boundaries.
+    ///
+    /// For a parameterized ADT `data Foo<a, b> { ... }`, the synthesized
+    /// instance is `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>`.
+    /// The existing contextual-instance solver then enforces the bound
+    /// recursively at every use site.
+    ///
+    /// Skips ADTs that already have an explicit `instance Sendable<Foo>`
+    /// declaration so user-written instances always win.
+    fn synthesize_sendable_instances(
+        statements: &[Statement],
+        current_module: ModulePath,
+        env: &mut ClassEnv,
+        interner: &Interner,
+    ) {
+        let Some(sendable_id) = interner.lookup("Sendable") else {
+            // Sendable wasn't registered (e.g. a test that built a bare
+            // ClassEnv without `register_builtins`). Nothing to do.
+            return;
+        };
+        for stmt in statements {
+            match stmt {
+                Statement::Data {
+                    name,
+                    type_params,
+                    variants,
+                    span,
+                    ..
+                } => {
+                    Self::try_synthesize_sendable_for_adt(
+                        env,
+                        sendable_id,
+                        *name,
+                        type_params,
+                        variants,
+                        current_module,
+                        *span,
+                    );
+                }
+                Statement::Module {
+                    name: module_name,
+                    body,
+                    ..
+                } => {
+                    let module_path = ModulePath::from_identifier(*module_name);
+                    Self::synthesize_sendable_instances(
+                        &body.statements,
+                        module_path,
+                        env,
+                        interner,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn try_synthesize_sendable_for_adt(
+        env: &mut ClassEnv,
+        sendable_id: Identifier,
+        adt_name: Identifier,
+        type_params: &[Identifier],
+        variants: &[crate::syntax::data_variant::DataVariant],
+        instance_module: ModulePath,
+        span: Span,
+    ) {
+        // Skip if any field anywhere contains a function type — the
+        // positive-only rule. Closures and function values aren't sendable
+        // and we have no way to make them so without copying.
+        for variant in variants {
+            for field in &variant.fields {
+                if type_expr_contains_function(field) {
+                    return;
+                }
+            }
+        }
+
+        // Skip if the user already wrote an explicit `instance Sendable<Foo>`.
+        let head_args: Vec<TypeExpr> = if type_params.is_empty() {
+            vec![TypeExpr::Named {
+                name: adt_name,
+                args: Vec::new(),
+                span: Span::default(),
+            }]
+        } else {
+            vec![TypeExpr::Named {
+                name: adt_name,
+                args: type_params
+                    .iter()
+                    .map(|p| TypeExpr::Named {
+                        name: *p,
+                        args: Vec::new(),
+                        span: Span::default(),
+                    })
+                    .collect(),
+                span: Span::default(),
+            }]
+        };
+        let already_present = env.instances.iter().any(|inst| {
+            inst.class_name == sendable_id
+                && inst.type_args.len() == head_args.len()
+                && inst
+                    .type_args
+                    .iter()
+                    .zip(&head_args)
+                    .all(|(a, b)| a.structural_eq(b))
+        });
+        if already_present {
+            return;
+        }
+
+        // Bound every type parameter with `Sendable<a>`.
+        let context: Vec<ClassConstraint> = type_params
+            .iter()
+            .map(|p| ClassConstraint {
+                class_name: sendable_id,
+                type_args: vec![TypeExpr::Named {
+                    name: *p,
+                    args: Vec::new(),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            })
+            .collect();
+
+        env.instances.push(InstanceDef {
+            class_name: sendable_id,
+            class_id: ClassId::from_local_name(sendable_id),
+            instance_module,
+            // Synthesized instances follow the same visibility rule as the
+            // owning ADT — they're effectively part of its public surface.
+            // Phase 1 doesn't enforce this distinction since `Sendable` has
+            // no methods.
+            is_public: false,
+            type_args: head_args,
+            context,
+            method_names: Vec::new(),
+            method_effects: Vec::new(),
+            span,
+        });
+        // Suppress unused warning: adt_name is captured in head_args via a
+        // closure path that the borrow checker can't trace through.
+        let _ = adt_name;
     }
 
     /// Walk a statement tree and record the owning module and visibility
@@ -1850,6 +2009,18 @@ fn builtin_type(name: Identifier) -> TypeExpr {
         name,
         args: vec![],
         span: Span::default(),
+    }
+}
+
+/// True if `expr` syntactically contains any function-type subterm.
+/// Used by the Sendable ADT auto-derivation (proposal 0174 D4) to apply
+/// the positive-only rule: data declarations whose fields can hold a
+/// closure are not auto-derived.
+fn type_expr_contains_function(expr: &TypeExpr) -> bool {
+    match expr {
+        TypeExpr::Function { .. } => true,
+        TypeExpr::Tuple { elements, .. } => elements.iter().any(type_expr_contains_function),
+        TypeExpr::Named { args, .. } => args.iter().any(type_expr_contains_function),
     }
 }
 
