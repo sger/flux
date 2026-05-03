@@ -8,31 +8,47 @@
 //! Timer service (1a-ii):
 //!   - `timer_start(req, ms)` pushes a deadline into a shared min-heap and
 //!     wakes the reactor so it can recompute its next `poll` timeout.
-//!   - The reactor passes the next deadline as `Poll::poll`'s timeout. When
-//!     `poll` returns it pops every expired entry, drops cancelled ones,
-//!     and pushes a `CompletionPayload::Unit` for the rest into a shared
-//!     completions queue. Owners pull via `next_completion()`.
-//!   - `cancel(req)` records the request as cancelled; the reactor skips
-//!     producing a completion for it on fire and drops any already-queued
-//!     completion for that request.
+//!   - Expired entries push a `CompletionPayload::Unit` into the shared
+//!     completions queue.
+//!   - `cancel(req)` records the request as cancelled; the reactor drops
+//!     fires and already-queued completions for it.
+//!
+//! TCP readiness state machines (1a-vii):
+//!   - The owning thread submits TCP intent through a command queue:
+//!     `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close`.
+//!   - The reactor drains the queue each iteration, registers/updates poll
+//!     interests, and tracks a per-handle [`TcpConnState`] holding the
+//!     pending connect/read/write requests for that connection.
+//!   - On a readable event with a pending read, the reactor reads up to
+//!     `max` bytes (handling `WouldBlock` as "no data this iteration") and
+//!     pushes `CompletionPayload::Bytes(buf)` (empty buffer = EOF).
+//!   - On a writable event with a pending write, the reactor writes as
+//!     much as it can; when the entire buffer has been accepted by the OS
+//!     it pushes `CompletionPayload::Unit`. Partial writes stay parked
+//!     under the same `RequestId`.
+//!   - For a pending connect the reactor uses the writable event plus
+//!     `take_error()` to decide success/failure.
 //!
 //! Threading model:
 //!   - One reactor thread per [`MioBackend`]; it is the only thread that
-//!     touches `Poll` or pops from the timer heap.
-//!   - The owning thread shares the heap, completions queue, cancelled set,
-//!     a `mio::Waker`, and an `AtomicBool` shutdown flag with the reactor.
-//!   - `Waker::wake` is the one and only mechanism used to nudge the reactor
-//!     out of a blocking `poll` — used both for shutdown and for "a new timer
-//!     was scheduled, recompute your timeout".
+//!     touches `Poll`, the timer heap, or the per-connection state.
+//!   - The owning thread shares the timer heap, completions queue, cancel
+//!     set, command queue, a `mio::Waker`, and an `AtomicBool` shutdown
+//!     flag with the reactor.
+//!   - `Waker::wake` is the one and only mechanism used to nudge the
+//!     reactor out of a blocking `poll` — used for shutdown, new timers,
+//!     and new TCP commands.
 
-use super::super::backend::{AsyncBackend, Completion, CompletionPayload, RequestId};
-use mio::{Events, Poll, Token, Waker};
+use super::super::backend::{AsyncBackend, Completion, CompletionPayload, IoHandle, RequestId};
+use mio::net::TcpStream as MioTcpStream;
+use mio::{Events, Interest, Poll, Token, Waker};
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{BinaryHeap, HashSet, VecDeque};
-use std::io;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::io::{self, Read, Write};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -63,6 +79,30 @@ impl PartialOrd for TimerEntry {
     }
 }
 
+/// Owning-thread → reactor command. The reactor drains these once per
+/// iteration so all `mio::Poll` access stays single-threaded.
+#[derive(Debug)]
+enum TcpCommand {
+    Connect {
+        req: RequestId,
+        handle: IoHandle,
+        addr: SocketAddr,
+    },
+    Read {
+        req: RequestId,
+        handle: IoHandle,
+        max: usize,
+    },
+    Write {
+        req: RequestId,
+        handle: IoHandle,
+        bytes: Vec<u8>,
+    },
+    Close {
+        handle: IoHandle,
+    },
+}
+
 /// Shared state between the owning thread and the reactor thread.
 #[derive(Debug)]
 struct ReactorShared {
@@ -71,6 +111,8 @@ struct ReactorShared {
     timers: Mutex<BinaryHeap<TimerEntry>>,
     cancelled: Mutex<HashSet<RequestId>>,
     completions: Mutex<VecDeque<Completion>>,
+    tcp_commands: Mutex<VecDeque<TcpCommand>>,
+    next_handle: AtomicU64,
 }
 
 /// `mio`-backed async backend.
@@ -104,6 +146,8 @@ impl MioBackend {
             timers: Mutex::new(BinaryHeap::new()),
             cancelled: Mutex::new(HashSet::new()),
             completions: Mutex::new(VecDeque::new()),
+            tcp_commands: Mutex::new(VecDeque::new()),
+            next_handle: AtomicU64::new(1),
         });
 
         let thread_shared = Arc::clone(&shared);
@@ -220,6 +264,51 @@ impl AsyncBackend for MioBackend {
         })
         .flatten()
     }
+
+    fn tcp_connect(&self, req: RequestId, addr: SocketAddr) {
+        let _ = self.with_shared(|shared| {
+            let handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Connect { req, handle, addr });
+            let _ = shared.waker.wake();
+        });
+    }
+
+    fn tcp_read(&self, req: RequestId, handle: IoHandle, max: usize) {
+        let _ = self.with_shared(|shared| {
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Read { req, handle, max });
+            let _ = shared.waker.wake();
+        });
+    }
+
+    fn tcp_write(&self, req: RequestId, handle: IoHandle, bytes: Vec<u8>) {
+        let _ = self.with_shared(|shared| {
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Write { req, handle, bytes });
+            let _ = shared.waker.wake();
+        });
+    }
+
+    fn tcp_close(&self, handle: IoHandle) {
+        let _ = self.with_shared(|shared| {
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Close { handle });
+            let _ = shared.waker.wake();
+        });
+    }
 }
 
 impl Drop for MioBackend {
@@ -228,18 +317,54 @@ impl Drop for MioBackend {
     }
 }
 
+/// One pending read against a TCP handle.
+#[derive(Debug)]
+struct PendingRead {
+    request_id: RequestId,
+    max: usize,
+}
+
+/// One pending write against a TCP handle. `written` tracks how many bytes
+/// the OS has already accepted; partial writes resume from this offset on
+/// the next writable event.
+#[derive(Debug)]
+struct PendingWrite {
+    request_id: RequestId,
+    bytes: Vec<u8>,
+    written: usize,
+}
+
+/// Per-connection reactor-thread state. Lives in the reactor's local
+/// `HashMap<IoHandle, TcpConnState>`; never touched by the owning thread.
+struct TcpConnState {
+    stream: MioTcpStream,
+    token: Token,
+    pending_connect: Option<RequestId>,
+    pending_read: Option<PendingRead>,
+    pending_write: Option<PendingWrite>,
+}
+
 /// Reactor thread entry point.
 fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
     let mut events = Events::with_capacity(64);
+    let mut conns: HashMap<IoHandle, TcpConnState> = HashMap::new();
+    let mut handles_by_token: HashMap<Token, IoHandle> = HashMap::new();
+    // Token(0) is reserved for the Waker; allocate connection tokens above.
+    let mut next_token: usize = 1;
+
     loop {
         if shared.shutdown.load(Ordering::SeqCst) {
             return;
         }
 
-        // Compute the timeout for `poll`: the time until the soonest live
-        // (non-cancelled) deadline, or `None` to block forever if no timers
-        // are scheduled. Cancelled head entries are pruned here so the
-        // timeout is accurate.
+        drain_tcp_commands(
+            &shared,
+            &mut conns,
+            &mut handles_by_token,
+            &mut next_token,
+            poll.registry(),
+        );
+
         let timeout = next_live_deadline(&shared).map(|d| {
             let now = Instant::now();
             d.checked_duration_since(now).unwrap_or(Duration::ZERO)
@@ -254,16 +379,252 @@ fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
             }
         }
 
-        // The Waker is the only registered source today, so this loop is
-        // short. Future slices will dispatch I/O events here.
-        for _event in events.iter() {
-            // Token-routing comes in 1a-vii.
+        for event in events.iter() {
+            if event.token() == WAKER_TOKEN {
+                continue;
+            }
+            let Some(&handle) = handles_by_token.get(&event.token()) else {
+                continue;
+            };
+            handle_tcp_event(
+                &shared,
+                &mut conns,
+                &mut handles_by_token,
+                handle,
+                event.is_readable(),
+                event.is_writable(),
+                poll.registry(),
+            );
         }
 
-        // Independently of why `poll` returned (timeout, waker, spurious),
-        // fire any timers whose deadline has passed.
         fire_due_timers(&shared);
     }
+}
+
+fn drain_tcp_commands(
+    shared: &ReactorShared,
+    conns: &mut HashMap<IoHandle, TcpConnState>,
+    handles_by_token: &mut HashMap<Token, IoHandle>,
+    next_token: &mut usize,
+    registry: &mio::Registry,
+) {
+    let commands: Vec<TcpCommand> = {
+        let mut q = shared.tcp_commands.lock().expect("tcp commands poisoned");
+        q.drain(..).collect()
+    };
+    for cmd in commands {
+        match cmd {
+            TcpCommand::Connect { req, handle, addr } => {
+                let token = Token(*next_token);
+                *next_token += 1;
+                match MioTcpStream::connect(addr) {
+                    Ok(mut stream) => {
+                        if let Err(e) = registry.register(
+                            &mut stream,
+                            token,
+                            Interest::READABLE | Interest::WRITABLE,
+                        ) {
+                            push_completion(
+                                shared,
+                                req,
+                                CompletionPayload::Error(format!("register failed: {e}")),
+                            );
+                            continue;
+                        }
+                        conns.insert(
+                            handle,
+                            TcpConnState {
+                                stream,
+                                token,
+                                pending_connect: Some(req),
+                                pending_read: None,
+                                pending_write: None,
+                            },
+                        );
+                        handles_by_token.insert(token, handle);
+                    }
+                    Err(e) => {
+                        push_completion(
+                            shared,
+                            req,
+                            CompletionPayload::Error(format!("connect failed: {e}")),
+                        );
+                    }
+                }
+            }
+            TcpCommand::Read { req, handle, max } => {
+                let Some(c) = conns.get_mut(&handle) else {
+                    push_completion(
+                        shared,
+                        req,
+                        CompletionPayload::Error("read on unknown handle".into()),
+                    );
+                    continue;
+                };
+                c.pending_read = Some(PendingRead {
+                    request_id: req,
+                    max,
+                });
+                // The connection is registered for READABLE | WRITABLE
+                // already; we'll service the read on the next readable
+                // event (or attempt one immediately for already-buffered
+                // data).
+                try_progress_read(shared, c);
+            }
+            TcpCommand::Write { req, handle, bytes } => {
+                let Some(c) = conns.get_mut(&handle) else {
+                    push_completion(
+                        shared,
+                        req,
+                        CompletionPayload::Error("write on unknown handle".into()),
+                    );
+                    continue;
+                };
+                c.pending_write = Some(PendingWrite {
+                    request_id: req,
+                    bytes,
+                    written: 0,
+                });
+                try_progress_write(shared, c);
+            }
+            TcpCommand::Close { handle } => {
+                if let Some(mut c) = conns.remove(&handle) {
+                    handles_by_token.remove(&c.token);
+                    // Best-effort deregister; an already-broken socket may
+                    // fail this and there's nothing useful to do about it.
+                    let _ = registry.deregister(&mut c.stream);
+                    // Pending requests against a closed handle are dropped
+                    // silently per the docs on AsyncBackend::tcp_close.
+                }
+            }
+        }
+    }
+}
+
+fn handle_tcp_event(
+    shared: &ReactorShared,
+    conns: &mut HashMap<IoHandle, TcpConnState>,
+    handles_by_token: &mut HashMap<Token, IoHandle>,
+    handle: IoHandle,
+    is_readable: bool,
+    is_writable: bool,
+    registry: &mio::Registry,
+) {
+    let Some(c) = conns.get_mut(&handle) else {
+        return;
+    };
+
+    // Connect resolution: a pending connect resolves on writable, success
+    // iff `take_error()` returns None.
+    if c.pending_connect.is_some() && is_writable {
+        let req = c.pending_connect.take().expect("guarded above");
+        match c.stream.take_error() {
+            Ok(None) => {
+                push_completion(shared, req, CompletionPayload::TcpHandle(handle));
+            }
+            Ok(Some(e)) | Err(e) => {
+                push_completion(
+                    shared,
+                    req,
+                    CompletionPayload::Error(format!("connect failed: {e}")),
+                );
+                handles_by_token.remove(&c.token);
+                let mut to_remove = conns.remove(&handle).expect("entry was just borrowed");
+                let _ = registry.deregister(&mut to_remove.stream);
+                return;
+            }
+        }
+    }
+
+    if is_readable {
+        try_progress_read(shared, c);
+    }
+    if is_writable {
+        try_progress_write(shared, c);
+    }
+}
+
+fn try_progress_read(shared: &ReactorShared, c: &mut TcpConnState) {
+    let Some(pending) = c.pending_read.as_mut() else {
+        return;
+    };
+    let mut buf = vec![0u8; pending.max];
+    match c.stream.read(&mut buf) {
+        Ok(n) => {
+            buf.truncate(n);
+            let req = pending.request_id;
+            c.pending_read = None;
+            push_completion(shared, req, CompletionPayload::Bytes(buf));
+        }
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            // Wait for the next readable event.
+        }
+        Err(e) => {
+            let req = pending.request_id;
+            c.pending_read = None;
+            push_completion(
+                shared,
+                req,
+                CompletionPayload::Error(format!("read failed: {e}")),
+            );
+        }
+    }
+}
+
+fn try_progress_write(shared: &ReactorShared, c: &mut TcpConnState) {
+    let Some(pending) = c.pending_write.as_mut() else {
+        return;
+    };
+    loop {
+        let to_write = &pending.bytes[pending.written..];
+        if to_write.is_empty() {
+            let req = pending.request_id;
+            c.pending_write = None;
+            push_completion(shared, req, CompletionPayload::Unit);
+            return;
+        }
+        match c.stream.write(to_write) {
+            Ok(0) => {
+                // Some platforms surface a closed connection as Ok(0). Treat
+                // as an error so the request doesn't hang forever.
+                let req = pending.request_id;
+                c.pending_write = None;
+                push_completion(
+                    shared,
+                    req,
+                    CompletionPayload::Error("write returned 0".into()),
+                );
+                return;
+            }
+            Ok(n) => {
+                pending.written += n;
+            }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                return;
+            }
+            Err(e) => {
+                let req = pending.request_id;
+                c.pending_write = None;
+                push_completion(
+                    shared,
+                    req,
+                    CompletionPayload::Error(format!("write failed: {e}")),
+                );
+                return;
+            }
+        }
+    }
+}
+
+fn push_completion(shared: &ReactorShared, req: RequestId, payload: CompletionPayload) {
+    shared
+        .completions
+        .lock()
+        .expect("completions poisoned")
+        .push_back(Completion {
+            request_id: req,
+            payload,
+        });
 }
 
 /// Pop expired and cancelled entries off the front of the heap, returning
@@ -439,6 +800,81 @@ mod tests {
             extra.is_none(),
             "cancelled timer must not produce a completion: got {extra:?}"
         );
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn tcp_loopback_connect_write_read_roundtrip() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        // Bind a synchronous loopback listener and accept on a thread that
+        // echoes the first message back. The mio backend drives the client.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 64];
+            let n = conn.read(&mut buf).unwrap();
+            conn.write_all(&buf[..n]).unwrap();
+            // Linger briefly so the client's read sees the bytes before we
+            // drop the socket on platforms that surface RST aggressively.
+            thread::sleep(Duration::from_millis(20));
+        });
+
+        let backend = MioBackend::new();
+        backend.start().unwrap();
+
+        // Connect.
+        let req_connect = RequestId(101);
+        backend.tcp_connect(req_connect, addr);
+        let connected = wait_for(&backend, Duration::from_secs(5)).expect("connect must complete");
+        let handle = match connected.payload {
+            CompletionPayload::TcpHandle(h) => h,
+            other => panic!("expected TcpHandle, got {other:?}"),
+        };
+        assert_eq!(connected.request_id, req_connect);
+
+        // Write.
+        let req_write = RequestId(102);
+        let payload = b"hello-flux".to_vec();
+        backend.tcp_write(req_write, handle, payload.clone());
+        let written = wait_for(&backend, Duration::from_secs(5)).expect("write must complete");
+        assert_eq!(written.request_id, req_write);
+        assert_eq!(written.payload, CompletionPayload::Unit);
+
+        // Read echo.
+        let req_read = RequestId(103);
+        backend.tcp_read(req_read, handle, 64);
+        let read = wait_for(&backend, Duration::from_secs(5)).expect("read must complete");
+        assert_eq!(read.request_id, req_read);
+        assert_eq!(read.payload, CompletionPayload::Bytes(payload));
+
+        backend.tcp_close(handle);
+        backend.shutdown().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_connect_to_closed_port_reports_error() {
+        use std::net::TcpListener;
+        // Bind then drop, leaving the address unbound and refusing
+        // subsequent connects. (Linux may be slow to reject; we give a
+        // generous timeout.)
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let backend = MioBackend::new();
+        backend.start().unwrap();
+        backend.tcp_connect(RequestId(7), addr);
+        let completion =
+            wait_for(&backend, Duration::from_secs(5)).expect("connect must report something");
+        assert_eq!(completion.request_id, RequestId(7));
+        match completion.payload {
+            CompletionPayload::Error(_) => {}
+            other => panic!("expected Error, got {other:?}"),
+        }
         backend.shutdown().unwrap();
     }
 
