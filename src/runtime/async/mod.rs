@@ -11,6 +11,8 @@ pub mod backend;
 pub mod backends;
 pub mod context;
 pub mod request_registry;
+pub mod runtime_target;
+pub mod task_manager;
 
 #[cfg(test)]
 mod phase0_integration_tests;
