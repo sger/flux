@@ -15,6 +15,7 @@
 //! Future cyclic data features must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
+pub mod r#async;
 pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;
