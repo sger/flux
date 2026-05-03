@@ -175,6 +175,13 @@ int  flux_rc_is_unique(int64_t val);
 int  flux_rc_is_shared(int64_t val);
 void flux_rc_promote(int64_t val);
 
+/* Concurrency / Task<a> (proposal 0174 D5-a). Native stubs live in
+ * `tasks.c` and abort at runtime; the full bridge to the Rust task
+ * scheduler arrives in D5-b/c. */
+int64_t flux_task_spawn(int64_t closure);
+int64_t flux_task_blocking_join(int64_t task);
+int64_t flux_task_cancel(int64_t task);
+
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
 size_t flux_gc_num_allocs(void);

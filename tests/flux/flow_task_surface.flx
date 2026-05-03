@@ -1,45 +1,53 @@
-// Flow.Task surface tests (proposal 0174 Phase 1a-vi follow-up).
+// Flow.Task end-to-end tests (proposal 0174 D5-a).
 //
-// These tests prove the **type-level** contract of Flow.Task. The runtime
-// FFI bridge is not yet wired, so each call site is wrapped in a closure
-// that's defined but never invoked — that way the type-checker validates
-// the surface (Sendable<a> bound, return types, polymorphism) without
-// triggering the panic body of `spawn`/`blocking_join`/`cancel`.
+// VM backend now runs `spawn` / `blocking_join` / `cancel` for real
+// (sequentially: the closure body runs at spawn-time, the result is
+// stashed, and join retrieves it). These tests therefore both type-check
+// the surface AND assert the runtime behaviour. Native runtime support
+// (`flux_task_*` C symbols backed by the Rust scheduler) lands in D5-b/c.
 
 import Flow.Task as Task
 
-fn test_spawn_join_int_typechecks() {
-    // Int satisfies Sendable via the built-in primitive instance.
-    let _check = fn() {
-        let t = Task.spawn(fn() { 42 });
-        Task.blocking_join(t)
-    };
-    assert_eq(1, 1)
+fn test_spawn_join_int_round_trip() {
+    let t = Task.spawn(fn() { 7 * 6 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
 }
 
-fn test_spawn_join_list_int_typechecks() {
-    // List<Int> auto-derives Sendable structurally.
-    let _check = fn() {
-        let t = Task.spawn(fn() { [1, 2, 3] });
-        Task.blocking_join(t)
-    };
-    assert_eq(1, 1)
+fn test_spawn_join_string_round_trip() {
+    let t = Task.spawn(fn() { "hello-task" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "hello-task")
 }
 
-fn test_spawn_join_tuple_typechecks() {
-    // Tuples derive Sendable when every element is Sendable.
-    let _check = fn() {
-        let t = Task.spawn(fn() { (7, "ok", true) });
-        Task.blocking_join(t)
-    };
-    assert_eq(1, 1)
+fn test_spawn_join_list_int_round_trip() {
+    // List<Int> auto-derives Sendable structurally (1a-v).
+    let t = Task.spawn(fn() { [1, 2, 3] });
+    let r = Task.blocking_join(t);
+    assert_eq(r, [1, 2, 3])
 }
 
-fn test_cancel_is_unconstrained() {
-    // cancel has no Sendable bound — works for any task.
-    let _check = fn() {
-        let t = Task.spawn(fn() { 99 });
-        Task.cancel(t)
-    };
-    assert_eq(1, 1)
+fn test_spawn_join_tuple_round_trip() {
+    let t = Task.spawn(fn() { (7, "ok", true) });
+    let r = Task.blocking_join(t);
+    assert_eq(r, (7, "ok", true))
+}
+
+fn test_cancel_before_join_surfaces_error() {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    // Joining a cancelled task surfaces an error rather than the value.
+    assert_throws(fn() { Task.blocking_join(t) })
+}
+
+fn test_independent_spawn_join_pairs() {
+    // Two independent spawns must not share storage. (The thread-local
+    // task table allocates fresh ids per spawn; this guards against any
+    // future regression that reuses ids or stomps on stored values.)
+    let a = Task.spawn(fn() { 100 });
+    let b = Task.spawn(fn() { 200 });
+    let ra = Task.blocking_join(a);
+    let rb = Task.blocking_join(b);
+    assert_eq(ra, 100);
+    assert_eq(rb, 200)
 }

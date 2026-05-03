@@ -77,6 +77,10 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("cmp_ne", 2, CorePrimOp::CmpNe),
         // Control
         ("panic", 1, CorePrimOp::Panic),
+        // Concurrency (proposal 0174 D5-a)
+        ("task_spawn", 1, CorePrimOp::TaskSpawn),
+        ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
+        ("task_cancel", 1, CorePrimOp::TaskCancel),
         ("now_ms", 0, CorePrimOp::ClockNow),
         ("try", 1, CorePrimOp::Try),
         ("assert_throws", 1, CorePrimOp::AssertThrows),

@@ -89,6 +89,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskBlockingJoin => "task_blocking_join",
+        CorePrimOp::TaskCancel => "task_cancel",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -298,7 +301,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::AssertThrows
+            | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskBlockingJoin
+            | CorePrimOp::TaskCancel => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target
