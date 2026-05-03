@@ -1953,18 +1953,25 @@ followed on the next line by `()` was parsed as
 no parser change needed. Kept in this list as a record so the original
 report doesn't get re-discovered.
 
-### D3 — Reactor-side cancellation of in-flight TCP ops
+### D3 — ~~Reactor-side cancellation of in-flight TCP ops~~ (resolved)
 
-*Surfaced by: 1a-vii.*
+*Surfaced by: 1a-vii. Closed in a small follow-up slice.*
 
-`MioBackend::cancel` records the request id in the cancel set and drops any
-already-queued completion, but it doesn't walk the per-handle
-`TcpConnState` to clear pending reads/writes. The mio-side completion still
-fires on the next event; the registry rewrites it to
-`Error("cancelled")` (semantically correct) but the read/write itself
-already happened. Wasted I/O, not a correctness issue. The fix is a small
-extension to `cancel`: look up which handle's `pending_read`/`pending_write`
-holds this `RequestId` and clear it.
+`MioBackend::cancel` now enqueues a `TcpCommand::CancelRequest(req)` in
+addition to flagging the cancel-set and dropping any already-queued
+completion. The reactor processes the command in its per-iteration drain
+step and walks every live `TcpConnState`, clearing any
+`pending_read` / `pending_write` / `pending_connect` whose `RequestId`
+matches. Result: the reactor stops doing I/O work on the cancelled
+caller's behalf, no stray completion is queued for the cancelled request,
+and the same handle stays usable for fresh reads/writes.
+
+Implementation: [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs) —
+new `TcpCommand::CancelRequest` variant + reactor handler. Regression
+test: `tcp_cancel_clears_pending_read_so_no_completion_fires` (loopback
+listener delays the write, client cancels the read between submit and
+fire, asserts no completion is delivered, then proves the handle is
+still usable for a fresh read).
 
 ### D4 — `Sendable` ADT auto-derivation
 
