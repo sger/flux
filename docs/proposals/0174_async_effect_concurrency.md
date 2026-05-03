@@ -1973,15 +1973,28 @@ listener delays the write, client cancels the read between submit and
 fire, asserts no completion is delivered, then proves the handle is
 still usable for a fresh read).
 
-### D4 — `Sendable` ADT auto-derivation
+### D4 — ~~`Sendable` ADT auto-derivation~~ (resolved)
 
-*Surfaced by: 1a-v.*
+*Surfaced by: 1a-v. Closed in a small follow-up slice.*
 
-`Sendable` derives structurally over tuples, `Option`, `List`, `Array`,
-`Map`, `Either`. User-declared ADTs need an explicit
-`instance Sendable<Foo> {}` today. Auto-derivation (recursive on field
-types, positive-only) is straightforward to bolt onto
-`has_structural_builtin_instance` once an ADT consumer arrives.
+Implemented as a synthesis pass in [`class_env.rs`](../../src/types/class_env.rs)'s
+`collect_from_statements`: after the regular class/instance walk, every
+user-declared `data Foo<a, b, ...> { ... }` whose variants contain no
+function-typed field anywhere gets a synthesized
+`instance <a: Sendable, b: Sendable, ...> => Sendable<Foo<a, b, ...>>`.
+The contextual bound on every type parameter pushes the actual
+field-type checking onto the existing solver — `Sendable<Box<Int>>` is
+satisfiable via `Sendable<Int>`; `Sendable<Box<Int -> Int>>` fails
+because no `Sendable<(Int) -> Int>` instance exists.
+
+Positive-only is enforced by `type_expr_contains_function`: if any field
+is or contains a `TypeExpr::Function`, no instance is synthesized. Tests
+in [`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs)
+cover the four cases — monomorphic ADT auto-derived, parameterized ADT
+contextual bound holds for `Box<Int>`, contextual bound rejects
+`Box<Int -> Int>`, and ADT-with-function-field is not derived. Explicit
+user `instance Sendable<Foo>` declarations still win — synthesis is
+skipped when an instance for the same head already exists.
 
 ### D5 — Native FFI bridge for `Flow.Task`
 
