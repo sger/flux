@@ -42,11 +42,11 @@ pub struct Completion {
     pub payload: CompletionPayload,
 }
 
-/// Backend surface. Phase 0 only wires the lifecycle + cancel hooks; Phase 1a
-/// adds the I/O submission methods (`tcp_connect`, `timer_start`, …).
+/// Backend surface. Phase 0 wired lifecycle + cancel; Phase 1a-ii adds
+/// the timer-submission and completion-pull hooks. Later 1a slices add
+/// `tcp_connect`/`tcp_read`/`tcp_write` against the same surface.
 pub trait AsyncBackend {
-    /// Start the backend (spawn reactor thread, open `mio::Poll`, …). The
-    /// in-memory test backend is a no-op.
+    /// Start the backend (spawn reactor thread, open `mio::Poll`, …).
     fn start(&self) -> Result<(), String>;
 
     /// Stop the backend and release its resources. Idempotent.
@@ -58,4 +58,14 @@ pub trait AsyncBackend {
     /// the cancellation, or drop the request entirely if the continuation has
     /// been abandoned.
     fn cancel(&self, req: RequestId);
+
+    /// Schedule a one-shot timer for `req` to fire `ms` milliseconds from now.
+    /// On expiry the backend produces a [`Completion`] with payload
+    /// [`CompletionPayload::Unit`] retrievable through [`Self::next_completion`].
+    fn timer_start(&self, req: RequestId, ms: u64);
+
+    /// Pop the next ready completion, or `None` if none is available right
+    /// now. Phase 1a-iii will add a blocking variant once the worker pool
+    /// exists; today the scheduler/test driver polls.
+    fn next_completion(&self) -> Option<Completion>;
 }

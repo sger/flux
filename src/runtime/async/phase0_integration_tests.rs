@@ -43,7 +43,7 @@ fn tick(
     expected_token: ContinuationToken,
 ) -> Option<ResumeOutcome> {
     let _ = backend; // kept to lock the trait shape into the tick signature
-    let raw = backend_handle.tick()?;
+    let raw = backend_handle.next_completion()?;
     match registry.deliver(raw) {
         Some(Completion { payload, .. }) => {
             assert_eq!(
@@ -226,7 +226,7 @@ fn shutdown_drops_pending_and_does_not_route_completions() {
 
     backend.shutdown().unwrap();
     assert_eq!(backend.pending_len(), 0);
-    assert!(backend.tick().is_none());
+    assert!(backend.next_completion().is_none());
 
     // The registry entry is still live — Phase 1a will drain on shutdown.
     assert_eq!(registry.live_count(), 1);
