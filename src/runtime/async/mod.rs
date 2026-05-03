@@ -13,6 +13,7 @@ pub mod context;
 pub mod request_registry;
 pub mod runtime_target;
 pub mod task_manager;
+pub mod task_scheduler;
 
 #[cfg(test)]
 mod phase0_integration_tests;
