@@ -54,7 +54,7 @@ target the original proposal aimed at.
 | 1a-i — `mio` dependency + reactor skeleton | ✅ | [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs): dedicated reactor thread owning `mio::Poll`; `start`/`shutdown` lifecycle with `Waker`-driven wake + `JoinHandle` cleanup; `Drop` joins to guard against leaked threads on Windows. No I/O sources registered yet. |
 | 1a-ii — Timer service | ✅ | [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs): runtime-owned `BinaryHeap` of `(deadline, RequestId)`; `Poll::poll` uses next deadline as its timeout; expired entries produce `CompletionPayload::Unit` into a shared completions queue. `cancel(req)` suppresses the fire and drops any already-queued completion. `timer_start` and `next_completion` extend the [`AsyncBackend`](../../src/runtime/async/backend.rs) trait; the in-memory test backend implements them with deterministic semantics. |
 | 1a-iii — Worker pool + `RuntimeTarget` | ✅ | [`task_manager.rs`](../../src/runtime/async/task_manager.rs): N-thread worker pool with a shared per-priority FIFO (`MAX_PRIO = 2`), `Condvar`-parked workers, `start`/`submit`/`shutdown` lifecycle, `Drop` joins on teardown to keep libtest from wedging on Windows. [`runtime_target.rs`](../../src/runtime/async/runtime_target.rs): `TaskId` + `RuntimeTarget` enum (Task variant; Fiber variant lands in 1b). End-to-end completion routing waits on the actual `Task<a>` user surface (1a-vi). |
-| 1a-iv — Hybrid atomic-on-share RC | ⏳ | Sign-bit-encoded `_Atomic(int32_t)` in [`runtime/c/rc.c`](../../runtime/c/rc.c) + Rust mirror. |
+| 1a-iv — Hybrid atomic-on-share RC | ✅ (C side) | [`runtime/c/rc.c`](../../runtime/c/rc.c): `FluxHeader.refcount` is now `_Atomic(int32_t)` with sign-bit encoding (`rc > 0` ST mode, relaxed; `rc < 0` MT mode, atomic; last MT drop is acq_rel). New API in [`flux_rt.h`](../../runtime/c/flux_rt.h): `flux_rc_promote` (recursive ST → MT promotion with release ordering, walks evidence vectors and standard scan offsets), `flux_rc_is_shared`. LLVM-emitted inline `rc == 1` reuse/uniqueness checks (in [`prelude.rs`](../../src/llvm/codegen/prelude.rs)) naturally fail for negative refcounts and fall back to `flux_drop` — no LLVM changes required. **Rust `Value` mirror deferred to 1a-vi**, where `Task.spawn` is the first cross-worker consumer; until then the VM stays single-threaded so `Rc<T>` semantics are still sound. Regression coverage: the full native-LLVM test suite (which exercises dup/drop heavily) passes unchanged, proving the ST hot path is encoding-equivalent. MT-path tests land alongside the first consumer in 1a-vi. |
 | 1a-v — `Sendable<T>` type class | ⏳ | Auto-derived in [`dict_elaborate.rs`](../../src/core/passes/dict_elaborate.rs); positive-only. |
 | 1a-vi — `Task<a>` + `Flow.Task` | ⏳ | `spawn` / `blocking_join` / `cancel` against the substrate. |
 | 1a-vii — TCP readiness state machines | ⏳ | `tcp_connect` / `tcp_read` / `tcp_write` over `mio` registration; backend-owned `Vec<u8>` buffers. |
@@ -63,7 +63,7 @@ target the original proposal aimed at.
 | **Phase 3** — TLS + database client | ⏳ | |
 | **Phase 4** — `io_uring` backend (optional) | ⏳ | |
 
-Test count at end of slice 1a-iii: **2447 passed / 0 failed** under `cargo test --all --all-features`.
+Test count at end of slice 1a-iv: **2447 passed / 0 failed** under `cargo test --all --all-features`. (No new tests this slice — see the 1a-iv row.)
 
 ## Relationship to 0143
 

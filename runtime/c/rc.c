@@ -3,7 +3,7 @@
  *
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
- *   - int32_t refcount    (1 = unique, >1 = shared)
+ *   - _Atomic(int32_t) refcount  (sign-bit-encoded, see below)
  *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
@@ -19,9 +19,35 @@
  *   │  payload                │  ← returned pointer
  *   └─────────────────────────┘
  *
- * flux_dup increments the refcount.
- * flux_drop decrements; when it hits 0, recursively drops scan_fsize
- * child fields then frees the block.
+ * Hybrid atomic-on-share refcount (proposal 0174 Phase 1a-iv):
+ *
+ *   Sign-bit encoding (Lean 4 / Koka scheme):
+ *     rc >  0 — single-threaded mode. rc = number of references. Owner
+ *               thread increments/decrements with relaxed atomics; on x86
+ *               this compiles to plain `mov`. No cross-thread cost.
+ *     rc <  0 — thread-shared mode. -rc = number of references. dup uses
+ *               relaxed atomic fetch_sub (more refs → more negative); drop
+ *               uses acq_rel atomic fetch_add. The last drop (transition
+ *               to 0) is the synchronization point: acquire pairs with the
+ *               releases of every prior drop so the final freeing thread
+ *               sees all writes that happened-before any reference release.
+ *     rc == 0 — ready to free in either mode.
+ *
+ *   Promotion (ST → MT) happens at explicit cross-worker boundaries
+ *   (`Channel.send`, `Task.spawn`) via flux_rc_promote_deep. While the
+ *   object is ST, the LLVM-emitted inline `rc == 1` uniqueness checks
+ *   (in src/llvm/codegen/prelude.rs) work as before because rc=1 means
+ *   "1 ST owner = unique." Once promoted, every rc < 0 fails those
+ *   inline checks and falls back to flux_drop / fresh allocation, which
+ *   then takes the atomic path.
+ *
+ * Mixing atomic (this file) and non-atomic (LLVM-emitted) accesses to the
+ * same word is sound here because the modes do not overlap in practice:
+ * while rc > 0, only the owning thread reads/writes; while rc < 0, only
+ * flux_dup/flux_drop touch the field, and they use atomic ops. The
+ * publication of an MT object (the negation in flux_rc_promote_deep) is
+ * the synchronization point that gives every other thread a happens-after
+ * view of the prior ST writes.
  *
  * Phase 7 (Proposal 0140): bump arena for fast-path allocation.
  * A 1 MB arena is allocated once at init.  flux_gc_alloc_header tries
@@ -30,6 +56,7 @@
  */
 
 #include "flux_rt.h"
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -37,11 +64,21 @@
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
 typedef struct {
-    int32_t  refcount;     /* 1 = unique, >1 = shared, 0 = ready to free */
-    uint8_t  scan_fsize;   /* number of child tagged fields to scan */
-    uint8_t  obj_tag;      /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
+    _Atomic(int32_t) refcount;  /* sign-bit-encoded; see top-of-file comment */
+    uint8_t  scan_fsize;        /* number of child tagged fields to scan */
+    uint8_t  obj_tag;           /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
     uint16_t _reserved;
 } FluxHeader;
+
+/* ── Refcount helpers ──────────────────────────────────────────────── */
+
+static inline int32_t rc_load_relaxed(FluxHeader *hdr) {
+    return atomic_load_explicit(&hdr->refcount, memory_order_relaxed);
+}
+
+static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
+    atomic_store_explicit(&hdr->refcount, v, memory_order_relaxed);
+}
 
 /* _Static_assert is C11; MSVC uses static_assert in C mode. */
 #if defined(_MSC_VER)
@@ -118,7 +155,7 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
         }
     }
 
-    hdr->refcount   = 1;
+    rc_store_relaxed(hdr, 1);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
     hdr->_reserved  = 0;
@@ -156,7 +193,7 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
         abort();
     }
 
-    hdr->refcount   = 1;
+    rc_store_relaxed(hdr, 1);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
     hdr->_reserved  = 0;
@@ -244,13 +281,20 @@ void flux_dup(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    hdr->refcount++;
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc > 0) {
+        /* ST mode: only the owning thread is here, plain store is fine. */
+        rc_store_relaxed(hdr, rc + 1);
+    } else {
+        /* MT mode: |rc| owners; one more reference makes rc more negative. */
+        atomic_fetch_sub_explicit(&hdr->refcount, 1, memory_order_relaxed);
+    }
 }
 
 /*
- * Decrement refcount of a child field.  If the child becomes unique
+ * Decrement refcount of a child field.  If the child becomes ready-to-free
  * (refcount drops to 0), return it for further processing; otherwise
- * return NULL.
+ * return NULL. Honours the same sign-bit encoding as flux_drop.
  */
 static inline void *flux_field_should_free(void *ptr, int field_idx) {
     int64_t *fields = (int64_t *)ptr;
@@ -259,7 +303,17 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     void *child = flux_untag_ptr(val);
     if (!child) return NULL;
     FluxHeader *hdr = header_of(child);
-    if (--hdr->refcount > 0) return NULL;
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc > 0) {
+        int32_t new_rc = rc - 1;
+        rc_store_relaxed(hdr, new_rc);
+        if (new_rc > 0) return NULL;
+    } else {
+        /* Last MT drop pairs with all prior releases. */
+        int32_t old = atomic_fetch_add_explicit(&hdr->refcount, 1,
+                                                memory_order_acq_rel);
+        if (old + 1 != 0) return NULL;
+    }
     return child;
 }
 
@@ -347,7 +401,16 @@ void flux_drop(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    if (--hdr->refcount > 0) return;
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc > 0) {
+        int32_t new_rc = rc - 1;
+        rc_store_relaxed(hdr, new_rc);
+        if (new_rc > 0) return;
+    } else {
+        int32_t old = atomic_fetch_add_explicit(&hdr->refcount, 1,
+                                                memory_order_acq_rel);
+        if (old + 1 != 0) return;
+    }
 
     if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
         flux_drop_evidence(ptr);
@@ -363,7 +426,81 @@ int flux_rc_is_unique(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 1;
     FluxHeader *hdr = header_of(ptr);
-    return hdr->refcount == 1;
+    /* Unique = the caller is the sole ST owner. A shared (rc < 0) object
+     * is never reported as unique even if -rc happens to be 1, because
+     * other threads may still hold the reference and the inline-reuse
+     * fast path is not safe to take. */
+    return rc_load_relaxed(hdr) == 1;
+}
+
+/*
+ * True if `val` has been shared across threads (rc < 0). Used by the
+ * scheduler to decide whether a value crossing a worker boundary still
+ * needs promotion.
+ */
+int flux_rc_is_shared(int64_t val) {
+    if (!flux_is_ptr(val)) return 0;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return 0;
+    return rc_load_relaxed(header_of(ptr)) < 0;
+}
+
+/*
+ * Recursively promote `val` from ST to MT mode (proposal 0174 Phase 1a-iv).
+ *
+ * Walks the object graph and atomically negates every refcount it finds
+ * still in ST mode. Idempotent — already-shared subgraphs are skipped.
+ *
+ * Synchronization: the caller must own the only reference to `val` (and
+ * everything reachable from it) at the moment of the call. The release
+ * semantics on the negation publish all prior writes from the owning
+ * thread; subsequent threads that load the negative rc with acquire
+ * semantics (in flux_drop) see a consistent view.
+ *
+ * This walks the same field offsets flux_drop_free_recx uses, so any
+ * object the recursive drop can scan, this can promote. Evidence vectors
+ * have a custom layout and are handled separately.
+ */
+static void flux_rc_promote_recurse(void *ptr);
+
+static void flux_rc_promote_evidence(void *ptr) {
+    FluxEvvArray *evv = (FluxEvvArray *)ptr;
+    for (int32_t i = 0; i < evv->count; i++) {
+        int64_t *entry = &evv->data[i * FLUX_EVV_ENTRY_WORDS];
+        flux_rc_promote(entry[FLUX_EVV_HANDLER_OFF]);
+        flux_rc_promote(entry[FLUX_EVV_PARENT_OFF]);
+        flux_rc_promote(entry[FLUX_EVV_STATE_OFF]);
+    }
+}
+
+static void flux_rc_promote_recurse(void *ptr) {
+    FluxHeader *hdr = header_of(ptr);
+    int offset = flux_scan_offset(hdr->obj_tag);
+    int64_t *fields = (int64_t *)((char *)ptr + offset * 8);
+    if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
+        flux_rc_promote_evidence(ptr);
+        return;
+    }
+    for (uint8_t i = 0; i < hdr->scan_fsize; i++) {
+        flux_rc_promote(fields[i]);
+    }
+}
+
+void flux_rc_promote(int64_t val) {
+    if (!flux_is_ptr(val)) return;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return;
+    FluxHeader *hdr = header_of(ptr);
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc <= 0) {
+        /* Already shared (or freed-in-progress) — nothing to do. */
+        return;
+    }
+    /* Negate with release ordering so subsequent acquire loads in
+     * flux_drop on other threads see all of this thread's prior writes
+     * to the payload. */
+    atomic_store_explicit(&hdr->refcount, -rc, memory_order_release);
+    flux_rc_promote_recurse(ptr);
 }
 
 /* ── Lifecycle (no-ops for API compatibility) ──────────────────────── */
