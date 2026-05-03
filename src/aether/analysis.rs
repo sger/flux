@@ -6,7 +6,7 @@
 //! - 1 use  → ownership transfer (no dup/drop)
 //! - N uses → insert (N-1) Dups
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
@@ -19,11 +19,18 @@ pub enum ValueDemand {
 }
 
 /// Environment tracked by the reverse Aether planner.
+///
+/// `live` / `owned` / `borrowed` use [`BTreeSet`] rather than `HashSet`
+/// because their iteration order leaks into downstream reuse-spec
+/// decisions and code emission (proposal 0174 D1). Set membership itself
+/// is order-insensitive, but the reuse pipeline picks among candidates by
+/// iteration order, so a `HashSet`'s process-randomized hash order would
+/// make the compiler non-deterministic on every run.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AetherEnv {
-    pub live: HashSet<CoreBinderId>,
-    pub owned: HashSet<CoreBinderId>,
-    pub borrowed: HashSet<CoreBinderId>,
+    pub live: BTreeSet<CoreBinderId>,
+    pub owned: BTreeSet<CoreBinderId>,
+    pub borrowed: BTreeSet<CoreBinderId>,
 }
 
 impl AetherEnv {
