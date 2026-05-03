@@ -1,11 +1,13 @@
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
+        r#async::context::{CancelScope, ContinuationToken, WorkerId},
         closure::Closure,
         compiled_function::CompiledFunction,
         cons_cell::ConsCell,
         frame::Frame,
         value::{AdtFields, AdtValue, Value},
+        yield_state::Yielding,
     },
     vm::VM,
 };
@@ -713,4 +715,88 @@ fn dispatch_op_is_unique_reports_heap_sharing_correctly() {
     assert_eq!(advance, 1);
     assert_eq!(vm.pop().unwrap(), Value::Boolean(false));
     assert!(matches!(vm.pop().unwrap(), Value::Some(_)));
+}
+
+// ── Phase 0c: VM-side EffectContext migration ────────────────────────────
+//
+// These tests assert structural isolation between two VM-owned
+// `EffectContext`s. They are the VM half of the proposal-0174 Phase 0
+// deliverable: prove two suspended effects do not share yield/evidence/
+// marker state. Phase 0d adds the matching native parity tests; Phase 1a/1b
+// then layer the scheduler on top of the same context type.
+
+#[test]
+fn fresh_vm_starts_with_idle_open_context() {
+    let vm = new_vm();
+    assert!(!vm.context.is_yielding());
+    assert!(!vm.context.is_cancelled());
+    assert_eq!(vm.context.continuation, None);
+    assert_eq!(vm.context.home_worker, WorkerId(0));
+    assert!(vm.context.evidence.is_empty());
+    assert_eq!(vm.context.yield_state.marker, 0);
+    assert_eq!(vm.context.yield_state.conts.len(), 0);
+}
+
+#[test]
+fn two_vm_instances_have_independent_effect_contexts() {
+    let mut a = new_vm();
+    let mut b = new_vm();
+
+    // Burn through some markers in A only.
+    let a_m1 = a.context.fresh_marker();
+    let a_m2 = a.context.fresh_marker();
+    assert_ne!(a_m1, a_m2);
+
+    // B's counter is untouched — its first marker matches A's first.
+    let b_m1 = b.context.fresh_marker();
+    assert_eq!(
+        a_m1, b_m1,
+        "independent counters must produce identical first sequences",
+    );
+
+    // Park A in the middle of a perform; B must see none of it.
+    a.context.yield_state.yielding = Yielding::Pending;
+    a.context.yield_state.marker = 99;
+    a.context.yield_state.op_arg = Some(Value::Integer(7));
+    a.context.continuation = Some(ContinuationToken(101));
+    a.context.cancel_scope = CancelScope::Cancelled;
+
+    assert!(a.context.is_yielding());
+    assert!(a.context.is_cancelled());
+    assert_eq!(a.context.yield_state.marker, 99);
+    assert_eq!(a.context.continuation, Some(ContinuationToken(101)));
+
+    assert!(!b.context.is_yielding(), "yield in A leaked to B");
+    assert!(!b.context.is_cancelled(), "cancellation in A leaked to B");
+    assert_eq!(b.context.yield_state.marker, 0);
+    assert_eq!(b.context.yield_state.op_arg, None);
+    assert_eq!(b.context.continuation, None);
+
+    // Clearing A's yield must not disturb B (regression guard for the
+    // previous globals-based shape where any clear was program-wide).
+    a.context.yield_state.clear();
+    assert!(!a.context.is_yielding());
+    assert_eq!(b.context.yield_state.marker, 0);
+}
+
+#[test]
+fn vm_context_marker_counter_is_independent_from_evidence_state() {
+    // Sanity-check the field projection: bumping the marker counter must
+    // not mutate the evidence vector and vice versa. This guards against a
+    // future refactor accidentally folding both fields into a single
+    // shared cell.
+    let mut vm = new_vm();
+    let _ = vm.context.fresh_marker();
+    let _ = vm.context.fresh_marker();
+    assert_eq!(vm.context.yield_state.marker_counter, 2);
+    assert!(vm.context.evidence.is_empty());
+
+    // Evidence-vector growth is via cheap Rc clones — must not perturb the
+    // marker counter.
+    let arms = Rc::new(Vec::new());
+    let effect = crate::syntax::symbol::Symbol::new(7);
+    let new_evv = vm.context.evidence.insert(effect, 1, arms);
+    vm.context.evidence = new_evv;
+    assert_eq!(vm.context.evidence.len(), 1);
+    assert_eq!(vm.context.yield_state.marker_counter, 2);
 }
