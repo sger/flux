@@ -15,6 +15,8 @@ sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rayon = "1.11"
+# Async I/O reactor (proposal 0174 Phase 1a).
+mio = { version = "1.0", features = ["os-poll"] }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
