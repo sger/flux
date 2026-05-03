@@ -367,8 +367,10 @@ int64_t flux_ho_find(int64_t collection, int64_t func);
 
 /* ── Effect handlers (Koka-style yield model, Proposal 0134) ───────── */
 
-/* Yield state — accessible from LLVM IR for inline yield checks. */
-extern int32_t flux_yield_yielding;
+/* Yield state lives in a per-thread FluxEffectContext (proposal 0174 Phase
+ * 0d). Generated LLVM IR reaches it through `flux_is_yielding()` and the
+ * other entry points below — the storage is intentionally not exposed as
+ * an extern global. */
 
 /* Evidence vector management. */
 int64_t flux_evv_get(void);
@@ -391,8 +393,8 @@ int32_t flux_is_yielding(void);
  * both marks the flag and returns its argument) instead of the pure
  * identity.  When a clause returns without having invoked resume, the
  * flag is still 0 — flux_perform_direct then emits a structured error
- * instead of silently returning the wrong value. */
-extern int32_t flux_resume_called;
+ * instead of silently returning the wrong value. The counter itself lives
+ * in the per-thread FluxEffectContext (proposal 0174 Phase 0d). */
 int64_t flux_resume_mark_called(int64_t value);
 
 #ifdef __cplusplus
