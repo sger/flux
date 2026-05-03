@@ -100,6 +100,95 @@ fn main() {
 }
 
 #[test]
+fn sendable_user_adt_with_only_sendable_fields_is_auto_derived() {
+    // Proposal 0174 D4: monomorphic ADT whose every field is Sendable
+    // gets a synthesized `Sendable<Foo>` instance.
+    compile_source(
+        r#"
+data Point { Point(Int, Int) }
+
+fn ferry<a: Sendable>(x: a) -> a { x }
+
+fn main() {
+    ferry(Point(1, 2))
+}
+"#,
+    )
+    .expect("Sendable<Point> must be auto-derived for an ADT of two Ints");
+}
+
+#[test]
+fn sendable_parameterized_adt_uses_contextual_bound() {
+    // Proposal 0174 D4: `data Box<a> { Box(a) }` synthesizes
+    // `<a: Sendable> => Sendable<Box<a>>`. So `Box<Int>` works…
+    compile_source(
+        r#"
+data Box<a> { Box(a) }
+
+fn ferry<a: Sendable>(x: a) -> a { x }
+
+fn main() {
+    ferry(Box(42))
+}
+"#,
+    )
+    .expect("Sendable<Box<Int>> must derive via the contextual bound");
+}
+
+#[test]
+fn sendable_parameterized_adt_rejects_non_sendable_arg() {
+    // …and `Box<Int -> Int>` correctly fails because the contextual
+    // `Sendable<a>` bound can't be discharged for a function type.
+    let result = compile_source(
+        r#"
+data Box<a> { Box(a) }
+
+fn ferry<a: Sendable>(x: a) -> a { x }
+
+fn id_int(x: Int) -> Int { x }
+
+fn main() {
+    let b = Box(id_int);
+    ferry(b)
+}
+"#,
+    );
+    let errs =
+        result.expect_err("Sendable<Box<Int -> Int>> must fail — function types are not Sendable");
+    let joined = errs.join("\n");
+    assert!(
+        joined.contains("Sendable") || joined.contains("instance"),
+        "expected a Sendable-related diagnostic, got:\n{joined}"
+    );
+}
+
+#[test]
+fn sendable_user_adt_with_function_field_is_not_derived() {
+    // The positive-only rule: an ADT that can directly hold a closure
+    // must not get a synthesized Sendable instance.
+    let result = compile_source(
+        r#"
+data WithFn { WithFn(Int, () -> Int) }
+
+fn ferry<a: Sendable>(x: a) -> a { x }
+
+fn main() {
+    let f = fn() { 42 };
+    ferry(WithFn(1, f))
+}
+"#,
+    );
+    let errs = result.expect_err(
+        "Sendable<WithFn> must not be auto-derived — the ADT contains a function field",
+    );
+    let joined = errs.join("\n");
+    assert!(
+        joined.contains("Sendable") || joined.contains("instance"),
+        "expected a Sendable-related diagnostic, got:\n{joined}"
+    );
+}
+
+#[test]
 fn sendable_function_type_has_no_instance() {
     // Closures aren't sendable — the proposal's "absence means not sendable"
     // rule. Compilation must fail with a no-instance diagnostic.
