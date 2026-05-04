@@ -4411,7 +4411,16 @@ impl Compiler {
                 &actual,
                 &self.interner,
             )?;
-            dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, function_span));
+            // Proposal 0174 D1: only insert dict args when the dict can be
+            // INLINED as a `TupleLiteral` of mangled `__tc_*` method
+            // symbols. The fallback path (bare `Identifier(__dict_*)`)
+            // points at a module-load global that's only defined when
+            // `dict_elaborate` emits a CoreDef in this module — pre-D1 it
+            // never did, so the bare path raised E004 once we started
+            // preserving cross-module constraints. Bailing out leaves the
+            // call un-rewritten; runtime polymorphism via the existing
+            // primop-backed class methods handles the dispatch.
+            dict_args.push(self.try_inline_dictionary_ref_ast(&dict_ref, function_span)?);
         }
 
         let mut all_args = dict_args;
@@ -4424,6 +4433,50 @@ impl Compiler {
             }),
             arguments: all_args,
             span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    /// Like [`Self::lower_dictionary_ref_ast`] but returns `None` when the
+    /// dict can't be inlined as a `TupleLiteral` of mangled `__tc_*`
+    /// method symbols. Used by call-site rewrites (proposal 0174 D1)
+    /// that need to bail rather than emit an unresolvable bare Identifier
+    /// to a `__dict_Class_Type` global that may not exist in this module.
+    fn try_inline_dictionary_ref_ast(
+        &self,
+        dict_ref: &crate::types::class_env::ResolvedDictionaryRef,
+        span: Span,
+    ) -> Option<Expression> {
+        if !dict_ref.context_args.is_empty() {
+            let arguments: Option<Vec<Expression>> = dict_ref
+                .context_args
+                .iter()
+                .map(|arg| self.try_inline_dictionary_ref_ast(arg, span))
+                .collect();
+            return Some(Expression::Call {
+                function: Box::new(Expression::Identifier {
+                    name: dict_ref.dict_name,
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                }),
+                arguments: arguments?,
+                span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            });
+        }
+        let methods = self
+            .class_env
+            .dictionary_method_symbols(dict_ref.dict_name, &self.interner)?;
+        Some(Expression::TupleLiteral {
+            elements: methods
+                .into_iter()
+                .map(|name| Expression::Identifier {
+                    name,
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                })
+                .collect(),
+            span,
             id: crate::syntax::expression::ExprId::UNSET,
         })
     }
