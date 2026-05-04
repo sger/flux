@@ -1888,77 +1888,32 @@ Surfaced while landing slices of this proposal but not load-bearing for the
 slice that surfaced them. Each one is its own future slice; collected here so
 they don't get lost between rows of the Progress table.
 
-### D1 — Cross-module class-bound enforcement on function types (VM-resolved, native pending)
+### D1 — Cross-module class-bound enforcement on function types
 
-*Surfaced by: 1a-v / 1a-vi follow-up. Type-system gap closed on the VM
-backend in three sessions on 2026-05-04. Native LLVM regression is the
-remaining D1 sub-issue.*
+*Surfaced by: 1a-v / 1a-vi follow-up. Investigation pass deepened the
+known scope; multi-piece refactor.*
 
 The local `Sendable` solver correctly fails when a constrained generic is
 **defined inline** and applied to a function type — verified by
 [`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs)'s
 `sendable_function_type_has_no_instance` and a hand-rolled `wrap_send`
 example. When the same generic is **defined in a module and called via
-import**, the constraint solver did not flag function-typed payloads at
-the call site. The same gap reproduced with `List.contains<a: Eq>`
-accepting a `List<Int -> Int>` without raising a no-instance error.
+import**, the constraint solver does not flag function-typed payloads at the
+call site. The same gap reproduces with `List.contains<a: Eq>` accepting a
+`List<Int -> Int>` without raising a no-instance error.
 
-**Root cause and fix.** `resolve_module_member_schemes` in
-[`src/ast/type_infer/mod.rs`](../../src/ast/type_infer/mod.rs) used to
-set `constraints: Vec::new()` when finalizing imported schemes,
-silently dropping every bound at the module boundary. **Now preserves**
-`scheme.constraints` — `scheme.instantiate(...)` at every imported-callee
-call site emits the full obligation list, and the constraint solver
-enforces it. Verified end-to-end: `contains([id, id, id], id)` is
-rejected with *"No instance for `Eq<(Int) -> Int>`"*; `Task.spawn(fn() {
-id })` is rejected with *"No instance for `Sendable<(Int) -> Int>`"*.
+**Root cause located.** `resolve_module_member_schemes` in
+[`src/ast/type_infer/mod.rs`](../../src/ast/type_infer/mod.rs) explicitly
+sets `constraints: Vec::new()` when finalizing schemes for export. The
+sibling `resolve_binding_schemes_by_span` preserves them. So
+`scheme.instantiate(...)` at every imported-callee call site emits an
+empty obligation list, and the solver never sees the bound.
 
-**Companion change to keep runtime green:**
-[`compiler/expression.rs::try_build_constrained_user_fn_call_ast`](../../src/compiler/expression.rs)
-now uses a new `try_inline_dictionary_ref_ast` helper that returns
-`None` when the dict can't be lowered to an inline `TupleLiteral` of
-mangled `__tc_*` method symbols. The previous fallback emitted a bare
-`Identifier(__dict_{Class}_{Type})` referring to a global that's only
-defined when `dict_elaborate` actually emits a CoreDef in the calling
-module — pre-D1 it never did, so the bare path raised E004 once we
-preserved cross-module constraints. By bailing instead, the call falls
-through to the existing emission path and runtime polymorphism via the
-primop-backed class methods handles dispatch. This keeps the entire
-VM test suite green while letting the static check fire.
-
-**Latent prep already landed (commit `e8e614a`):**
-[`emit_llvm.rs`](../../src/lir/emit_llvm.rs) emits `__dict_*` CoreDef
-functions and their `.closure_entry` wrappers with `Linkage::Internal`,
-so future per-module dict emission won't hit lld-link duplicate-symbol
-errors. No-op today.
-
-**Native LLVM regression (the new D1 sub-issue, blocking full close):**
-constraint preservation alone — without any other change — breaks the
-`test_mode_flow_list_module_fixture_passes_on_native_llvm` and
-`test_native_sort_by_string_len_repro_prints_sorted_strings` tests.
-Symptom: `flux_perform_direct: unhandled effect (htag=0xNNN)` at runtime
-during `flux --test --native` execution of stdlib helpers that use
-`sort_by` / `assert_eq` chains. Reproduces with a 4-line file that
-calls `sort_by(["bb", "a", "ccc"], fn(s) { 1 })` from a `test_*`
-function. Investigation traced this to the consumer module's
-[`dict_elaborate`](../../src/core/passes/dict_elaborate.rs) firing
-post-D1 (it didn't pre-D1) and emitting `__dict_*` CoreDefs whose
-`MakeTuple` bodies reference `__tc_*` method symbols — bridging through
-Aether → LIR → LLVM IR seems to disturb effect-symbol IDs (htag is the
-u32 of an effect's `Symbol`). VM doesn't see this because its
-`emit_dict_globals` skips emission when method symbols don't all
-resolve in the consumer; the LLVM path doesn't have an equivalent
-guard. Closing this requires either (a) gating dict CoreDef emission on
-"all referenced `__tc_*` methods are actually defined in this module"
-in the LLVM path too, or (b) finding the evidence-vector / effect-tag
-ABI mismatch directly.
-
-The five further cascade problems below are now CLOSED on the VM path
-by the bail-when-can't-inline strategy, but documented for the historical
-record and because items 2–5 will resurface if a future slice tries to
-make `dict_elaborate` actually thread dicts through stdlib helpers
-(rather than fall back to runtime polymorphism, which is what works
-today):
+**Why the one-line fix isn't enough.** Changing `Vec::new()` to
+`scheme.constraints` does close the type-system gap (verified — imported
+`List.contains` rejects `List<Int -> Int>` and imported `Task.spawn`
+rejects function-typed payloads with the proper `Sendable` diagnostic).
+But it cascades into three further problems that need their own slices:
 
 1. **Linker collision on built-in dicts.** Every module with any
    constrained function calls
@@ -1996,46 +1951,7 @@ today):
    The fix is to populate `constrained_fns` from `type_env` (or merge in
    imported schemes) so cross-module call sites get the same treatment
    as in-module ones.
-4. **`type_env` doesn't retain local-function bindings at IR-lowering
-   time.** Confirmed by tracing on 2026-05-04: when `cfg/mod.rs:117`
-   calls `elaborate_dictionaries` during `Flow.Assert`'s compilation,
-   `type_env.visible_bindings()` returns 94 primops/imports but **zero**
-   `assert_*` schemes — the local function bindings created by
-   `function.rs:449::env.bind_with_span` are no longer reachable, having
-   been popped along with their containing scope by the end of
-   inference. A second elaborate call later in the pipeline (via
-   `compiler/mod.rs:1380`) sees them, but its rewritten Core never
-   reaches the bytecode emitter. Net effect: `Flow.Assert.assert_gt`
-   stays a 2-param function in bytecode while constraint-bearing
-   importers insert a dict arg → E1000 wrong-arity (`want=2, got=3`).
-   Fix needs either to keep local function schemes in `type_env`
-   post-inference, or to feed `dict_elaborate` a scheme source built
-   from `resolved_binding_schemes`/`module_member_schemes`. There is
-   also a parallel AST↔IR drift in `compile_function_statement`
-   (`statement.rs:2098`) where module-nested functions look up
-   `find_ir_function_by_symbol(qualified_name)` but the IR records the
-   bare def name — already fixable with a bare-name fallback.
-5. **AST-path doesn't forward dict params for self/recursive calls.**
-   Discovered 2026-05-04 third attempt after items 1–4 were applied
-   together. Many stdlib functions (e.g. `Flow.List.contains`,
-   `Flow.Assert.assert_gt`) are rejected by
-   `can_compile_ir_cfg_function` and fall back to the AST emission path.
-   At AST level, `try_build_constrained_user_fn_call_ast` resolves a
-   constraint by calling `class_env.resolve_dictionary_ref` with
-   inferred type-args, but a recursive call inside `contains<a: Eq>`
-   has type-args containing the type-variable `a` itself — no concrete
-   instance matches, `resolve_dictionary_ref` returns `None`, the
-   AST helper bails with `?`, and the call ends up with no dict arg.
-   The callee body (already dict-elaborated to `λ__dict_Eq, xs, x.…`)
-   then sees `want=3, got=2` at runtime. Fix needs the AST path to
-   detect "the unresolved type-var matches one of the *caller's* own
-   constraint type-vars" and forward the caller's `__dict_{Class}`
-   parameter as an Identifier instead of failing. Also requires
-   pre-interning `__dict_{Class}` (the parameter-name form, not just
-   the per-instance `__dict_{Class}_{Type}` form) for non-stdlib paths
-   so dict_elaborate's prepended params are detectable by the codegen
-   `leading_are_dicts` check.
-6. **Aether-pipeline determinism.** With more constraints flowing,
+4. **Aether-pipeline determinism.** With more constraints flowing,
    `dict_elaborate` adds dict params to more functions; the downstream
    reuse-spec / RC pipeline iterates `HashSet`-typed live/owned/borrowed
    fields and would surface latent process-randomized hash order in the
@@ -2044,12 +1960,12 @@ today):
    site in [`insert.rs`](../../src/aether/insert.rs) — defensive
    improvements that are sound on their own and stay in place.
 
-**Status:** D1 type-system enforcement landed on the VM backend with
-constraint preservation in `resolve_module_member_schemes` plus the
-bail-when-can't-inline gate in `try_build_constrained_user_fn_call_ast`.
-Full `cargo test --all` green; the two failing native LLVM tests are
-the new sub-issue described above. The Aether-side determinism wins
-and LLVM-linkage prep remain landed.
+**Status:** the constraint-preservation change is reverted in the working
+tree (tests stay green at 2462). The latent LLVM-linkage prep (item 1)
+remains landed as a no-op forward-fix. D1 lands as a cohesive multi-step
+slice once items 2 and 3 are also implemented and the import-side
+schemes (and their dict CoreDefs) are populated end-to-end. The
+Aether-side determinism wins remain landed.
 
 ### D2 — ~~`data Task(Int)` constructor-name shadowing~~ (resolved: false alarm)
 
