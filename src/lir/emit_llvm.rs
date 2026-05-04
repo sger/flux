@@ -231,15 +231,7 @@ pub fn emit_llvm_module_with_options(
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
     for func in &program.functions {
         if func.capture_vars.is_empty() && func.qualified_name != "main" {
-            // Match the linkage of the underlying function: dict CoreDefs
-            // are internal-per-module (D1), so their `.closure_entry`
-            // wrappers must be too.
-            let linkage = if func.qualified_name.starts_with("__dict_") {
-                Linkage::Internal
-            } else {
-                Linkage::External
-            };
-            let wrapper = emit_closure_wrapper(func, linkage);
+            let wrapper = emit_closure_wrapper(func, Linkage::External);
             module.functions.push(wrapper);
         }
     }
@@ -940,19 +932,8 @@ impl<'a> FnEmitter<'a> {
             let param_types: Vec<LlvmType> =
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
-            // Dictionary CoreDefs (`__dict_{Class}_{Type}`) are emitted by
-            // dict_elaborate in every module that references the instance.
-            // Use internal linkage so each translation unit gets its own
-            // private copy without lld-link reporting duplicate symbols
-            // (proposal 0174 D1).
-            let linkage = if self.func.qualified_name.starts_with("__dict_") {
-                Linkage::Internal
-            } else {
-                Linkage::External
-            };
-
             LlvmFunction {
-                linkage,
+                linkage: Linkage::External,
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),

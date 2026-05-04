@@ -1913,7 +1913,7 @@ empty obligation list, and the solver never sees the bound.
 `scheme.constraints` does close the type-system gap (verified — imported
 `List.contains` rejects `List<Int -> Int>` and imported `Task.spawn`
 rejects function-typed payloads with the proper `Sendable` diagnostic).
-But it cascades into three further problems that need their own slices:
+But it cascades into two further problems that need their own slices:
 
 1. **Linker collision on built-in dicts.** Every module with any
    constrained function calls
@@ -1922,36 +1922,10 @@ But it cascades into three further problems that need their own slices:
    (`__dict_Sendable_String`, `__dict_Eq_Int`, …). After preserving
    constraints, more modules trigger the path. lld-link reports duplicate
    symbols across the per-module object files (e.g. `Assert.obj` and
-   `List.obj` both define `flux___dict_Sendable_String`). **Latent fix
-   landed** in [`emit_llvm.rs`](../../src/lir/emit_llvm.rs): a top-level
-   function whose `qualified_name` starts with `__dict_` (and the
-   matching `.closure_entry` wrapper) is emitted with `Linkage::Internal`
-   rather than `External`. Each translation unit gets its own private
-   copy, so duplicate-symbol errors no longer fire when D1 is re-attempted.
-   This change is a no-op today (no dict CoreDef is currently emitted in
-   more than one module) and stays in the tree as forward-prep.
-2. **`dict_elaborate` skips consume-only modules.** Today the pass
-   short-circuits when no LOCAL def has constraints in the type_env
-   (`has_constrained_fns`). After D1, an importing module that only
-   *consumes* a constrained function (e.g. a test calling
-   `List.contains([1,2,3], 2)`) still has no constrained local def, so
-   `dict_elaborate` is skipped — yet the AST-side fallback
-   `try_build_constrained_user_fn_call_ast` now fires and inserts a bare
-   `Identifier(__dict_Eq_Int)` that no later pass can resolve, raising
-   E004. The fix needs to broaden the trigger to "any visible binding has
-   constraints" via `type_env.visible_bindings()` (or a call-site
-   pre-walk) **and** to pre-intern + emit the matching dict CoreDef in
-   the importing module.
-3. **`insert_dict_args_at_call_sites` only sees local defs.** Even when
-   `dict_elaborate` is forced to run in a consumer module (per #2), the
-   call-site rewrite builds its `constrained_fns` map from
-   `program.defs` only — so cross-module calls to
-   `Flow.List.contains<a: Eq>` are not augmented with dict args, and the
-   call still pushes 2 args to a 3-param callee (E1000 arity error).
-   The fix is to populate `constrained_fns` from `type_env` (or merge in
-   imported schemes) so cross-module call sites get the same treatment
-   as in-module ones.
-4. **Aether-pipeline determinism.** With more constraints flowing,
+   `List.obj` both define `flux___dict_Sendable_String`). Fix needs
+   either internal/private linkage on dict CoreDefs or call-site-driven
+   dedup so only modules that actually reference an instance emit it.
+2. **Aether-pipeline determinism.** With more constraints flowing,
    `dict_elaborate` adds dict params to more functions; the downstream
    reuse-spec / RC pipeline iterates `HashSet`-typed live/owned/borrowed
    fields and would surface latent process-randomized hash order in the
@@ -1961,11 +1935,9 @@ But it cascades into three further problems that need their own slices:
    improvements that are sound on their own and stay in place.
 
 **Status:** the constraint-preservation change is reverted in the working
-tree (tests stay green at 2462). The latent LLVM-linkage prep (item 1)
-remains landed as a no-op forward-fix. D1 lands as a cohesive multi-step
-slice once items 2 and 3 are also implemented and the import-side
-schemes (and their dict CoreDefs) are populated end-to-end. The
-Aether-side determinism wins remain landed.
+tree (tests stay green at 2462) so D1 lands as a cohesive multi-step
+slice once the linker/dict-emission story is also fixed. The Aether-side
+determinism wins remain landed.
 
 ### D2 — ~~`data Task(Int)` constructor-name shadowing~~ (resolved: false alarm)
 
