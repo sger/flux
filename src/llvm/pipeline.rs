@@ -626,13 +626,23 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                     continue;
                 }
                 let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
-                let output = Command::new(cc)
+                let mut command = Command::new(cc);
+                command
                     .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
                     .arg("-o")
                     .arg(&obj)
                     .arg(&src)
-                    .arg(format!("-I{}", runtime_c_dir.display()))
-                    .output()?;
+                    .arg(format!("-I{}", runtime_c_dir.display()));
+                // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
+                // `RaiseException`) to unwind across LLVM-emitted Flux frames
+                // — Windows `longjmp` walks the SEH chain and trips on
+                // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
+                // Strict `-std=c11` disables MS extensions; re-enable them so
+                // clang actually generates SEH unwind info for `__try`.
+                if cfg!(windows) {
+                    command.args(["-fms-extensions", "-fms-compatibility"]);
+                }
+                let output = command.output()?;
                 check_output("cc (runtime)", &output)?;
                 obj_files.push(obj);
             }
