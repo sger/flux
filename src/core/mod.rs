@@ -677,7 +677,12 @@ pub enum CorePrimOp {
     /// first (proposal 0174 Phase 1b-vi-b₂.2). Args: (f, g) → a. Loser
     /// keeps running; cancellation lands in 1b-vi-c.
     FiberRace = 173,
-    // ── Next free ID: 174 ─────────────────────────────────────────────
+    /// Bound `f` by `ms` milliseconds; returns `Some(result)` if `f`
+    /// finishes in time, `None` otherwise (proposal 0174 Phase 1b-vi
+    /// follow-up). Args: (ms, f). VM: spawns body fiber, parks parent on
+    /// either-completes await. Native: 1b-vi-d.
+    FiberTimeout = 174,
+    // ── Next free ID: 175 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -738,6 +743,7 @@ impl CorePrimOp {
             "TcpAccept" => return Some(Self::TcpAccept),
             "FiberBoth" => return Some(Self::FiberBoth),
             "FiberRace" => return Some(Self::FiberRace),
+            "FiberTimeout" => return Some(Self::FiberTimeout),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -831,6 +837,7 @@ impl CorePrimOp {
             Self::TcpAccept => Some("tcp_accept"),
             Self::FiberBoth => Some("fiber_both"),
             Self::FiberRace => Some("fiber_race"),
+            Self::FiberTimeout => Some("fiber_timeout"),
             _ => None,
         }
     }
@@ -999,6 +1006,7 @@ impl CorePrimOp {
             171 => TcpAccept,
             172 => FiberBoth,
             173 => FiberRace,
+            174 => FiberTimeout,
             _ => return None,
         };
         Some(op)
@@ -1133,6 +1141,7 @@ impl CorePrimOp {
             ("fiber_fail", 1, CorePrimOp::FiberFail),
             ("fiber_fork", 1, CorePrimOp::FiberFork),
             ("fiber_race", 2, CorePrimOp::FiberRace),
+            ("fiber_timeout", 2, CorePrimOp::FiberTimeout),
             ("fiber_get_context", 0, CorePrimOp::FiberGetContext),
             ("fiber_run_async", 1, CorePrimOp::FiberRunAsync),
             ("fiber_sleep", 1, CorePrimOp::FiberSleep),
@@ -1183,7 +1192,7 @@ impl CorePrimOp {
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
             | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr
             | TcpConnect | TcpListen | TcpRead | TcpWriteAll
-            | FiberBoth | FiberRace => 2,
+            | FiberBoth | FiberRace | FiberTimeout => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
