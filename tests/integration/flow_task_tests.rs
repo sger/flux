@@ -93,6 +93,40 @@ fn main() {
 }
 
 #[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_compiles_and_passes() {
+    // Uses a native-specific fixture (Int/String payloads only) because
+    // List<T> and tuple assert_eq is not yet supported on the native backend.
+    let path = workspace_root()
+        .join("tests")
+        .join("flux")
+        .join("flow_task_native.flx");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            "--test",
+            path.to_str().unwrap(),
+            "--native",
+            "--no-cache",
+        ])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux --test --native: {e}"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    assert!(
+        output.status.success(),
+        "native Task tests must pass:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("4 passed"),
+        "expected 4 passing native tests, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn flow_task_spawn_accepts_sendable_int_payload_cross_module() {
     let (_stdout, stderr, success) = run_flux_source(
         r#"

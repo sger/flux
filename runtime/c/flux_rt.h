@@ -162,6 +162,11 @@ void  flux_gc_pop_root(void);
 extern char *flux_arena_hp;
 extern char *flux_arena_limit;
 
+/* Set to 1 in task worker threads (tasks.c) to bypass the bump arena
+ * and force all allocations through malloc, which is thread-safe.
+ * Defined in rc.c; each thread gets its own copy via __thread TLS. */
+extern __thread int flux_worker_thread;
+
 /* Aether RC: dup/drop for pointer-tagged heap values.
  *
  * Hybrid atomic-on-share refcount (proposal 0174 Phase 1a-iv): the rc
@@ -175,9 +180,9 @@ int  flux_rc_is_unique(int64_t val);
 int  flux_rc_is_shared(int64_t val);
 void flux_rc_promote(int64_t val);
 
-/* Concurrency / Task<a> (proposal 0174 D5-a). Native stubs live in
- * `tasks.c` and abort at runtime; the full bridge to the Rust task
- * scheduler arrives in D5-b/c. */
+/* Concurrency / Task<a> (proposal 0174 D5-b/c). Implemented in tasks.c
+ * using POSIX threads; Phase 1a semantics (thread-per-task, best-effort
+ * cancel). Windows implementation is a follow-up. */
 int64_t flux_task_spawn(int64_t closure);
 int64_t flux_task_blocking_join(int64_t task);
 int64_t flux_task_cancel(int64_t task);

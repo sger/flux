@@ -299,6 +299,9 @@ fn run_linker(
             // Link math library on Linux.
             #[cfg(target_os = "linux")]
             cmd.arg("-lm");
+            // Link pthreads on Linux (Task.spawn worker threads).
+            #[cfg(target_os = "linux")]
+            cmd.arg("-lpthread");
             let output = cmd.output()?;
             check_output("cc", &output)
         }
