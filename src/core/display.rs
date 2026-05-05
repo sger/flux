@@ -578,6 +578,12 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::TaskSpawn => out.push_str("TaskSpawn"),
         CorePrimOp::TaskBlockingJoin => out.push_str("TaskBlockingJoin"),
         CorePrimOp::TaskCancel => out.push_str("TaskCancel"),
+        // Fiber primops (proposal 0174 Phase 1b)
+        CorePrimOp::FiberSuspend => out.push_str("FiberSuspend"),
+        CorePrimOp::FiberFork => out.push_str("FiberFork"),
+        CorePrimOp::FiberGetContext => out.push_str("FiberGetContext"),
+        CorePrimOp::FiberFail => out.push_str("FiberFail"),
+        CorePrimOp::TaskAwait => out.push_str("TaskAwait"),
     }
 }
 

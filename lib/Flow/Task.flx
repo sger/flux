@@ -59,4 +59,14 @@ module Flow.Task {
             Task(id) -> task_cancel_id(id)
         }
     }
+
+    /// Fiber-suspending join (Phase 1b). Like `blocking_join` but instead of
+    /// blocking the OS thread, suspends the calling fiber and yields the
+    /// thread to the scheduler. Requires the `Async` effect.
+    ///
+    /// **Phase 1b status:** panics until the `TaskAwait` primop is wired in
+    /// Slice 1b-v. Use `blocking_join` for Phase 1a code.
+    public fn await<a: Sendable>(t: Task<a>) -> a with Async {
+        panic("Task.await: fiber-suspending join not yet wired (proposal 0174 Phase 1b-v)")
+    }
 }

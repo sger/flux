@@ -3436,6 +3436,12 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::TaskSpawn => return "flux_task_spawn".to_string(),
         CorePrimOp::TaskBlockingJoin => return "flux_task_blocking_join".to_string(),
         CorePrimOp::TaskCancel => return "flux_task_cancel".to_string(),
+        // Fiber primops (proposal 0174 Phase 1b) — C shims abort until 1b-vi.
+        CorePrimOp::FiberSuspend => return "flux_fiber_suspend".to_string(),
+        CorePrimOp::FiberFork => return "flux_fiber_fork".to_string(),
+        CorePrimOp::FiberGetContext => return "flux_fiber_get_context".to_string(),
+        CorePrimOp::FiberFail => return "flux_fiber_fail".to_string(),
+        CorePrimOp::TaskAwait => return "flux_task_await".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3546,6 +3552,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_task_spawn" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_task_blocking_join" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_task_cancel" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Fiber primops (proposal 0174 Phase 1b) — abort stubs until 1b-vi.
+        "flux_fiber_suspend" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_fork" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_get_context" => (LlvmType::i64(), vec![]),
+        "flux_fiber_fail" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_await" => (LlvmType::i64(), vec![LlvmType::i64()]),
         _ => return None,
     };
     Some(LlvmDecl {

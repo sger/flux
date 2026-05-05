@@ -92,6 +92,12 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::TaskSpawn => "task_spawn",
         CorePrimOp::TaskBlockingJoin => "task_blocking_join",
         CorePrimOp::TaskCancel => "task_cancel",
+        // Fiber primops (proposal 0174 Phase 1b)
+        CorePrimOp::FiberSuspend => "fiber_suspend",
+        CorePrimOp::FiberFork => "fiber_fork",
+        CorePrimOp::FiberGetContext => "fiber_get_context",
+        CorePrimOp::FiberFail => "fiber_fail",
+        CorePrimOp::TaskAwait => "task_await",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -304,7 +310,13 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::AssertThrows
             | CorePrimOp::TaskSpawn
             | CorePrimOp::TaskBlockingJoin
-            | CorePrimOp::TaskCancel => {
+            | CorePrimOp::TaskCancel
+            // Fiber primops (proposal 0174 Phase 1b)
+            | CorePrimOp::FiberSuspend
+            | CorePrimOp::FiberFork
+            | CorePrimOp::FiberGetContext
+            | CorePrimOp::FiberFail
+            | CorePrimOp::TaskAwait => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

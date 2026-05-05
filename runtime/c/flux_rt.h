@@ -187,6 +187,15 @@ int64_t flux_task_spawn(int64_t closure);
 int64_t flux_task_blocking_join(int64_t task);
 int64_t flux_task_cancel(int64_t task);
 
+/* Fiber / structured concurrency (proposal 0174 Phase 1b). Scheduler bridge
+ * lands in Slice 1b-vi; until then every entry point aborts with a clear
+ * "not yet wired" message (same pattern as the original D5-a stubs). */
+int64_t flux_fiber_suspend(int64_t setup_closure);
+int64_t flux_fiber_fork(int64_t body_closure);
+int64_t flux_fiber_get_context(void);
+int64_t flux_fiber_fail(int64_t error_value);
+int64_t flux_task_await(int64_t task);
+
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
 size_t flux_gc_num_allocs(void);

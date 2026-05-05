@@ -60,6 +60,24 @@ pub const RANDOM: &str = "Random";
 /// operationally emitted by compiler primops in this slice.
 pub const EXN: &str = "Exn";
 
+// ── Async / concurrency labels (Proposal 0174 Phase 1b) ──────────────
+
+/// Fiber suspension seam — emitted by `perform Suspend` at I/O await points.
+/// Compiler-seeded; user code uses `with Async`, not `with Suspend` directly.
+pub const SUSPEND: &str = "Suspend";
+
+/// Fiber fork seam — emitted by structured-concurrency fork operations.
+pub const FORK: &str = "Fork";
+
+/// Fiber context seam — used to retrieve the current `FiberContext`.
+pub const GET_CONTEXT: &str = "GetContext";
+
+/// Async failure seam — raised by `Async.fail` and `timeout` expiry.
+pub const ASYNC_FAIL: &str = "AsyncFail";
+
+/// User-facing async alias: `Async = <Suspend | Fork | GetContext | AsyncFail>`.
+pub const ASYNC: &str = "Async";
+
 /// Intern the `IO` effect label.
 pub fn io_effect_symbol(interner: &mut Interner) -> Identifier {
     interner.intern(IO)
@@ -90,7 +108,19 @@ pub fn time_effect_symbol_opt(interner: &Interner) -> Option<Identifier> {
 pub fn is_known_function_effect_annotation_name(name: &str) -> bool {
     matches!(
         name,
-        IO | TIME | CONSOLE | FILESYSTEM | STDIN | CLOCK | PANIC | DIV | DEBUG
+        IO | TIME
+            | CONSOLE
+            | FILESYSTEM
+            | STDIN
+            | CLOCK
+            | PANIC
+            | DIV
+            | DEBUG
+            | ASYNC
+            | SUSPEND
+            | FORK
+            | GET_CONTEXT
+            | ASYNC_FAIL
     )
 }
 
@@ -271,7 +301,7 @@ mod tests {
 
     #[test]
     fn known_function_effect_annotation_names_match_current_builtin_surface() {
-        for name in [IO, TIME, CONSOLE, FILESYSTEM, STDIN, CLOCK, PANIC, DIV] {
+        for name in [IO, TIME, CONSOLE, FILESYSTEM, STDIN, CLOCK, PANIC, DIV, ASYNC, SUSPEND, FORK, GET_CONTEXT, ASYNC_FAIL] {
             assert!(is_known_function_effect_annotation_name(name), "{name}");
         }
         for name in [RANDOM, NONDET, EXN, "State", "DefinitelyUnknown"] {
