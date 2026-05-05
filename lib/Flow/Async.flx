@@ -75,6 +75,11 @@ module Flow.Async {
     /// is 1b-vi-c). Native: 1b-vi-d.
     intrinsic fn fiber_race_prim<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a = primop FiberRace
 
+    /// Bound `f` by `ms` milliseconds: returns `Some(f())` if `f` completes
+    /// in time, `None` if the timer fires first (proposal 0174 Phase 1b-vi
+    /// follow-up). VM: real overlap via fiber scheduler. Native: 1b-vi-d.
+    intrinsic fn fiber_timeout_prim<a>(ms: Int, f: () -> a with Async) -> Option<a> = primop FiberTimeout
+
     // ── Entry point ───────────────────────────────────────────────────
 
     /// Run an async computation. This is the boundary that installs the
@@ -128,16 +133,14 @@ module Flow.Async {
     ///
     /// VM: always returns `Some(f())`.
     public fn timeout<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
-        let _ = ms
-        Some(f())
+        fiber_timeout_prim(ms, f)
     }
 
     /// Like `timeout` but preserves the error channel.
     ///
-    /// VM: always returns `Some(f())`.
+    /// VM: real overlap via fiber scheduler — same shape as `timeout`.
     public fn timeout_result<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
-        let _ = ms
-        Some(f())
+        fiber_timeout_prim(ms, f)
     }
 
     /// Run `body`; always run `cleanup` afterward.
