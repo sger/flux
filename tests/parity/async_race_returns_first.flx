@@ -1,0 +1,18 @@
+// parity: vm
+// expect: success
+// bug: race(f, g) must return f's result on the VM sequential path.
+//      g is still evaluated (sequential semantics) but its value is discarded.
+
+import Flow.Async exposing (..)
+
+fn first() -> Int { 10 }
+fn second() -> Int with Async { 20 }
+
+fn body() -> Int with Async {
+    race(first, second)
+}
+
+fn main() with IO {
+    let v = run_async(body)
+    print(v)
+}

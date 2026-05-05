@@ -188,6 +188,66 @@ impl TypeEnv {
     // Bridge helpers
     // -------------------------------------------------------------------------
 
+    /// Expand the `Async` effect alias in a slice of `EffectExpr`s, returning a
+    /// possibly-extended owned vec.
+    ///
+    /// The parser emits `with Async` as a single `EffectExpr::Named { "Async" }`.
+    /// Type inference needs the four constituent seam names (`Suspend`, `Fork`,
+    /// `GetContext`, `AsyncFail`) so that `with Async` unifies with
+    /// `with Suspend, Fork, GetContext, AsyncFail` without a spurious mismatch.
+    ///
+    /// This is idempotent: already-expanded rows (no `Async` entry) pass through
+    /// unchanged. The function is deliberately Async-specific — it is the only
+    /// builtin alias that routinely appears inside callback parameter types.
+    pub fn expand_async_alias_in_effects<'a>(
+        effects: &'a [crate::syntax::effect_expr::EffectExpr],
+        interner: &Interner,
+    ) -> std::borrow::Cow<'a, [crate::syntax::effect_expr::EffectExpr]> {
+        use crate::syntax::{builtin_effects as be, effect_expr::EffectExpr};
+        let async_sym = interner.lookup(be::ASYNC);
+        let Some(async_id) = async_sym else {
+            return std::borrow::Cow::Borrowed(effects);
+        };
+        if !effects
+            .iter()
+            .any(|e| matches!(e, EffectExpr::Named { name, .. } if *name == async_id))
+        {
+            return std::borrow::Cow::Borrowed(effects);
+        }
+        let dummy_span = effects
+            .iter()
+            .find_map(|e| {
+                if matches!(e, EffectExpr::Named { name, .. } if *name == async_id) {
+                    Some(e.span())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        let seam_labels = [be::SUSPEND, be::FORK, be::GET_CONTEXT, be::ASYNC_FAIL];
+        let mut out: Vec<EffectExpr> = Vec::with_capacity(effects.len() + 3);
+        for e in effects {
+            if let EffectExpr::Named { name, .. } = e
+                && *name == async_id
+            {
+                for label in seam_labels {
+                    let id = interner.lookup(label).unwrap_or_else(|| {
+                        // In tests the labels may not be interned yet; fall back to
+                        // the Async name so we don't panic (the row will be closed).
+                        async_id
+                    });
+                    out.push(EffectExpr::Named {
+                        name: id,
+                        span: dummy_span,
+                    });
+                }
+            } else {
+                out.push(e.clone());
+            }
+        }
+        std::borrow::Cow::Owned(out)
+    }
+
     /// Convert a `TypeExpr` (surface annotation AST) to `Ty`.
     ///
     /// `type_params` maps the names of generic type parameters declared on the
@@ -320,8 +380,9 @@ impl TypeEnv {
                     row_var_env,
                     row_var_counter,
                 )?;
+                let expanded = Self::expand_async_alias_in_effects(effects, interner);
                 let effect_row =
-                    InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
+                    InferEffectRow::from_effect_exprs(&expanded, row_var_env, row_var_counter)
                         .ok()?;
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }

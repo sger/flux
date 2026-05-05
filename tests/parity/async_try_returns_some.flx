@@ -1,0 +1,19 @@
+// parity: vm
+// expect: success
+// bug: try_(body) must return Some(body()) on the VM path when no error is raised.
+
+import Flow.Async exposing (..)
+
+fn inner() -> Int with Async { 42 }
+
+fn body() -> Option<Int> with Async {
+    try_(inner)
+}
+
+fn main() with IO {
+    let opt = run_async(body)
+    match opt {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+}

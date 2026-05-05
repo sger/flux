@@ -14,6 +14,103 @@ use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
 
+// ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
+// The VM path manages TCP connections as Rust TcpStream/TcpListener handles
+// stored in a thread-local table keyed by integer handle IDs.  This avoids
+// NaN-box encoding complexity and keeps the VM path self-contained.
+mod vm_tcp {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    enum TcpHandle {
+        Stream(TcpStream),
+        Listener(TcpListener),
+    }
+
+    thread_local! {
+        static TCP_HANDLES: RefCell<HashMap<i64, TcpHandle>> = RefCell::new(HashMap::new());
+        static NEXT_ID: RefCell<i64> = RefCell::new(1);
+    }
+
+    fn alloc_id() -> i64 {
+        NEXT_ID.with(|n| {
+            let id = *n.borrow();
+            *n.borrow_mut() = id + 1;
+            id
+        })
+    }
+
+    pub fn tcp_connect(host: &str, port: i64) -> Result<i64, String> {
+        let addr = format!("{}:{}", host, port);
+        let stream = TcpStream::connect(&addr)
+            .map_err(|e| format!("tcp_connect {}: {}", addr, e))?;
+        let id = alloc_id();
+        TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Stream(stream)));
+        Ok(id)
+    }
+
+    pub fn tcp_read(handle: i64, max: i64) -> Result<String, String> {
+        TCP_HANDLES.with(|h| {
+            let mut map = h.borrow_mut();
+            match map.get_mut(&handle) {
+                Some(TcpHandle::Stream(stream)) => {
+                    let cap = if max > 0 && max <= (1 << 24) { max as usize } else { 4096 };
+                    let mut buf = vec![0u8; cap];
+                    let n = stream.read(&mut buf)
+                        .map_err(|e| format!("tcp_read {}: {}", handle, e))?;
+                    Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
+                }
+                _ => Err(format!("tcp_read: invalid handle {}", handle)),
+            }
+        })
+    }
+
+    pub fn tcp_write_all(handle: i64, data: &str) -> Result<(), String> {
+        TCP_HANDLES.with(|h| {
+            let mut map = h.borrow_mut();
+            match map.get_mut(&handle) {
+                Some(TcpHandle::Stream(stream)) => {
+                    stream.write_all(data.as_bytes())
+                        .map_err(|e| format!("tcp_write_all {}: {}", handle, e))
+                }
+                _ => Err(format!("tcp_write_all: invalid handle {}", handle)),
+            }
+        })
+    }
+
+    pub fn tcp_close(handle: i64) {
+        TCP_HANDLES.with(|h| { h.borrow_mut().remove(&handle); });
+    }
+
+    pub fn tcp_listen(host: &str, port: i64) -> Result<i64, String> {
+        let addr = format!("{}:{}", host, port);
+        let listener = TcpListener::bind(&addr)
+            .map_err(|e| format!("tcp_listen {}: {}", addr, e))?;
+        let id = alloc_id();
+        TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Listener(listener)));
+        Ok(id)
+    }
+
+    pub fn tcp_accept(listener: i64) -> Result<i64, String> {
+        TCP_HANDLES.with(|h| {
+            let mut map = h.borrow_mut();
+            match map.get_mut(&listener) {
+                Some(TcpHandle::Listener(l)) => {
+                    let (stream, _) = l.accept()
+                        .map_err(|e| format!("tcp_accept {}: {}", listener, e))?;
+                    let id = NEXT_ID.with(|n| { let id = *n.borrow(); *n.borrow_mut() = id + 1; id });
+                    drop(map);
+                    TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Stream(stream)));
+                    Ok(id)
+                }
+                _ => Err(format!("tcp_accept: invalid listener {}", listener)),
+            }
+        })
+    }
+}
+
 /// Execute a `CorePrimOp` with the given arguments.
 ///
 /// This is the single dispatch point for all `OpPrimOp` instructions in the VM.
@@ -543,15 +640,102 @@ pub fn execute_core_primop(
         },
 
         // ── Fiber / structured concurrency (proposal 0174 Phase 1b) ──
-        // Primops 158–162. The fiber scheduler is wired in Slice 1b-vi;
-        // until then calling these from user code panics at runtime.
-        FiberSuspend | FiberFork | FiberFail | TaskAwait => Err(format!(
-            "CorePrimOp {:?} not yet wired (proposal 0174 Phase 1b-vi)",
-            op
-        )),
-        FiberGetContext => Err(
-            "CorePrimOp FiberGetContext not yet wired (proposal 0174 Phase 1b-vi)".to_string(),
-        ),
+        //
+        // VM path: sequentially-equivalent semantics (same model as Phase 1a
+        // TaskSpawn). No OS-thread yields or stack-switching happen here.
+        // Real M:N fiber switching lives in the native backend (Phase 1b-vi+).
+
+        // run_async: install the Async boundary and run the action. On the VM
+        // path this is simply a synchronous call — no scheduler needed.
+        FiberRunAsync => ctx.invoke_value(args[0].clone(), vec![]),
+
+        // yield_now: cooperative yield point. No-op on the VM sequential path.
+        FiberYieldNow => Ok(Value::None),
+
+        // sleep: best-effort wall-clock sleep. On the VM path we block the OS
+        // thread (same as a blocking I/O call would). No fiber switching.
+        FiberSleep => match &args[0] {
+            Value::Integer(ms) => {
+                std::thread::sleep(std::time::Duration::from_millis(*ms as u64));
+                Ok(Value::None)
+            }
+            other => Err(terr("fiber_sleep", "Int", other)),
+        },
+
+        // fiber_suspend: on the VM path the "setup closure" is never needed —
+        // there is no suspension, so we just return immediately. The closure is
+        // discarded (Aether RC drops it). The caller (yield_now / sleep) has
+        // already done the real work above via dedicated primops.
+        FiberSuspend => Ok(Value::None),
+
+        // fiber_fork: run the body closure immediately and discard the result.
+        // Sequential semantics: child runs to completion before parent resumes.
+        FiberFork => {
+            ctx.invoke_value(args[0].clone(), vec![])?;
+            Ok(Value::None)
+        }
+
+        // fiber_get_context: return a dummy integer context handle. Not
+        // observable by user code on the VM path (used by scheduler internals).
+        FiberGetContext => Ok(Value::Integer(0)),
+
+        // fiber_fail: surface an async error as a VM runtime error string.
+        // The error value is an ADT (AsyncError variant); format it as a string.
+        FiberFail => Err(format!("AsyncError: {:?}", args[0])),
+
+        // task_await: fiber-suspending join. On the VM path this is identical
+        // to blocking_join — consult the task state table.
+        TaskAwait => match &args[0] {
+            Value::Integer(id) => vm_task_state::take(*id),
+            other => Err(terr("task_await", "Int", other)),
+        },
+
+        // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────
+        // On the VM path: blocking Rust std::net calls via vm_tcp module.
+        // Returns an integer handle ID on success; propagates errors as
+        // runtime error strings (mirrors Async `fail` semantics).
+        TcpConnect => match (&args[0], &args[1]) {
+            (Value::String(host), Value::Integer(port)) => {
+                vm_tcp::tcp_connect(host.as_str(), *port).map(Value::Integer)
+            }
+            _ => Err(format!("tcp_connect: expected (String, Int)")),
+        },
+
+        TcpRead => match (&args[0], &args[1]) {
+            (Value::Integer(handle), Value::Integer(max)) => {
+                vm_tcp::tcp_read(*handle, *max).map(|s| Value::String(Rc::new(s)))
+            }
+            _ => Err(format!("tcp_read: expected (Int, Int)")),
+        },
+
+        TcpWriteAll => match (&args[0], &args[1]) {
+            (Value::Integer(handle), Value::String(data)) => {
+                vm_tcp::tcp_write_all(*handle, data.as_str()).map(|()| Value::None)
+            }
+            _ => Err(format!("tcp_write_all: expected (Int, String)")),
+        },
+
+        TcpClose => match &args[0] {
+            Value::Integer(handle) => {
+                vm_tcp::tcp_close(*handle);
+                Ok(Value::None)
+            }
+            other => Err(terr("tcp_close", "Int", other)),
+        },
+
+        TcpListen => match (&args[0], &args[1]) {
+            (Value::String(host), Value::Integer(port)) => {
+                vm_tcp::tcp_listen(host.as_str(), *port).map(Value::Integer)
+            }
+            _ => Err(format!("tcp_listen: expected (String, Int)")),
+        },
+
+        TcpAccept => match &args[0] {
+            Value::Integer(listener) => {
+                vm_tcp::tcp_accept(*listener).map(Value::Integer)
+            }
+            other => Err(terr("tcp_accept", "Int", other)),
+        },
 
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
