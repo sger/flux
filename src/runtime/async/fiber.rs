@@ -92,6 +92,13 @@ pub struct Fiber {
     /// Populated on `FiberSuspend`/`FiberSleep` park; consumed when the
     /// dispatch loop resumes the fiber after its completion arrives.
     pub parked: Option<Rc<RefCell<Continuation>>>,
+
+    /// Request id that just woke this fiber (proposal 0174 Phase 1b-vi-b₂.2).
+    /// Set by `FiberScheduler::complete` at the suspended → ready transition;
+    /// the dispatch loop reads it to look up the synthetic resume value
+    /// (e.g. the tuple built for `FiberBoth`) before invoking
+    /// `resume_from_dispatch`. Cleared by the dispatch loop after read.
+    pub last_completion_req: Option<u64>,
 }
 
 impl std::fmt::Debug for Fiber {
@@ -116,6 +123,7 @@ impl Fiber {
             resume: None,
             body: None,
             parked: None,
+            last_completion_req: None,
         }
     }
 

@@ -65,13 +65,15 @@ module Flow.Async {
     /// Raise an `AsyncError` in the current fiber.
     intrinsic fn fiber_fail_prim<a>(err: AsyncError) -> a = primop FiberFail
 
-    // ── Internal helpers ──────────────────────────────────────────────
+    /// Run two fibers concurrently, returning both results as a pair
+    /// (proposal 0174 Phase 1b-vi-b₂.2). VM: real overlap via the fiber
+    /// scheduler. Native: 1b-vi-d.
+    intrinsic fn fiber_both_prim<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) = primop FiberBoth
 
-    // Separates the two type variables for `both` so the type checker can
-    // unify them independently without a rigid-type-variable escape.
-    fn both_pair<a, b>(left: a, right: b) -> (a, b) {
-        (left, right)
-    }
+    /// Run two fibers concurrently, returning the first result that arrives.
+    /// VM: real overlap; loser keeps running until completion (cancellation
+    /// is 1b-vi-c). Native: 1b-vi-d.
+    intrinsic fn fiber_race_prim<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a = primop FiberRace
 
     // ── Entry point ───────────────────────────────────────────────────
 
@@ -102,24 +104,24 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return both results.
     ///
-    /// VM: runs `f` then `g` sequentially and returns the pair.
+    /// VM: real concurrent execution via the fiber scheduler — `f` and `g`
+    /// run interleaved on a single OS thread. Native: 1b-vi-d.
     ///
     /// Parser limitation (Phase 1b): only the last callback parameter may carry
     /// `with Async`. Pass named `with Async` functions for both arguments; the
     /// effect is inferred at the call site.
-    public fn both<a, b>(f: () -> a, g: () -> b with Async) -> (a, b) with Async {
-        both_pair(f(), g())
+    public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
+        fiber_both_prim(f, g)
     }
 
     /// Run `f` and `g` concurrently; return whichever finishes first.
     ///
-    /// VM: always returns `f`'s result.
+    /// VM: real first-wins via the fiber scheduler. Loser keeps running
+    /// until completion (cancellation lands in 1b-vi-c).
     ///
     /// Parser limitation (Phase 1b): pass named `with Async` functions for both args.
-    public fn race<a>(f: () -> a, g: () -> a with Async) -> a with Async {
-        let result = f()
-        let _ = g()
-        result
+    public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
+        fiber_race_prim(f, g)
     }
 
     /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.

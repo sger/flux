@@ -164,6 +164,8 @@ mod vm_async {
 // the inline call with a real park/resume cycle without touching bookkeeping.
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+    use std::rc::Rc;
 
     use crate::runtime::RuntimeContext;
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
@@ -171,6 +173,19 @@ mod vm_fibers {
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
+
+    /// How a parent fiber's resume value is assembled when its child(ren)
+    /// finish (proposal 0174 Phase 1b-vi-b₂.2).
+    enum AwaitKind {
+        Both {
+            left: FiberId,
+            right: FiberId,
+        },
+        Race {
+            children: Vec<FiberId>,
+            won: bool,
+        },
+    }
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
@@ -189,6 +204,12 @@ mod vm_fibers {
         // loop uses this to recognise root-fiber completion and propagate the
         // result.  None when no run_async is active.
         static ROOT: Cell<Option<FiberId>> = const { Cell::new(None) };
+        // Synthetic-await coordination (Phase 1b-vi-b₂.2).
+        static AWAITS: RefCell<HashMap<u64, AwaitKind>> = RefCell::new(HashMap::new());
+        static AWAITER_INDEX: RefCell<HashMap<FiberId, Vec<u64>>> =
+            RefCell::new(HashMap::new());
+        static RESULTS: RefCell<HashMap<FiberId, Value>> = RefCell::new(HashMap::new());
+        static RESUME_VALUES: RefCell<HashMap<u64, Value>> = RefCell::new(HashMap::new());
     }
 
     /// Enter an `Async.run_async` boundary: lazy-init the scheduler on the
@@ -219,10 +240,8 @@ mod vm_fibers {
     /// `spawn` and never executed via the scheduler — b₁ runs bodies inline).
     /// On outermost exit, tear down the scheduler.
     pub fn exit_run_async(_root: FiberId) {
-        // Drain the root fiber from the ready queue (it never actually ran
-        // through the scheduler dispatch loop on this slice — execution was
-        // inline). Discarding here keeps queues bounded across many
-        // `run_async` calls on the same thread.
+        // Drain any leftover ready fibers (b₁ FiberFork bookkeeping
+        // artifacts; race losers that finished after parent woke; etc).
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
                 while sched.next_ready(WorkerId(0)).is_some() {}
@@ -238,6 +257,9 @@ mod vm_fibers {
                 *s.borrow_mut() = None;
             });
             CURRENT.with(|c| c.set(None));
+            // Phase 1b-vi-b₂.2: also tear down await coordination state
+            // so a second top-level run_async on the same thread starts fresh.
+            clear_await_state();
         }
     }
 
@@ -329,6 +351,156 @@ mod vm_fibers {
         ROOT.with(|r| r.set(None));
     }
 
+    /// Allocate a child fiber and attach `body` so the dispatch loop will
+    /// invoke it on first run (proposal 0174 Phase 1b-vi-b₂.2). Mirror of
+    /// `set_root_with_body` but for child fibers.
+    pub fn spawn_child_with_body(body: Value) -> FiberId {
+        let id = SCHED.with(|s| {
+            s.borrow_mut()
+                .as_mut()
+                .expect("spawn_child_with_body outside Async.run_async")
+                .spawn(WorkerId(0))
+        });
+        // Find the just-spawned fiber and set its body.
+        SCHED.with(|s| {
+            if let Some(sched) = s.borrow_mut().as_mut() {
+                let mut buf: Vec<Fiber> = Vec::new();
+                while let Some(f) = sched.next_ready(WorkerId(0)) {
+                    buf.push(f);
+                }
+                for mut f in buf {
+                    if f.id == id {
+                        f.body = Some(body.clone());
+                    }
+                    sched.spawn_existing(f);
+                }
+            }
+        });
+        id
+    }
+
+    /// Register a `FiberBoth` await: parent_req fires when both children finish.
+    pub fn register_both_await(parent_req: u64, left: FiberId, right: FiberId) {
+        AWAITS.with(|a| {
+            a.borrow_mut()
+                .insert(parent_req, AwaitKind::Both { left, right })
+        });
+        AWAITER_INDEX.with(|idx| {
+            let mut idx = idx.borrow_mut();
+            idx.entry(left).or_default().push(parent_req);
+            idx.entry(right).or_default().push(parent_req);
+        });
+    }
+
+    /// Register a `FiberRace` await: parent_req fires when any child finishes.
+    pub fn register_race_await(parent_req: u64, children: Vec<FiberId>) {
+        AWAITER_INDEX.with(|idx| {
+            let mut idx = idx.borrow_mut();
+            for c in &children {
+                idx.entry(*c).or_default().push(parent_req);
+            }
+        });
+        AWAITS.with(|a| {
+            a.borrow_mut().insert(
+                parent_req,
+                AwaitKind::Race {
+                    children,
+                    won: false,
+                },
+            )
+        });
+    }
+
+    pub fn set_resume_value(req: u64, value: Value) {
+        RESUME_VALUES.with(|r| r.borrow_mut().insert(req, value));
+    }
+
+    pub fn take_resume_value(req: u64) -> Option<Value> {
+        RESUME_VALUES.with(|r| r.borrow_mut().remove(&req))
+    }
+
+    /// A child fiber finished with `value`. Stash the result, walk awaiters,
+    /// determine which parent requests are now satisfiable, build their
+    /// resume values, and return the list of `(parent_req, resume_value)`
+    /// pairs.  The caller (dispatch loop) is responsible for storing each
+    /// resume value via `set_resume_value` and calling
+    /// `scheduler.complete(parent_req)` to wake the parent — done outside
+    /// the AWAITS borrow to avoid re-entrant `RefCell` panics.
+    pub fn on_fiber_done(id: FiberId, value: Value) -> Vec<(u64, Value)> {
+        RESULTS.with(|r| r.borrow_mut().insert(id, value));
+
+        let parent_reqs: Vec<u64> = AWAITER_INDEX
+            .with(|idx| idx.borrow_mut().remove(&id))
+            .unwrap_or_default();
+
+        let mut completions: Vec<(u64, Value)> = Vec::new();
+        for parent_req in parent_reqs {
+            let take_result = |fid: FiberId| -> Option<Value> {
+                RESULTS.with(|r| r.borrow_mut().remove(&fid))
+            };
+            let peek_result = |fid: FiberId| -> bool {
+                RESULTS.with(|r| r.borrow().contains_key(&fid))
+            };
+
+            let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
+            let Some(kind) = kind else { continue };
+            match kind {
+                AwaitKind::Both { left, right } => {
+                    if peek_result(left) && peek_result(right) {
+                        let l = take_result(left).expect("left present");
+                        let r = take_result(right).expect("right present");
+                        // Build (left, right) tuple.
+                        let tuple = Value::Tuple(Rc::new(vec![l, r]));
+                        completions.push((parent_req, tuple));
+                    } else {
+                        // Only one of the pair is done — re-insert the await
+                        // and keep the index entry alive for the other child.
+                        AWAITS.with(|a| {
+                            a.borrow_mut()
+                                .insert(parent_req, AwaitKind::Both { left, right })
+                        });
+                        // Also re-add this parent_req to the awaiter index
+                        // for whichever child hasn't finished yet, so its
+                        // mark-done will see us.
+                        let other = if id == left { right } else { left };
+                        AWAITER_INDEX.with(|idx| {
+                            idx.borrow_mut().entry(other).or_default().push(parent_req)
+                        });
+                    }
+                }
+                AwaitKind::Race {
+                    children,
+                    won,
+                } => {
+                    if !won {
+                        // First-wins: deliver this child's result, mark won.
+                        let result = take_result(id).expect("just inserted");
+                        completions.push((parent_req, result));
+                        // The other children may still finish; their
+                        // mark-done won't find AWAITS[parent_req] (we just
+                        // removed it), so they'll be dropped silently.
+                        let _ = children;
+                    } else {
+                        // Should not happen — once won, AWAITS is gone, so
+                        // we wouldn't have hit this case.
+                        unreachable!("race awaiter saw second completion despite won=true");
+                    }
+                }
+            }
+        }
+
+        completions
+    }
+
+    /// Tear down the await-coordination state at run_async exit
+    /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
+    pub fn clear_await_state() {
+        AWAITS.with(|a| a.borrow_mut().clear());
+        AWAITER_INDEX.with(|idx| idx.borrow_mut().clear());
+        RESULTS.with(|r| r.borrow_mut().clear());
+        RESUME_VALUES.with(|r| r.borrow_mut().clear());
+    }
+
     /// Drive the FiberRunAsync dispatch loop until all fibers are done or
     /// the root fiber returns a value.  Invokes fiber bodies and resumes
     /// parked fibers via the supplied `ctx`; pumps the mio backend when no
@@ -359,9 +531,18 @@ mod vm_fibers {
                 }
 
                 let fiber_id = fiber.id;
+                // Resume value: if the wakeup was caused by a synthetic await
+                // (FiberBoth / FiberRace), the dispatch loop stored a value
+                // keyed by the request id when the children finished.
+                // Default for backend-timer wakeups is Value::None.
+                let resume_val = fiber
+                    .last_completion_req
+                    .take()
+                    .and_then(take_resume_value)
+                    .unwrap_or(Value::None);
                 let outcome = with_current(fiber_id, || {
                     if let Some(cont) = fiber.parked.take() {
-                        ctx.resume_from_dispatch(Value::Continuation(cont), Value::None)
+                        ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
                     } else if let Some(body) = fiber.body.take() {
                         ctx.invoke_value(body, vec![])
                     } else {
@@ -397,14 +578,36 @@ mod vm_fibers {
                 match outcome {
                     Ok(v) => {
                         if fiber_id == root_id {
-                            root_result = Some(v);
+                            root_result = Some(v.clone());
                         }
-                        // Fiber done; drop it (state transitions implicit).
+                        // Synthetic-await coordination: record the result and
+                        // wake any parents whose await condition is now met.
+                        // `on_fiber_done` returns a list of (parent_req,
+                        // resume_value) pairs to flush; we set each value
+                        // *before* calling scheduler.complete so the resumed
+                        // parent fiber sees its expected resume value.
+                        let completions = on_fiber_done(fiber_id, v);
+                        for (parent_req, resume_val) in completions {
+                            set_resume_value(parent_req, resume_val);
+                            SCHED.with(|s| {
+                                s.borrow_mut()
+                                    .as_mut()
+                                    .expect("scheduler missing")
+                                    .complete(WorkerId(0), RequestId(parent_req));
+                            });
+                        }
                     }
                     Err(e) => return Err(e),
                 }
             }
 
+            // Exit as soon as the root fiber is done, even if children
+            // (e.g. FiberRace losers) remain suspended. Their pending
+            // backend completions are abandoned — fine for b₂.2;
+            // cooperative cancellation is 1b-vi-c work.
+            if root_result.is_some() {
+                break;
+            }
             // No more ready fibers.  If nothing is suspended either, we're done.
             let suspended = SCHED.with(|s| {
                 s.borrow()
@@ -1049,6 +1252,38 @@ pub fn execute_core_primop(
             let child = vm_fibers::spawn_child();
             vm_fibers::with_current(child, || ctx.invoke_value(args[0].clone(), vec![]))?;
             Ok(Value::None)
+        }
+
+        // fiber_both / fiber_race (proposal 0174 Phase 1b-vi-b₂.2): spawn
+        // two child fibers, park the parent on a synthetic completion,
+        // bail out to the dispatch loop. When children finish, the loop
+        // routes synthetic completions through `on_fiber_done`, builds the
+        // resume value (tuple for both, winner for race), and wakes the
+        // parent.
+        FiberBoth => {
+            let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
+                "fiber_both called outside Async.run_async — no boundary set".to_string()
+            })?;
+            let child_a = vm_fibers::spawn_child_with_body(args[0].clone());
+            let child_b = vm_fibers::spawn_child_with_body(args[1].clone());
+            let req = vm_async::alloc_request_id();
+            vm_fibers::register_both_await(req.0, child_a, child_b);
+            let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::signal_park(req, cont);
+            Err("__fiber_park__".to_string())
+        }
+
+        FiberRace => {
+            let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
+                "fiber_race called outside Async.run_async — no boundary set".to_string()
+            })?;
+            let child_a = vm_fibers::spawn_child_with_body(args[0].clone());
+            let child_b = vm_fibers::spawn_child_with_body(args[1].clone());
+            let req = vm_async::alloc_request_id();
+            vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
+            let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::signal_park(req, cont);
+            Err("__fiber_park__".to_string())
         }
 
         // fiber_get_context: return a dummy integer context handle. Not

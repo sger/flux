@@ -32,14 +32,14 @@ fn body_fork() -> Unit with Async {
     })
 }
 
-fn body_both_l() -> Int { 1 }
+fn body_both_l() -> Int with Async { 1 }
 fn body_both_r() -> Int with Async { 2 }
 
 fn body_both() -> (Int, Int) with Async {
     both(body_both_l, body_both_r)
 }
 
-fn body_race_l() -> Int { 10 }
+fn body_race_l() -> Int with Async { 10 }
 fn body_race_r() -> Int with Async { 20 }
 
 fn body_race() -> Int with Async {

@@ -3451,6 +3451,13 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::TcpClose => return "flux_tcp_close".to_string(),
         CorePrimOp::TcpListen => return "flux_tcp_listen".to_string(),
         CorePrimOp::TcpAccept => return "flux_tcp_accept".to_string(),
+        // FiberBoth/FiberRace (proposal 0174 Phase 1b-vi-b₂.2). Native
+        // implementation lands in 1b-vi-d; until then any program that
+        // reaches these primops on the native backend will fail to link
+        // against `flux_fiber_both` / `flux_fiber_race`, which is the
+        // intended behaviour (loud failure, not silent fallback).
+        CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
+        CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
     };
 
     // Look up in builtins table for the C name.
