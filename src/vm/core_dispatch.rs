@@ -111,6 +111,48 @@ mod vm_tcp {
     }
 }
 
+// ── Async backend handle (proposal 0174 Phase 1b-vi-a) ───────────────────────
+// Lazy process-global `MioBackend` for fiber primops that need real reactor
+// roundtrips (`FiberSleep` today; `Async.timeout` and TCP-suspending ops
+// follow in 1b-vi-b/c). The reactor thread starts on first use and lives
+// for the rest of the process — `MioBackend` is intentionally leaked via
+// `Box::leak` rather than parked behind a `thread_local!` Drop. Reason:
+// on Windows, TLS destructors fire during `RtlExitUserProcess`, which has
+// already started killing other threads, so `JoinHandle::join` from
+// `MioBackend::Drop` panics with "threads should not terminate
+// unexpectedly". OS process exit reaps the reactor thread anyway, so we
+// give up the (unused) graceful-shutdown semantics. With one fiber the
+// OS-thread call stack *is* the continuation; this module deliberately
+// does NOT involve the FiberScheduler or capture continuations — that's
+// 1b-vi-b/c work.
+mod vm_async {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
+    use crate::runtime::r#async::backends::mio::MioBackend;
+
+    static BACKEND: OnceLock<&'static MioBackend> = OnceLock::new();
+    static NEXT_REQ: AtomicU64 = AtomicU64::new(1);
+
+    pub fn backend() -> Result<&'static MioBackend, String> {
+        if let Some(b) = BACKEND.get() {
+            return Ok(*b);
+        }
+        let owned = Box::leak(Box::new(MioBackend::new()));
+        owned
+            .start()
+            .map_err(|e| format!("MioBackend::start failed: {e}"))?;
+        // Race-tolerant: if another thread set this first, our leaked box
+        // is harmlessly orphaned (process-lifetime anyway).
+        Ok(*BACKEND.get_or_init(|| owned))
+    }
+
+    pub fn alloc_request_id() -> RequestId {
+        RequestId(NEXT_REQ.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 /// Execute a `CorePrimOp` with the given arguments.
 ///
 /// This is the single dispatch point for all `OpPrimOp` instructions in the VM.
@@ -652,13 +694,35 @@ pub fn execute_core_primop(
         // yield_now: cooperative yield point. No-op on the VM sequential path.
         FiberYieldNow => Ok(Value::None),
 
-        // sleep: best-effort wall-clock sleep. On the VM path we block the OS
-        // thread (same as a blocking I/O call would). No fiber switching.
+        // sleep: route through the mio reactor instead of std::thread::sleep
+        // (proposal 0174 Phase 1b-vi-a). Registers a one-shot timer with the
+        // backend, then pumps `next_completion()` until the matching
+        // `request_id` arrives. With one fiber the OS-thread call stack is
+        // the continuation, so blocking-pump *is* the entire suspend; real
+        // ready-queue scheduling for multi-fiber suspend lands in 1b-vi-b.
         FiberSleep => match &args[0] {
-            Value::Integer(ms) => {
-                std::thread::sleep(std::time::Duration::from_millis(*ms as u64));
+            Value::Integer(ms) if *ms >= 0 => {
+                use crate::runtime::r#async::backend::AsyncBackend;
+                let backend = vm_async::backend()?;
+                let req = vm_async::alloc_request_id();
+                backend.timer_start(req, *ms as u64);
+                loop {
+                    if let Some(c) = backend.next_completion() {
+                        if c.request_id == req {
+                            break;
+                        }
+                        // 1b-vi-a never enqueues other requests on this thread,
+                        // so any non-matching completion is a bug — surface it.
+                        return Err(format!(
+                            "fiber_sleep: unexpected completion {:?}",
+                            c.request_id
+                        ));
+                    }
+                    std::thread::park_timeout(std::time::Duration::from_millis(1));
+                }
                 Ok(Value::None)
             }
+            Value::Integer(_) => Err(format!("fiber_sleep: ms must be non-negative")),
             other => Err(terr("fiber_sleep", "Int", other)),
         },
 
