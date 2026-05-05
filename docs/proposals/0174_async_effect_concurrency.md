@@ -58,12 +58,14 @@ target the original proposal aimed at.
 | 1a-v — `Sendable<T>` type class | ✅ (primitives + structural) | Marker class registered in [`class_env.rs`](../../src/types/class_env.rs)'s `register_builtins`, no methods. Built-in primitive instances: `Int`, `Float`, `String`, `Bool`, `Unit`. Positive-only structural derivation in [`class_solver.rs`](../../src/types/class_solver.rs)'s `has_structural_builtin_instance`: tuples, `Option`, `List`, `Array`, `Map`, `Either` auto-derive `Sendable` when their element types satisfy it. Closures, opaque runtime handles, and ADTs without an explicit instance fail with the standard E440 "no instance" diagnostic — absence means "not sendable." Tests in [`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) cover the positive primitive/tuple/collection cases plus a closure negative case. **ADT auto-derivation is not yet wired** — currently every user-defined ADT requires an explicit `instance Sendable<Foo> {}`. The recursive-on-fields synthesis is straightforward to add when the first ADT consumer arrives in 1a-vi/1a-vii. |
 | 1a-vi — `Task<a>` + `Flow.Task` | ✅ Rust scheduler + Flux source surface | **Rust scheduler:** [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs) — `TaskScheduler` wraps the 1a-iii [`TaskManager`](../../src/runtime/async/task_manager.rs) with per-task `Arc<TaskState>` (outcome `Mutex` + `Condvar` + cancel `AtomicBool`). `spawn(action: FnOnce() -> T + Send + 'static)` returns a `TaskHandle<T>`; `blocking_join` consumes it and surfaces `TaskJoinError::Cancelled`/`Panicked` for non-value outcomes (panics are caught by the worker so the pool isn't poisoned). Cancellation: pre-pickup short-circuits the body; post-completion is a no-op; mid-flight runs to completion (yield points come in 1b). 7 unit tests. **Flux source surface:** [`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) — `data Task<a> { Task(Int) }` (proposal-preferred spelling — same-name type and constructor work fine; see D2 in the deferred list) plus `spawn<a: Sendable>` / `blocking_join<a: Sendable>` / `cancel<a>` signatures. Bodies currently panic — the type-level contract is fixed; the runtime FFI bridge that lets these actually run on workers lives in the next follow-up slice. [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs) drives the [`tests/flux/flow_task_surface.flx`](../../tests/flux/flow_task_surface.flx) fixture through the full CLI to verify Int / List / tuple / `cancel<a>` all type-check at the use site. **Known gap:** cross-module class-bound enforcement on function types (the inline `Sendable` solver fails correctly, but the imported `Task.spawn` doesn't currently flag function-typed payloads) — pre-existing, separate slice. **LLVM C-shim wiring + `flux_rc_promote` integration deferred** — that's where Flux closures actually cross worker boundaries and the MT-RC encoding from 1a-iv first runs end-to-end. |
 | 1a-vii — TCP readiness state machines | ✅ | New `IoHandle` type and `CompletionPayload::TcpHandle` variant in [`backend.rs`](../../src/runtime/async/backend.rs); `AsyncBackend` extended with `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close` (default impls panic; in-memory backend left unimplemented since real-socket round-trips have no deterministic stub). [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs) gets a per-iteration TCP command queue (owning thread → reactor) and per-`IoHandle` `TcpConnState` holding pending connect/read/write requests. The reactor resolves a pending connect on writable + `take_error()`, services pending reads on readable (`WouldBlock` is "wait for next event", empty buffer = EOF), and loops writes through `WouldBlock` so partial writes resume from the recorded offset under the same `RequestId`. Loopback echo round-trip and refused-connect tests prove the cross-thread substrate end-to-end. **Cancellation of in-flight TCP ops not yet wired** — falls back to the registry-side cancel-set rewrite from 0e (sound but does some wasted I/O work); explicit reactor-side teardown lands when there's a consumer for it. |
-| **Phase 1b** — Fiber layer + structured concurrency | ⏳ | Three-effect seam, fibers, `scope` / `both` / `race` / `timeout`. |
+| **Phase 1b** — Fiber layer + structured concurrency | 🟡 partial | Slices 1b-i through 1b-v landed (effect seams, FiberScheduler, 5 new fiber CorePrimOps, Flux-source structured-concurrency surface). VM dispatch is **sequential-equivalent** today — the fiber primops execute their bodies in-line on the calling worker rather than capturing continuations and round-tripping through the per-worker ready queue. Native (LLVM) lowering of the new primops exists but the cross-worker Suspend → backend completion → resume cycle hasn't been validated end-to-end. Slice 1b-vi (real M:N fiber multiplexing — continuation capture + per-worker ready queues + native fiber path) and broader parity coverage (TCP echo at scale, parallel TCP fetch, cancellation propagation) remain. |
+| 1b-i to 1b-v | ✅ | Effect seams (`Suspend` / `Fork` / `GetContext` / `AsyncFail`) seeded in [`src/syntax/builtin_effects.rs`](../../src/syntax/builtin_effects.rs); 5 new fiber `CorePrimOp` variants (`fiber_suspend` / `fiber_fork` / `fiber_get_context` / `fiber_run_async` / `fiber_yield_now` / `fiber_sleep`) wired through Core / VM dispatch / LLVM lowering; [`src/runtime/async/fiber.rs`](../../src/runtime/async/fiber.rs) + [`src/runtime/async/scheduler.rs`](../../src/runtime/async/scheduler.rs) provide the `FiberScheduler` layer on top of 1a's `TaskManager`; [`lib/Flow/Async.flx`](../../lib/Flow/Async.flx) ships the structured-concurrency primitives (`scope` / `fork` / `both` / `race` / `timeout` / `timeout_result` / `bracket` / `finally` / `try_` / `fail` / `yield_now` / `sleep`); [`lib/Flow/Tcp.flx`](../../lib/Flow/Tcp.flx) ships the TCP wrapper surface (`connect` / `read` / `write` / `close` / `with_connection`) backed by [`runtime/c/tcp.c`](../../runtime/c/tcp.c) shims. 7 small parity fixtures under [`tests/parity/`](../../tests/parity/) (`async_both`, `async_finally`, `async_race`, `async_run_async`, `async_scope`, `async_sleep`, `async_timeout`) validate the source-surface contract on VM and LLVM. **Known limitation**: the runtime side runs sequentially-equivalent — `both`/`race`/`fork` execute their branches in series rather than in parallel; suspend/resume reduces to direct call. Real M:N concurrency lands in 1b-vi. |
+| 1b-vi — Real M:N fiber scheduling | ⏳ | Replace the sequential-equivalent VM dispatch with proper continuation capture + per-worker ready queues. Native: validate `Suspend → backend completion → resume` across worker threads, including cross-worker enqueue when the resumed fiber's home worker is parked. Continuation re-entry mechanics (proposal "Unresolved questions" #1) settle here. |
 | **Phase 2** — HTTP/1.1 + JSON + Streams | ⏳ | |
 | **Phase 3** — TLS + database client | ⏳ | |
 | **Phase 4** — `io_uring` backend (optional) | ⏳ | |
 
-Test count at end of slice 1a-vi follow-up (Flux source surface): **2462 passed / 0 failed** under `cargo test --all --all-features`.
+Test count at end of D1 close + Phase 1b 1b-i…v + native Task on Windows: **2485 passed / 0 failed** under `cargo test --all --all-features`.
 
 ## Relationship to 0143
 
@@ -1811,7 +1813,8 @@ ships hybrid RC.
 - **Revision 2** — restructured into Phase 1a (multi-threaded substrate, modelled on Lean 4) + Phase 1b (fiber layer + structured concurrency, modelled on Eio), with Phases 2-3 unchanged in shape and an optional Phase 4 (io_uring backend) replacing the original Phase 5. Multi-threading lands in Phase 1a (was Phase 5). Process-per-core (was Phase 3) is removed; Phase 1a's worker pool subsumes it. Hybrid atomic-on-share RC (Lean's and Koka's actual scheme) replaces the original "atomic everywhere" Phase 5 plan. Scheduler moves from Flux source to Rust. Three-effect seam (Suspend/Fork/GetContext) replaces the single `Async` effect for backend extensibility. `Sendable<T>` constraint added (modelled on Rust's `Send`).
 - **Revision 3** — strict syntax pass against the actual Flux grammar (`src/syntax/token_type.rs` keyword set, `src/syntax/parser/`). All code samples rewritten to use only supported constructs: named-field records via `data Foo { Foo { ... } }` (proposal 0152), `deriving` clauses on `data` declarations, positional function arguments, recursion in place of `loop`/`while`, library functions in place of `try`/`finally`/`catch`, `match` for tuple destructuring, and `<a: Class>` constraints inline in type-parameter lists. Plain type aliases were folded into this proposal as a "Required language features" section because Phase 1b's setup-closure pattern is awkward without them; ADT-sugar `type` was extended to accept any type expression on the right-hand side, with restrictions described in detail.
 - **Revision 4** — concurrency syntax tightened. Transparent aliases now extend the existing `alias` declaration instead of overloading `type`; ADT-sugar `type` remains unchanged. User-facing structured concurrency now centers on `Async.scope`, scoped `fork`, `both`, `race`, `timeout`, `timeout_result`, `finally`, and `bracket`. `AsyncFail` is operation-bearing (`raise: AsyncError -> a`) rather than a payload-carrying label. `Sendable` is positive-only; no negative instance syntax is required for non-sendable handles. CPU-bound `Task.blocking_join` is distinct from fiber-suspending `Task.await`.
-- **Revision 5 (this version)** — I/O backend changed from libuv-first to `mio`-first. A mandatory Phase 0 now makes the effect runtime concurrency-ready before user-facing async work. Phase 1a uses a Rust `AsyncBackend` trait, a dedicated `mio` reactor thread, runtime-owned timer heap, TCP readiness state machines, small blocking DNS/file pools, and one Rust scheduler reached directly by the VM and through narrow C ABI shims from LLVM/native code. Lean 4 remains inspiration for task manager and hybrid RC, Eio remains inspiration for the user-facing structured concurrency seam, and Flux owns the Aether/Perceus boundary by requiring backend completion records rather than C callbacks that manipulate Flux heap values.
+- **Revision 5** — I/O backend changed from libuv-first to `mio`-first. A mandatory Phase 0 now makes the effect runtime concurrency-ready before user-facing async work. Phase 1a uses a Rust `AsyncBackend` trait, a dedicated `mio` reactor thread, runtime-owned timer heap, TCP readiness state machines, small blocking DNS/file pools, and one Rust scheduler reached directly by the VM and through narrow C ABI shims from LLVM/native code. Lean 4 remains inspiration for task manager and hybrid RC, Eio remains inspiration for the user-facing structured concurrency seam, and Flux owns the Aether/Perceus boundary by requiring backend completion records rather than C callbacks that manipulate Flux heap values.
+- **Revision 6 (this version)** — bookkeeping pass after Phase 1a → Phase 1b transition: D1 (cross-module class-bound enforcement) closed via constraint preservation + consumer-side dict elaboration + internal-linkage dict CoreDefs; Phase 1b 1b-i through 1b-v landed (effect seams, FiberScheduler, 5 fiber CorePrimOps, Flow.Async + Flow.Tcp source surface) with sequential-equivalent VM dispatch; native Task<a> ships on POSIX (pthreads) and Windows (Win32 + SEH for panic propagation across LLVM frames). 1b-vi (real M:N fiber multiplexing) and Phase 2/3/4 remain. D5-c reframed: native Task is implemented entirely in `runtime/c/tasks.c` rather than via a Rust `TaskScheduler<i64>` staticlib bridge — D5-b/c's original integration is deferred until a feature needs it.
 
 ## Future possibilities
 
@@ -1888,56 +1891,55 @@ Surfaced while landing slices of this proposal but not load-bearing for the
 slice that surfaced them. Each one is its own future slice; collected here so
 they don't get lost between rows of the Progress table.
 
-### D1 — Cross-module class-bound enforcement on function types
+### D1 — ~~Cross-module class-bound enforcement on function types~~ (resolved)
 
-*Surfaced by: 1a-v / 1a-vi follow-up. Investigation pass deepened the
-known scope; multi-piece refactor.*
+*Surfaced by: 1a-v / 1a-vi follow-up. Closed in the cohesive multi-step
+slice that the original investigation outlined.*
 
 The local `Sendable` solver correctly fails when a constrained generic is
-**defined inline** and applied to a function type — verified by
-[`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs)'s
-`sendable_function_type_has_no_instance` and a hand-rolled `wrap_send`
-example. When the same generic is **defined in a module and called via
-import**, the constraint solver does not flag function-typed payloads at the
-call site. The same gap reproduces with `List.contains<a: Eq>` accepting a
-`List<Int -> Int>` without raising a no-instance error.
+**defined inline** and applied to a function type. The original gap: when
+the same generic is **defined in a module and called via import**, the
+constraint solver did not flag function-typed payloads at the call site —
+`List.contains([id, id, id], id)` typed clean instead of producing a
+`No instance for Eq<(Int) -> Int>` diagnostic, and
+`Task.spawn(fn() { id })` typed clean instead of producing
+`No instance for Sendable<(Int) -> Int>`.
 
-**Root cause located.** `resolve_module_member_schemes` in
-[`src/ast/type_infer/mod.rs`](../../src/ast/type_infer/mod.rs) explicitly
-sets `constraints: Vec::new()` when finalizing schemes for export. The
-sibling `resolve_binding_schemes_by_span` preserves them. So
-`scheme.instantiate(...)` at every imported-callee call site emits an
-empty obligation list, and the solver never sees the bound.
+**Resolution.** Landed as the full cascade the original investigation laid
+out, in three coordinated pieces:
 
-**Why the one-line fix isn't enough.** Changing `Vec::new()` to
-`scheme.constraints` does close the type-system gap (verified — imported
-`List.contains` rejects `List<Int -> Int>` and imported `Task.spawn`
-rejects function-typed payloads with the proper `Sendable` diagnostic).
-But it cascades into two further problems that need their own slices:
+1. **Constraint preservation.** `resolve_module_member_schemes` in
+   [`src/ast/type_infer/mod.rs`](../../src/ast/type_infer/mod.rs) now
+   preserves `scheme.constraints` instead of clearing them, so imported
+   call sites instantiate with the full obligation list and the solver
+   surfaces the right diagnostic.
+2. **Consumer-side dict elaboration.** `elaborate_dictionaries` in
+   [`src/core/passes/dict_elaborate.rs`](../../src/core/passes/dict_elaborate.rs)
+   triggers in modules that *call* constrained imports, not only modules
+   that *define* them. `insert_dict_args_at_call_sites` and
+   `resolve_dict_arg` thread imported-scheme constraints + per-call-site
+   `hm_expr_types` info to instantiate concrete `__dict_{Class}_{Type}`
+   references at the call site, alongside the existing polymorphic-dict
+   forwarding for caller-bound contexts.
+3. **Linker dedup via internal linkage.** Dict `CoreDef` functions and
+   their `.closure_entry` wrappers in
+   [`src/lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs) emit with
+   `Linkage::Internal`, so each translation unit gets a private copy
+   without lld-link reporting duplicate symbols on
+   `flux___dict_Sendable_String` / `flux___dict_Eq_Int` / etc.
 
-1. **Linker collision on built-in dicts.** Every module with any
-   constrained function calls
-   [`build_instance_dictionaries`](../../src/core/passes/dict_elaborate.rs),
-   which emits a `CoreDef` per concrete instance
-   (`__dict_Sendable_String`, `__dict_Eq_Int`, …). After preserving
-   constraints, more modules trigger the path. lld-link reports duplicate
-   symbols across the per-module object files (e.g. `Assert.obj` and
-   `List.obj` both define `flux___dict_Sendable_String`). Fix needs
-   either internal/private linkage on dict CoreDefs or call-site-driven
-   dedup so only modules that actually reference an instance emit it.
-2. **Aether-pipeline determinism.** With more constraints flowing,
-   `dict_elaborate` adds dict params to more functions; the downstream
-   reuse-spec / RC pipeline iterates `HashSet`-typed live/owned/borrowed
-   fields and would surface latent process-randomized hash order in the
-   emitted code. **Already fixed independently** by switching `AetherEnv`
-   to `BTreeSet` and by an explicit sort at the one capture-iteration
-   site in [`insert.rs`](../../src/aether/insert.rs) — defensive
-   improvements that are sound on their own and stay in place.
+**Aether-pipeline determinism** (originally listed as cascade item #2)
+landed independently before the D1 close: `AetherEnv` uses `BTreeSet`
+instead of `HashSet` ([`src/aether/analysis.rs`](../../src/aether/analysis.rs)),
+and the one capture-iteration site in
+[`insert.rs`](../../src/aether/insert.rs) has an explicit sort. Both
+remain in place as defensive improvements.
 
-**Status:** the constraint-preservation change is reverted in the working
-tree (tests stay green at 2462) so D1 lands as a cohesive multi-step
-slice once the linker/dict-emission story is also fixed. The Aether-side
-determinism wins remain landed.
+**Verified at close**: both static-check repros fire with the proper
+diagnostic; runtime polymorphism through stdlib helpers (e.g.
+`Flow.List.sort<a: Ord>`) works on both VM and native LLVM with the
+emitted dict CoreDefs and call-site dict args resolving correctly.
+`cargo test --all --all-features` is green.
 
 ### D2 — ~~`data Task(Int)` constructor-name shadowing~~ (resolved: false alarm)
 
@@ -2052,15 +2054,43 @@ and a `libflux.a` (or `flux.lib` on Windows-MSVC) artifact. Update the
 LLVM pipeline ([`src/llvm/pipeline.rs`](../../src/llvm/pipeline.rs)) so
 native linking pulls the staticlib in alongside `libflux_rt.a`.
 
-#### D5-c — Real `extern "C"` shims ⏳
+#### D5-c — Native Task<a> end-to-end 🟡 partial
 
-Wire the panicking
+The original D5-c plan was to wire the panicking
 [`runtime/c/tasks.c`](../../runtime/c/tasks.c) stubs to a global
 [`TaskScheduler<i64>`](../../src/runtime/async/task_scheduler.rs)
-singleton via `extern "C"` Rust functions exposed by the staticlib from
-D5-b. Before crossing the boundary the closure value (and any captures)
-go through `flux_rc_promote`; the result goes through it on the way back.
-End-to-end test: a `cargo native` Flux program that spawns N tasks,
-joins them, and asserts results match. This is also the slice where the
-MT-RC encoding from 1a-iv first runs end-to-end and where the `Sendable`
-boundary becomes load-bearing rather than advisory.
+Rust singleton via `extern "C"` shims exposed by the staticlib from
+D5-b. The as-shipped path is different: native Task runs entirely in
+[`runtime/c/tasks.c`](../../runtime/c/tasks.c) using OS-native
+primitives, parallel to (not through) the Rust `TaskScheduler`.
+
+**What ships today:**
+
+- **POSIX path** — pthreads + per-task mutex/condvar + atomic
+  cancel flag, with a 1024-slot task table, MT-RC promotion via
+  `flux_rc_promote`, and the same Phase 1a cancel semantics as the
+  VM and Rust scheduler. Worker threads set `flux_worker_thread = 1`
+  to bypass the bump arena.
+- **Windows path** — Win32 `_beginthreadex` + `CRITICAL_SECTION` +
+  `CONDITION_VARIABLE`, mirroring the POSIX path 1:1; same slot
+  table, same cancel semantics, same MT-RC discipline. The runtime
+  also uses SEH (`RaiseException` + `__try`/`__except`) instead of
+  `setjmp`/`longjmp` for `flux_panic` / `flux_assert_throws`, since
+  Windows `longjmp` walks the SEH chain via `RtlUnwindEx` and trips
+  on `STATUS_BAD_FUNCTION_TABLE` when crossing LLVM-emitted frames
+  whose `.pdata` is incomplete. Every emitted Flux function carries
+  `uwtable` so the unwinder can walk through it.
+- **End-to-end test** — [`tests/flux/flow_task_native.flx`](../../tests/flux/flow_task_native.flx)
+  drives Int / String / cancel-throws / two-independent-spawns
+  through the full `flux --test --native` CLI on every supported
+  platform.
+
+**What does *not* yet ship:** the Rust-`TaskScheduler<i64>`-via-staticlib
+integration. Native Task is *not* sharing scheduler state with VM Tasks —
+each backend has its own task table. The staticlib (D5-b) is also still
+pending. If a future feature needs cross-backend task state (e.g. a Flux
+program that mixes VM-spawned and native-spawned tasks against the same
+join handle, or wants a single Rust scheduler observing both), the
+original D5-b/c integration becomes load-bearing again. For Phase 1b's
+HTTP / streams / TLS scope the C-side native implementation is
+sufficient; D5-b/c can stay deferred until a concrete consumer shows up.
