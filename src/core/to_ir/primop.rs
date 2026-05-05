@@ -98,6 +98,15 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FiberGetContext => "fiber_get_context",
         CorePrimOp::FiberFail => "fiber_fail",
         CorePrimOp::TaskAwait => "task_await",
+        CorePrimOp::FiberRunAsync => "fiber_run_async",
+        CorePrimOp::FiberYieldNow => "fiber_yield_now",
+        CorePrimOp::FiberSleep => "fiber_sleep",
+        CorePrimOp::TcpConnect => "tcp_connect",
+        CorePrimOp::TcpRead => "tcp_read",
+        CorePrimOp::TcpWriteAll => "tcp_write_all",
+        CorePrimOp::TcpClose => "tcp_close",
+        CorePrimOp::TcpListen => "tcp_listen",
+        CorePrimOp::TcpAccept => "tcp_accept",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -316,7 +325,17 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberFork
             | CorePrimOp::FiberGetContext
             | CorePrimOp::FiberFail
-            | CorePrimOp::TaskAwait => {
+            | CorePrimOp::TaskAwait
+            | CorePrimOp::FiberRunAsync
+            | CorePrimOp::FiberYieldNow
+            | CorePrimOp::FiberSleep
+            // TCP primops (proposal 0174 Phase 1b-vii)
+            | CorePrimOp::TcpConnect
+            | CorePrimOp::TcpRead
+            | CorePrimOp::TcpWriteAll
+            | CorePrimOp::TcpClose
+            | CorePrimOp::TcpListen
+            | CorePrimOp::TcpAccept => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

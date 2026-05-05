@@ -644,7 +644,31 @@ pub enum CorePrimOp {
     FiberFail = 161,
     /// Fiber-suspending join — suspends instead of blocking the OS thread.
     TaskAwait = 162,
-    // ── Next free ID: 163 ─────────────────────────────────────────────
+    /// Entry point for the fiber scheduler: runs `action` on the scheduler.
+    /// VM: runs synchronously. Native: installs effect handler + dispatch loop.
+    FiberRunAsync = 163,
+    /// Yield the current fiber to the scheduler. VM: no-op. Native: real yield.
+    FiberYieldNow = 164,
+    /// Suspend for at least `ms` milliseconds. VM: thread::sleep. Native: timer.
+    FiberSleep = 165,
+    // ── TCP primops (proposal 0174 Phase 1b-vii) ──────────────────────
+    /// Open a TCP connection. Args: (host: String, port: Int) → handle: Int.
+    /// VM: blocking POSIX connect. Native: fiber-suspending via mio reactor.
+    TcpConnect = 166,
+    /// Read up to `max` bytes from a connection. Args: (handle: Int, max: Int) → String.
+    /// VM: blocking recv. Native: fiber-suspending.
+    TcpRead = 167,
+    /// Write all bytes to a connection. Args: (handle: Int, data: String) → Unit.
+    /// VM: blocking send loop. Native: fiber-suspending.
+    TcpWriteAll = 168,
+    /// Close a TCP connection. Args: (handle: Int) → Unit.
+    TcpClose = 169,
+    /// Listen for TCP connections. Args: (host: String, port: Int) → listener: Int.
+    TcpListen = 170,
+    /// Accept one incoming TCP connection. Args: (listener: Int) → handle: Int.
+    /// VM: blocking accept. Native: fiber-suspending.
+    TcpAccept = 171,
+    // ── Next free ID: 172 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -694,6 +718,15 @@ impl CorePrimOp {
             "FiberGetContext" => return Some(Self::FiberGetContext),
             "FiberFail" => return Some(Self::FiberFail),
             "TaskAwait" => return Some(Self::TaskAwait),
+            "FiberRunAsync" => return Some(Self::FiberRunAsync),
+            "FiberYieldNow" => return Some(Self::FiberYieldNow),
+            "FiberSleep" => return Some(Self::FiberSleep),
+            "TcpConnect" => return Some(Self::TcpConnect),
+            "TcpRead" => return Some(Self::TcpRead),
+            "TcpWriteAll" => return Some(Self::TcpWriteAll),
+            "TcpClose" => return Some(Self::TcpClose),
+            "TcpListen" => return Some(Self::TcpListen),
+            "TcpAccept" => return Some(Self::TcpAccept),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -776,6 +809,15 @@ impl CorePrimOp {
             Self::FiberGetContext => Some("fiber_get_context"),
             Self::FiberFail => Some("fiber_fail"),
             Self::TaskAwait => Some("task_await"),
+            Self::FiberRunAsync => Some("fiber_run_async"),
+            Self::FiberYieldNow => Some("fiber_yield_now"),
+            Self::FiberSleep => Some("fiber_sleep"),
+            Self::TcpConnect => Some("tcp_connect"),
+            Self::TcpRead => Some("tcp_read"),
+            Self::TcpWriteAll => Some("tcp_write_all"),
+            Self::TcpClose => Some("tcp_close"),
+            Self::TcpListen => Some("tcp_listen"),
+            Self::TcpAccept => Some("tcp_accept"),
             _ => None,
         }
     }
@@ -933,6 +975,15 @@ impl CorePrimOp {
             160 => FiberGetContext,
             161 => FiberFail,
             162 => TaskAwait,
+            163 => FiberRunAsync,
+            164 => FiberYieldNow,
+            165 => FiberSleep,
+            166 => TcpConnect,
+            167 => TcpRead,
+            168 => TcpWriteAll,
+            169 => TcpClose,
+            170 => TcpListen,
+            171 => TcpAccept,
             _ => return None,
         };
         Some(op)
@@ -1066,11 +1117,20 @@ impl CorePrimOp {
             ("fiber_fail", 1, CorePrimOp::FiberFail),
             ("fiber_fork", 1, CorePrimOp::FiberFork),
             ("fiber_get_context", 0, CorePrimOp::FiberGetContext),
+            ("fiber_run_async", 1, CorePrimOp::FiberRunAsync),
+            ("fiber_sleep", 1, CorePrimOp::FiberSleep),
             ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
+            ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
             ("task_spawn", 1, CorePrimOp::TaskSpawn),
+            ("tcp_accept", 1, CorePrimOp::TcpAccept),
+            ("tcp_close", 1, CorePrimOp::TcpClose),
+            ("tcp_connect", 2, CorePrimOp::TcpConnect),
+            ("tcp_listen", 2, CorePrimOp::TcpListen),
+            ("tcp_read", 2, CorePrimOp::TcpRead),
+            ("tcp_write_all", 2, CorePrimOp::TcpWriteAll),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
             ("trim", 1, CorePrimOp::Trim),
@@ -1090,20 +1150,22 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time | FiberGetContext => 0,
+            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow => 0,
             Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
             | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
-            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait => 1,
+            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait
+            | FiberRunAsync | FiberSleep | TcpClose | TcpAccept => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
-            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr => 2,
+            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr
+            | TcpConnect | TcpListen | TcpRead | TcpWriteAll => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.

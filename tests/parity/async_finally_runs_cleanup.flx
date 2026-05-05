@@ -1,0 +1,18 @@
+// parity: vm
+// expect: success
+// bug: finally(body, cleanup) must run cleanup after body and return body's result.
+//      VM: sequential; body runs, then cleanup runs, then result is returned.
+
+import Flow.Async exposing (..)
+
+fn body() -> Int { 42 }
+fn cleanup() -> Unit with Async { yield_now() }
+
+fn run() -> Int with Async {
+    finally(body, cleanup)
+}
+
+fn main() with IO {
+    let v = run_async(run)
+    print(v)
+}

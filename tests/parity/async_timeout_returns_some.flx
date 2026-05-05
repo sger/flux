@@ -1,0 +1,20 @@
+// parity: vm
+// expect: success
+// bug: timeout(ms, f) must return Some(f()) on the VM path; the deadline
+//      is ignored because there is no real scheduler yet.
+
+import Flow.Async exposing (..)
+
+fn inner() -> Int with Async { 7 }
+
+fn body() -> Option<Int> with Async {
+    timeout(100, inner)
+}
+
+fn main() with IO {
+    let opt = run_async(body)
+    match opt {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+}

@@ -1,0 +1,49 @@
+// Flow.Tcp smoke tests (proposal 0174 Phase 1b-vii).
+// Verifies that the TCP primops type-check and that single-threaded
+// operations (listen + close) work on the VM path.
+//
+// Full round-trip tests (connect + accept + echo) require real OS-thread
+// concurrency because the VM path is single-threaded (Task.spawn is
+// sequential). Those tests will run on the native backend.
+
+import Flow.Tcp exposing (..)
+import Flow.Async exposing (..)
+
+// ── Test: listen binds a port without error ────────────────────────────────
+
+fn body_listen_47100() with Async {
+    listen("127.0.0.1", 47100)
+}
+
+fn test_listen_returns_handle() {
+    let _listener = run_async(body_listen_47100)
+    // If we reach here, listen() succeeded without panicking.
+    assert_true(true)
+}
+
+// ── Test: listen on the same port twice raises an error ────────────────────
+
+fn body_listen_47100_second() with Async {
+    listen("127.0.0.1", 47100)
+}
+
+fn test_listen_duplicate_port_fails() {
+    // The first listen is still live (handle not closed), so binding again
+    // should fail. The VM path propagates this as a runtime error.
+    assert_throws(fn() {
+        run_async(body_listen_47100_second)
+    })
+}
+
+// ── Test: connect to a closed port raises an error ─────────────────────────
+
+fn body_connect_closed() with Async {
+    let _conn = connect("127.0.0.1", 1)
+    close(_conn)
+}
+
+fn test_connect_closed_port_fails() {
+    assert_throws(fn() {
+        run_async(body_connect_closed)
+    })
+}

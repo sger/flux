@@ -1,0 +1,76 @@
+// Flow.Tcp — TCP client/server primitives (proposal 0174 Phase 1b-vii).
+//
+// All operations carry `with Async` and suspend the calling fiber on the
+// native backend. On the VM sequential path they block the OS thread
+// (same semantics as `sleep` and `Task.blocking_join`).
+//
+// Handle encoding:
+//   `Connection` and `Listener` wrap an opaque integer handle returned by
+//   the runtime. The integer is a slot index into the VM's tcp handle table
+//   (vm_tcp module in core_dispatch.rs) or an OS file descriptor on the
+//   native path. Do not inspect or persist handles across process restarts.
+
+module Flow.Tcp {
+
+    // ── Handle types ──────────────────────────────────────────────────
+
+    /// Opaque handle for an open TCP connection.
+    public data Connection { Connection(Int) }
+
+    /// Opaque handle for a bound TCP listener.
+    public data Listener { Listener(Int) }
+
+    // ── Primop intrinsics ──────────────────────────────────────────────
+
+    intrinsic fn tcp_connect_prim(host: String, port: Int) -> Int = primop TcpConnect
+    intrinsic fn tcp_read_prim(conn_id: Int, max_bytes: Int) -> String = primop TcpRead
+    intrinsic fn tcp_write_all_prim(conn_id: Int, payload: String) -> Unit = primop TcpWriteAll
+    intrinsic fn tcp_close_prim(conn_id: Int) -> Unit = primop TcpClose
+    intrinsic fn tcp_listen_prim(host: String, port: Int) -> Int = primop TcpListen
+    intrinsic fn tcp_accept_prim(listener_id: Int) -> Int = primop TcpAccept
+
+    // ── Public API ────────────────────────────────────────────────────
+
+    /// Connect to `host:port`. Suspends the calling fiber until the
+    /// connection is established or an error is raised.
+    public fn connect(host: String, port: Int) -> Connection with Async {
+        Connection(tcp_connect_prim(host, port))
+    }
+
+    /// Read up to `max` bytes from `conn`. Returns the bytes received as a
+    /// `String`. An empty string signals EOF (remote peer closed the connection).
+    public fn read(conn: Connection, max: Int) -> String with Async {
+        match conn {
+            Connection(h) -> tcp_read_prim(h, max)
+        }
+    }
+
+    /// Write all of `payload` to `conn`. Suspends until the OS has accepted the
+    /// entire buffer.
+    public fn write_all(conn: Connection, payload: String) -> Unit with Async {
+        match conn {
+            Connection(h) -> tcp_write_all_prim(h, payload)
+        }
+    }
+
+    /// Close `conn`. Idempotent: closing an already-closed handle is a no-op.
+    /// Does not carry `with Async` — the close syscall is always synchronous.
+    public fn close(conn: Connection) -> Unit {
+        match conn {
+            Connection(h) -> tcp_close_prim(h)
+        }
+    }
+
+    /// Bind and listen on `host:port`. Returns a `Listener` handle.
+    public fn listen(host: String, port: Int) -> Listener with Async {
+        Listener(tcp_listen_prim(host, port))
+    }
+
+    /// Accept one incoming connection from `listener`. Suspends the calling
+    /// fiber until a client connects.
+    public fn accept(listener: Listener) -> Connection with Async {
+        match listener {
+            Listener(l) -> Connection(tcp_accept_prim(l))
+        }
+    }
+}

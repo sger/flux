@@ -1,0 +1,135 @@
+// Basic smoke tests for Flow.Async (proposal 0174 Phase 1b).
+// Verifies sequential-equivalent semantics on the VM path.
+// Note: inline closures cannot carry `with Async` annotations (parser limit),
+// so async-calling helpers must be named top-level functions.
+import Flow.Async exposing (..)
+
+// ── async bodies passed to run_async ─────────────────────────────────────
+
+fn body_42() -> Int with Async {
+    42
+}
+
+fn body_yield() -> Unit with Async {
+    yield_now()
+}
+
+fn body_sleep() -> Unit with Async {
+    sleep(1)
+}
+
+fn body_scope() -> Int with Async {
+    scope(fn(_s) { 99 })
+}
+
+fn body_yield_child() -> Unit with Async {
+    yield_now()
+}
+
+fn body_fork() -> Unit with Async {
+    scope(fn(s) {
+        fork(s, body_yield_child)
+    })
+}
+
+fn body_both_l() -> Int { 1 }
+fn body_both_r() -> Int with Async { 2 }
+
+fn body_both() -> (Int, Int) with Async {
+    both(body_both_l, body_both_r)
+}
+
+fn body_race_l() -> Int { 10 }
+fn body_race_r() -> Int with Async { 20 }
+
+fn body_race() -> Int with Async {
+    race(body_race_l, body_race_r)
+}
+
+fn body_timeout_inner() -> Int with Async { 7 }
+
+fn body_timeout() -> Option<Int> with Async {
+    timeout(100, body_timeout_inner)
+}
+
+fn finally_body() -> Int { 42 }
+fn finally_cleanup() -> Unit with Async { yield_now() }
+
+fn body_finally() -> Int with Async {
+    finally(finally_body, finally_cleanup)
+}
+
+fn bracket_acquire() -> Int { 10 }
+fn bracket_release_impl(_r: Int) -> Int { 0 }
+fn bracket_body(r: Int) -> Int with Async { r + 5 }
+
+fn body_bracket() -> Int with Async {
+    bracket(bracket_acquire, bracket_release_impl, bracket_body)
+}
+
+fn try_inner() -> Int with Async { 42 }
+
+fn body_try() -> Option<Int> with Async {
+    try_(try_inner)
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────
+
+fn test_run_async_returns_value() {
+    let v = run_async(body_42)
+    assert_eq(v, 42)
+}
+
+fn test_yield_now_is_noop() {
+    run_async(body_yield)
+}
+
+fn test_sleep_completes() {
+    run_async(body_sleep)
+}
+
+fn test_scope_runs_body() {
+    let v = run_async(body_scope)
+    assert_eq(v, 99)
+}
+
+fn test_fork_runs_child() {
+    run_async(body_fork)
+}
+
+fn test_both_returns_pair() {
+    let pair = run_async(body_both)
+    assert_eq(pair.0, 1)
+    assert_eq(pair.1, 2)
+}
+
+fn test_race_returns_first() {
+    let v = run_async(body_race)
+    assert_eq(v, 10)
+}
+
+fn test_timeout_returns_some() {
+    let opt = run_async(body_timeout)
+    match opt {
+        Some(v) -> assert_eq(v, 7),
+        None    -> assert_false(true)
+    }
+}
+
+fn test_finally_runs_cleanup() {
+    let v = run_async(body_finally)
+    assert_eq(v, 42)
+}
+
+fn test_bracket_acquire_release() {
+    let v = run_async(body_bracket)
+    assert_eq(v, 15)
+}
+
+fn test_try_returns_some() {
+    let opt = run_async(body_try)
+    match opt {
+        Some(v) -> assert_eq(v, 42),
+        None    -> assert_false(true)
+    }
+}
