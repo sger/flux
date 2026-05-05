@@ -1031,6 +1031,7 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
     ///
     /// Persists across `set_file_path()` calls so that downstream modules
@@ -1095,6 +1096,19 @@ enum LoweringPreparationMode {
 
 #[cfg(test)]
 mod compiler_test;
+
+fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>) {
+    fn walk(statements: &[Statement], out: &mut HashSet<Identifier>) {
+        for statement in statements {
+            if let Statement::Module { name, body, .. } = statement {
+                out.insert(*name);
+                walk(&body.statements, out);
+            }
+        }
+    }
+
+    walk(&program.statements, out);
+}
 
 impl Compiler {
     fn is_flow_library_file(&self) -> bool {
@@ -1224,6 +1238,7 @@ impl Compiler {
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            current_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
@@ -1352,6 +1367,7 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
+        self.current_member_schemes = hm_final.module_member_schemes.clone();
     }
 
     #[allow(clippy::result_large_err)]
@@ -1366,21 +1382,37 @@ impl Compiler {
         } else {
             Some(&self.class_env)
         };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+        let mut module_member_schemes = self.build_preloaded_hm_member_schemes(program_to_lower);
+        let mut local_modules = HashSet::new();
+        collect_program_module_names(program_to_lower, &mut local_modules);
+        for ((module_name, member_name), scheme) in &self.current_member_schemes {
+            if local_modules.contains(module_name) {
+                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
+            }
+        }
+        for ((module_name, member_name), scheme) in &self.cached_member_schemes {
+            if local_modules.contains(module_name) {
+                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
+            }
+        }
+        let (mut core, def_schemes) =
+            crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program_to_lower,
             &self.hm_expr_types,
             Some(&self.interner),
             Some(&self.type_env),
             None,
             class_env_ref,
+            Some(&module_member_schemes),
         );
 
-        if elaborate_dictionaries && !self.class_env.classes.is_empty() {
+        if elaborate_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-            crate::core::passes::elaborate_dictionaries(
+            crate::core::passes::elaborate_dictionaries_with_def_schemes(
                 &mut core,
                 &self.class_env,
                 &self.type_env,
+                &def_schemes,
                 &self.interner,
                 &mut next_id,
             );
@@ -2688,7 +2720,7 @@ impl Compiler {
 
     fn native_function_arity(scheme: &Scheme) -> usize {
         match &scheme.infer_type {
-            InferType::Fun(params, _, _) => params.len(),
+            InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
             _ => 0,
         }
     }

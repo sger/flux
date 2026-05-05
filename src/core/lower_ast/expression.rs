@@ -160,7 +160,7 @@ impl<'a> super::AstLowerer<'a> {
                 function,
                 arguments,
                 span,
-                ..
+                id,
             } => {
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
@@ -184,7 +184,23 @@ impl<'a> super::AstLowerer<'a> {
                 // If the callee is a function with class constraints in its scheme,
                 // resolve concrete dictionaries and prepend them as arguments.
                 if let Expression::Identifier { name, id, .. } = function.as_ref() {
-                    let dict_args = self.resolve_dict_args_for_call(*name, *id, arguments);
+                    if self.should_insert_source_dict_args_for_identifier(*name) {
+                        let dict_args = self.resolve_dict_args_for_call(*name, *id, arguments);
+                        if !dict_args.is_empty() {
+                            let func = self.lower_expr(function);
+                            let mut all_args = dict_args;
+                            all_args.extend(arguments.iter().map(|a| self.lower_expr(a)));
+                            return CoreExpr::App {
+                                func: Box::new(func),
+                                args: all_args,
+                                span: *span,
+                            };
+                        }
+                    }
+                }
+                if let Expression::MemberAccess { object, member, .. } = function.as_ref() {
+                    let dict_args = self
+                        .resolve_dict_args_for_module_member_call(object, *member, *id, arguments);
                     if !dict_args.is_empty() {
                         let func = self.lower_expr(function);
                         let mut all_args = dict_args;
@@ -196,7 +212,6 @@ impl<'a> super::AstLowerer<'a> {
                         };
                     }
                 }
-
                 let func = self.lower_expr(function);
                 let args: Vec<CoreExpr> = arguments.iter().map(|a| self.lower_expr(a)).collect();
                 CoreExpr::App {

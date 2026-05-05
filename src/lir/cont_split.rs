@@ -248,6 +248,7 @@ fn synthesize_continuation(
         name: qualified_name.clone(),
         id: site.synth_id, // caller replaces with a real id after synthesis
         qualified_name,
+        is_dict_def: false,
         params: vec![site.dst],
         blocks: synth_blocks,
         next_var,
@@ -354,6 +355,7 @@ mod tests {
             name: name.to_string(),
             id: LirFuncId(id),
             qualified_name: name.to_string(),
+            is_dict_def: false,
             params: Vec::new(),
             blocks: Vec::new(),
             next_var: 0,

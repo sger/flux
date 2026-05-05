@@ -421,6 +421,8 @@ pub struct LirFunction {
     /// Module-qualified symbol name for LLVM emission.
     /// E.g. `"Flow_List_sort"`, `"main"`, `"lambda_42"`.
     pub qualified_name: String,
+    /// True for compiler-generated type-class dictionary definitions.
+    pub is_dict_def: bool,
     /// Parameter variables.
     pub params: Vec<LirVar>,
     /// The entry block is always `blocks[0]`.

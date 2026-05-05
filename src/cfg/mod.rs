@@ -101,6 +101,7 @@ fn lower_program_to_ir_impl(
         type_env,
         None,
         class_env,
+        None,
     );
 
     // Dictionary elaboration (Proposal 0145, Step 5b):

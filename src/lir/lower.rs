@@ -951,6 +951,7 @@ impl<'a> FnLower<'a> {
                 name,
                 id,
                 qualified_name,
+                is_dict_def: false,
                 params: Vec::new(),
                 blocks: vec![entry_block],
                 next_var: 0,
@@ -1029,22 +1030,15 @@ impl<'a> FnLower<'a> {
         binder: CoreBinderId,
         name: crate::syntax::Identifier,
     ) -> CoreBinderId {
-        if self.globals_map.is_some() {
-            return binder;
-        }
         let Some(candidates) = self.name_binder_map.get(&name) else {
             return binder;
         };
         if candidates.len() <= 1 {
             return binder;
         }
-        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
-            return binder;
-        };
-        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
         candidates
             .iter()
-            .find(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+            .find(|bid| self.is_same_module_candidate(**bid, name))
             .copied()
             .unwrap_or(binder)
     }
@@ -1053,22 +1047,49 @@ impl<'a> FnLower<'a> {
         let Some(candidates) = self.name_binder_map.get(&name) else {
             return Vec::new();
         };
-        if self.globals_map.is_none() || candidates.len() <= 1 {
+        if candidates.len() <= 1 {
             return candidates.clone();
         }
-        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
-            return candidates.clone();
-        };
-        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
         let mut ordered = candidates.clone();
         if let Some(pos) = ordered
             .iter()
-            .position(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+            .position(|bid| self.is_same_module_candidate(*bid, name))
         {
             let preferred = ordered.remove(pos);
             ordered.insert(0, preferred);
         }
         ordered
+    }
+
+    fn direct_same_module_func_for_name(
+        &self,
+        name: crate::syntax::Identifier,
+    ) -> Option<(LirFuncId, CoreBinderId)> {
+        if self.globals_map.is_some() {
+            return None;
+        }
+        for binder in self.preferred_top_level_binders(name) {
+            if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
+                return Some((func_id, binder));
+            }
+        }
+        None
+    }
+
+    fn is_same_module_candidate(
+        &self,
+        binder: CoreBinderId,
+        name: crate::syntax::Identifier,
+    ) -> bool {
+        let Some(candidate_qname) = self.qualified_names.get(&binder) else {
+            return false;
+        };
+        let expected_name = self.resolve_name(name);
+        let expected_suffix = format!("_{expected_name}");
+        let Some(candidate_module) = candidate_qname.strip_suffix(&expected_suffix) else {
+            return false;
+        };
+        self.func.qualified_name.starts_with(candidate_module)
     }
 
     /// Allocate a fresh LIR variable.
@@ -1360,6 +1381,7 @@ impl<'a> FnLower<'a> {
                             "{}_letrec_group_{}",
                             self.func.qualified_name, synthetic_id.0
                         ),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -1568,6 +1590,7 @@ impl<'a> FnLower<'a> {
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -2099,6 +2122,7 @@ impl<'a> FnLower<'a> {
                             "{}_letrec_group_{}",
                             self.func.qualified_name, synthetic_id.0
                         ),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -2273,6 +2297,7 @@ impl<'a> FnLower<'a> {
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -2968,6 +2993,9 @@ impl<'a> FnLower<'a> {
                     Some(preferred),
                 )
             }
+            CoreExpr::Var { var, .. } if var.binder.is_none() => self
+                .direct_same_module_func_for_name(var.name)
+                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -3196,6 +3224,9 @@ impl<'a> FnLower<'a> {
                     Some(preferred),
                 )
             }
+            AetherExpr::Var { var, .. } if var.binder.is_none() => self
+                .direct_same_module_func_for_name(var.name)
+                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -5066,6 +5097,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
+    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -5132,6 +5164,7 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
         },
     );
+    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
 
     ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
@@ -5939,6 +5972,7 @@ mod tests {
                     name: add,
                     binder: mk_binder(1, add),
                     expr: CoreExpr::lambda(vec![], CoreExpr::Lit(CoreLit::Int(0), span), span),
+                    is_dict_def: false,
                     borrow_signature: None,
                     result_ty: None,
                     is_anonymous: false,
@@ -5950,6 +5984,7 @@ mod tests {
                     name: add,
                     binder: mk_binder(2, add),
                     expr: CoreExpr::Lit(CoreLit::Int(42), span),
+                    is_dict_def: false,
                     borrow_signature: None,
                     result_ty: None,
                     is_anonymous: true,

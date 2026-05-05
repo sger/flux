@@ -185,7 +185,9 @@ impl<'a> InferCtx<'a> {
                 // `class_env`, an explicit bound `<a: Foo>` is ambiguous
                 // because the constraint solver cannot pick which class
                 // the user meant. Fire E456 once per ambiguous bound.
-                self.report_ambiguous_class_constraint(constraint, span);
+                if self.report_ambiguous_class_constraint(constraint, span) {
+                    continue;
+                }
 
                 self.emit_class_constraint(
                     constraint,
@@ -200,9 +202,9 @@ impl<'a> InferCtx<'a> {
     /// Phase 2 helper: scan the class environment for classes sharing
     /// `short_name`. If two or more matches exist, emit E456 with a
     /// hint listing the conflicting owning modules.
-    fn report_ambiguous_class_constraint(&mut self, short_name: Identifier, span: Span) {
+    fn report_ambiguous_class_constraint(&mut self, short_name: Identifier, span: Span) -> bool {
         let Some(class_env) = self.class_env.as_ref() else {
-            return;
+            return false;
         };
         let matches: Vec<_> = class_env
             .classes
@@ -210,7 +212,7 @@ impl<'a> InferCtx<'a> {
             .filter(|def| def.name == short_name)
             .collect();
         if matches.len() < 2 {
-            return;
+            return false;
         }
 
         let display_class = self.interner.resolve(short_name);
@@ -235,6 +237,7 @@ impl<'a> InferCtx<'a> {
              owning module or use `import ... as Alias`."
         ));
         self.errors.push(diagnostic);
+        true
     }
 
     /// Infer and bind function parameters in the current scope.

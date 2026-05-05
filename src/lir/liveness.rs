@@ -375,6 +375,7 @@ mod tests {
             name: "test".to_string(),
             id: LirFuncId(0),
             qualified_name: "test".to_string(),
+            is_dict_def: false,
             params: Vec::new(),
             blocks: Vec::new(),
             next_var: 0,
