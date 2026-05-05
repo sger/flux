@@ -30,6 +30,11 @@ else
   SHARED_FLAGS = -shared -fPIC
 endif
 
+# pthreads must be linked explicitly on Linux (macOS includes it in -lSystem).
+ifeq ($(UNAME_S),Linux)
+  LDFLAGS += -lpthread
+endif
+
 # ── Targets ──────────────────────────────────────────────────────────
 
 .PHONY: all shared clean test

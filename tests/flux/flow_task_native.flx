@@ -1,0 +1,34 @@
+// Flow.Task native backend tests (proposal 0174 D5-b/c).
+//
+// Uses only Int and String payloads because List<T> and tuple equality
+// via assert_eq is not yet supported on the native backend.
+// The VM fixture (flow_task_surface.flx) covers list and tuple payloads.
+
+import Flow.Task as Task
+
+fn test_spawn_join_int_round_trip() {
+    let t = Task.spawn(fn() { 7 * 6 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
+}
+
+fn test_spawn_join_string_round_trip() {
+    let t = Task.spawn(fn() { "hello-task" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "hello-task")
+}
+
+fn test_cancel_before_join_surfaces_error() {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    assert_throws(fn() { Task.blocking_join(t) })
+}
+
+fn test_independent_spawn_join_pairs() {
+    let a = Task.spawn(fn() { 100 });
+    let b = Task.spawn(fn() { 200 });
+    let ra = Task.blocking_join(a);
+    let rb = Task.blocking_join(b);
+    assert_eq(ra, 100);
+    assert_eq(rb, 200)
+}
