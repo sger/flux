@@ -90,6 +90,24 @@ impl FiberScheduler {
         id
     }
 
+    /// Push a pre-existing fiber onto its home worker's ready queue (proposal
+    /// 0174 Phase 1b-vi-b₂.1). Used by the dispatch loop when re-queuing a
+    /// fiber whose body or parked-state has been updated externally.
+    pub fn spawn_existing(&mut self, fiber: Fiber) {
+        let worker_idx = fiber.home_worker.0 as usize;
+        assert!(worker_idx < self.workers.len(), "invalid worker id");
+        self.workers[worker_idx].ready.push(fiber);
+    }
+
+    /// Insert an externally-prepared parked fiber into the suspended map
+    /// (proposal 0174 Phase 1b-vi-b₂.1). Companion to `suspend(fiber, req)`
+    /// for the case where the fiber's `parked` continuation was captured
+    /// outside the scheduler.
+    pub fn insert_suspended(&mut self, worker: WorkerId, request_id: u64, fiber: Fiber) {
+        let idx = worker.0 as usize;
+        self.workers[idx].suspended.insert(request_id, fiber);
+    }
+
     /// Suspend a fiber that was just dequeued from the ready queue.
     ///
     /// Moves the fiber into the suspended map keyed by `request_id` so that

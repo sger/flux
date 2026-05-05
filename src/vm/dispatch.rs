@@ -5,7 +5,6 @@ use crate::{
     runtime::{
         closure::Closure,
         cons_cell::ConsCell,
-        continuation::Continuation,
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
@@ -1416,33 +1415,20 @@ impl VM {
                         closure: arm_closure.clone(),
                     }));
                     self.context.yield_state.op_arg = perform_args.first().cloned();
-                    self.context.yield_state.conts.clear();
 
-                    // Capture the current frame's post-perform continuation.
-                    self.context
-                        .yield_state
-                        .extend(self.capture_continuation_piece(self.sp, 4));
-
-                    // Unwind outer frames up to the matching handler boundary,
-                    // capturing one continuation piece per frame.
-                    while self.frame_index > handler.entry_frame_index {
-                        let return_slot = self.pop_frame_return_slot();
-                        self.reset_sp(return_slot)?;
-                        if self.frame_index > handler.entry_frame_index {
-                            self.context
-                                .yield_state
-                                .extend(self.capture_continuation_piece(self.sp, 0));
-                        }
-                    }
-
+                    // Capture continuation from current frame back to the
+                    // handler boundary. Extracted helper also reused by
+                    // FiberSleep/FiberSuspend with a `vm_fibers` boundary
+                    // (proposal 0174 Phase 1b-vi-b₂.1).
                     let state_marker = handler.state.as_ref().map(|_| handler.marker);
-                    let cont_val = Continuation::compose(
-                        &self.context.yield_state.conts,
+                    let cont_val = self.capture_to_boundary(
+                        handler.entry_frame_index,
+                        handler.entry_sp,
+                        4,
                         inner_handlers,
                         state_marker,
                     )?;
                     self.handler_stack.truncate(handler_pos + 1);
-                    self.reset_sp(handler.entry_sp)?;
                     self.context.yield_state.clear();
 
                     self.push(Value::Closure(arm_closure))?;
