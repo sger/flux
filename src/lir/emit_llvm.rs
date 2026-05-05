@@ -3458,6 +3458,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         // intended behaviour (loud failure, not silent fallback).
         CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
         CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
+        CorePrimOp::FiberTimeout => return "flux_fiber_timeout".to_string(),
     };
 
     // Look up in builtins table for the C name.

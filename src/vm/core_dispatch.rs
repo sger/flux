@@ -185,6 +185,12 @@ mod vm_fibers {
             children: Vec<FiberId>,
             won: bool,
         },
+        /// `Async.timeout`: parent_req is shared between the body fiber's
+        /// completion (delivers `Some(result)`) and a backend timer
+        /// completion (delivers `None`). Whichever fires first wins.
+        Timeout {
+            body_child: FiberId,
+        },
     }
 
     thread_local! {
@@ -392,6 +398,52 @@ mod vm_fibers {
         });
     }
 
+    /// Register a `FiberTimeout` await: parent_req fires when either the
+    /// body child completes (delivers `Some(result)`) or a backend timer
+    /// keyed on `parent_req` fires (delivers `None`).
+    pub fn register_timeout_await(parent_req: u64, body_child: FiberId) {
+        AWAITS.with(|a| {
+            a.borrow_mut()
+                .insert(parent_req, AwaitKind::Timeout { body_child })
+        });
+        AWAITER_INDEX.with(|idx| {
+            idx.borrow_mut()
+                .entry(body_child)
+                .or_default()
+                .push(parent_req);
+        });
+    }
+
+    /// Called by the backend completion pump just before `scheduler.complete`.
+    /// If the request id matches a Timeout await, set the parent's resume
+    /// value to `None` and discard the await metadata so that a later body
+    /// completion is dropped silently.  Returns `true` if this was a
+    /// Timeout-routed completion (caller may still call
+    /// `scheduler.complete` to wake the parent).
+    pub fn try_route_timer_for_timeout(req: u64) -> bool {
+        let kind = AWAITS.with(|a| a.borrow_mut().remove(&req));
+        match kind {
+            Some(AwaitKind::Timeout { body_child }) => {
+                // Drop the body child from the awaiter index so its
+                // mark-done sees no waiter for this parent_req.
+                AWAITER_INDEX.with(|idx| {
+                    let mut idx = idx.borrow_mut();
+                    if let Some(reqs) = idx.get_mut(&body_child) {
+                        reqs.retain(|r| *r != req);
+                    }
+                });
+                set_resume_value(req, Value::None);
+                true
+            }
+            Some(other) => {
+                // Not a Timeout — put it back (we removed-then-checked).
+                AWAITS.with(|a| a.borrow_mut().insert(req, other));
+                false
+            }
+            None => false,
+        }
+    }
+
     /// Register a `FiberRace` await: parent_req fires when any child finishes.
     pub fn register_race_await(parent_req: u64, children: Vec<FiberId>) {
         AWAITER_INDEX.with(|idx| {
@@ -484,6 +536,25 @@ mod vm_fibers {
                         // Should not happen — once won, AWAITS is gone, so
                         // we wouldn't have hit this case.
                         unreachable!("race awaiter saw second completion despite won=true");
+                    }
+                }
+                AwaitKind::Timeout { body_child } => {
+                    if id == body_child {
+                        // Body finished before the timer.  Deliver
+                        // Some(result).  The backend timer is still
+                        // outstanding; if it fires later,
+                        // try_route_timer_for_timeout will see no AWAITS
+                        // entry and `scheduler.complete` will silently
+                        // fail (parent not in suspended map anymore).
+                        let result = take_result(id).expect("just inserted");
+                        completions.push((parent_req, Value::Some(Rc::new(result))));
+                    } else {
+                        // Some other fiber accidentally indexed under this
+                        // await — defensive no-op.
+                        AWAITS.with(|a| {
+                            a.borrow_mut()
+                                .insert(parent_req, AwaitKind::Timeout { body_child })
+                        });
                     }
                 }
             }
@@ -622,6 +693,10 @@ mod vm_fibers {
             // Pump the backend until a completion arrives, then route it.
             loop {
                 if let Some(c) = backend.next_completion() {
+                    // If this completion is the timer half of a
+                    // FiberTimeout await, set the parent's resume value to
+                    // None before waking it.
+                    let _ = try_route_timer_for_timeout(c.request_id.0);
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -1281,6 +1356,38 @@ pub fn execute_core_primop(
             let child_b = vm_fibers::spawn_child_with_body(args[1].clone());
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
+            let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::signal_park(req, cont);
+            Err("__fiber_park__".to_string())
+        }
+
+        // fiber_timeout (proposal 0174 Phase 1b-vi-b₂.2 follow-up): bound
+        // `f` by `ms` ms. Spawns the body fiber, registers a backend timer
+        // keyed on the SAME request id as the parent's await; whichever
+        // fires first delivers the resume value (Some(body_result) or
+        // None). Loser is left to its fate (cancellation is 1b-vi-c).
+        FiberTimeout => {
+            use crate::runtime::r#async::backend::AsyncBackend;
+            let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
+                "fiber_timeout called outside Async.run_async — no boundary set".to_string()
+            })?;
+            let ms = match &args[0] {
+                Value::Integer(n) if *n >= 0 => *n as u64,
+                Value::Integer(_) => {
+                    return Err("fiber_timeout: ms must be non-negative".to_string());
+                }
+                other => return Err(terr("fiber_timeout", "Int", other)),
+            };
+            let body_child = vm_fibers::spawn_child_with_body(args[1].clone());
+            let req = vm_async::alloc_request_id();
+            vm_fibers::register_timeout_await(req.0, body_child);
+            // Register the backend timer keyed on the SAME request id as
+            // the parent's await — when the timer fires, the dispatch
+            // loop's pump observes c.request_id == req, calls
+            // try_route_timer_for_timeout (which sets resume = None),
+            // then scheduler.complete wakes the parent.
+            let backend = vm_async::backend()?;
+            backend.timer_start(req, ms);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
             Err("__fiber_park__".to_string())

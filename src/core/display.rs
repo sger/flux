@@ -595,6 +595,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::TcpAccept => out.push_str("TcpAccept"),
         CorePrimOp::FiberBoth => out.push_str("FiberBoth"),
         CorePrimOp::FiberRace => out.push_str("FiberRace"),
+        CorePrimOp::FiberTimeout => out.push_str("FiberTimeout"),
     }
 }
 
