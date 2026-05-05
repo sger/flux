@@ -631,7 +631,20 @@ pub enum CorePrimOp {
     TaskSpawn = 155,
     TaskBlockingJoin = 156,
     TaskCancel = 157,
-    // ── Next free ID: 158 ─────────────────────────────────────────────
+
+    // ── Fiber / structured concurrency (proposal 0174 Phase 1b) ──────
+    /// Suspend the calling fiber at a `perform Suspend` point and register
+    /// a backend completion. Wired to the scheduler in Slice 1b-vi.
+    FiberSuspend = 158,
+    /// Fork a child fiber on the same worker (no-migration invariant).
+    FiberFork = 159,
+    /// Retrieve the current fiber's `EffectContext` handle.
+    FiberGetContext = 160,
+    /// Raise an `AsyncError` inside the current fiber.
+    FiberFail = 161,
+    /// Fiber-suspending join — suspends instead of blocking the OS thread.
+    TaskAwait = 162,
+    // ── Next free ID: 163 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -676,6 +689,11 @@ impl CorePrimOp {
             "TaskSpawn" => return Some(Self::TaskSpawn),
             "TaskBlockingJoin" => return Some(Self::TaskBlockingJoin),
             "TaskCancel" => return Some(Self::TaskCancel),
+            "FiberSuspend" => return Some(Self::FiberSuspend),
+            "FiberFork" => return Some(Self::FiberFork),
+            "FiberGetContext" => return Some(Self::FiberGetContext),
+            "FiberFail" => return Some(Self::FiberFail),
+            "TaskAwait" => return Some(Self::TaskAwait),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -753,6 +771,11 @@ impl CorePrimOp {
             Self::TaskSpawn => Some("task_spawn"),
             Self::TaskBlockingJoin => Some("task_blocking_join"),
             Self::TaskCancel => Some("task_cancel"),
+            Self::FiberSuspend => Some("fiber_suspend"),
+            Self::FiberFork => Some("fiber_fork"),
+            Self::FiberGetContext => Some("fiber_get_context"),
+            Self::FiberFail => Some("fiber_fail"),
+            Self::TaskAwait => Some("task_await"),
             _ => None,
         }
     }
@@ -905,6 +928,11 @@ impl CorePrimOp {
             155 => TaskSpawn,
             156 => TaskBlockingJoin,
             157 => TaskCancel,
+            158 => FiberSuspend,
+            159 => FiberFork,
+            160 => FiberGetContext,
+            161 => FiberFail,
+            162 => TaskAwait,
             _ => return None,
         };
         Some(op)
@@ -1035,6 +1063,11 @@ impl CorePrimOp {
             ("string_slice_builtin", 3, CorePrimOp::StringSlice),
             ("substring", 3, CorePrimOp::Substring),
             ("sqrt", 1, CorePrimOp::FSqrt),
+            ("fiber_fail", 1, CorePrimOp::FiberFail),
+            ("fiber_fork", 1, CorePrimOp::FiberFork),
+            ("fiber_get_context", 0, CorePrimOp::FiberGetContext),
+            ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
+            ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
             ("task_spawn", 1, CorePrimOp::TaskSpawn),
@@ -1057,14 +1090,14 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time => 0,
+            ClockNow | ReadStdin | Time | FiberGetContext => 0,
             Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
             | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
-            | TaskCancel => 1,
+            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe

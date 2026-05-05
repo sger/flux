@@ -2404,6 +2404,25 @@ impl Compiler {
         self.effect_row_aliases
             .entry(time_sym)
             .or_insert(named(clock_sym));
+
+        // Async alias (Proposal 0174 Phase 1b):
+        //   Async = <Suspend | Fork | GetContext | AsyncFail>
+        let suspend_sym = self.interner.intern(be::SUSPEND);
+        let fork_sym = self.interner.intern(be::FORK);
+        let get_context_sym = self.interner.intern(be::GET_CONTEXT);
+        let async_fail_sym = self.interner.intern(be::ASYNC_FAIL);
+        let async_sym = self.interner.intern(be::ASYNC);
+
+        let async_expansion = add(
+            add(
+                add(named(suspend_sym), named(fork_sym)),
+                named(get_context_sym),
+            ),
+            named(async_fail_sym),
+        );
+        self.effect_row_aliases
+            .entry(async_sym)
+            .or_insert(async_expansion);
     }
 
     pub(in crate::compiler) fn seed_builtin_effect_operations(&mut self) {
@@ -2469,6 +2488,23 @@ impl Compiler {
         // performing this operation. Output goes to stderr via the
         // DebugTrace primop.
         add_op(be::DEBUG, "trace", mono(vec![string()], unit()));
+
+        // Async seam labels (Proposal 0174 Phase 1b).
+        // Registered as phantom labels so the type-checker accepts `with Async`
+        // annotations. Operations are seeded in later slices once the fiber
+        // scheduler implementation lands.
+        // Registering with an empty op set is sufficient for the row alias to
+        // expand correctly and for drift tests to pass.
+        let _ = &add_op; // suppress unused-variable hint if no ops are added below
+        // (The add_op closure registers into effect_ops_registry on first call;
+        //  we touch each label to ensure it appears in the registry even with
+        //  zero operations, matching the phantom-label pattern used by Random/NonDet.)
+        for label in [be::SUSPEND, be::FORK, be::GET_CONTEXT, be::ASYNC_FAIL] {
+            let label_sym = self.interner.intern(label);
+            if !user_declared.contains(&label_sym) {
+                self.effect_ops_registry.entry(label_sym).or_default();
+            }
+        }
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
