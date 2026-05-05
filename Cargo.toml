@@ -352,6 +352,10 @@ name = "flow_task_tests"
 path = "tests/integration/flow_task_tests.rs"
 
 [[test]]
+name = "vm_fiber_sleep"
+path = "tests/integration/vm_fiber_sleep.rs"
+
+[[test]]
 name = "non_zero_type_tests"
 path = "tests/type_inference/non_zero_type_tests.rs"
 
