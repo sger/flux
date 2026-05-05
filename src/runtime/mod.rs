@@ -60,4 +60,41 @@ pub trait RuntimeContext {
     ) -> Option<&'a function_contract::FunctionContract> {
         None
     }
+
+    // ── Fiber-suspend hooks (proposal 0174 Phase 1b-vi-b₂.1) ────────────
+    // Default impls panic; only the VM implementor needs to provide real
+    // bodies. The native (LLVM) backend will get its own implementation in
+    // Phase 1b-vi-d.
+
+    /// Current frame index (for setting the FiberRunAsync boundary).
+    fn current_frame_index(&self) -> usize {
+        unimplemented!("current_frame_index not implemented for this RuntimeContext")
+    }
+
+    /// Current stack pointer (for setting the FiberRunAsync boundary).
+    fn current_sp(&self) -> usize {
+        unimplemented!("current_sp not implemented for this RuntimeContext")
+    }
+
+    /// Capture a delimited continuation from the current frame back to
+    /// `(entry_frame_index, entry_sp)`. Returns a `Value::Continuation`.
+    /// Mirrors the OpPerform capture mechanism with a non-handler boundary.
+    fn capture_to_fiber_boundary(
+        &mut self,
+        _entry_frame_index: usize,
+        _entry_sp: usize,
+    ) -> Result<Value, String> {
+        unimplemented!("capture_to_fiber_boundary not implemented for this RuntimeContext")
+    }
+
+    /// Resume a captured continuation outside any `OpPerform` context. Drives
+    /// the inner interpreter loop until the captured frames return; the final
+    /// value of the resumed body is returned.
+    fn resume_from_dispatch(
+        &mut self,
+        _cont: Value,
+        _resume_val: Value,
+    ) -> Result<Value, String> {
+        unimplemented!("resume_from_dispatch not implemented for this RuntimeContext")
+    }
 }
