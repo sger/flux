@@ -1,11 +1,13 @@
 // parity: vm
 // expect: success
-// bug: race(f, g) must return f's result on the VM sequential path.
-//      g is still evaluated (sequential semantics) but its value is discarded.
+// bug: race(f, g) returns whichever branch finishes first. Phase 1b-vi-b₂.2:
+//      both branches run concurrently via the fiber scheduler. With both
+//      branches returning immediately (no sleep), the dispatch loop's FIFO
+//      ordering means f's child is popped first, so f's result wins.
 
 import Flow.Async exposing (..)
 
-fn first() -> Int { 10 }
+fn first() -> Int with Async { 10 }
 fn second() -> Int with Async { 20 }
 
 fn body() -> Int with Async {

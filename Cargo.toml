@@ -360,6 +360,10 @@ name = "vm_fiber_registry"
 path = "tests/integration/vm_fiber_registry.rs"
 
 [[test]]
+name = "vm_fiber_overlap"
+path = "tests/integration/vm_fiber_overlap.rs"
+
+[[test]]
 name = "non_zero_type_tests"
 path = "tests/type_inference/non_zero_type_tests.rs"
 
