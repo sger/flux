@@ -17,10 +17,14 @@
 //! (`src/runtime/async/scheduler.rs`) that creates, suspends, and resumes
 //! fibers is populated in Slice 1b-iv.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::runtime::continuation::Continuation;
 use crate::runtime::r#async::context::{CancelScope, EffectContext, WorkerId};
+use crate::runtime::value::Value;
 
 // ── FiberId ───────────────────────────────────────────────────────────────
 
@@ -78,6 +82,16 @@ pub struct Fiber {
     /// Flux continuation value; for now it is typed as `Box<dyn FnOnce() + Send>`
     /// to unblock the data structure definition.
     pub resume: Option<Box<dyn FnOnce() + Send>>,
+
+    /// Body closure to invoke on first dispatch (proposal 0174 Phase 1b-vi-b₂).
+    /// Set when a fresh fiber is spawned via `FiberFork`/`FiberBoth`/`FiberRace`;
+    /// the dispatch loop takes it on first run, leaving `None` thereafter.
+    pub body: Option<Value>,
+
+    /// Captured delimited continuation for a parked fiber (Phase 1b-vi-b₂).
+    /// Populated on `FiberSuspend`/`FiberSleep` park; consumed when the
+    /// dispatch loop resumes the fiber after its completion arrives.
+    pub parked: Option<Rc<RefCell<Continuation>>>,
 }
 
 impl std::fmt::Debug for Fiber {
@@ -100,6 +114,8 @@ impl Fiber {
             context: EffectContext::new(),
             home_worker,
             resume: None,
+            body: None,
+            parked: None,
         }
     }
 

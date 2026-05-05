@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
+use crate::runtime::handler_frame::HandlerFrame;
 use crate::runtime::value::format_value;
 use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
 
@@ -34,6 +35,48 @@ impl VM {
             inner_handlers: vec![],
             state_marker: None,
         })))
+    }
+
+    /// Capture a delimited continuation from the current frame back to the
+    /// boundary defined by `entry_frame_index` / `entry_sp`. Used by both
+    /// `OpPerform` (handler boundary) and `FiberSleep`/`FiberSuspend`
+    /// (proposal 0174 Phase 1b-vi-b₂.1: `Async.run_async` boundary).
+    ///
+    /// Mechanism mirrors the inline loop previously embedded in `OpPerform`:
+    /// snapshot the current frame's post-perform IP via
+    /// `capture_continuation_piece`, then unwind outer frames one-at-a-time,
+    /// capturing one piece per frame, and finally compose them via
+    /// `Continuation::compose`. The VM's stack pointer is reset to
+    /// `entry_sp` on success so the caller can push a fresh result.
+    pub(crate) fn capture_to_boundary(
+        &mut self,
+        entry_frame_index: usize,
+        entry_sp: usize,
+        top_ip_advance: usize,
+        inner_handlers: Vec<HandlerFrame>,
+        state_marker: Option<u32>,
+    ) -> Result<Value, String> {
+        self.context.yield_state.conts.clear();
+        self.context
+            .yield_state
+            .extend(self.capture_continuation_piece(self.sp, top_ip_advance));
+        while self.frame_index > entry_frame_index {
+            let return_slot = self.pop_frame_return_slot();
+            self.reset_sp(return_slot)?;
+            if self.frame_index > entry_frame_index {
+                self.context
+                    .yield_state
+                    .extend(self.capture_continuation_piece(self.sp, 0));
+            }
+        }
+        let cont_val = Continuation::compose(
+            &self.context.yield_state.conts,
+            inner_handlers,
+            state_marker,
+        )?;
+        self.reset_sp(entry_sp)?;
+        self.context.yield_state.conts.clear();
+        Ok(cont_val)
     }
 
     #[inline]
@@ -573,5 +616,52 @@ impl RuntimeContext for VM {
             Value::Closure(closure) => closure.function.contract.as_ref(),
             _ => None,
         }
+    }
+
+    // ── Fiber-suspend hooks (proposal 0174 Phase 1b-vi-b₂.1) ────────────
+
+    fn current_frame_index(&self) -> usize {
+        self.frame_index
+    }
+
+    fn current_sp(&self) -> usize {
+        self.sp
+    }
+
+    fn capture_to_fiber_boundary(
+        &mut self,
+        entry_frame_index: usize,
+        entry_sp: usize,
+    ) -> Result<Value, String> {
+        // No inner handlers between the FiberSleep site and the
+        // FiberRunAsync boundary — we don't track them on the fiber path.
+        // No state marker — fibers don't run a parameterized handler.
+        // top_ip_advance = 0: a primop call has already returned, so the
+        // current frame's IP is past the call site; we resume right where
+        // execution would naturally continue.
+        self.capture_to_boundary(entry_frame_index, entry_sp, 0, vec![], None)
+    }
+
+    fn resume_from_dispatch(
+        &mut self,
+        cont: Value,
+        resume_val: Value,
+    ) -> Result<Value, String> {
+        let entry_frame_index = self.frame_index;
+        // execute_resume pops [cont, resume_val] off the stack and splices
+        // the captured frames back on top.
+        self.push(cont)?;
+        self.push(resume_val)?;
+        self.execute_resume(1, None)?;
+        // Drive the interpreter loop until the captured frames return.
+        // Mirrors invoke_value's tail (lines 564–571) so we get a final
+        // result on the stack top.
+        while self.frame_index > entry_frame_index {
+            if self.current_frame().ip >= self.current_frame().instructions().len() {
+                return Err("resumed continuation exited without return".to_string());
+            }
+            self.execute_current_instruction(Some(entry_frame_index + 1))?;
+        }
+        self.pop()
     }
 }

@@ -165,14 +165,30 @@ mod vm_async {
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
 
+    use crate::runtime::RuntimeContext;
+    use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
-    use crate::runtime::r#async::fiber::FiberId;
+    use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
+    use crate::runtime::value::Value;
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
         static DEPTH: Cell<u32> = const { Cell::new(0) };
         static CURRENT: Cell<Option<FiberId>> = const { Cell::new(None) };
+        // (frame_index, sp) recorded at the outermost FiberRunAsync entry —
+        // the boundary that FiberSleep captures continuations down to
+        // (proposal 0174 Phase 1b-vi-b₂.1).
+        static BOUNDARY: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
+        // Park request signalled by FiberSleep / FiberSuspend.  The dispatch
+        // loop reads-and-clears this after each fiber tick to learn whether
+        // the fiber suspended or finished.  Stores (request_id, captured cont
+        // as a Value::Continuation).
+        static PENDING_PARK: RefCell<Option<(u64, Value)>> = const { RefCell::new(None) };
+        // Root fiber id for the current FiberRunAsync boundary; the dispatch
+        // loop uses this to recognise root-fiber completion and propagate the
+        // result.  None when no run_async is active.
+        static ROOT: Cell<Option<FiberId>> = const { Cell::new(None) };
     }
 
     /// Enter an `Async.run_async` boundary: lazy-init the scheduler on the
@@ -252,6 +268,170 @@ mod vm_fibers {
         let prev = CURRENT.with(|c| c.replace(Some(id)));
         let _g = Guard(prev);
         f()
+    }
+
+    // ── Phase 1b-vi-b₂.1: park/resume + dispatch loop ───────────────────────
+
+    /// Set the FiberRunAsync boundary, returning the previous value so the
+    /// caller can restore it on exit (supports nested run_async).
+    pub fn set_boundary(frame_index: usize, sp: usize) -> Option<(usize, usize)> {
+        BOUNDARY.with(|b| b.replace(Some((frame_index, sp))))
+    }
+
+    pub fn restore_boundary(prev: Option<(usize, usize)>) {
+        BOUNDARY.with(|b| b.set(prev));
+    }
+
+    pub fn boundary() -> Option<(usize, usize)> {
+        BOUNDARY.with(|b| b.get())
+    }
+
+    /// FiberSleep / FiberSuspend signal that the current fiber has captured
+    /// its continuation and parked on `req`.  The dispatch loop will see
+    /// this on the next tick boundary.
+    pub fn signal_park(req: RequestId, cont: Value) {
+        PENDING_PARK.with(|p| *p.borrow_mut() = Some((req.0, cont)));
+    }
+
+    pub fn take_park() -> Option<(u64, Value)> {
+        PENDING_PARK.with(|p| p.borrow_mut().take())
+    }
+
+    /// Mark `id` as the root fiber for the current run_async boundary, and
+    /// stash the body closure on the matching ready-queue Fiber so the
+    /// dispatch loop knows to invoke it on first dispatch.
+    pub fn set_root_with_body(id: FiberId, body: Value) {
+        ROOT.with(|r| r.set(Some(id)));
+        SCHED.with(|s| {
+            if let Some(sched) = s.borrow_mut().as_mut() {
+                // Rebuild the worker 0 ready queue with the body attached
+                // to the matching fiber.  The b₁ enter_run_async pushed the
+                // root fiber on; we drain, modify, re-push in order.
+                let mut buf: Vec<Fiber> = Vec::new();
+                while let Some(f) = sched.next_ready(WorkerId(0)) {
+                    buf.push(f);
+                }
+                for mut f in buf {
+                    if f.id == id {
+                        f.body = Some(body.clone());
+                    }
+                    sched.spawn_existing(f);
+                }
+            }
+        });
+    }
+
+    pub fn root() -> Option<FiberId> {
+        ROOT.with(|r| r.get())
+    }
+
+    pub fn clear_root() {
+        ROOT.with(|r| r.set(None));
+    }
+
+    /// Drive the FiberRunAsync dispatch loop until all fibers are done or
+    /// the root fiber returns a value.  Invokes fiber bodies and resumes
+    /// parked fibers via the supplied `ctx`; pumps the mio backend when no
+    /// fiber is ready.
+    pub fn dispatch_loop(
+        ctx: &mut dyn RuntimeContext,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) -> Result<Value, String> {
+        let root_id = root().expect("dispatch_loop called outside FiberRunAsync");
+        let mut root_result: Option<Value> = None;
+
+        loop {
+            // Drain ready queue.
+            loop {
+                let next = SCHED.with(|s| {
+                    s.borrow_mut()
+                        .as_mut()
+                        .expect("scheduler missing in dispatch_loop")
+                        .next_ready(WorkerId(0))
+                });
+                let Some(mut fiber) = next else { break };
+
+                // Skip fibers with no work (b₁ FiberFork pushes a fiber but
+                // also runs its body inline; the fiber on the ready queue is
+                // a bookkeeping artifact with no body and no parked cont).
+                if fiber.body.is_none() && fiber.parked.is_none() {
+                    continue;
+                }
+
+                let fiber_id = fiber.id;
+                let outcome = with_current(fiber_id, || {
+                    if let Some(cont) = fiber.parked.take() {
+                        ctx.resume_from_dispatch(Value::Continuation(cont), Value::None)
+                    } else if let Some(body) = fiber.body.take() {
+                        ctx.invoke_value(body, vec![])
+                    } else {
+                        unreachable!("checked above")
+                    }
+                });
+
+                // Did the fiber park during this tick?  FiberSleep/FiberSuspend
+                // capture+unwind+set PENDING_PARK, then return Err so the
+                // outcome we observe here is Err with the park signal staged.
+                if let Some((req, cont_val)) = take_park() {
+                    let cont_rc = match cont_val {
+                        Value::Continuation(rc) => rc,
+                        _ => return Err(
+                            "dispatch_loop: PENDING_PARK contained non-Continuation value".into(),
+                        ),
+                    };
+                    fiber.parked = Some(cont_rc);
+                    fiber.state = FiberState::Suspended { request_id: req };
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .insert_suspended(WorkerId(0), req, fiber);
+                    });
+                    // The Err that surfaced was the park-unwind signal, not
+                    // a real error; ignore it.
+                    let _ = outcome;
+                    continue;
+                }
+
+                // No park: outcome is the fiber's actual result or a real error.
+                match outcome {
+                    Ok(v) => {
+                        if fiber_id == root_id {
+                            root_result = Some(v);
+                        }
+                        // Fiber done; drop it (state transitions implicit).
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            // No more ready fibers.  If nothing is suspended either, we're done.
+            let suspended = SCHED.with(|s| {
+                s.borrow()
+                    .as_ref()
+                    .map(|sched| sched.suspended_count(WorkerId(0)))
+                    .unwrap_or(0)
+            });
+            if suspended == 0 {
+                break;
+            }
+
+            // Pump the backend until a completion arrives, then route it.
+            loop {
+                if let Some(c) = backend.next_completion() {
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .complete(WorkerId(0), c.request_id);
+                    });
+                    break;
+                }
+                std::thread::park_timeout(std::time::Duration::from_millis(1));
+            }
+        }
+
+        Ok(root_result.unwrap_or(Value::None))
     }
 }
 
@@ -789,15 +969,23 @@ pub fn execute_core_primop(
         // TaskSpawn). No OS-thread yields or stack-switching happen here.
         // Real M:N fiber switching lives in the native backend (Phase 1b-vi+).
 
-        // run_async: install the Async boundary and run the action. On the VM
-        // path execution is still synchronous; b₁ adds real `FiberScheduler`
-        // bookkeeping (root fiber registered, current-fiber tracked) so b₂
-        // can replace the inline call with a real park/resume cycle without
-        // having to also wire scheduling state.
+        // run_async: install the Async boundary and drive the dispatch loop
+        // (proposal 0174 Phase 1b-vi-b₂.1). The root fiber's body is the
+        // `action` closure; FiberSleep parks the current fiber on a backend
+        // request, the loop pumps completions and resumes parked fibers.
+        // Behaviour is observably identical to b₁ for single-fiber programs;
+        // multi-fiber overlap arrives in 1b-vi-b₂.2.
         FiberRunAsync => {
+            let backend = vm_async::backend()?;
             let root = vm_fibers::enter_run_async();
-            let result =
-                vm_fibers::with_current(root, || ctx.invoke_value(args[0].clone(), vec![]));
+            let prev_boundary =
+                vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
+            vm_fibers::set_root_with_body(root, args[0].clone());
+
+            let result = vm_fibers::dispatch_loop(ctx, backend);
+
+            vm_fibers::clear_root();
+            vm_fibers::restore_boundary(prev_boundary);
             vm_fibers::exit_run_async(root);
             result
         }
@@ -805,35 +993,45 @@ pub fn execute_core_primop(
         // yield_now: cooperative yield point. No-op on the VM sequential path.
         FiberYieldNow => Ok(Value::None),
 
-        // sleep: route through the mio reactor instead of std::thread::sleep
-        // (proposal 0174 Phase 1b-vi-a). Registers a one-shot timer with the
-        // backend, then pumps `next_completion()` until the matching
-        // `request_id` arrives. With one fiber the OS-thread call stack is
-        // the continuation, so blocking-pump *is* the entire suspend; real
-        // ready-queue scheduling for multi-fiber suspend lands in 1b-vi-b.
+        // sleep: capture the current fiber's continuation back to the
+        // FiberRunAsync boundary, register a timer with the mio backend,
+        // signal park-pending, then return Err to bail out to the dispatch
+        // loop (proposal 0174 Phase 1b-vi-b₂.1). The dispatch loop reads
+        // PENDING_PARK, moves the fiber into the suspended map, and resumes
+        // it when the backend's completion arrives. Single-fiber timing is
+        // unchanged from 1b-vi-a; multi-fiber overlap lands in b₂.2.
         FiberSleep => match &args[0] {
             Value::Integer(ms) if *ms >= 0 => {
                 use crate::runtime::r#async::backend::AsyncBackend;
                 let backend = vm_async::backend()?;
                 let req = vm_async::alloc_request_id();
                 backend.timer_start(req, *ms as u64);
-                loop {
-                    if let Some(c) = backend.next_completion() {
-                        if c.request_id == req {
-                            break;
+                if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    // Inside Async.run_async: capture continuation, signal
+                    // park; dispatch loop resumes us when timer fires.
+                    let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    vm_fibers::signal_park(req, cont);
+                    Err("__fiber_park__".to_string())
+                } else {
+                    // No boundary (e.g. `main() with Async` is the host
+                    // handler). Fall back to blocking pump — same shape as
+                    // 1b-vi-a. The OS-thread call stack is the continuation.
+                    loop {
+                        if let Some(c) = backend.next_completion() {
+                            if c.request_id == req {
+                                break;
+                            }
+                            return Err(format!(
+                                "fiber_sleep: unexpected completion {:?}",
+                                c.request_id
+                            ));
                         }
-                        // 1b-vi-a never enqueues other requests on this thread,
-                        // so any non-matching completion is a bug — surface it.
-                        return Err(format!(
-                            "fiber_sleep: unexpected completion {:?}",
-                            c.request_id
-                        ));
+                        std::thread::park_timeout(std::time::Duration::from_millis(1));
                     }
-                    std::thread::park_timeout(std::time::Duration::from_millis(1));
+                    Ok(Value::None)
                 }
-                Ok(Value::None)
             }
-            Value::Integer(_) => Err(format!("fiber_sleep: ms must be non-negative")),
+            Value::Integer(_) => Err("fiber_sleep: ms must be non-negative".to_string()),
             other => Err(terr("fiber_sleep", "Int", other)),
         },
 
