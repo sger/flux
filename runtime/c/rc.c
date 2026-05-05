@@ -61,6 +61,11 @@
 #include <string.h>
 #include <stdio.h>
 
+/* Set to 1 in task worker threads (tasks.c) to force malloc-only allocation,
+ * bypassing the non-thread-safe bump arena.  The main thread always leaves
+ * this at 0 and retains full bump-arena speed. */
+__thread int flux_worker_thread = 0;
+
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -142,8 +147,8 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     FluxHeader *hdr;
     char *new_ptr = flux_arena_hp + total;
 
-    if (arena_base && new_ptr <= flux_arena_limit) {
-        /* Fast path: bump allocation from the arena. */
+    if (!flux_worker_thread && arena_base && new_ptr <= flux_arena_limit) {
+        /* Fast path: bump allocation from the arena (main thread only). */
         hdr = (FluxHeader *)flux_arena_hp;
         flux_arena_hp = new_ptr;
     } else {
