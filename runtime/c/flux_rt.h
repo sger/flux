@@ -195,6 +195,19 @@ int64_t flux_fiber_fork(int64_t body_closure);
 int64_t flux_fiber_get_context(void);
 int64_t flux_fiber_fail(int64_t error_value);
 int64_t flux_task_await(int64_t task);
+/* Entry-point / scheduling (Phase 1b-vi sequential semantics). */
+int64_t flux_fiber_run_async(int64_t closure);
+int64_t flux_fiber_yield_now(void);
+int64_t flux_fiber_sleep(int64_t ms);
+
+/* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
+/* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
+int64_t flux_tcp_connect(int64_t host_val, int64_t host_len_ignored, int64_t port_val);
+int64_t flux_tcp_read(int64_t handle_val, int64_t buf_ptr_ignored, int64_t max_val);
+int64_t flux_tcp_write_all(int64_t handle_val, int64_t data_val, int64_t data_len_ignored);
+int64_t flux_tcp_close(int64_t handle_val);
+int64_t flux_tcp_listen(int64_t host_val, int64_t host_len_ignored, int64_t port_val);
+int64_t flux_tcp_accept(int64_t listener_val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);

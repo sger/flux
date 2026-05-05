@@ -1,19 +1,20 @@
 // Flow.Async — structured concurrency primitives (proposal 0174 Phase 1b).
 //
-// All functions in this module require the `Async` effect, which expands to
-// `<Suspend | Fork | GetContext | AsyncFail>`. These four seam labels are
-// compiler-seeded in `src/syntax/builtin_effects.rs` and routed to the fiber
-// scheduler in `src/runtime/async/scheduler.rs`.
+// All public functions that carry `with Async` are backed by fiber primops
+// (163–165 in CorePrimOp). On the VM path the primops give sequentially-
+// equivalent semantics: run_async calls the action synchronously, yield_now
+// is a no-op, sleep blocks the OS thread. Real M:N fiber switching on the
+// native backend lands in proposal 0174 Phase 2.
 //
-// **Phase 1b status:** function bodies below call fiber runtime primops that
-// land in Slice 1b-v/vi. Until those primops are wired, calling these
-// functions panics with a "not yet implemented" message. The type surface is
-// fixed — code written against this API requires no changes once the runtime
-// lands.
+// The `Async` effect alias (`<Suspend | Fork | GetContext | AsyncFail>`) is
+// compiler-seeded in `src/compiler/mod.rs` and declared in `lib/Flow/Effects.flx`.
 //
-// The three-effect seam pattern follows OCaml/Eio's design
-// (lib_eio/core/eio__core.ml). `Suspend` / `Fork` / `GetContext` are
-// implementation detail; user code writes `with Async`.
+// Parser note: Flux does not yet support `with <effect>` in a non-final
+// function parameter type (the comma separating parameters is ambiguous with
+// the row separator inside the `with` clause). For functions that take multiple
+// callbacks, only the *last* callback before `) ->` may carry `with Async`.
+// Callers pass named `with Async` functions; multi-callback combinators use
+// unannotated parameter types for all but the final argument.
 
 module Flow.Async {
 
@@ -42,105 +43,149 @@ module Flow.Async {
     /// of them.
     public data Scope { Scope(Int) }
 
-    /// Opaque fiber identifier. Used internally by the setup-closure
-    /// pattern to route completions back to the correct suspended fiber.
+    /// Opaque fiber identifier.
     public data FiberId { FiberId(Int) }
 
-    /// Handle returned by an async operation registration, used by the
-    /// scheduler to cancel the operation if the enclosing scope is
-    /// cancelled before the operation completes.
+    /// Handle returned by an async operation registration.
     public data CancelHandle { CancelHandle(Int) }
+
+    // ── Fiber primop intrinsics ───────────────────────────────────────
+
+    /// Entry point: run `action` under the fiber scheduler.
+    /// VM: synchronous call. Native: installs Async effect handler.
+    intrinsic fn fiber_run_async<a>(action: () -> a with Async) -> a = primop FiberRunAsync
+
+    /// Cooperative yield. VM: no-op. Native: reschedules current fiber.
+    intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
+
+    /// Wall-clock sleep for `ms` milliseconds.
+    /// VM: blocks OS thread. Native: suspends fiber, wakes on timer.
+    intrinsic fn fiber_sleep_prim(ms: Int) -> Unit = primop FiberSleep
+
+    /// Raise an `AsyncError` in the current fiber.
+    intrinsic fn fiber_fail_prim<a>(err: AsyncError) -> a = primop FiberFail
+
+    // ── Internal helpers ──────────────────────────────────────────────
+
+    // Separates the two type variables for `both` so the type checker can
+    // unify them independently without a rigid-type-variable escape.
+    fn both_pair<a, b>(left: a, right: b) -> (a, b) {
+        (left, right)
+    }
 
     // ── Entry point ───────────────────────────────────────────────────
 
-    /// Run an async computation on the fiber scheduler. This is the
-    /// boundary that installs the `Async` effect handler. Blocks the
-    /// calling OS thread until the root fiber completes.
-    ///
-    /// Typical top-level usage:
-    ///   fn main() { Async.run_async(fn() { ... }) }
+    /// Run an async computation. This is the boundary that installs the
+    /// `Async` effect handler. Blocks the calling OS thread until the
+    /// root fiber completes.
     public fn run_async<a>(action: () -> a with Async) -> a {
-        // Phase 1b-vi: replaced with fiber_run_async primop.
-        panic("Async.run_async: fiber scheduler not yet wired (proposal 0174 Phase 1b-vi)")
+        fiber_run_async(action)
     }
 
     // ── Structured concurrency ────────────────────────────────────────
 
-    /// Establish a cancellation boundary. Forked child fibers that are
-    /// still running when `f` returns are cancelled and joined before
-    /// `scope` returns.
+    /// Establish a cancellation boundary.
+    ///
+    /// VM: runs `f` synchronously with a dummy scope handle.
     public fn scope<a>(f: (Scope) -> a with Async) -> a with Async {
-        panic("Async.scope: not yet implemented (proposal 0174 Phase 1b-vi)")
+        f(Scope(0))
     }
 
-    /// Fork a child fiber attached to `s`. The child runs concurrently
-    /// with the caller; its result is discarded (use `both` or channels
-    /// for result collection). The child is cancelled when `s` is
-    /// cancelled or when the enclosing `scope` block exits.
+    /// Fork a child fiber attached to `s`.
+    ///
+    /// VM: runs the body immediately (sequential semantics).
     public fn fork(s: Scope, f: () -> Unit with Async) -> Unit with Async {
-        panic("Async.fork: not yet implemented (proposal 0174 Phase 1b-vi)")
+        match s {
+            Scope(_) -> f()
+        }
     }
 
-    /// Run `f` and `g` concurrently; return both results. If either
-    /// raises, the other is cancelled and the error is re-raised.
-    public fn both<a, b>(f: () -> a with Async, g: () -> b with Async) -> (a, b) with Async {
-        panic("Async.both: not yet implemented (proposal 0174 Phase 1b-vi)")
+    /// Run `f` and `g` concurrently; return both results.
+    ///
+    /// VM: runs `f` then `g` sequentially and returns the pair.
+    ///
+    /// Parser limitation (Phase 1b): only the last callback parameter may carry
+    /// `with Async`. Pass named `with Async` functions for both arguments; the
+    /// effect is inferred at the call site.
+    public fn both<a, b>(f: () -> a, g: () -> b with Async) -> (a, b) with Async {
+        both_pair(f(), g())
     }
 
-    /// Run `f` and `g` concurrently; return whichever finishes first and
-    /// cancel the other.
-    public fn race<a>(f: () -> a with Async, g: () -> a with Async) -> a with Async {
-        panic("Async.race: not yet implemented (proposal 0174 Phase 1b-vi)")
+    /// Run `f` and `g` concurrently; return whichever finishes first.
+    ///
+    /// VM: always returns `f`'s result.
+    ///
+    /// Parser limitation (Phase 1b): pass named `with Async` functions for both args.
+    public fn race<a>(f: () -> a, g: () -> a with Async) -> a with Async {
+        let result = f()
+        let _ = g()
+        result
     }
 
-    /// Bound `f` by `ms` milliseconds. Returns `Some(v)` if `f` completes
-    /// in time, `None` if the deadline expires (the fiber is cancelled).
+    /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.
+    ///
+    /// VM: always returns `Some(f())`.
     public fn timeout<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
-        panic("Async.timeout: not yet implemented (proposal 0174 Phase 1b-vi)")
+        let _ = ms
+        Some(f())
     }
 
-    /// Like `timeout` but keeps the error channel: returns `Ok(v)` or
-    /// `Err(AsyncError.TimedOut)`.
+    /// Like `timeout` but preserves the error channel.
+    ///
+    /// VM: always returns `Some(f())`.
     public fn timeout_result<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
-        panic("Async.timeout_result: not yet implemented (proposal 0174 Phase 1b-vi)")
+        let _ = ms
+        Some(f())
     }
 
-    /// Run `body`; always run `cleanup` afterward, even if `body` raises.
-    /// The return value of `cleanup` is discarded.
-    public fn finally<a>(body: () -> a with Async, cleanup: () -> Unit with Async) -> a with Async {
-        panic("Async.finally: not yet implemented (proposal 0174 Phase 1b-vi)")
+    /// Run `body`; always run `cleanup` afterward.
+    ///
+    /// VM: runs `body`, then `cleanup`, returns body's result.
+    ///
+    /// Parser limitation (Phase 1b): `cleanup` may carry `with Async`; `body` is unannotated.
+    public fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async {
+        let result = body()
+        let _ = cleanup()
+        result
     }
 
-    /// Acquire a resource, run `body`, then always call `release` —
-    /// even if `body` raises or the scope is cancelled.
-    public fn bracket<r, a>(
-        acquire: () -> r with Async,
-        release: (r) -> Unit with Async,
-        body: (r) -> a with Async
-    ) -> a with Async {
-        panic("Async.bracket: not yet implemented (proposal 0174 Phase 1b-vi)")
+    /// Acquire a resource, run `body`, then always call `release`.
+    ///
+    /// VM: acquire → body → release, sequentially.
+    ///
+    /// Parser limitation (Phase 1b): only `body` may carry `with Async`.
+    public fn bracket<r, c, a>(acquire: () -> r, release: (r) -> c, body: (r) -> a with Async) -> a with Async {
+        let resource = acquire()
+        let result = body(resource)
+        let _ = release(resource)
+        result
     }
 
-    /// Catch `AsyncError` raised inside `body` and return it as `Err`.
+    /// Catch errors in `body` and return as `None`.
+    ///
+    /// VM: returns `Some(body())`.
     public fn try_<a>(body: () -> a with Async) -> Option<a> with Async {
-        panic("Async.try_: not yet implemented (proposal 0174 Phase 1b-vi)")
+        Some(body())
     }
 
     /// Raise an `AsyncError` inside the current fiber.
     public fn fail<a>(err: AsyncError) -> a with Async {
-        panic("Async.fail: not yet implemented (proposal 0174 Phase 1b-vi)")
+        fiber_fail_prim(err)
     }
 
     // ── Scheduling primitives ─────────────────────────────────────────
 
-    /// Yield the current fiber to the scheduler, allowing other ready
-    /// fibers to run before this one resumes.
-    public fn yield_now() with Async {
-        panic("Async.yield_now: not yet implemented (proposal 0174 Phase 1b-vi)")
+    /// Yield the current fiber to the scheduler.
+    ///
+    /// VM: no-op.
+    public fn yield_now() -> Unit with Async {
+        fiber_yield_now_prim()
     }
 
     /// Suspend the current fiber for at least `ms` milliseconds.
-    public fn sleep(ms: Int) with Async {
-        panic("Async.sleep: not yet implemented (proposal 0174 Phase 1b-vi)")
+    ///
+    /// VM: blocks the calling OS thread.
+    public fn sleep(ms: Int) -> Unit with Async {
+        fiber_sleep_prim(ms)
     }
 }

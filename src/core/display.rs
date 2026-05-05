@@ -584,6 +584,15 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FiberGetContext => out.push_str("FiberGetContext"),
         CorePrimOp::FiberFail => out.push_str("FiberFail"),
         CorePrimOp::TaskAwait => out.push_str("TaskAwait"),
+        CorePrimOp::FiberRunAsync => out.push_str("FiberRunAsync"),
+        CorePrimOp::FiberYieldNow => out.push_str("FiberYieldNow"),
+        CorePrimOp::FiberSleep => out.push_str("FiberSleep"),
+        CorePrimOp::TcpConnect => out.push_str("TcpConnect"),
+        CorePrimOp::TcpRead => out.push_str("TcpRead"),
+        CorePrimOp::TcpWriteAll => out.push_str("TcpWriteAll"),
+        CorePrimOp::TcpClose => out.push_str("TcpClose"),
+        CorePrimOp::TcpListen => out.push_str("TcpListen"),
+        CorePrimOp::TcpAccept => out.push_str("TcpAccept"),
     }
 }
 

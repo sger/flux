@@ -1,0 +1,20 @@
+// parity: vm
+// expect: success
+// bug: both(f, g) must run f then g and return (f_result, g_result).
+//      VM: sequential execution; both results must be independently computed.
+//      The both_pair helper avoids a rigid type variable escape during HM inference.
+
+import Flow.Async exposing (..)
+
+fn left() -> Int { 3 }
+fn right() -> Int with Async { 4 }
+
+fn body() -> (Int, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    print(pair.0)
+    print(pair.1)
+}

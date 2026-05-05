@@ -591,7 +591,16 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberFork
         | CorePrimOp::FiberGetContext
         | CorePrimOp::FiberFail
-        | CorePrimOp::TaskAwait => false,
+        | CorePrimOp::TaskAwait
+        | CorePrimOp::FiberRunAsync
+        | CorePrimOp::FiberYieldNow
+        | CorePrimOp::FiberSleep
+        | CorePrimOp::TcpConnect
+        | CorePrimOp::TcpRead
+        | CorePrimOp::TcpWriteAll
+        | CorePrimOp::TcpClose
+        | CorePrimOp::TcpListen
+        | CorePrimOp::TcpAccept => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

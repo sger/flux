@@ -29,6 +29,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 /* ── POSIX implementation (macOS + Linux) ──────────────────────────── */
 #if !defined(_WIN32) && !defined(_MSC_VER)
@@ -272,5 +273,29 @@ int64_t flux_fiber_fail(int64_t error_value) {
 int64_t flux_task_await(int64_t task) {
     (void)task;
     flux_fiber_unimplemented("flux_task_await");
+    return FLUX_NONE;
+}
+
+/* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── *
+ * These three primops have sequential-equivalent semantics on the native     *
+ * path until the real M:N scheduler bridge lands in Phase 2.                */
+
+int64_t flux_fiber_run_async(int64_t closure) {
+    /* On the native path: call the closure directly (no scheduler yet).
+     * Phase 2 will replace this with installing the Async effect handler. */
+    return flux_call_closure_c(closure, NULL, 0);
+}
+
+int64_t flux_fiber_yield_now(void) {
+    /* No-op on the native sequential path. */
+    return FLUX_NONE;
+}
+
+int64_t flux_fiber_sleep(int64_t ms) {
+    /* Block the OS thread for the requested duration. */
+    struct timespec ts;
+    ts.tv_sec  = (time_t)(ms / 1000);
+    ts.tv_nsec = (long)((ms % 1000) * 1000000L);
+    nanosleep(&ts, NULL);
     return FLUX_NONE;
 }
