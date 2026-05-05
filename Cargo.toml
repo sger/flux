@@ -356,6 +356,10 @@ name = "vm_fiber_sleep"
 path = "tests/integration/vm_fiber_sleep.rs"
 
 [[test]]
+name = "vm_fiber_registry"
+path = "tests/integration/vm_fiber_registry.rs"
+
+[[test]]
 name = "non_zero_type_tests"
 path = "tests/type_inference/non_zero_type_tests.rs"
 
