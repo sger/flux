@@ -46,6 +46,11 @@ fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     out.insert("Panic", BTreeSet::new());
     // Developer tracing — one operation backed by the DebugTrace primop.
     out.insert("Debug", BTreeSet::from(["trace"]));
+    // Async seam labels (Proposal 0174 Phase 1b) — phantom, no operations yet.
+    out.insert("Suspend", BTreeSet::new());
+    out.insert("Fork", BTreeSet::new());
+    out.insert("GetContext", BTreeSet::new());
+    out.insert("AsyncFail", BTreeSet::new());
     out
 }
 
@@ -56,6 +61,11 @@ fn authoritative_aliases() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     let mut out = BTreeMap::new();
     out.insert("IO", BTreeSet::from(["Console", "FileSystem", "Stdin"]));
     out.insert("Time", BTreeSet::from(["Clock"]));
+    // Async alias (Proposal 0174 Phase 1b).
+    out.insert(
+        "Async",
+        BTreeSet::from(["Suspend", "Fork", "GetContext", "AsyncFail"]),
+    );
     out
 }
 

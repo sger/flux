@@ -232,3 +232,45 @@ int64_t flux_task_cancel(int64_t task) {
 }
 
 #endif /* !_WIN32 */
+
+/* ── Fiber primops (proposal 0174 Phase 1b) ─────────────────────────────── *
+ * These C entry points are called by LLVM-compiled code when user code       *
+ * invokes fiber operations. The scheduler bridge lands in Slice 1b-vi;       *
+ * until then every call aborts with a clear message.                         */
+
+static void flux_fiber_unimplemented(const char *which) {
+    fprintf(stderr,
+        "flux: %s is not yet wired (proposal 0174 Phase 1b-vi).\n"
+        "      Use blocking_join / Task.spawn instead of fiber-suspending APIs.\n",
+        which);
+    abort();
+}
+
+int64_t flux_fiber_suspend(int64_t setup_closure) {
+    (void)setup_closure;
+    flux_fiber_unimplemented("flux_fiber_suspend");
+    return FLUX_NONE;
+}
+
+int64_t flux_fiber_fork(int64_t body_closure) {
+    (void)body_closure;
+    flux_fiber_unimplemented("flux_fiber_fork");
+    return FLUX_NONE;
+}
+
+int64_t flux_fiber_get_context(void) {
+    flux_fiber_unimplemented("flux_fiber_get_context");
+    return FLUX_NONE;
+}
+
+int64_t flux_fiber_fail(int64_t error_value) {
+    (void)error_value;
+    flux_fiber_unimplemented("flux_fiber_fail");
+    return FLUX_NONE;
+}
+
+int64_t flux_task_await(int64_t task) {
+    (void)task;
+    flux_fiber_unimplemented("flux_task_await");
+    return FLUX_NONE;
+}

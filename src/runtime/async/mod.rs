@@ -10,8 +10,10 @@
 pub mod backend;
 pub mod backends;
 pub mod context;
+pub mod fiber;
 pub mod request_registry;
 pub mod runtime_target;
+pub mod scheduler;
 pub mod task_manager;
 pub mod task_scheduler;
 

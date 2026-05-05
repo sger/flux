@@ -585,7 +585,13 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::AssertThrows
         | CorePrimOp::TaskSpawn
         | CorePrimOp::TaskBlockingJoin
-        | CorePrimOp::TaskCancel => false,
+        | CorePrimOp::TaskCancel
+        // Fiber primops (proposal 0174 Phase 1b) — not higher-order promoted
+        | CorePrimOp::FiberSuspend
+        | CorePrimOp::FiberFork
+        | CorePrimOp::FiberGetContext
+        | CorePrimOp::FiberFail
+        | CorePrimOp::TaskAwait => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

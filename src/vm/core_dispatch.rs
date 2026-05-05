@@ -542,6 +542,17 @@ pub fn execute_core_primop(
             other => Err(terr("task_cancel", "Int", other)),
         },
 
+        // ── Fiber / structured concurrency (proposal 0174 Phase 1b) ──
+        // Primops 158–162. The fiber scheduler is wired in Slice 1b-vi;
+        // until then calling these from user code panics at runtime.
+        FiberSuspend | FiberFork | FiberFail | TaskAwait => Err(format!(
+            "CorePrimOp {:?} not yet wired (proposal 0174 Phase 1b-vi)",
+            op
+        )),
+        FiberGetContext => Err(
+            "CorePrimOp FiberGetContext not yet wired (proposal 0174 Phase 1b-vi)".to_string(),
+        ),
+
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
         | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
