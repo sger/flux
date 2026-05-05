@@ -92,6 +92,7 @@ pub fn lower_program_ast_complete(
         type_env,
         effect_op_sigs,
         None,
+        None,
     )
 }
 
@@ -105,9 +106,42 @@ pub fn lower_program_ast_with_class_env(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
+    module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
 ) -> CoreProgram {
-    let mut lowerer = AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env);
+    lower_program_ast_with_class_env_and_def_schemes(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        effect_op_sigs,
+        class_env,
+        module_member_schemes,
+    )
+    .0
+}
+
+pub fn lower_program_ast_with_class_env_and_def_schemes(
+    program: &Program,
+    hm_expr_types: &HashMap<ExprId, InferType>,
+    interner: Option<&crate::syntax::interner::Interner>,
+    type_env: Option<&crate::types::type_env::TypeEnv>,
+    effect_op_sigs: Option<&EffectOpSigs>,
+    class_env: Option<&crate::types::class_env::ClassEnv>,
+    module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
+) -> (
+    CoreProgram,
+    HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
+) {
+    let mut lowerer = AstLowerer::new(
+        hm_expr_types,
+        interner,
+        type_env,
+        effect_op_sigs,
+        class_env,
+        module_member_schemes,
+    );
     lowerer.collect_ctor_field_names(program);
+    lowerer.collect_local_function_names(program);
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
@@ -122,7 +156,7 @@ pub fn lower_program_ast_with_class_env(
         validate_program_binders(&core),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
-    core
+    (core, lowerer.def_schemes)
 }
 
 // ── Lowerer ───────────────────────────────────────────────────────────────────
@@ -141,6 +175,14 @@ pub(super) struct AstLowerer<'a> {
     pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
     /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
     pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
+    /// Imported module-member schemes keyed by the source qualifier binding.
+    pub(super) module_member_schemes:
+        Option<&'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
+    pub(super) def_schemes:
+        HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
+    pub(super) local_function_names: std::collections::HashSet<Identifier>,
+    pub(super) current_function_name: Option<Identifier>,
+    current_module_name: Option<Identifier>,
     /// Proposal 0152: variant name → declared field names in declaration
     /// order. Used to desugar named-field constructor expressions, spread
     /// expressions, and named-field patterns into positional form.
@@ -159,6 +201,9 @@ impl<'a> AstLowerer<'a> {
         type_env: Option<&'a crate::types::type_env::TypeEnv>,
         effect_op_sigs: Option<&'a EffectOpSigs>,
         class_env: Option<&'a crate::types::class_env::ClassEnv>,
+        module_member_schemes: Option<
+            &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
+        >,
     ) -> Self {
         Self {
             hm_expr_types,
@@ -168,9 +213,95 @@ impl<'a> AstLowerer<'a> {
             type_env,
             effect_op_sigs,
             class_env,
+            module_member_schemes,
+            def_schemes: HashMap::new(),
+            local_function_names: std::collections::HashSet::new(),
+            current_function_name: None,
+            current_module_name: None,
             ctor_field_names: std::collections::HashMap::new(),
             adt_variants: std::collections::HashMap::new(),
         }
+    }
+
+    pub(super) fn should_insert_source_dict_args_for_identifier(
+        &self,
+        name: Identifier,
+    ) -> bool {
+        if !self.local_function_names.contains(&name) {
+            return true;
+        }
+        let Some(current) = self.current_function_name else {
+            return true;
+        };
+        !self
+            .type_env
+            .and_then(|type_env| type_env.lookup(current))
+            .is_some_and(|scheme| !scheme.constraints.is_empty())
+    }
+
+    fn lower_function_body_for_name(
+        &mut self,
+        name: Identifier,
+        intrinsic: Option<CorePrimOp>,
+        params: &[CoreBinder],
+        body: &Block,
+        span: Span,
+    ) -> CoreExpr {
+        let previous = self.current_function_name.replace(name);
+        let body_expr = self.lower_function_body(intrinsic, params, body, span);
+        self.current_function_name = previous;
+        body_expr
+    }
+
+    fn scheme_for_current_function(
+        &self,
+        name: Identifier,
+    ) -> Option<crate::types::scheme::Scheme> {
+        if let Some(module_name) = self.current_module_name
+            && let Some(scheme) = self
+                .module_member_schemes
+                .and_then(|schemes| schemes.get(&(module_name, name)))
+        {
+            return Some(scheme.clone());
+        }
+
+        if let Some(schemes) = self.module_member_schemes {
+            let mut candidates = schemes
+                .iter()
+                .filter_map(|((_, member_name), scheme)| {
+                    (*member_name == name).then_some(scheme.clone())
+                })
+                .take(2)
+                .collect::<Vec<_>>();
+            if candidates.len() == 1 {
+                return candidates.pop();
+            }
+        }
+
+        self.type_env
+            .and_then(|type_env| type_env.lookup(name))
+            .cloned()
+    }
+
+    fn record_def_scheme(&mut self, def: &CoreDef) {
+        if let Some(scheme) = self.scheme_for_current_function(def.name) {
+            self.def_schemes.insert(def.binder.id, scheme);
+        }
+    }
+
+    fn collect_local_function_names(&mut self, program: &Program) {
+        fn walk(stmts: &[Statement], out: &mut std::collections::HashSet<Identifier>) {
+            for stmt in stmts {
+                match stmt {
+                    Statement::Function { name, .. } => {
+                        out.insert(*name);
+                    }
+                    Statement::Module { body, .. } => walk(&body.statements, out),
+                    _ => {}
+                }
+            }
+        }
+        walk(&program.statements, &mut self.local_function_names);
     }
 
     /// Proposal 0152: populate `ctor_field_names` from a program's `data`
@@ -417,13 +548,66 @@ impl<'a> AstLowerer<'a> {
         call_id: ExprId,
         arguments: &[crate::syntax::expression::Expression],
     ) -> Vec<CoreExpr> {
-        let (type_env, class_env, interner) = match (self.type_env, self.class_env, self.interner) {
-            (Some(te), Some(ce), Some(int)) => (te, ce, int),
+        let type_env = match self.type_env {
+            Some(te) => te,
             _ => return Vec::new(),
         };
 
         let scheme = match type_env.lookup(callee_name) {
             Some(s) if !s.constraints.is_empty() => s,
+            _ => return Vec::new(),
+        };
+
+        self.resolve_dict_args_for_scheme(scheme, call_id, arguments)
+    }
+
+    pub(super) fn resolve_dict_args_for_module_member_call(
+        &self,
+        function: &crate::syntax::expression::Expression,
+        member: Identifier,
+        call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let Some(member_schemes) = self.module_member_schemes else {
+            return Vec::new();
+        };
+        let Some(qualifier) = self.module_qualifier_symbol(function) else {
+            return Vec::new();
+        };
+        let Some(scheme) = member_schemes.get(&(qualifier, member)) else {
+            return Vec::new();
+        };
+        if scheme.constraints.is_empty() {
+            return Vec::new();
+        }
+        self.resolve_dict_args_for_scheme(scheme, call_id, arguments)
+    }
+
+    fn module_qualifier_symbol(
+        &self,
+        expr: &crate::syntax::expression::Expression,
+    ) -> Option<Identifier> {
+        match expr {
+            crate::syntax::expression::Expression::Identifier { name, .. } => Some(*name),
+            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
+                let interner = self.interner?;
+                let object = self.module_qualifier_symbol(object)?;
+                let qualified =
+                    format!("{}.{}", interner.resolve(object), interner.resolve(*member));
+                interner.lookup(&qualified)
+            }
+            _ => None,
+        }
+    }
+
+    fn resolve_dict_args_for_scheme(
+        &self,
+        scheme: &crate::types::scheme::Scheme,
+        call_id: ExprId,
+        arguments: &[crate::syntax::expression::Expression],
+    ) -> Vec<CoreExpr> {
+        let (class_env, interner) = match (self.class_env, self.interner) {
+            (Some(ce), Some(int)) => (ce, int),
             _ => return Vec::new(),
         };
 
@@ -470,10 +654,16 @@ impl<'a> AstLowerer<'a> {
             for type_var in &constraint.type_vars {
                 let mut found = None;
                 for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
-                    if let Some(arg) = arguments.get(i - param_offset)
-                        && let Some(arg_ty) = self.hm_expr_types.get(&arg.expr_id())
-                        && let Some(actual) =
+                    let Some(arg) = arguments.get(i - param_offset) else {
+                        continue;
+                    };
+                    let actual_from_type =
+                        self.hm_expr_types.get(&arg.expr_id()).and_then(|arg_ty| {
                             Self::match_constraint_type_var(param_ty, arg_ty, *type_var)
+                        });
+                    if let Some(actual) = actual_from_type.or_else(|| {
+                        self.match_constraint_type_var_from_literal(param_ty, arg, *type_var)
+                    }) && !matches!(actual, InferType::Var(_))
                     {
                         found = Some(actual);
                         break;
@@ -483,15 +673,53 @@ impl<'a> AstLowerer<'a> {
                     && let Some(actual_ret_ty) = call_result_ty
                     && let Some(actual) =
                         Self::match_constraint_type_var(ret_ty, actual_ret_ty, *type_var)
+                    && !matches!(actual, InferType::Var(_))
                 {
                     found = Some(actual);
                 }
-                resolved.push(found?);
+                resolved.push(found.unwrap_or_else(|| {
+                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+                }));
             }
             return Some(resolved);
         }
 
         None
+    }
+
+    fn match_constraint_type_var_from_literal(
+        &self,
+        pattern: &InferType,
+        actual_expr: &crate::syntax::expression::Expression,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        let InferType::App(pattern_ctor, pattern_args) = pattern else {
+            return None;
+        };
+        let [InferType::Var(var)] = pattern_args.as_slice() else {
+            return None;
+        };
+        if *var != target {
+            return None;
+        }
+        match (pattern_ctor, actual_expr) {
+            (
+                crate::types::type_constructor::TypeConstructor::Array,
+                crate::syntax::expression::Expression::ArrayLiteral { elements, .. },
+            )
+            | (
+                crate::types::type_constructor::TypeConstructor::List,
+                crate::syntax::expression::Expression::ListLiteral { elements, .. },
+            ) => elements
+                .first()
+                .and_then(|element| self.hm_expr_types.get(&element.expr_id()).cloned())
+                .or_else(|| {
+                    Some(InferType::Con(
+                        crate::types::type_constructor::TypeConstructor::Int,
+                    ))
+                }),
+            _ => None,
+        }
     }
 
     fn match_constraint_type_var(
@@ -527,6 +755,21 @@ impl<'a> AstLowerer<'a> {
                         Self::match_constraint_type_var(pattern_elem, actual_elem, target)
                     },
                 )
+            }
+            InferType::Fun(pattern_params, pattern_ret, _) => {
+                let InferType::Fun(actual_params, actual_ret, _) = actual else {
+                    return None;
+                };
+                if pattern_params.len() != actual_params.len() {
+                    return None;
+                }
+                pattern_params
+                    .iter()
+                    .zip(actual_params.iter())
+                    .find_map(|(pattern_param, actual_param)| {
+                        Self::match_constraint_type_var(pattern_param, actual_param, target)
+                    })
+                    .or_else(|| Self::match_constraint_type_var(pattern_ret, actual_ret, target))
             }
             // Higher-kinded pattern: `HktApp(head, args)` shapes arise for
             // signatures like `fn f<F, a>(xs: F<a>) where Functor<F>`, where
@@ -741,7 +984,8 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
+                let body_expr =
+                    self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
                 // definitions from value bindings.  We construct Lam directly
@@ -773,6 +1017,7 @@ impl<'a> AstLowerer<'a> {
                 {
                     def.result_ty = Some(annotated_ty);
                 }
+                self.record_def_scheme(&def);
                 out.push(def);
             }
 
@@ -839,8 +1084,10 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Declarations that don't produce runtime values — skip.
-            Statement::Module { body, .. } => {
+            Statement::Module { name, body, .. } => {
+                let previous_module = self.current_module_name.replace(*name);
                 self.lower_module_defs(&body.statements, out);
+                self.current_module_name = previous_module;
             }
 
             Statement::Import { .. }
@@ -879,7 +1126,8 @@ impl<'a> AstLowerer<'a> {
                     if !param_types.is_empty() && param_types.len() != params.len() {
                         param_types = Vec::new();
                     }
-                    let body_expr = self.lower_function_body(*intrinsic, &params, body, *span);
+                    let body_expr =
+                        self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
                     let expr = CoreExpr::Lam {
                         params,
                         param_types,
@@ -887,10 +1135,14 @@ impl<'a> AstLowerer<'a> {
                         body: Box::new(body_expr),
                         span: *span,
                     };
-                    out.push(CoreDef::new(binder, expr, true, *span));
+                    let def = CoreDef::new(binder, expr, true, *span);
+                    self.record_def_scheme(&def);
+                    out.push(def);
                 }
-                Statement::Module { body, .. } => {
+                Statement::Module { name, body, .. } => {
+                    let previous_module = self.current_module_name.replace(*name);
                     self.lower_module_defs(&body.statements, out);
+                    self.current_module_name = previous_module;
                 }
                 _ => {}
             }
@@ -1179,7 +1431,8 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
+                let body_expr =
+                    self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
                 (
                     binder,
                     Box::new(CoreExpr::Lam {
@@ -1243,7 +1496,8 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let body_expr = self.lower_function_body(*intrinsic, &params, body, *s);
+                let body_expr =
+                    self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
                 CoreExpr::LetRec {
                     var: binder,
                     rhs: Box::new(CoreExpr::Lam {

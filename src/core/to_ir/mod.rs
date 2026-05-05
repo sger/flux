@@ -955,6 +955,7 @@ mod tests {
                     }),
                     span: Span::default(),
                 },
+                is_dict_def: false,
                 borrow_signature: None,
                 result_ty: None,
                 is_anonymous: false,

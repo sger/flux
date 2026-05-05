@@ -19,13 +19,13 @@
 ///
 /// Monomorphic call sites (already resolved to `__tc_*` mangled names by
 /// `try_resolve_class_call` during AST-to-Core lowering) are left unchanged.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, FluxRep},
     diagnostics::position::Span,
     syntax::{Identifier, interner::Interner},
-    types::{class_env::ClassEnv, type_env::TypeEnv},
+    types::{class_env::ClassEnv, scheme::Scheme, type_env::TypeEnv},
 };
 
 /// Entry point for dictionary elaboration.
@@ -42,6 +42,36 @@ pub fn elaborate_dictionaries(
     interner: &Interner,
     next_id: &mut u32,
 ) {
+    let def_schemes = program
+        .defs
+        .iter()
+        .filter_map(|def| {
+            type_env
+                .lookup(def.name)
+                .cloned()
+                .map(|scheme| (def.binder.id, scheme))
+        })
+        .collect::<HashMap<_, _>>();
+    elaborate_dictionaries_with_def_schemes(
+        program,
+        class_env,
+        type_env,
+        &def_schemes,
+        interner,
+        next_id,
+    );
+}
+
+pub fn elaborate_dictionaries_with_def_schemes(
+    program: &mut CoreProgram,
+    class_env: &ClassEnv,
+    type_env: &TypeEnv,
+    def_schemes: &HashMap<CoreBinderId, Scheme>,
+    interner: &Interner,
+    next_id: &mut u32,
+) {
+    normalize_all_existing_dict_param_types(program, interner);
+
     if class_env.classes.is_empty() {
         return;
     }
@@ -50,8 +80,8 @@ pub fn elaborate_dictionaries(
     // If not, skip all elaboration (avoids injecting __dict_* defs into
     // programs that don't use polymorphic type class dispatch).
     let has_constrained_fns = program.defs.iter().any(|def| {
-        type_env
-            .lookup(def.name)
+        def_schemes
+            .get(&def.binder.id)
             .is_some_and(|s| !s.constraints.is_empty())
     });
 
@@ -59,19 +89,115 @@ pub fn elaborate_dictionaries(
         return;
     }
 
-    // Phase 2: Build dictionary CoreDefs for each concrete instance.
-    let dict_defs = build_instance_dictionaries(class_env, interner, next_id);
-
     // Phase 3: Rewrite constrained function bodies.
-    rewrite_constrained_functions(program, class_env, type_env, interner, next_id);
+    rewrite_constrained_functions(program, class_env, def_schemes, interner, next_id);
 
     // Phase 4: Insert dictionary arguments at call sites.
-    insert_dict_args_at_call_sites(program, class_env, type_env, interner);
+    insert_dict_args_at_call_sites(program, class_env, type_env, def_schemes, interner);
+
+    let referenced_dicts = collect_referenced_dictionary_names(program, interner);
+    if referenced_dicts.is_empty() {
+        return;
+    }
+
+    // Phase 2: Build only the concrete dictionary CoreDefs this module
+    // actually references. Constrained definitions that only thread incoming
+    // dictionary parameters do not need local copies of every instance dict.
+    let dict_defs = build_instance_dictionaries(class_env, interner, next_id)
+        .into_iter()
+        .filter(|def| referenced_dicts.contains(&def.name))
+        .collect::<Vec<_>>();
+    if dict_defs.is_empty() {
+        return;
+    }
 
     // Prepend dictionary defs so they are available to all subsequent defs.
     let mut new_defs = dict_defs;
     new_defs.append(&mut program.defs);
     program.defs = new_defs;
+}
+
+fn collect_referenced_dictionary_names(
+    program: &CoreProgram,
+    interner: &Interner,
+) -> HashSet<Identifier> {
+    let mut refs = HashSet::new();
+    for def in &program.defs {
+        collect_referenced_dictionary_names_expr(&def.expr, interner, &mut refs);
+    }
+    refs
+}
+
+fn collect_referenced_dictionary_names_expr(
+    expr: &CoreExpr,
+    interner: &Interner,
+    refs: &mut HashSet<Identifier>,
+) {
+    match expr {
+        CoreExpr::Var { var, .. } => {
+            if interner.resolve(var.name).starts_with("__dict_") {
+                refs.insert(var.name);
+            }
+        }
+        CoreExpr::Lit(..) => {}
+        CoreExpr::Lam { body, .. } | CoreExpr::Return { value: body, .. } => {
+            collect_referenced_dictionary_names_expr(body, interner, refs);
+        }
+        CoreExpr::App { func, args, .. } => {
+            collect_referenced_dictionary_names_expr(func, interner, refs);
+            for arg in args {
+                collect_referenced_dictionary_names_expr(arg, interner, refs);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_referenced_dictionary_names_expr(rhs, interner, refs);
+            collect_referenced_dictionary_names_expr(body, interner, refs);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                collect_referenced_dictionary_names_expr(rhs, interner, refs);
+            }
+            collect_referenced_dictionary_names_expr(body, interner, refs);
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_referenced_dictionary_names_expr(scrutinee, interner, refs);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    collect_referenced_dictionary_names_expr(guard, interner, refs);
+                }
+                collect_referenced_dictionary_names_expr(&alt.rhs, interner, refs);
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                collect_referenced_dictionary_names_expr(field, interner, refs);
+            }
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            collect_referenced_dictionary_names_expr(object, interner, refs);
+        }
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                collect_referenced_dictionary_names_expr(arg, interner, refs);
+            }
+        }
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            collect_referenced_dictionary_names_expr(body, interner, refs);
+            if let Some(parameter) = parameter {
+                collect_referenced_dictionary_names_expr(parameter, interner, refs);
+            }
+            for handler in handlers {
+                collect_referenced_dictionary_names_expr(&handler.body, interner, refs);
+            }
+        }
+    }
 }
 
 /// Build a `CoreDef` for each concrete instance in the class environment.
@@ -151,6 +277,7 @@ fn build_instance_dictionaries(
             name: dict_name,
             binder,
             expr: dict_expr,
+            is_dict_def: true,
             borrow_signature: None,
             result_ty: None,
             is_anonymous: false,
@@ -268,12 +395,12 @@ fn build_contextual_dictionary_method_closure(
 fn rewrite_constrained_functions(
     program: &mut CoreProgram,
     class_env: &ClassEnv,
-    type_env: &TypeEnv,
+    def_schemes: &HashMap<CoreBinderId, Scheme>,
     interner: &Interner,
     next_id: &mut u32,
 ) {
     for def in &mut program.defs {
-        let scheme = match type_env.lookup(def.name) {
+        let scheme = match def_schemes.get(&def.binder.id) {
             Some(s) => s,
             None => continue,
         };
@@ -342,7 +469,7 @@ fn rewrite_constrained_functions(
             rewrite_body_with_dicts_with_self(old_expr, &method_map, self_call.as_ref());
 
         if dict_params.is_empty() {
-            def.expr = rewritten;
+            def.expr = normalize_existing_dict_param_types(rewritten, existing_dict_params.len());
         } else {
             // Prepend dictionary params to the function's Lam.
             def.expr = prepend_lam_params(rewritten, dict_params);
@@ -363,17 +490,35 @@ fn insert_dict_args_at_call_sites(
     program: &mut CoreProgram,
     class_env: &ClassEnv,
     type_env: &TypeEnv,
+    def_schemes: &HashMap<CoreBinderId, Scheme>,
     interner: &Interner,
 ) {
     // Build a set of function names that have constraints.
-    let constrained_fns: HashMap<
+    let constrained_fns_by_binder: HashMap<
+        CoreBinderId,
+        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
+    > = program
+        .defs
+        .iter()
+        .filter_map(|def| {
+            let scheme = def_schemes.get(&def.binder.id)?;
+            if scheme.constraints.is_empty() {
+                None
+            } else {
+                Some((def.binder.id, scheme.constraints.clone()))
+            }
+        })
+        .collect();
+    let constrained_fns_by_name: HashMap<
         Identifier,
         Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
     > = program
         .defs
         .iter()
         .filter_map(|def| {
-            let scheme = type_env.lookup(def.name)?;
+            let scheme = def_schemes
+                .get(&def.binder.id)
+                .or_else(|| type_env.lookup(def.name))?;
             if scheme.constraints.is_empty() {
                 None
             } else {
@@ -382,7 +527,7 @@ fn insert_dict_args_at_call_sites(
         })
         .collect();
 
-    if constrained_fns.is_empty() {
+    if constrained_fns_by_binder.is_empty() && constrained_fns_by_name.is_empty() {
         return;
     }
 
@@ -391,7 +536,10 @@ fn insert_dict_args_at_call_sites(
     for def in &mut program.defs {
         // Build the caller's own dict_param map (if it's a constrained function).
         let caller_dicts: HashMap<Identifier, CoreBinder> =
-            if let Some(scheme) = type_env.lookup(def.name) {
+            if let Some(scheme) = def_schemes
+                .get(&def.binder.id)
+                .or_else(|| type_env.lookup(def.name))
+            {
                 build_caller_dict_map(&def.expr, &scheme.constraints)
             } else {
                 HashMap::new()
@@ -403,7 +551,8 @@ fn insert_dict_args_at_call_sites(
         );
         def.expr = insert_dict_args_expr(
             old_expr,
-            &constrained_fns,
+            &constrained_fns_by_binder,
+            &constrained_fns_by_name,
             &caller_dicts,
             class_env,
             interner,
@@ -437,7 +586,11 @@ fn build_caller_dict_map(
 
 fn insert_dict_args_expr(
     expr: CoreExpr,
-    constrained_fns: &HashMap<
+    constrained_fns_by_binder: &HashMap<
+        CoreBinderId,
+        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
+    >,
+    constrained_fns_by_name: &HashMap<
         Identifier,
         Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
     >,
@@ -449,7 +602,10 @@ fn insert_dict_args_expr(
         CoreExpr::App { func, args, span } => {
             // Check if the callee is a constrained function.
             if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(callee_constraints) = constrained_fns.get(&var.name)
+                && let Some(callee_constraints) = var
+                    .binder
+                    .and_then(|binder| constrained_fns_by_binder.get(&binder))
+                    .or_else(|| constrained_fns_by_name.get(&var.name))
             {
                 let already_has_dict_args = args.len() >= callee_constraints.len()
                     && args
@@ -467,12 +623,13 @@ fn insert_dict_args_expr(
                         args: args
                             .into_iter()
                             .map(|a| {
-                                insert_dict_args_expr(
-                                    a,
-                                    constrained_fns,
-                                    caller_dicts,
-                                    class_env,
-                                    interner,
+                                    insert_dict_args_expr(
+                                        a,
+                                        constrained_fns_by_binder,
+                                        constrained_fns_by_name,
+                                        caller_dicts,
+                                        class_env,
+                                        interner,
                                 )
                             })
                             .collect(),
@@ -493,7 +650,14 @@ fn insert_dict_args_expr(
                     // Prepend dict args before the original args.
                     let mut all_args = dict_args;
                     all_args.extend(args.into_iter().map(|a| {
-                        insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                        insert_dict_args_expr(
+                            a,
+                            constrained_fns_by_binder,
+                            constrained_fns_by_name,
+                            caller_dicts,
+                            class_env,
+                            interner,
+                        )
                     }));
                     return CoreExpr::App {
                         func,
@@ -506,7 +670,8 @@ fn insert_dict_args_expr(
             CoreExpr::App {
                 func: Box::new(insert_dict_args_expr(
                     *func,
-                    constrained_fns,
+                    constrained_fns_by_binder,
+                    constrained_fns_by_name,
                     caller_dicts,
                     class_env,
                     interner,
@@ -514,7 +679,14 @@ fn insert_dict_args_expr(
                 args: args
                     .into_iter()
                     .map(|a| {
-                        insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                        insert_dict_args_expr(
+                            a,
+                            constrained_fns_by_binder,
+                            constrained_fns_by_name,
+                            caller_dicts,
+                            class_env,
+                            interner,
+                        )
                     })
                     .collect(),
                 span,
@@ -537,7 +709,8 @@ fn insert_dict_args_expr(
             result_ty,
             body: Box::new(insert_dict_args_expr(
                 *body,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -554,14 +727,16 @@ fn insert_dict_args_expr(
             var,
             rhs: Box::new(insert_dict_args_expr(
                 *rhs,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
             )),
             body: Box::new(insert_dict_args_expr(
                 *body,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -578,14 +753,16 @@ fn insert_dict_args_expr(
             var,
             rhs: Box::new(insert_dict_args_expr(
                 *rhs,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
             )),
             body: Box::new(insert_dict_args_expr(
                 *body,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -605,7 +782,8 @@ fn insert_dict_args_expr(
                         b,
                         Box::new(insert_dict_args_expr(
                             *rhs,
-                            constrained_fns,
+                            constrained_fns_by_binder,
+                            constrained_fns_by_name,
                             caller_dicts,
                             class_env,
                             interner,
@@ -615,7 +793,8 @@ fn insert_dict_args_expr(
                 .collect(),
             body: Box::new(insert_dict_args_expr(
                 *body,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -631,7 +810,8 @@ fn insert_dict_args_expr(
         } => CoreExpr::Case {
             scrutinee: Box::new(insert_dict_args_expr(
                 *scrutinee,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -641,13 +821,21 @@ fn insert_dict_args_expr(
                 .map(|mut alt| {
                     alt.rhs = insert_dict_args_expr(
                         alt.rhs,
-                        constrained_fns,
+                        constrained_fns_by_binder,
+                        constrained_fns_by_name,
                         caller_dicts,
                         class_env,
                         interner,
                     );
                     alt.guard = alt.guard.map(|g| {
-                        insert_dict_args_expr(g, constrained_fns, caller_dicts, class_env, interner)
+                        insert_dict_args_expr(
+                            g,
+                            constrained_fns_by_binder,
+                            constrained_fns_by_name,
+                            caller_dicts,
+                            class_env,
+                            interner,
+                        )
                     });
                     alt
                 })
@@ -661,7 +849,14 @@ fn insert_dict_args_expr(
             fields: fields
                 .into_iter()
                 .map(|f| {
-                    insert_dict_args_expr(f, constrained_fns, caller_dicts, class_env, interner)
+                    insert_dict_args_expr(
+                        f,
+                        constrained_fns_by_binder,
+                        constrained_fns_by_name,
+                        caller_dicts,
+                        class_env,
+                        interner,
+                    )
                 })
                 .collect(),
             span,
@@ -672,7 +867,14 @@ fn insert_dict_args_expr(
             args: args
                 .into_iter()
                 .map(|a| {
-                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                    insert_dict_args_expr(
+                        a,
+                        constrained_fns_by_binder,
+                        constrained_fns_by_name,
+                        caller_dicts,
+                        class_env,
+                        interner,
+                    )
                 })
                 .collect(),
             span,
@@ -681,7 +883,8 @@ fn insert_dict_args_expr(
         CoreExpr::Return { value, span } => CoreExpr::Return {
             value: Box::new(insert_dict_args_expr(
                 *value,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -700,7 +903,14 @@ fn insert_dict_args_expr(
             args: args
                 .into_iter()
                 .map(|a| {
-                    insert_dict_args_expr(a, constrained_fns, caller_dicts, class_env, interner)
+                    insert_dict_args_expr(
+                        a,
+                        constrained_fns_by_binder,
+                        constrained_fns_by_name,
+                        caller_dicts,
+                        class_env,
+                        interner,
+                    )
                 })
                 .collect(),
             span,
@@ -715,7 +925,8 @@ fn insert_dict_args_expr(
         } => CoreExpr::Handle {
             body: Box::new(insert_dict_args_expr(
                 *body,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -724,7 +935,8 @@ fn insert_dict_args_expr(
             parameter: parameter.map(|p| {
                 Box::new(insert_dict_args_expr(
                     *p,
-                    constrained_fns,
+                    constrained_fns_by_binder,
+                    constrained_fns_by_name,
                     caller_dicts,
                     class_env,
                     interner,
@@ -735,7 +947,8 @@ fn insert_dict_args_expr(
                 .map(|mut h| {
                     h.body = insert_dict_args_expr(
                         h.body,
-                        constrained_fns,
+                        constrained_fns_by_binder,
+                        constrained_fns_by_name,
                         caller_dicts,
                         class_env,
                         interner,
@@ -753,7 +966,8 @@ fn insert_dict_args_expr(
         } => CoreExpr::MemberAccess {
             object: Box::new(insert_dict_args_expr(
                 *object,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -769,7 +983,8 @@ fn insert_dict_args_expr(
         } => CoreExpr::TupleField {
             object: Box::new(insert_dict_args_expr(
                 *object,
-                constrained_fns,
+                constrained_fns_by_binder,
+                constrained_fns_by_name,
                 caller_dicts,
                 class_env,
                 interner,
@@ -839,6 +1054,69 @@ fn prepend_lam_params(expr: CoreExpr, extra_params: Vec<CoreBinder>) -> CoreExpr
                 body: Box::new(other),
                 span: Span::default(),
             }
+        }
+    }
+}
+
+fn normalize_existing_dict_param_types(expr: CoreExpr, dict_param_count: usize) -> CoreExpr {
+    if dict_param_count == 0 {
+        return expr;
+    }
+
+    match expr {
+        CoreExpr::Lam {
+            params,
+            mut param_types,
+            result_ty,
+            body,
+            span,
+        } => {
+            if !param_types.is_empty() && param_types.len() + dict_param_count == params.len() {
+                let mut normalized = vec![None; dict_param_count];
+                normalized.append(&mut param_types);
+                param_types = normalized;
+            } else if !param_types.is_empty() && param_types.len() != params.len() {
+                param_types.clear();
+            }
+
+            CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body,
+                span,
+            }
+        }
+        other => other,
+    }
+}
+
+fn normalize_all_existing_dict_param_types(program: &mut CoreProgram, interner: &Interner) {
+    for def in &mut program.defs {
+        let dict_param_count = match &def.expr {
+            CoreExpr::Lam {
+                params,
+                param_types,
+                ..
+            } if !param_types.is_empty() && param_types.len() < params.len() => {
+                let named_dict_params = params
+                    .iter()
+                    .take_while(|param| interner.resolve(param.name).starts_with("__dict_"))
+                    .count();
+                named_dict_params.max(params.len() - param_types.len())
+            }
+            CoreExpr::Lam { params, .. } => params
+                .iter()
+                .take_while(|param| interner.resolve(param.name).starts_with("__dict_"))
+                .count(),
+            _ => 0,
+        };
+        if dict_param_count > 0 {
+            let expr = std::mem::replace(
+                &mut def.expr,
+                CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
+            );
+            def.expr = normalize_existing_dict_param_types(expr, dict_param_count);
         }
     }
 }
@@ -1564,6 +1842,7 @@ mod tests {
                 name: main_name,
                 binder: main_binder,
                 expr: CoreExpr::Lit(CoreLit::Int(0), s()),
+                is_dict_def: false,
                 borrow_signature: None,
                 result_ty: None,
                 is_anonymous: false,
@@ -1628,6 +1907,7 @@ mod tests {
                     }),
                     span: s(),
                 },
+                is_dict_def: false,
                 borrow_signature: None,
                 result_ty: None,
                 is_anonymous: false,
@@ -1641,15 +1921,11 @@ mod tests {
         let mut next_id = 100;
         elaborate_dictionaries(&mut program, &class_env, &type_env, &interner, &mut next_id);
 
-        // Should have: 1 dict def (__dict_Eq_Int) + 1 original def (contains).
-        assert_eq!(program.defs.len(), 2);
+        // No concrete dictionary is referenced at a call site, so the pass
+        // only threads the incoming dictionary parameter through `contains`.
+        assert_eq!(program.defs.len(), 1);
 
-        // First def is the dictionary.
-        let dict_def = &program.defs[0];
-        assert_eq!(interner.resolve(dict_def.name), "__dict_Eq_Int");
-
-        // Second def is `contains` — should now have 3 params (dict + x + y).
-        let contains_def = &program.defs[1];
+        let contains_def = &program.defs[0];
         assert_eq!(interner.resolve(contains_def.name), "contains");
         match &contains_def.expr {
             CoreExpr::Lam { params, body, .. } => {
