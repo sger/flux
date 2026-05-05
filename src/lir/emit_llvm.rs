@@ -76,6 +76,10 @@ fn sanitize_llvm_symbol_fragment(name: &str) -> String {
         })
         .collect()
 }
+
+fn is_dict_lir_function(func: &LirFunction) -> bool {
+    func.is_dict_def || func.qualified_name.starts_with("__dict_")
+}
 const RIGHT_TAG: i32 = 3;
 const CONS_TAG: i32 = 4;
 
@@ -231,7 +235,12 @@ pub fn emit_llvm_module_with_options(
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
     for func in &program.functions {
         if func.capture_vars.is_empty() && func.qualified_name != "main" {
-            let wrapper = emit_closure_wrapper(func, Linkage::External);
+            let linkage = if is_dict_lir_function(func) {
+                Linkage::Internal
+            } else {
+                Linkage::External
+            };
+            let wrapper = emit_closure_wrapper(func, linkage);
             module.functions.push(wrapper);
         }
     }
@@ -884,7 +893,11 @@ impl<'a> FnEmitter<'a> {
         if self.is_main {
             // Main: no params, returns i64, ccc (called from C main()).
             LlvmFunction {
-                linkage: Linkage::External,
+                linkage: if is_dict_lir_function(self.func) {
+                    Linkage::Internal
+                } else {
+                    Linkage::External
+                },
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),
@@ -933,7 +946,11 @@ impl<'a> FnEmitter<'a> {
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
             LlvmFunction {
-                linkage: Linkage::External,
+                linkage: if is_dict_lir_function(self.func) {
+                    Linkage::Internal
+                } else {
+                    Linkage::External
+                },
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),

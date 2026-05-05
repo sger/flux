@@ -232,6 +232,7 @@ fn core_contract_violation_includes_boundary_label() {
         name,
         binder: CoreBinder::new(CoreBinderId(0), name),
         expr: CoreExpr::Lit(CoreLit::Unit, Default::default()),
+        is_dict_def: false,
         borrow_signature: None,
         result_ty: Some(ty),
         is_anonymous: false,

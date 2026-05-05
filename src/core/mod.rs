@@ -1314,6 +1314,8 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    /// True for compiler-generated type-class dictionary definitions.
+    pub is_dict_def: bool,
     /// Compiler-owned borrow metadata inferred/registered for this definition.
     pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
     /// HM-inferred result type for this definition, if available.
@@ -1497,6 +1499,7 @@ impl CoreDef {
             name: binder.name,
             binder,
             expr,
+            is_dict_def: false,
             borrow_signature: None,
             result_ty: None,
             is_anonymous,

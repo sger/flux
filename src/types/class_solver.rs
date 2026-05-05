@@ -44,8 +44,11 @@ pub fn solve_class_constraints(
             continue;
         }
 
-        // Only check concrete types — variables are left unsolved for now.
-        if !constraint.type_args.iter().all(is_concrete_type) {
+        // Only check concrete types by default — variables are left unsolved
+        // for now. Function-shaped type arguments are already specific enough
+        // to reject for marker classes like `Sendable`, even if their inner
+        // parameter/return slots still contain variables.
+        if !constraint.type_args.iter().all(is_solvable_type_arg) {
             continue;
         }
 
@@ -275,6 +278,10 @@ fn is_concrete_type(ty: &InferType) -> bool {
             is_concrete_type(head) && args.iter().all(is_concrete_type)
         }
     }
+}
+
+fn is_solvable_type_arg(ty: &InferType) -> bool {
+    is_concrete_type(ty) || matches!(ty, InferType::Fun(_, _, _))
 }
 
 /// Format a type for display in diagnostics.

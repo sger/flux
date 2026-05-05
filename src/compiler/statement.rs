@@ -344,7 +344,9 @@ impl Compiler {
                 // Use HM type to check expected arity
                 if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
                     self.hm_expr_type_strict_path(function)
-                    && self.visible_call_arity(function, params.len()) != arguments.len()
+                    && arguments.len() != params.len()
+                    && arguments.len() != self.visible_call_arity(function, params.len())
+                    && arguments.len() != params.len() + self.hidden_dict_count(function)
                 {
                     return true;
                 }
@@ -376,15 +378,23 @@ impl Compiler {
     /// constrained identifiers. For user-facing AST validation we should
     /// compare against the visible source arity, not the elaborated one.
     fn visible_call_arity(&self, function: &Expression, raw_arity: usize) -> usize {
-        let Expression::Identifier { name, .. } = function else {
-            return raw_arity;
-        };
-        let hidden_dicts = self
-            .type_env
-            .lookup(*name)
-            .map(|scheme| scheme.constraints.len())
-            .unwrap_or(0);
-        raw_arity.saturating_sub(hidden_dicts)
+        raw_arity.saturating_sub(self.hidden_dict_count(function))
+    }
+
+    fn hidden_dict_count(&self, function: &Expression) -> usize {
+        match function {
+            Expression::Identifier { name, .. } => self
+                .type_env
+                .lookup(*name)
+                .map(|scheme| scheme.constraints.len())
+                .unwrap_or(0),
+            Expression::MemberAccess { object, member, .. } => self
+                .resolve_module_name_from_expr(object)
+                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member)))
+                .map(|scheme| scheme.constraints.len())
+                .unwrap_or(0),
+            _ => 0,
+        }
     }
 
     fn block_contains_constrained_calls(&self, body: &Block) -> bool {
@@ -404,14 +414,19 @@ impl Compiler {
                 arguments,
                 ..
             } => {
-                let callee_is_constrained = matches!(
-                    function.as_ref(),
-                    Expression::Identifier { name, .. }
-                        if self
-                            .type_env
-                            .lookup(*name)
-                            .is_some_and(|scheme| !scheme.constraints.is_empty())
-                );
+                let callee_is_constrained = match function.as_ref() {
+                    Expression::Identifier { name, .. } => self
+                        .type_env
+                        .lookup(*name)
+                        .is_some_and(|scheme| !scheme.constraints.is_empty()),
+                    Expression::MemberAccess { object, member, .. } => self
+                        .resolve_module_name_from_expr(object)
+                        .and_then(|module_name| {
+                            self.cached_member_schemes.get(&(module_name, *member))
+                        })
+                        .is_some_and(|scheme| !scheme.constraints.is_empty()),
+                    _ => false,
+                };
                 callee_is_constrained
                     || self.expr_contains_constrained_calls(function)
                     || arguments
@@ -1408,6 +1423,27 @@ impl Compiler {
         self.enter_scope();
         self.symbol_table
             .define_function_name(name, definition_span);
+        let mut scheme_constraints = self
+            .type_env
+            .lookup(name)
+            .map(|scheme| scheme.constraints.clone())
+            .unwrap_or_default();
+        if scheme_constraints.is_empty()
+            && let Some(module_name) = self.current_module_prefix
+            && let Some(qualified_name) = self.interner.try_resolve(name)
+            && let Some(module_prefix) = self.interner.try_resolve(module_name)
+            && let Some(member_name) = qualified_name.strip_prefix(&format!("{module_prefix}."))
+        {
+            scheme_constraints = self
+                .cached_member_schemes
+                .iter()
+                .find_map(|((cached_module, cached_member), scheme)| {
+                    (*cached_module == module_name
+                        && self.interner.try_resolve(*cached_member) == Some(member_name))
+                    .then(|| scheme.constraints.clone())
+                })
+                .unwrap_or_default();
+        }
 
         // If the IR function has extra dict params (from dict elaboration),
         // define them in the scope BEFORE the AST params so they get the
@@ -1418,11 +1454,7 @@ impl Compiler {
         if let Some(ir_fn) = ir_function {
             let extra = ir_fn.params.len().saturating_sub(parameters.len());
             if extra > 0 {
-                let has_scheme_constraints = self
-                    .type_env
-                    .lookup(name)
-                    .is_some_and(|s| !s.constraints.is_empty());
-                if has_scheme_constraints {
+                if !scheme_constraints.is_empty() {
                     for ir_param in &ir_fn.params[..extra] {
                         self.symbol_table.define(ir_param.name, Span::default());
                     }
