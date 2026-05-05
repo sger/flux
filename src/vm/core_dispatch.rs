@@ -153,6 +153,108 @@ mod vm_async {
     }
 }
 
+// ── Fiber registry (proposal 0174 Phase 1b-vi-b₁) ────────────────────────────
+// Plumbing-only: a per-thread `FiberScheduler` lives for the duration of an
+// `Async.run_async` boundary, with a depth counter so nested boundaries share
+// one instance. Each `FiberFork` goes through `scheduler.spawn` to allocate a
+// real `FiberId`, and `with_current` tracks which fiber id the OS thread is
+// currently executing so b₂ can target wakeups correctly. Execution order is
+// unchanged — `FiberFork`'s body still runs inline to completion. The point
+// is to land the registry shape without behaviour change so b₂ can replace
+// the inline call with a real park/resume cycle without touching bookkeeping.
+mod vm_fibers {
+    use std::cell::{Cell, RefCell};
+
+    use crate::runtime::r#async::context::WorkerId;
+    use crate::runtime::r#async::fiber::FiberId;
+    use crate::runtime::r#async::scheduler::FiberScheduler;
+
+    thread_local! {
+        static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
+        static DEPTH: Cell<u32> = const { Cell::new(0) };
+        static CURRENT: Cell<Option<FiberId>> = const { Cell::new(None) };
+    }
+
+    /// Enter an `Async.run_async` boundary: lazy-init the scheduler on the
+    /// outermost entry, spawn the root fiber, and make it current. Returns
+    /// the root fiber id so the caller can pair this with `exit_run_async`.
+    pub fn enter_run_async() -> FiberId {
+        let depth = DEPTH.with(|d| {
+            let n = d.get();
+            d.set(n + 1);
+            n
+        });
+        if depth == 0 {
+            SCHED.with(|s| {
+                *s.borrow_mut() = Some(FiberScheduler::new(1));
+            });
+        }
+        let root = SCHED.with(|s| {
+            s.borrow_mut()
+                .as_mut()
+                .expect("scheduler must be initialised after enter_run_async")
+                .spawn(WorkerId(0))
+        });
+        CURRENT.with(|c| c.set(Some(root)));
+        root
+    }
+
+    /// Pop the matching fiber off the ready queue (it was placed there by
+    /// `spawn` and never executed via the scheduler — b₁ runs bodies inline).
+    /// On outermost exit, tear down the scheduler.
+    pub fn exit_run_async(_root: FiberId) {
+        // Drain the root fiber from the ready queue (it never actually ran
+        // through the scheduler dispatch loop on this slice — execution was
+        // inline). Discarding here keeps queues bounded across many
+        // `run_async` calls on the same thread.
+        SCHED.with(|s| {
+            if let Some(sched) = s.borrow_mut().as_mut() {
+                while sched.next_ready(WorkerId(0)).is_some() {}
+            }
+        });
+        let new_depth = DEPTH.with(|d| {
+            let n = d.get().saturating_sub(1);
+            d.set(n);
+            n
+        });
+        if new_depth == 0 {
+            SCHED.with(|s| {
+                *s.borrow_mut() = None;
+            });
+            CURRENT.with(|c| c.set(None));
+        }
+    }
+
+    /// Allocate a child fiber via the scheduler and return its id. Must be
+    /// called inside an active `enter_run_async` / `exit_run_async` window.
+    pub fn spawn_child() -> FiberId {
+        SCHED.with(|s| {
+            s.borrow_mut()
+                .as_mut()
+                .expect("FiberFork outside Async.run_async — scheduler missing")
+                .spawn(WorkerId(0))
+        })
+    }
+
+    /// Run `f` with `id` recorded as the current fiber, restoring the previous
+    /// value on return (including on early-return via `?`). The guard's
+    /// `Drop` ensures CURRENT is always restored.
+    pub fn with_current<F, R>(id: FiberId, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        struct Guard(Option<FiberId>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                CURRENT.with(|c| c.set(self.0));
+            }
+        }
+        let prev = CURRENT.with(|c| c.replace(Some(id)));
+        let _g = Guard(prev);
+        f()
+    }
+}
+
 /// Execute a `CorePrimOp` with the given arguments.
 ///
 /// This is the single dispatch point for all `OpPrimOp` instructions in the VM.
@@ -688,8 +790,17 @@ pub fn execute_core_primop(
         // Real M:N fiber switching lives in the native backend (Phase 1b-vi+).
 
         // run_async: install the Async boundary and run the action. On the VM
-        // path this is simply a synchronous call — no scheduler needed.
-        FiberRunAsync => ctx.invoke_value(args[0].clone(), vec![]),
+        // path execution is still synchronous; b₁ adds real `FiberScheduler`
+        // bookkeeping (root fiber registered, current-fiber tracked) so b₂
+        // can replace the inline call with a real park/resume cycle without
+        // having to also wire scheduling state.
+        FiberRunAsync => {
+            let root = vm_fibers::enter_run_async();
+            let result =
+                vm_fibers::with_current(root, || ctx.invoke_value(args[0].clone(), vec![]));
+            vm_fibers::exit_run_async(root);
+            result
+        }
 
         // yield_now: cooperative yield point. No-op on the VM sequential path.
         FiberYieldNow => Ok(Value::None),
@@ -732,10 +843,13 @@ pub fn execute_core_primop(
         // already done the real work above via dedicated primops.
         FiberSuspend => Ok(Value::None),
 
-        // fiber_fork: run the body closure immediately and discard the result.
-        // Sequential semantics: child runs to completion before parent resumes.
+        // fiber_fork: allocate a child fiber via the scheduler, then run its
+        // body inline (preserving sequential semantics — child runs to
+        // completion before parent resumes). b₂ replaces the inline call
+        // with a real park/resume cycle.
         FiberFork => {
-            ctx.invoke_value(args[0].clone(), vec![])?;
+            let child = vm_fibers::spawn_child();
+            vm_fibers::with_current(child, || ctx.invoke_value(args[0].clone(), vec![]))?;
             Ok(Value::None)
         }
 
