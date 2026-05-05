@@ -130,6 +130,9 @@ impl FiberScheduler {
         let idx = worker.0 as usize;
         if let Some(mut fiber) = self.workers[idx].suspended.remove(&request_id.0) {
             fiber.state = FiberState::Ready;
+            // Record which request woke us so the dispatch loop can look
+            // up the synthetic resume value (proposal 0174 Phase 1b-vi-b₂.2).
+            fiber.last_completion_req = Some(request_id.0);
             self.workers[idx].ready.push(fiber);
             true
         } else {

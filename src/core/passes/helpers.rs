@@ -600,7 +600,9 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::TcpWriteAll
         | CorePrimOp::TcpClose
         | CorePrimOp::TcpListen
-        | CorePrimOp::TcpAccept => false,
+        | CorePrimOp::TcpAccept
+        | CorePrimOp::FiberBoth
+        | CorePrimOp::FiberRace => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

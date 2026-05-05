@@ -1,12 +1,13 @@
 // parity: vm
 // expect: success
-// bug: both(f, g) must run f then g and return (f_result, g_result).
-//      VM: sequential execution; both results must be independently computed.
-//      The both_pair helper avoids a rigid type variable escape during HM inference.
+// bug: both(f, g) must run f and g concurrently and return (f_result, g_result).
+//      Phase 1b-vi-b₂.2: VM now overlaps the two branches via the fiber
+//      scheduler. The returned tuple still preserves source order regardless
+//      of which branch finishes first.
 
 import Flow.Async exposing (..)
 
-fn left() -> Int { 3 }
+fn left() -> Int with Async { 3 }
 fn right() -> Int with Async { 4 }
 
 fn body() -> (Int, Int) with Async {

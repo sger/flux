@@ -107,6 +107,8 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::TcpClose => "tcp_close",
         CorePrimOp::TcpListen => "tcp_listen",
         CorePrimOp::TcpAccept => "tcp_accept",
+        CorePrimOp::FiberBoth => "fiber_both",
+        CorePrimOp::FiberRace => "fiber_race",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -335,7 +337,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::TcpWriteAll
             | CorePrimOp::TcpClose
             | CorePrimOp::TcpListen
-            | CorePrimOp::TcpAccept => {
+            | CorePrimOp::TcpAccept
+            | CorePrimOp::FiberBoth
+            | CorePrimOp::FiberRace => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

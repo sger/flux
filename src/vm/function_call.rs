@@ -636,10 +636,12 @@ impl RuntimeContext for VM {
         // No inner handlers between the FiberSleep site and the
         // FiberRunAsync boundary — we don't track them on the fiber path.
         // No state marker — fibers don't run a parameterized handler.
-        // top_ip_advance = 0: a primop call has already returned, so the
-        // current frame's IP is past the call site; we resume right where
-        // execution would naturally continue.
-        self.capture_to_boundary(entry_frame_index, entry_sp, 0, vec![], None)
+        // top_ip_advance = 3: skip past the `OpPrimOp` instruction (opcode
+        // + primop_id + arity = 3 bytes). The arm is called from inside
+        // `execute_primop_opcode` which has not yet returned, so the
+        // frame's IP still points at the OpPrimOp; on resume we want to
+        // continue at the next instruction, not re-execute the primop.
+        self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
     }
 
     fn resume_from_dispatch(
