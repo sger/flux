@@ -466,9 +466,11 @@ int64_t flux_fiber_fail(int64_t error_value) {
 }
 
 int64_t flux_task_await(int64_t task) {
-    (void)task;
-    flux_fiber_unimplemented("flux_task_await");
-    return FLUX_NONE;
+    /* Phase 1b closeout: make the public Task.await surface usable on the
+     * native backend. This is intentionally a blocking shim over the existing
+     * task join path; true fiber-suspending task await requires native tasks
+     * to publish scheduler completions and is tracked as a post-1b follow-up. */
+    return flux_task_blocking_join(task);
 }
 
 /* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */

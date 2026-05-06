@@ -50,7 +50,7 @@ mod inner {
     use std::mem::ManuallyDrop;
     use std::rc::Rc;
 
-    use crate::runtime::value::Value;
+    use crate::runtime::value::{Value, drop_value_stackless};
 
     // ── Bit-layout constants ──────────────────────────────────────────────────
 
@@ -394,10 +394,13 @@ mod inner {
     impl Drop for NanBox {
         fn drop(&mut self) {
             if self.is_heap_pointer() {
-                // Decrement the Rc strong count. If it reaches zero, the inner
-                // Value (and all its own Rc fields) will be dropped automatically.
                 unsafe {
-                    Rc::decrement_strong_count(self.as_raw_ptr());
+                    let rc = Rc::from_raw(self.as_raw_ptr());
+                    if Rc::strong_count(&rc) == 1 {
+                        if let Ok(value) = Rc::try_unwrap(rc) {
+                            drop_value_stackless(value);
+                        }
+                    }
                 }
             }
         }

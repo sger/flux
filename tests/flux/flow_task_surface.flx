@@ -3,10 +3,22 @@
 // VM backend now runs `spawn` / `blocking_join` / `cancel` for real
 // (sequentially: the closure body runs at spawn-time, the result is
 // stashed, and join retrieves it). These tests therefore both type-check
-// the surface AND assert the runtime behaviour. Native runtime support
-// (`flux_task_*` C symbols backed by the Rust scheduler) lands in D5-b/c.
+// the surface AND assert the runtime behaviour. Native runtime support uses
+// `runtime/c/tasks.c`; VM keeps sequentially equivalent task semantics.
 
+import Flow.Async exposing (..)
 import Flow.Task as Task
+
+fn await_int_body() -> Int with Async {
+    let t = Task.spawn(fn() { 21 * 2 });
+    Task.await(t)
+}
+
+fn await_cancel_body() -> Int with Async {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    Task.await(t)
+}
 
 fn test_spawn_join_int_round_trip() {
     let t = Task.spawn(fn() { 7 * 6 });
@@ -31,6 +43,15 @@ fn test_spawn_join_tuple_round_trip() {
     let t = Task.spawn(fn() { (7, "ok", true) });
     let r = Task.blocking_join(t);
     assert_eq(r, (7, "ok", true))
+}
+
+fn test_await_int_round_trip() {
+    let r = run_async(await_int_body);
+    assert_eq(r, 42)
+}
+
+fn test_cancel_before_await_surfaces_error() {
+    assert_throws(fn() { run_async(await_cancel_body) })
 }
 
 fn test_cancel_before_join_surfaces_error() {

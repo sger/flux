@@ -23,7 +23,6 @@ static NEXT_FIBER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 static READY_TIMERS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 static ACTIVE_RUN: OnceLock<Mutex<Option<RunHandle>>> = OnceLock::new();
-static EXECUTION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const FLUX_NONE: i64 = 0;
 const LOGICAL_WORKERS: usize = 2;
@@ -90,11 +89,13 @@ struct NativeRun {
     next_child_worker: usize,
     suspended: HashMap<u64, Fiber>,
     pending_wakes: HashMap<u64, i64>,
+    cancelled_requests: HashSet<u64>,
     fiber_request: HashMap<u64, u64>,
     awaits: HashMap<u64, AwaitKind>,
     awaiter_index: HashMap<u64, Vec<u64>>,
     scopes: HashMap<u64, HashSet<u64>>,
     fiber_scope: HashMap<u64, u64>,
+    cancelled_fibers: HashSet<u64>,
     root_result: Option<i64>,
     running: usize,
     shutdown: bool,
@@ -130,11 +131,13 @@ impl NativeRun {
             next_child_worker: if LOGICAL_WORKERS > 1 { 1 } else { 0 },
             suspended: HashMap::new(),
             pending_wakes: HashMap::new(),
+            cancelled_requests: HashSet::new(),
             fiber_request: HashMap::new(),
             awaits: HashMap::new(),
             awaiter_index: HashMap::new(),
             scopes: HashMap::new(),
             fiber_scope: HashMap::new(),
+            cancelled_fibers: HashSet::new(),
             root_result: None,
             running: 0,
             shutdown: false,
@@ -148,6 +151,11 @@ impl NativeRun {
     }
 
     fn push_ready(&mut self, fiber: Fiber) {
+        if self.cancelled_fibers.contains(&fiber.id) {
+            release_cancelled_work(fiber.work);
+            self.forget_cancelled_fiber(fiber.id);
+            return;
+        }
         self.ready[fiber.home_worker].push_back(fiber);
     }
 
@@ -159,6 +167,20 @@ impl NativeRun {
 
     fn worker_finished(&mut self) {
         self.running = self.running.saturating_sub(1);
+    }
+
+    fn is_cancelled(&self, id: u64) -> bool {
+        self.cancelled_fibers.contains(&id)
+    }
+
+    fn forget_cancelled_fiber(&mut self, id: u64) {
+        self.cancelled_fibers.remove(&id);
+        self.awaiter_index.remove(&id);
+    }
+
+    fn release_discarded_fiber(&mut self, fiber: Fiber) {
+        release_cancelled_work(fiber.work);
+        self.forget_cancelled_fiber(fiber.id);
     }
 
     fn has_live_work(&self) -> bool {
@@ -207,6 +229,17 @@ impl NativeRun {
     }
 
     fn park(&mut self, req: u64, mut fiber: Fiber, continuation: i64) {
+        if self.is_cancelled(fiber.id) {
+            release_cancelled_work(Work::Resume {
+                continuation,
+                value: FLUX_NONE,
+            });
+            if let Some(value) = self.pending_wakes.remove(&req) {
+                release_completion_value(value);
+            }
+            self.forget_cancelled_fiber(fiber.id);
+            return;
+        }
         promote_value(continuation);
         fiber.work = Work::Resume {
             continuation,
@@ -229,6 +262,12 @@ impl NativeRun {
     fn wake(&mut self, req: u64, value: i64) {
         if let Some(mut fiber) = self.suspended.remove(&req) {
             self.fiber_request.remove(&fiber.id);
+            if self.is_cancelled(fiber.id) {
+                release_cancelled_work(fiber.work);
+                release_completion_value(value);
+                self.forget_cancelled_fiber(fiber.id);
+                return;
+            }
             if fiber.home_worker != current_worker() {
                 promote_value(value);
             }
@@ -239,6 +278,8 @@ impl NativeRun {
                 };
             }
             self.push_ready(fiber);
+        } else if self.cancelled_requests.remove(&req) {
+            release_completion_value(value);
         } else {
             promote_value(value);
             self.pending_wakes.insert(req, value);
@@ -246,6 +287,12 @@ impl NativeRun {
     }
 
     fn complete_fiber(&mut self, id: u64, value: i64) {
+        if self.is_cancelled(id) {
+            release_completion_value(value);
+            self.forget_cancelled_fiber(id);
+            return;
+        }
+
         if id == self.root {
             self.root_result = Some(value);
             self.shutdown = true;
@@ -308,6 +355,7 @@ impl NativeRun {
                 AwaitKind::Timeout { body } => {
                     if id == body {
                         backend().cancel(RequestId(parent_req));
+                        self.cancelled_requests.insert(parent_req);
                         if let Some(cb) = callbacks() {
                             let some = unsafe { (cb.wrap_some)(value) };
                             promote_value(some);
@@ -325,16 +373,22 @@ impl NativeRun {
         }
 
         let losers: HashSet<u64> = fiber_ids.iter().copied().collect();
+        self.cancelled_fibers.extend(losers.iter().copied());
+        let mut discarded = Vec::new();
         for queue in &mut self.ready {
             let mut kept = VecDeque::new();
             while let Some(fiber) = queue.pop_front() {
                 if losers.contains(&fiber.id) {
                     release_cancelled_work(fiber.work);
+                    discarded.push(fiber.id);
                 } else {
                     kept.push_back(fiber);
                 }
             }
             *queue = kept;
+        }
+        for id in discarded {
+            self.forget_cancelled_fiber(id);
         }
 
         for id in fiber_ids {
@@ -345,8 +399,10 @@ impl NativeRun {
             }
             if let Some(req) = self.fiber_request.remove(id) {
                 backend().cancel(RequestId(req));
+                self.cancelled_requests.insert(req);
                 if let Some(fiber) = self.suspended.remove(&req) {
                     release_cancelled_work(fiber.work);
+                    self.forget_cancelled_fiber(fiber.id);
                 }
             }
         }
@@ -362,6 +418,10 @@ impl NativeRun {
     }
 
     fn route_backend_completion(&mut self, req: u64, payload: CompletionPayload) {
+        if self.cancelled_requests.remove(&req) {
+            return;
+        }
+
         if let Some(AwaitKind::Timeout { body }) = self.awaits.remove(&req) {
             self.wake(req, FLUX_NONE);
             self.cancel_fibers(&[body]);
@@ -393,6 +453,17 @@ fn release_executed_work(work: Work) {
                 Work::Closure { owned: false, .. } => {}
                 Work::Resume { continuation, .. } => (cb.release)(continuation),
             }
+        }
+    }
+}
+
+fn release_completion_value(value: i64) {
+    if value == FLUX_NONE {
+        return;
+    }
+    if let Some(cb) = callbacks() {
+        unsafe {
+            (cb.release)(value);
         }
     }
 }
@@ -487,10 +558,6 @@ fn set_active_run(run: Option<RunHandle>) {
     }
 }
 
-fn execution_lock() -> &'static Mutex<()> {
-    EXECUTION_LOCK.get_or_init(|| Mutex::new(()))
-}
-
 fn with_run<R>(f: impl FnOnce(&mut NativeRun) -> R) -> Option<R> {
     let handle = active_run()?;
     let mut state = handle.shared.state.lock().ok()?;
@@ -501,9 +568,21 @@ fn with_run<R>(f: impl FnOnce(&mut NativeRun) -> R) -> Option<R> {
 }
 
 fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncCallbacks) {
-    let exec_guard = execution_lock()
-        .lock()
-        .expect("native async execution lock poisoned");
+    {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        if state.is_cancelled(fiber.id) {
+            state.release_discarded_fiber(fiber);
+            state.worker_finished();
+            drop(state);
+            handle.notify_all();
+            return;
+        }
+    }
+
     CURRENT_WORKER.with(|current| current.set(worker));
     CURRENT_FIBER.with(|current| current.set(fiber.id));
     let result = unsafe {
@@ -528,7 +607,6 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
         unsafe {
             (cb.clear_suspend)();
         }
-        drop(exec_guard);
         let executed_work = fiber.work;
         state.park(request, fiber, continuation);
         state.worker_finished();
@@ -538,7 +616,6 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
         return;
     }
 
-    drop(exec_guard);
     release_executed_work(fiber.work);
     if fiber.id != state.root {
         promote_value(result);
