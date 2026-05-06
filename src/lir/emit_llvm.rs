@@ -65,26 +65,8 @@ fn program_has_yield_sites(program: &LirProgram) -> bool {
     false
 }
 
-fn program_calls_imported_async(program: &LirProgram) -> bool {
-    fn is_async_symbol(symbol: &str) -> bool {
-        symbol.contains("Flow_Async_")
-    }
-
-    for func in &program.functions {
-        for block in &func.blocks {
-            match &block.terminator {
-                LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
-                    if let CallKind::DirectExtern { symbol } = kind
-                        && is_async_symbol(symbol)
-                    {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    false
+fn program_has_direct_async_calls(program: &LirProgram) -> bool {
+    !crate::lir::direct_async_func_ids(program).is_empty()
 }
 
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
@@ -153,7 +135,7 @@ pub fn emit_llvm_module_with_yield_options(
     // Clone is a cheap DAG copy — only happens when the feature flag is on,
     // so the default path pays nothing.
     let owned_program: LirProgram;
-    let force_yield_checks = force_yield_checks || program_calls_imported_async(program);
+    let force_yield_checks = force_yield_checks || program_has_direct_async_calls(program);
     let yield_active =
         yield_checks_enabled() && (force_yield_checks || program_has_yield_sites(program));
     let program: &LirProgram = if yield_active {
