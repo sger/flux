@@ -195,6 +195,28 @@ impl FiberScheduler {
     pub fn num_workers(&self) -> usize {
         self.workers.len()
     }
+
+    /// Return the `request_id` that a fiber is currently suspended on, if any.
+    pub fn find_request_for_fiber(&self, id: FiberId) -> Option<u64> {
+        for worker in &self.workers {
+            for (req, fiber) in &worker.suspended {
+                if fiber.id == id {
+                    return Some(*req);
+                }
+            }
+        }
+        None
+    }
+
+    /// Return all request IDs currently in the suspended map for a worker.
+    /// Used by `exit_run_async` to cancel outstanding backend requests on teardown.
+    pub fn all_suspended_reqs(&self, worker: WorkerId) -> Vec<u64> {
+        self.workers[worker.0 as usize]
+            .suspended
+            .keys()
+            .copied()
+            .collect()
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

@@ -682,7 +682,16 @@ pub enum CorePrimOp {
     /// follow-up). Args: (ms, f). VM: spawns body fiber, parks parent on
     /// either-completes await. Native: 1b-vi-d.
     FiberTimeout = 174,
-    // ── Next free ID: 175 ─────────────────────────────────────────────
+    /// Allocate a new cancellation scope handle (proposal 0174 1b-vi-c).
+    /// Returns a `Scope(id)` ADT value.
+    FiberNewScope = 175,
+    /// Fork a child fiber attached to a scope (proposal 0174 1b-vi-c).
+    /// Args: (scope, body). Spawns child, registers it under the scope.
+    FiberForkScoped = 176,
+    /// Cancel all fibers registered under a scope (proposal 0174 1b-vi-c).
+    /// Args: (scope). Cancels backend requests + marks fibers Cancelled.
+    FiberCancelScope = 177,
+    // ── Next free ID: 178 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -744,6 +753,9 @@ impl CorePrimOp {
             "FiberBoth" => return Some(Self::FiberBoth),
             "FiberRace" => return Some(Self::FiberRace),
             "FiberTimeout" => return Some(Self::FiberTimeout),
+            "FiberNewScope" => return Some(Self::FiberNewScope),
+            "FiberForkScoped" => return Some(Self::FiberForkScoped),
+            "FiberCancelScope" => return Some(Self::FiberCancelScope),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -838,6 +850,9 @@ impl CorePrimOp {
             Self::FiberBoth => Some("fiber_both"),
             Self::FiberRace => Some("fiber_race"),
             Self::FiberTimeout => Some("fiber_timeout"),
+            Self::FiberNewScope => Some("fiber_new_scope"),
+            Self::FiberForkScoped => Some("fiber_fork_scoped"),
+            Self::FiberCancelScope => Some("fiber_cancel_scope"),
             _ => None,
         }
     }
@@ -1007,6 +1022,9 @@ impl CorePrimOp {
             172 => FiberBoth,
             173 => FiberRace,
             174 => FiberTimeout,
+            175 => FiberNewScope,
+            176 => FiberForkScoped,
+            177 => FiberCancelScope,
             _ => return None,
         };
         Some(op)
@@ -1176,7 +1194,7 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow => 0,
+            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow | FiberNewScope => 0,
             Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
@@ -1184,7 +1202,8 @@ impl CorePrimOp {
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait
-            | FiberRunAsync | FiberSleep | TcpClose | TcpAccept => 1,
+            | FiberRunAsync | FiberSleep | TcpClose | TcpAccept
+            | FiberCancelScope => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
@@ -1192,7 +1211,7 @@ impl CorePrimOp {
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
             | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr
             | TcpConnect | TcpListen | TcpRead | TcpWriteAll
-            | FiberBoth | FiberRace | FiberTimeout => 2,
+            | FiberBoth | FiberRace | FiberTimeout | FiberForkScoped => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.

@@ -3459,6 +3459,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
         CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
         CorePrimOp::FiberTimeout => return "flux_fiber_timeout".to_string(),
+        // 1b-vi-c scope/fork/cancel: native implementation deferred to 1b-vi-d.
+        CorePrimOp::FiberNewScope => return "flux_fiber_new_scope".to_string(),
+        CorePrimOp::FiberForkScoped => return "flux_fiber_fork_scoped".to_string(),
+        CorePrimOp::FiberCancelScope => return "flux_fiber_cancel_scope".to_string(),
     };
 
     // Look up in builtins table for the C name.

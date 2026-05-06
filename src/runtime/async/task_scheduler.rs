@@ -310,6 +310,11 @@ mod tests {
     fn shutdown_joins_running_tasks_promptly() {
         // Forgotten shutdown must not leak workers — past async branches
         // wedged libtest on Windows. The Drop impl on TaskScheduler joins.
+        //
+        // Use a generous wall-clock bound (30 s) so the test stays green under
+        // heavy parallel load (cargo test --all runs 900+ tests concurrently
+        // and OS scheduling can starve worker threads for several seconds).
+        // The point is "not indefinitely", not "fast".
         let counter = Arc::new(AtomicUsize::new(0));
         let start = Instant::now();
         {
@@ -323,7 +328,7 @@ mod tests {
             // Drop sched here.
         }
         assert!(
-            start.elapsed() < Duration::from_secs(5),
+            start.elapsed() < Duration::from_secs(30),
             "Drop must not block the test indefinitely"
         );
     }

@@ -368,6 +368,22 @@ name = "vm_fiber_timeout"
 path = "tests/integration/vm_fiber_timeout.rs"
 
 [[test]]
+name = "vm_fiber_cancel_loser"
+path = "tests/integration/vm_fiber_cancel_loser.rs"
+
+[[test]]
+name = "vm_fiber_cancel_timeout"
+path = "tests/integration/vm_fiber_cancel_timeout.rs"
+
+[[test]]
+name = "vm_fiber_bracket_cancel"
+path = "tests/integration/vm_fiber_bracket_cancel.rs"
+
+[[test]]
+name = "vm_fiber_scope_cancel"
+path = "tests/integration/vm_fiber_scope_cancel.rs"
+
+[[test]]
 name = "non_zero_type_tests"
 path = "tests/type_inference/non_zero_type_tests.rs"
 
