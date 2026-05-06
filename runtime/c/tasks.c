@@ -619,3 +619,13 @@ int64_t flux_fiber_cancel_scope(int64_t s) {
 int64_t flux_fiber_check_cancelled(void) {
     return flux_make_bool(flux_async_check_cancelled() != 0);
 }
+
+/* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
+ * The Flux ints are NaN-boxed; untag before forwarding to Rust. */
+int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure) {
+    flux_async_register_callbacks();
+    int64_t workers = flux_untag_int(worker_count);
+    int64_t fs = flux_untag_int(fs_pool_size);
+    int64_t dns = flux_untag_int(dns_pool_size);
+    return flux_async_run_root_with(workers, fs, dns, closure);
+}

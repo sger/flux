@@ -697,7 +697,16 @@ pub enum CorePrimOp {
     /// when the caller wants to raise; slice 2-vi makes that raise
     /// catchable.
     FiberCheckCancelled = 178,
-    // ── Next free ID: 179 ─────────────────────────────────────────────
+    /// Run an async action with explicit `RuntimeConfig` knobs (proposal 0174
+    /// Phase 2 slice 2-vii). Args: (worker_count: Int, fs_pool_size: Int,
+    /// dns_pool_size: Int, action: () -> a with Async). Any zero argument
+    /// means "use the default for that knob"; the implementation chooses
+    /// `available_parallelism()` for `worker_count`, `min(4, parallelism)`
+    /// for `fs_pool_size`, and `4` for `dns_pool_size`. `fs_pool_size` and
+    /// `dns_pool_size` are accepted today but only consulted once slice
+    /// 2-viii lands the blocking pool.
+    FiberRunAsyncWith = 179,
+    // ── Next free ID: 180 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -763,6 +772,7 @@ impl CorePrimOp {
             "FiberForkScoped" => return Some(Self::FiberForkScoped),
             "FiberCancelScope" => return Some(Self::FiberCancelScope),
             "FiberCheckCancelled" => return Some(Self::FiberCheckCancelled),
+            "FiberRunAsyncWith" => return Some(Self::FiberRunAsyncWith),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -861,6 +871,7 @@ impl CorePrimOp {
             Self::FiberForkScoped => Some("fiber_fork_scoped"),
             Self::FiberCancelScope => Some("fiber_cancel_scope"),
             Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
+            Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
             _ => None,
         }
     }
@@ -1034,6 +1045,7 @@ impl CorePrimOp {
             176 => FiberForkScoped,
             177 => FiberCancelScope,
             178 => FiberCheckCancelled,
+            179 => FiberRunAsyncWith,
             _ => return None,
         };
         Some(op)
@@ -1175,6 +1187,7 @@ impl CorePrimOp {
             ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
             ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
             ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
+            ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1223,6 +1236,7 @@ impl CorePrimOp {
             | TcpListen | TcpRead | TcpWriteAll | FiberBoth | FiberRace | FiberTimeout
             | FiberForkScoped => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            FiberRunAsyncWith => 4,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,

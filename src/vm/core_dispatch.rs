@@ -241,6 +241,61 @@ mod vm_fibers {
         // scheduler's `suspended` map). Cleared at outermost run_async exit.
         static CANCELLED_IDS: RefCell<HashSet<FiberId>> =
             RefCell::new(HashSet::new());
+        // Pending RuntimeConfig knobs for the next outermost FiberRunAsync
+        // boundary (Phase 2 slice 2-vii). Set by `FiberRunAsyncWith` before
+        // calling `enter_run_async`; consumed by `enter_run_async` and
+        // cleared at outermost exit. `None` means "use defaults".
+        static PENDING_RUN_CONFIG: Cell<Option<PendingRunConfig>> =
+            const { Cell::new(None) };
+    }
+
+    /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
+    /// `enter_run_async` (Phase 2 slice 2-vii). Each field stored in raw
+    /// form (a value of 0 means "default"). The library wrapper translates
+    /// the source-level `Option<Int>` and ints into this.
+    #[derive(Debug, Clone, Copy)]
+    pub struct PendingRunConfig {
+        pub worker_count: u32,
+        pub fs_pool_size: u32,
+        pub dns_pool_size: u32,
+    }
+
+    /// Set the pending RuntimeConfig for the next outermost
+    /// `FiberRunAsync`/`FiberRunAsyncWith` entry. No-op for nested entries
+    /// (depth > 0): the outermost config wins.
+    pub fn set_pending_run_config(cfg: PendingRunConfig) {
+        PENDING_RUN_CONFIG.with(|c| c.set(Some(cfg)));
+    }
+
+    /// Resolve the worker count for `enter_run_async`. Order of precedence:
+    ///   1. Explicit `PendingRunConfig.worker_count` (non-zero), set by
+    ///      `FiberRunAsyncWith`.
+    ///   2. `FLUX_WORKERS` env var, parsed once.
+    ///   3. Default (2 logical workers — matches the previous hardcoded
+    ///      Phase 1b-vi-c logical-worker count for VM dispatch).
+    fn resolved_worker_count() -> usize {
+        if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+            && cfg.worker_count > 0
+        {
+            return cfg.worker_count as usize;
+        }
+        if let Some(n) = env_workers_once() {
+            return n;
+        }
+        2
+    }
+
+    /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
+    /// positive integer, `None` otherwise.
+    fn env_workers_once() -> Option<usize> {
+        use std::sync::OnceLock;
+        static CACHED: OnceLock<Option<usize>> = OnceLock::new();
+        *CACHED.get_or_init(|| {
+            std::env::var("FLUX_WORKERS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|n| *n > 0)
+        })
     }
 
     /// Process-global scope ID counter (1b-vi-c). Scopes across all boundaries
@@ -257,11 +312,13 @@ mod vm_fibers {
             n
         });
         if depth == 0 {
-            // 1b-vi-c logical worker assignment: two virtual workers, still
-            // dispatched by this single OS thread. Real worker threads land
-            // after the VM Value/continuation ownership boundary is ready.
+            // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
+            // knobs set by `FiberRunAsyncWith`, with a `FLUX_WORKERS`
+            // env-var fallback and a default of 2 logical workers
+            // (matching the previous Phase 1b-vi-c hardcoded count).
+            let n_workers = resolved_worker_count().max(1);
             SCHED.with(|s| {
-                *s.borrow_mut() = Some(FiberScheduler::new(2));
+                *s.borrow_mut() = Some(FiberScheduler::new(n_workers));
             });
         }
         let root = SCHED.with(|s| {
@@ -320,6 +377,9 @@ mod vm_fibers {
             // Phase 2 slice 2-iv: drop the cancelled-id set so a second
             // top-level run_async on the same thread starts fresh.
             CANCELLED_IDS.with(|c| c.borrow_mut().clear());
+            // Phase 2 slice 2-vii: drop the pending config so the next
+            // top-level run_async picks up its own (or falls back to env/default).
+            PENDING_RUN_CONFIG.with(|c| c.set(None));
         }
     }
 
@@ -675,6 +735,18 @@ mod vm_fibers {
             None => return false,
         };
         CANCELLED_IDS.with(|c| c.borrow().contains(&id))
+    }
+
+    /// Introspection hook for Phase 2 slice 2-vii tests: report the worker
+    /// count of the currently active `FiberScheduler`. Returns 0 when no
+    /// scheduler is active (i.e., outside `run_async`).
+    pub fn current_num_workers() -> usize {
+        SCHED.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map(|sc| sc.num_workers())
+                .unwrap_or(0)
+        })
     }
 
     // ── Scope helpers (1b-vi-c) ─────────────────────────────────────────
@@ -1513,6 +1585,51 @@ pub fn execute_core_primop(
             let prev_boundary =
                 vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
             vm_fibers::set_root_with_body(root, args[0].clone());
+
+            let result = vm_fibers::dispatch_loop(ctx, backend);
+
+            vm_fibers::clear_root();
+            vm_fibers::restore_boundary(prev_boundary);
+            vm_fibers::exit_run_async(root);
+            result
+        }
+
+        // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
+        // knobs (proposal 0174 Phase 2 slice 2-vii). Args:
+        //   args[0] = worker_count   (Int; 0 means "default")
+        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
+        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
+        //   args[3] = action closure
+        // Sets the pending RuntimeConfig before entering the boundary so
+        // `enter_run_async` picks it up; the rest of the path is identical
+        // to `FiberRunAsync`.
+        FiberRunAsyncWith => {
+            let workers = match &args[0] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(workers)", "Int", other)),
+            };
+            let fs_pool = match &args[1] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(fs)", "Int", other)),
+            };
+            let dns_pool = match &args[2] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(dns)", "Int", other)),
+            };
+            vm_fibers::set_pending_run_config(vm_fibers::PendingRunConfig {
+                worker_count: workers,
+                fs_pool_size: fs_pool,
+                dns_pool_size: dns_pool,
+            });
+
+            let backend = vm_async::backend()?;
+            let root = vm_fibers::enter_run_async();
+            let prev_boundary =
+                vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
+            vm_fibers::set_root_with_body(root, args[3].clone());
 
             let result = vm_fibers::dispatch_loop(ctx, backend);
 
