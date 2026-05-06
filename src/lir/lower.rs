@@ -4071,7 +4071,12 @@ impl<'a> FnLower<'a> {
             CorePrimOp::FiberSleep
             | CorePrimOp::FiberBoth
             | CorePrimOp::FiberRace
-            | CorePrimOp::FiberTimeout => {
+            | CorePrimOp::FiberTimeout
+            | CorePrimOp::TcpConnect
+            | CorePrimOp::TcpRead
+            | CorePrimOp::TcpWriteAll
+            | CorePrimOp::TcpListen
+            | CorePrimOp::TcpAccept => {
                 let result = self.fresh_var();
                 let sink = self.fresh_var();
                 self.emit(LirInstr::PrimCall {

@@ -250,13 +250,11 @@ mod vm_fibers {
             n
         });
         if depth == 0 {
-            // TODO 1b-vi-c-A: FiberScheduler::new(1) hard-codes a single virtual
-            // worker. Multi-OS-thread dispatch: change to FiberScheduler::new(N),
-            // spawn N-1 additional OS threads each running dispatch_loop on their
-            // own worker slot, with a CompletionRouter routing backend completions
-            // to per-worker inboxes.
+            // 1b-vi-c logical worker assignment: two virtual workers, still
+            // dispatched by this single OS thread. Real worker threads land
+            // after the VM Value/continuation ownership boundary is ready.
             SCHED.with(|s| {
-                *s.borrow_mut() = Some(FiberScheduler::new(1));
+                *s.borrow_mut() = Some(FiberScheduler::new(2));
             });
         }
         let root = SCHED.with(|s| {
@@ -296,7 +294,7 @@ mod vm_fibers {
         // artifacts; race losers that finished after parent woke; etc).
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
-                while sched.next_ready(WorkerId(0)).is_some() {}
+                while sched.next_ready_any().is_some() {}
             }
         });
         let new_depth = DEPTH.with(|d| {
@@ -322,7 +320,7 @@ mod vm_fibers {
             s.borrow_mut()
                 .as_mut()
                 .expect("FiberFork outside Async.run_async — scheduler missing")
-                .spawn(WorkerId(0))
+                .spawn_child_round_robin()
         })
     }
 
@@ -376,13 +374,17 @@ mod vm_fibers {
     /// dispatch loop knows to invoke it on first dispatch.
     pub fn set_root_with_body(id: FiberId, body: Value) {
         ROOT.with(|r| r.set(Some(id)));
+        attach_body_to_ready_fiber(id, body);
+    }
+
+    fn attach_body_to_ready_fiber(id: FiberId, body: Value) {
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
-                // Rebuild the worker 0 ready queue with the body attached
-                // to the matching fiber.  The b₁ enter_run_async pushed the
-                // root fiber on; we drain, modify, re-push in order.
+                // Rebuild all logical worker ready queues with the body
+                // attached to the matching fiber. This keeps child fibers on
+                // their round-robin-assigned home worker.
                 let mut buf: Vec<Fiber> = Vec::new();
-                while let Some(f) = sched.next_ready(WorkerId(0)) {
+                while let Some((_worker, f)) = sched.next_ready_any() {
                     buf.push(f);
                 }
                 for mut f in buf {
@@ -411,23 +413,9 @@ mod vm_fibers {
             s.borrow_mut()
                 .as_mut()
                 .expect("spawn_child_with_body outside Async.run_async")
-                .spawn(WorkerId(0))
+                .spawn_child_round_robin()
         });
-        // Find the just-spawned fiber and set its body.
-        SCHED.with(|s| {
-            if let Some(sched) = s.borrow_mut().as_mut() {
-                let mut buf: Vec<Fiber> = Vec::new();
-                while let Some(f) = sched.next_ready(WorkerId(0)) {
-                    buf.push(f);
-                }
-                for mut f in buf {
-                    if f.id == id {
-                        f.body = Some(body.clone());
-                    }
-                    sched.spawn_existing(f);
-                }
-            }
-        });
+        attach_body_to_ready_fiber(id, body);
         id
     }
 
@@ -702,9 +690,11 @@ mod vm_fibers {
                     s.borrow_mut()
                         .as_mut()
                         .expect("scheduler missing in dispatch_loop")
-                        .next_ready(WorkerId(0))
+                        .next_ready_any()
                 });
-                let Some(mut fiber) = next else { break };
+                let Some((_worker, mut fiber)) = next else {
+                    break;
+                };
 
                 // Skip fibers with no work (b₁ FiberFork pushes a fiber but
                 // also runs its body inline; the fiber on the ready queue is
@@ -742,11 +732,12 @@ mod vm_fibers {
                                 };
                             fiber.parked = Some(cont_rc);
                             fiber.state = FiberState::Suspended { request_id: req };
+                            let home_worker = fiber.home_worker;
                             SCHED.with(|s| {
                                 s.borrow_mut()
                                     .as_mut()
                                     .expect("scheduler missing")
-                                    .insert_suspended(WorkerId(0), req, fiber);
+                                    .insert_suspended(home_worker, req, fiber);
                             });
                             continue;
                         }
@@ -762,7 +753,7 @@ mod vm_fibers {
                                     s.borrow_mut()
                                         .as_mut()
                                         .expect("scheduler missing")
-                                        .complete(WorkerId(0), RequestId(pr));
+                                        .complete_request(RequestId(pr));
                                 });
                             }
                         }
@@ -807,11 +798,12 @@ mod vm_fibers {
                     };
                     fiber.parked = Some(cont_rc);
                     fiber.state = FiberState::Suspended { request_id: req };
+                    let home_worker = fiber.home_worker;
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
                             .expect("scheduler missing")
-                            .insert_suspended(WorkerId(0), req, fiber);
+                            .insert_suspended(home_worker, req, fiber);
                     });
                     // The Err that surfaced was the park-unwind signal, not
                     // a real error; ignore it.
@@ -841,7 +833,7 @@ mod vm_fibers {
                                 s.borrow_mut()
                                     .as_mut()
                                     .expect("scheduler missing")
-                                    .complete(WorkerId(0), RequestId(parent_req));
+                                    .complete_request(RequestId(parent_req));
                             });
                         }
                     }
@@ -859,7 +851,7 @@ mod vm_fibers {
             let suspended = SCHED.with(|s| {
                 s.borrow()
                     .as_ref()
-                    .map(|sched| sched.suspended_count(WorkerId(0)))
+                    .map(|sched| sched.total_suspended_count())
                     .unwrap_or(0)
             });
             if suspended == 0 {
@@ -894,7 +886,7 @@ mod vm_fibers {
                         s.borrow_mut()
                             .as_mut()
                             .expect("scheduler missing")
-                            .complete(WorkerId(0), c.request_id);
+                            .complete_request(c.request_id);
                     });
                     break;
                 }
