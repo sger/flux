@@ -189,6 +189,27 @@ fn main() {
 }
 
 #[test]
+fn sendable_recursive_adt_is_auto_derived() {
+    // Proposal 0174 Phase 2 slice 2-x acceptance: a recursive ADT whose
+    // every field is Sendable (transitively, including the recursive
+    // self-reference) gets a synthesized Sendable instance. The
+    // synthesis-skip rule is "any field contains a function type" — a
+    // recursive reference is structurally fine.
+    compile_source(
+        r#"
+data Tree { Leaf, Node(Int, Tree, Tree) }
+
+fn ferry<a: Sendable>(x: a) -> a { x }
+
+fn main() {
+    ferry(Node(1, Leaf, Leaf))
+}
+"#,
+    )
+    .expect("Sendable<Tree> must auto-derive for a recursive ADT of only Sendable fields");
+}
+
+#[test]
 fn sendable_function_type_has_no_instance() {
     // Closures aren't sendable — the proposal's "absence means not sendable"
     // rule. Compilation must fail with a no-instance diagnostic.

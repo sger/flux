@@ -58,6 +58,11 @@ module Flow.Async {
     /// Cooperative yield. VM: no-op. Native: reschedules current fiber.
     intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
 
+    /// Phase 2 slice 2-iv: poll whether the current fiber's enclosing
+    /// scope has been cancelled. Returns `true` iff cancelled. No
+    /// suspend, no backend round-trip — a scheduler flag check.
+    intrinsic fn fiber_check_cancelled_prim() -> Bool = primop FiberCheckCancelled
+
     /// Wall-clock sleep for `ms` milliseconds.
     /// VM: blocks OS thread. Native: suspends fiber, wakes on timer.
     intrinsic fn fiber_sleep_prim(ms: Int) -> Unit = primop FiberSleep
@@ -203,6 +208,29 @@ module Flow.Async {
     /// VM: no-op.
     public fn yield_now() -> Unit with Async {
         fiber_yield_now_prim()
+    }
+
+    /// True iff the enclosing `Async.scope` (or `timeout` / `race`) has
+    /// been cancelled. Fibers in long pure loops between `await` points
+    /// should call this periodically and `return` early when it returns
+    /// true.
+    ///
+    /// `Async.yield_now()` is **not** yet a cancellation point on its
+    /// own — that comes in slice 2-vi together with the real
+    /// `Async.fail` raise machinery. Until then, pair this with an
+    /// explicit `return` or use `bail_if_cancelled` for the common
+    /// raise-and-unwind shape (see proposal 0174 slice 2-iv).
+    public fn check_cancelled() -> Bool with Async {
+        fiber_check_cancelled_prim()
+    }
+
+    /// Convenience wrapper: `if check_cancelled() { fail(AsyncError.Canceled) }`.
+    /// Until slice 2-vi makes `fail` a catchable raise, this aborts the
+    /// fiber via the existing soft-cancel path (today: VM `Err` string,
+    /// caught at the `run_async` boundary).
+    public fn bail_if_cancelled() -> Unit with Async {
+        if check_cancelled() { fail(Canceled) }
+        else { () };
     }
 
     /// Suspend the current fiber for at least `ms` milliseconds.

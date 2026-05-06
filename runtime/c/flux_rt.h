@@ -208,6 +208,10 @@ int64_t flux_fiber_timeout(int64_t ms, int64_t f);
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
 int64_t flux_fiber_fork_scoped(int64_t s, int64_t f);
 int64_t flux_fiber_cancel_scope(int64_t s);
+/* Phase 2 slice 2-iv: poll whether the current fiber's enclosing scope
+ * has been cancelled. Returns a tagged Flux Bool. Outside run_async,
+ * returns FLUX_FALSE. */
+int64_t flux_fiber_check_cancelled(void);
 
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 typedef struct FluxAsyncCallbacks {
@@ -239,6 +243,7 @@ uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
 int32_t  flux_async_cancel_scope(uint64_t scope_id);
+int32_t  flux_async_check_cancelled(void);
 uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
 uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t port);
 uint64_t flux_async_tcp_read(uint64_t handle, uintptr_t max);

@@ -614,3 +614,8 @@ int64_t flux_fiber_cancel_scope(int64_t s) {
     }
     return FLUX_NONE;
 }
+
+/* Phase 2 slice 2-iv: poll the current fiber's scope cancel flag. */
+int64_t flux_fiber_check_cancelled(void) {
+    return flux_make_bool(flux_async_check_cancelled() != 0);
+}
