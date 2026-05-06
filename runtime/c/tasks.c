@@ -478,19 +478,183 @@ int64_t flux_fiber_sleep(int64_t ms) {
     return FLUX_NONE;
 }
 
-/* ── Fiber combinators (proposal 0174 Phase 1b-vi-d) ──────────────────────
- * Sequential-equivalent semantics: no real concurrency.  Unblocks all native
- * programs that use Flow.Async.  Real M:N on the native path requires a
- * Rust→C FFI bridge for the mio reactor and FiberScheduler; that is a
- * separate follow-up.                                                       */
+/* ── Fiber combinators (proposal 0174 Phase 1b-vi-d and 1b-vi-e) ──────────
+ * POSIX path (Phase 1b-vi-e): pthread-based true concurrency for TCP parity.
+ * Windows path: sequential-equivalent semantics (TCP stubs abort on Windows).
+ * Real M:N async on native requires Rust→C FFI bridge for mio reactor.      */
+
+#if !defined(_WIN32) && !defined(_MSC_VER)
+
+/* Lightweight thread argument for flux_fiber_both. */
+typedef struct {
+    int64_t closure;     /* NaN-boxed FluxClosure, rc-bumped */
+    int64_t result;      /* written by thread, read after join */
+} FiberThreadArg;
+
+static void *fiber_thread_worker(void *arg) {
+    flux_worker_thread = 1;  /* bypass bump arena — malloc only */
+    FiberThreadArg *a = (FiberThreadArg *)arg;
+    a->result = flux_call_closure_c(a->closure, NULL, 0);
+    flux_drop(a->closure);
+    return NULL;
+}
 
 int64_t flux_fiber_both(int64_t f, int64_t g) {
-    /* Note: f and g must be non-yielding on the native path.  flow.Async's
-     * sleep/yield_now do NOT use the FluxEffectContext yield machinery, so
-     * this assumption holds for all public Flow.Async combinators.          */
+    /* Promote to MT refcount mode (safe to share across threads). */
+    flux_rc_promote(f);
+    flux_rc_promote(g);
+    flux_dup(f);
+    flux_dup(g);
+
+    FiberThreadArg fa = { .closure = f, .result = FLUX_NONE };
+    FiberThreadArg ga = { .closure = g, .result = FLUX_NONE };
+
+    pthread_t tf, tg;
+    pthread_create(&tf, NULL, fiber_thread_worker, &fa);
+    pthread_create(&tg, NULL, fiber_thread_worker, &ga);
+    pthread_join(tf, NULL);
+    pthread_join(tg, NULL);
+
+    /* Build 2-tuple from the two results. */
+    void *ptr = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_TUPLE);
+    *(uint32_t *)((char *)ptr + 4) = 2;
+    int64_t *elems = (int64_t *)((char *)ptr + 8);
+    elems[0] = fa.result;
+    elems[1] = ga.result;
+    return (int64_t)ptr;
+}
+
+/* Lightweight thread argument for flux_fiber_race. */
+typedef struct {
+    int64_t closure;
+    pthread_mutex_t *mu;
+    pthread_cond_t  *cv;
+    int64_t         *winner_result;
+    int             *done;  /* set to 1 by first finisher */
+} RaceThreadArg;
+
+static void *race_thread_worker(void *arg) {
+    flux_worker_thread = 1;
+    RaceThreadArg *a = (RaceThreadArg *)arg;
+    int64_t result = flux_call_closure_c(a->closure, NULL, 0);
+    flux_drop(a->closure);
+    pthread_mutex_lock(a->mu);
+    if (!*(a->done)) {
+        *(a->done) = 1;
+        *(a->winner_result) = result;
+        pthread_cond_signal(a->cv);
+    }
+    pthread_mutex_unlock(a->mu);
+    return NULL;
+}
+
+int64_t flux_fiber_race(int64_t f, int64_t g) {
+    flux_rc_promote(f);
+    flux_rc_promote(g);
+    flux_dup(f);
+    flux_dup(g);
+
+    pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t  cv = PTHREAD_COND_INITIALIZER;
+    int64_t winner = FLUX_NONE;
+    int done = 0;
+
+    RaceThreadArg fa = { f, &mu, &cv, &winner, &done };
+    RaceThreadArg ga = { g, &mu, &cv, &winner, &done };
+
+    pthread_t tf, tg;
+    pthread_create(&tf, NULL, race_thread_worker, &fa);
+    pthread_create(&tg, NULL, race_thread_worker, &ga);
+
+    pthread_mutex_lock(&mu);
+    while (!done) pthread_cond_wait(&cv, &mu);
+    pthread_mutex_unlock(&mu);
+
+    /* Join both — loser runs to completion (no cancellation). */
+    pthread_join(tf, NULL);
+    pthread_join(tg, NULL);
+
+    pthread_mutex_destroy(&mu);
+    pthread_cond_destroy(&cv);
+    return winner;
+}
+
+/* Lightweight thread argument for flux_fiber_timeout. */
+typedef struct {
+    int64_t          closure;
+    int64_t          ms;   /* for timer thread */
+    pthread_mutex_t *mu;
+    pthread_cond_t  *cv;
+    int64_t         *result;
+    int             *kind; /* 0=pending, 1=body, 2=timer */
+} TimeoutArg;
+
+static void *timeout_body_worker(void *arg) {
+    flux_worker_thread = 1;
+    TimeoutArg *a = (TimeoutArg *)arg;
+    int64_t r = flux_call_closure_c(a->closure, NULL, 0);
+    flux_drop(a->closure);
+    pthread_mutex_lock(a->mu);
+    if (*(a->kind) == 0) {
+        *(a->kind) = 1;
+        *(a->result) = r;
+        pthread_cond_signal(a->cv);
+    }
+    pthread_mutex_unlock(a->mu);
+    return NULL;
+}
+
+static void *timeout_timer_worker(void *arg) {
+    flux_worker_thread = 1;
+    TimeoutArg *a = (TimeoutArg *)arg;
+    struct timespec ts;
+    ts.tv_sec  = (time_t)(a->ms / 1000);
+    ts.tv_nsec = (long)((a->ms % 1000) * 1000000L);
+    nanosleep(&ts, NULL);
+    pthread_mutex_lock(a->mu);
+    if (*(a->kind) == 0) {
+        *(a->kind) = 2;
+        pthread_cond_signal(a->cv);
+    }
+    pthread_mutex_unlock(a->mu);
+    return NULL;
+}
+
+int64_t flux_fiber_timeout(int64_t ms_val, int64_t f) {
+    int64_t ms = flux_untag_int(ms_val);
+    flux_rc_promote(f);
+    flux_dup(f);
+
+    pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t  cv = PTHREAD_COND_INITIALIZER;
+    int64_t result = FLUX_NONE;
+    int kind = 0;
+
+    TimeoutArg ba = { f,          0,  &mu, &cv, &result, &kind };
+    TimeoutArg ta = { FLUX_NONE, ms,  &mu, &cv, &result, &kind };
+
+    pthread_t tb, tt;
+    pthread_create(&tb, NULL, timeout_body_worker,  &ba);
+    pthread_create(&tt, NULL, timeout_timer_worker, &ta);
+
+    pthread_mutex_lock(&mu);
+    while (!kind) pthread_cond_wait(&cv, &mu);
+    int won = kind;
+    pthread_mutex_unlock(&mu);
+
+    pthread_join(tb, NULL);
+    pthread_join(tt, NULL);
+    pthread_mutex_destroy(&mu);
+    pthread_cond_destroy(&cv);
+
+    return (won == 1) ? flux_wrap_some(result) : FLUX_NONE;
+}
+
+#else /* Windows: sequential stubs */
+
+int64_t flux_fiber_both(int64_t f, int64_t g) {
     int64_t ra = flux_call_closure_c(f, NULL, 0);
     int64_t rb = flux_call_closure_c(g, NULL, 0);
-    /* 2-tuple: payload = 4+4 (pad+arity) + 2*8 = 24; scan_fsize = 2. */
     void *ptr = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_TUPLE);
     *(uint32_t *)((char *)ptr + 4) = 2;
     int64_t *elems = (int64_t *)((char *)ptr + 8);
@@ -500,16 +664,16 @@ int64_t flux_fiber_both(int64_t f, int64_t g) {
 }
 
 int64_t flux_fiber_race(int64_t f, int64_t g) {
-    /* Sequential: f always "wins"; g is never called. */
     (void)g;
     return flux_call_closure_c(f, NULL, 0);
 }
 
 int64_t flux_fiber_timeout(int64_t ms, int64_t f) {
-    /* Sequential: deadline ignored; call f() and wrap the result in Some(). */
     (void)ms;
     return flux_wrap_some(flux_call_closure_c(f, NULL, 0));
 }
+
+#endif /* _WIN32 */
 
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag) {
     /* Allocate Scope(id) ADT: payload = 8 (ctor_tag+field_count) + 8 = 16;
