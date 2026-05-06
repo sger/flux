@@ -109,4 +109,16 @@ pub trait AsyncBackend {
     fn tcp_close(&self, _handle: IoHandle) {
         panic!("AsyncBackend::tcp_close not implemented for this backend");
     }
+
+    /// Bind a listening socket. Completion carries `TcpHandle(handle)` on success
+    /// (the handle can be passed to `tcp_accept`), or `Error`.
+    fn tcp_listen(&self, _req: RequestId, _addr: std::net::SocketAddr) {
+        panic!("AsyncBackend::tcp_listen not implemented for this backend");
+    }
+
+    /// Accept one inbound connection on the listener identified by `handle`.
+    /// Completion carries `TcpHandle(new_conn_handle)` on success, or `Error`.
+    fn tcp_accept(&self, _req: RequestId, _handle: IoHandle) {
+        panic!("AsyncBackend::tcp_accept not implemented for this backend");
+    }
 }
