@@ -143,8 +143,18 @@ impl TaskManager {
             Some(inner) => inner,
             None => return,
         };
-        inner.shared.shutdown.store(true, Ordering::SeqCst);
-        inner.shared.not_empty.notify_all();
+        // Set the shutdown flag while holding the queue lock so that workers
+        // cannot slip between their "queue empty" check and their condvar wait
+        // without seeing the flag.  Without this lock the sequence
+        //   worker: checks shutdown (false) → queue empty → about to wait
+        //   shutdown: stores true → notify_all (no waiters yet)
+        //   worker: enters wait → parks forever
+        // is a real TOCTOU that causes the join to hang indefinitely.
+        {
+            let _guard = inner.shared.queues.lock().expect("queue mutex poisoned");
+            inner.shared.shutdown.store(true, Ordering::SeqCst);
+            inner.shared.not_empty.notify_all();
+        }
 
         for w in inner.workers.drain(..) {
             // Workers should never panic; if one does, surface via stderr —
