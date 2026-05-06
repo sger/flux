@@ -1011,6 +1011,27 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Phase 2 slice 2-iv: poll whether the *current* fiber's enclosing scope
+/// has been cancelled.
+///
+/// Returns `1` if cancelled, `0` otherwise. Callers (the C shim
+/// `flux_fiber_check_cancelled`) convert this to a tagged `Bool` for
+/// the Flux source layer.
+///
+/// Outside `Async.run_async` (no active runtime, or `CURRENT_FIBER == 0`),
+/// returns `0` — there is no scope to be cancelled.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_check_cancelled() -> i32 {
+    let id = CURRENT_FIBER.with(|c| c.get());
+    if id == 0 {
+        return 0;
+    }
+    match with_run(|run| run.is_cancelled(id)) {
+        Some(true) => 1,
+        _ => 0,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_suspend_request(request_id: u64) -> i64 {
     if request_id == 0 {

@@ -599,6 +599,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FiberNewScope => out.push_str("FiberNewScope"),
         CorePrimOp::FiberForkScoped => out.push_str("FiberForkScoped"),
         CorePrimOp::FiberCancelScope => out.push_str("FiberCancelScope"),
+        CorePrimOp::FiberCheckCancelled => out.push_str("FiberCheckCancelled"),
     }
 }
 

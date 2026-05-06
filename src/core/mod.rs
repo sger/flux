@@ -691,7 +691,13 @@ pub enum CorePrimOp {
     /// Cancel all fibers registered under a scope (proposal 0174 1b-vi-c).
     /// Args: (scope). Cancels backend requests + marks fibers Cancelled.
     FiberCancelScope = 177,
-    // ── Next free ID: 178 ─────────────────────────────────────────────
+    /// Poll whether the current fiber's enclosing scope has been cancelled
+    /// (proposal 0174 Phase 2 slice 2-iv). Returns `Bool`. No suspend, no
+    /// backend round-trip — a scheduler flag read. Composes with `Async.fail`
+    /// when the caller wants to raise; slice 2-vi makes that raise
+    /// catchable.
+    FiberCheckCancelled = 178,
+    // ── Next free ID: 179 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -756,6 +762,7 @@ impl CorePrimOp {
             "FiberNewScope" => return Some(Self::FiberNewScope),
             "FiberForkScoped" => return Some(Self::FiberForkScoped),
             "FiberCancelScope" => return Some(Self::FiberCancelScope),
+            "FiberCheckCancelled" => return Some(Self::FiberCheckCancelled),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -853,6 +860,7 @@ impl CorePrimOp {
             Self::FiberNewScope => Some("fiber_new_scope"),
             Self::FiberForkScoped => Some("fiber_fork_scoped"),
             Self::FiberCancelScope => Some("fiber_cancel_scope"),
+            Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
             _ => None,
         }
     }
@@ -1025,6 +1033,7 @@ impl CorePrimOp {
             175 => FiberNewScope,
             176 => FiberForkScoped,
             177 => FiberCancelScope,
+            178 => FiberCheckCancelled,
             _ => return None,
         };
         Some(op)
@@ -1165,6 +1174,7 @@ impl CorePrimOp {
             ("fiber_sleep", 1, CorePrimOp::FiberSleep),
             ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
             ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
+            ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1194,7 +1204,8 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow | FiberNewScope => 0,
+            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow | FiberNewScope
+            | FiberCheckCancelled => 0,
             Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
             | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
             | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
