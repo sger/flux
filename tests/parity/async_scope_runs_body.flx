@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: scope must execute the body function and return its result.
 //      VM: synchronous call with a dummy Scope(0) handle.

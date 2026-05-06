@@ -199,6 +199,14 @@ int64_t flux_task_await(int64_t task);
 int64_t flux_fiber_run_async(int64_t closure);
 int64_t flux_fiber_yield_now(void);
 int64_t flux_fiber_sleep(int64_t ms);
+/* Fiber combinators — sequential-equivalent (proposal 0174 Phase 1b-vi-d). */
+int64_t flux_fiber_both(int64_t f, int64_t g);
+int64_t flux_fiber_race(int64_t f, int64_t g);
+int64_t flux_fiber_timeout(int64_t ms, int64_t f);
+/* scope_ctor_tag: Scope constructor's integer tag, supplied by LLVM codegen. */
+int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
+int64_t flux_fiber_fork_scoped(int64_t s, int64_t f);
+int64_t flux_fiber_cancel_scope(int64_t s);
 
 /* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
 /* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
