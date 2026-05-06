@@ -371,6 +371,10 @@ name = "vm_fiber_check_cancelled"
 path = "tests/integration/vm_fiber_check_cancelled.rs"
 
 [[test]]
+name = "vm_runtime_config"
+path = "tests/integration/vm_runtime_config.rs"
+
+[[test]]
 name = "vm_fiber_registry"
 path = "tests/integration/vm_fiber_registry.rs"
 

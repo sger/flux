@@ -1011,6 +1011,26 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Phase 2 slice 2-vii: `flux_async_run_root` with an explicit
+/// `RuntimeConfig` (worker_count, fs_pool_size, dns_pool_size).
+///
+/// The arguments are accepted for API parity with the VM path; today the
+/// native runtime still uses the compile-time `LOGICAL_WORKERS` constant
+/// for worker spawning and ignores the fs/dns sizes (those are consulted
+/// once slice 2-viii lands the blocking pool). A non-zero `worker_count`
+/// deviates from the VM behaviour today; full native runtime-config
+/// support is a follow-up. The function is wired so user code that
+/// targets `Async.run_async_with` continues to link and run on native.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_run_root_with(
+    _worker_count: i64,
+    _fs_pool_size: i64,
+    _dns_pool_size: i64,
+    root_closure: i64,
+) -> i64 {
+    flux_async_run_root(root_closure)
+}
+
 /// Phase 2 slice 2-iv: poll whether the *current* fiber's enclosing scope
 /// has been cancelled.
 ///

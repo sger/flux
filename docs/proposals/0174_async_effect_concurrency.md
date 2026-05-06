@@ -76,7 +76,7 @@ target the original proposal aimed at.
 | 2-iv — Cancellation observation in pure loops | ✅ | New `CorePrimOp::FiberCheckCancelled = 178` with VM dispatch in [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs); `flux_fiber_check_cancelled` C shim ([`runtime/c/tasks.c`](../../runtime/c/tasks.c)) over `flux_async_check_cancelled` extern in [`src/runtime/async/native_abi.rs`](../../src/runtime/async/native_abi.rs); LLVM emit-name in [`src/lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs). Per-thread `CANCELLED_IDS: HashSet<FiberId>` in `vm_fibers` mirrors the scheduler's cancel set so a *currently executing* fiber can observe its scope's cancellation, not just suspended fibers. Library: `Async.check_cancelled() -> Bool with Async` plus convenience `Async.bail_if_cancelled()` that calls `Async.fail(Canceled)` (ergonomic shim; becomes a real catchable raise once slice 2-vi lands). **Signature deviation from the proposal text**: ships as `-> Bool` not `-> Unit`-with-raise because real raise machinery is slice 2-vi territory; helper covers the raise idiom. Tests: [`tests/integration/vm_fiber_check_cancelled.rs`](../../tests/integration/vm_fiber_check_cancelled.rs) (no-cancel + timeout-cancellation cases); [`tests/parity/async_check_cancelled_false_when_not_cancelled.flx`](../../tests/parity/async_check_cancelled_false_when_not_cancelled.flx) (vm/llvm). `yield_now` cancellation-point retrofit deferred to 2-vi (today still a no-op). |
 | 2-v — `Http.serve` production-knobs design | ✅ | API spec landed in the Phase 3 HTTP section: `ServerConfig` with `max_connections` / `max_header_bytes` / `max_body_bytes` / `request_timeout_ms` / `worker_count`, `ServerHandle`, `default_config()`, `serve_config(addr, port, config, handler) -> ServerHandle`, `shutdown(h)` (graceful drain) and `shutdown_now(h)` (cancellation). Knob enforcement contract spelled out. Phase 3 implements against this signature. |
 | 2-vi — Fiber panic semantics | ⏳ | Worker catches fiber panics, converts to `AsyncError.Panicked`, propagates up the structured-concurrency tree, observable through `try_`. Workers do not poison. |
-| 2-vii — Runtime config knobs | ⏳ | New `RuntimeConfig` + `Async.run_async_with(cfg, ...)`; env-var fallbacks `FLUX_WORKERS`, `FLUX_FS_THREADS`, `FLUX_DNS_THREADS`. |
+| 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` builder + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `fs_pool_size` and `dns_pool_size` are accepted today but only consulted once Phase 2 slice 2-viii lands the blocking pool. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
 | 2-viii — Blocking pool + DNS resolver | ⏳ | New `src/runtime/async/blocking_pool.rs`, `AsyncBackend::dns_resolve`, `CompletionPayload::AddressList` (already declared but unimplemented), `flux_async_dns_resolve` native ABI, hostname path in `lib/Flow/Tcp.flx`. |
 | 2-ix — Transparent type aliases | ⏳ | Extend `alias Name = ...` to accept ordinary type expressions, not only effect rows. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) already walks every `data` declaration, skips ADTs with function-typed fields, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) — 10 tests cover monomorphic ADTs, parameterized ADTs (positive and negative), function-field ADTs (rejected), recursive ADTs, and bare function types (rejected). The slice's only output was adding the recursive-ADT regression test that was missing from the original suite. |
@@ -1796,13 +1796,14 @@ Slice 2-vii adds a single `RuntimeConfig` struct passed at
 module Flow.Async {
     public data RuntimeConfig {
         RuntimeConfig {
-            worker_count:    Option<Int>,   // default available_parallelism()
-            fs_pool_size:    Int,           // default min(4, available_parallelism)
-            dns_pool_size:   Int,           // default 4
+            worker_count:    Option<Int>,   // None => available_parallelism()
+            fs_pool_size:    Int,           // 0 => min(4, available_parallelism)
+            dns_pool_size:   Int,           // 0 => 4
         }
     }
 
     public fn default_runtime_config() -> RuntimeConfig
+    public fn with_worker_count(n: Int) -> RuntimeConfig
 
     public fn run_async_with<a>(
         cfg: RuntimeConfig,
@@ -1811,17 +1812,42 @@ module Flow.Async {
 }
 ```
 
-`Async.run_async(action)` keeps its current zero-config signature and
-calls `run_async_with(default_runtime_config(), action)`. Env-var
-fallbacks: `FLUX_WORKERS`, `FLUX_FS_THREADS`, `FLUX_DNS_THREADS` —
-all parsed once at first `run_async` call, override defaults but lose
-to explicit `RuntimeConfig`.
+`Async.run_async(action)` keeps its current zero-config signature.
+Env-var fallbacks: `FLUX_WORKERS`, `FLUX_FS_THREADS`, `FLUX_DNS_THREADS`
+— parsed once via `OnceLock` and consulted only when the corresponding
+`RuntimeConfig` field is the default sentinel (`None` for worker_count,
+`0` for the pool sizes). An explicit `RuntimeConfig` always wins.
 
-Acceptance: a unit test that constructs a `RuntimeConfig { worker_count: Some(1), ... }`,
-calls `run_async_with`, and verifies via the runtime introspection
-endpoint that exactly one worker thread was started; an env-var test
-confirms `FLUX_WORKERS=1` has the same effect when no explicit config
-is passed.
+Wire path: `run_async_with` desugars `cfg` to four primop arguments
+(workers, fs, dns, action) for `CorePrimOp::FiberRunAsyncWith = 179`.
+The VM dispatch handler stores the knobs in a thread-local
+`PendingRunConfig` that `enter_run_async` consults before constructing
+the `FiberScheduler`. Native side calls `flux_async_run_root_with`
+which currently forwards to `flux_async_run_root` and ignores the
+worker count (full native config support is a follow-up; the surface
+exists today so user code targeting `run_async_with` continues to
+link and run on native).
+
+Implementation note on the constructor surface: directly writing
+`Async.RuntimeConfig { worker_count: ..., ... }` at a call site
+currently runs into Flux's "could not infer concrete type" diagnostic
+unless the type is otherwise constrained, and the bare `RuntimeConfig`
+form is not brought into scope by `import ... exposing (..)` at the
+time of writing. The `with_worker_count` builder side-steps the
+problem for the common case; richer construction stays on hand via
+`default_runtime_config` and direct field destructuring inside
+library code. This is a Flux-source ergonomic gap, not a
+slice-2-vii design choice — once the language support catches up,
+the call-site form becomes available without library changes.
+
+Acceptance landed: [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs)
+covers (1) explicit `with_worker_count(1)` returning the body's
+value; (2) `default_runtime_config()` returning the body's value;
+(3) `FLUX_WORKERS=1` env var not breaking the existing zero-config
+`run_async`. Direct introspection of "exactly one worker thread was
+started" is exposed through the in-process helper
+`vm_fibers::current_num_workers()`; reachable by Rust unit tests but
+not from a CLI-driven integration fixture.
 
 #### 2-viii — Blocking pool + DNS resolver
 

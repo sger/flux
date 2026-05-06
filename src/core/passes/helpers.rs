@@ -607,7 +607,8 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberNewScope
         | CorePrimOp::FiberForkScoped
         | CorePrimOp::FiberCancelScope
-        | CorePrimOp::FiberCheckCancelled => false,
+        | CorePrimOp::FiberCheckCancelled
+        | CorePrimOp::FiberRunAsyncWith => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

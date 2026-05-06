@@ -55,6 +55,11 @@ module Flow.Async {
     /// VM: synchronous call. Native: installs Async effect handler.
     intrinsic fn fiber_run_async<a>(action: () -> a with Async) -> a = primop FiberRunAsync
 
+    /// Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
+    /// knobs. Each int is a tagged Flux Int; passing 0 means "use the default
+    /// for that knob".
+    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async) -> a = primop FiberRunAsyncWith
+
     /// Cooperative yield. VM: no-op. Native: reschedules current fiber.
     intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
 
@@ -93,6 +98,60 @@ module Flow.Async {
     /// Cancel all fibers forked under scope `s` (proposal 0174 1b-vi-c).
     intrinsic fn fiber_cancel_scope_prim(s: Scope) -> Unit = primop FiberCancelScope
 
+    // ── Runtime configuration (Phase 2 slice 2-vii) ───────────────────
+
+    /// Knobs passed to `Async.run_async_with` to override scheduler /
+    /// blocking-pool defaults for a single `run_async` boundary.
+    ///
+    /// Field semantics:
+    ///
+    /// - `worker_count`: `Some(n)` requests `n` worker workers (>= 1).
+    ///   `None` means "use the runtime default" — `available_parallelism()`
+    ///   on platforms that report it, falling back to 2 logical workers
+    ///   on the VM. Honored on the VM today; the native runtime currently
+    ///   uses its compile-time `LOGICAL_WORKERS` constant and ignores
+    ///   this field (full native support is a follow-up).
+    /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
+    ///   Accepted today and stored, but only consulted once Phase 2
+    ///   slice 2-viii lands the blocking pool. `0` means "use default".
+    /// - `dns_pool_size`: blocking-thread pool size for DNS resolution.
+    ///   Same status as `fs_pool_size`.
+    public data RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  Option<Int>,
+            fs_pool_size:  Int,
+            dns_pool_size: Int,
+        }
+    }
+
+    /// Construct a `RuntimeConfig` with all defaults.
+    ///
+    /// `run_async(action)` is equivalent to
+    /// `run_async_with(default_runtime_config(), action)`.
+    /// Env-var fallbacks (`FLUX_WORKERS`, `FLUX_FS_THREADS`,
+    /// `FLUX_DNS_THREADS`) are read by the runtime when the corresponding
+    /// field is the default sentinel; an explicit `RuntimeConfig` override
+    /// always wins.
+    public fn default_runtime_config() -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  None,
+            fs_pool_size:  0,
+            dns_pool_size: 0,
+        }
+    }
+
+    /// Builder helper: a `RuntimeConfig` with `worker_count = Some(n)` and
+    /// defaults elsewhere. Convenient for the common case of pinning the
+    /// scheduler to a specific worker count without spelling out the full
+    /// record literal at the call site.
+    public fn with_worker_count(n: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  Some(n),
+            fs_pool_size:  0,
+            dns_pool_size: 0,
+        }
+    }
+
     // ── Entry point ───────────────────────────────────────────────────
 
     /// Run an async computation. This is the boundary that installs the
@@ -100,6 +159,18 @@ module Flow.Async {
     /// root fiber completes.
     public fn run_async<a>(action: () -> a with Async) -> a {
         fiber_run_async(action)
+    }
+
+    /// Run an async computation with explicit `RuntimeConfig` knobs.
+    /// See [`RuntimeConfig`] for field semantics. `worker_count == None`
+    /// is encoded as the sentinel `0` in the primop call so the runtime
+    /// can choose its default.
+    public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async) -> a {
+        let workers = match cfg.worker_count {
+            Some(n) -> n,
+            None    -> 0
+        }
+        fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, action)
     }
 
     // ── Structured concurrency ────────────────────────────────────────
