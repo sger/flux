@@ -446,7 +446,9 @@ mod tests {
                 func,
                 args: vec![v0],
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },
