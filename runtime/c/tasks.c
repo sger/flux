@@ -3,12 +3,10 @@
  *
  * Implements flux_task_spawn / flux_task_blocking_join / flux_task_cancel
  * using POSIX threads.  Each spawn creates a real OS thread; blocking_join
- * waits on a per-task condvar; cancel sets a flag (best-effort, Phase 1a
- * semantics — running tasks complete normally).
+ * waits on a per-task condvar; cancel sets a flag.
  *
  * Phase 1a cancel semantics (matches the VM backend):
- *   - cancelled before pickup  → worker skips body, join raises TaskCancelled
- *   - cancelled while running  → flag set, body still completes
+ *   - cancelled before join    → join raises TaskCancelled
  *   - cancelled after join     → no-op (slot already freed)
  *
  * Thread safety:
@@ -39,8 +37,6 @@
 /* File-scope atomic scope ID counter — shared by both POSIX and Win32 paths.
  * Declared here (before the platform split) so it is always available.     */
 #include <stdatomic.h>
-static _Atomic(int64_t) next_scope_id = 1;
-
 /* ── POSIX implementation (macOS + Linux) ──────────────────────────── */
 #if !defined(_WIN32) && !defined(_MSC_VER)
 
@@ -111,8 +107,14 @@ static void *flux_task_worker(void *arg) {
     flux_drop(e->closure);
 
     pthread_mutex_lock(&e->mutex);
-    e->result = result;
-    e->status = TASK_DONE;
+    if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
+        flux_drop(result);
+        e->result = FLUX_NONE;
+        e->status = TASK_CANCELLED;
+    } else {
+        e->result = result;
+        e->status = TASK_DONE;
+    }
     pthread_cond_broadcast(&e->finished);
     pthread_mutex_unlock(&e->mutex);
     return NULL;
@@ -205,8 +207,15 @@ int64_t flux_task_cancel(int64_t task) {
     pthread_mutex_unlock(&task_table_mutex);
 
     if (e) {
-        /* Best-effort: running tasks complete normally (Phase 1a). */
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
+        pthread_mutex_lock(&e->mutex);
+        if (e->status == TASK_DONE) {
+            flux_drop(e->result);
+            e->result = FLUX_NONE;
+            e->status = TASK_CANCELLED;
+            pthread_cond_broadcast(&e->finished);
+        }
+        pthread_mutex_unlock(&e->mutex);
     }
     /* Slot not found → already joined; cancel is a no-op. */
     return FLUX_NONE;
@@ -215,7 +224,7 @@ int64_t flux_task_cancel(int64_t task) {
 /* ── Windows implementation (Win32) ───────────────────────────────────
  * Mirrors the POSIX path 1:1 using CreateThread / CRITICAL_SECTION /
  * CONDITION_VARIABLE so `flux --test --native` reaches the same Phase
- * 1a Task semantics on Windows as on macOS / Linux.  Cancel semantics,
+ * Task semantics on Windows as on macOS / Linux.  Cancel semantics,
  * MT-RC promotion, and slot lifecycle are identical to the POSIX path. */
 #else
 
@@ -293,8 +302,14 @@ static unsigned __stdcall flux_task_worker(void *arg) {
     flux_drop(e->closure);
 
     EnterCriticalSection(&e->mutex);
-    e->result = result;
-    e->status = TASK_DONE;
+    if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
+        flux_drop(result);
+        e->result = FLUX_NONE;
+        e->status = TASK_CANCELLED;
+    } else {
+        e->result = result;
+        e->status = TASK_DONE;
+    }
     WakeAllConditionVariable(&e->finished);
     LeaveCriticalSection(&e->mutex);
     return 0;
@@ -400,6 +415,14 @@ int64_t flux_task_cancel(int64_t task) {
 
     if (e) {
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
+        EnterCriticalSection(&e->mutex);
+        if (e->status == TASK_DONE) {
+            flux_drop(e->result);
+            e->result = FLUX_NONE;
+            e->status = TASK_CANCELLED;
+            WakeAllConditionVariable(&e->finished);
+        }
+        LeaveCriticalSection(&e->mutex);
     }
     return FLUX_NONE;
 }
@@ -522,8 +545,7 @@ int64_t flux_fiber_timeout(int64_t ms_val, int64_t f) {
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag) {
     /* Allocate Scope(id) ADT: payload = 8 (ctor_tag+field_count) + 8 = 16;
      * scan_fsize = 1 (one owned i64 field).                                 */
-    int64_t id = atomic_fetch_add_explicit(&next_scope_id, 1,
-                                           memory_order_relaxed);
+    int64_t id = (int64_t)flux_async_scope_new();
     void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
     hdr[0] = scope_ctor_tag;
@@ -534,14 +556,23 @@ int64_t flux_fiber_new_scope(int32_t scope_ctor_tag) {
 }
 
 int64_t flux_fiber_fork_scoped(int64_t s, int64_t f) {
-    /* Sequential: run f() inline; scope registration is a no-op. */
-    (void)s;
-    flux_call_closure_c(f, NULL, 0);
+    void *scope_ptr = flux_untag_ptr(s);
+    int64_t *fields = (int64_t *)((char *)scope_ptr + 8);
+    uint64_t scope_id = (uint64_t)flux_untag_int(fields[0]);
+    if (flux_async_fork_scoped(scope_id, f) != 0) {
+        fprintf(stderr, "flux_fiber_fork_scoped: async scheduler is not active\n");
+        abort();
+    }
     return FLUX_NONE;
 }
 
 int64_t flux_fiber_cancel_scope(int64_t s) {
-    /* Sequential: nothing is registered under the scope, nothing to cancel. */
-    (void)s;
+    void *scope_ptr = flux_untag_ptr(s);
+    int64_t *fields = (int64_t *)((char *)scope_ptr + 8);
+    uint64_t scope_id = (uint64_t)flux_untag_int(fields[0]);
+    if (flux_async_cancel_scope(scope_id) != 0) {
+        fprintf(stderr, "flux_fiber_cancel_scope: async scheduler is not active\n");
+        abort();
+    }
     return FLUX_NONE;
 }

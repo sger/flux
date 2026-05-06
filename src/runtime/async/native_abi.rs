@@ -15,6 +15,7 @@ use super::backends::mio::MioBackend;
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_FIBER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 static READY_TIMERS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 
 const FLUX_NONE: i64 = 0;
@@ -73,6 +74,8 @@ struct NativeRun {
     fiber_request: HashMap<u64, u64>,
     awaits: HashMap<u64, AwaitKind>,
     awaiter_index: HashMap<u64, Vec<u64>>,
+    scopes: HashMap<u64, HashSet<u64>>,
+    fiber_scope: HashMap<u64, u64>,
     root_result: Option<i64>,
 }
 
@@ -94,6 +97,8 @@ impl NativeRun {
             fiber_request: HashMap::new(),
             awaits: HashMap::new(),
             awaiter_index: HashMap::new(),
+            scopes: HashMap::new(),
+            fiber_scope: HashMap::new(),
             root_result: None,
         }
     }
@@ -111,6 +116,21 @@ impl NativeRun {
             },
         });
         id
+    }
+
+    fn new_scope(&mut self) -> u64 {
+        let id = next_scope_id();
+        self.scopes.entry(id).or_default();
+        id
+    }
+
+    fn spawn_scoped_child(&mut self, scope: u64, closure: i64) {
+        if !self.scopes.contains_key(&scope) {
+            self.scopes.insert(scope, HashSet::new());
+        }
+        let id = self.spawn_child(closure);
+        self.scopes.entry(scope).or_default().insert(id);
+        self.fiber_scope.insert(id, scope);
     }
 
     fn park(&mut self, req: u64, mut fiber: Fiber, continuation: i64) {
@@ -138,6 +158,12 @@ impl NativeRun {
     fn complete_fiber(&mut self, id: u64, value: i64) {
         if id == self.root {
             self.root_result = Some(value);
+        }
+
+        if let Some(scope) = self.fiber_scope.remove(&id)
+            && let Some(children) = self.scopes.get_mut(&scope)
+        {
+            children.remove(&id);
         }
 
         let Some(parent_reqs) = self.awaiter_index.remove(&id) else {
@@ -213,6 +239,11 @@ impl NativeRun {
         self.ready = kept;
 
         for id in fiber_ids {
+            if let Some(scope) = self.fiber_scope.remove(id)
+                && let Some(children) = self.scopes.get_mut(&scope)
+            {
+                children.remove(id);
+            }
             if let Some(req) = self.fiber_request.remove(id) {
                 backend().cancel(RequestId(req));
                 if let Some(fiber) = self.suspended.remove(&req) {
@@ -220,6 +251,15 @@ impl NativeRun {
                 }
             }
         }
+    }
+
+    fn cancel_scope(&mut self, scope: u64) {
+        let children: Vec<u64> = self
+            .scopes
+            .remove(&scope)
+            .map(|children| children.into_iter().collect())
+            .unwrap_or_default();
+        self.cancel_fibers(&children);
     }
 
     fn route_backend_completion(&mut self, req: u64, payload: CompletionPayload) {
@@ -285,6 +325,10 @@ fn next_request_id() -> u64 {
 
 fn next_fiber_id() -> u64 {
     NEXT_FIBER_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+fn next_scope_id() -> u64 {
+    NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 fn tag_int(raw: u64) -> i64 {
@@ -478,6 +522,25 @@ pub extern "C" fn flux_async_fiber_timeout(ms: i64, body: i64) -> u64 {
         parent_req
     })
     .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_scope_new() -> u64 {
+    with_run(|run| run.new_scope()).unwrap_or_else(next_scope_id)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_fork_scoped(scope: u64, body: i64) -> i32 {
+    with_run(|run| run.spawn_scoped_child(scope, body))
+        .map(|_| 0)
+        .unwrap_or(-1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
+    with_run(|run| run.cancel_scope(scope))
+        .map(|_| 0)
+        .unwrap_or(-1)
 }
 
 #[unsafe(no_mangle)]

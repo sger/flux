@@ -389,7 +389,10 @@ pub enum CallKind {
     /// Known imported top-level function — emit direct call to an external symbol.
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
-    Indirect,
+    Indirect {
+        /// True when type/effect context proves the closure call can suspend.
+        async_capable: bool,
+    },
     /// Proposal 0162 Phase 3 slice 5-tr-fix: a `YieldTo` PrimCall has already
     /// been emitted inline in this block; the terminator exists purely to
     /// give `cont_split` + the yield-check machinery a Call-shaped hook so
@@ -484,7 +487,7 @@ pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncI
             async_funcs.contains(func_id)
         }
         CallKind::DirectExtern { symbol } => is_direct_async_extern_symbol(symbol),
-        CallKind::Indirect => false,
+        CallKind::Indirect { async_capable } => *async_capable,
         CallKind::YieldTo => true,
     }
 }

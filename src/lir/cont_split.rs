@@ -388,7 +388,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },
@@ -475,7 +477,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },
@@ -531,7 +535,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: true,
                 yield_cont: None,
             },
