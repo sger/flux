@@ -303,3 +303,235 @@ fn main() with IO {
     );
     assert_eq!(stdout.trim(), "5\n5");
 }
+
+#[test]
+fn native_direct_helper_sleep_propagates_yield() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn helper() -> Int with Async {
+    sleep(10)
+    11
+}
+
+fn body() -> Int with Async {
+    let v = helper()
+    v + 1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_sleep");
+    assert!(
+        success,
+        "native direct helper sleep must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "12");
+}
+
+#[test]
+fn native_sequential_direct_helper_sleeps_resume_each_call() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn helper() -> Int with Async {
+    sleep(10)
+    3
+}
+
+fn body() -> Int with Async {
+    let a = helper()
+    let b = helper()
+    let c = helper()
+    a + b + c
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_seq_sleep");
+    assert!(
+        success,
+        "native sequential helper sleeps must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "9");
+}
+
+#[test]
+fn native_direct_helper_wrapping_both_propagates_yield() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async {
+    sleep(10)
+    2
+}
+
+fn right() -> Int with Async {
+    sleep(10)
+    5
+}
+
+fn helper() -> Int with Async {
+    let pair = both(left, right)
+    pair.0 + pair.1
+}
+
+fn body() -> Int with Async {
+    helper()
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_both");
+    assert!(
+        success,
+        "native helper wrapping both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "7");
+}
+
+#[test]
+fn native_direct_helper_wrapping_race_propagates_yield() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(100)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(10)
+    8
+}
+
+fn helper() -> Int with Async {
+    race(slow, fast)
+}
+
+fn body() -> Int with Async {
+    helper()
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_race");
+    assert!(
+        success,
+        "native helper wrapping race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "8");
+}
+
+#[test]
+fn native_direct_helper_wrapping_timeout_propagates_yield() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn fast() -> Int with Async {
+    sleep(10)
+    13
+}
+
+fn helper() -> Int with Async {
+    let opt = timeout(1000, fast)
+    match opt {
+        Some(v) -> v,
+        None    -> -1
+    }
+}
+
+fn body() -> Int with Async {
+    helper()
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_timeout");
+    assert!(
+        success,
+        "native helper wrapping timeout must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "13");
+}
+
+#[test]
+fn native_nested_direct_helper_chain_propagates_yield() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn b() -> Int with Async {
+    sleep(10)
+    6
+}
+
+fn a() -> Int with Async {
+    b()
+}
+
+fn body() -> Int with Async {
+    a() + 1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_chain");
+    assert!(
+        success,
+        "native nested direct helper chain must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "7");
+}
+
+#[test]
+fn native_direct_helper_rounds_resume_after_each_combinator() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn one() -> Int with Async {
+    sleep(10)
+    1
+}
+
+fn round() -> Int with Async {
+    let pair = both(one, one)
+    let winner = race(one, one)
+    let opt = timeout(1000, one)
+    match opt {
+        Some(v) -> pair.0 + pair.1 + winner + v,
+        None    -> 0
+    }
+}
+
+fn body() -> Int with Async {
+    let a = round()
+    let b = round()
+    let c = round()
+    let d = round()
+    let e = round()
+    a + b + c + d + e
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "helper_rounds");
+    assert!(
+        success,
+        "native direct helper rounds must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "20");
+}
