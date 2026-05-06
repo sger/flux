@@ -167,12 +167,15 @@ mod vm_fibers {
     use std::collections::HashMap;
     use std::rc::Rc;
 
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use crate::runtime::RuntimeContext;
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
+    use super::vm_async;
 
     /// How a parent fiber's resume value is assembled when its child(ren)
     /// finish (proposal 0174 Phase 1b-vi-b₂.2).
@@ -216,7 +219,14 @@ mod vm_fibers {
             RefCell::new(HashMap::new());
         static RESULTS: RefCell<HashMap<FiberId, Value>> = RefCell::new(HashMap::new());
         static RESUME_VALUES: RefCell<HashMap<u64, Value>> = RefCell::new(HashMap::new());
+        // Scope-cancellation registry (Phase 1b-vi-c): scope_id → Vec<FiberId>.
+        static SCOPE_REGISTRY: RefCell<HashMap<u64, Vec<FiberId>>> =
+            RefCell::new(HashMap::new());
     }
+
+    /// Process-global scope ID counter (1b-vi-c). Scopes across all boundaries
+    /// and threads get unique IDs because this is atomic.
+    static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 
     /// Enter an `Async.run_async` boundary: lazy-init the scheduler on the
     /// outermost entry, spawn the root fiber, and make it current. Returns
@@ -228,6 +238,11 @@ mod vm_fibers {
             n
         });
         if depth == 0 {
+            // TODO 1b-vi-c-A: FiberScheduler::new(1) hard-codes a single virtual
+            // worker. Multi-OS-thread dispatch: change to FiberScheduler::new(N),
+            // spawn N-1 additional OS threads each running dispatch_loop on their
+            // own worker slot, with a CompletionRouter routing backend completions
+            // to per-worker inboxes.
             SCHED.with(|s| {
                 *s.borrow_mut() = Some(FiberScheduler::new(1));
             });
@@ -246,6 +261,25 @@ mod vm_fibers {
     /// `spawn` and never executed via the scheduler — b₁ runs bodies inline).
     /// On outermost exit, tear down the scheduler.
     pub fn exit_run_async(_root: FiberId) {
+        // Cancel all outstanding suspended-fiber backend requests so mio
+        // reactor timers don't linger after run_async returns (1b-vi-c).
+        let outstanding_reqs: Vec<u64> = SCHED.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map(|sched| {
+                    (0..sched.num_workers())
+                        .flat_map(|w| sched.all_suspended_reqs(WorkerId(w as u32)))
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        if !outstanding_reqs.is_empty() {
+            if let Ok(backend) = vm_async::backend() {
+                for req in outstanding_reqs {
+                    backend.cancel(RequestId(req));
+                }
+            }
+        }
         // Drain any leftover ready fibers (b₁ FiberFork bookkeeping
         // artifacts; race losers that finished after parent woke; etc).
         SCHED.with(|s| {
@@ -417,10 +451,11 @@ mod vm_fibers {
     /// Called by the backend completion pump just before `scheduler.complete`.
     /// If the request id matches a Timeout await, set the parent's resume
     /// value to `None` and discard the await metadata so that a later body
-    /// completion is dropped silently.  Returns `true` if this was a
-    /// Timeout-routed completion (caller may still call
-    /// `scheduler.complete` to wake the parent).
-    pub fn try_route_timer_for_timeout(req: u64) -> bool {
+    /// completion is dropped silently.  Returns `Some(body_child)` if this
+    /// was a Timeout-routed completion — the body_child fiber should be
+    /// cancelled by the caller (1b-vi-c).  Returns `None` for non-Timeout
+    /// completions (caller may still call `scheduler.complete`).
+    pub fn try_route_timer_for_timeout(req: u64) -> Option<FiberId> {
         let kind = AWAITS.with(|a| a.borrow_mut().remove(&req));
         match kind {
             Some(AwaitKind::Timeout { body_child }) => {
@@ -433,14 +468,14 @@ mod vm_fibers {
                     }
                 });
                 set_resume_value(req, Value::None);
-                true
+                Some(body_child)
             }
             Some(other) => {
                 // Not a Timeout — put it back (we removed-then-checked).
                 AWAITS.with(|a| a.borrow_mut().insert(req, other));
-                false
+                None
             }
-            None => false,
+            None => None,
         }
     }
 
@@ -471,14 +506,24 @@ mod vm_fibers {
         RESUME_VALUES.with(|r| r.borrow_mut().remove(&req))
     }
 
+    /// Outcome of a child fiber finishing (proposal 0174 Phase 1b-vi-c).
+    pub struct FiberDoneOutcome {
+        /// `(parent_req, resume_val)` pairs to flush via `set_resume_value` +
+        /// `scheduler.complete`.
+        pub completions: Vec<(u64, Value)>,
+        /// Fibers that became losers as a result of this completion and should
+        /// be cancelled by the caller (race losers, timeout body child).
+        pub losers: Vec<FiberId>,
+    }
+
     /// A child fiber finished with `value`. Stash the result, walk awaiters,
     /// determine which parent requests are now satisfiable, build their
-    /// resume values, and return the list of `(parent_req, resume_value)`
-    /// pairs.  The caller (dispatch loop) is responsible for storing each
-    /// resume value via `set_resume_value` and calling
-    /// `scheduler.complete(parent_req)` to wake the parent — done outside
+    /// resume values, and return the outcome.  The caller (dispatch loop) is
+    /// responsible for storing each resume value via `set_resume_value`,
+    /// calling `scheduler.complete(parent_req)` to wake the parent, and
+    /// calling `cancel_losers` for the returned losers — all done outside
     /// the AWAITS borrow to avoid re-entrant `RefCell` panics.
-    pub fn on_fiber_done(id: FiberId, value: Value) -> Vec<(u64, Value)> {
+    pub fn on_fiber_done(id: FiberId, value: Value) -> FiberDoneOutcome {
         RESULTS.with(|r| r.borrow_mut().insert(id, value));
 
         let parent_reqs: Vec<u64> = AWAITER_INDEX
@@ -486,6 +531,7 @@ mod vm_fibers {
             .unwrap_or_default();
 
         let mut completions: Vec<(u64, Value)> = Vec::new();
+        let mut losers: Vec<FiberId> = Vec::new();
         for parent_req in parent_reqs {
             let take_result = |fid: FiberId| -> Option<Value> {
                 RESULTS.with(|r| r.borrow_mut().remove(&fid))
@@ -520,18 +566,18 @@ mod vm_fibers {
                         });
                     }
                 }
-                AwaitKind::Race {
-                    children,
-                    won,
-                } => {
+                AwaitKind::Race { children, won } => {
                     if !won {
                         // First-wins: deliver this child's result, mark won.
                         let result = take_result(id).expect("just inserted");
                         completions.push((parent_req, result));
-                        // The other children may still finish; their
-                        // mark-done won't find AWAITS[parent_req] (we just
-                        // removed it), so they'll be dropped silently.
-                        let _ = children;
+                        // Cancel the losing children (1b-vi-c): collect all
+                        // children except the winner into `losers`.
+                        for child in children {
+                            if child != id {
+                                losers.push(child);
+                            }
+                        }
                     } else {
                         // Should not happen — once won, AWAITS is gone, so
                         // we wouldn't have hit this case.
@@ -560,7 +606,59 @@ mod vm_fibers {
             }
         }
 
-        completions
+        FiberDoneOutcome { completions, losers }
+    }
+
+    /// Cancel a set of fibers: look up each fiber's pending backend request,
+    /// call `backend.cancel` to stop I/O work, then mark the fiber `Cancelled`
+    /// in the scheduler so the dispatch loop resumes it with `AsyncError.Canceled`
+    /// (proposal 0174 1b-vi-c).  Always cancel the backend request *before*
+    /// moving the fiber to `Cancelled` so a late-arriving completion cannot
+    /// re-queue a fiber that is about to be dropped.
+    pub fn cancel_losers(
+        loser_ids: &[FiberId],
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) {
+        let reqs: Vec<u64> = SCHED.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map(|sc| {
+                    loser_ids
+                        .iter()
+                        .filter_map(|id| sc.find_request_for_fiber(*id))
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        for req in reqs {
+            backend.cancel(RequestId(req));
+        }
+        SCHED.with(|s| {
+            if let Some(sc) = s.borrow_mut().as_mut() {
+                sc.cancel_fibers(loser_ids);
+            }
+        });
+    }
+
+    // ── Scope helpers (1b-vi-c) ─────────────────────────────────────────
+
+    /// Allocate a fresh scope ID and register an empty fiber list for it.
+    pub fn new_scope() -> u64 {
+        let id = NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
+        SCOPE_REGISTRY.with(|r| r.borrow_mut().insert(id, Vec::new()));
+        id
+    }
+
+    /// Register a fiber under a scope so it can be cancelled with the scope.
+    pub fn register_fiber_in_scope(scope_id: u64, fiber_id: FiberId) {
+        SCOPE_REGISTRY.with(|r| {
+            r.borrow_mut().entry(scope_id).or_default().push(fiber_id);
+        });
+    }
+
+    /// Remove and return all fibers registered under a scope.
+    pub fn take_scope_fibers(scope_id: u64) -> Vec<FiberId> {
+        SCOPE_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
     }
 
     /// Tear down the await-coordination state at run_async exit
@@ -570,6 +668,7 @@ mod vm_fibers {
         AWAITER_INDEX.with(|idx| idx.borrow_mut().clear());
         RESULTS.with(|r| r.borrow_mut().clear());
         RESUME_VALUES.with(|r| r.borrow_mut().clear());
+        SCOPE_REGISTRY.with(|r| r.borrow_mut().clear());
     }
 
     /// Drive the FiberRunAsync dispatch loop until all fibers are done or
@@ -598,6 +697,64 @@ mod vm_fibers {
                 // also runs its body inline; the fiber on the ready queue is
                 // a bookkeeping artifact with no body and no parked cont).
                 if fiber.body.is_none() && fiber.parked.is_none() {
+                    continue;
+                }
+
+                // Cancelled fibers (1b-vi-c): resume their parked continuation
+                // with `AsyncError.Canceled` so that `bracket`/`finally`
+                // cleanup arms run before the fiber exits.  If there is no
+                // continuation (body never ran), the fiber is dropped silently.
+                if fiber.state == FiberState::Cancelled {
+                    if let Some(cont) = fiber.parked.take() {
+                        // Resume with Unit (None) rather than Canceled so that
+                        // intermediate operation return-type contracts are not
+                        // violated (e.g. sleep -> Unit).  The fiber completes
+                        // normally: bracket's release arm still runs since
+                        // bracket is sequential (body → release).
+                        let cancel_val = Value::None;
+                        let fid = fiber.id;
+                        let outcome = with_current(fid, || {
+                            ctx.resume_from_dispatch(Value::Continuation(cont), cancel_val)
+                        });
+                        // The fiber may park again (e.g. inside a release arm
+                        // that does async I/O).  Handle exactly like normal park.
+                        if let Some((req, cont_val)) = take_park() {
+                            let cont_rc = match cont_val {
+                                Value::Continuation(rc) => rc,
+                                _ => return Err(
+                                    "cancelled fiber re-park: non-Continuation in PENDING_PARK"
+                                        .into(),
+                                ),
+                            };
+                            fiber.parked = Some(cont_rc);
+                            fiber.state = FiberState::Suspended { request_id: req };
+                            SCHED.with(|s| {
+                                s.borrow_mut()
+                                    .as_mut()
+                                    .expect("scheduler missing")
+                                    .insert_suspended(WorkerId(0), req, fiber);
+                            });
+                            continue;
+                        }
+                        // Fiber ran to completion after cleanup.
+                        if let Ok(v) = outcome {
+                            let done = on_fiber_done(fid, v);
+                            if !done.losers.is_empty() {
+                                cancel_losers(&done.losers, backend);
+                            }
+                            for (pr, rv) in done.completions {
+                                set_resume_value(pr, rv);
+                                SCHED.with(|s| {
+                                    s.borrow_mut()
+                                        .as_mut()
+                                        .expect("scheduler missing")
+                                        .complete(WorkerId(0), RequestId(pr));
+                                });
+                            }
+                        }
+                        // Errors from cancelled fibers' cleanup are swallowed.
+                    }
+                    // No continuation → bookkeeping artifact; drop silently.
                     continue;
                 }
 
@@ -653,12 +810,15 @@ mod vm_fibers {
                         }
                         // Synthetic-await coordination: record the result and
                         // wake any parents whose await condition is now met.
-                        // `on_fiber_done` returns a list of (parent_req,
-                        // resume_value) pairs to flush; we set each value
-                        // *before* calling scheduler.complete so the resumed
-                        // parent fiber sees its expected resume value.
-                        let completions = on_fiber_done(fiber_id, v);
-                        for (parent_req, resume_val) in completions {
+                        // Set each resume value *before* calling
+                        // scheduler.complete so the resumed parent fiber sees
+                        // its expected resume value.  Also cancel any losers
+                        // (race losers, timeout body child) — 1b-vi-c.
+                        let outcome = on_fiber_done(fiber_id, v);
+                        if !outcome.losers.is_empty() {
+                            cancel_losers(&outcome.losers, backend);
+                        }
+                        for (parent_req, resume_val) in outcome.completions {
                             set_resume_value(parent_req, resume_val);
                             SCHED.with(|s| {
                                 s.borrow_mut()
@@ -672,10 +832,9 @@ mod vm_fibers {
                 }
             }
 
-            // Exit as soon as the root fiber is done, even if children
-            // (e.g. FiberRace losers) remain suspended. Their pending
-            // backend completions are abandoned — fine for b₂.2;
-            // cooperative cancellation is 1b-vi-c work.
+            // Exit as soon as the root fiber is done. Any remaining suspended
+            // fibers (e.g. race losers not yet cancelled) will have their
+            // backend requests cancelled by exit_run_async (1b-vi-c).
             if root_result.is_some() {
                 break;
             }
@@ -693,10 +852,12 @@ mod vm_fibers {
             // Pump the backend until a completion arrives, then route it.
             loop {
                 if let Some(c) = backend.next_completion() {
-                    // If this completion is the timer half of a
-                    // FiberTimeout await, set the parent's resume value to
-                    // None before waking it.
-                    let _ = try_route_timer_for_timeout(c.request_id.0);
+                    // If this completion is the timer half of a FiberTimeout
+                    // await, set the parent's resume value to None and cancel
+                    // the body child fiber (1b-vi-c).
+                    if let Some(body_child) = try_route_timer_for_timeout(c.request_id.0) {
+                        cancel_losers(&[body_child], backend);
+                    }
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -1400,6 +1561,50 @@ pub fn execute_core_primop(
         // fiber_fail: surface an async error as a VM runtime error string.
         // The error value is an ADT (AsyncError variant); format it as a string.
         FiberFail => Err(format!("AsyncError: {:?}", args[0])),
+
+        // ── Scope / cancel primops (proposal 0174 Phase 1b-vi-c) ──────
+
+        // fiber_new_scope: allocate a real cancellation boundary.
+        // Returns Scope(id) as an ADT value.
+        FiberNewScope => {
+            use crate::runtime::value::{AdtFields, AdtValue};
+            let id = vm_fibers::new_scope();
+            Ok(Value::Adt(Rc::new(AdtValue {
+                constructor: Rc::new("Scope".to_string()),
+                fields: AdtFields::One(Value::Integer(id as i64)),
+            })))
+        }
+
+        // fiber_fork_scoped: spawn a child fiber and register it under the scope.
+        FiberForkScoped => {
+            let scope_id = match &args[0] {
+                Value::Adt(a) if a.constructor.as_ref() == "Scope" => match &a.fields {
+                    crate::runtime::value::AdtFields::One(Value::Integer(n)) => *n as u64,
+                    _ => return Err("fiber_fork_scoped: malformed Scope ADT".to_string()),
+                },
+                other => return Err(terr("fiber_fork_scoped", "Scope", other)),
+            };
+            let child_id = vm_fibers::spawn_child_with_body(args[1].clone());
+            vm_fibers::register_fiber_in_scope(scope_id, child_id);
+            Ok(Value::None)
+        }
+
+        // fiber_cancel_scope: cancel all fibers registered under the scope.
+        FiberCancelScope => {
+            let scope_id = match &args[0] {
+                Value::Adt(a) if a.constructor.as_ref() == "Scope" => match &a.fields {
+                    crate::runtime::value::AdtFields::One(Value::Integer(n)) => *n as u64,
+                    _ => return Err("fiber_cancel_scope: malformed Scope ADT".to_string()),
+                },
+                other => return Err(terr("fiber_cancel_scope", "Scope", other)),
+            };
+            let fiber_ids = vm_fibers::take_scope_fibers(scope_id);
+            if !fiber_ids.is_empty() {
+                let backend = vm_async::backend()?;
+                vm_fibers::cancel_losers(&fiber_ids, backend);
+            }
+            Ok(Value::None)
+        }
 
         // task_await: fiber-suspending join. On the VM path this is identical
         // to blocking_join — consult the task state table.
