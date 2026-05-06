@@ -1,0 +1,27 @@
+// parity: vm
+// expect: success
+// bug: TCP listen/accept/close through the VM handle table.
+//      Phase 1b-vi-e: basic connection handshake via Async.both.
+
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn server() -> Unit with Async {
+    let l = listen("127.0.0.1", 19872)
+    let conn = accept(l)
+    close(conn)
+}
+
+fn client() -> Unit with Async {
+    let conn = connect("127.0.0.1", 19872)
+    close(conn)
+}
+
+fn body() -> Unit with Async {
+    let _ = both(server, client)
+}
+
+fn main() with IO {
+    let _ = run_async(body)
+    print("ok")
+}
