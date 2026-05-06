@@ -3516,6 +3516,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberNewScope => return "flux_fiber_new_scope".to_string(),
         CorePrimOp::FiberForkScoped => return "flux_fiber_fork_scoped".to_string(),
         CorePrimOp::FiberCancelScope => return "flux_fiber_cancel_scope".to_string(),
+        // Phase 2 slice 2-iv: poll the current fiber's scope cancel flag.
+        CorePrimOp::FiberCheckCancelled => return "flux_fiber_check_cancelled".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3643,6 +3645,8 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_new_scope" => (LlvmType::i64(), vec![LlvmType::i32()]),
         "flux_fiber_fork_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_fiber_cancel_scope" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Phase 2 slice 2-iv: zero-arg, returns tagged Flux Bool.
+        "flux_fiber_check_cancelled" => (LlvmType::i64(), vec![]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),

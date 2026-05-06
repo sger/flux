@@ -176,7 +176,7 @@ mod vm_async {
 // the inline call with a real park/resume cycle without touching bookkeeping.
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
 
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -234,6 +234,13 @@ mod vm_fibers {
         // Scope-cancellation registry (Phase 1b-vi-c): scope_id → Vec<FiberId>.
         static SCOPE_REGISTRY: RefCell<HashMap<u64, Vec<FiberId>>> =
             RefCell::new(HashMap::new());
+        // Set of fiber ids whose enclosing scope has been cancelled
+        // (Phase 2 slice 2-iv). Populated by `cancel_losers` /
+        // `FiberCancelScope`; queried by `FiberCheckCancelled` from a fiber
+        // that may currently be executing (and therefore is not in the
+        // scheduler's `suspended` map). Cleared at outermost run_async exit.
+        static CANCELLED_IDS: RefCell<HashSet<FiberId>> =
+            RefCell::new(HashSet::new());
     }
 
     /// Process-global scope ID counter (1b-vi-c). Scopes across all boundaries
@@ -310,6 +317,9 @@ mod vm_fibers {
             // Phase 1b-vi-b₂.2: also tear down await coordination state
             // so a second top-level run_async on the same thread starts fresh.
             clear_await_state();
+            // Phase 2 slice 2-iv: drop the cancelled-id set so a second
+            // top-level run_async on the same thread starts fresh.
+            CANCELLED_IDS.with(|c| c.borrow_mut().clear());
         }
     }
 
@@ -639,6 +649,32 @@ mod vm_fibers {
                 sc.cancel_fibers(loser_ids);
             }
         });
+        mark_cancelled(loser_ids);
+    }
+
+    /// Record `ids` as cancelled so a fiber that is currently *executing*
+    /// (not in the scheduler's `suspended` map) can observe its scope's
+    /// cancellation via `is_current_cancelled()` (Phase 2 slice 2-iv).
+    pub fn mark_cancelled(ids: &[FiberId]) {
+        if ids.is_empty() {
+            return;
+        }
+        CANCELLED_IDS.with(|c| {
+            let mut set = c.borrow_mut();
+            for id in ids {
+                set.insert(*id);
+            }
+        });
+    }
+
+    /// True if the current fiber's enclosing scope has been cancelled.
+    /// Returns `false` outside any `Async.run_async` boundary.
+    pub fn is_current_cancelled() -> bool {
+        let id = match CURRENT.with(|c| c.get()) {
+            Some(id) => id,
+            None => return false,
+        };
+        CANCELLED_IDS.with(|c| c.borrow().contains(&id))
     }
 
     // ── Scope helpers (1b-vi-c) ─────────────────────────────────────────
@@ -1488,6 +1524,13 @@ pub fn execute_core_primop(
 
         // yield_now: cooperative yield point. No-op on the VM sequential path.
         FiberYieldNow => Ok(Value::None),
+
+        // fiber_check_cancelled: returns true iff the current fiber's
+        // enclosing scope has been cancelled (proposal 0174 Phase 2 slice
+        // 2-iv). Scheduler-flag read; no suspend, no backend round-trip.
+        // Composes with Async.fail when the caller wants to raise; slice
+        // 2-vi makes that raise catchable.
+        FiberCheckCancelled => Ok(Value::Boolean(vm_fibers::is_current_cancelled())),
 
         // sleep: capture the current fiber's continuation back to the
         // FiberRunAsync boundary, register a timer with the mio backend,
