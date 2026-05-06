@@ -65,6 +65,28 @@ fn program_has_yield_sites(program: &LirProgram) -> bool {
     false
 }
 
+fn program_calls_imported_async(program: &LirProgram) -> bool {
+    fn is_async_symbol(symbol: &str) -> bool {
+        symbol.contains("Flow_Async_")
+    }
+
+    for func in &program.functions {
+        for block in &func.blocks {
+            match &block.terminator {
+                LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
+                    if let CallKind::DirectExtern { symbol } = kind
+                        && is_async_symbol(symbol)
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -98,6 +120,25 @@ pub fn emit_llvm_module_with_options(
     export_runtime_trampoline: bool,
     export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
+    emit_llvm_module_with_yield_options(
+        program,
+        export_runtime_trampoline,
+        export_user_ctor_name_helper,
+        false,
+    )
+}
+
+/// Emit an `LlvmModule` with an optional forced yield-check mode.
+///
+/// Per-module native compilation needs forced checks because the module being
+/// emitted may call an imported function that suspends even when this module
+/// contains no local `YieldTo` site.
+pub fn emit_llvm_module_with_yield_options(
+    program: &LirProgram,
+    export_runtime_trampoline: bool,
+    export_user_ctor_name_helper: bool,
+    force_yield_checks: bool,
+) -> LlvmModule {
     // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
     // the continuation-splitting pre-pass to synthesize per-call-site
     // continuation functions and populate `Call.yield_cont`. The yield-check
@@ -112,9 +153,14 @@ pub fn emit_llvm_module_with_options(
     // Clone is a cheap DAG copy — only happens when the feature flag is on,
     // so the default path pays nothing.
     let owned_program: LirProgram;
-    let yield_active = yield_checks_enabled() && program_has_yield_sites(program);
+    let force_yield_checks = force_yield_checks || program_calls_imported_async(program);
+    let yield_active =
+        yield_checks_enabled() && (force_yield_checks || program_has_yield_sites(program));
     let program: &LirProgram = if yield_active {
-        owned_program = crate::lir::cont_split::split_continuations(program.clone());
+        owned_program = crate::lir::cont_split::split_continuations_with_options(
+            program.clone(),
+            force_yield_checks,
+        );
         &owned_program
     } else {
         program
@@ -1845,7 +1891,11 @@ impl<'a> FnEmitter<'a> {
                 .copied()
                 .unwrap_or(5); // 5 = first user ADT tag (matches lir/lower.rs)
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
             self.call_c(
                 dst_local,
                 "flux_fiber_new_scope",
@@ -3604,20 +3654,32 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_yield_now" => (LlvmType::i64(), vec![]),
         "flux_fiber_sleep" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // Fiber combinators (proposal 0174 Phase 1b-vi-d — sequential-equivalent).
-        "flux_fiber_both"         => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
-        "flux_fiber_race"         => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
-        "flux_fiber_timeout"      => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_both" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_race" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
-        "flux_fiber_new_scope"    => (LlvmType::i64(), vec![LlvmType::i32()]),
-        "flux_fiber_fork_scoped"  => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_new_scope" => (LlvmType::i64(), vec![LlvmType::i32()]),
+        "flux_fiber_fork_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_fiber_cancel_scope" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values: host ptr/len/port or handle/buf/len.
-        "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()]),
-        "flux_tcp_read" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()]),
-        "flux_tcp_write_all" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_connect" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
+        "flux_tcp_read" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
+        "flux_tcp_write_all" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
         "flux_tcp_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
-        "flux_tcp_listen" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_listen" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
         "flux_tcp_accept" => (LlvmType::i64(), vec![LlvmType::i64()]),
         _ => return None,
     };

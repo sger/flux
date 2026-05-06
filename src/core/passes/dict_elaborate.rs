@@ -535,15 +535,14 @@ fn insert_dict_args_at_call_sites(
     // then walk its body to insert dict args at call sites.
     for def in &mut program.defs {
         // Build the caller's own dict_param map (if it's a constrained function).
-        let caller_dicts: HashMap<Identifier, CoreBinder> =
-            if let Some(scheme) = def_schemes
-                .get(&def.binder.id)
-                .or_else(|| type_env.lookup(def.name))
-            {
-                build_caller_dict_map(&def.expr, &scheme.constraints)
-            } else {
-                HashMap::new()
-            };
+        let caller_dicts: HashMap<Identifier, CoreBinder> = if let Some(scheme) = def_schemes
+            .get(&def.binder.id)
+            .or_else(|| type_env.lookup(def.name))
+        {
+            build_caller_dict_map(&def.expr, &scheme.constraints)
+        } else {
+            HashMap::new()
+        };
 
         let old_expr = std::mem::replace(
             &mut def.expr,
@@ -623,13 +622,13 @@ fn insert_dict_args_expr(
                         args: args
                             .into_iter()
                             .map(|a| {
-                                    insert_dict_args_expr(
-                                        a,
-                                        constrained_fns_by_binder,
-                                        constrained_fns_by_name,
-                                        caller_dicts,
-                                        class_env,
-                                        interner,
+                                insert_dict_args_expr(
+                                    a,
+                                    constrained_fns_by_binder,
+                                    constrained_fns_by_name,
+                                    caller_dicts,
+                                    class_env,
+                                    interner,
                                 )
                             })
                             .collect(),

@@ -10,6 +10,9 @@ default-run = "flux"
 native = []
 llvm = ["native"]
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [dependencies]
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
@@ -314,6 +317,10 @@ path = "tests/native_llvm/effect_runtime_parity_tests.rs"
 [[test]]
 name = "effect_multi_shot_tests"
 path = "tests/native_llvm/effect_multi_shot_tests.rs"
+
+[[test]]
+name = "native_async_sleep_tests"
+path = "tests/native_llvm/native_async_sleep_tests.rs"
 
 [[test]]
 name = "type_inference_tests"
