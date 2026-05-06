@@ -13,12 +13,11 @@ use crate::runtime::RuntimeContext;
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
-use crate::runtime::r#async::backend::AsyncBackend;
 
 // ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
-// DEPRECATED: Replaced by async mio backend in Phase 1b-vi-e.
-// Old blocking implementation kept for reference only — no longer used.
-#[allow(dead_code)]
+// The VM path manages TCP connections as Rust TcpStream/TcpListener handles
+// stored in a thread-local table keyed by integer handle IDs.  This avoids
+// NaN-box encoding complexity and keeps the VM path self-contained.
 mod vm_tcp {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -853,21 +852,6 @@ mod vm_fibers {
             // Pump the backend until a completion arrives, then route it.
             loop {
                 if let Some(c) = backend.next_completion() {
-                    // Route TCP payloads as resume values before waking the fiber.
-                    use crate::runtime::r#async::backend::CompletionPayload;
-                    match &c.payload {
-                        CompletionPayload::TcpHandle(h) => {
-                            set_resume_value(c.request_id.0, Value::Integer(h.0 as i64));
-                        }
-                        CompletionPayload::Bytes(buf) => {
-                            let s = String::from_utf8_lossy(buf).into_owned();
-                            set_resume_value(c.request_id.0, Value::String(Rc::new(s)));
-                        }
-                        CompletionPayload::Unit | CompletionPayload::Error(_) => {
-                            // Unit → None (write complete); Error → None for now
-                            // (error propagation to fibers is future work)
-                        }
-                    }
                     // If this completion is the timer half of a FiberTimeout
                     // await, set the parent's resume value to None and cancel
                     // the body child fiber (1b-vi-c).
@@ -887,41 +871,6 @@ mod vm_fibers {
         }
 
         Ok(root_result.unwrap_or(Value::None))
-    }
-}
-
-/// Park a TCP primop operation until its completion is available.
-/// If inside Async.run_async, captures the continuation and parks the fiber.
-/// Otherwise, synchronously pumps the backend (single-fiber fallback path).
-fn park_tcp_op(
-    ctx: &mut dyn RuntimeContext,
-    req: crate::runtime::r#async::backend::RequestId,
-) -> Result<Value, String> {
-    if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
-        let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-        vm_fibers::signal_park(req, cont);
-        Err("__fiber_park__".to_string())
-    } else {
-        // No fiber boundary: pump backend synchronously (single-fiber fallback).
-        let backend = vm_async::backend()?;
-        loop {
-            if let Some(c) = backend.next_completion() {
-                if c.request_id == req {
-                    use crate::runtime::r#async::backend::CompletionPayload;
-                    return match c.payload {
-                        CompletionPayload::TcpHandle(h) => Ok(Value::Integer(h.0 as i64)),
-                        CompletionPayload::Bytes(buf) => {
-                            Ok(Value::String(Rc::new(
-                                String::from_utf8_lossy(&buf).into_owned(),
-                            )))
-                        }
-                        CompletionPayload::Unit => Ok(Value::None),
-                        CompletionPayload::Error(e) => Err(e),
-                    };
-                }
-            }
-            std::thread::park_timeout(std::time::Duration::from_millis(1));
-        }
     }
 }
 
@@ -1665,60 +1614,33 @@ pub fn execute_core_primop(
         },
 
         // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────
-        // Async-aware: park on the fiber scheduler, execute non-blocking
-        // via the mio backend. Returns integer handle IDs on success.
+        // On the VM path: blocking Rust std::net calls via vm_tcp module.
+        // Returns an integer handle ID on success; propagates errors as
+        // runtime error strings (mirrors Async `fail` semantics).
         TcpConnect => match (&args[0], &args[1]) {
             (Value::String(host), Value::Integer(port)) => {
-                use std::net::SocketAddr;
-                let addr: SocketAddr = format!("{}:{}", host, port)
-                    .parse()
-                    .map_err(|e| format!("tcp_connect: bad address: {e}"))?;
-                use crate::runtime::r#async::backend::AsyncBackend;
-                let backend = vm_async::backend()?;
-                let req = vm_async::alloc_request_id();
-                backend.tcp_connect(req, addr);
-                park_tcp_op(ctx, req)
+                vm_tcp::tcp_connect(host.as_str(), *port).map(Value::Integer)
             }
             _ => Err(format!("tcp_connect: expected (String, Int)")),
         },
 
         TcpRead => match (&args[0], &args[1]) {
             (Value::Integer(handle), Value::Integer(max)) => {
-                use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
-                let h = IoHandle(*handle as u64);
-                let max = if *max > 0 && *max <= (1 << 24) {
-                    *max as usize
-                } else {
-                    4096
-                };
-                let backend = vm_async::backend()?;
-                let req = vm_async::alloc_request_id();
-                backend.tcp_read(req, h, max);
-                park_tcp_op(ctx, req)
+                vm_tcp::tcp_read(*handle, *max).map(|s| Value::String(Rc::new(s)))
             }
             _ => Err(format!("tcp_read: expected (Int, Int)")),
         },
 
         TcpWriteAll => match (&args[0], &args[1]) {
             (Value::Integer(handle), Value::String(data)) => {
-                use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
-                let h = IoHandle(*handle as u64);
-                let bytes = data.as_bytes().to_vec();
-                let backend = vm_async::backend()?;
-                let req = vm_async::alloc_request_id();
-                backend.tcp_write(req, h, bytes);
-                park_tcp_op(ctx, req)
+                vm_tcp::tcp_write_all(*handle, data.as_str()).map(|()| Value::None)
             }
             _ => Err(format!("tcp_write_all: expected (Int, String)")),
         },
 
         TcpClose => match &args[0] {
             Value::Integer(handle) => {
-                use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
-                let h = IoHandle(*handle as u64);
-                if let Ok(backend) = vm_async::backend() {
-                    backend.tcp_close(h);
-                }
+                vm_tcp::tcp_close(*handle);
                 Ok(Value::None)
             }
             other => Err(terr("tcp_close", "Int", other)),
@@ -1726,27 +1648,14 @@ pub fn execute_core_primop(
 
         TcpListen => match (&args[0], &args[1]) {
             (Value::String(host), Value::Integer(port)) => {
-                use std::net::SocketAddr;
-                let addr: SocketAddr = format!("{}:{}", host, port)
-                    .parse()
-                    .map_err(|e| format!("tcp_listen: bad address: {e}"))?;
-                use crate::runtime::r#async::backend::AsyncBackend;
-                let backend = vm_async::backend()?;
-                let req = vm_async::alloc_request_id();
-                backend.tcp_listen(req, addr);
-                park_tcp_op(ctx, req)
+                vm_tcp::tcp_listen(host.as_str(), *port).map(Value::Integer)
             }
             _ => Err(format!("tcp_listen: expected (String, Int)")),
         },
 
         TcpAccept => match &args[0] {
-            Value::Integer(listener_handle) => {
-                use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
-                let h = IoHandle(*listener_handle as u64);
-                let backend = vm_async::backend()?;
-                let req = vm_async::alloc_request_id();
-                backend.tcp_accept(req, h);
-                park_tcp_op(ctx, req)
+            Value::Integer(listener) => {
+                vm_tcp::tcp_accept(*listener).map(Value::Integer)
             }
             other => Err(terr("tcp_accept", "Int", other)),
         },
