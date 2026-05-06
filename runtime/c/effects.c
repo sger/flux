@@ -538,6 +538,13 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         int64_t cont = flux_array_get(conts_arr, flux_tag_int(i));
         int64_t arg_slot[1] = { result };
         result = flux_call_closure_c(cont, arg_slot, 1);
+        if (flux_thread_ctx.yielding != 0) {
+            for (int64_t j = i + 1; j < count; j++) {
+                int64_t outer = flux_array_get(conts_arr, flux_tag_int(j));
+                (void)flux_yield_extend(outer);
+            }
+            return FLUX_YIELD_SENTINEL;
+        }
     }
     return result;
 }

@@ -4,9 +4,7 @@
 //! - Phase 2: literals, variables, let/letrec bindings, primop calls, top-level functions.
 //! - Phase 3: pattern matching (Case), ADT/cons/tuple construction (Con), tuple field access.
 
-use std::collections::HashMap;
-
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
@@ -727,6 +725,8 @@ pub fn lower_aether_program_with_interner_and_externs(
 /// `flux_call_closure` have a different prototype and must not be marked as
 /// tail calls (causes Bus errors on Apple clang).
 fn promote_tail_calls(program: &mut LirProgram) {
+    let async_funcs = direct_async_func_ids(program);
+
     for func in &mut program.functions {
         let num_blocks = func.blocks.len();
         if num_blocks == 0 {
@@ -836,6 +836,7 @@ fn promote_tail_calls(program: &mut LirProgram) {
                             | CallKind::DirectClosure { .. }
                             | CallKind::DirectExtern { .. }
                     )
+                    && !call_kind_is_direct_async(kind, &async_funcs)
             } else {
                 false
             };
