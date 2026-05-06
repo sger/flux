@@ -40,6 +40,11 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+
+/* getaddrinfo is not guaranteed to be thread-safe on all systems.
+ * Protect its use with a mutex. */
+static pthread_mutex_t g_getaddrinfo_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Helper: resolve host string + port to a connected socket.
  * Returns the file descriptor on success, -1 on failure. */
@@ -53,7 +58,9 @@ static int tcp_connect_fd(const char *host, int port) {
     hints.ai_socktype = SOCK_STREAM;
 
     struct addrinfo *res = NULL;
+    pthread_mutex_lock(&g_getaddrinfo_mutex);
     if (getaddrinfo(host, port_str, &hints, &res) != 0 || res == NULL) {
+        pthread_mutex_unlock(&g_getaddrinfo_mutex);
         return -1;
     }
 
@@ -66,6 +73,7 @@ static int tcp_connect_fd(const char *host, int port) {
         fd = -1;
     }
     freeaddrinfo(res);
+    pthread_mutex_unlock(&g_getaddrinfo_mutex);
     return fd;
 }
 
@@ -171,7 +179,9 @@ int64_t flux_tcp_listen(int64_t host_val, int64_t host_len_ignored, int64_t port
     hints.ai_flags    = AI_PASSIVE;
 
     struct addrinfo *res = NULL;
+    pthread_mutex_lock(&g_getaddrinfo_mutex);
     if (getaddrinfo(*host ? host : NULL, port_str, &hints, &res) != 0 || !res) {
+        pthread_mutex_unlock(&g_getaddrinfo_mutex);
         return flux_tag_int(-1);
     }
 
@@ -186,6 +196,7 @@ int64_t flux_tcp_listen(int64_t host_val, int64_t host_len_ignored, int64_t port
         fd = -1;
     }
     freeaddrinfo(res);
+    pthread_mutex_unlock(&g_getaddrinfo_mutex);
 
     if (fd < 0) return flux_tag_int(-1);
     if (listen(fd, SOMAXCONN) < 0) { close(fd); return flux_tag_int(-1); }

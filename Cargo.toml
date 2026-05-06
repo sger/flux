@@ -384,6 +384,10 @@ name = "vm_fiber_scope_cancel"
 path = "tests/integration/vm_fiber_scope_cancel.rs"
 
 [[test]]
+name = "vm_tcp_echo"
+path = "tests/integration/vm_tcp_echo.rs"
+
+[[test]]
 name = "non_zero_type_tests"
 path = "tests/type_inference/non_zero_type_tests.rs"
 
