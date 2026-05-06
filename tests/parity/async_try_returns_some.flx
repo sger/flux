@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: try_(body) must return Some(body()) on the VM path when no error is raised.
 

@@ -36,6 +36,11 @@
 #include <windows.h>
 #endif
 
+/* File-scope atomic scope ID counter — shared by both POSIX and Win32 paths.
+ * Declared here (before the platform split) so it is always available.     */
+#include <stdatomic.h>
+static _Atomic(int64_t) next_scope_id = 1;
+
 /* ── POSIX implementation (macOS + Linux) ──────────────────────────── */
 #if !defined(_WIN32) && !defined(_MSC_VER)
 
@@ -470,5 +475,65 @@ int64_t flux_fiber_sleep(int64_t ms) {
     ts.tv_nsec = (long)((ms % 1000) * 1000000L);
     nanosleep(&ts, NULL);
 #endif
+    return FLUX_NONE;
+}
+
+/* ── Fiber combinators (proposal 0174 Phase 1b-vi-d) ──────────────────────
+ * Sequential-equivalent semantics: no real concurrency.  Unblocks all native
+ * programs that use Flow.Async.  Real M:N on the native path requires a
+ * Rust→C FFI bridge for the mio reactor and FiberScheduler; that is a
+ * separate follow-up.                                                       */
+
+int64_t flux_fiber_both(int64_t f, int64_t g) {
+    /* Note: f and g must be non-yielding on the native path.  flow.Async's
+     * sleep/yield_now do NOT use the FluxEffectContext yield machinery, so
+     * this assumption holds for all public Flow.Async combinators.          */
+    int64_t ra = flux_call_closure_c(f, NULL, 0);
+    int64_t rb = flux_call_closure_c(g, NULL, 0);
+    /* 2-tuple: payload = 4+4 (pad+arity) + 2*8 = 24; scan_fsize = 2. */
+    void *ptr = flux_gc_alloc_header(8 + 2 * 8, 2, FLUX_OBJ_TUPLE);
+    *(uint32_t *)((char *)ptr + 4) = 2;
+    int64_t *elems = (int64_t *)((char *)ptr + 8);
+    elems[0] = ra;
+    elems[1] = rb;
+    return (int64_t)ptr;
+}
+
+int64_t flux_fiber_race(int64_t f, int64_t g) {
+    /* Sequential: f always "wins"; g is never called. */
+    (void)g;
+    return flux_call_closure_c(f, NULL, 0);
+}
+
+int64_t flux_fiber_timeout(int64_t ms, int64_t f) {
+    /* Sequential: deadline ignored; call f() and wrap the result in Some(). */
+    (void)ms;
+    return flux_wrap_some(flux_call_closure_c(f, NULL, 0));
+}
+
+int64_t flux_fiber_new_scope(int32_t scope_ctor_tag) {
+    /* Allocate Scope(id) ADT: payload = 8 (ctor_tag+field_count) + 8 = 16;
+     * scan_fsize = 1 (one owned i64 field).                                 */
+    int64_t id = atomic_fetch_add_explicit(&next_scope_id, 1,
+                                           memory_order_relaxed);
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = scope_ctor_tag;
+    hdr[1] = 1; /* field_count */
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = flux_tag_int(id);
+    return flux_tag_ptr(mem);
+}
+
+int64_t flux_fiber_fork_scoped(int64_t s, int64_t f) {
+    /* Sequential: run f() inline; scope registration is a no-op. */
+    (void)s;
+    flux_call_closure_c(f, NULL, 0);
+    return FLUX_NONE;
+}
+
+int64_t flux_fiber_cancel_scope(int64_t s) {
+    /* Sequential: nothing is registered under the scope, nothing to cancel. */
+    (void)s;
     return FLUX_NONE;
 }

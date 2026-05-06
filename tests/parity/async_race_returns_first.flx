@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: race(f, g) returns whichever branch finishes first. Phase 1b-vi-b₂.2:
 //      both branches run concurrently via the fiber scheduler. With both
