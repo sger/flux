@@ -101,6 +101,18 @@ enum TcpCommand {
     Close {
         handle: IoHandle,
     },
+    Listen {
+        req: RequestId,
+        handle: IoHandle,
+        addr: SocketAddr,
+    },
+    Accept {
+        req: RequestId,
+        listener_handle: IoHandle,
+    },
+    CloseListener {
+        handle: IoHandle,
+    },
     /// Walk every live connection and clear any pending read or write that
     /// matches `req`, so the reactor stops doing I/O work on the cancelled
     /// caller's behalf (proposal 0174 D3). The cancel-set / completion-drop
@@ -324,6 +336,32 @@ impl AsyncBackend for MioBackend {
             let _ = shared.waker.wake();
         });
     }
+
+    fn tcp_listen(&self, req: RequestId, addr: SocketAddr) {
+        let _ = self.with_shared(|shared| {
+            let handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Listen { req, handle, addr });
+            let _ = shared.waker.wake();
+        });
+    }
+
+    fn tcp_accept(&self, req: RequestId, handle: IoHandle) {
+        let _ = self.with_shared(|shared| {
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::Accept {
+                    req,
+                    listener_handle: handle,
+                });
+            let _ = shared.waker.wake();
+        });
+    }
 }
 
 impl Drop for MioBackend {
@@ -359,11 +397,21 @@ struct TcpConnState {
     pending_write: Option<PendingWrite>,
 }
 
+/// Per-listener reactor-thread state. Lives in the reactor's local
+/// `HashMap<IoHandle, TcpListenerState>`; never touched by the owning thread.
+struct TcpListenerState {
+    listener: mio::net::TcpListener,
+    token: Token,
+    pending_accept: Option<RequestId>,
+}
+
 /// Reactor thread entry point.
 fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
     let mut events = Events::with_capacity(64);
     let mut conns: HashMap<IoHandle, TcpConnState> = HashMap::new();
     let mut handles_by_token: HashMap<Token, IoHandle> = HashMap::new();
+    let mut listeners: HashMap<IoHandle, TcpListenerState> = HashMap::new();
+    let mut listener_tokens: HashMap<Token, IoHandle> = HashMap::new();
     // Token(0) is reserved for the Waker; allocate connection tokens above.
     let mut next_token: usize = 1;
 
@@ -376,6 +424,8 @@ fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
             &shared,
             &mut conns,
             &mut handles_by_token,
+            &mut listeners,
+            &mut listener_tokens,
             &mut next_token,
             poll.registry(),
         );
@@ -396,6 +446,21 @@ fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
 
         for event in events.iter() {
             if event.token() == WAKER_TOKEN {
+                continue;
+            }
+            if let Some(&lhandle) = listener_tokens.get(&event.token()) {
+                if event.is_readable() {
+                    if let Some(ls) = listeners.get_mut(&lhandle) {
+                        try_progress_accept(
+                            &shared,
+                            ls,
+                            &mut conns,
+                            &mut handles_by_token,
+                            &mut next_token,
+                            poll.registry(),
+                        );
+                    }
+                }
                 continue;
             }
             let Some(&handle) = handles_by_token.get(&event.token()) else {
@@ -420,6 +485,8 @@ fn drain_tcp_commands(
     shared: &ReactorShared,
     conns: &mut HashMap<IoHandle, TcpConnState>,
     handles_by_token: &mut HashMap<Token, IoHandle>,
+    listeners: &mut HashMap<IoHandle, TcpListenerState>,
+    listener_tokens: &mut HashMap<Token, IoHandle>,
     next_token: &mut usize,
     registry: &mio::Registry,
 ) {
@@ -512,6 +579,58 @@ fn drain_tcp_commands(
                     // silently per the docs on AsyncBackend::tcp_close.
                 }
             }
+            TcpCommand::Listen { req, handle, addr } => {
+                let token = Token(*next_token);
+                *next_token += 1;
+                match mio::net::TcpListener::bind(addr) {
+                    Ok(mut listener) => {
+                        if let Err(e) = registry.register(&mut listener, token, Interest::READABLE) {
+                            push_completion(
+                                shared,
+                                req,
+                                CompletionPayload::Error(format!("register failed: {e}")),
+                            );
+                            continue;
+                        }
+                        listeners.insert(
+                            handle,
+                            TcpListenerState {
+                                listener,
+                                token,
+                                pending_accept: None,
+                            },
+                        );
+                        listener_tokens.insert(token, handle);
+                        // Listen completes immediately — Flux `listen()` returns the listener handle.
+                        push_completion(shared, req, CompletionPayload::TcpHandle(handle));
+                    }
+                    Err(e) => {
+                        push_completion(
+                            shared,
+                            req,
+                            CompletionPayload::Error(format!("listen failed: {e}")),
+                        );
+                    }
+                }
+            }
+            TcpCommand::Accept { req, listener_handle } => {
+                let Some(ls) = listeners.get_mut(&listener_handle) else {
+                    push_completion(
+                        shared,
+                        req,
+                        CompletionPayload::Error("accept on unknown listener".into()),
+                    );
+                    continue;
+                };
+                ls.pending_accept = Some(req);
+                try_progress_accept(shared, ls, conns, handles_by_token, next_token, registry);
+            }
+            TcpCommand::CloseListener { handle } => {
+                if let Some(mut ls) = listeners.remove(&handle) {
+                    listener_tokens.remove(&ls.token);
+                    let _ = registry.deregister(&mut ls.listener);
+                }
+            }
             TcpCommand::CancelRequest { req } => {
                 // Walk every live connection and clear matching pending ops.
                 // No completion is produced for the cancelled request — the
@@ -532,6 +651,11 @@ fn drain_tcp_commands(
                     }
                     if c.pending_connect == Some(req) {
                         c.pending_connect = None;
+                    }
+                }
+                for ls in listeners.values_mut() {
+                    if ls.pending_accept == Some(req) {
+                        ls.pending_accept = None;
                     }
                 }
             }
@@ -650,6 +774,49 @@ fn try_progress_write(shared: &ReactorShared, c: &mut TcpConnState) {
                 );
                 return;
             }
+        }
+    }
+}
+
+fn try_progress_accept(
+    shared: &ReactorShared,
+    ls: &mut TcpListenerState,
+    conns: &mut HashMap<IoHandle, TcpConnState>,
+    handles_by_token: &mut HashMap<Token, IoHandle>,
+    next_token: &mut usize,
+    registry: &mio::Registry,
+) {
+    let Some(req) = ls.pending_accept else { return; };
+    match ls.listener.accept() {
+        Ok((mut stream, _addr)) => {
+            let conn_handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));
+            let token = Token(*next_token);
+            *next_token += 1;
+            let _ = registry.register(&mut stream, token, Interest::READABLE | Interest::WRITABLE);
+            conns.insert(
+                conn_handle,
+                TcpConnState {
+                    stream,
+                    token,
+                    pending_connect: None,
+                    pending_read: None,
+                    pending_write: None,
+                },
+            );
+            handles_by_token.insert(token, conn_handle);
+            ls.pending_accept = None;
+            push_completion(shared, req, CompletionPayload::TcpHandle(conn_handle));
+        }
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            // Wait for the next readable event.
+        }
+        Err(e) => {
+            ls.pending_accept = None;
+            push_completion(
+                shared,
+                req,
+                CompletionPayload::Error(format!("accept failed: {e}")),
+            );
         }
     }
 }
