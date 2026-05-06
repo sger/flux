@@ -64,6 +64,8 @@ impl WorkerState {
 /// switch is wired in Phase 1b-v.
 pub struct FiberScheduler {
     workers: Vec<WorkerState>,
+    next_child_worker: usize,
+    next_ready_worker: usize,
 }
 
 impl FiberScheduler {
@@ -75,7 +77,14 @@ impl FiberScheduler {
     pub fn new(num_workers: usize) -> Self {
         assert!(num_workers >= 1, "need at least one worker");
         let workers = (0..num_workers).map(|_| WorkerState::new()).collect();
-        FiberScheduler { workers }
+        FiberScheduler {
+            workers,
+            // Root fibers stay on worker 0. Child round-robin starts at
+            // worker 1 when available so two-worker runs exercise both queues
+            // immediately while preserving the no-migration invariant.
+            next_child_worker: if num_workers > 1 { 1 } else { 0 },
+            next_ready_worker: 0,
+        }
     }
 
     /// Spawn a new fiber on the given worker and push it onto the ready queue.
@@ -86,8 +95,28 @@ impl FiberScheduler {
         assert!(worker_idx < self.workers.len(), "invalid worker id");
         let fiber = Fiber::new(home_worker);
         let id = fiber.id;
+        if self.total_ready_count() == 0 {
+            self.next_ready_worker = worker_idx;
+        }
         self.workers[worker_idx].ready.push(fiber);
         id
+    }
+
+    /// Return the logical worker the next child fiber should be pinned to.
+    ///
+    /// This does not create OS threads; it only assigns stable home-worker
+    /// affinity for the current single-threaded dispatch loop and future
+    /// multi-worker execution.
+    pub fn next_child_worker(&mut self) -> WorkerId {
+        let worker = WorkerId(self.next_child_worker as u32);
+        self.next_child_worker = (self.next_child_worker + 1) % self.workers.len();
+        worker
+    }
+
+    /// Spawn a child fiber on the next logical worker.
+    pub fn spawn_child_round_robin(&mut self) -> FiberId {
+        let worker = self.next_child_worker();
+        self.spawn(worker)
     }
 
     /// Push a pre-existing fiber onto its home worker's ready queue (proposal
@@ -96,6 +125,9 @@ impl FiberScheduler {
     pub fn spawn_existing(&mut self, fiber: Fiber) {
         let worker_idx = fiber.home_worker.0 as usize;
         assert!(worker_idx < self.workers.len(), "invalid worker id");
+        if self.total_ready_count() == 0 {
+            self.next_ready_worker = worker_idx;
+        }
         self.workers[worker_idx].ready.push(fiber);
     }
 
@@ -133,11 +165,31 @@ impl FiberScheduler {
             // Record which request woke us so the dispatch loop can look
             // up the synthetic resume value (proposal 0174 Phase 1b-vi-b₂.2).
             fiber.last_completion_req = Some(request_id.0);
+            if self.total_ready_count() == 0 {
+                self.next_ready_worker = idx;
+            }
             self.workers[idx].ready.push(fiber);
             true
         } else {
             false
         }
+    }
+
+    /// Deliver a backend completion without requiring the caller to know the
+    /// fiber's home worker.
+    ///
+    /// This is the scheduler-side half of proposal 0174 1b-vi-c's
+    /// home-worker completion routing. The reactor/dispatch owner only knows
+    /// the request id; the scheduler owns the request → parked-fiber map and
+    /// re-enqueues the fiber onto the worker it was originally pinned to.
+    pub fn complete_request(&mut self, request_id: RequestId) -> Option<WorkerId> {
+        for worker_idx in 0..self.workers.len() {
+            let worker = WorkerId(worker_idx as u32);
+            if self.complete(worker, request_id) {
+                return Some(worker);
+            }
+        }
+        None
     }
 
     /// Cancel all suspended fibers whose `FiberId` matches the given set.
@@ -147,7 +199,8 @@ impl FiberScheduler {
     /// `AsyncError.Canceled` error (Phase 1b-vi).
     pub fn cancel_fibers(&mut self, ids: &[FiberId]) {
         let id_set: std::collections::HashSet<u64> = ids.iter().map(|f| f.0).collect();
-        for worker in &mut self.workers {
+        let mut ready_was_empty = self.total_ready_count() == 0;
+        for (worker_idx, worker) in self.workers.iter_mut().enumerate() {
             let to_cancel: Vec<u64> = worker
                 .suspended
                 .keys()
@@ -163,6 +216,10 @@ impl FiberScheduler {
             for req in to_cancel {
                 if let Some(mut fiber) = worker.suspended.remove(&req) {
                     fiber.state = FiberState::Cancelled;
+                    if ready_was_empty {
+                        self.next_ready_worker = worker_idx;
+                        ready_was_empty = false;
+                    }
                     worker.ready.push(fiber);
                 }
             }
@@ -175,14 +232,41 @@ impl FiberScheduler {
         self.workers[idx].ready.pop()
     }
 
+    /// Pop the next ready fiber from the first non-empty logical worker.
+    ///
+    /// This keeps the current single-OS-thread VM/native loops simple while
+    /// letting tests and future dispatch loops exercise multiple logical
+    /// worker queues.
+    pub fn next_ready_any(&mut self) -> Option<(WorkerId, Fiber)> {
+        for offset in 0..self.workers.len() {
+            let worker_idx = (self.next_ready_worker + offset) % self.workers.len();
+            let worker = WorkerId(worker_idx as u32);
+            if let Some(fiber) = self.next_ready(worker) {
+                self.next_ready_worker = (worker_idx + 1) % self.workers.len();
+                return Some((worker, fiber));
+            }
+        }
+        None
+    }
+
     /// Number of fibers ready to run on a given worker.
     pub fn ready_count(&self, worker: WorkerId) -> usize {
         self.workers[worker.0 as usize].ready.len()
     }
 
+    /// Total ready fibers across all logical workers.
+    pub fn total_ready_count(&self) -> usize {
+        self.workers.iter().map(|w| w.ready.len()).sum()
+    }
+
     /// Number of fibers suspended on a given worker.
     pub fn suspended_count(&self, worker: WorkerId) -> usize {
         self.workers[worker.0 as usize].suspended.len()
+    }
+
+    /// Total suspended fibers across all logical workers.
+    pub fn total_suspended_count(&self) -> usize {
+        self.workers.iter().map(|w| w.suspended.len()).sum()
     }
 
     /// True when a worker has no ready or suspended fibers.
@@ -321,6 +405,83 @@ mod tests {
         assert_eq!(sched.ready_count(w0()), 1);
         assert_eq!(sched.suspended_count(w1), 0);
         assert_eq!(sched.ready_count(w1), 1);
+    }
+
+    #[test]
+    fn complete_request_routes_to_fiber_home_worker() {
+        let mut sched = FiberScheduler::new(2);
+        let w1 = WorkerId(1);
+        let id = sched.spawn(w1);
+        let fiber = sched.next_ready(w1).unwrap();
+        sched.suspend(fiber, RequestId(77));
+
+        let routed = sched.complete_request(RequestId(77));
+        assert_eq!(routed, Some(w1));
+        assert_eq!(sched.suspended_count(w1), 0);
+        assert_eq!(sched.ready_count(w1), 1);
+
+        let resumed = sched.next_ready(w1).unwrap();
+        assert_eq!(resumed.id, id);
+        assert_eq!(resumed.home_worker, w1);
+        assert_eq!(resumed.last_completion_req, Some(77));
+    }
+
+    #[test]
+    fn complete_request_returns_none_for_abandoned_request() {
+        let mut sched = FiberScheduler::new(2);
+        assert_eq!(sched.complete_request(RequestId(404)), None);
+    }
+
+    #[test]
+    fn next_ready_any_starts_with_first_ready_worker() {
+        let mut sched = FiberScheduler::new(2);
+        let w1 = WorkerId(1);
+        let id1 = sched.spawn(w1);
+        let id0 = sched.spawn(w0());
+
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, w1);
+        assert_eq!(fiber.id, id1);
+
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, w0());
+        assert_eq!(fiber.id, id0);
+
+        assert!(sched.next_ready_any().is_none());
+    }
+
+    #[test]
+    fn child_round_robin_assigns_logical_workers() {
+        let mut sched = FiberScheduler::new(2);
+
+        let a = sched.spawn_child_round_robin();
+        let b = sched.spawn_child_round_robin();
+        let c = sched.spawn_child_round_robin();
+
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, WorkerId(1));
+        assert_eq!(fiber.id, a);
+        assert_eq!(fiber.home_worker, WorkerId(1));
+
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, w0());
+        assert_eq!(fiber.id, b);
+        assert_eq!(fiber.home_worker, w0());
+
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, WorkerId(1));
+        assert_eq!(fiber.id, c);
+        assert_eq!(fiber.home_worker, WorkerId(1));
+    }
+
+    #[test]
+    fn child_round_robin_single_worker_stays_on_worker_zero() {
+        let mut sched = FiberScheduler::new(1);
+        let id = sched.spawn_child_round_robin();
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, w0());
+        assert_eq!(fiber.id, id);
+        assert_eq!(fiber.home_worker, w0());
     }
 
     #[test]
