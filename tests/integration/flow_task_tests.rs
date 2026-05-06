@@ -103,12 +103,7 @@ fn flow_task_native_compiles_and_passes() {
         .join("flow_task_native.flx");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "--test",
-            path.to_str().unwrap(),
-            "--native",
-            "--no-cache",
-        ])
+        .args(["--test", path.to_str().unwrap(), "--native", "--no-cache"])
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test --native: {e}"));
 

@@ -34,7 +34,11 @@ use crate::lir::{
 ///
 /// No-op when `FLUX_YIELD_CHECKS` is unset (or set to `"0"`/empty) — matches
 /// slice 3a's gating so default output is unchanged.
-pub fn split_continuations(mut program: LirProgram) -> LirProgram {
+pub fn split_continuations(program: LirProgram) -> LirProgram {
+    split_continuations_with_options(program, false)
+}
+
+pub fn split_continuations_with_options(mut program: LirProgram, force: bool) -> LirProgram {
     if !yield_checks_enabled() {
         return program;
     }
@@ -47,7 +51,7 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
                 if matches!(kind, crate::lir::CallKind::YieldTo))
         })
     });
-    if !has_yield {
+    if !force && !has_yield {
         return program;
     }
 

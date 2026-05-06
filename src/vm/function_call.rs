@@ -644,11 +644,7 @@ impl RuntimeContext for VM {
         self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
     }
 
-    fn resume_from_dispatch(
-        &mut self,
-        cont: Value,
-        resume_val: Value,
-    ) -> Result<Value, String> {
+    fn resume_from_dispatch(&mut self, cont: Value, resume_val: Value) -> Result<Value, String> {
         let entry_frame_index = self.frame_index;
         // execute_resume pops [cont, resume_val] off the stack and splices
         // the captured frames back on top.

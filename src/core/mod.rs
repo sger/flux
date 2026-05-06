@@ -1201,17 +1201,16 @@ impl CorePrimOp {
             | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
-            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait
-            | FiberRunAsync | FiberSleep | TcpClose | TcpAccept
-            | FiberCancelScope => 1,
+            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
+            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
             | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
-            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr
-            | TcpConnect | TcpListen | TcpRead | TcpWriteAll
-            | FiberBoth | FiberRace | FiberTimeout | FiberForkScoped => 2,
+            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | TcpConnect
+            | TcpListen | TcpRead | TcpWriteAll | FiberBoth | FiberRace | FiberTimeout
+            | FiberForkScoped => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
