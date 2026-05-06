@@ -210,13 +210,24 @@ int64_t flux_fiber_cancel_scope(int64_t s);
 
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 int32_t  flux_async_runtime_init(void);
+int64_t  flux_async_run_root(int64_t root_closure);
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
+int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_fiber_both(int64_t left, int64_t right);
+uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 int32_t  flux_async_poll_dispatch(uint64_t request_id);
 int32_t  flux_async_shutdown(void);
 int32_t  flux_async_is_suspended(void);
 int64_t  flux_async_current_request(void);
 void     flux_async_clear_suspend(void);
+int64_t  flux_async_call0(int64_t closure);
+int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+void     flux_async_retain(int64_t value);
+void     flux_async_release(int64_t value);
+int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
+int64_t  flux_async_wrap_some(int64_t value);
 
 /* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
 /* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
