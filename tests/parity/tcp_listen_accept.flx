@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: TCP listen/accept/close through the VM handle table.
 //      Phase 1b-vi-e: basic connection handshake via Async.both.
