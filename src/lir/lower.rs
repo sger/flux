@@ -2995,7 +2995,9 @@ impl<'a> FnLower<'a> {
             }
             CoreExpr::Var { var, .. } if var.binder.is_none() => self
                 .direct_same_module_func_for_name(var.name)
-                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
+                .map_or((None, None), |(func_id, binder)| {
+                    (Some(func_id), Some(binder))
+                }),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -3226,7 +3228,9 @@ impl<'a> FnLower<'a> {
             }
             AetherExpr::Var { var, .. } if var.binder.is_none() => self
                 .direct_same_module_func_for_name(var.name)
-                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
+                .map_or((None, None), |(func_id, binder)| {
+                    (Some(func_id), Some(binder))
+                }),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -3990,6 +3994,37 @@ impl<'a> FnLower<'a> {
                     parts: arg_vars,
                 });
                 dst
+            }
+
+            CorePrimOp::FiberSleep => {
+                let result = self.fresh_var();
+                let sink = self.fresh_var();
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(sink),
+                    op,
+                    args: arg_vars,
+                });
+
+                let cont_idx = self.new_block();
+                let cont_id = BlockId(cont_idx as u32);
+                self.func.blocks[cont_idx].params.push(result);
+
+                let dummy_func = self.fresh_var();
+                self.emit(LirInstr::Const {
+                    dst: dummy_func,
+                    value: LirConst::None,
+                });
+                self.set_terminator(LirTerminator::Call {
+                    dst: result,
+                    func: dummy_func,
+                    args: Vec::new(),
+                    cont: cont_id,
+                    kind: CallKind::YieldTo,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                });
+                self.switch_to_block(cont_idx);
+                result
             }
 
             // Generic arithmetic → specialize to inline integer ops when both

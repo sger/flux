@@ -1397,14 +1397,14 @@ impl Compiler {
         }
         let (mut core, def_schemes) =
             crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
-            program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            Some(&self.type_env),
-            None,
-            class_env_ref,
-            Some(&module_member_schemes),
-        );
+                program_to_lower,
+                &self.hm_expr_types,
+                Some(&self.interner),
+                Some(&self.type_env),
+                None,
+                class_env_ref,
+                Some(&module_member_schemes),
+            );
 
         if elaborate_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
@@ -5040,10 +5040,11 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_module_with_options(
+        Ok(crate::lir::emit_llvm::emit_llvm_module_with_yield_options(
             &lir,
             false,
             export_user_ctor_name_helper,
+            false,
         ))
     }
 

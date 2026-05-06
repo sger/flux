@@ -10,10 +10,10 @@ use std::time::{Instant, SystemTime};
 
 use crate::core::CorePrimOp;
 use crate::runtime::RuntimeContext;
+use crate::runtime::r#async::backend::AsyncBackend;
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
-use crate::runtime::r#async::backend::AsyncBackend;
 
 // ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
 // DEPRECATED: Replaced by async mio backend in Phase 1b-vi-e.
@@ -45,8 +45,8 @@ mod vm_tcp {
 
     pub fn tcp_connect(host: &str, port: i64) -> Result<i64, String> {
         let addr = format!("{}:{}", host, port);
-        let stream = TcpStream::connect(&addr)
-            .map_err(|e| format!("tcp_connect {}: {}", addr, e))?;
+        let stream =
+            TcpStream::connect(&addr).map_err(|e| format!("tcp_connect {}: {}", addr, e))?;
         let id = alloc_id();
         TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Stream(stream)));
         Ok(id)
@@ -57,9 +57,14 @@ mod vm_tcp {
             let mut map = h.borrow_mut();
             match map.get_mut(&handle) {
                 Some(TcpHandle::Stream(stream)) => {
-                    let cap = if max > 0 && max <= (1 << 24) { max as usize } else { 4096 };
+                    let cap = if max > 0 && max <= (1 << 24) {
+                        max as usize
+                    } else {
+                        4096
+                    };
                     let mut buf = vec![0u8; cap];
-                    let n = stream.read(&mut buf)
+                    let n = stream
+                        .read(&mut buf)
                         .map_err(|e| format!("tcp_read {}: {}", handle, e))?;
                     Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
                 }
@@ -72,23 +77,24 @@ mod vm_tcp {
         TCP_HANDLES.with(|h| {
             let mut map = h.borrow_mut();
             match map.get_mut(&handle) {
-                Some(TcpHandle::Stream(stream)) => {
-                    stream.write_all(data.as_bytes())
-                        .map_err(|e| format!("tcp_write_all {}: {}", handle, e))
-                }
+                Some(TcpHandle::Stream(stream)) => stream
+                    .write_all(data.as_bytes())
+                    .map_err(|e| format!("tcp_write_all {}: {}", handle, e)),
                 _ => Err(format!("tcp_write_all: invalid handle {}", handle)),
             }
         })
     }
 
     pub fn tcp_close(handle: i64) {
-        TCP_HANDLES.with(|h| { h.borrow_mut().remove(&handle); });
+        TCP_HANDLES.with(|h| {
+            h.borrow_mut().remove(&handle);
+        });
     }
 
     pub fn tcp_listen(host: &str, port: i64) -> Result<i64, String> {
         let addr = format!("{}:{}", host, port);
-        let listener = TcpListener::bind(&addr)
-            .map_err(|e| format!("tcp_listen {}: {}", addr, e))?;
+        let listener =
+            TcpListener::bind(&addr).map_err(|e| format!("tcp_listen {}: {}", addr, e))?;
         let id = alloc_id();
         TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Listener(listener)));
         Ok(id)
@@ -99,9 +105,14 @@ mod vm_tcp {
             let mut map = h.borrow_mut();
             match map.get_mut(&listener) {
                 Some(TcpHandle::Listener(l)) => {
-                    let (stream, _) = l.accept()
+                    let (stream, _) = l
+                        .accept()
                         .map_err(|e| format!("tcp_accept {}: {}", listener, e))?;
-                    let id = NEXT_ID.with(|n| { let id = *n.borrow(); *n.borrow_mut() = id + 1; id });
+                    let id = NEXT_ID.with(|n| {
+                        let id = *n.borrow();
+                        *n.borrow_mut() = id + 1;
+                        id
+                    });
                     drop(map);
                     TCP_HANDLES.with(|h| h.borrow_mut().insert(id, TcpHandle::Stream(stream)));
                     Ok(id)
@@ -170,13 +181,13 @@ mod vm_fibers {
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use super::vm_async;
     use crate::runtime::RuntimeContext;
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
-    use super::vm_async;
 
     /// How a parent fiber's resume value is assembled when its child(ren)
     /// finish (proposal 0174 Phase 1b-vi-b₂.2).
@@ -534,12 +545,10 @@ mod vm_fibers {
         let mut completions: Vec<(u64, Value)> = Vec::new();
         let mut losers: Vec<FiberId> = Vec::new();
         for parent_req in parent_reqs {
-            let take_result = |fid: FiberId| -> Option<Value> {
-                RESULTS.with(|r| r.borrow_mut().remove(&fid))
-            };
-            let peek_result = |fid: FiberId| -> bool {
-                RESULTS.with(|r| r.borrow().contains_key(&fid))
-            };
+            let take_result =
+                |fid: FiberId| -> Option<Value> { RESULTS.with(|r| r.borrow_mut().remove(&fid)) };
+            let peek_result =
+                |fid: FiberId| -> bool { RESULTS.with(|r| r.borrow().contains_key(&fid)) };
 
             let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
             let Some(kind) = kind else { continue };
@@ -607,7 +616,10 @@ mod vm_fibers {
             }
         }
 
-        FiberDoneOutcome { completions, losers }
+        FiberDoneOutcome {
+            completions,
+            losers,
+        }
     }
 
     /// Cancel a set of fibers: look up each fiber's pending backend request,
@@ -720,13 +732,14 @@ mod vm_fibers {
                         // The fiber may park again (e.g. inside a release arm
                         // that does async I/O).  Handle exactly like normal park.
                         if let Some((req, cont_val)) = take_park() {
-                            let cont_rc = match cont_val {
-                                Value::Continuation(rc) => rc,
-                                _ => return Err(
-                                    "cancelled fiber re-park: non-Continuation in PENDING_PARK"
-                                        .into(),
-                                ),
-                            };
+                            let cont_rc =
+                                match cont_val {
+                                    Value::Continuation(rc) => rc,
+                                    _ => return Err(
+                                        "cancelled fiber re-park: non-Continuation in PENDING_PARK"
+                                            .into(),
+                                    ),
+                                };
                             fiber.parked = Some(cont_rc);
                             fiber.state = FiberState::Suspended { request_id: req };
                             SCHED.with(|s| {
@@ -785,9 +798,12 @@ mod vm_fibers {
                 if let Some((req, cont_val)) = take_park() {
                     let cont_rc = match cont_val {
                         Value::Continuation(rc) => rc,
-                        _ => return Err(
-                            "dispatch_loop: PENDING_PARK contained non-Continuation value".into(),
-                        ),
+                        _ => {
+                            return Err(
+                                "dispatch_loop: PENDING_PARK contained non-Continuation value"
+                                    .into(),
+                            );
+                        }
                     };
                     fiber.parked = Some(cont_rc);
                     fiber.state = FiberState::Suspended { request_id: req };
@@ -910,11 +926,9 @@ fn park_tcp_op(
                     use crate::runtime::r#async::backend::CompletionPayload;
                     return match c.payload {
                         CompletionPayload::TcpHandle(h) => Ok(Value::Integer(h.0 as i64)),
-                        CompletionPayload::Bytes(buf) => {
-                            Ok(Value::String(Rc::new(
-                                String::from_utf8_lossy(&buf).into_owned(),
-                            )))
-                        }
+                        CompletionPayload::Bytes(buf) => Ok(Value::String(Rc::new(
+                            String::from_utf8_lossy(&buf).into_owned(),
+                        ))),
                         CompletionPayload::Unit => Ok(Value::None),
                         CompletionPayload::Error(e) => Err(e),
                     };
