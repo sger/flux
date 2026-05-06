@@ -295,6 +295,9 @@ fn run_linker(
             if cfg!(windows) {
                 // Windows: set subsystem and stack size via lld-link.
                 cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
+                // The Rust staticlib linked for native async pulls in small
+                // portions of `std` that reference these Windows system libs.
+                cmd.args(["-luserenv", "-lntdll"]);
             }
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
@@ -324,18 +327,21 @@ fn rust_staticlib_path() -> Option<PathBuf> {
     ];
     let mut candidates = Vec::new();
     for candidate in dirs {
-        let exact = candidate.join("libflux.a");
-        if exact.exists() {
-            candidates.push(exact);
+        for exact_name in ["libflux.a", "flux.lib"] {
+            let exact = candidate.join(exact_name);
+            if exact.exists() {
+                candidates.push(exact);
+            }
         }
         if let Ok(entries) = fs::read_dir(&candidate) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .is_some_and(|f| f.starts_with("libflux-") && f.ends_with(".a"))
-                {
+                let Some(file_name) = path.file_name().and_then(|f| f.to_str()) else {
+                    continue;
+                };
+                let unix_archive = file_name.starts_with("libflux-") && file_name.ends_with(".a");
+                let msvc_archive = file_name.starts_with("flux-") && file_name.ends_with(".lib");
+                if unix_archive || msvc_archive {
                     candidates.push(path);
                 }
             }
@@ -356,14 +362,19 @@ fn rust_staticlib_path() -> Option<PathBuf> {
 }
 
 fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
-    let Ok(output) = Command::new("nm").arg("-g").arg(path).output() else {
-        return false;
-    };
-    if !output.status.success() {
-        return false;
+    for tool in ["llvm-nm", "nm"] {
+        let Ok(output) = Command::new(tool).arg("-g").arg(path).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains(symbol) {
+            return true;
+        }
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout.contains(symbol)
+    false
 }
 
 pub fn link_objects(
