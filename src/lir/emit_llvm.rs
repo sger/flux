@@ -2668,7 +2668,7 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
-                    CallKind::Indirect => {
+                    CallKind::Indirect { .. } => {
                         // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
                         self.call_c(
@@ -2798,7 +2798,7 @@ impl<'a> FnEmitter<'a> {
                             attrs: Vec::new(),
                         });
                     }
-                    CallKind::Indirect => {
+                    CallKind::Indirect { .. } => {
                         // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
                         self.call_c(
