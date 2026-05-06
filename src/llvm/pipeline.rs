@@ -289,6 +289,9 @@ fn run_linker(
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
             }
+            if let Some(path) = rust_staticlib_path() {
+                cmd.arg(path);
+            }
             if cfg!(windows) {
                 // Windows: set subsystem and stack size via lld-link.
                 cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
@@ -306,6 +309,44 @@ fn run_linker(
             check_output("cc", &output)
         }
     }
+}
+
+fn rust_staticlib_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let dirs = [
+        dir.to_path_buf(),
+        dir.parent().unwrap_or(dir).to_path_buf(),
+        dir.join("deps"),
+        dir.parent().unwrap_or(dir).join("deps"),
+        PathBuf::from("target/debug"),
+        PathBuf::from("target/debug/deps"),
+    ];
+    let mut hashed = Vec::new();
+    for candidate in dirs {
+        let exact = candidate.join("libflux.a");
+        if exact.exists() {
+            return Some(exact);
+        }
+        if let Ok(entries) = fs::read_dir(&candidate) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .is_some_and(|f| f.starts_with("libflux-") && f.ends_with(".a"))
+                {
+                    let modified = entry
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    hashed.push((modified, path));
+                }
+            }
+        }
+    }
+    hashed.sort_by_key(|(modified, _)| *modified);
+    hashed.pop().map(|(_, path)| path)
 }
 
 pub fn link_objects(

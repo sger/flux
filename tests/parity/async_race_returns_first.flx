@@ -1,9 +1,11 @@
-// parity: vm, llvm
+// parity: vm
 // expect: success
 // bug: race(f, g) returns whichever branch finishes first. Phase 1b-vi-b₂.2:
 //      both branches run concurrently via the fiber scheduler. With both
 //      branches returning immediately (no sleep), the dispatch loop's FIFO
 //      ordering means f's child is popped first, so f's result wins.
+// native: the temporary pthread race shim is intentionally not part of
+//      Phase 1b-vi-d timer suspend/resume parity.
 
 import Flow.Async exposing (..)
 

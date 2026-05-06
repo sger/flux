@@ -11,6 +11,8 @@ pub mod backend;
 pub mod backends;
 pub mod context;
 pub mod fiber;
+#[cfg(feature = "llvm")]
+pub mod native_abi;
 pub mod request_registry;
 pub mod runtime_target;
 pub mod scheduler;

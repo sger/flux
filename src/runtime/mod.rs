@@ -90,11 +90,7 @@ pub trait RuntimeContext {
     /// Resume a captured continuation outside any `OpPerform` context. Drives
     /// the inner interpreter loop until the captured frames return; the final
     /// value of the resumed body is returned.
-    fn resume_from_dispatch(
-        &mut self,
-        _cont: Value,
-        _resume_val: Value,
-    ) -> Result<Value, String> {
+    fn resume_from_dispatch(&mut self, _cont: Value, _resume_val: Value) -> Result<Value, String> {
         unimplemented!("resume_from_dispatch not implemented for this RuntimeContext")
     }
 }

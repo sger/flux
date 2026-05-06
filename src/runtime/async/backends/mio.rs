@@ -584,7 +584,8 @@ fn drain_tcp_commands(
                 *next_token += 1;
                 match mio::net::TcpListener::bind(addr) {
                     Ok(mut listener) => {
-                        if let Err(e) = registry.register(&mut listener, token, Interest::READABLE) {
+                        if let Err(e) = registry.register(&mut listener, token, Interest::READABLE)
+                        {
                             push_completion(
                                 shared,
                                 req,
@@ -613,7 +614,10 @@ fn drain_tcp_commands(
                     }
                 }
             }
-            TcpCommand::Accept { req, listener_handle } => {
+            TcpCommand::Accept {
+                req,
+                listener_handle,
+            } => {
                 let Some(ls) = listeners.get_mut(&listener_handle) else {
                     push_completion(
                         shared,
@@ -786,7 +790,9 @@ fn try_progress_accept(
     next_token: &mut usize,
     registry: &mio::Registry,
 ) {
-    let Some(req) = ls.pending_accept else { return; };
+    let Some(req) = ls.pending_accept else {
+        return;
+    };
     match ls.listener.accept() {
         Ok((mut stream, _addr)) => {
             let conn_handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));

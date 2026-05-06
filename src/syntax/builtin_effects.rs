@@ -301,7 +301,21 @@ mod tests {
 
     #[test]
     fn known_function_effect_annotation_names_match_current_builtin_surface() {
-        for name in [IO, TIME, CONSOLE, FILESYSTEM, STDIN, CLOCK, PANIC, DIV, ASYNC, SUSPEND, FORK, GET_CONTEXT, ASYNC_FAIL] {
+        for name in [
+            IO,
+            TIME,
+            CONSOLE,
+            FILESYSTEM,
+            STDIN,
+            CLOCK,
+            PANIC,
+            DIV,
+            ASYNC,
+            SUSPEND,
+            FORK,
+            GET_CONTEXT,
+            ASYNC_FAIL,
+        ] {
             assert!(is_known_function_effect_annotation_name(name), "{name}");
         }
         for name in [RANDOM, NONDET, EXN, "State", "DefinitelyUnknown"] {

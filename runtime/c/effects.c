@@ -609,6 +609,41 @@ int32_t flux_is_yielding(void) {
     return flux_thread_ctx.yielding;
 }
 
+/* ── Native async suspend bridge (proposal 0174 Phase 1b-vi-d) ─────── */
+
+#define FLUX_ASYNC_MARKER (-174)
+
+int64_t flux_async_suspend(int64_t request_id, int64_t resume_value) {
+    flux_thread_ctx.yielding    = 1;
+    flux_thread_ctx.marker      = FLUX_ASYNC_MARKER;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = request_id;
+    flux_thread_ctx.op_state    = resume_value;
+    flux_thread_ctx.op_arity    = 1;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = flux_thread_ctx.current_evv;
+    return FLUX_YIELD_SENTINEL;
+}
+
+int32_t flux_async_is_suspended(void) {
+    return flux_thread_ctx.yielding != 0 && flux_thread_ctx.marker == FLUX_ASYNC_MARKER;
+}
+
+int64_t flux_async_current_request(void) {
+    return flux_thread_ctx.op_arg;
+}
+
+void flux_async_clear_suspend(void) {
+    flux_thread_ctx.yielding    = 0;
+    flux_thread_ctx.marker      = 0;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = 0;
+    flux_thread_ctx.op_state    = 0;
+    flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = 0;
+}
+
 /*
  * Prompt loop: check if a yield is targeted at this handler.
  *
