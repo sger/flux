@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: finally(body, cleanup) must run cleanup after body and return body's result.
 //      VM: sequential; body runs, then cleanup runs, then result is returned.

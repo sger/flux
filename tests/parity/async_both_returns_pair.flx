@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: both(f, g) must run f and g concurrently and return (f_result, g_result).
 //      Phase 1b-vi-b₂.2: VM now overlaps the two branches via the fiber

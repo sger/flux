@@ -1834,6 +1834,27 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_primcall(&mut self, dst: &Option<LirVar>, op: &CorePrimOp, args: &[LirVar]) {
+        // FiberNewScope: the C function takes one i32 ctor_tag constant (not an i64
+        // LirVar argument). The LLVM emitter supplies it from the constructor_tags
+        // table — the C runtime cannot know this program-specific tag value.
+        if let CorePrimOp::FiberNewScope = op {
+            let tag = self
+                .program
+                .constructor_tags
+                .get("Scope")
+                .copied()
+                .unwrap_or(5); // 5 = first user ADT tag (matches lir/lower.rs)
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
+            self.call_c(
+                dst_local,
+                "flux_fiber_new_scope",
+                vec![(LlvmType::i32(), self.i32_const(tag))],
+                ret_ty,
+            );
+            return;
+        }
+
         let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
             .iter()
             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -3582,6 +3603,14 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_run_async" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_fiber_yield_now" => (LlvmType::i64(), vec![]),
         "flux_fiber_sleep" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Fiber combinators (proposal 0174 Phase 1b-vi-d — sequential-equivalent).
+        "flux_fiber_both"         => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_race"         => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_timeout"      => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
+        "flux_fiber_new_scope"    => (LlvmType::i64(), vec![LlvmType::i32()]),
+        "flux_fiber_fork_scoped"  => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_cancel_scope" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values: host ptr/len/port or handle/buf/len.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()]),
