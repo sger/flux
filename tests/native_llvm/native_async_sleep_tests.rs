@@ -81,3 +81,225 @@ fn native_sleep_path_does_not_use_blocking_os_sleep() {
     assert!(sleep_impl.contains("flux_async_timer_start"));
     assert!(sleep_impl.contains("flux_async_suspend"));
 }
+
+#[test]
+fn native_both_overlaps_and_preserves_source_order() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async {
+    sleep(500)
+    3
+}
+
+fn right() -> Int with Async {
+    sleep(500)
+    4
+}
+
+fn body() -> (Int, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let pair = run_async(body)
+    let t1 = now_ms()
+    print(pair.0)
+    print(pair.1)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "both");
+    assert!(
+        success,
+        "native both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(&lines[..2], ["3", "4"]);
+    let measured_ms: i64 = lines[2].parse().expect("elapsed ms");
+    assert!(
+        measured_ms >= 450,
+        "both returned too early: {measured_ms}ms"
+    );
+    assert!(measured_ms < 900, "both did not overlap: {measured_ms}ms");
+}
+
+#[test]
+fn native_race_is_fifo_for_immediate_children() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn first() -> Int with Async { 10 }
+fn second() -> Int with Async { 20 }
+
+fn body() -> Int with Async {
+    race(first, second)
+}
+
+fn main() with IO {
+    let v = run_async(body)
+    print(v)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "race_fifo");
+    assert!(
+        success,
+        "native race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "10");
+}
+
+#[test]
+fn native_race_cancels_slow_loser() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(2000)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(50)
+    2
+}
+
+fn body() -> Int with Async {
+    race(slow, fast)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let v = run_async(body)
+    let t1 = now_ms()
+    print(v)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "race_cancel");
+    assert!(
+        success,
+        "native race cancellation must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "2");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "native race waited for the slow loser: {measured_ms}ms"
+    );
+}
+
+#[test]
+fn native_timeout_returns_none_when_timer_wins() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(2000)
+    7
+}
+
+fn body() -> Option<Int> with Async {
+    timeout(50, slow)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let opt = run_async(body)
+    let t1 = now_ms()
+    match opt {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "timeout_none");
+    assert!(
+        success,
+        "native timeout timer-win must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "-1");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "native timeout waited for the slow body: {measured_ms}ms"
+    );
+}
+
+#[test]
+fn native_timeout_returns_some_when_body_wins() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn fast() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn body() -> Option<Int> with Async {
+    timeout(1000, fast)
+}
+
+fn main() with IO {
+    let opt = run_async(body)
+    match opt {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "timeout_some");
+    assert!(
+        success,
+        "native timeout body-win must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "7");
+}
+
+#[test]
+fn native_nested_combinators_smoke() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn fast() -> Int with Async {
+    sleep(10)
+    5
+}
+
+fn slow() -> Int with Async {
+    sleep(100)
+    9
+}
+
+fn left() -> Option<Int> with Async {
+    timeout(1000, fast)
+}
+
+fn right() -> Int with Async {
+    race(slow, fast)
+}
+
+fn body() -> (Option<Int>, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    match pair.0 {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+    print(pair.1)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "nested");
+    assert!(
+        success,
+        "native nested combinators must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "5\n5");
+}

@@ -322,11 +322,11 @@ fn rust_staticlib_path() -> Option<PathBuf> {
         PathBuf::from("target/debug"),
         PathBuf::from("target/debug/deps"),
     ];
-    let mut hashed = Vec::new();
+    let mut candidates = Vec::new();
     for candidate in dirs {
         let exact = candidate.join("libflux.a");
         if exact.exists() {
-            return Some(exact);
+            candidates.push(exact);
         }
         if let Ok(entries) = fs::read_dir(&candidate) {
             for entry in entries.flatten() {
@@ -336,17 +336,34 @@ fn rust_staticlib_path() -> Option<PathBuf> {
                     .and_then(|f| f.to_str())
                     .is_some_and(|f| f.starts_with("libflux-") && f.ends_with(".a"))
                 {
-                    let modified = entry
-                        .metadata()
-                        .and_then(|m| m.modified())
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    hashed.push((modified, path));
+                    candidates.push(path);
                 }
             }
         }
     }
-    hashed.sort_by_key(|(modified, _)| *modified);
-    hashed.pop().map(|(_, path)| path)
+    candidates.sort_by_key(|p| {
+        fs::metadata(p)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    candidates.dedup();
+    candidates
+        .iter()
+        .rev()
+        .find(|path| archive_exports_symbol(path, "flux_async_run_root"))
+        .cloned()
+        .or_else(|| candidates.pop())
+}
+
+fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
+    let Ok(output) = Command::new("nm").arg("-g").arg(path).output() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.contains(symbol)
 }
 
 pub fn link_objects(
