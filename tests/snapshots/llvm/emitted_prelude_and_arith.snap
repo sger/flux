@@ -138,14 +138,15 @@ entry:
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
+  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+  %can_bump = icmp ne i32 %can_bump_i32, 0
+  br i1 %can_bump, label %bump_check, label %slow
+bump_check:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
   %lim = load ptr, ptr @flux_arena_limit, align 8
   %fits = icmp ule ptr %new_hp, %lim
-  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
-  %can_bump = icmp ne i32 %can_bump_i32, 0
-  %ok = and i1 %fits, %can_bump
-  br i1 %ok, label %fast, label %slow
+  br i1 %fits, label %fast, label %slow
 fast:
   store ptr %new_hp, ptr @flux_arena_hp, align 8
   store i32 1, ptr %hp, align 4

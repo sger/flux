@@ -357,3 +357,48 @@ fn main() with IO, Clock {
         "cancelled scoped child kept the run_async boundary alive: {measured_ms}ms"
     );
 }
+
+#[test]
+fn native_async_cancel_scope_suppresses_child_at_next_suspend() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn child() -> Int with Async {
+    let pair = (1, 2)
+    let _ = pair.0 + pair.1
+    sleep(1000)
+    99
+}
+
+fn scoped(s) -> Int with Async {
+    fork(s, child)
+    cancel(s)
+    sleep(20)
+    11
+}
+
+fn body() -> Int with Async {
+    scope(scoped)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let v = run_async(body)
+    let t1 = now_ms()
+    print(v)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "cancel_scope_running");
+    assert!(
+        success,
+        "native async running scoped child cancellation must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "11");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "cancelled running scoped child parked and kept run_async alive: {measured_ms}ms"
+    );
+}
