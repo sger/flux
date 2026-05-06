@@ -66,6 +66,10 @@
  * this at 0 and retains full bump-arena speed. */
 __thread int flux_worker_thread = 0;
 
+int32_t flux_can_use_bump_arena(void) {
+    return flux_worker_thread ? 0 : 1;
+}
+
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
 typedef struct {

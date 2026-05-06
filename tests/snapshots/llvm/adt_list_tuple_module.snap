@@ -46,6 +46,8 @@ declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
+declare ccc i32 @flux_can_use_bump_arena() nounwind
+
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
 
 declare ccc void @flux_panic(i64) nounwind
@@ -147,7 +149,10 @@ entry:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
   %lim = load ptr, ptr @flux_arena_limit, align 8
-  %ok = icmp ule ptr %new_hp, %lim
+  %fits = icmp ule ptr %new_hp, %lim
+  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+  %can_bump = icmp ne i32 %can_bump_i32, 0
+  %ok = and i1 %fits, %can_bump
   br i1 %ok, label %fast, label %slow
 fast:
   store ptr %new_hp, ptr @flux_arena_hp, align 8

@@ -556,6 +556,26 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
         });
     }
 
+    // ── Declare @flux_can_use_bump_arena (C runtime TLS check) ─────
+    let can_bump_name = "flux_can_use_bump_arena";
+    if !module
+        .declarations
+        .iter()
+        .any(|d| d.name.0 == can_bump_name)
+    {
+        module.declarations.push(crate::llvm::LlvmDecl {
+            linkage: Linkage::External,
+            name: GlobalId(can_bump_name.into()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::i32(),
+                params: vec![],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".into()],
+        });
+    }
+
     // ── Declare @llvm.memset.p0.i64 intrinsic ────────────────────
     let memset_name = "llvm.memset.p0.i64";
     if !module.declarations.iter().any(|d| d.name.0 == memset_name) {
@@ -593,7 +613,10 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     //   %hp      = load ptr, ptr @flux_arena_hp
     //   %new_hp  = getelementptr i8, ptr %hp, i64 %total
     //   %lim     = load ptr, ptr @flux_arena_limit
-    //   %ok      = icmp ule ptr %new_hp, %lim
+    //   %fits    = icmp ule ptr %new_hp, %lim
+    //   %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+    //   %can_bump = icmp ne i32 %can_bump_i32, 0
+    //   %ok      = and i1 %fits, %can_bump
     //   br i1 %ok, label %fast, label %slow
     //
     // fast:
@@ -703,13 +726,39 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         ptr: LlvmOperand::Global(GlobalId(lim_name.into())),
                         align: Some(8),
                     },
-                    // %ok = icmp ule ptr %new_hp, %lim
+                    // %fits = icmp ule ptr %new_hp, %lim
                     LlvmInstr::Icmp {
-                        dst: LlvmLocal("ok".into()),
+                        dst: LlvmLocal("fits".into()),
                         op: LlvmCmpOp::Ule,
                         ty: ptr_ty.clone(),
                         lhs: local("new_hp"),
                         rhs: local("lim"),
+                    },
+                    // %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+                    LlvmInstr::Call {
+                        dst: Some(LlvmLocal("can_bump_i32".into())),
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: i32_ty.clone(),
+                        callee: LlvmOperand::Global(GlobalId(can_bump_name.into())),
+                        args: vec![],
+                        attrs: vec![],
+                    },
+                    // %can_bump = icmp ne i32 %can_bump_i32, 0
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("can_bump".into()),
+                        op: LlvmCmpOp::Ne,
+                        ty: i32_ty.clone(),
+                        lhs: local("can_bump_i32"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    },
+                    // %ok = and i1 %fits, %can_bump
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("ok".into()),
+                        op: LlvmValueKind::And,
+                        ty: i1_ty.clone(),
+                        lhs: local("fits"),
+                        rhs: local("can_bump"),
                     },
                 ],
                 term: LlvmTerminator::CondBr {

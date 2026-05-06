@@ -1,4 +1,4 @@
-// parity: vm
+// parity: vm, llvm
 // expect: success
 // bug: TCP connect/write_all/read round-trip via async fiber scheduler.
 //      Phase 1b-vi-e: both(server, client) now overlaps via mio reactor.
