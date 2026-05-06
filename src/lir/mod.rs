@@ -18,7 +18,7 @@ pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::core::CorePrimOp;
@@ -454,6 +454,73 @@ pub struct LirProgram {
     pub constructor_tags: HashMap<String, i32>,
     /// Monotonic allocator for synthetic nested-function IDs.
     next_synthetic_func_id: u32,
+}
+
+/// True for direct imported symbols whose native execution can suspend through
+/// the async runtime. `run_async` is intentionally excluded: it is the async
+/// boundary and must return a completed value to its caller.
+pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
+    let normalized = symbol.replace(['.', '-'], "_");
+    const ASYNC_SYMBOLS: &[&str] = &[
+        "Flow_Async_sleep",
+        "Flow_Async_fiber_sleep_prim",
+        "Flow_Async_both",
+        "Flow_Async_fiber_both_prim",
+        "Flow_Async_race",
+        "Flow_Async_fiber_race_prim",
+        "Flow_Async_timeout",
+        "Flow_Async_timeout_result",
+        "Flow_Async_fiber_timeout_prim",
+    ];
+
+    ASYNC_SYMBOLS
+        .iter()
+        .any(|needle| normalized.contains(needle))
+}
+
+pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncId>) -> bool {
+    match kind {
+        CallKind::Direct { func_id } | CallKind::DirectClosure { func_id, .. } => {
+            async_funcs.contains(func_id)
+        }
+        CallKind::DirectExtern { symbol } => is_direct_async_extern_symbol(symbol),
+        CallKind::Indirect => false,
+        CallKind::YieldTo => true,
+    }
+}
+
+/// Compute the set of local LIR functions that can suspend through direct
+/// native async calls. This is intentionally direct-call only; higher-order
+/// closure-call metadata is a later phase.
+pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
+    let mut async_funcs = HashSet::new();
+
+    loop {
+        let mut changed = false;
+        for func in &program.functions {
+            if async_funcs.contains(&func.id) {
+                continue;
+            }
+            if function_has_direct_async_site(func, &async_funcs) {
+                async_funcs.insert(func.id);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    async_funcs
+}
+
+fn function_has_direct_async_site(func: &LirFunction, async_funcs: &HashSet<LirFuncId>) -> bool {
+    func.blocks.iter().any(|block| match &block.terminator {
+        LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
+            call_kind_is_direct_async(kind, async_funcs)
+        }
+        _ => false,
+    })
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
