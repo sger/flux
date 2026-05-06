@@ -178,8 +178,7 @@ pub(super) struct AstLowerer<'a> {
     /// Imported module-member schemes keyed by the source qualifier binding.
     pub(super) module_member_schemes:
         Option<&'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
-    pub(super) def_schemes:
-        HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
+    pub(super) def_schemes: HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     pub(super) local_function_names: std::collections::HashSet<Identifier>,
     pub(super) current_function_name: Option<Identifier>,
     current_module_name: Option<Identifier>,
@@ -223,10 +222,7 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
-    pub(super) fn should_insert_source_dict_args_for_identifier(
-        &self,
-        name: Identifier,
-    ) -> bool {
+    pub(super) fn should_insert_source_dict_args_for_identifier(&self, name: Identifier) -> bool {
         if !self.local_function_names.contains(&name) {
             return true;
         }
