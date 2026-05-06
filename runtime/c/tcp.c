@@ -25,6 +25,11 @@
  *   (WSAStartup lifetime, SOCKET vs int) will land in a follow-up.
  */
 
+// Expose POSIX socket address APIs (getaddrinfo, AI_PASSIVE) on Linux/glibc.
+#if !defined(_POSIX_C_SOURCE) && !defined(__APPLE__)
+#define _POSIX_C_SOURCE 200112L
+#endif
+
 #include "flux_rt.h"
 #include <stdio.h>
 #include <stdlib.h>
