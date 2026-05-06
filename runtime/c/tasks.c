@@ -448,14 +448,32 @@ int64_t flux_task_await(int64_t task) {
     return FLUX_NONE;
 }
 
-/* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── *
- * These three primops have sequential-equivalent semantics on the native     *
- * path until the real M:N scheduler bridge lands in Phase 2.                */
+/* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */
 
 int64_t flux_fiber_run_async(int64_t closure) {
-    /* On the native path: call the closure directly (no scheduler yet).
-     * Phase 2 will replace this with installing the Async effect handler. */
-    return flux_call_closure_c(closure, NULL, 0);
+    if (flux_async_runtime_init() != 0) {
+        fprintf(stderr, "flux_fiber_run_async: async runtime init failed\n");
+        abort();
+    }
+
+    int64_t result = flux_call_closure_c(closure, NULL, 0);
+    while (flux_async_is_suspended()) {
+        int64_t request_val = flux_async_current_request();
+        int64_t continuation = flux_compose_conts();
+        flux_async_clear_suspend();
+
+        uint64_t request_id = (uint64_t)flux_untag_int(request_val);
+        int32_t status = flux_async_poll_dispatch(request_id);
+        if (status < 0) {
+            fprintf(stderr, "flux_fiber_run_async: async request %" PRIu64 " failed\n", request_id);
+            abort();
+        }
+
+        int64_t resume_args[1] = { FLUX_NONE };
+        result = flux_call_closure_c(continuation, resume_args, 1);
+    }
+
+    return result;
 }
 
 int64_t flux_fiber_yield_now(void) {
@@ -464,18 +482,13 @@ int64_t flux_fiber_yield_now(void) {
 }
 
 int64_t flux_fiber_sleep(int64_t ms) {
-    /* Block the OS thread for the requested duration. */
-#if defined(_WIN32) || defined(_MSC_VER)
-    if (ms > 0) {
-        Sleep((DWORD)ms);
+    int64_t raw_ms = flux_untag_int(ms);
+    uint64_t request_id = flux_async_timer_start(raw_ms);
+    if (request_id == 0) {
+        fprintf(stderr, "flux_fiber_sleep: async timer registration failed\n");
+        abort();
     }
-#else
-    struct timespec ts;
-    ts.tv_sec  = (time_t)(ms / 1000);
-    ts.tv_nsec = (long)((ms % 1000) * 1000000L);
-    nanosleep(&ts, NULL);
-#endif
-    return FLUX_NONE;
+    return flux_async_suspend(flux_tag_int((int64_t)request_id), FLUX_NONE);
 }
 
 /* ── Fiber combinators (proposal 0174 Phase 1b-vi-d and 1b-vi-e) ──────────

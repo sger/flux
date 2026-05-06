@@ -22,8 +22,8 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::runtime::continuation::Continuation;
 use crate::runtime::r#async::context::{CancelScope, EffectContext, WorkerId};
+use crate::runtime::continuation::Continuation;
 use crate::runtime::value::Value;
 
 // ── FiberId ───────────────────────────────────────────────────────────────

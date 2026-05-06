@@ -208,6 +208,16 @@ int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
 int64_t flux_fiber_fork_scoped(int64_t s, int64_t f);
 int64_t flux_fiber_cancel_scope(int64_t s);
 
+/* Native async bridge (proposal 0174 Phase 1b-vi-d). */
+int32_t  flux_async_runtime_init(void);
+uint64_t flux_async_timer_start(int64_t ms);
+int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
+int32_t  flux_async_poll_dispatch(uint64_t request_id);
+int32_t  flux_async_shutdown(void);
+int32_t  flux_async_is_suspended(void);
+int64_t  flux_async_current_request(void);
+void     flux_async_clear_suspend(void);
+
 /* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
 /* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
 int64_t flux_tcp_connect(int64_t host_val, int64_t host_len_ignored, int64_t port_val);
