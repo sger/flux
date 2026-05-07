@@ -80,7 +80,7 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
-| **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ in progress | HTTP server/runtime foundation slice landed: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) now exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; HTTP primops `HttpServeConfig = 182`, `HttpShutdown = 183`, and `HttpShutdownNow = 184` are reserved through Core/VM/LIR/LLVM/C stubs. [`src/runtime/http/`](../../src/runtime/http/) contains the scratch-built parser/writer foundation (request line/header parser, OWS normalization, obs-fold rejection, `Content-Length`/chunked framing, response writer) with unit tests. VM `HttpServeConfig` binds, accepts one HTTP/1.1 request, invokes the Flux handler, and writes a response; [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) verifies a real loopback request. Remaining Phase 3 HTTP work: detached long-lived server manager, graceful/forced shutdown semantics, keep-alive loop, full knob enforcement, native handler execution parity, HTTP client helpers, JSON, and Streams. |
+| **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ in progress | HTTP server/runtime foundation and server-loop slice landed: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; HTTP primops `HttpServeConfig = 182`, `HttpShutdown = 183`, and `HttpShutdownNow = 184` are reserved through Core/VM/LIR/LLVM/C stubs. [`src/runtime/http/`](../../src/runtime/http/) contains the scratch-built parser/writer foundation plus the blocking VM server loop: request line/header parser, OWS normalization, obs-fold rejection, `Content-Length`/chunked framing, response writer, sequential accept up to `max_connections`, keep-alive/pipelined request handling, and `max_header_bytes` / `max_body_bytes` 413 enforcement. [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) verifies real loopback serving, two sequential connections, two keep-alive requests, malformed 400 handling, and oversized-body 413 handling. Remaining Phase 3 HTTP work: detached long-lived server manager, graceful/forced shutdown semantics beyond reserved no-op handles, handler timeout enforcement, native handler execution parity, HTTP client helpers, JSON, and Streams. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
 
@@ -2050,18 +2050,22 @@ The server surface is pinned by Phase 2 slice 2-v — `ServerConfig`,
 together with `serve` so production deployments do not have to wait
 for a follow-up.
 
-**Implementation status (Phase 3a foundation landed).** The first
-HTTP slice ships the public `Flow.Http` surface with `Bytes` as a
-transparent `String` alias, reserves the HTTP server-manager primops
+**Implementation status (Phase 3a foundation + 3a-ii loop landed).**
+The first HTTP slices ship the public `Flow.Http` surface with `Bytes`
+as a transparent `String` alias, reserve the HTTP server-manager primops
 (`HttpServeConfig = 182`, `HttpShutdown = 183`, `HttpShutdownNow = 184`),
-and adds the parser/writer foundation under `src/runtime/http/`. On the
-VM path, `HttpServeConfig` currently binds, accepts one HTTP/1.1 request,
-builds a `Request`, invokes the Flux handler, writes a response, and
-returns `ServerHandle(0)`. This proves the handler/runtime bridge and
-is covered by `tests/integration/vm_http_server.rs`. It is not yet the
-full detached production server: keep-alive loops, live connection
-accounting, graceful drain, forced cancellation, timeout wrapping,
-full config enforcement, and native handler execution parity remain
+and add the parser/writer foundation under `src/runtime/http/`. On the
+VM path, `HttpServeConfig` now delegates socket and wire behavior to a
+blocking runtime helper: it binds once, accepts up to `max_connections`
+sequential client connections, loops over keep-alive/pipelined requests
+on each connection, enforces `max_header_bytes` and `max_body_bytes`
+with 413 responses before invoking the handler, builds a `Request`,
+invokes the Flux handler, writes a response, and returns `ServerHandle(0)`.
+`request_timeout_ms` is validated but not enforced yet, and `worker_count`
+is accepted for API parity. This is covered by
+`tests/integration/vm_http_server.rs`. It is not yet the full detached
+production server: live connection accounting, graceful drain, forced
+cancellation, timeout wrapping, and native handler execution parity remain
 open HTTP sub-slices.
 
 ```flux
@@ -2228,7 +2232,7 @@ The transparent `alias Stream<a> = ...` form depends on Phase 2 slice
 #### Phase 3 deliverables
 
 - `lib/Flow/Http.flx`, `lib/Flow/Json.flx`, `lib/Flow/Stream.flx` — ~600 lines Flux total. **Status:** `Flow.Http` server surface has landed; JSON and Stream modules remain.
-- `src/runtime/http/` — scratch-built HTTP/1.1 parser, response/request writer, keep-alive state machine. ~600-900 lines Rust plus tests. **No `vendor/` directory, no third-party HTTP parser dependency.** **Status:** parser/writer foundation has landed; keep-alive state machine remains.
+- `src/runtime/http/` — scratch-built HTTP/1.1 parser, response/request writer, keep-alive state machine. ~600-900 lines Rust plus tests. **No `vendor/` directory, no third-party HTTP parser dependency.** **Status:** parser/writer foundation and blocking VM keep-alive loop have landed; detached manager and native parity remain.
 - `src/core/passes/dict_elaborate.rs` (or a new `derive_codec` pass) — JSON codec body synthesis (Phase 3-Json-b).
 - Examples: hello-world microservice, JSON echo, SSE broadcaster, parallel HTTP fetch.
 - Documentation: HTTP server quickstart, JSON codec guide.

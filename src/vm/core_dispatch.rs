@@ -5,7 +5,6 @@
 
 use std::fs;
 use std::io::Read as IoRead;
-use std::io::Write as IoWrite;
 use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
@@ -2511,85 +2510,89 @@ fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
 }
 
 fn vm_http_serve_config(ctx: &mut dyn RuntimeContext, args: &[Value]) -> Result<Value, String> {
-    use crate::runtime::http::{
-        HttpError, HttpResponse, ParseLimits, parse_request, write_response,
-    };
     use crate::runtime::value::{AdtFields, AdtValue};
-    use std::net::TcpListener;
 
-    let (host, port, handler) = match (&args[0], &args[1], &args[3]) {
-        (Value::String(host), Value::Integer(port), handler) => {
+    let (host, port, config, handler) = match (&args[0], &args[1], &args[2], &args[3]) {
+        (Value::String(host), Value::Integer(port), config, handler) => {
             let port: u16 = (*port)
                 .try_into()
                 .map_err(|_| format!("http_serve_config: bad port: {port}"))?;
-            (host.to_string(), port, handler.clone())
+            (
+                host.to_string(),
+                port,
+                http_server_config(config)?,
+                handler.clone(),
+            )
         }
         _ => return Err("http_serve_config: expected (String, Int, ServerConfig, handler)".into()),
     };
 
-    let listener = TcpListener::bind((host.as_str(), port))
-        .map_err(|e| format!("http_serve_config: bind failed: {e}"))?;
-    let (mut stream, _) = listener
-        .accept()
-        .map_err(|e| format!("http_serve_config: accept failed: {e}"))?;
-
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    let parsed = loop {
-        let n = stream
-            .read(&mut chunk)
-            .map_err(|e| format!("http_serve_config: read failed: {e}"))?;
-        if n == 0 {
-            return Err("http_serve_config: client closed before request".into());
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        match parse_request(&buf, ParseLimits::default()) {
-            Ok((req, _used)) => break req,
-            Err(HttpError::NeedMore) => continue,
-            Err(HttpError::PayloadTooLarge(msg)) => {
-                let wire = write_response(&HttpResponse {
-                    status: 413,
-                    reason: "Payload Too Large".into(),
-                    headers: vec![("Connection".into(), "close".into())],
-                    body: msg.into_bytes(),
-                });
-                let _ = stream.write_all(&wire);
-                return Ok(Value::Integer(0));
-            }
-            Err(HttpError::BadRequest(msg)) => {
-                let wire = write_response(&HttpResponse {
-                    status: 400,
-                    reason: "Bad Request".into(),
-                    headers: vec![("Connection".into(), "close".into())],
-                    body: msg.into_bytes(),
-                });
-                let _ = stream.write_all(&wire);
-                return Ok(Value::Integer(0));
-            }
-        }
-    };
-
-    let request_value = Value::Adt(Rc::new(AdtValue {
-        constructor: Rc::new("Request".to_string()),
-        fields: AdtFields::from_vec(vec![
-            Value::AdtUnit(Rc::new(method_constructor(&parsed.method).to_string())),
-            Value::String(parsed.target.into()),
-            Value::HashMap(rc_hamt::hamt_empty()),
-            Value::String(String::from_utf8_lossy(&parsed.body).to_string().into()),
-        ]),
-    }));
-    let response_value = ctx.invoke_value(handler, vec![request_value])?;
-    let (status, body) = response_parts(&response_value)?;
-    let wire = write_response(&HttpResponse {
-        status: status as u16,
-        reason: http_reason(status),
-        headers: vec![("Connection".into(), "close".into())],
-        body: body.into_bytes(),
-    });
-    stream
-        .write_all(&wire)
-        .map_err(|e| format!("http_serve_config: write failed: {e}"))?;
+    crate::runtime::http::serve_blocking(host.as_str(), port, config, |parsed| {
+        let request_value = Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("Request".to_string()),
+            fields: AdtFields::from_vec(vec![
+                Value::AdtUnit(Rc::new(method_constructor(&parsed.method).to_string())),
+                Value::String(parsed.target.into()),
+                Value::HashMap(rc_hamt::hamt_empty()),
+                Value::String(String::from_utf8_lossy(&parsed.body).to_string().into()),
+            ]),
+        }));
+        let response_value = ctx.invoke_value(handler.clone(), vec![request_value])?;
+        let (status, body) = response_parts(&response_value)?;
+        Ok(crate::runtime::http::HttpResponse {
+            status: status as u16,
+            reason: http_reason(status),
+            headers: Vec::new(),
+            body: body.into_bytes(),
+        })
+    })?;
     Ok(Value::Integer(0))
+}
+
+fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingServerConfig, String> {
+    let Value::Adt(adt) = value else {
+        return Err(format!(
+            "http_serve_config: config expected ServerConfig, got {}",
+            value.type_name()
+        ));
+    };
+    if adt.constructor.as_ref() != "ServerConfig" {
+        return Err(format!(
+            "http_serve_config: config expected ServerConfig, got {}",
+            adt.constructor
+        ));
+    }
+
+    let max_connections = config_usize_field(&adt.fields, 0, "max_connections")?;
+    let max_header_bytes = config_usize_field(&adt.fields, 1, "max_header_bytes")?;
+    let max_body_bytes = config_usize_field(&adt.fields, 2, "max_body_bytes")?;
+    let _request_timeout_ms = config_usize_field(&adt.fields, 3, "request_timeout_ms")?;
+
+    Ok(crate::runtime::http::BlockingServerConfig {
+        max_connections,
+        limits: crate::runtime::http::ParseLimits {
+            max_header_bytes,
+            max_body_bytes,
+        },
+    })
+}
+
+fn config_usize_field(
+    fields: &crate::runtime::value::AdtFields,
+    index: usize,
+    name: &str,
+) -> Result<usize, String> {
+    match fields.get(index) {
+        Some(Value::Integer(n)) if *n >= 0 => Ok(*n as usize),
+        Some(Value::Integer(n)) => Err(format!(
+            "http_serve_config: ServerConfig.{name} must be non-negative, got {n}"
+        )),
+        Some(other) => Err(format!(
+            "http_serve_config: ServerConfig.{name} expected Int, got {}",
+            other.type_name()
+        )),
+        None => Err(format!("http_serve_config: ServerConfig missing {name}")),
+    }
 }
 
 fn method_constructor(method: &str) -> &'static str {
