@@ -1,0 +1,43 @@
+// Phase 3 web example: run two HTTP client requests concurrently.
+
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+
+fn handler(req) with Async {
+    if req.path == "/one" {
+        ok("first")
+    } else {
+        ok("second")
+    }
+}
+
+fn server() -> Unit with Async, AsyncFail {
+    let h = serve("127.0.0.1", 24903, handler)
+    let _wait = sleep(300)
+    shutdown(h)
+}
+
+fn fetch_one() -> String with Async, AsyncFail {
+    let resp = get("http://127.0.0.1:24903/one")
+    resp.body
+}
+
+fn fetch_two() -> String with Async, AsyncFail {
+    let resp = get("http://127.0.0.1:24903/two")
+    resp.body
+}
+
+fn client() -> String with Async, AsyncFail {
+    let _wait = sleep(50)
+    let pair = both(fetch_one, fetch_two)
+    pair.0 + "+" + pair.1
+}
+
+fn body() -> String with Async, AsyncFail {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

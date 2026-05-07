@@ -456,29 +456,35 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let exec_start = Instant::now();
-        match std::process::Command::new(&out).output() {
-            Ok(output) => {
+        match std::process::Command::new(&out)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => {
+                let output = match child.wait_with_output() {
+                    Ok(output) => output,
+                    Err(e) => {
+                        eprintln!("failed to wait for native program {}: {e}", out.display());
+                        return;
+                    }
+                };
+
                 let exit_code = output.status.code().unwrap_or(1);
                 let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
-                let child_stdout = String::from_utf8_lossy(&output.stdout);
                 let child_stderr = String::from_utf8_lossy(&output.stderr);
-                if !child_stdout.is_empty() {
-                    print!("{child_stdout}");
-                }
-                if exit_code == 0 {
-                    if !child_stderr.is_empty() {
+                if exit_code != 0 {
+                    if let Some(rendered) = if request.report.render_runtime_error {
+                        render_native_runtime_error(request.program.path, &child_stderr)
+                    } else {
+                        None
+                    } {
+                        eprint!("{rendered}");
+                    } else if !child_stderr.is_empty() {
                         eprint!("{child_stderr}");
+                    } else {
+                        eprintln!("{}", native_exit_summary(&output.status));
                     }
-                } else if let Some(rendered) = if request.report.render_runtime_error {
-                    render_native_runtime_error(request.program.path, &child_stderr)
-                } else {
-                    None
-                } {
-                    eprint!("{rendered}");
-                } else if !child_stderr.is_empty() {
-                    eprint!("{child_stderr}");
-                } else {
-                    eprintln!("{}", native_exit_summary(&output.status));
                 }
                 if request.runtime.show_stats {
                     let compile_ms =

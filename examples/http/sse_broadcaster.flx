@@ -1,0 +1,51 @@
+// Phase 3 web example: finite Server-Sent Events over chunked HTTP.
+
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+import Flow.Stream as Stream
+import Flow.Tcp as Tcp
+
+fn events() {
+    Stream.from_array([|
+        sse_event("ready"),
+        sse_named_event("tick", "one"),
+        sse_named_event("tick", "done"),
+    |])
+}
+
+fn handler(req) with Async {
+    sse_response(events())
+}
+
+fn server() -> Unit with Async, AsyncFail {
+    let h = serve_stream("127.0.0.1", 24904, handler)
+    let _wait = sleep(300)
+    shutdown(h)
+}
+
+fn read_all(conn, acc: String) -> String with Async {
+    fn read_once() with Async {
+        Tcp.read(conn, 4096)
+    }
+    let r = timeout_result(500, read_once)
+    let chunk = result_or(r, "")
+    if chunk == "" { acc } else { read_all(conn, acc + chunk) }
+}
+
+fn client() -> String with Async {
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", 24904)
+    let _write = Tcp.write_all(conn, "GET /events HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all(conn, "")
+    Tcp.close(conn)
+    response
+}
+
+fn body() -> String with Async, AsyncFail {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
