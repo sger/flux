@@ -293,6 +293,39 @@ pub fn write_response(resp: &HttpResponse) -> Vec<u8> {
     out
 }
 
+pub fn write_chunked_head(status: u16, reason: &str, headers: &[(String, String)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(format!("HTTP/1.1 {status} {reason}\r\n").as_bytes());
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("connection")
+        {
+            continue;
+        }
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(b": ");
+        out.extend_from_slice(value.as_bytes());
+        out.extend_from_slice(b"\r\n");
+    }
+    out.extend_from_slice(b"Transfer-Encoding: chunked\r\n");
+    out.extend_from_slice(b"Connection: close\r\n");
+    out.extend_from_slice(b"\r\n");
+    out
+}
+
+pub fn write_chunk(chunk: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(format!("{:X}\r\n", chunk.len()).as_bytes());
+    out.extend_from_slice(chunk);
+    out.extend_from_slice(b"\r\n");
+    out
+}
+
+pub fn write_chunked_end() -> Vec<u8> {
+    b"0\r\n\r\n".to_vec()
+}
+
 pub fn parse_url(url: &str) -> Result<HttpUrl, HttpError> {
     let Some(rest) = url.strip_prefix("http://") else {
         return Err(HttpError::BadRequest(

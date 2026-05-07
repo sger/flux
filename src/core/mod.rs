@@ -749,7 +749,13 @@ pub enum CorePrimOp {
     JsonParse = 196,
     /// Serialize Flow.Json.Json into compact JSON text. Args: (Json) -> String.
     JsonStringify = 197,
-    // ── Next free ID: 198 ─────────────────────────────────────────────
+    /// Serialize an HTTP chunked response head. Args: (StreamResponse) -> String.
+    HttpWriteChunkedHead = 198,
+    /// Serialize one HTTP chunk. Args: (String) -> String.
+    HttpWriteChunk = 199,
+    /// Serialize the terminating HTTP chunk. Args: () -> String.
+    HttpWriteChunkedEnd = 200,
+    // ── Next free ID: 201 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -834,6 +840,9 @@ impl CorePrimOp {
             "HttpParseResponse" => return Some(Self::HttpParseResponse),
             "JsonParse" => return Some(Self::JsonParse),
             "JsonStringify" => return Some(Self::JsonStringify),
+            "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
+            "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
+            "HttpWriteChunkedEnd" => return Some(Self::HttpWriteChunkedEnd),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -951,6 +960,9 @@ impl CorePrimOp {
             Self::HttpParseResponse => Some("http_parse_response"),
             Self::JsonParse => Some("json_parse"),
             Self::JsonStringify => Some("json_stringify"),
+            Self::HttpWriteChunkedHead => Some("http_write_chunked_head"),
+            Self::HttpWriteChunk => Some("http_write_chunk"),
+            Self::HttpWriteChunkedEnd => Some("http_write_chunked_end"),
             _ => None,
         }
     }
@@ -1143,6 +1155,9 @@ impl CorePrimOp {
             195 => HttpParseResponse,
             196 => JsonParse,
             197 => JsonStringify,
+            198 => HttpWriteChunkedHead,
+            199 => HttpWriteChunk,
+            200 => HttpWriteChunkedEnd,
             _ => return None,
         };
         Some(op)
@@ -1315,6 +1330,13 @@ impl CorePrimOp {
             ("http_parse_response", 1, CorePrimOp::HttpParseResponse),
             ("json_parse", 1, CorePrimOp::JsonParse),
             ("json_stringify", 1, CorePrimOp::JsonStringify),
+            (
+                "http_write_chunked_head",
+                1,
+                CorePrimOp::HttpWriteChunkedHead,
+            ),
+            ("http_write_chunk", 1, CorePrimOp::HttpWriteChunk),
+            ("http_write_chunked_end", 0, CorePrimOp::HttpWriteChunkedEnd),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1418,7 +1440,10 @@ impl CorePrimOp {
             | HttpParseUrl
             | HttpParseResponse
             | JsonParse
-            | JsonStringify => 1,
+            | JsonStringify
+            | HttpWriteChunkedHead
+            | HttpWriteChunk => 1,
+            HttpWriteChunkedEnd => 0,
             Add
             | Sub
             | Mul

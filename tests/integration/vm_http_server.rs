@@ -3,9 +3,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NEXT_PORT: AtomicUsize = AtomicUsize::new(19880);
+static VM_HTTP_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -25,6 +27,10 @@ fn write_fixture(source: String) -> PathBuf {
 }
 
 fn run_source(source: String) -> (String, String, bool) {
+    let _guard = VM_HTTP_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("VM HTTP test lock poisoned");
     let path = write_fixture(source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -50,6 +56,8 @@ fn fixture_source(
         r#"
 import Flow.Async exposing (..)
 import Flow.Http exposing (..)
+import Flow.Map as Map
+import Flow.Stream as Stream
 import Flow.Tcp as Tcp
 
 fn handler(req) with Async {{
@@ -106,7 +114,18 @@ fn lifecycle_source(body: &str) -> String {
         r#"
 import Flow.Async exposing (..)
 import Flow.Http exposing (..)
+import Flow.Map as Map
+import Flow.Stream as Stream
 import Flow.Tcp as Tcp
+
+fn read_all_http(conn, acc: String) -> String with Async {{
+    fn read_once() with Async {{
+        Tcp.read(conn, 4096)
+    }}
+    let read_result = timeout_result(500, read_once)
+    let chunk = result_or(read_result, "")
+    if chunk == "" {{ acc }} else {{ read_all_http(conn, acc + chunk) }}
+}}
 
 {body}
 
@@ -156,6 +175,10 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn shutdown_stops_accepting_new_connections() {
+    let _guard = VM_HTTP_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("VM HTTP test lock poisoned");
     let port = next_port();
     let source = lifecycle_source(&format!(
         r#"
@@ -348,10 +371,9 @@ fn client() -> String with Async {{
     let _wait = sleep(50)
     let conn = Tcp.connect("127.0.0.1", {port})
     let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    let tail = Tcp.read(conn, 4096)
+    let response = read_all_http(conn, "")
     Tcp.close(conn)
-    response + tail
+    response
 }}
 
 fn body() -> String with Async, AsyncFail {{
@@ -546,4 +568,280 @@ fn oversized_header_returns_413_without_invoking_handler() {
         "{response}"
     );
     assert!(!response.contains("/wide:"), "{response}");
+}
+
+#[test]
+fn streaming_response_writes_chunked_frames() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    stream_response(200, {{}}, Stream.from_array([|"hello", " world"|]))
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(250)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /stream HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
+    assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
+    assert!(stdout.contains("Connection: close"), "{stdout}");
+    assert!(stdout.contains("5\nhello\n"), "{stdout}");
+    assert!(stdout.contains("6\n world\n"), "{stdout}");
+    assert!(stdout.contains("0\n\n"), "{stdout}");
+    assert!(!stdout.contains("Content-Length"), "{stdout}");
+}
+
+#[test]
+fn empty_streaming_response_writes_only_terminator() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    stream_response(204, {{}}, Stream.empty())
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(250)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /empty HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "empty streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 204 No Content"), "{stdout}");
+    assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
+    assert!(stdout.contains("0\n\n"), "{stdout}");
+    assert!(!stdout.contains("1\n"), "{stdout}");
+}
+
+#[test]
+fn streaming_response_preserves_safe_headers_and_closes_pipeline() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    let h1 = Map.set({{}}, "X-Flux", req.path)
+    let h2 = Map.set(h1, "Content-Length", "999")
+    if req.path == "/second" {{
+        stream_response(200, h2, Stream.once("second"))
+    }} else {{
+        stream_response(202, h2, Stream.once("first"))
+    }}
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(300)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /first HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "pipeline streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 202 Accepted"), "{stdout}");
+    assert!(stdout.contains("X-Flux: /first"), "{stdout}");
+    assert!(!stdout.contains("Content-Length: 999"), "{stdout}");
+    assert_eq!(stdout.matches("HTTP/1.1").count(), 1, "{stdout}");
+    assert!(!stdout.contains("second"), "{stdout}");
+}
+
+#[test]
+fn sse_response_emits_event_stream_frames() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    sse_response(Stream.from_array([|sse_event("one"), sse_named_event("tick", "two")|]))
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(250)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /events HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "sse fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Content-Type: text/event-stream"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Cache-Control: no-cache"), "{stdout}");
+    assert!(stdout.contains("data: one\n\n"), "{stdout}");
+    assert!(stdout.contains("event: tick\ndata: two\n\n"), "{stdout}");
+}
+
+#[test]
+fn streaming_shutdown_drains_delayed_stream() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn delayed_chunk() {{
+    Stream.make(fn() {{
+        sleep(150)
+        Some(("late", Stream.empty()))
+    }})
+}}
+
+fn handler(req) with Async {{
+    stream_response(200, {{}}, delayed_chunk())
+}}
+
+fn server() -> String with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(80)
+    shutdown(h)
+    "stopped"
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    let tail = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response + tail
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "streaming drain fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
+    assert!(stdout.contains("late"), "{stdout}");
+}
+
+#[test]
+fn streaming_shutdown_now_cancels_in_flight_stream() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn very_late_chunk() {{
+    Stream.make(fn() {{
+        sleep(1000)
+        Some(("too-late", Stream.empty()))
+    }})
+}}
+
+fn handler(req) with Async {{
+    stream_response(200, {{}}, very_late_chunk())
+}}
+
+fn server() -> String with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(100)
+    shutdown_now(h)
+    "forced"
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    fn read_once() with Async {{
+        Tcp.read(conn, 4096)
+    }}
+    let first = result_or(timeout_result(500, read_once), "")
+    let second = result_or(timeout_result(500, read_once), "")
+    Tcp.close(conn)
+    first + second
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "streaming forced shutdown fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
+    assert!(!stdout.contains("too-late"), "{stdout}");
 }
