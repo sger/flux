@@ -40,21 +40,43 @@
 //!     and new TCP commands.
 
 use super::super::backend::{AsyncBackend, Completion, CompletionPayload, IoHandle, RequestId};
+use super::super::blocking_pool::BlockingPool;
 use mio::net::TcpStream as MioTcpStream;
 use mio::{Events, Interest, Poll, Token, Waker};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 /// Token reserved for the cross-thread `Waker`. Phase 1a-vii allocates per-
 /// TCP-source tokens above this; the registry will own that allocation.
 const WAKER_TOKEN: Token = Token(0);
+const DEFAULT_DNS_POOL_SIZE: usize = 4;
+static DEFAULT_DNS_POOL_OVERRIDE: AtomicUsize = AtomicUsize::new(0);
+
+pub fn configure_default_dns_pool_size(size: usize) {
+    DEFAULT_DNS_POOL_OVERRIDE.store(size, Ordering::Relaxed);
+}
+
+fn configured_dns_pool_size(raw: usize) -> usize {
+    if raw > 0 {
+        return raw;
+    }
+    let override_size = DEFAULT_DNS_POOL_OVERRIDE.load(Ordering::Relaxed);
+    if override_size > 0 {
+        return override_size;
+    }
+    std::env::var("FLUX_DNS_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_DNS_POOL_SIZE)
+}
 
 /// One scheduled timer.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -130,12 +152,14 @@ struct ReactorShared {
     completions: Mutex<VecDeque<Completion>>,
     tcp_commands: Mutex<VecDeque<TcpCommand>>,
     next_handle: AtomicU64,
+    dns_pool: BlockingPool,
 }
 
 /// `mio`-backed async backend.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MioBackend {
     inner: Mutex<Option<Inner>>,
+    dns_pool_size: usize,
 }
 
 #[derive(Debug)]
@@ -144,9 +168,22 @@ struct Inner {
     handle: Option<JoinHandle<()>>,
 }
 
+impl Default for MioBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MioBackend {
     pub fn new() -> Self {
-        Self::default()
+        Self::new_with_dns_pool_size(0)
+    }
+
+    pub fn new_with_dns_pool_size(dns_pool_size: usize) -> Self {
+        Self {
+            inner: Mutex::new(None),
+            dns_pool_size,
+        }
     }
 
     fn start_inner(&self) -> io::Result<()> {
@@ -157,6 +194,8 @@ impl MioBackend {
 
         let poll = Poll::new()?;
         let waker = Waker::new(poll.registry(), WAKER_TOKEN)?;
+        let dns_pool = BlockingPool::new("dns", configured_dns_pool_size(self.dns_pool_size))
+            .map_err(io::Error::other)?;
         let shared = Arc::new(ReactorShared {
             waker,
             shutdown: AtomicBool::new(false),
@@ -165,6 +204,7 @@ impl MioBackend {
             completions: Mutex::new(VecDeque::new()),
             tcp_commands: Mutex::new(VecDeque::new()),
             next_handle: AtomicU64::new(1),
+            dns_pool,
         });
 
         let thread_shared = Arc::clone(&shared);
@@ -188,6 +228,7 @@ impl MioBackend {
 
         inner.shared.shutdown.store(true, Ordering::SeqCst);
         let _ = inner.shared.waker.wake();
+        inner.shared.dns_pool.shutdown().map_err(io::Error::other)?;
 
         if let Some(handle) = inner.handle.take()
             && let Err(e) = handle.join()
@@ -287,6 +328,32 @@ impl AsyncBackend for MioBackend {
                 .pop_front()
         })
         .flatten()
+    }
+
+    fn dns_resolve(&self, req: RequestId, host: String, port: u16) {
+        let _ = self.with_shared(|shared| {
+            let shared = Arc::clone(shared);
+            let job_shared = Arc::clone(&shared);
+            let submit_result = shared.dns_pool.submit(move || {
+                let payload = match (host.as_str(), port).to_socket_addrs() {
+                    Ok(addrs) => {
+                        let mut addrs: Vec<_> = addrs.collect();
+                        if addrs.is_empty() {
+                            CompletionPayload::Error("dns resolve returned no addresses".into())
+                        } else {
+                            addrs.sort_by_key(|addr| if addr.is_ipv4() { 0 } else { 1 });
+                            CompletionPayload::AddressList(addrs)
+                        }
+                    }
+                    Err(e) => CompletionPayload::Error(format!("dns resolve failed: {e}")),
+                };
+                push_completion_if_live(&job_shared, req, payload);
+                let _ = job_shared.waker.wake();
+            });
+            if let Err(e) = submit_result {
+                push_completion(&shared, req, CompletionPayload::Error(e));
+            }
+        });
     }
 
     fn tcp_connect(&self, req: RequestId, addr: SocketAddr) {
@@ -487,10 +554,14 @@ fn drain_tcp_commands(
     next_token: &mut usize,
     registry: &mio::Registry,
 ) {
-    let commands: Vec<TcpCommand> = {
+    let mut commands: Vec<TcpCommand> = {
         let mut q = shared.tcp_commands.lock().expect("tcp commands poisoned");
         q.drain(..).collect()
     };
+    commands.sort_by_key(|cmd| match cmd {
+        TcpCommand::Listen { .. } => 0,
+        _ => 1,
+    });
     for cmd in commands {
         match cmd {
             TcpCommand::Connect { req, handle, addr } => {
@@ -832,6 +903,18 @@ fn push_completion(shared: &ReactorShared, req: RequestId, payload: CompletionPa
         });
 }
 
+fn push_completion_if_live(shared: &ReactorShared, req: RequestId, payload: CompletionPayload) {
+    if shared
+        .cancelled
+        .lock()
+        .expect("cancelled-set poisoned")
+        .contains(&req)
+    {
+        return;
+    }
+    push_completion(shared, req, payload);
+}
+
 /// Pop expired and cancelled entries off the front of the heap, returning
 /// the soonest live deadline (or `None` if the heap is empty).
 fn next_live_deadline(shared: &ReactorShared) -> Option<Instant> {
@@ -1149,6 +1232,55 @@ mod tests {
             CompletionPayload::Error(_) => {}
             other => panic!("expected Error, got {other:?}"),
         }
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn dns_resolve_localhost_returns_addresses() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let backend = MioBackend::new_with_dns_pool_size(1);
+        backend.start().unwrap();
+        backend.dns_resolve(RequestId(80), "localhost".into(), port);
+
+        let completion =
+            wait_for(&backend, Duration::from_secs(2)).expect("dns completion must arrive");
+        assert_eq!(completion.request_id, RequestId(80));
+        match completion.payload {
+            CompletionPayload::AddressList(addrs) => {
+                assert!(!addrs.is_empty(), "localhost must resolve");
+                assert!(addrs.iter().any(|addr| addr.port() == port));
+            }
+            other => panic!("expected address list, got {other:?}"),
+        }
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn dns_resolve_invalid_host_reports_error() {
+        let backend = MioBackend::new_with_dns_pool_size(1);
+        backend.start().unwrap();
+        backend.dns_resolve(RequestId(81), "flux.invalid.invalid".into(), 80);
+
+        let completion =
+            wait_for(&backend, Duration::from_secs(5)).expect("dns error completion must arrive");
+        assert_eq!(completion.request_id, RequestId(81));
+        match completion.payload {
+            CompletionPayload::Error(_) => {}
+            other => panic!("expected dns error, got {other:?}"),
+        }
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn cancelled_dns_request_does_not_deliver_completion() {
+        let backend = MioBackend::new_with_dns_pool_size(1);
+        backend.start().unwrap();
+        backend.cancel(RequestId(82));
+        backend.dns_resolve(RequestId(82), "localhost".into(), 80);
+
+        let completion = wait_for(&backend, Duration::from_millis(250));
+        assert_eq!(completion, None);
         backend.shutdown().unwrap();
     }
 

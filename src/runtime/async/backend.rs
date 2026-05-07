@@ -44,6 +44,8 @@ pub enum CompletionPayload {
     /// Successful TCP connect — the handle is owned by the backend until
     /// `tcp_close` is called against it.
     TcpHandle(IoHandle),
+    /// Platform DNS resolution result.
+    AddressList(Vec<std::net::SocketAddr>),
 }
 
 /// A delivered completion, ready for the scheduler to route to its target.
@@ -79,6 +81,12 @@ pub trait AsyncBackend {
     /// now. Phase 1a-iii will add a blocking variant once the worker pool
     /// exists; today the scheduler/test driver polls.
     fn next_completion(&self) -> Option<Completion>;
+
+    /// Resolve `host:port` on the backend's blocking DNS pool. Completion
+    /// carries `AddressList` or `Error`.
+    fn dns_resolve(&self, _req: RequestId, _host: String, _port: u16) {
+        panic!("AsyncBackend::dns_resolve not implemented for this backend");
+    }
 
     /// Open a TCP connection to `addr`. On success the completion carries
     /// `CompletionPayload::TcpHandle(handle)`; on failure
