@@ -1090,6 +1090,65 @@ int64_t flux_try(int64_t thunk) {
     flux_try_error_msg = saved_msg;
     return make_tuple(fields, 2);
 }
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    int64_t result = FLUX_NONE;
+    __try {
+        result = flux_call_closure_c(closure, NULL, 0);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+    if (!caught) {
+        *out = result;
+        flux_try_error_msg = saved_msg;
+        return 1;
+    }
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    flux_try_error_msg = saved_msg;
+    return 0;
+}
+
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
+    int64_t args[1] = { value };
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    int64_t result = FLUX_NONE;
+    __try {
+        result = flux_call_closure_c(continuation, args, 1);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+    if (!caught) {
+        *out = result;
+        flux_try_error_msg = saved_msg;
+        return 1;
+    }
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    flux_try_error_msg = saved_msg;
+    return 0;
+}
 #else
 int64_t flux_try(int64_t thunk) {
     jmp_buf buf;
@@ -1124,6 +1183,49 @@ int64_t flux_try(int64_t thunk) {
         fields[1] = msg;
         return make_tuple(fields, 2);
     }
+}
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    if (setjmp(buf) == 0) {
+        *out = flux_call_closure_c(closure, NULL, 0);
+        flux_try_jmp = prev;
+        return 1;
+    }
+
+    flux_try_jmp = prev;
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    return 0;
+}
+
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
+    int64_t args[1] = { value };
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    if (setjmp(buf) == 0) {
+        *out = flux_call_closure_c(continuation, args, 1);
+        flux_try_jmp = prev;
+        return 1;
+    }
+
+    flux_try_jmp = prev;
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    return 0;
 }
 #endif
 

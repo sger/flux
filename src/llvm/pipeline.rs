@@ -356,9 +356,21 @@ fn rust_staticlib_path() -> Option<PathBuf> {
     candidates
         .iter()
         .rev()
-        .find(|path| archive_exports_symbol(path, "flux_async_run_root"))
+        .find(|path| archive_exports_symbol(path, "flux_async_last_run_failed"))
+        .or_else(|| {
+            candidates
+                .iter()
+                .rev()
+                .find(|path| archive_exports_symbol(path, "flux_async_run_root"))
+        })
         .cloned()
-        .or_else(|| candidates.pop())
+        .or_else(|| {
+            candidates.into_iter().max_by_key(|path| {
+                fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or_default()
+            })
+        })
 }
 
 fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {

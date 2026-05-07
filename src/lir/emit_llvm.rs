@@ -1862,9 +1862,8 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_primcall(&mut self, dst: &Option<LirVar>, op: &CorePrimOp, args: &[LirVar]) {
-        // FiberNewScope: the C function takes one i32 ctor_tag constant (not an i64
-        // LirVar argument). The LLVM emitter supplies it from the constructor_tags
-        // table — the C runtime cannot know this program-specific tag value.
+        // Some fiber shims need program-specific constructor tags. The LLVM
+        // emitter supplies them because the C runtime cannot know those tags.
         if let CorePrimOp::FiberNewScope = op {
             let tag = self
                 .program
@@ -1882,6 +1881,35 @@ impl<'a> FnEmitter<'a> {
                 dst_local,
                 "flux_fiber_new_scope",
                 vec![(LlvmType::i32(), self.i32_const(tag))],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::FiberTry = op {
+            let ok_tag = self.program.constructor_tags.get("Ok").copied().unwrap_or(5);
+            let err_tag = self.program.constructor_tags.get("Err").copied().unwrap_or(6);
+            let panicked_tag = self
+                .program
+                .constructor_tags
+                .get("Panicked")
+                .copied()
+                .unwrap_or(7);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_fiber_try",
+                vec![
+                    (LlvmType::i32(), self.i32_const(ok_tag)),
+                    (LlvmType::i32(), self.i32_const(err_tag)),
+                    (LlvmType::i32(), self.i32_const(panicked_tag)),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
                 ret_ty,
             );
             return;
@@ -3512,6 +3540,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
         CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
         CorePrimOp::FiberFirstOf => return "flux_fiber_first_of".to_string(),
+        CorePrimOp::FiberTry => return "flux_fiber_try".to_string(),
         CorePrimOp::FiberTimeout => return "flux_fiber_timeout".to_string(),
         // 1b-vi-c scope/fork/cancel: native implementation deferred to 1b-vi-d.
         CorePrimOp::FiberNewScope => return "flux_fiber_new_scope".to_string(),
@@ -3644,6 +3673,10 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_both" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_fiber_race" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_fiber_first_of" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_try" => (
+            LlvmType::i64(),
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+        ),
         "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
         "flux_fiber_new_scope" => (LlvmType::i64(), vec![LlvmType::i32()]),

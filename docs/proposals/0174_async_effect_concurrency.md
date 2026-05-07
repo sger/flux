@@ -75,7 +75,7 @@ target the original proposal aimed at.
 | 2-iii — `Flow.Channel` decision | ✅ | Decision: `Flow.Channel` is **deferred to a follow-on proposal**. Phase 2-4 cross-worker communication uses `Task.spawn` / `Task.await` only. Stale `Channel.send` references in the Sendable section reworded to mention `Flow.Channel` only as a deferred future; the illustrative `module Flow.Channel { ... }` block in the Sendable example is flagged as non-deliverable. |
 | 2-iv — Cancellation observation in pure loops | ✅ | New `CorePrimOp::FiberCheckCancelled = 178` with VM dispatch in [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs); `flux_fiber_check_cancelled` C shim ([`runtime/c/tasks.c`](../../runtime/c/tasks.c)) over `flux_async_check_cancelled` extern in [`src/runtime/async/native_abi.rs`](../../src/runtime/async/native_abi.rs); LLVM emit-name in [`src/lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs). Per-thread `CANCELLED_IDS: HashSet<FiberId>` in `vm_fibers` mirrors the scheduler's cancel set so a *currently executing* fiber can observe its scope's cancellation, not just suspended fibers. Library: `Async.check_cancelled() -> Bool with Async` plus convenience `Async.bail_if_cancelled()` that calls `Async.fail(Canceled)` (ergonomic shim; becomes a real catchable raise once slice 2-vi lands). **Signature deviation from the proposal text**: ships as `-> Bool` not `-> Unit`-with-raise because real raise machinery is slice 2-vi territory; helper covers the raise idiom. Tests: [`tests/integration/vm_fiber_check_cancelled.rs`](../../tests/integration/vm_fiber_check_cancelled.rs) (no-cancel + timeout-cancellation cases); [`tests/parity/async_check_cancelled_false_when_not_cancelled.flx`](../../tests/parity/async_check_cancelled_false_when_not_cancelled.flx) (vm/llvm). `yield_now` cancellation-point retrofit deferred to 2-vi (today still a no-op). |
 | 2-v — `Http.serve` production-knobs design | ✅ | API spec landed in the Phase 3 HTTP section: `ServerConfig` with `max_connections` / `max_header_bytes` / `max_body_bytes` / `request_timeout_ms` / `worker_count`, `ServerHandle`, `default_config()`, `serve_config(addr, port, config, handler) -> ServerHandle`, `shutdown(h)` (graceful drain) and `shutdown_now(h)` (cancellation). Knob enforcement contract spelled out. Phase 3 implements against this signature. |
-| 2-vi — Fiber panic semantics | ⏳ | Worker catches fiber panics, converts to `AsyncError.Panicked`, propagates up the structured-concurrency tree, observable through `try_`. Workers do not poison. |
+| 2-vi — Fiber panic semantics | ✅ | `Async.try_` now returns `Result<a, AsyncError>`; `panic` inside a fiber is converted to `AsyncError.Panicked`, `Async.fail` is catchable, structured-concurrency awaits propagate errors and cancel siblings, and native workers catch fiber panics without poisoning. |
 | 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` builder + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `fs_pool_size` and `dns_pool_size` are accepted today but only consulted once Phase 2 slice 2-viii lands the blocking pool. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
 | 2-viii — Blocking pool + DNS resolver | ⏳ | New `src/runtime/async/blocking_pool.rs`, `AsyncBackend::dns_resolve`, `CompletionPayload::AddressList` (already declared but unimplemented), `flux_async_dns_resolve` native ABI, hostname path in `lib/Flow/Tcp.flx`. |
 | 2-ix — Transparent type aliases | ⏳ | Extend `alias Name = ...` to accept ordinary type expressions, not only effect rows. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
@@ -1656,9 +1656,9 @@ Slice 2-iv adds (as landed in revision 9 + post-revision-9 implementation):
   current fiber's enclosing scope has been cancelled. No backend
   round-trip, no suspend, just a scheduler flag check.
 - `Async.bail_if_cancelled() -> Unit with Async` — convenience wrapper
-  for `if check_cancelled() { fail(Canceled) }`. Until slice 2-vi
-  makes `Async.fail` a real catchable raise, this aborts the fiber via
-  the existing soft-cancel path.
+  for `if check_cancelled() { fail(Canceled) }`. Since slice 2-vi,
+  `Async.fail` is a real catchable async raise observable through
+  `Async.try_`.
 - New `CorePrimOp::FiberCheckCancelled = 178` wired through VM dispatch
   in [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs), the
   C shim `flux_fiber_check_cancelled` in
@@ -1674,19 +1674,14 @@ Slice 2-iv adds (as landed in revision 9 + post-revision-9 implementation):
 
 **Signature deviation from the original slice spec.** The proposal
 revision 9 drafted `check_cancelled() -> Unit with Async` that raises
-`AsyncError.Canceled`. In the codebase, raising a catchable async
-error requires unwind machinery that does not yet exist:
-`CorePrimOp::FiberFail` is currently a stub that returns an `Err`
-string from VM dispatch, not a recoverable raise. Real async-error
-raise is slice 2-vi (fiber panic semantics) territory — both need the
-same path. To keep slice 2-iv self-contained, the primitive ships as
-`-> Bool` and the raising idiom is provided as `bail_if_cancelled`.
-Once slice 2-vi lands, `bail_if_cancelled` becomes a real catchable
-raise and the proposal's original "raise on cancel" semantics holds.
+`AsyncError.Canceled`. In the codebase, the primitive ships as `-> Bool`
+and the raising idiom is provided as `bail_if_cancelled`; slice 2-vi
+then made that helper catchable by wiring `Async.fail` through the
+fiber error path.
 
-`Async.yield_now()` retrofit as a cancellation point is **deferred to
-slice 2-vi** for the same reason: making it raise requires the unwind
-machinery. Today `yield_now` is a no-op on the VM sequential path.
+`Async.yield_now()` remains a cooperative scheduling point; callers that
+want cancellation to raise at that point should call `bail_if_cancelled`
+around it.
 
 Acceptance:
 
