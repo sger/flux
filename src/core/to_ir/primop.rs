@@ -115,6 +115,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FiberCancelScope => "fiber_cancel_scope",
         CorePrimOp::FiberCheckCancelled => "fiber_check_cancelled",
         CorePrimOp::FiberRunAsyncWith => "fiber_run_async_with",
+        CorePrimOp::FiberFirstOf => "fiber_first_of",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -351,7 +352,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberForkScoped
             | CorePrimOp::FiberCancelScope
             | CorePrimOp::FiberCheckCancelled
-            | CorePrimOp::FiberRunAsyncWith => {
+            | CorePrimOp::FiberRunAsyncWith
+            | CorePrimOp::FiberFirstOf => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

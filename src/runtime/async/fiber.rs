@@ -176,6 +176,10 @@ impl FiberQueue {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
+
+    pub fn contains(&self, id: FiberId) -> bool {
+        self.inner.iter().any(|fiber| fiber.id == id)
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

@@ -79,6 +79,10 @@ enum AwaitKind {
         children: Vec<u64>,
         completed: Vec<(u64, i64)>,
     },
+    FirstOf {
+        children: Vec<(u64, usize)>,
+        completed: Vec<(u64, usize, i64)>,
+    },
     Timeout {
         body: u64,
     },
@@ -272,13 +276,19 @@ impl NativeRun {
             .cloned()
             .unwrap_or_default();
         for parent_req in parent_reqs {
-            if matches!(self.awaits.get(&parent_req), Some(AwaitKind::Race { .. }))
-                && let Some(AwaitKind::Race {
+            match self.awaits.remove(&parent_req) {
+                Some(AwaitKind::Race {
                     children,
                     completed,
-                }) = self.awaits.remove(&parent_req)
-            {
-                self.resolve_race(parent_req, children, completed);
+                }) => self.resolve_race(parent_req, children, completed),
+                Some(AwaitKind::FirstOf {
+                    children,
+                    completed,
+                }) => self.resolve_first_of(parent_req, children, completed),
+                Some(other) => {
+                    self.awaits.insert(parent_req, other);
+                }
+                None => {}
             }
         }
     }
@@ -377,6 +387,24 @@ impl NativeRun {
                     completed.push((id, value));
                     self.resolve_race(parent_req, children, completed);
                 }
+                AwaitKind::FirstOf {
+                    children,
+                    mut completed,
+                } => {
+                    let Some((_, index)) = children.iter().find(|(child, _)| *child == id) else {
+                        release_completion_value(value);
+                        self.awaits.insert(
+                            parent_req,
+                            AwaitKind::FirstOf {
+                                children,
+                                completed,
+                            },
+                        );
+                        continue;
+                    };
+                    completed.push((id, *index, value));
+                    self.resolve_first_of(parent_req, children, completed);
+                }
                 AwaitKind::Timeout { body } => {
                     if id == body {
                         backend().cancel(RequestId(parent_req));
@@ -438,6 +466,71 @@ impl NativeRun {
         self.wake(parent_req, winner_value);
         let losers: Vec<u64> = children
             .into_iter()
+            .filter(|child| *child != winner)
+            .collect();
+        self.cancel_fibers(&losers);
+    }
+
+    fn resolve_first_of(
+        &mut self,
+        parent_req: u64,
+        children: Vec<(u64, usize)>,
+        completed: Vec<(u64, usize, i64)>,
+    ) {
+        let winner = children.iter().copied().find(|(child, _)| {
+            completed
+                .iter()
+                .any(|(completed_child, _, _)| completed_child == child)
+        });
+
+        let Some((winner, index)) = winner else {
+            self.awaits.insert(
+                parent_req,
+                AwaitKind::FirstOf {
+                    children,
+                    completed,
+                },
+            );
+            return;
+        };
+
+        let blocked_by_earlier_ready = children
+            .iter()
+            .take_while(|(child, _)| *child != winner)
+            .any(|(child, _)| self.is_ready(*child));
+
+        if blocked_by_earlier_ready {
+            self.awaits.insert(
+                parent_req,
+                AwaitKind::FirstOf {
+                    children,
+                    completed,
+                },
+            );
+            return;
+        }
+
+        let mut winner_value = FLUX_NONE;
+        for (completed_child, _, completed_value) in completed {
+            if completed_child == winner {
+                winner_value = completed_value;
+            } else {
+                release_completion_value(completed_value);
+            }
+        }
+
+        if let Some(cb) = callbacks() {
+            let tuple = unsafe { (cb.make_tuple2)(tag_int(index as u64), winner_value) };
+            promote_value(tuple);
+            self.wake(parent_req, tuple);
+        } else {
+            release_completion_value(winner_value);
+            self.wake(parent_req, FLUX_NONE);
+        }
+
+        let losers: Vec<u64> = children
+            .into_iter()
+            .map(|(child, _)| child)
             .filter(|child| *child != winner)
             .collect();
         self.cancel_fibers(&losers);
@@ -1043,6 +1136,36 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
             parent_req,
             AwaitKind::Race {
                 children: vec![left_id, right_id],
+                completed: Vec::new(),
+            },
+        );
+        parent_req
+    })
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) -> u64 {
+    if children.is_null() || len == 0 {
+        return 0;
+    }
+    let closures = unsafe { slice::from_raw_parts(children, len) };
+    with_run(|run| {
+        let parent_req = next_request_id();
+        let mut child_ids = Vec::with_capacity(closures.len());
+        for (idx, closure) in closures.iter().copied().enumerate() {
+            let id = if idx == 0 {
+                run.spawn_child_on(current_worker(), next_fiber_id(), closure)
+            } else {
+                run.spawn_child(closure)
+            };
+            run.awaiter_index.entry(id).or_default().push(parent_req);
+            child_ids.push((id, idx));
+        }
+        run.awaits.insert(
+            parent_req,
+            AwaitKind::FirstOf {
+                children: child_ids,
                 completed: Vec::new(),
             },
         );

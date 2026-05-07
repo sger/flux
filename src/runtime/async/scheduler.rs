@@ -254,6 +254,11 @@ impl FiberScheduler {
         self.workers[worker.0 as usize].ready.len()
     }
 
+    /// True when `id` is still queued for execution on any logical worker.
+    pub fn is_ready(&self, id: FiberId) -> bool {
+        self.workers.iter().any(|worker| worker.ready.contains(id))
+    }
+
     /// Total ready fibers across all logical workers.
     pub fn total_ready_count(&self) -> usize {
         self.workers.iter().map(|w| w.ready.len()).sum()
