@@ -2713,7 +2713,7 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
     let max_connections = config_usize_field(fields, 0, "max_connections")?;
     let max_header_bytes = config_usize_field(fields, 1, "max_header_bytes")?;
     let max_body_bytes = config_usize_field(fields, 2, "max_body_bytes")?;
-    let _request_timeout_ms = config_usize_field(fields, 3, "request_timeout_ms")?;
+    let request_timeout_ms = config_usize_field(fields, 3, "request_timeout_ms")?;
 
     Ok(crate::runtime::http::BlockingServerConfig {
         max_connections,
@@ -2721,6 +2721,7 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
             max_header_bytes,
             max_body_bytes,
         },
+        request_timeout_ms,
     })
 }
 
