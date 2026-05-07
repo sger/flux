@@ -348,6 +348,28 @@ int64_t flux_http_parse_request(
     int64_t server_val
 );
 int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val);
+int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url_val);
+int64_t flux_http_write_request(
+    int32_t get_tag,
+    int32_t post_tag,
+    int32_t put_tag,
+    int32_t delete_tag,
+    int32_t patch_tag,
+    int32_t head_tag,
+    int32_t options_tag,
+    int64_t method_val,
+    int64_t host_val,
+    int64_t target_val,
+    int64_t headers_val,
+    int64_t body_val
+);
+int64_t flux_http_parse_response(
+    int32_t need_more_tag,
+    int32_t parsed_tag,
+    int32_t failure_tag,
+    int32_t response_tag,
+    int64_t raw_val
+);
 int64_t flux_http_register_connection(int64_t server_val, int64_t conn_val);
 int64_t flux_http_unregister_connection(int64_t server_val, int64_t conn_val);
 int64_t flux_http_active_connection_count(int64_t server_val);
