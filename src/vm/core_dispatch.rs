@@ -142,7 +142,7 @@ mod vm_async {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
-    use crate::runtime::r#async::backends::mio::MioBackend;
+    use crate::runtime::r#async::backends::mio::{MioBackend, configure_default_dns_pool_size};
 
     static BACKEND: OnceLock<&'static MioBackend> = OnceLock::new();
     static NEXT_REQ: AtomicU64 = AtomicU64::new(1);
@@ -162,6 +162,10 @@ mod vm_async {
 
     pub fn alloc_request_id() -> RequestId {
         RequestId(NEXT_REQ.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn configure_dns_pool_size(size: usize) {
+        configure_default_dns_pool_size(size);
     }
 }
 
@@ -361,6 +365,11 @@ mod vm_fibers {
             // knobs set by `FiberRunAsyncWith`, with a `FLUX_WORKERS`
             // env-var fallback and a default of 2 logical workers
             // (matching the previous Phase 1b-vi-c hardcoded count).
+            if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+                && cfg.dns_pool_size > 0
+            {
+                vm_async::configure_dns_pool_size(cfg.dns_pool_size as usize);
+            }
             let n_workers = resolved_worker_count().max(1);
             SCHED.with(|s| {
                 *s.borrow_mut() = Some(FiberScheduler::new(n_workers));
@@ -1232,6 +1241,24 @@ mod vm_fibers {
                 if let Some(c) = backend.next_completion() {
                     // Route TCP payloads as resume values before waking the fiber.
                     use crate::runtime::r#async::backend::CompletionPayload;
+                    if let CompletionPayload::AddressList(addrs) = &c.payload {
+                        if let Some(addr) = addrs.first() {
+                            backend.tcp_connect(c.request_id, *addr);
+                        } else {
+                            set_resume_outcome(
+                                c.request_id.0,
+                                FiberOutcome::Error(async_panicked("dns resolve returned no addresses")),
+                            );
+                            SCHED.with(|s| {
+                                s.borrow_mut()
+                                    .as_mut()
+                                    .expect("scheduler missing")
+                                    .complete_request(c.request_id);
+                            });
+                            break;
+                        }
+                        continue;
+                    }
                     match &c.payload {
                         CompletionPayload::TcpHandle(h) => {
                             set_resume_outcome(
@@ -1246,10 +1273,14 @@ mod vm_fibers {
                                 FiberOutcome::Value(Value::String(Rc::new(s))),
                             );
                         }
-                        CompletionPayload::Unit | CompletionPayload::Error(_) => {
-                            // Unit → None (write complete); Error → None for now
-                            // (error propagation to fibers is future work)
+                        CompletionPayload::Unit => {}
+                        CompletionPayload::Error(e) => {
+                            set_resume_outcome(
+                                c.request_id.0,
+                                FiberOutcome::Error(async_panicked(e.clone())),
+                            );
                         }
+                        CompletionPayload::AddressList(_) => unreachable!("handled above"),
                     }
                     // If this completion is the timer half of a FiberTimeout
                     // await, set the parent's resume value to None and cancel
@@ -1298,6 +1329,13 @@ fn park_tcp_op(
                         ))),
                         CompletionPayload::Unit => Ok(Value::None),
                         CompletionPayload::Error(e) => Err(e),
+                        CompletionPayload::AddressList(addrs) => {
+                            let Some(addr) = addrs.first() else {
+                                return Err("dns resolve returned no addresses".into());
+                            };
+                            backend.tcp_connect(req, *addr);
+                            continue;
+                        }
                     };
                 }
             }
@@ -2146,13 +2184,18 @@ pub fn execute_core_primop(
         TcpConnect => match (&args[0], &args[1]) {
             (Value::String(host), Value::Integer(port)) => {
                 use std::net::SocketAddr;
-                let addr: SocketAddr = format!("{}:{}", host, port)
-                    .parse()
-                    .map_err(|e| format!("tcp_connect: bad address: {e}"))?;
                 use crate::runtime::r#async::backend::AsyncBackend;
                 let backend = vm_async::backend()?;
                 let req = vm_async::alloc_request_id();
-                backend.tcp_connect(req, addr);
+                let target = format!("{}:{}", host, port);
+                if let Ok(addr) = target.parse::<SocketAddr>() {
+                    backend.tcp_connect(req, addr);
+                } else {
+                    let port: u16 = (*port)
+                        .try_into()
+                        .map_err(|_| format!("tcp_connect: bad port: {port}"))?;
+                    backend.dns_resolve(req, host.to_string(), port);
+                }
                 park_tcp_op(ctx, req)
             }
             _ => Err(format!("tcp_connect: expected (String, Int)")),

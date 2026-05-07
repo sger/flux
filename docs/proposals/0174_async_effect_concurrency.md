@@ -76,8 +76,8 @@ target the original proposal aimed at.
 | 2-iv — Cancellation observation in pure loops | ✅ | New `CorePrimOp::FiberCheckCancelled = 178` with VM dispatch in [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs); `flux_fiber_check_cancelled` C shim ([`runtime/c/tasks.c`](../../runtime/c/tasks.c)) over `flux_async_check_cancelled` extern in [`src/runtime/async/native_abi.rs`](../../src/runtime/async/native_abi.rs); LLVM emit-name in [`src/lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs). Per-thread `CANCELLED_IDS: HashSet<FiberId>` in `vm_fibers` mirrors the scheduler's cancel set so a *currently executing* fiber can observe its scope's cancellation, not just suspended fibers. Library: `Async.check_cancelled() -> Bool with Async` plus convenience `Async.bail_if_cancelled()` that calls `Async.fail(Canceled)` (ergonomic shim; becomes a real catchable raise once slice 2-vi lands). **Signature deviation from the proposal text**: ships as `-> Bool` not `-> Unit`-with-raise because real raise machinery is slice 2-vi territory; helper covers the raise idiom. Tests: [`tests/integration/vm_fiber_check_cancelled.rs`](../../tests/integration/vm_fiber_check_cancelled.rs) (no-cancel + timeout-cancellation cases); [`tests/parity/async_check_cancelled_false_when_not_cancelled.flx`](../../tests/parity/async_check_cancelled_false_when_not_cancelled.flx) (vm/llvm). `yield_now` cancellation-point retrofit deferred to 2-vi (today still a no-op). |
 | 2-v — `Http.serve` production-knobs design | ✅ | API spec landed in the Phase 3 HTTP section: `ServerConfig` with `max_connections` / `max_header_bytes` / `max_body_bytes` / `request_timeout_ms` / `worker_count`, `ServerHandle`, `default_config()`, `serve_config(addr, port, config, handler) -> ServerHandle`, `shutdown(h)` (graceful drain) and `shutdown_now(h)` (cancellation). Knob enforcement contract spelled out. Phase 3 implements against this signature. |
 | 2-vi — Fiber panic semantics | ✅ | `Async.try_` now returns `Result<a, AsyncError>`; `panic` inside a fiber is converted to `AsyncError.Panicked`, `Async.fail` is catchable, structured-concurrency awaits propagate errors and cancel siblings, and native workers catch fiber panics without poisoning. |
-| 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` builder + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `fs_pool_size` and `dns_pool_size` are accepted today but only consulted once Phase 2 slice 2-viii lands the blocking pool. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
-| 2-viii — Blocking pool + DNS resolver | ⏳ | New `src/runtime/async/blocking_pool.rs`, `AsyncBackend::dns_resolve`, `CompletionPayload::AddressList` (already declared but unimplemented), `flux_async_dns_resolve` native ABI, hostname path in `lib/Flow/Tcp.flx`. |
+| 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` + `with_dns_pool_size(n)` builders + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `dns_pool_size` is now consumed by slice 2-viii; `fs_pool_size` remains reserved for future filesystem consumers. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
+| 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ⏳ | Extend `alias Name = ...` to accept ordinary type expressions, not only effect rows. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) already walks every `data` declaration, skips ADTs with function-typed fields, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) — 10 tests cover monomorphic ADTs, parameterized ADTs (positive and negative), function-field ADTs (rejected), recursive ADTs, and bare function types (rejected). The slice's only output was adding the recursive-ADT regression test that was missing from the original suite. |
 | **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ | |
@@ -1871,24 +1871,24 @@ that is `SocketAddr::from_str`, which rejects hostnames. Hostname
 connects therefore silently no-op. Phase 3's `Flow.Http.get(url)` is
 unusable without DNS.
 
-Slice 2-viii adds:
+Slice 2-viii adds (landed):
 
-- `src/runtime/async/blocking_pool.rs`: a small thread pool sized
-  `min(4, std::thread::available_parallelism())` that runs blocking
-  service work and posts its results into the same completion channel
-  the `mio` reactor uses. Used initially for DNS; reusable for future
-  filesystem operations and any other service `mio` does not provide.
+- `src/runtime/async/blocking_pool.rs`: a small fixed-size worker pool
+  that runs blocking service work and posts copied results into the same
+  completion channel the `mio` reactor uses. Used initially for DNS;
+  reusable for future filesystem operations.
 - New `AsyncBackend` method `dns_resolve(req: RequestId, host: String, port: u16)`
-  and a use of the existing `CompletionPayload::AddressList(Vec<SocketAddr>)`
-  variant declared in [`backend.rs`](../../src/runtime/async/backend.rs)
-  but not yet implemented.
-- `flux_async_dns_resolve` extern shim in
-  [`native_abi.rs`](../../src/runtime/async/native_abi.rs). The
-  implementation uses `std::net::ToSocketAddrs` on a blocking-pool
-  worker.
-- `lib/Flow/Tcp.flx` `connect(host, port)` first parses the host as a
-  numeric IP; on failure it submits a DNS resolution and suspends until
-  the address-list completion arrives, then routes to `tcp_connect_prim`.
+  and `CompletionPayload::AddressList(Vec<SocketAddr>)`.
+- `MioBackend` DNS resolution uses `std::net::ToSocketAddrs` on the
+  DNS pool. `RuntimeConfig.dns_pool_size > 0` configures the pool before
+  backend initialization; otherwise `FLUX_DNS_THREADS` or the default `4`
+  is used.
+- `Tcp.connect(host, port)` first parses `host:port` as a numeric
+  `SocketAddr`; on failure it submits DNS resolution and, when the
+  address list completes, submits the real TCP connect under the same
+  request id. IPv4 addresses are preferred for stable loopback behavior.
+- `Tcp.listen` remains numeric-bind-only, with the existing empty-host
+  fallback to `0.0.0.0`.
 
 Acceptance: a parity test `tests/parity/tcp_connect_hostname.flx`
 connects to `"localhost"` and round-trips bytes, passing on `vm` and
@@ -1979,7 +1979,7 @@ cases (a user `data Pair { Pair(Int, String) }` satisfies
 - `src/runtime/async/blocking_pool.rs` — ~150 lines Rust.
 - `src/runtime/async/backend.rs` and `backends/mio.rs` — `dns_resolve`
   surface and routing.
-- `src/runtime/async/native_abi.rs` — `flux_async_dns_resolve` shim.
+- `src/runtime/async/native_abi.rs` — native `Tcp.connect` hostname path.
 - `lib/Flow/Tcp.flx` — hostname-aware `connect`.
 - Parser/AST/name-res/type-expansion code paths for transparent type
   aliases (~1-2 weeks per the original estimate).

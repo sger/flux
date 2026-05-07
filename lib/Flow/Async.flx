@@ -128,10 +128,10 @@ module Flow.Async {
     ///   uses its compile-time `LOGICAL_WORKERS` constant and ignores
     ///   this field (full native support is a follow-up).
     /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
-    ///   Accepted today and stored, but only consulted once Phase 2
-    ///   slice 2-viii lands the blocking pool. `0` means "use default".
+    ///   Accepted today and stored; consulted once filesystem blocking
+    ///   consumers land. `0` means "use default".
     /// - `dns_pool_size`: blocking-thread pool size for DNS resolution.
-    ///   Same status as `fs_pool_size`.
+    ///   `0` means use `FLUX_DNS_THREADS` or the runtime default.
     public data RuntimeConfig {
         RuntimeConfig {
             worker_count:  Option<Int>,
@@ -165,6 +165,15 @@ module Flow.Async {
             worker_count:  Some(n),
             fs_pool_size:  0,
             dns_pool_size: 0,
+        }
+    }
+
+    /// Builder helper for DNS-heavy runs.
+    public fn with_dns_pool_size(n: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  None,
+            fs_pool_size:  0,
+            dns_pool_size: n,
         }
     }
 
