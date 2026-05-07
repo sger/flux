@@ -466,14 +466,40 @@ int64_t flux_fiber_fail(int64_t error_value) {
 }
 
 int64_t flux_task_await(int64_t task) {
-    (void)task;
-    flux_fiber_unimplemented("flux_task_await");
-    return FLUX_NONE;
+    /* Phase 1b closeout: make the public Task.await surface usable on the
+     * native backend. This is intentionally a blocking shim over the existing
+     * task join path; true fiber-suspending task await requires native tasks
+     * to publish scheduler completions and is tracked as a post-1b follow-up. */
+    return flux_task_blocking_join(task);
 }
 
 /* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */
 
+static void flux_async_register_callbacks(void) {
+    FluxAsyncCallbacks callbacks = {
+        flux_async_call0,
+        flux_async_resume1,
+        flux_async_retain,
+        flux_async_release,
+        flux_async_make_tuple2,
+        flux_async_wrap_some,
+        flux_async_suspend,
+        flux_async_is_suspended,
+        flux_async_current_request,
+        flux_async_clear_suspend,
+        flux_compose_conts,
+        flux_async_promote,
+        flux_async_enter_worker_thread,
+        flux_async_make_string,
+    };
+    if (flux_async_set_callbacks(&callbacks) != 0) {
+        fprintf(stderr, "flux_async_set_callbacks failed\n");
+        abort();
+    }
+}
+
 int64_t flux_fiber_run_async(int64_t closure) {
+    flux_async_register_callbacks();
     return flux_async_run_root(closure);
 }
 
@@ -522,6 +548,18 @@ int64_t flux_async_make_tuple2(int64_t left, int64_t right) {
 
 int64_t flux_async_wrap_some(int64_t value) {
     return flux_wrap_some(value);
+}
+
+void flux_async_promote(int64_t value) {
+    flux_rc_promote(value);
+}
+
+void flux_async_enter_worker_thread(void) {
+    flux_worker_thread = 1;
+}
+
+int64_t flux_async_make_string(const uint8_t *data, uintptr_t len) {
+    return flux_string_new((const char *)data, (uint32_t)len);
 }
 
 /* ── Fiber combinators (proposal 0174 Phase 1b-vi-d) ───────────────────── */
@@ -575,4 +613,19 @@ int64_t flux_fiber_cancel_scope(int64_t s) {
         abort();
     }
     return FLUX_NONE;
+}
+
+/* Phase 2 slice 2-iv: poll the current fiber's scope cancel flag. */
+int64_t flux_fiber_check_cancelled(void) {
+    return flux_make_bool(flux_async_check_cancelled() != 0);
+}
+
+/* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
+ * The Flux ints are NaN-boxed; untag before forwarding to Rust. */
+int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure) {
+    flux_async_register_callbacks();
+    int64_t workers = flux_untag_int(worker_count);
+    int64_t fs = flux_untag_int(fs_pool_size);
+    int64_t dns = flux_untag_int(dns_pool_size);
+    return flux_async_run_root_with(workers, fs, dns, closure);
 }

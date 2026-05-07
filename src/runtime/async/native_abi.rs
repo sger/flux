@@ -3,41 +3,56 @@
 //! These symbols are linked into LLVM-generated native binaries and provide
 //! the narrow entry surface from the C runtime into the Rust async backend.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::net::SocketAddr;
+use std::slice;
+use std::str;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
-use super::backend::{AsyncBackend, CompletionPayload, RequestId};
+use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
 use super::backends::mio::MioBackend;
 
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
+static CALLBACKS: OnceLock<FluxAsyncCallbacks> = OnceLock::new();
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_FIBER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 static READY_TIMERS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+static ACTIVE_RUN: OnceLock<Mutex<Option<RunHandle>>> = OnceLock::new();
 
 const FLUX_NONE: i64 = 0;
+const LOGICAL_WORKERS: usize = 2;
 
 thread_local! {
-    static NATIVE_RUN: RefCell<Option<NativeRun>> = const { RefCell::new(None) };
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
+    static CURRENT_WORKER: Cell<usize> = const { Cell::new(0) };
 }
 
-unsafe extern "C" {
-    fn flux_async_call0(closure: i64) -> i64;
-    fn flux_async_resume1(continuation: i64, value: i64) -> i64;
-    fn flux_async_retain(value: i64);
-    fn flux_async_release(value: i64);
-    fn flux_async_make_tuple2(left: i64, right: i64) -> i64;
-    fn flux_async_wrap_some(value: i64) -> i64;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FluxAsyncCallbacks {
+    call0: unsafe extern "C" fn(i64) -> i64,
+    resume1: unsafe extern "C" fn(i64, i64) -> i64,
+    retain: unsafe extern "C" fn(i64),
+    release: unsafe extern "C" fn(i64),
+    make_tuple2: unsafe extern "C" fn(i64, i64) -> i64,
+    wrap_some: unsafe extern "C" fn(i64) -> i64,
+    suspend: unsafe extern "C" fn(i64, i64) -> i64,
+    is_suspended: unsafe extern "C" fn() -> i32,
+    current_request: unsafe extern "C" fn() -> i64,
+    clear_suspend: unsafe extern "C" fn(),
+    compose_conts: unsafe extern "C" fn() -> i64,
+    promote: unsafe extern "C" fn(i64),
+    enter_worker_thread: unsafe extern "C" fn(),
+    make_string: unsafe extern "C" fn(*const u8, usize) -> i64,
+}
 
-    fn flux_async_suspend(request_id: i64, resume_value: i64) -> i64;
-    fn flux_async_is_suspended() -> i32;
-    fn flux_async_current_request() -> i64;
-    fn flux_async_clear_suspend();
-    fn flux_compose_conts() -> i64;
+fn callbacks() -> Option<&'static FluxAsyncCallbacks> {
+    CALLBACKS.get()
 }
 
 #[derive(Clone, Copy)]
@@ -49,6 +64,7 @@ enum Work {
 #[derive(Clone, Copy)]
 struct Fiber {
     id: u64,
+    home_worker: usize,
     work: Work,
 }
 
@@ -69,22 +85,41 @@ enum AwaitKind {
 
 struct NativeRun {
     root: u64,
-    ready: VecDeque<Fiber>,
+    ready: Vec<VecDeque<Fiber>>,
+    next_child_worker: usize,
     suspended: HashMap<u64, Fiber>,
+    pending_wakes: HashMap<u64, i64>,
+    cancelled_requests: HashSet<u64>,
     fiber_request: HashMap<u64, u64>,
     awaits: HashMap<u64, AwaitKind>,
     awaiter_index: HashMap<u64, Vec<u64>>,
     scopes: HashMap<u64, HashSet<u64>>,
     fiber_scope: HashMap<u64, u64>,
+    cancelled_fibers: HashSet<u64>,
     root_result: Option<i64>,
+    running: usize,
+    shutdown: bool,
+}
+
+#[derive(Clone)]
+struct RunHandle {
+    shared: Arc<RunShared>,
+}
+
+struct RunShared {
+    state: Mutex<NativeRun>,
+    cvar: Condvar,
 }
 
 impl NativeRun {
     fn new(root_closure: i64) -> Self {
         let root = next_fiber_id();
-        let mut ready = VecDeque::new();
-        ready.push_back(Fiber {
+        let mut ready = (0..LOGICAL_WORKERS)
+            .map(|_| VecDeque::new())
+            .collect::<Vec<_>>();
+        ready[0].push_back(Fiber {
             id: root,
+            home_worker: 0,
             work: Work::Closure {
                 closure: root_closure,
                 owned: false,
@@ -93,23 +128,83 @@ impl NativeRun {
         Self {
             root,
             ready,
+            next_child_worker: if LOGICAL_WORKERS > 1 { 1 } else { 0 },
             suspended: HashMap::new(),
+            pending_wakes: HashMap::new(),
+            cancelled_requests: HashSet::new(),
             fiber_request: HashMap::new(),
             awaits: HashMap::new(),
             awaiter_index: HashMap::new(),
             scopes: HashMap::new(),
             fiber_scope: HashMap::new(),
+            cancelled_fibers: HashSet::new(),
             root_result: None,
+            running: 0,
+            shutdown: false,
         }
+    }
+
+    fn next_child_worker(&mut self) -> usize {
+        let worker = self.next_child_worker;
+        self.next_child_worker = (self.next_child_worker + 1) % self.ready.len();
+        worker
+    }
+
+    fn push_ready(&mut self, fiber: Fiber) {
+        if self.cancelled_fibers.contains(&fiber.id) {
+            release_cancelled_work(fiber.work);
+            self.forget_cancelled_fiber(fiber.id);
+            return;
+        }
+        self.ready[fiber.home_worker].push_back(fiber);
+    }
+
+    fn pop_ready_for_worker(&mut self, worker: usize) -> Option<Fiber> {
+        let fiber = self.ready[worker].pop_front()?;
+        self.running += 1;
+        Some(fiber)
+    }
+
+    fn worker_finished(&mut self) {
+        self.running = self.running.saturating_sub(1);
+    }
+
+    fn is_cancelled(&self, id: u64) -> bool {
+        self.cancelled_fibers.contains(&id)
+    }
+
+    fn forget_cancelled_fiber(&mut self, id: u64) {
+        self.cancelled_fibers.remove(&id);
+        self.awaiter_index.remove(&id);
+    }
+
+    fn release_discarded_fiber(&mut self, fiber: Fiber) {
+        release_cancelled_work(fiber.work);
+        self.forget_cancelled_fiber(fiber.id);
+    }
+
+    fn has_live_work(&self) -> bool {
+        self.running > 0
+            || !self.suspended.is_empty()
+            || self.ready.iter().any(|queue| !queue.is_empty())
     }
 
     fn spawn_child(&mut self, closure: i64) -> u64 {
         let id = next_fiber_id();
-        unsafe {
-            flux_async_retain(closure);
+        let home_worker = self.next_child_worker();
+        self.spawn_child_on(home_worker, id, closure)
+    }
+
+    fn spawn_child_on(&mut self, home_worker: usize, id: u64, closure: i64) -> u64 {
+        if let Some(cb) = callbacks() {
+            unsafe {
+                (cb.retain)(closure);
+                (cb.promote)(closure);
+            }
         }
-        self.ready.push_back(Fiber {
+        self.push_ready(Fiber {
             id,
+            home_worker,
             work: Work::Closure {
                 closure,
                 owned: true,
@@ -134,10 +229,32 @@ impl NativeRun {
     }
 
     fn park(&mut self, req: u64, mut fiber: Fiber, continuation: i64) {
+        if self.is_cancelled(fiber.id) {
+            release_cancelled_work(Work::Resume {
+                continuation,
+                value: FLUX_NONE,
+            });
+            if let Some(value) = self.pending_wakes.remove(&req) {
+                release_completion_value(value);
+            }
+            self.forget_cancelled_fiber(fiber.id);
+            return;
+        }
+        promote_value(continuation);
         fiber.work = Work::Resume {
             continuation,
             value: FLUX_NONE,
         };
+        if let Some(value) = self.pending_wakes.remove(&req) {
+            if let Work::Resume { continuation, .. } = fiber.work {
+                fiber.work = Work::Resume {
+                    continuation,
+                    value,
+                };
+            }
+            self.push_ready(fiber);
+            return;
+        }
         self.fiber_request.insert(fiber.id, req);
         self.suspended.insert(req, fiber);
     }
@@ -145,19 +262,40 @@ impl NativeRun {
     fn wake(&mut self, req: u64, value: i64) {
         if let Some(mut fiber) = self.suspended.remove(&req) {
             self.fiber_request.remove(&fiber.id);
+            if self.is_cancelled(fiber.id) {
+                release_cancelled_work(fiber.work);
+                release_completion_value(value);
+                self.forget_cancelled_fiber(fiber.id);
+                return;
+            }
+            if fiber.home_worker != current_worker() {
+                promote_value(value);
+            }
             if let Work::Resume { continuation, .. } = fiber.work {
                 fiber.work = Work::Resume {
                     continuation,
                     value,
                 };
             }
-            self.ready.push_back(fiber);
+            self.push_ready(fiber);
+        } else if self.cancelled_requests.remove(&req) {
+            release_completion_value(value);
+        } else {
+            promote_value(value);
+            self.pending_wakes.insert(req, value);
         }
     }
 
     fn complete_fiber(&mut self, id: u64, value: i64) {
+        if self.is_cancelled(id) {
+            release_completion_value(value);
+            self.forget_cancelled_fiber(id);
+            return;
+        }
+
         if id == self.root {
             self.root_result = Some(value);
+            self.shutdown = true;
         }
 
         if let Some(scope) = self.fiber_scope.remove(&id)
@@ -189,8 +327,11 @@ impl NativeRun {
 
                     match (left_value, right_value) {
                         (Some(l), Some(r)) => {
-                            let tuple = unsafe { flux_async_make_tuple2(l, r) };
-                            self.wake(parent_req, tuple);
+                            if let Some(cb) = callbacks() {
+                                let tuple = unsafe { (cb.make_tuple2)(l, r) };
+                                promote_value(tuple);
+                                self.wake(parent_req, tuple);
+                            }
                         }
                         (left_value, right_value) => {
                             self.awaits.insert(
@@ -214,8 +355,12 @@ impl NativeRun {
                 AwaitKind::Timeout { body } => {
                     if id == body {
                         backend().cancel(RequestId(parent_req));
-                        let some = unsafe { flux_async_wrap_some(value) };
-                        self.wake(parent_req, some);
+                        self.cancelled_requests.insert(parent_req);
+                        if let Some(cb) = callbacks() {
+                            let some = unsafe { (cb.wrap_some)(value) };
+                            promote_value(some);
+                            self.wake(parent_req, some);
+                        }
                     }
                 }
             }
@@ -228,15 +373,23 @@ impl NativeRun {
         }
 
         let losers: HashSet<u64> = fiber_ids.iter().copied().collect();
-        let mut kept = VecDeque::new();
-        while let Some(fiber) = self.ready.pop_front() {
-            if losers.contains(&fiber.id) {
-                release_cancelled_work(fiber.work);
-            } else {
-                kept.push_back(fiber);
+        self.cancelled_fibers.extend(losers.iter().copied());
+        let mut discarded = Vec::new();
+        for queue in &mut self.ready {
+            let mut kept = VecDeque::new();
+            while let Some(fiber) = queue.pop_front() {
+                if losers.contains(&fiber.id) {
+                    release_cancelled_work(fiber.work);
+                    discarded.push(fiber.id);
+                } else {
+                    kept.push_back(fiber);
+                }
             }
+            *queue = kept;
         }
-        self.ready = kept;
+        for id in discarded {
+            self.forget_cancelled_fiber(id);
+        }
 
         for id in fiber_ids {
             if let Some(scope) = self.fiber_scope.remove(id)
@@ -246,8 +399,10 @@ impl NativeRun {
             }
             if let Some(req) = self.fiber_request.remove(id) {
                 backend().cancel(RequestId(req));
+                self.cancelled_requests.insert(req);
                 if let Some(fiber) = self.suspended.remove(&req) {
                     release_cancelled_work(fiber.work);
+                    self.forget_cancelled_fiber(fiber.id);
                 }
             }
         }
@@ -263,52 +418,102 @@ impl NativeRun {
     }
 
     fn route_backend_completion(&mut self, req: u64, payload: CompletionPayload) {
+        if self.cancelled_requests.remove(&req) {
+            return;
+        }
+
         if let Some(AwaitKind::Timeout { body }) = self.awaits.remove(&req) {
             self.wake(req, FLUX_NONE);
             self.cancel_fibers(&[body]);
             return;
         }
 
-        match payload {
-            CompletionPayload::Unit => self.wake(req, FLUX_NONE),
-            CompletionPayload::Error(_) => self.wake(req, FLUX_NONE),
-            CompletionPayload::TcpHandle(_) | CompletionPayload::Bytes(_) => {
-                self.wake(req, FLUX_NONE)
-            }
-        }
+        self.wake(req, completion_payload_value(payload));
+    }
+}
+
+fn completion_payload_value(payload: CompletionPayload) -> i64 {
+    match payload {
+        CompletionPayload::Unit | CompletionPayload::Error(_) => FLUX_NONE,
+        CompletionPayload::TcpHandle(handle) => tag_int(handle.0),
+        CompletionPayload::Bytes(bytes) => callbacks()
+            .map(|cb| unsafe { (cb.make_string)(bytes.as_ptr(), bytes.len()) })
+            .unwrap_or(FLUX_NONE),
     }
 }
 
 fn release_executed_work(work: Work) {
-    unsafe {
-        match work {
-            Work::Closure {
-                closure,
-                owned: true,
-            } => flux_async_release(closure),
-            Work::Closure { owned: false, .. } => {}
-            Work::Resume { continuation, .. } => flux_async_release(continuation),
+    if let Some(cb) = callbacks() {
+        unsafe {
+            match work {
+                Work::Closure {
+                    closure,
+                    owned: true,
+                } => (cb.release)(closure),
+                Work::Closure { owned: false, .. } => {}
+                Work::Resume { continuation, .. } => (cb.release)(continuation),
+            }
         }
     }
 }
 
+fn release_completion_value(value: i64) {
+    if value == FLUX_NONE {
+        return;
+    }
+    if let Some(cb) = callbacks() {
+        unsafe {
+            (cb.release)(value);
+        }
+    }
+}
+
+impl RunHandle {
+    fn new(root_closure: i64) -> Self {
+        Self {
+            shared: Arc::new(RunShared {
+                state: Mutex::new(NativeRun::new(root_closure)),
+                cvar: Condvar::new(),
+            }),
+        }
+    }
+
+    fn notify_all(&self) {
+        self.shared.cvar.notify_all();
+    }
+}
+
 fn release_cancelled_work(work: Work) {
-    unsafe {
-        match work {
-            Work::Closure {
-                closure,
-                owned: true,
-            } => flux_async_release(closure),
-            Work::Closure { owned: false, .. } => {}
-            Work::Resume {
-                continuation,
-                value,
-            } => {
-                flux_async_release(continuation);
-                flux_async_release(value);
+    if let Some(cb) = callbacks() {
+        unsafe {
+            match work {
+                Work::Closure {
+                    closure,
+                    owned: true,
+                } => (cb.release)(closure),
+                Work::Closure { owned: false, .. } => {}
+                Work::Resume {
+                    continuation,
+                    value,
+                } => {
+                    (cb.release)(continuation);
+                    (cb.release)(value);
+                }
             }
         }
     }
+}
+
+fn promote_value(value: i64) {
+    if let Some(cb) = callbacks() {
+        unsafe {
+            (cb.promote)(value);
+        }
+    }
+}
+
+fn current_worker() -> usize {
+    CURRENT_WORKER.with(Cell::get)
 }
 
 fn backend() -> &'static MioBackend {
@@ -339,8 +544,145 @@ fn untag_int(value: i64) -> u64 {
     (value >> 1) as u64
 }
 
+fn active_run_slot() -> &'static Mutex<Option<RunHandle>> {
+    ACTIVE_RUN.get_or_init(|| Mutex::new(None))
+}
+
+fn active_run() -> Option<RunHandle> {
+    active_run_slot().lock().ok()?.clone()
+}
+
+fn set_active_run(run: Option<RunHandle>) {
+    if let Ok(mut slot) = active_run_slot().lock() {
+        *slot = run;
+    }
+}
+
 fn with_run<R>(f: impl FnOnce(&mut NativeRun) -> R) -> Option<R> {
-    NATIVE_RUN.with(|run| run.borrow_mut().as_mut().map(f))
+    let handle = active_run()?;
+    let mut state = handle.shared.state.lock().ok()?;
+    let result = f(&mut state);
+    drop(state);
+    handle.notify_all();
+    Some(result)
+}
+
+fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncCallbacks) {
+    {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        if state.is_cancelled(fiber.id) {
+            state.release_discarded_fiber(fiber);
+            state.worker_finished();
+            drop(state);
+            handle.notify_all();
+            return;
+        }
+    }
+
+    CURRENT_WORKER.with(|current| current.set(worker));
+    CURRENT_FIBER.with(|current| current.set(fiber.id));
+    let result = unsafe {
+        match fiber.work {
+            Work::Closure { closure, .. } => (cb.call0)(closure),
+            Work::Resume {
+                continuation,
+                value,
+            } => (cb.resume1)(continuation, value),
+        }
+    };
+    CURRENT_FIBER.with(|current| current.set(0));
+
+    let mut state = handle
+        .shared
+        .state
+        .lock()
+        .expect("native async state poisoned");
+    if unsafe { (cb.is_suspended)() } != 0 {
+        let request = untag_int(unsafe { (cb.current_request)() });
+        let continuation = unsafe { (cb.compose_conts)() };
+        unsafe {
+            (cb.clear_suspend)();
+        }
+        let executed_work = fiber.work;
+        state.park(request, fiber, continuation);
+        state.worker_finished();
+        drop(state);
+        release_executed_work(executed_work);
+        handle.notify_all();
+        return;
+    }
+
+    release_executed_work(fiber.work);
+    if fiber.id != state.root {
+        promote_value(result);
+    }
+    state.complete_fiber(fiber.id, result);
+    state.worker_finished();
+    drop(state);
+    handle.notify_all();
+}
+
+fn worker_loop(handle: RunHandle, worker: usize, cb: FluxAsyncCallbacks) {
+    unsafe {
+        (cb.enter_worker_thread)();
+    }
+    CURRENT_WORKER.with(|current| current.set(worker));
+    loop {
+        let fiber = {
+            let mut state = handle
+                .shared
+                .state
+                .lock()
+                .expect("native async state poisoned");
+            loop {
+                if state.shutdown {
+                    return;
+                }
+                if let Some(fiber) = state.pop_ready_for_worker(worker) {
+                    break fiber;
+                }
+                state = handle
+                    .shared
+                    .cvar
+                    .wait(state)
+                    .expect("native async state poisoned");
+            }
+        };
+        execute_fiber(&handle, worker, fiber, cb);
+    }
+}
+
+fn spawn_workers(handle: &RunHandle, cb: FluxAsyncCallbacks) -> Vec<JoinHandle<()>> {
+    (1..LOGICAL_WORKERS)
+        .map(|worker| {
+            let handle = handle.clone();
+            std::thread::Builder::new()
+                .name(format!("flux-async-worker-{worker}"))
+                .spawn(move || worker_loop(handle, worker, cb))
+                .expect("spawn native async worker")
+        })
+        .collect()
+}
+
+/// Register C-runtime callbacks used by the Rust async scheduler.
+///
+/// The `flux` Rust library is also linked into ordinary Rust test binaries
+/// that do not link `runtime/c`. Keeping these callbacks in a C-provided
+/// table avoids unresolved externals in those binaries while preserving the
+/// native executable path, where `runtime/c/tasks.c` registers the real
+/// callback set before entering `flux_async_run_root`.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_set_callbacks(callbacks: *const FluxAsyncCallbacks) -> i32 {
+    if callbacks.is_null() {
+        return -1;
+    }
+    let callbacks = unsafe { *callbacks };
+    let _ = CALLBACKS.set(callbacks);
+    0
 }
 
 /// Initialize the process-global native async backend.
@@ -381,76 +723,202 @@ pub extern "C" fn flux_async_timer_start(ms: i64) -> u64 {
     req
 }
 
+fn socket_addr_from_raw(
+    host: *const u8,
+    host_len: usize,
+    port: i64,
+    listen: bool,
+) -> Option<SocketAddr> {
+    if host.is_null() {
+        return None;
+    }
+    let host = unsafe { slice::from_raw_parts(host, host_len) };
+    let host = str::from_utf8(host).ok()?;
+    let host = if listen && host.is_empty() {
+        "0.0.0.0"
+    } else {
+        host
+    };
+    format!("{host}:{port}").parse().ok()
+}
+
+fn bytes_from_raw(data: *const u8, len: usize) -> Option<Vec<u8>> {
+    if data.is_null() && len != 0 {
+        return None;
+    }
+    if len == 0 {
+        return Some(Vec::new());
+    }
+    Some(unsafe { slice::from_raw_parts(data, len) }.to_vec())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_connect(host: *const u8, host_len: usize, port: i64) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let Some(addr) = socket_addr_from_raw(host, host_len, port, false) else {
+        return 0;
+    };
+    let req = next_request_id();
+    backend().tcp_connect(RequestId(req), addr);
+    req
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_listen(host: *const u8, host_len: usize, port: i64) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let Some(addr) = socket_addr_from_raw(host, host_len, port, true) else {
+        return 0;
+    };
+    let req = next_request_id();
+    backend().tcp_listen(RequestId(req), addr);
+    req
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_read(handle: u64, max: usize) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let req = next_request_id();
+    let max = if max > 0 && max <= (1 << 24) {
+        max
+    } else {
+        4096
+    };
+    backend().tcp_read(RequestId(req), IoHandle(handle), max);
+    req
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_write_all(handle: u64, data: *const u8, len: usize) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let Some(bytes) = bytes_from_raw(data, len) else {
+        return 0;
+    };
+    let req = next_request_id();
+    backend().tcp_write(RequestId(req), IoHandle(handle), bytes);
+    req
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_accept(handle: u64) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let req = next_request_id();
+    backend().tcp_accept(RequestId(req), IoHandle(handle));
+    req
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_close(handle: u64) -> i32 {
+    if flux_async_runtime_init() != 0 {
+        return -1;
+    }
+    backend().tcp_close(IoHandle(handle));
+    0
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
+    let Some(cb) = callbacks().copied() else {
+        return FLUX_NONE;
+    };
+
     if flux_async_runtime_init() != 0 {
         return FLUX_NONE;
     }
 
-    NATIVE_RUN.with(|run| {
-        *run.borrow_mut() = Some(NativeRun::new(root_closure));
-    });
+    let previous_run = active_run();
+    let handle = RunHandle::new(root_closure);
+    set_active_run(Some(handle.clone()));
+    let workers = spawn_workers(&handle, cb);
+    let mut result = FLUX_NONE;
 
     loop {
-        let next = with_run(|run| run.ready.pop_front()).flatten();
+        let next = {
+            let mut state = handle
+                .shared
+                .state
+                .lock()
+                .expect("native async state poisoned");
+            if let Some(done) = state.root_result {
+                result = done;
+                state.shutdown = true;
+                None
+            } else if let Some(fiber) = state.pop_ready_for_worker(0) {
+                Some(fiber)
+            } else if !state.has_live_work() {
+                state.shutdown = true;
+                result = FLUX_NONE;
+                None
+            } else {
+                None
+            }
+        };
+
         if let Some(fiber) = next {
-            CURRENT_FIBER.with(|current| current.set(fiber.id));
-            let result = unsafe {
-                match fiber.work {
-                    Work::Closure { closure, .. } => flux_async_call0(closure),
-                    Work::Resume {
-                        continuation,
-                        value,
-                    } => flux_async_resume1(continuation, value),
-                }
-            };
-            CURRENT_FIBER.with(|current| current.set(0));
-
-            if unsafe { flux_async_is_suspended() } != 0 {
-                let request = untag_int(unsafe { flux_async_current_request() });
-                let continuation = unsafe { flux_compose_conts() };
-                unsafe {
-                    flux_async_clear_suspend();
-                }
-                release_executed_work(fiber.work);
-                let _ = with_run(|run| run.park(request, fiber, continuation));
-                continue;
-            }
-
-            release_executed_work(fiber.work);
-            let _ = with_run(|run| run.complete_fiber(fiber.id, result));
-            if let Some(done) = with_run(|run| run.root_result).flatten() {
-                NATIVE_RUN.with(|run| {
-                    *run.borrow_mut() = None;
-                });
-                return done;
-            }
+            execute_fiber(&handle, 0, fiber, cb);
             continue;
         }
 
-        if let Some(done) = with_run(|run| run.root_result).flatten() {
-            NATIVE_RUN.with(|run| {
-                *run.borrow_mut() = None;
-            });
-            return done;
-        }
-
-        let suspended = with_run(|run| run.suspended.is_empty()).unwrap_or(true);
-        if suspended {
-            NATIVE_RUN.with(|run| {
-                *run.borrow_mut() = None;
-            });
-            return FLUX_NONE;
+        {
+            let state = handle
+                .shared
+                .state
+                .lock()
+                .expect("native async state poisoned");
+            if state.shutdown {
+                break;
+            }
         }
 
         if let Some(completion) = backend().next_completion() {
             let req = completion.request_id.0;
             let payload = completion.payload;
-            let _ = with_run(|run| run.route_backend_completion(req, payload));
+            {
+                let mut state = handle
+                    .shared
+                    .state
+                    .lock()
+                    .expect("native async state poisoned");
+                state.route_backend_completion(req, payload);
+            }
+            handle.notify_all();
         } else {
-            std::thread::park_timeout(Duration::from_millis(1));
+            let state = handle
+                .shared
+                .state
+                .lock()
+                .expect("native async state poisoned");
+            let _ = handle
+                .shared
+                .cvar
+                .wait_timeout(state, Duration::from_millis(1))
+                .expect("native async state poisoned");
         }
     }
+
+    {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        state.shutdown = true;
+    }
+    handle.notify_all();
+    for worker in workers {
+        let _ = worker.join();
+    }
+    set_active_run(previous_run);
+    result
 }
 
 #[unsafe(no_mangle)]
@@ -485,7 +953,7 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
 pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
-        let left_id = run.spawn_child(left);
+        let left_id = run.spawn_child_on(current_worker(), next_fiber_id(), left);
         let right_id = run.spawn_child(right);
         run.awaiter_index
             .entry(left_id)
@@ -543,12 +1011,56 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Phase 2 slice 2-vii: `flux_async_run_root` with an explicit
+/// `RuntimeConfig` (worker_count, fs_pool_size, dns_pool_size).
+///
+/// The arguments are accepted for API parity with the VM path; today the
+/// native runtime still uses the compile-time `LOGICAL_WORKERS` constant
+/// for worker spawning and ignores the fs/dns sizes (those are consulted
+/// once slice 2-viii lands the blocking pool). A non-zero `worker_count`
+/// deviates from the VM behaviour today; full native runtime-config
+/// support is a follow-up. The function is wired so user code that
+/// targets `Async.run_async_with` continues to link and run on native.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_run_root_with(
+    _worker_count: i64,
+    _fs_pool_size: i64,
+    _dns_pool_size: i64,
+    root_closure: i64,
+) -> i64 {
+    flux_async_run_root(root_closure)
+}
+
+/// Phase 2 slice 2-iv: poll whether the *current* fiber's enclosing scope
+/// has been cancelled.
+///
+/// Returns `1` if cancelled, `0` otherwise. Callers (the C shim
+/// `flux_fiber_check_cancelled`) convert this to a tagged `Bool` for
+/// the Flux source layer.
+///
+/// Outside `Async.run_async` (no active runtime, or `CURRENT_FIBER == 0`),
+/// returns `0` — there is no scope to be cancelled.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_check_cancelled() -> i32 {
+    let id = CURRENT_FIBER.with(|c| c.get());
+    if id == 0 {
+        return 0;
+    }
+    match with_run(|run| run.is_cancelled(id)) {
+        Some(true) => 1,
+        _ => 0,
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_suspend_request(request_id: u64) -> i64 {
     if request_id == 0 {
         return FLUX_NONE;
     }
-    unsafe { flux_async_suspend(tag_int(request_id), FLUX_NONE) }
+    let Some(cb) = callbacks() else {
+        return FLUX_NONE;
+    };
+    unsafe { (cb.suspend)(tag_int(request_id), FLUX_NONE) }
 }
 
 /// Poll the backend dispatch path until `req` has completed.
