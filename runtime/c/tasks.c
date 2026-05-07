@@ -574,6 +574,61 @@ int64_t flux_fiber_race(int64_t f, int64_t g) {
     return flux_async_suspend_request(request_id);
 }
 
+int64_t flux_fiber_first_of(int64_t children) {
+    size_t len = 0;
+    size_t cap = 8;
+    int64_t *closures = (int64_t *)malloc(cap * sizeof(int64_t));
+    if (!closures) {
+        fprintf(stderr, "flux_fiber_first_of: out of memory\n");
+        abort();
+    }
+
+    int64_t cur = children;
+    while (cur != FLUX_EMPTY_LIST && cur != FLUX_NONE) {
+        if (!flux_is_ptr(cur)) {
+            fprintf(stderr, "flux_fiber_first_of: expected List of closures\n");
+            free(closures);
+            abort();
+        }
+        void *ptr = flux_untag_ptr(cur);
+        if (flux_obj_tag(ptr) != FLUX_OBJ_ADT) {
+            fprintf(stderr, "flux_fiber_first_of: expected List of closures\n");
+            free(closures);
+            abort();
+        }
+        int32_t ctor_tag = *(int32_t *)ptr;
+        int32_t field_count = *((int32_t *)ptr + 1);
+        if (ctor_tag != 4 || field_count != 2) {
+            fprintf(stderr, "flux_fiber_first_of: expected List of closures\n");
+            free(closures);
+            abort();
+        }
+        int64_t *fields = (int64_t *)((char *)ptr + 8);
+        if (len == cap) {
+            cap *= 2;
+            int64_t *next = (int64_t *)realloc(closures, cap * sizeof(int64_t));
+            if (!next) {
+                fprintf(stderr, "flux_fiber_first_of: out of memory\n");
+                free(closures);
+                abort();
+            }
+            closures = next;
+        }
+        closures[len++] = fields[0];
+        cur = fields[1];
+    }
+
+    if (len == 0) {
+        fprintf(stderr, "flux_fiber_first_of: empty list\n");
+        free(closures);
+        abort();
+    }
+
+    uint64_t request_id = flux_async_fiber_first_of(closures, (uintptr_t)len);
+    free(closures);
+    return flux_async_suspend_request(request_id);
+}
+
 int64_t flux_fiber_timeout(int64_t ms_val, int64_t f) {
     int64_t ms = flux_untag_int(ms_val);
     uint64_t request_id = flux_async_fiber_timeout(ms, f);

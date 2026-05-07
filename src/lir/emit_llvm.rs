@@ -3511,6 +3511,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         // intended behaviour (loud failure, not silent fallback).
         CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
         CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
+        CorePrimOp::FiberFirstOf => return "flux_fiber_first_of".to_string(),
         CorePrimOp::FiberTimeout => return "flux_fiber_timeout".to_string(),
         // 1b-vi-c scope/fork/cancel: native implementation deferred to 1b-vi-d.
         CorePrimOp::FiberNewScope => return "flux_fiber_new_scope".to_string(),
@@ -3642,6 +3643,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Fiber combinators (proposal 0174 Phase 1b-vi-d — sequential-equivalent).
         "flux_fiber_both" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_fiber_race" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_first_of" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
         "flux_fiber_new_scope" => (LlvmType::i64(), vec![LlvmType::i32()]),
@@ -3652,7 +3654,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Phase 2 slice 2-vii: 4-arg run_async_with (workers, fs, dns, closure).
         "flux_fiber_run_async_with" => (
             LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
         ),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
