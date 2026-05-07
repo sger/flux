@@ -12,9 +12,9 @@
 //! function-typed payloads are rejected through the imported `Flow.Task`
 //! surface, while concrete sendable payloads still type-check.
 //!
-//! Phase 1b closeout scope: VM and native both run `spawn`/`blocking_join`/
-//! `cancel`/`await` end-to-end. Native `await` is currently a blocking shim
-//! over join; true fiber-suspending task await is a post-1b follow-up.
+//! VM keeps sequential task execution. Native `Task.await` is
+//! fiber-suspending: it parks only the calling fiber while native task workers
+//! publish completions back into the async scheduler.
 
 use std::path::Path;
 use std::process::Command;
@@ -53,6 +53,30 @@ fn run_flux_source(source: &str) -> (String, String, bool) {
         .args([path.to_str().unwrap(), "--no-cache"])
         .output()
         .expect("run flux on Flow.Task D1 fixture");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+    let _ = std::fs::remove_file(&path);
+    (stdout, stderr, output.status.success())
+}
+
+#[cfg(feature = "llvm")]
+fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
+    let dir = std::env::temp_dir().join(format!(
+        "flux-flow-task-native-{}-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test"),
+        tag
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
+    let path = dir.join("flow_task_native_source.flx");
+    std::fs::write(&path, source).expect("write native Flow.Task fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .output()
+        .expect("run native flux on Flow.Task fixture");
 
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
@@ -119,6 +143,95 @@ fn flow_task_native_compiles_and_passes() {
         stdout.contains("6 passed"),
         "expected 6 passing native tests, got:\n{stdout}"
     );
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_await_suspends_fiber_scheduler() {
+    let source = r#"
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn wait_task() -> Int with Async {
+    Task.await(Task.spawn(fn() { fib(36) }))
+}
+
+fn tick() -> Int with Async {
+    sleep(100)
+    7
+}
+
+fn pair_body() -> (Int, Int) with Async {
+    // `both` schedules `tick` on worker 1 and `wait_task` on worker 0. The
+    // old native Task.await shim blocked worker 0, so the root scheduler could
+    // not route the 100ms timer until the task completed.
+    both(tick, wait_task)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let solo = run_async(wait_task)
+    let t1 = now_ms()
+    let pair = run_async(pair_body)
+    let t2 = now_ms()
+    print(solo)
+    print(pair.0)
+    print(pair.1)
+    print(t1 - t0)
+    print(t2 - t1)
+}
+"#;
+    let (stdout, stderr, success) = run_flux_source_native(source, "await_overlap");
+    assert!(
+        success,
+        "native Task.await overlap fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(&lines[..3], ["14930352", "7", "14930352"]);
+    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
+    let both_ms: i64 = lines[4].parse().expect("both elapsed ms");
+    assert!(
+        solo_ms >= 80,
+        "fib(36) task completed too quickly to prove overlap: {solo_ms}ms"
+    );
+    assert!(
+        both_ms < solo_ms + 75,
+        "Task.await appears to have blocked scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
+    );
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_await_completed_task_returns_value() {
+    let source = r#"
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn await_completed_body() -> Int with Async {
+    let t = Task.spawn(fn() { 42 })
+    let _ = fib(30)
+    Task.await(t)
+}
+
+fn main() with IO {
+    let r = run_async(await_completed_body)
+    print(r)
+}
+"#;
+    let (stdout, stderr, success) = run_flux_source_native(source, "await_completed");
+    assert!(
+        success,
+        "native Task.await completed fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "42");
 }
 
 #[test]

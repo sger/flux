@@ -188,9 +188,7 @@ int64_t flux_task_spawn(int64_t closure);
 int64_t flux_task_blocking_join(int64_t task);
 int64_t flux_task_cancel(int64_t task);
 
-/* Fiber / structured concurrency (proposal 0174 Phase 1b). Scheduler bridge
- * lands in Slice 1b-vi; until then every entry point aborts with a clear
- * "not yet wired" message (same pattern as the original D5-a stubs). */
+/* Fiber / structured concurrency (proposal 0174 Phase 1b+). */
 int64_t flux_fiber_suspend(int64_t setup_closure);
 int64_t flux_fiber_fork(int64_t body_closure);
 int64_t flux_fiber_get_context(void);
@@ -243,6 +241,8 @@ int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, in
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_task_await_request(void);
+void     flux_async_task_complete(uint64_t request_id, int64_t value);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
 uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
@@ -278,6 +278,8 @@ int64_t  flux_async_run_root(int64_t root_closure);
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_task_await_request(void);
+void     flux_async_task_complete(uint64_t request_id, int64_t value);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
 uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);

@@ -2,7 +2,8 @@
 //
 // Uses only Int and String payloads because List<T> and tuple equality
 // via assert_eq is not yet supported on the native backend.
-// The VM fixture (flow_task_surface.flx) covers list and tuple payloads.
+// The VM fixture (flow_task_surface.flx) covers list and tuple payloads;
+// Rust integration tests cover fiber-suspending native Task.await overlap.
 
 import Flow.Task as Task
 import Flow.Async exposing (..)
