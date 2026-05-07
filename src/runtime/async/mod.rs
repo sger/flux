@@ -8,8 +8,8 @@
 //! primitive on top; Phase 1b adds fibers and structured concurrency.
 
 pub mod backend;
-pub mod blocking_pool;
 pub mod backends;
+pub mod blocking_pool;
 pub mod context;
 pub mod fiber;
 #[cfg(feature = "llvm")]

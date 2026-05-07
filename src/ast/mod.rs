@@ -3,6 +3,7 @@ pub mod constant_fold;
 pub mod desugar;
 pub mod desugar_named_fields;
 pub mod expand_effect_aliases;
+pub mod expand_type_aliases;
 pub mod fold;
 pub mod free_vars;
 pub mod rename;

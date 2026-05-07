@@ -401,20 +401,18 @@ impl NativeRun {
                     }
 
                     match (left_value, right_value) {
-                        (Some(l), Some(r)) => {
-                            match (l, r) {
-                                (FiberOutcome::Value(l), FiberOutcome::Value(r)) => {
-                                    if let Some(cb) = callbacks() {
-                                        let tuple = unsafe { (cb.make_tuple2)(l, r) };
-                                        promote_value(tuple);
-                                        self.wake(parent_req, FiberOutcome::Value(tuple));
-                                    }
-                                }
-                                (FiberOutcome::Error(err), _) | (_, FiberOutcome::Error(err)) => {
-                                    self.wake(parent_req, FiberOutcome::Error(err));
+                        (Some(l), Some(r)) => match (l, r) {
+                            (FiberOutcome::Value(l), FiberOutcome::Value(r)) => {
+                                if let Some(cb) = callbacks() {
+                                    let tuple = unsafe { (cb.make_tuple2)(l, r) };
+                                    promote_value(tuple);
+                                    self.wake(parent_req, FiberOutcome::Value(tuple));
                                 }
                             }
-                        }
+                            (FiberOutcome::Error(err), _) | (_, FiberOutcome::Error(err)) => {
+                                self.wake(parent_req, FiberOutcome::Error(err));
+                            }
+                        },
                         (left_value, right_value) => {
                             self.awaits.insert(
                                 parent_req,
@@ -437,7 +435,9 @@ impl NativeRun {
                         if let Some(cb) = callbacks() {
                             let result = match outcome {
                                 FiberOutcome::Value(v) => unsafe { (cb.make_adt1)(ok_ctor_tag, v) },
-                                FiberOutcome::Error(err) => unsafe { (cb.make_adt1)(err_ctor_tag, err) },
+                                FiberOutcome::Error(err) => unsafe {
+                                    (cb.make_adt1)(err_ctor_tag, err)
+                                },
                             };
                             promote_value(result);
                             self.wake(parent_req, FiberOutcome::Value(result));

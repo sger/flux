@@ -739,8 +739,23 @@ impl Parser {
         let mut effects = Vec::new();
 
         loop {
+            let wrapped_in_angle_row = self.is_peek_token(TokenType::Lt);
+            if wrapped_in_angle_row {
+                self.next_token(); // <
+            }
+
             let effect = self.parse_effect_expr()?;
             effects.push(effect);
+
+            if wrapped_in_angle_row
+                && !self.expect_peek_context(
+                    TokenType::Gt,
+                    "Expected `>` to close effect row.".to_string(),
+                    "Effect rows use `with <Async | e>`.".to_string(),
+                )
+            {
+                return None;
+            }
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
