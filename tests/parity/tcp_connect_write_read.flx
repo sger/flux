@@ -7,7 +7,7 @@ import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)
 
 fn server() -> Unit with Async {
-    let l = listen("127.0.0.1", 19871)
+    let l = listen("127.0.0.1", 21971)
     let conn = accept(l)
     let msg = read(conn, 1024)
     let _w = write_all(conn, msg)
@@ -15,7 +15,7 @@ fn server() -> Unit with Async {
 }
 
 fn client() -> String with Async {
-    let conn = connect("127.0.0.1", 19871)
+    let conn = connect("127.0.0.1", 21971)
     let _w = write_all(conn, "hello")
     let reply = read(conn, 1024)
     close(conn)

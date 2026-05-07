@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
-use super::backends::mio::MioBackend;
+use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
 
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
 static CALLBACKS: OnceLock<FluxAsyncCallbacks> = OnceLock::new();
@@ -674,6 +674,15 @@ impl NativeRun {
             return;
         }
 
+        if let CompletionPayload::AddressList(addrs) = payload {
+            if let Some(addr) = addrs.first().copied() {
+                backend().tcp_connect(RequestId(req), addr);
+            } else {
+                self.wake(req, FiberOutcome::Value(FLUX_NONE));
+            }
+            return;
+        }
+
         if let Some(AwaitKind::Timeout { body }) = self.awaits.remove(&req) {
             self.wake(req, FiberOutcome::Value(FLUX_NONE));
             self.cancel_fibers(&[body]);
@@ -691,6 +700,7 @@ fn completion_payload_value(payload: CompletionPayload) -> i64 {
         CompletionPayload::Bytes(bytes) => callbacks()
             .map(|cb| unsafe { (cb.make_string)(bytes.as_ptr(), bytes.len()) })
             .unwrap_or(FLUX_NONE),
+        CompletionPayload::AddressList(_) => FLUX_NONE,
     }
 }
 
@@ -1009,11 +1019,19 @@ fn socket_addr_from_raw(
     port: i64,
     listen: bool,
 ) -> Option<SocketAddr> {
-    if host.is_null() {
+    let host = string_from_raw(host, host_len)?;
+    socket_addr_from_host(&host, port, listen)
+}
+
+fn string_from_raw(data: *const u8, len: usize) -> Option<String> {
+    if data.is_null() {
         return None;
     }
-    let host = unsafe { slice::from_raw_parts(host, host_len) };
-    let host = str::from_utf8(host).ok()?;
+    let bytes = unsafe { slice::from_raw_parts(data, len) };
+    str::from_utf8(bytes).ok().map(str::to_string)
+}
+
+fn socket_addr_from_host(host: &str, port: i64, listen: bool) -> Option<SocketAddr> {
     let host = if listen && host.is_empty() {
         "0.0.0.0"
     } else {
@@ -1037,11 +1055,18 @@ pub extern "C" fn flux_async_tcp_connect(host: *const u8, host_len: usize, port:
     if flux_async_runtime_init() != 0 {
         return 0;
     }
-    let Some(addr) = socket_addr_from_raw(host, host_len, port, false) else {
+    let Some(host) = string_from_raw(host, host_len) else {
         return 0;
     };
     let req = next_request_id();
-    backend().tcp_connect(RequestId(req), addr);
+    if let Some(addr) = socket_addr_from_host(&host, port, false) {
+        backend().tcp_connect(RequestId(req), addr);
+        return req;
+    }
+    let Ok(port) = u16::try_from(port) else {
+        return 0;
+    };
+    backend().dns_resolve(RequestId(req), host, port);
     req
 }
 
@@ -1368,20 +1393,20 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
 /// Phase 2 slice 2-vii: `flux_async_run_root` with an explicit
 /// `RuntimeConfig` (worker_count, fs_pool_size, dns_pool_size).
 ///
-/// The arguments are accepted for API parity with the VM path; today the
-/// native runtime still uses the compile-time `LOGICAL_WORKERS` constant
-/// for worker spawning and ignores the fs/dns sizes (those are consulted
-/// once slice 2-viii lands the blocking pool). A non-zero `worker_count`
-/// deviates from the VM behaviour today; full native runtime-config
-/// support is a follow-up. The function is wired so user code that
-/// targets `Async.run_async_with` continues to link and run on native.
+/// Native still uses the compile-time `LOGICAL_WORKERS` constant for fiber
+/// workers. `dns_pool_size` configures the blocking DNS pool before the
+/// backend is initialized; `fs_pool_size` is accepted for future filesystem
+/// consumers.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root_with(
     _worker_count: i64,
     _fs_pool_size: i64,
-    _dns_pool_size: i64,
+    dns_pool_size: i64,
     root_closure: i64,
 ) -> i64 {
+    if dns_pool_size > 0 {
+        configure_default_dns_pool_size(dns_pool_size as usize);
+    }
     flux_async_run_root(root_closure)
 }
 
@@ -1484,6 +1509,12 @@ pub extern "C" fn flux_async_poll_dispatch(req: u64) -> i32 {
             match completion.payload {
                 CompletionPayload::Unit if completion.request_id.0 == req => return 1,
                 CompletionPayload::Error(_) if completion.request_id.0 == req => return -1,
+                CompletionPayload::AddressList(addrs) if completion.request_id.0 == req => {
+                    let Some(addr) = addrs.first().copied() else {
+                        return -1;
+                    };
+                    backend().tcp_connect(RequestId(req), addr);
+                }
                 CompletionPayload::Unit => {
                     if let Ok(mut ready) = ready_timers().lock() {
                         ready.insert(completion.request_id.0);
@@ -1491,6 +1522,7 @@ pub extern "C" fn flux_async_poll_dispatch(req: u64) -> i32 {
                 }
                 CompletionPayload::Bytes(_)
                 | CompletionPayload::TcpHandle(_)
+                | CompletionPayload::AddressList(_)
                 | CompletionPayload::Error(_) => {
                     if completion.request_id.0 == req {
                         return -1;

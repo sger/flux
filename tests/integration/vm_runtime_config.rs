@@ -124,3 +124,88 @@ fn main() with IO {
         "expected 99 on stdout, got: {stdout:?}"
     );
 }
+
+#[test]
+fn run_async_with_explicit_dns_pool_resolves_hostname() {
+    let source = r#"
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn server() -> Unit with Async {
+    let l = listen("127.0.0.1", 21974)
+    let conn = accept(l)
+    let msg = read(conn, 1024)
+    let _ = write_all(conn, msg)
+    close(conn)
+}
+
+fn client() -> String with Async {
+    let conn = connect("localhost", 21974)
+    let _ = write_all(conn, "dns-config")
+    let reply = read(conn, 1024)
+    close(conn)
+    reply
+}
+
+fn body() -> String with Async {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async_with(with_dns_pool_size(1), body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source_with_env(source, &[]);
+    assert!(
+        success,
+        "run_async_with dns_pool_size=1 must resolve localhost:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("dns-config"),
+        "expected echoed dns-config, got: {stdout:?}"
+    );
+}
+
+#[test]
+fn flux_dns_threads_env_var_resolves_hostname() {
+    let source = r#"
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn server() -> Unit with Async {
+    let l = listen("127.0.0.1", 21975)
+    let conn = accept(l)
+    let msg = read(conn, 1024)
+    let _ = write_all(conn, msg)
+    close(conn)
+}
+
+fn client() -> String with Async {
+    let conn = connect("localhost", 21975)
+    let _ = write_all(conn, "dns-env")
+    let reply = read(conn, 1024)
+    close(conn)
+    reply
+}
+
+fn body() -> String with Async {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) =
+        run_source_with_env(source, &[("FLUX_DNS_THREADS", "1")]);
+    assert!(
+        success,
+        "FLUX_DNS_THREADS=1 must configure hostname resolution:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("dns-env"),
+        "expected echoed dns-env, got: {stdout:?}"
+    );
+}
