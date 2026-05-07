@@ -718,6 +718,7 @@ pub enum IrTopLevelItem {
         expansion: EffectExpr,
         span: Span,
     },
+    TypeAlias(crate::syntax::statement::TypeAliasDecl),
     Class {
         name: Identifier,
         type_params: Vec<Identifier>,

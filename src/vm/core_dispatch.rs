@@ -697,7 +697,10 @@ mod vm_fibers {
             let Some(kind) = kind else { continue };
             match kind {
                 AwaitKind::Both { left, right } => {
-                    if matches!(RESULTS.with(|r| r.borrow().get(&id).cloned()), Some(FiberOutcome::Error(_))) {
+                    if matches!(
+                        RESULTS.with(|r| r.borrow().get(&id).cloned()),
+                        Some(FiberOutcome::Error(_))
+                    ) {
                         let err = match take_result(id).expect("just inserted") {
                             FiberOutcome::Error(err) => err,
                             FiberOutcome::Value(_) => unreachable!(),
@@ -1247,7 +1250,9 @@ mod vm_fibers {
                         } else {
                             set_resume_outcome(
                                 c.request_id.0,
-                                FiberOutcome::Error(async_panicked("dns resolve returned no addresses")),
+                                FiberOutcome::Error(async_panicked(
+                                    "dns resolve returned no addresses",
+                                )),
                             );
                             SCHED.with(|s| {
                                 s.borrow_mut()
@@ -2183,8 +2188,8 @@ pub fn execute_core_primop(
         // via the mio backend. Returns integer handle IDs on success.
         TcpConnect => match (&args[0], &args[1]) {
             (Value::String(host), Value::Integer(port)) => {
-                use std::net::SocketAddr;
                 use crate::runtime::r#async::backend::AsyncBackend;
+                use std::net::SocketAddr;
                 let backend = vm_async::backend()?;
                 let req = vm_async::alloc_request_id();
                 let target = format!("{}:{}", host, port);

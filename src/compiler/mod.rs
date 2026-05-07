@@ -48,7 +48,7 @@ use crate::{
         interner::Interner,
         module_graph::ModuleKind,
         program::Program,
-        statement::Statement,
+        statement::{Statement, TypeAliasDecl},
         symbol::Symbol,
         type_expr::TypeExpr,
     },
@@ -511,6 +511,34 @@ fn substitute_type_expr_for_instance(
             effects: effects.clone(),
             span: *span,
         },
+    }
+}
+
+fn type_expr_named_symbols(ty: &TypeExpr) -> HashSet<Identifier> {
+    let mut symbols = HashSet::new();
+    collect_type_expr_named_symbols(ty, &mut symbols);
+    symbols
+}
+
+fn collect_type_expr_named_symbols(ty: &TypeExpr, symbols: &mut HashSet<Identifier>) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            symbols.insert(*name);
+            for arg in args {
+                collect_type_expr_named_symbols(arg, symbols);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for elem in elements {
+                collect_type_expr_named_symbols(elem, symbols);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_type_expr_named_symbols(param, symbols);
+            }
+            collect_type_expr_named_symbols(ret, symbols);
+        }
     }
 }
 
@@ -1019,6 +1047,9 @@ pub struct Compiler {
     /// (Proposal 0161 B1). Populated during statement collection and
     /// consumed by the pre-inference alias-expansion pass.
     pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
+    /// Transparent type aliases declared via `alias Name<a> = TypeExpr`.
+    /// Populated during collection and expanded before HM inference.
+    pub(super) transparent_type_aliases: HashMap<Symbol, TypeAliasDecl>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
     /// Effect names that have at least one user-written `effect E { ... }`
@@ -1233,6 +1264,7 @@ impl Compiler {
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
             effect_row_aliases: HashMap::new(),
+            transparent_type_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
             user_declared_effect_names: HashSet::new(),
             preloaded_effect_op_signatures: HashMap::new(),
@@ -1307,6 +1339,7 @@ impl Compiler {
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
+        self.transparent_type_aliases.clear();
         self.seed_builtin_effect_aliases();
         self.seed_builtin_effect_operations();
     }
@@ -2323,6 +2356,61 @@ impl Compiler {
                 }
             }
             _ => {}
+        }
+    }
+
+    pub(in crate::compiler) fn collect_transparent_type_aliases(&mut self, program: &Program) {
+        self.transparent_type_aliases.clear();
+        for statement in &program.statements {
+            self.collect_transparent_type_aliases_from_stmt(statement);
+        }
+    }
+
+    fn collect_transparent_type_aliases_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::TypeAlias(alias) => {
+                self.validate_transparent_type_alias(alias);
+                self.transparent_type_aliases
+                    .insert(alias.name, alias.clone());
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_transparent_type_aliases_from_stmt(nested);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn validate_transparent_type_alias(&mut self, alias: &TypeAliasDecl) {
+        let mut seen = HashSet::new();
+        for param in &alias.params {
+            if !seen.insert(*param) {
+                self.errors.push(Diagnostic::make_error_dynamic(
+                    "E308",
+                    "Duplicate Type Alias Parameter",
+                    ErrorType::Compiler,
+                    "Type alias parameters must be unique.",
+                    None,
+                    self.file_path.clone(),
+                    alias.span,
+                ));
+            }
+        }
+
+        let used = type_expr_named_symbols(&alias.body);
+        for param in &alias.params {
+            if !used.contains(param) {
+                self.errors.push(Diagnostic::make_error_dynamic(
+                    "E308",
+                    "Phantom Type Alias Parameter",
+                    ErrorType::Compiler,
+                    "Transparent type aliases cannot declare unused type parameters.",
+                    Some("Remove the parameter or use a nominal `data` type.".to_string()),
+                    self.file_path.clone(),
+                    alias.span,
+                ));
+            }
         }
     }
 

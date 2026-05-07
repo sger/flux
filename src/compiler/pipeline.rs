@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use crate::ast::expand_effect_aliases::expand_effect_aliases_in_program;
+use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
@@ -84,6 +85,25 @@ impl Compiler {
                 owned
             };
             &alias_expanded
+        } else {
+            program
+        };
+
+        // Phase 1d (Proposal 0174 Phase 2): expand transparent type aliases
+        // before HM inference so later phases only see structural types.
+        let type_alias_expanded;
+        let program: &Program = if !self.transparent_type_aliases.is_empty() {
+            type_alias_expanded = {
+                let mut owned: Program = program.clone();
+                let diagnostics = expand_type_aliases_in_program(
+                    &mut owned,
+                    &self.transparent_type_aliases,
+                    &self.file_path,
+                );
+                self.errors.extend(diagnostics);
+                owned
+            };
+            &type_alias_expanded
         } else {
             program
         };

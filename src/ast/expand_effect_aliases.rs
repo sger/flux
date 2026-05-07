@@ -84,10 +84,18 @@ fn expand_stmt(stmt: &mut Statement, aliases: &HashMap<Identifier, EffectExpr>) 
         }
         Statement::Return { value: Some(v), .. } => expand_expr(v, aliases),
         Statement::Return { value: None, .. } => {}
-        Statement::Import { .. }
-        | Statement::Data { .. }
-        | Statement::EffectDecl { .. }
-        | Statement::EffectAlias { .. } => {}
+        Statement::TypeAlias(alias) => {
+            expand_type(&mut alias.body, aliases);
+        }
+        Statement::Data { variants, .. } => {
+            for variant in variants {
+                for field in &mut variant.fields {
+                    expand_type(field, aliases);
+                }
+            }
+        }
+        Statement::Import { .. } | Statement::EffectDecl { .. } | Statement::EffectAlias { .. } => {
+        }
     }
 }
 

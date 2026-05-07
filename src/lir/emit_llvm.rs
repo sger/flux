@@ -1887,8 +1887,18 @@ impl<'a> FnEmitter<'a> {
         }
 
         if let CorePrimOp::FiberTry = op {
-            let ok_tag = self.program.constructor_tags.get("Ok").copied().unwrap_or(5);
-            let err_tag = self.program.constructor_tags.get("Err").copied().unwrap_or(6);
+            let ok_tag = self
+                .program
+                .constructor_tags
+                .get("Ok")
+                .copied()
+                .unwrap_or(5);
+            let err_tag = self
+                .program
+                .constructor_tags
+                .get("Err")
+                .copied()
+                .unwrap_or(6);
             let panicked_tag = self
                 .program
                 .constructor_tags
@@ -3675,7 +3685,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_first_of" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_fiber_try" => (
             LlvmType::i64(),
-            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
         ),
         "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.

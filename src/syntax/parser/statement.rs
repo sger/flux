@@ -11,7 +11,7 @@ use crate::{
         effect_ops::EffectOp,
         expression::Expression,
         precedence::Precedence,
-        statement::{FunctionTypeParam, Statement},
+        statement::{FunctionTypeParam, Statement, TypeAliasDecl},
         token_type::TokenType,
         type_class::{ClassConstraint, ClassMethod, InstanceMethod},
         type_expr::TypeExpr,
@@ -77,7 +77,7 @@ impl Parser {
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(false),
             TokenType::Effect => self.parse_effect_statement(),
-            TokenType::Alias => self.parse_effect_alias_statement(),
+            TokenType::Alias => self.parse_alias_statement(false),
             TokenType::Class => self.parse_class_statement(false),
             TokenType::Instance => self.parse_instance_statement(false),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
@@ -120,6 +120,10 @@ impl Parser {
             TokenType::Public if self.is_peek_token(TokenType::Data) => {
                 self.next_token(); // data
                 self.parse_data_statement(true)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Alias) => {
+                self.next_token(); // alias
+                self.parse_alias_statement(true)
             }
             TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
@@ -2265,20 +2269,20 @@ impl Parser {
         })
     }
 
-    /// Parses `alias Name = <E1 | E2 | ...>` (Proposal 0161 B1).
+    /// Parses `alias Name = <E1 | E2 | ...>` effect aliases and
+    /// `alias Name<a> = TypeExpr` transparent type aliases.
     ///
     /// Effect-row aliases let users give a short name to a decomposed row.
-    /// Expansion happens at type-inference time; see
-    /// `Compiler::effect_alias_table`.
-    pub(super) fn parse_effect_alias_statement(&mut self) -> Option<Statement> {
+    /// Type aliases are transparent and expand before HM inference.
+    pub(super) fn parse_alias_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
-            "Missing Effect Alias Name",
+            "Missing Alias Name",
             DiagnosticCategory::ParserDeclaration,
             "Expected alias name after `alias`.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = Type` or `alias Name = <E1 | E2 | ...>`.".to_string(),
         ) {
             return None;
         }
@@ -2287,33 +2291,39 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        let params = self.parse_type_params_angle_bracket();
+
         if !self.expect_peek_context_with_details(
             TokenType::Assign,
-            "Missing `=` in Effect Alias",
+            "Missing `=` in Alias",
             DiagnosticCategory::ParserSeparator,
             "Expected `=` after alias name.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = Type` or `alias Name = <E1 | E2 | ...>`.".to_string(),
         ) {
             return None;
         }
 
-        if !self.expect_peek_context_with_details(
-            TokenType::Lt,
-            "Missing `<` in Effect Alias Body",
-            DiagnosticCategory::ParserSeparator,
-            "Expected `<` to begin the effect-row body.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
-        ) {
-            return None;
+        if params.is_empty() && self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume `<`
+            let expansion = self.parse_effect_alias_body()?;
+
+            return Some(Statement::EffectAlias {
+                name,
+                expansion,
+                span: self.span_from(start),
+            });
         }
 
-        let expansion = self.parse_effect_alias_body()?;
+        self.next_token(); // move to type expression start
+        let body = self.parse_type_expr()?;
 
-        Some(Statement::EffectAlias {
+        Some(Statement::TypeAlias(TypeAliasDecl {
+            is_public,
             name,
-            expansion,
+            params,
+            body,
             span: self.span_from(start),
-        })
+        }))
     }
 
     /// Parses the `<E1 | E2 | ...>` body of an alias declaration.
