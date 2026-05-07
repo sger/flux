@@ -5,6 +5,18 @@
 // The VM fixture (flow_task_surface.flx) covers list and tuple payloads.
 
 import Flow.Task as Task
+import Flow.Async exposing (..)
+
+fn await_int_body() -> Int with Async {
+    let t = Task.spawn(fn() { 21 * 2 });
+    Task.await(t)
+}
+
+fn await_cancel_body() -> Int with Async {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    Task.await(t)
+}
 
 fn test_spawn_join_int_round_trip() {
     let t = Task.spawn(fn() { 7 * 6 });
@@ -22,6 +34,15 @@ fn test_cancel_before_join_surfaces_error() {
     let t = Task.spawn(fn() { 99 });
     Task.cancel(t);
     assert_throws(fn() { Task.blocking_join(t) })
+}
+
+fn test_await_int_round_trip() {
+    let r = run_async(await_int_body);
+    assert_eq(r, 42)
+}
+
+fn test_cancel_before_await_surfaces_error() {
+    assert_throws(fn() { run_async(await_cancel_body) })
 }
 
 fn test_independent_spawn_join_pairs() {

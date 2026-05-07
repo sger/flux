@@ -556,6 +556,26 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
         });
     }
 
+    // ── Declare @flux_can_use_bump_arena (C runtime TLS check) ─────
+    let can_bump_name = "flux_can_use_bump_arena";
+    if !module
+        .declarations
+        .iter()
+        .any(|d| d.name.0 == can_bump_name)
+    {
+        module.declarations.push(crate::llvm::LlvmDecl {
+            linkage: Linkage::External,
+            name: GlobalId(can_bump_name.into()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::i32(),
+                params: vec![],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".into()],
+        });
+    }
+
     // ── Declare @llvm.memset.p0.i64 intrinsic ────────────────────
     let memset_name = "llvm.memset.p0.i64";
     if !module.declarations.iter().any(|d| d.name.0 == memset_name) {
@@ -585,16 +605,21 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
 
     // Signature: fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag)
     //
-    // Fast path (~4 instructions):
+    // Fast path:
     //   %aligned = add i32 %size, 7
     //   %masked  = and i32 %aligned, -8
     //   %total_i32 = add i32 %masked, 8   ; + FLUX_HEADER_SIZE
     //   %total   = zext i32 %total_i32 to i64
+    //   %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+    //   %can_bump = icmp ne i32 %can_bump_i32, 0
+    //   br i1 %can_bump, label %bump_check, label %slow
+    //
+    // bump_check:
     //   %hp      = load ptr, ptr @flux_arena_hp
     //   %new_hp  = getelementptr i8, ptr %hp, i64 %total
     //   %lim     = load ptr, ptr @flux_arena_limit
-    //   %ok      = icmp ule ptr %new_hp, %lim
-    //   br i1 %ok, label %fast, label %slow
+    //   %fits    = icmp ule ptr %new_hp, %lim
+    //   br i1 %fits, label %fast, label %slow
     //
     // fast:
     //   store ptr %new_hp, ptr @flux_arena_hp
@@ -639,7 +664,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
         ],
         attrs: helper_attrs(),
         blocks: vec![
-            // ── entry: compute aligned total, load hp/limit, branch ──
+            // ── entry: compute aligned total, check thread-local bump eligibility ──
             LlvmBlock {
                 label: LabelId("entry".into()),
                 instrs: vec![
@@ -681,6 +706,36 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         operand: local("total_i32"),
                         to_ty: i64_ty.clone(),
                     },
+                    // %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+                    LlvmInstr::Call {
+                        dst: Some(LlvmLocal("can_bump_i32".into())),
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: i32_ty.clone(),
+                        callee: LlvmOperand::Global(GlobalId(can_bump_name.into())),
+                        args: vec![],
+                        attrs: vec![],
+                    },
+                    // %can_bump = icmp ne i32 %can_bump_i32, 0
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("can_bump".into()),
+                        op: LlvmCmpOp::Ne,
+                        ty: i32_ty.clone(),
+                        lhs: local("can_bump_i32"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: i1_ty.clone(),
+                    cond: local("can_bump"),
+                    then_label: LabelId("bump_check".into()),
+                    else_label: LabelId("slow".into()),
+                },
+            },
+            // ── bump_check: root/non-worker thread only; load hp/limit and branch ──
+            LlvmBlock {
+                label: LabelId("bump_check".into()),
+                instrs: vec![
                     // %hp = load ptr, ptr @flux_arena_hp
                     LlvmInstr::Load {
                         dst: LlvmLocal("hp".into()),
@@ -703,9 +758,9 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         ptr: LlvmOperand::Global(GlobalId(lim_name.into())),
                         align: Some(8),
                     },
-                    // %ok = icmp ule ptr %new_hp, %lim
+                    // %fits = icmp ule ptr %new_hp, %lim
                     LlvmInstr::Icmp {
-                        dst: LlvmLocal("ok".into()),
+                        dst: LlvmLocal("fits".into()),
                         op: LlvmCmpOp::Ule,
                         ty: ptr_ty.clone(),
                         lhs: local("new_hp"),
@@ -714,7 +769,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                 ],
                 term: LlvmTerminator::CondBr {
                     cond_ty: i1_ty.clone(),
-                    cond: local("ok"),
+                    cond: local("fits"),
                     then_label: LabelId("fast".into()),
                     else_label: LabelId("slow".into()),
                 },

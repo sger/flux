@@ -110,9 +110,6 @@ enum TcpCommand {
         req: RequestId,
         listener_handle: IoHandle,
     },
-    CloseListener {
-        handle: IoHandle,
-    },
     /// Walk every live connection and clear any pending read or write that
     /// matches `req`, so the reactor stops doing I/O work on the cancelled
     /// caller's behalf (proposal 0174 D3). The cancel-set / completion-drop
@@ -577,6 +574,9 @@ fn drain_tcp_commands(
                     let _ = registry.deregister(&mut c.stream);
                     // Pending requests against a closed handle are dropped
                     // silently per the docs on AsyncBackend::tcp_close.
+                } else if let Some(mut ls) = listeners.remove(&handle) {
+                    listener_tokens.remove(&ls.token);
+                    let _ = registry.deregister(&mut ls.listener);
                 }
             }
             TcpCommand::Listen { req, handle, addr } => {
@@ -628,12 +628,6 @@ fn drain_tcp_commands(
                 };
                 ls.pending_accept = Some(req);
                 try_progress_accept(shared, ls, conns, handles_by_token, next_token, registry);
-            }
-            TcpCommand::CloseListener { handle } => {
-                if let Some(mut ls) = listeners.remove(&handle) {
-                    listener_tokens.remove(&ls.token);
-                    let _ = registry.deregister(&mut ls.listener);
-                }
             }
             TcpCommand::CancelRequest { req } => {
                 // Walk every live connection and clear matching pending ops.

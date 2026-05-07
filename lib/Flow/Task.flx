@@ -5,12 +5,15 @@
 //
 // **Backend status:**
 // - **VM:** `spawn` runs the body synchronously on the calling thread,
-//   stashes the result, and returns a handle. `blocking_join` returns the
-//   stored value. This is correct sequentially-equivalent semantics; real
-//   M:N parallelism on the VM path is gated on a separate value-promotion
-//   slice (Rust `Value` is `!Send`).
-// - **Native (LLVM):** the C stubs in `runtime/c/tasks.c` abort at runtime;
-//   the bridge to the Rust scheduler lands in proposal 0174 D5-b/c.
+//   stashes the result, and returns a handle. `blocking_join` and `await`
+//   return the stored value. This is correct sequentially-equivalent
+//   semantics; real M:N parallelism on the VM path is gated on a separate
+//   value-promotion slice (Rust `Value` is `!Send`).
+// - **Native (LLVM):** `spawn` runs the body on a native OS thread and
+//   promotes the closure across the worker boundary. `blocking_join`,
+//   `cancel`, and `await` are implemented in `runtime/c/tasks.c`; the current
+//   `await` closeout shim may block the calling native worker until the task
+//   finishes. A true fiber-suspending task await is a post-1b follow-up.
 //
 // Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
 // require `Sendable<a>`; `cancel` is unconstrained on `a`. Users who write
@@ -64,12 +67,13 @@ module Flow.Task {
     /// but yields the fiber instead of blocking the OS thread.
     intrinsic fn task_await_id<a>(id: Int) -> a = primop TaskAwait
 
-    /// Fiber-suspending join. Like `blocking_join` but instead of blocking
-    /// the OS thread, suspends the calling fiber and yields the thread to
-    /// the scheduler.
+    /// Async-surface join. The current Phase 1b closeout behavior is
+    /// sequential/blocking-equivalent on both VM and native; future runtime
+    /// work may make this a true fiber-suspending wait without changing the
+    /// source API.
     ///
-    /// VM: sequentially equivalent to `blocking_join` (no OS-thread yield).
-    /// Native: real fiber suspension lands in proposal 0174 Phase 2.
+    /// VM: sequentially equivalent to `blocking_join`.
+    /// Native: implemented as a closeout shim over blocking join.
     public fn await<a: Sendable>(t: Task<a>) -> a with Async {
         match t {
             Task(id) -> task_await_id(id)
