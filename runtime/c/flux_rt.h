@@ -153,6 +153,7 @@ void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+int32_t flux_can_use_bump_arena(void);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
@@ -207,6 +208,67 @@ int64_t flux_fiber_timeout(int64_t ms, int64_t f);
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
 int64_t flux_fiber_fork_scoped(int64_t s, int64_t f);
 int64_t flux_fiber_cancel_scope(int64_t s);
+/* Phase 2 slice 2-iv: poll whether the current fiber's enclosing scope
+ * has been cancelled. Returns a tagged Flux Bool. Outside run_async,
+ * returns FLUX_FALSE. */
+int64_t flux_fiber_check_cancelled(void);
+/* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
+ * (worker_count, fs_pool_size, dns_pool_size). Each int is a tagged Flux
+ * Int; a value of 0 means "use the default". */
+int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure);
+
+/* Native async bridge (proposal 0174 Phase 1b-vi-d). */
+typedef struct FluxAsyncCallbacks {
+    int64_t (*call0)(int64_t closure);
+    int64_t (*resume1)(int64_t continuation, int64_t value);
+    void (*retain)(int64_t value);
+    void (*release)(int64_t value);
+    int64_t (*make_tuple2)(int64_t left, int64_t right);
+    int64_t (*wrap_some)(int64_t value);
+    int64_t (*suspend)(int64_t request_id, int64_t resume_value);
+    int32_t (*is_suspended)(void);
+    int64_t (*current_request)(void);
+    void (*clear_suspend)(void);
+    int64_t (*compose_conts)(void);
+    void (*promote)(int64_t value);
+    void (*enter_worker_thread)(void);
+    int64_t (*make_string)(const uint8_t *data, uintptr_t len);
+} FluxAsyncCallbacks;
+
+int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
+int32_t  flux_async_runtime_init(void);
+int64_t  flux_async_run_root(int64_t root_closure);
+int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
+uint64_t flux_async_timer_start(int64_t ms);
+int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
+int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_fiber_both(int64_t left, int64_t right);
+uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
+uint64_t flux_async_scope_new(void);
+int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
+int32_t  flux_async_cancel_scope(uint64_t scope_id);
+int32_t  flux_async_check_cancelled(void);
+uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
+uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t port);
+uint64_t flux_async_tcp_read(uint64_t handle, uintptr_t max);
+uint64_t flux_async_tcp_write_all(uint64_t handle, const uint8_t *data, uintptr_t len);
+uint64_t flux_async_tcp_accept(uint64_t handle);
+int32_t  flux_async_tcp_close(uint64_t handle);
+int32_t  flux_async_poll_dispatch(uint64_t request_id);
+int32_t  flux_async_shutdown(void);
+int32_t  flux_async_is_suspended(void);
+int64_t  flux_async_current_request(void);
+void     flux_async_clear_suspend(void);
+int64_t  flux_async_call0(int64_t closure);
+int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+void     flux_async_retain(int64_t value);
+void     flux_async_release(int64_t value);
+int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
+int64_t  flux_async_wrap_some(int64_t value);
+void     flux_async_promote(int64_t value);
+void     flux_async_enter_worker_thread(void);
+int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);
 
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 int32_t  flux_async_runtime_init(void);
@@ -234,11 +296,11 @@ int64_t  flux_async_wrap_some(int64_t value);
 
 /* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
 /* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
-int64_t flux_tcp_connect(int64_t host_val, int64_t host_len_ignored, int64_t port_val);
-int64_t flux_tcp_read(int64_t handle_val, int64_t buf_ptr_ignored, int64_t max_val);
-int64_t flux_tcp_write_all(int64_t handle_val, int64_t data_val, int64_t data_len_ignored);
+int64_t flux_tcp_connect(int64_t host_val, int64_t port_val);
+int64_t flux_tcp_read(int64_t handle_val, int64_t max_val);
+int64_t flux_tcp_write_all(int64_t handle_val, int64_t data_val);
 int64_t flux_tcp_close(int64_t handle_val);
-int64_t flux_tcp_listen(int64_t host_val, int64_t host_len_ignored, int64_t port_val);
+int64_t flux_tcp_listen(int64_t host_val, int64_t port_val);
 int64_t flux_tcp_accept(int64_t listener_val);
 
 /* Allocation stats (for diagnostics / testing). */

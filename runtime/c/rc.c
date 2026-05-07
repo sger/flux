@@ -66,6 +66,10 @@
  * this at 0 and retains full bump-arena speed. */
 __thread int flux_worker_thread = 0;
 
+int32_t flux_can_use_bump_arena(void) {
+    return flux_worker_thread ? 0 : 1;
+}
+
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -105,8 +109,8 @@ static inline size_t align_up(size_t n, size_t align) {
 
 /* ── Stats ─────────────────────────────────────────────────────────── */
 
-static size_t gc_total_allocated = 0;
-static size_t gc_num_allocs      = 0;
+static _Atomic(size_t) gc_total_allocated = 0;
+static _Atomic(size_t) gc_num_allocs      = 0;
 
 /* ── Bump Arena ───────────────────────────────────────────────────── */
 
@@ -144,15 +148,22 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
     size_t total = FLUX_HEADER_SIZE + aligned;
 
-    FluxHeader *hdr;
-    char *new_ptr = flux_arena_hp + total;
+    FluxHeader *hdr = NULL;
 
-    if (!flux_worker_thread && arena_base && new_ptr <= flux_arena_limit) {
-        /* Fast path: bump allocation from the arena (main thread only). */
-        hdr = (FluxHeader *)flux_arena_hp;
-        flux_arena_hp = new_ptr;
-    } else {
-        /* Slow path: fall back to malloc. */
+    if (!flux_worker_thread && arena_base) {
+        char *hp = flux_arena_hp;
+        char *new_ptr = hp + total;
+        if (new_ptr <= flux_arena_limit) {
+            /* Fast path: bump allocation from the arena (main thread only). */
+            hdr = (FluxHeader *)hp;
+            flux_arena_hp = new_ptr;
+        }
+    }
+
+    if (!hdr) {
+        /* Slow path: fall back to malloc. Worker threads never touch the
+         * process-global bump pointers, which keeps root-thread bump
+         * allocation single-writer even during native parallel re-entry. */
         hdr = (FluxHeader *)malloc(total);
         if (!hdr) {
             fprintf(stderr, "flux_gc_alloc: out of memory (%u bytes)\n", payload_size);
@@ -168,8 +179,8 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     void *payload = (char *)hdr + FLUX_HEADER_SIZE;
     memset(payload, 0, aligned);
 
-    gc_total_allocated += aligned;
-    gc_num_allocs++;
+    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
+    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
 
     return payload;
 }
@@ -206,8 +217,8 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     void *payload = (char *)hdr + FLUX_HEADER_SIZE;
     memset(payload, 0, aligned);
 
-    gc_total_allocated += aligned;
-    gc_num_allocs++;
+    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
+    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
 
     return payload;
 }
@@ -512,8 +523,8 @@ void flux_rc_promote(int64_t val) {
 
 void flux_gc_init(size_t heap_size) {
     (void)heap_size;
-    gc_total_allocated = 0;
-    gc_num_allocs      = 0;
+    atomic_store_explicit(&gc_total_allocated, 0, memory_order_relaxed);
+    atomic_store_explicit(&gc_num_allocs, 0, memory_order_relaxed);
     arena_init();
 }
 
@@ -541,9 +552,9 @@ void flux_gc_pop_root(void) {
 /* ── Stats ─────────────────────────────────────────────────────────── */
 
 size_t flux_gc_allocated(void) {
-    return gc_total_allocated;
+    return atomic_load_explicit(&gc_total_allocated, memory_order_relaxed);
 }
 
 size_t flux_gc_num_allocs(void) {
-    return gc_num_allocs;
+    return atomic_load_explicit(&gc_num_allocs, memory_order_relaxed);
 }

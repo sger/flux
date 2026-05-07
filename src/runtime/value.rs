@@ -590,6 +590,45 @@ pub fn cons_list_len(value: &Value) -> Option<usize> {
     }
 }
 
+/// Drop an owned VM value without recursively walking deeply nested
+/// `Rc<Value>` chains through Rust drop glue.
+///
+/// The VM can build very deep immutable values, especially `Some(Some(...))`
+/// chains. Letting the final `Rc<Value>` release recurse through 100K+ nested
+/// `Value` destructors can overflow the host stack during VM teardown. This
+/// helper consumes unique wrapper/collection nodes iteratively and falls back
+/// to normal `Rc` decrement semantics when a node is shared.
+pub fn drop_value_stackless(value: Value) {
+    let mut pending = vec![value];
+
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Some(rc) | Value::Left(rc) | Value::Right(rc) | Value::ReturnValue(rc) => {
+                if Rc::strong_count(&rc) == 1 {
+                    if let Ok(inner) = Rc::try_unwrap(rc) {
+                        pending.push(inner);
+                    }
+                }
+            }
+            Value::Array(rc) | Value::Tuple(rc) => {
+                if Rc::strong_count(&rc) == 1 {
+                    if let Ok(values) = Rc::try_unwrap(rc) {
+                        pending.extend(values);
+                    }
+                }
+            }
+            Value::Adt(rc) => {
+                if Rc::strong_count(&rc) == 1 {
+                    if let Ok(adt) = Rc::try_unwrap(rc) {
+                        pending.extend(adt.fields.into_iter());
+                    }
+                }
+            }
+            other => drop(other),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

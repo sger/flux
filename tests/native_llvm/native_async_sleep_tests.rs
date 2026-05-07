@@ -83,6 +83,18 @@ fn native_sleep_path_does_not_use_blocking_os_sleep() {
 }
 
 #[test]
+fn native_parallel_reentry_has_no_global_execution_lock() {
+    let native_abi =
+        std::fs::read_to_string(workspace_root().join("src/runtime/async/native_abi.rs"))
+            .expect("read native async ABI");
+
+    assert!(
+        !native_abi.contains("EXECUTION_LOCK") && !native_abi.contains("execution_lock()"),
+        "native generated-code re-entry must not be serialized by a global execution lock"
+    );
+}
+
+#[test]
 fn native_both_overlaps_and_preserves_source_order() {
     let source = r#"
 import Flow.Async exposing (..)
@@ -123,6 +135,39 @@ fn main() with IO, Clock {
         "both returned too early: {measured_ms}ms"
     );
     assert!(measured_ms < 900, "both did not overlap: {measured_ms}ms");
+}
+
+#[test]
+fn native_parallel_reentry_repeated_both_allocates_on_workers() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn one() -> Int with Async {
+    sleep(10)
+    let pair = (1, 2)
+    pair.0 + pair.1
+}
+
+fn round() -> Int with Async {
+    let pair = both(one, one)
+    pair.0 + pair.1
+}
+
+fn body() -> Int with Async {
+    round() + round() + round() + round() + round() + round() +
+    round() + round() + round() + round() + round() + round()
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "parallel_reentry_alloc");
+    assert!(
+        success,
+        "native parallel re-entry allocation stress must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "72");
 }
 
 #[test]
@@ -192,6 +237,48 @@ fn main() with IO, Clock {
 }
 
 #[test]
+fn native_race_cancels_loser_when_it_reaches_next_suspend() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    let pair = (1, 2)
+    let _ = pair.0 + pair.1
+    sleep(2000)
+    1
+}
+
+fn fast() -> Int with Async {
+    2
+}
+
+fn body() -> Int with Async {
+    race(slow, fast)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let v = run_async(body)
+    let t1 = now_ms()
+    print(v)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "race_cancel_running");
+    assert!(
+        success,
+        "native race running-loser cancellation must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "2");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "cancelled running loser parked and kept run_async alive: {measured_ms}ms"
+    );
+}
+
+#[test]
 fn native_timeout_returns_none_when_timer_wins() {
     let source = r#"
 import Flow.Async exposing (..)
@@ -227,6 +314,47 @@ fn main() with IO, Clock {
     assert!(
         measured_ms < 500,
         "native timeout waited for the slow body: {measured_ms}ms"
+    );
+}
+
+#[test]
+fn native_timeout_cancels_body_when_it_reaches_next_suspend() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    let pair = (1, 2)
+    let _ = pair.0 + pair.1
+    sleep(2000)
+    7
+}
+
+fn body() -> Option<Int> with Async {
+    timeout(1, slow)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let opt = run_async(body)
+    let t1 = now_ms()
+    match opt {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "timeout_cancel_running");
+    assert!(
+        success,
+        "native timeout running-body cancellation must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "-1");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "cancelled timeout body parked and kept run_async alive: {measured_ms}ms"
     );
 }
 

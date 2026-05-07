@@ -176,7 +176,7 @@ mod vm_async {
 // the inline call with a real park/resume cycle without touching bookkeeping.
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
 
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -234,6 +234,68 @@ mod vm_fibers {
         // Scope-cancellation registry (Phase 1b-vi-c): scope_id → Vec<FiberId>.
         static SCOPE_REGISTRY: RefCell<HashMap<u64, Vec<FiberId>>> =
             RefCell::new(HashMap::new());
+        // Set of fiber ids whose enclosing scope has been cancelled
+        // (Phase 2 slice 2-iv). Populated by `cancel_losers` /
+        // `FiberCancelScope`; queried by `FiberCheckCancelled` from a fiber
+        // that may currently be executing (and therefore is not in the
+        // scheduler's `suspended` map). Cleared at outermost run_async exit.
+        static CANCELLED_IDS: RefCell<HashSet<FiberId>> =
+            RefCell::new(HashSet::new());
+        // Pending RuntimeConfig knobs for the next outermost FiberRunAsync
+        // boundary (Phase 2 slice 2-vii). Set by `FiberRunAsyncWith` before
+        // calling `enter_run_async`; consumed by `enter_run_async` and
+        // cleared at outermost exit. `None` means "use defaults".
+        static PENDING_RUN_CONFIG: Cell<Option<PendingRunConfig>> =
+            const { Cell::new(None) };
+    }
+
+    /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
+    /// `enter_run_async` (Phase 2 slice 2-vii). Each field stored in raw
+    /// form (a value of 0 means "default"). The library wrapper translates
+    /// the source-level `Option<Int>` and ints into this.
+    #[derive(Debug, Clone, Copy)]
+    pub struct PendingRunConfig {
+        pub worker_count: u32,
+        pub fs_pool_size: u32,
+        pub dns_pool_size: u32,
+    }
+
+    /// Set the pending RuntimeConfig for the next outermost
+    /// `FiberRunAsync`/`FiberRunAsyncWith` entry. No-op for nested entries
+    /// (depth > 0): the outermost config wins.
+    pub fn set_pending_run_config(cfg: PendingRunConfig) {
+        PENDING_RUN_CONFIG.with(|c| c.set(Some(cfg)));
+    }
+
+    /// Resolve the worker count for `enter_run_async`. Order of precedence:
+    ///   1. Explicit `PendingRunConfig.worker_count` (non-zero), set by
+    ///      `FiberRunAsyncWith`.
+    ///   2. `FLUX_WORKERS` env var, parsed once.
+    ///   3. Default (2 logical workers — matches the previous hardcoded
+    ///      Phase 1b-vi-c logical-worker count for VM dispatch).
+    fn resolved_worker_count() -> usize {
+        if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+            && cfg.worker_count > 0
+        {
+            return cfg.worker_count as usize;
+        }
+        if let Some(n) = env_workers_once() {
+            return n;
+        }
+        2
+    }
+
+    /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
+    /// positive integer, `None` otherwise.
+    fn env_workers_once() -> Option<usize> {
+        use std::sync::OnceLock;
+        static CACHED: OnceLock<Option<usize>> = OnceLock::new();
+        *CACHED.get_or_init(|| {
+            std::env::var("FLUX_WORKERS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|n| *n > 0)
+        })
     }
 
     /// Process-global scope ID counter (1b-vi-c). Scopes across all boundaries
@@ -250,13 +312,13 @@ mod vm_fibers {
             n
         });
         if depth == 0 {
-            // TODO 1b-vi-c-A: FiberScheduler::new(1) hard-codes a single virtual
-            // worker. Multi-OS-thread dispatch: change to FiberScheduler::new(N),
-            // spawn N-1 additional OS threads each running dispatch_loop on their
-            // own worker slot, with a CompletionRouter routing backend completions
-            // to per-worker inboxes.
+            // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
+            // knobs set by `FiberRunAsyncWith`, with a `FLUX_WORKERS`
+            // env-var fallback and a default of 2 logical workers
+            // (matching the previous Phase 1b-vi-c hardcoded count).
+            let n_workers = resolved_worker_count().max(1);
             SCHED.with(|s| {
-                *s.borrow_mut() = Some(FiberScheduler::new(1));
+                *s.borrow_mut() = Some(FiberScheduler::new(n_workers));
             });
         }
         let root = SCHED.with(|s| {
@@ -296,7 +358,7 @@ mod vm_fibers {
         // artifacts; race losers that finished after parent woke; etc).
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
-                while sched.next_ready(WorkerId(0)).is_some() {}
+                while sched.next_ready_any().is_some() {}
             }
         });
         let new_depth = DEPTH.with(|d| {
@@ -312,6 +374,12 @@ mod vm_fibers {
             // Phase 1b-vi-b₂.2: also tear down await coordination state
             // so a second top-level run_async on the same thread starts fresh.
             clear_await_state();
+            // Phase 2 slice 2-iv: drop the cancelled-id set so a second
+            // top-level run_async on the same thread starts fresh.
+            CANCELLED_IDS.with(|c| c.borrow_mut().clear());
+            // Phase 2 slice 2-vii: drop the pending config so the next
+            // top-level run_async picks up its own (or falls back to env/default).
+            PENDING_RUN_CONFIG.with(|c| c.set(None));
         }
     }
 
@@ -322,7 +390,7 @@ mod vm_fibers {
             s.borrow_mut()
                 .as_mut()
                 .expect("FiberFork outside Async.run_async — scheduler missing")
-                .spawn(WorkerId(0))
+                .spawn_child_round_robin()
         })
     }
 
@@ -376,13 +444,17 @@ mod vm_fibers {
     /// dispatch loop knows to invoke it on first dispatch.
     pub fn set_root_with_body(id: FiberId, body: Value) {
         ROOT.with(|r| r.set(Some(id)));
+        attach_body_to_ready_fiber(id, body);
+    }
+
+    fn attach_body_to_ready_fiber(id: FiberId, body: Value) {
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
-                // Rebuild the worker 0 ready queue with the body attached
-                // to the matching fiber.  The b₁ enter_run_async pushed the
-                // root fiber on; we drain, modify, re-push in order.
+                // Rebuild all logical worker ready queues with the body
+                // attached to the matching fiber. This keeps child fibers on
+                // their round-robin-assigned home worker.
                 let mut buf: Vec<Fiber> = Vec::new();
-                while let Some(f) = sched.next_ready(WorkerId(0)) {
+                while let Some((_worker, f)) = sched.next_ready_any() {
                     buf.push(f);
                 }
                 for mut f in buf {
@@ -411,23 +483,9 @@ mod vm_fibers {
             s.borrow_mut()
                 .as_mut()
                 .expect("spawn_child_with_body outside Async.run_async")
-                .spawn(WorkerId(0))
+                .spawn_child_round_robin()
         });
-        // Find the just-spawned fiber and set its body.
-        SCHED.with(|s| {
-            if let Some(sched) = s.borrow_mut().as_mut() {
-                let mut buf: Vec<Fiber> = Vec::new();
-                while let Some(f) = sched.next_ready(WorkerId(0)) {
-                    buf.push(f);
-                }
-                for mut f in buf {
-                    if f.id == id {
-                        f.body = Some(body.clone());
-                    }
-                    sched.spawn_existing(f);
-                }
-            }
-        });
+        attach_body_to_ready_fiber(id, body);
         id
     }
 
@@ -651,6 +709,44 @@ mod vm_fibers {
                 sc.cancel_fibers(loser_ids);
             }
         });
+        mark_cancelled(loser_ids);
+    }
+
+    /// Record `ids` as cancelled so a fiber that is currently *executing*
+    /// (not in the scheduler's `suspended` map) can observe its scope's
+    /// cancellation via `is_current_cancelled()` (Phase 2 slice 2-iv).
+    pub fn mark_cancelled(ids: &[FiberId]) {
+        if ids.is_empty() {
+            return;
+        }
+        CANCELLED_IDS.with(|c| {
+            let mut set = c.borrow_mut();
+            for id in ids {
+                set.insert(*id);
+            }
+        });
+    }
+
+    /// True if the current fiber's enclosing scope has been cancelled.
+    /// Returns `false` outside any `Async.run_async` boundary.
+    pub fn is_current_cancelled() -> bool {
+        let id = match CURRENT.with(|c| c.get()) {
+            Some(id) => id,
+            None => return false,
+        };
+        CANCELLED_IDS.with(|c| c.borrow().contains(&id))
+    }
+
+    /// Introspection hook for Phase 2 slice 2-vii tests: report the worker
+    /// count of the currently active `FiberScheduler`. Returns 0 when no
+    /// scheduler is active (i.e., outside `run_async`).
+    pub fn current_num_workers() -> usize {
+        SCHED.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map(|sc| sc.num_workers())
+                .unwrap_or(0)
+        })
     }
 
     // ── Scope helpers (1b-vi-c) ─────────────────────────────────────────
@@ -702,9 +798,11 @@ mod vm_fibers {
                     s.borrow_mut()
                         .as_mut()
                         .expect("scheduler missing in dispatch_loop")
-                        .next_ready(WorkerId(0))
+                        .next_ready_any()
                 });
-                let Some(mut fiber) = next else { break };
+                let Some((_worker, mut fiber)) = next else {
+                    break;
+                };
 
                 // Skip fibers with no work (b₁ FiberFork pushes a fiber but
                 // also runs its body inline; the fiber on the ready queue is
@@ -742,11 +840,12 @@ mod vm_fibers {
                                 };
                             fiber.parked = Some(cont_rc);
                             fiber.state = FiberState::Suspended { request_id: req };
+                            let home_worker = fiber.home_worker;
                             SCHED.with(|s| {
                                 s.borrow_mut()
                                     .as_mut()
                                     .expect("scheduler missing")
-                                    .insert_suspended(WorkerId(0), req, fiber);
+                                    .insert_suspended(home_worker, req, fiber);
                             });
                             continue;
                         }
@@ -762,7 +861,7 @@ mod vm_fibers {
                                     s.borrow_mut()
                                         .as_mut()
                                         .expect("scheduler missing")
-                                        .complete(WorkerId(0), RequestId(pr));
+                                        .complete_request(RequestId(pr));
                                 });
                             }
                         }
@@ -807,11 +906,12 @@ mod vm_fibers {
                     };
                     fiber.parked = Some(cont_rc);
                     fiber.state = FiberState::Suspended { request_id: req };
+                    let home_worker = fiber.home_worker;
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
                             .expect("scheduler missing")
-                            .insert_suspended(WorkerId(0), req, fiber);
+                            .insert_suspended(home_worker, req, fiber);
                     });
                     // The Err that surfaced was the park-unwind signal, not
                     // a real error; ignore it.
@@ -841,7 +941,7 @@ mod vm_fibers {
                                 s.borrow_mut()
                                     .as_mut()
                                     .expect("scheduler missing")
-                                    .complete(WorkerId(0), RequestId(parent_req));
+                                    .complete_request(RequestId(parent_req));
                             });
                         }
                     }
@@ -859,7 +959,7 @@ mod vm_fibers {
             let suspended = SCHED.with(|s| {
                 s.borrow()
                     .as_ref()
-                    .map(|sched| sched.suspended_count(WorkerId(0)))
+                    .map(|sched| sched.total_suspended_count())
                     .unwrap_or(0)
             });
             if suspended == 0 {
@@ -894,7 +994,7 @@ mod vm_fibers {
                         s.borrow_mut()
                             .as_mut()
                             .expect("scheduler missing")
-                            .complete(WorkerId(0), c.request_id);
+                            .complete_request(c.request_id);
                     });
                     break;
                 }
@@ -1494,8 +1594,60 @@ pub fn execute_core_primop(
             result
         }
 
+        // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
+        // knobs (proposal 0174 Phase 2 slice 2-vii). Args:
+        //   args[0] = worker_count   (Int; 0 means "default")
+        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
+        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
+        //   args[3] = action closure
+        // Sets the pending RuntimeConfig before entering the boundary so
+        // `enter_run_async` picks it up; the rest of the path is identical
+        // to `FiberRunAsync`.
+        FiberRunAsyncWith => {
+            let workers = match &args[0] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(workers)", "Int", other)),
+            };
+            let fs_pool = match &args[1] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(fs)", "Int", other)),
+            };
+            let dns_pool = match &args[2] {
+                Value::Integer(n) if *n >= 0 => *n as u32,
+                Value::Integer(_) => 0,
+                other => return Err(terr("fiber_run_async_with(dns)", "Int", other)),
+            };
+            vm_fibers::set_pending_run_config(vm_fibers::PendingRunConfig {
+                worker_count: workers,
+                fs_pool_size: fs_pool,
+                dns_pool_size: dns_pool,
+            });
+
+            let backend = vm_async::backend()?;
+            let root = vm_fibers::enter_run_async();
+            let prev_boundary =
+                vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
+            vm_fibers::set_root_with_body(root, args[3].clone());
+
+            let result = vm_fibers::dispatch_loop(ctx, backend);
+
+            vm_fibers::clear_root();
+            vm_fibers::restore_boundary(prev_boundary);
+            vm_fibers::exit_run_async(root);
+            result
+        }
+
         // yield_now: cooperative yield point. No-op on the VM sequential path.
         FiberYieldNow => Ok(Value::None),
+
+        // fiber_check_cancelled: returns true iff the current fiber's
+        // enclosing scope has been cancelled (proposal 0174 Phase 2 slice
+        // 2-iv). Scheduler-flag read; no suspend, no backend round-trip.
+        // Composes with Async.fail when the caller wants to raise; slice
+        // 2-vi makes that raise catchable.
+        FiberCheckCancelled => Ok(Value::Boolean(vm_fibers::is_current_cancelled())),
 
         // sleep: capture the current fiber's continuation back to the
         // FiberRunAsync boundary, register a timer with the mio backend,

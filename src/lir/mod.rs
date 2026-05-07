@@ -474,6 +474,16 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Async_timeout",
         "Flow_Async_timeout_result",
         "Flow_Async_fiber_timeout_prim",
+        "Flow_Tcp_connect",
+        "Flow_Tcp_tcp_connect_prim",
+        "Flow_Tcp_read",
+        "Flow_Tcp_tcp_read_prim",
+        "Flow_Tcp_write_all",
+        "Flow_Tcp_tcp_write_all_prim",
+        "Flow_Tcp_listen",
+        "Flow_Tcp_tcp_listen_prim",
+        "Flow_Tcp_accept",
+        "Flow_Tcp_tcp_accept_prim",
     ];
 
     ASYNC_SYMBOLS

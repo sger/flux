@@ -6,15 +6,15 @@
 //!
 //! The fixture in [`tests/flux/flow_task_surface.flx`] runs through
 //! `flux --test` and proves the positive type-level surface for `Int`,
-//! `List<Int>`, tuples, and `cancel<a>` (no `Sendable` bound).
+//! `List<Int>`, tuples, `await`, and `cancel<a>` (no `Sendable` bound).
 //!
 //! D1 closes the cross-module class-bound gap for `Task.spawn<a: Sendable>`:
 //! function-typed payloads are rejected through the imported `Flow.Task`
 //! surface, while concrete sendable payloads still type-check.
 //!
-//! Phase 1a-vi follow-up scope: type-level surface only. The runtime FFI
-//! that would let `spawn`/`blocking_join`/`cancel` actually run on workers
-//! is a later slice; today the bodies panic.
+//! Phase 1b closeout scope: VM and native both run `spawn`/`blocking_join`/
+//! `cancel`/`await` end-to-end. Native `await` is currently a blocking shim
+//! over join; true fiber-suspending task await is a post-1b follow-up.
 
 use std::path::Path;
 use std::process::Command;
@@ -65,8 +65,8 @@ fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
     assert!(success, "Flow.Task surface tests must pass:\n{stdout}");
     assert!(
-        stdout.contains("6 passed"),
-        "expected 6 passing tests, got:\n{stdout}"
+        stdout.contains("8 passed"),
+        "expected 8 passing tests, got:\n{stdout}"
     );
 }
 
@@ -116,8 +116,8 @@ fn flow_task_native_compiles_and_passes() {
         "native Task tests must pass:\n{stdout}"
     );
     assert!(
-        stdout.contains("4 passed"),
-        "expected 4 passing native tests, got:\n{stdout}"
+        stdout.contains("6 passed"),
+        "expected 6 passing native tests, got:\n{stdout}"
     );
 }
 
