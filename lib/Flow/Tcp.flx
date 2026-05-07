@@ -73,4 +73,16 @@ module Flow.Tcp {
             Listener(l) -> Connection(tcp_accept_prim(l))
         }
     }
+
+    public fn connection_id(conn: Connection) -> Int {
+        match conn {
+            Connection(h) -> h
+        }
+    }
+
+    public fn listener_id(listener: Listener) -> Int {
+        match listener {
+            Listener(h) -> h
+        }
+    }
 }

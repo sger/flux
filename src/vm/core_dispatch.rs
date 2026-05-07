@@ -123,6 +123,118 @@ mod vm_tcp {
     }
 }
 
+mod vm_http {
+    use std::cell::RefCell;
+    use std::collections::{HashMap, HashSet};
+
+    #[derive(Debug)]
+    struct ServerState {
+        listener: i64,
+        scope: u64,
+        config: crate::runtime::http::BlockingServerConfig,
+        active: HashSet<i64>,
+        shutting_down: bool,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct ShutdownSnapshot {
+        pub listener: Option<i64>,
+        pub scope: Option<u64>,
+        pub active: Vec<i64>,
+    }
+
+    thread_local! {
+        static SERVERS: RefCell<HashMap<i64, ServerState>> = RefCell::new(HashMap::new());
+        static NEXT_ID: RefCell<i64> = RefCell::new(1);
+    }
+
+    pub fn register(
+        listener: i64,
+        scope: u64,
+        config: crate::runtime::http::BlockingServerConfig,
+    ) -> i64 {
+        let id = NEXT_ID.with(|n| {
+            let id = *n.borrow();
+            *n.borrow_mut() = id + 1;
+            id
+        });
+        SERVERS.with(|servers| {
+            servers.borrow_mut().insert(
+                id,
+                ServerState {
+                    listener,
+                    scope,
+                    config,
+                    active: HashSet::new(),
+                    shutting_down: false,
+                },
+            );
+        });
+        id
+    }
+
+    pub fn register_connection(server: i64, conn: i64) {
+        SERVERS.with(|servers| {
+            if let Some(state) = servers.borrow_mut().get_mut(&server)
+                && !state.shutting_down
+            {
+                state.active.insert(conn);
+            }
+        });
+    }
+
+    pub fn unregister_connection(server: i64, conn: i64) {
+        SERVERS.with(|servers| {
+            if let Some(state) = servers.borrow_mut().get_mut(&server) {
+                state.active.remove(&conn);
+            }
+        });
+    }
+
+    pub fn active_count(server: i64) -> usize {
+        SERVERS.with(|servers| {
+            servers
+                .borrow()
+                .get(&server)
+                .map(|state| state.active.len())
+                .unwrap_or(0)
+        })
+    }
+
+    pub fn config(server: i64) -> Option<crate::runtime::http::BlockingServerConfig> {
+        SERVERS.with(|servers| servers.borrow().get(&server).map(|state| state.config))
+    }
+
+    pub fn is_shutting_down(server: i64) -> bool {
+        SERVERS.with(|servers| {
+            servers
+                .borrow()
+                .get(&server)
+                .map(|state| state.shutting_down)
+                .unwrap_or(true)
+        })
+    }
+
+    pub fn shutdown(server: i64, force: bool) -> ShutdownSnapshot {
+        SERVERS.with(|servers| {
+            let mut servers = servers.borrow_mut();
+            let Some(state) = servers.get_mut(&server) else {
+                return ShutdownSnapshot::default();
+            };
+            state.shutting_down = true;
+            let active = state.active.iter().copied().collect::<Vec<_>>();
+            if force {
+                state.active.clear();
+            }
+            ShutdownSnapshot {
+                listener: Some(state.listener),
+                scope: Some(state.scope),
+                active,
+            }
+        })
+    }
+}
+
 // ── Async backend handle (proposal 0174 Phase 1b-vi-a) ───────────────────────
 // Lazy process-global `MioBackend` for fiber primops that need real reactor
 // roundtrips (`FiberSleep` today; `Async.timeout` and TCP-suspending ops
@@ -2282,7 +2394,30 @@ pub fn execute_core_primop(
         // public intrinsic IDs and act as no-op handle/shutdown hooks until
         // the detached runtime server manager can safely retain handlers.
         HttpServeConfig => vm_http_serve_config(ctx, &args),
-        HttpShutdown | HttpShutdownNow => Ok(Value::None),
+        HttpShutdown => vm_http_shutdown(&args, false),
+        HttpShutdownNow => vm_http_shutdown(&args, true),
+        HttpParseRequest => vm_http_parse_request(&args),
+        HttpWriteResponse => vm_http_write_response(&args),
+        HttpRegisterConnection => {
+            let server = eint(&args[0], "http_register_connection")?;
+            let conn = eint(&args[1], "http_register_connection")?;
+            vm_http::register_connection(server, conn);
+            Ok(Value::None)
+        }
+        HttpUnregisterConnection => {
+            let server = eint(&args[0], "http_unregister_connection")?;
+            let conn = eint(&args[1], "http_unregister_connection")?;
+            vm_http::unregister_connection(server, conn);
+            Ok(Value::None)
+        }
+        HttpActiveConnectionCount => {
+            let server = eint(&args[0], "http_active_connection_count")?;
+            Ok(Value::Integer(vm_http::active_count(server) as i64))
+        }
+        HttpIsShuttingDown => {
+            let server = eint(&args[0], "http_is_shutting_down")?;
+            Ok(Value::Boolean(vm_http::is_shutting_down(server)))
+        }
 
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
@@ -2510,43 +2645,15 @@ fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
 }
 
 fn vm_http_serve_config(ctx: &mut dyn RuntimeContext, args: &[Value]) -> Result<Value, String> {
-    use crate::runtime::value::{AdtFields, AdtValue};
-
-    let (host, port, config, handler) = match (&args[0], &args[1], &args[2], &args[3]) {
-        (Value::String(host), Value::Integer(port), config, handler) => {
-            let port: u16 = (*port)
-                .try_into()
-                .map_err(|_| format!("http_serve_config: bad port: {port}"))?;
-            (
-                host.to_string(),
-                port,
-                http_server_config(config)?,
-                handler.clone(),
-            )
-        }
-        _ => return Err("http_serve_config: expected (String, Int, ServerConfig, handler)".into()),
-    };
-
-    crate::runtime::http::serve_blocking(host.as_str(), port, config, |parsed| {
-        let request_value = Value::Adt(Rc::new(AdtValue {
-            constructor: Rc::new("Request".to_string()),
-            fields: AdtFields::from_vec(vec![
-                Value::AdtUnit(Rc::new(method_constructor(&parsed.method).to_string())),
-                Value::String(parsed.target.into()),
-                Value::HashMap(rc_hamt::hamt_empty()),
-                Value::String(String::from_utf8_lossy(&parsed.body).to_string().into()),
-            ]),
-        }));
-        let response_value = ctx.invoke_value(handler.clone(), vec![request_value])?;
-        let (status, body) = response_parts(&response_value)?;
-        Ok(crate::runtime::http::HttpResponse {
-            status: status as u16,
-            reason: http_reason(status),
-            headers: Vec::new(),
-            body: body.into_bytes(),
-        })
-    })?;
-    Ok(Value::Integer(0))
+    let _ = ctx;
+    let listener = eint(&args[0], "http_serve_config(listener)")?;
+    let scope = eint(&args[1], "http_serve_config(scope)")?;
+    let config = http_server_config(&args[2]).unwrap_or_default();
+    Ok(Value::Integer(vm_http::register(
+        listener,
+        scope as u64,
+        config,
+    )))
 }
 
 fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingServerConfig, String> {
@@ -2562,11 +2669,19 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
             adt.constructor
         ));
     }
+    let fields = match &adt.fields {
+        crate::runtime::value::AdtFields::One(Value::Adt(inner))
+            if inner.constructor.as_ref() == "ServerConfig" =>
+        {
+            &inner.fields
+        }
+        fields => fields,
+    };
 
-    let max_connections = config_usize_field(&adt.fields, 0, "max_connections")?;
-    let max_header_bytes = config_usize_field(&adt.fields, 1, "max_header_bytes")?;
-    let max_body_bytes = config_usize_field(&adt.fields, 2, "max_body_bytes")?;
-    let _request_timeout_ms = config_usize_field(&adt.fields, 3, "request_timeout_ms")?;
+    let max_connections = config_usize_field(fields, 0, "max_connections")?;
+    let max_header_bytes = config_usize_field(fields, 1, "max_header_bytes")?;
+    let max_body_bytes = config_usize_field(fields, 2, "max_body_bytes")?;
+    let _request_timeout_ms = config_usize_field(fields, 3, "request_timeout_ms")?;
 
     Ok(crate::runtime::http::BlockingServerConfig {
         max_connections,
@@ -2575,6 +2690,104 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
             max_body_bytes,
         },
     })
+}
+
+fn vm_http_shutdown(args: &[Value], force: bool) -> Result<Value, String> {
+    use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
+
+    let server = eint(&args[0], "http_shutdown")?;
+    let snapshot = vm_http::shutdown(server, force);
+    if let Ok(backend) = vm_async::backend() {
+        if let Some(listener) = snapshot.listener {
+            backend.tcp_close(IoHandle(listener as u64));
+        }
+        if force {
+            for conn in snapshot.active {
+                backend.tcp_close(IoHandle(conn as u64));
+            }
+            if let Some(scope) = snapshot.scope {
+                let fibers = vm_fibers::take_scope_fibers(scope);
+                if !fibers.is_empty() {
+                    vm_fibers::cancel_losers(&fibers, backend);
+                    vm_fibers::mark_cancelled(&fibers);
+                }
+            }
+        }
+    }
+    Ok(Value::None)
+}
+
+fn vm_http_parse_request(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::{HttpError, ParseLimits, parse_request};
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let raw = estr(&args[0], "http_parse_request")?;
+    let server = eint(&args[1], "http_parse_request(server)")?;
+    let config = vm_http::config(server).unwrap_or_default();
+    let limits = ParseLimits {
+        max_header_bytes: config.limits.max_header_bytes,
+        max_body_bytes: config.limits.max_body_bytes,
+    };
+    match parse_request(raw.as_bytes(), limits) {
+        Ok((req, used)) => {
+            let request_value = http_request_value(&req);
+            Ok(Value::Adt(Rc::new(AdtValue {
+                constructor: Rc::new("HttpParsed".to_string()),
+                fields: AdtFields::from_vec(vec![
+                    request_value,
+                    Value::Integer(used as i64),
+                    Value::Boolean(req.keep_alive),
+                ]),
+            })))
+        }
+        Err(HttpError::NeedMore) => Ok(Value::AdtUnit(Rc::new("HttpNeedMore".to_string()))),
+        Err(HttpError::PayloadTooLarge(msg)) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpParseFailure".to_string()),
+            fields: AdtFields::Two(Value::Integer(413), Value::String(Rc::new(msg))),
+        }))),
+        Err(HttpError::BadRequest(msg)) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpParseFailure".to_string()),
+            fields: AdtFields::Two(Value::Integer(400), Value::String(Rc::new(msg))),
+        }))),
+    }
+}
+
+fn vm_http_write_response(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::{HttpResponse, write_response};
+
+    let (status, body) = response_parts(&args[0])?;
+    let keep_alive = match &args[1] {
+        Value::Boolean(b) => *b,
+        other => return Err(terr("http_write_response", "Bool", other)),
+    };
+    let status_u16: u16 = status
+        .try_into()
+        .map_err(|_| format!("Response.status out of HTTP range: {status}"))?;
+    let wire = write_response(&HttpResponse {
+        status: status_u16,
+        reason: http_reason(status),
+        headers: vec![(
+            "Connection".into(),
+            if keep_alive { "keep-alive" } else { "close" }.into(),
+        )],
+        body: body.into_bytes(),
+    });
+    Ok(Value::String(
+        String::from_utf8_lossy(&wire).to_string().into(),
+    ))
+}
+
+fn http_request_value(req: &crate::runtime::http::HttpRequest) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Request".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::AdtUnit(Rc::new(method_constructor(&req.method).to_string())),
+            Value::String(req.target.clone().into()),
+            Value::HashMap(rc_hamt::hamt_empty()),
+            Value::String(String::from_utf8_lossy(&req.body).to_string().into()),
+        ]),
+    }))
 }
 
 fn config_usize_field(
