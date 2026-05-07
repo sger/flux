@@ -1,0 +1,185 @@
+// Flow.Http — HTTP/1.1 server foundation (proposal 0174 Phase 3a).
+//
+// Phase 3a keeps `Bytes` as a transparent `String` alias. The runtime parser
+// foundation lives in Rust under `src/runtime/http/`; this Flux surface uses
+// the existing fiber-suspending TCP primitives for the first server slice.
+
+import Flow.String as String
+import Flow.Tcp exposing (..)
+
+module Flow.Http {
+
+    public alias Bytes = String
+
+    public data Method {
+        Get,
+        Post,
+        Put,
+        Delete,
+        Patch,
+        Head,
+        Options,
+    }
+
+    public data Request {
+        Request {
+            method:  Method,
+            path:    String,
+            headers: Map<String, String>,
+            body:    Bytes,
+        }
+    }
+
+    public data Response {
+        Response {
+            status:  Int,
+            headers: Map<String, String>,
+            body:    Bytes,
+        }
+    }
+
+    public data ServerConfig {
+        ServerConfig {
+            max_connections:    Int,
+            max_header_bytes:   Int,
+            max_body_bytes:     Int,
+            request_timeout_ms: Int,
+            worker_count:       Option<Int>,
+        }
+    }
+
+    public data ServerHandle { ServerHandle(Int) }
+
+    intrinsic fn http_serve_config_prim(
+        addr: String,
+        port: Int,
+        config: ServerConfig,
+        handler: (Request) -> Response with Async
+    ) -> Int = primop HttpServeConfig
+
+    intrinsic fn http_shutdown_prim(h: Int) -> Unit = primop HttpShutdown
+    intrinsic fn http_shutdown_now_prim(h: Int) -> Unit = primop HttpShutdownNow
+
+    public fn default_config() -> ServerConfig {
+        ServerConfig {
+            max_connections:    10000,
+            max_header_bytes:   65536,
+            max_body_bytes:     8388608,
+            request_timeout_ms: 30000,
+            worker_count:       None,
+        }
+    }
+
+    public fn response(status: Int, body: String) -> Response {
+        Response {
+            status:  status,
+            headers: {},
+            body:    body,
+        }
+    }
+
+    public fn ok(body: String) -> Response {
+        response(200, body)
+    }
+
+    public fn serve_config(
+        addr:    String,
+        port:    Int,
+        config:  ServerConfig,
+        handler: (Request) -> Response with Async
+    ) -> ServerHandle with Async {
+        ServerHandle(http_serve_config_prim(addr, port, config, handler))
+    }
+
+    public fn serve(
+        addr:    String,
+        port:    Int,
+        handler: (Request) -> Response with Async
+    ) -> ServerHandle with Async {
+        let config = default_config()
+        ServerHandle(http_serve_config_prim(addr, port, config, handler))
+    }
+
+    public fn shutdown(h: ServerHandle) -> Unit with Async {
+        match h {
+            ServerHandle(id) -> http_shutdown_prim(id)
+        }
+    }
+
+    public fn shutdown_now(h: ServerHandle) -> Unit with Async {
+        match h {
+            ServerHandle(id) -> http_shutdown_now_prim(id)
+        }
+    }
+
+    fn parse_request(raw: String) -> Request {
+        let method = parse_method(raw)
+        let path = parse_path(raw)
+        let body = body_after_headers(raw)
+        Request {
+            method:  method,
+            path:    path,
+            headers: {},
+            body:    body,
+        }
+    }
+
+    fn parse_method(raw: String) -> Method {
+        if String.starts_with(raw, "GET ") { Get }
+        else if String.starts_with(raw, "POST ") { Post }
+        else if String.starts_with(raw, "PUT ") { Put }
+        else if String.starts_with(raw, "DELETE ") { Delete }
+        else if String.starts_with(raw, "PATCH ") { Patch }
+        else if String.starts_with(raw, "HEAD ") { Head }
+        else if String.starts_with(raw, "OPTIONS ") { Options }
+        else { Get }
+    }
+
+    fn parse_path(raw: String) -> String {
+        let start = first_space(raw, 0) + 1
+        let stop = first_space(raw, start)
+        if stop <= start { "/" }
+        else { substring(raw, start, stop) }
+    }
+
+    fn body_after_headers(raw: String) -> String {
+        let idx = header_end(raw, 0)
+        if idx < 0 { "" }
+        else { substring(raw, idx + 4, len(raw)) }
+    }
+
+    fn header_end(raw: String, i: Int) -> Int {
+        if i + 4 > len(raw) { -1 }
+        else if substring(raw, i, i + 4) == "\r\n\r\n" { i }
+        else { header_end(raw, i + 1) }
+    }
+
+    fn first_space(raw: String, i: Int) -> Int {
+        if i >= len(raw) { len(raw) }
+        else if substring(raw, i, i + 1) == " " { i }
+        else { first_space(raw, i + 1) }
+    }
+
+    fn write_response(resp: Response) -> String {
+        "HTTP/1.1 "
+            + to_string(resp.status)
+            + " "
+            + reason_phrase(resp.status)
+            + "\r\nContent-Length: "
+            + to_string(len(resp.body))
+            + "\r\nConnection: close\r\n\r\n"
+            + resp.body
+    }
+
+    fn reason_phrase(status: Int) -> String {
+        if status == 200 { "OK" }
+        else if status == 201 { "Created" }
+        else if status == 204 { "No Content" }
+        else if status == 400 { "Bad Request" }
+        else if status == 404 { "Not Found" }
+        else if status == 413 { "Payload Too Large" }
+        else if status == 500 { "Internal Server Error" }
+        else if status == 504 { "Gateway Timeout" }
+        else { "OK" }
+    }
+}
