@@ -1,9 +1,10 @@
 /*
  * tasks.c — Native Task<a> runtime for proposal 0174 D5-b/c.
  *
- * Implements flux_task_spawn / flux_task_blocking_join / flux_task_cancel
- * using POSIX threads.  Each spawn creates a real OS thread; blocking_join
- * waits on a per-task condvar; cancel sets a flag.
+ * Implements flux_task_spawn / flux_task_blocking_join / flux_task_cancel /
+ * flux_task_await using POSIX or Win32 threads. Each spawn creates a real OS
+ * thread; blocking_join waits on a per-task condvar; Task.await suspends the
+ * current native fiber and resumes through the async scheduler.
  *
  * Phase 1a cancel semantics (matches the VM backend):
  *   - cancelled before join    → join raises TaskCancelled
@@ -57,6 +58,7 @@ typedef struct {
     int64_t          closure;        /* rc-bumped NaN-boxed FluxClosure       */
     int64_t          result;         /* written by worker, read by join       */
     pthread_t        thread;
+    uint64_t         await_request;  /* 0 = no fiber-suspending awaiter       */
     pthread_mutex_t  mutex;
     pthread_cond_t   finished;
     _Atomic(int32_t) cancelled_flag; /* 0 = live, 1 = cancel requested       */
@@ -80,6 +82,34 @@ static void task_table_init_once(void) {
     pthread_once(&task_table_once, task_table_do_init);
 }
 
+static void flux_task_free_slot(FluxTaskEntry *e) {
+    pthread_mutex_lock(&task_table_mutex);
+    e->task_id = 0;
+    pthread_mutex_unlock(&task_table_mutex);
+}
+
+static void flux_task_publish_async_completion(FluxTaskEntry *e) {
+    uint64_t await_request = 0;
+    int64_t completion = FLUX_NONE;
+
+    pthread_mutex_lock(&e->mutex);
+    await_request = e->await_request;
+    if (await_request != 0) {
+        if (e->status == TASK_DONE) {
+            completion = flux_wrap_some(e->result);
+            e->result = FLUX_NONE;
+        }
+        e->await_request = 0;
+    }
+    pthread_cond_broadcast(&e->finished);
+    pthread_mutex_unlock(&e->mutex);
+
+    if (await_request != 0) {
+        flux_task_free_slot(e);
+        flux_async_task_complete(await_request, completion);
+    }
+}
+
 static void *flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
 
@@ -91,8 +121,8 @@ static void *flux_task_worker(void *arg) {
         pthread_mutex_lock(&e->mutex);
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
-        pthread_cond_broadcast(&e->finished);
         pthread_mutex_unlock(&e->mutex);
+        flux_task_publish_async_completion(e);
         flux_drop(e->closure);
         return NULL;
     }
@@ -115,8 +145,8 @@ static void *flux_task_worker(void *arg) {
         e->result = result;
         e->status = TASK_DONE;
     }
-    pthread_cond_broadcast(&e->finished);
     pthread_mutex_unlock(&e->mutex);
+    flux_task_publish_async_completion(e);
     return NULL;
 }
 
@@ -147,6 +177,7 @@ int64_t flux_task_spawn(int64_t closure) {
     e->closure = closure;
     e->result  = FLUX_NONE;
     e->status  = TASK_PENDING;
+    e->await_request = 0;
     atomic_store_explicit(&e->cancelled_flag, 0, memory_order_relaxed);
 
     pthread_create(&e->thread, NULL, flux_task_worker, e);
@@ -173,19 +204,24 @@ int64_t flux_task_blocking_join(int64_t task) {
     }
 
     pthread_mutex_lock(&e->mutex);
+    if (e->await_request != 0) {
+        pthread_mutex_unlock(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_blocking_join: task %" PRId64 " already awaited\n", id);
+        abort();
+    }
     while (e->status != TASK_DONE && e->status != TASK_CANCELLED) {
         pthread_cond_wait(&e->finished, &e->mutex);
     }
     TaskStatus s = e->status;
     int64_t result = e->result;
+    e->result = FLUX_NONE;
     pthread_mutex_unlock(&e->mutex);
 
     pthread_join(e->thread, NULL);
 
     /* Free the slot for reuse. */
-    pthread_mutex_lock(&task_table_mutex);
-    e->task_id = 0;
-    pthread_mutex_unlock(&task_table_mutex);
+    flux_task_free_slot(e);
 
     if (s == TASK_CANCELLED) {
         /* Raise a Flux panic so assert_throws / try blocks see it. */
@@ -221,6 +257,66 @@ int64_t flux_task_cancel(int64_t task) {
     return FLUX_NONE;
 }
 
+int64_t flux_task_await(int64_t task) {
+    task_table_init_once();
+    int64_t id = flux_untag_int(task);
+
+    pthread_mutex_lock(&task_table_mutex);
+    FluxTaskEntry *e = NULL;
+    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
+        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
+    }
+    pthread_mutex_unlock(&task_table_mutex);
+
+    if (!e) {
+        fprintf(stderr,
+            "flux: flux_task_await: unknown task id %" PRId64 "\n", id);
+        abort();
+    }
+
+    pthread_mutex_lock(&e->mutex);
+    if (e->await_request != 0) {
+        pthread_mutex_unlock(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_await: task %" PRId64 " already awaited\n", id);
+        abort();
+    }
+    if (e->status == TASK_DONE || e->status == TASK_CANCELLED) {
+        TaskStatus s = e->status;
+        int64_t result = e->result;
+        e->result = FLUX_NONE;
+        pthread_mutex_unlock(&e->mutex);
+
+        uint64_t request_id = flux_async_task_await_request();
+        if (request_id == 0) {
+            if (s == TASK_DONE) {
+                flux_drop(result);
+            }
+            fprintf(stderr,
+                "flux: flux_task_await: called outside Async.run_async\n");
+            abort();
+        }
+        int64_t completion = s == TASK_DONE ? flux_wrap_some(result) : FLUX_NONE;
+        pthread_join(e->thread, NULL);
+        flux_task_free_slot(e);
+        flux_async_task_complete(request_id, completion);
+        return flux_async_suspend_request(request_id);
+    }
+
+    uint64_t request_id = flux_async_task_await_request();
+    if (request_id == 0) {
+        pthread_mutex_unlock(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_await: called outside Async.run_async\n");
+        abort();
+    }
+
+    e->await_request = request_id;
+    pthread_detach(e->thread);
+    pthread_mutex_unlock(&e->mutex);
+    return flux_async_suspend_request(request_id);
+}
+
 /* ── Windows implementation (Win32) ───────────────────────────────────
  * Mirrors the POSIX path 1:1 using CreateThread / CRITICAL_SECTION /
  * CONDITION_VARIABLE so `flux --test --native` reaches the same Phase
@@ -245,6 +341,7 @@ typedef struct {
     int64_t            closure;        /* rc-bumped NaN-boxed FluxClosure       */
     int64_t            result;         /* written by worker, read by join       */
     HANDLE             thread;
+    uint64_t           await_request;  /* 0 = no fiber-suspending awaiter       */
     CRITICAL_SECTION   mutex;
     CONDITION_VARIABLE finished;
     _Atomic(int32_t)   cancelled_flag; /* 0 = live, 1 = cancel requested       */
@@ -271,6 +368,34 @@ static void task_table_init_once(void) {
     InitOnceExecuteOnce(&task_table_once, task_table_do_init, NULL, NULL);
 }
 
+static void flux_task_free_slot(FluxTaskEntry *e) {
+    EnterCriticalSection(&task_table_mutex);
+    e->task_id = 0;
+    LeaveCriticalSection(&task_table_mutex);
+}
+
+static void flux_task_publish_async_completion(FluxTaskEntry *e) {
+    uint64_t await_request = 0;
+    int64_t completion = FLUX_NONE;
+
+    EnterCriticalSection(&e->mutex);
+    await_request = e->await_request;
+    if (await_request != 0) {
+        if (e->status == TASK_DONE) {
+            completion = flux_wrap_some(e->result);
+            e->result = FLUX_NONE;
+        }
+        e->await_request = 0;
+    }
+    WakeAllConditionVariable(&e->finished);
+    LeaveCriticalSection(&e->mutex);
+
+    if (await_request != 0) {
+        flux_task_free_slot(e);
+        flux_async_task_complete(await_request, completion);
+    }
+}
+
 /* `_beginthreadex` requires `unsigned __stdcall (void *)`, so use that
  * signature directly rather than the `DWORD WINAPI (LPVOID)` variant
  * `CreateThread` wants.  Both layouts are ABI-compatible on x64, but using
@@ -288,8 +413,8 @@ static unsigned __stdcall flux_task_worker(void *arg) {
         EnterCriticalSection(&e->mutex);
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
-        WakeAllConditionVariable(&e->finished);
         LeaveCriticalSection(&e->mutex);
+        flux_task_publish_async_completion(e);
         flux_drop(e->closure);
         return 0;
     }
@@ -310,8 +435,8 @@ static unsigned __stdcall flux_task_worker(void *arg) {
         e->result = result;
         e->status = TASK_DONE;
     }
-    WakeAllConditionVariable(&e->finished);
     LeaveCriticalSection(&e->mutex);
+    flux_task_publish_async_completion(e);
     return 0;
 }
 
@@ -341,6 +466,7 @@ int64_t flux_task_spawn(int64_t closure) {
     e->closure = closure;
     e->result  = FLUX_NONE;
     e->status  = TASK_PENDING;
+    e->await_request = 0;
     atomic_store_explicit(&e->cancelled_flag, 0, memory_order_relaxed);
 
     /* _beginthreadex returns a uintptr_t cast of the HANDLE, or 0 on failure.
@@ -380,20 +506,25 @@ int64_t flux_task_blocking_join(int64_t task) {
     }
 
     EnterCriticalSection(&e->mutex);
+    if (e->await_request != 0) {
+        LeaveCriticalSection(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_blocking_join: task %" PRId64 " already awaited\n", id);
+        abort();
+    }
     while (e->status != TASK_DONE && e->status != TASK_CANCELLED) {
         SleepConditionVariableCS(&e->finished, &e->mutex, INFINITE);
     }
     TaskStatus s = e->status;
     int64_t result = e->result;
+    e->result = FLUX_NONE;
     LeaveCriticalSection(&e->mutex);
 
     WaitForSingleObject(e->thread, INFINITE);
     CloseHandle(e->thread);
     e->thread = NULL;
 
-    EnterCriticalSection(&task_table_mutex);
-    e->task_id = 0;
-    LeaveCriticalSection(&task_table_mutex);
+    flux_task_free_slot(e);
 
     if (s == TASK_CANCELLED) {
         flux_panic(flux_string_new("TaskCancelled", 13));
@@ -427,12 +558,74 @@ int64_t flux_task_cancel(int64_t task) {
     return FLUX_NONE;
 }
 
+int64_t flux_task_await(int64_t task) {
+    task_table_init_once();
+    int64_t id = flux_untag_int(task);
+
+    EnterCriticalSection(&task_table_mutex);
+    FluxTaskEntry *e = NULL;
+    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
+        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
+    }
+    LeaveCriticalSection(&task_table_mutex);
+
+    if (!e) {
+        fprintf(stderr,
+            "flux: flux_task_await: unknown task id %" PRId64 "\n", id);
+        abort();
+    }
+
+    EnterCriticalSection(&e->mutex);
+    if (e->await_request != 0) {
+        LeaveCriticalSection(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_await: task %" PRId64 " already awaited\n", id);
+        abort();
+    }
+    if (e->status == TASK_DONE || e->status == TASK_CANCELLED) {
+        TaskStatus s = e->status;
+        int64_t result = e->result;
+        e->result = FLUX_NONE;
+        LeaveCriticalSection(&e->mutex);
+
+        uint64_t request_id = flux_async_task_await_request();
+        if (request_id == 0) {
+            if (s == TASK_DONE) {
+                flux_drop(result);
+            }
+            fprintf(stderr,
+                "flux: flux_task_await: called outside Async.run_async\n");
+            abort();
+        }
+        int64_t completion = s == TASK_DONE ? flux_wrap_some(result) : FLUX_NONE;
+        WaitForSingleObject(e->thread, INFINITE);
+        CloseHandle(e->thread);
+        e->thread = NULL;
+        flux_task_free_slot(e);
+        flux_async_task_complete(request_id, completion);
+        return flux_async_suspend_request(request_id);
+    }
+
+    uint64_t request_id = flux_async_task_await_request();
+    if (request_id == 0) {
+        LeaveCriticalSection(&e->mutex);
+        fprintf(stderr,
+            "flux: flux_task_await: called outside Async.run_async\n");
+        abort();
+    }
+
+    e->await_request = request_id;
+    CloseHandle(e->thread);
+    e->thread = NULL;
+    LeaveCriticalSection(&e->mutex);
+    return flux_async_suspend_request(request_id);
+}
+
 #endif /* !_WIN32 */
 
-/* ── Fiber primops (proposal 0174 Phase 1b) ─────────────────────────────── *
- * These C entry points are called by LLVM-compiled code when user code       *
- * invokes fiber operations. The scheduler bridge lands in Slice 1b-vi;       *
- * until then every call aborts with a clear message.                         */
+/* ── Legacy fiber primop stubs (proposal 0174 Phase 1b) ─────────────────── *
+ * These older unstructured entry points are still unsupported. The public    *
+ * Flow.Async surface below uses the scheduler-backed structured shims.       */
 
 static void flux_fiber_unimplemented(const char *which) {
     fprintf(stderr,
@@ -463,14 +656,6 @@ int64_t flux_fiber_fail(int64_t error_value) {
     (void)error_value;
     flux_fiber_unimplemented("flux_fiber_fail");
     return FLUX_NONE;
-}
-
-int64_t flux_task_await(int64_t task) {
-    /* Phase 1b closeout: make the public Task.await surface usable on the
-     * native backend. This is intentionally a blocking shim over the existing
-     * task join path; true fiber-suspending task await requires native tasks
-     * to publish scheduler completions and is tracked as a post-1b follow-up. */
-    return flux_task_blocking_join(task);
 }
 
 /* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */

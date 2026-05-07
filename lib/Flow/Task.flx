@@ -10,10 +10,9 @@
 //   semantics; real M:N parallelism on the VM path is gated on a separate
 //   value-promotion slice (Rust `Value` is `!Send`).
 // - **Native (LLVM):** `spawn` runs the body on a native OS thread and
-//   promotes the closure across the worker boundary. `blocking_join`,
-//   `cancel`, and `await` are implemented in `runtime/c/tasks.c`; the current
-//   `await` closeout shim may block the calling native worker until the task
-//   finishes. A true fiber-suspending task await is a post-1b follow-up.
+//   promotes the closure across the worker boundary. `blocking_join` blocks
+//   the caller; `await` suspends only the current fiber and resumes through
+//   the native async scheduler when the task finishes.
 //
 // Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
 // require `Sendable<a>`; `cancel` is unconstrained on `a`. Users who write
@@ -63,20 +62,22 @@ module Flow.Task {
         }
     }
 
-    /// Compiler intrinsic — `CorePrimOp::TaskAwait`. Like `task_join_id`
-    /// but yields the fiber instead of blocking the OS thread.
-    intrinsic fn task_await_id<a>(id: Int) -> a = primop TaskAwait
+    /// Compiler intrinsic — `CorePrimOp::TaskAwait`. Returns `Some(result)`
+    /// on success and `None` when cancellation wins.
+    intrinsic fn task_await_id<a>(id: Int) -> Option<a> = primop TaskAwait
 
-    /// Async-surface join. The current Phase 1b closeout behavior is
-    /// sequential/blocking-equivalent on both VM and native; future runtime
-    /// work may make this a true fiber-suspending wait without changing the
-    /// source API.
+    /// Async-surface join.
     ///
-    /// VM: sequentially equivalent to `blocking_join`.
-    /// Native: implemented as a closeout shim over blocking join.
+    /// VM: sequentially equivalent to `blocking_join` because VM task bodies
+    /// still execute synchronously at `spawn`.
+    /// Native: fiber-suspending; the calling native worker keeps running other
+    /// fibers while the task OS thread computes.
     public fn await<a: Sendable>(t: Task<a>) -> a with Async {
         match t {
-            Task(id) -> task_await_id(id)
+            Task(id) -> match task_await_id(id) {
+                Some(v) -> v,
+                None    -> panic("TaskCancelled")
+            }
         }
     }
 }

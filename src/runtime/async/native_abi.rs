@@ -1263,6 +1263,46 @@ pub extern "C" fn flux_async_suspend_request(request_id: u64) -> i64 {
     unsafe { (cb.suspend)(tag_int(request_id), FLUX_NONE) }
 }
 
+/// Allocate a scheduler request for native `Task.await`.
+///
+/// Returns 0 outside an active `run_async` boundary so the C task shim can
+/// fail loudly instead of silently falling back to a blocking join.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_task_await_request() -> u64 {
+    if active_run().is_some() {
+        next_request_id()
+    } else {
+        0
+    }
+}
+
+/// Publish a native task completion into the currently active fiber scheduler.
+///
+/// `value` is the Flux-level `Option<a>` produced by the C task table:
+/// `Some(result)` on success, `None` when cancellation wins.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_task_complete(request_id: u64, value: i64) {
+    if request_id == 0 {
+        release_completion_value(value);
+        return;
+    }
+    let Some(handle) = active_run() else {
+        release_completion_value(value);
+        return;
+    };
+
+    promote_value(value);
+    {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        state.wake(request_id, value);
+    }
+    handle.notify_all();
+}
+
 /// Poll the backend dispatch path until `req` has completed.
 ///
 /// Returns:
