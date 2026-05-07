@@ -242,6 +242,10 @@ static int http_header_name_eq(int64_t key_val, const char *expected) {
     return http_ascii_eq_ci(key, key_len, expected);
 }
 
+static int http_is_string_value(int64_t value) {
+    return flux_is_ptr(value) && flux_obj_tag(flux_untag_ptr(value)) == FLUX_OBJ_STRING;
+}
+
 static const char *http_method_name_from_value(
     int64_t method_val,
     const int32_t *method_tags
@@ -963,6 +967,83 @@ int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val) {
     int64_t result = flux_string_new(wire, (uint32_t)total);
     free(wire);
     return result;
+}
+
+int64_t flux_http_write_chunked_head(int64_t response_val) {
+    int32_t count = 0;
+    int64_t *fields = http_adt_fields(response_val, NULL, &count);
+    if (fields && count == 1) {
+        int32_t inner_count = 0;
+        int64_t *inner = http_adt_fields(fields[0], NULL, &inner_count);
+        if (inner && inner_count >= 3) {
+            fields = inner;
+            count = inner_count;
+        }
+    }
+
+    int64_t status = 200;
+    int64_t headers_val = flux_hamt_empty();
+    if (fields && count >= 2) {
+        if (flux_is_int(fields[0])) status = flux_untag_int(fields[0]);
+        headers_val = fields[1];
+    }
+
+    char line[128];
+    int line_len = snprintf(
+        line,
+        sizeof(line),
+        "HTTP/1.1 %lld %s\r\n",
+        (long long)status,
+        http_reason(status)
+    );
+    if (line_len < 0) line_len = 0;
+
+    HttpBuffer buf = {0};
+    http_buf_append(&buf, line, (size_t)line_len);
+
+    int64_t keys = flux_hamt_keys(headers_val);
+    if (flux_is_array(keys)) {
+        uint32_t key_count = flux_array_len(keys);
+        for (uint32_t i = 0; i < key_count; i++) {
+            int64_t key = flux_array_get(keys, flux_tag_int((int64_t)i));
+            if (!http_is_string_value(key)) continue;
+            if (http_header_name_eq(key, "Content-Length")) continue;
+            if (http_header_name_eq(key, "Transfer-Encoding")) continue;
+            if (http_header_name_eq(key, "Connection")) continue;
+            int64_t value = flux_hamt_get(headers_val, key);
+            if (!http_is_string_value(value)) continue;
+            http_buf_append_value_string(&buf, key);
+            http_buf_append_cstr(&buf, ": ");
+            http_buf_append_value_string(&buf, value);
+            http_buf_append_cstr(&buf, "\r\n");
+        }
+    }
+
+    http_buf_append_cstr(&buf, "Transfer-Encoding: chunked\r\n");
+    http_buf_append_cstr(&buf, "Connection: close\r\n\r\n");
+    int64_t result = flux_string_new(buf.data ? buf.data : "", (uint32_t)buf.len);
+    free(buf.data);
+    return result;
+}
+
+int64_t flux_http_write_chunk(int64_t chunk_val) {
+    const char *chunk = flux_string_data(chunk_val);
+    uint32_t chunk_len = flux_string_len(chunk_val);
+    char size_line[32];
+    int size_len = snprintf(size_line, sizeof(size_line), "%X\r\n", chunk_len);
+    if (size_len < 0) size_len = 0;
+
+    HttpBuffer buf = {0};
+    http_buf_append(&buf, size_line, (size_t)size_len);
+    http_buf_append(&buf, chunk, (size_t)chunk_len);
+    http_buf_append_cstr(&buf, "\r\n");
+    int64_t result = flux_string_new(buf.data ? buf.data : "", (uint32_t)buf.len);
+    free(buf.data);
+    return result;
+}
+
+int64_t flux_http_write_chunked_end(void) {
+    return flux_string_new("0\r\n\r\n", 5);
 }
 
 int64_t flux_http_register_connection(int64_t server_val, int64_t conn_val) {

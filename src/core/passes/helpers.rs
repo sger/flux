@@ -626,7 +626,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::HttpWriteRequest
         | CorePrimOp::HttpParseResponse
         | CorePrimOp::JsonParse
-        | CorePrimOp::JsonStringify => false,
+        | CorePrimOp::JsonStringify
+        | CorePrimOp::HttpWriteChunkedHead
+        | CorePrimOp::HttpWriteChunk
+        | CorePrimOp::HttpWriteChunkedEnd => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

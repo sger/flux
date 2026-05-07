@@ -52,7 +52,18 @@ fn lifecycle_source(body: &str) -> String {
         r#"
 import Flow.Async exposing (..)
 import Flow.Http exposing (..)
+import Flow.Map as Map
+import Flow.Stream as Stream
 import Flow.Tcp as Tcp
+
+fn read_all_http(conn, acc: String) -> String with Async {{
+    fn read_once() with Async {{
+        Tcp.read(conn, 4096)
+    }}
+    let read_result = timeout_result(500, read_once)
+    let chunk = result_or(read_result, "")
+    if chunk == "" {{ acc }} else {{ read_all_http(conn, acc + chunk) }}
+}}
 
 {body}
 
@@ -308,5 +319,138 @@ fn body() -> String with Async, AsyncFail {{
         "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("closed"), "{stdout}");
+    assert!(!stdout.contains("too-late"), "{stdout}");
+}
+
+#[test]
+fn native_http_streaming_response_writes_chunked_frames() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    stream_response(200, {{}}, Stream.from_array([|"hello", " native"|]))
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(350)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /stream HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "native streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
+    assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
+    assert!(stdout.contains("5\nhello\n"), "{stdout}");
+    assert!(stdout.contains("7\n native\n"), "{stdout}");
+    assert!(stdout.contains("0\n\n"), "{stdout}");
+}
+
+#[test]
+fn native_http_sse_response_emits_frames() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    sse_response(Stream.from_array([|sse_event("one"), sse_named_event("tick", "two")|]))
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(350)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /events HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "native SSE fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Content-Type: text/event-stream"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Cache-Control: no-cache"), "{stdout}");
+    assert!(stdout.contains("data: one\n\n"), "{stdout}");
+    assert!(stdout.contains("event: tick\ndata: two\n\n"), "{stdout}");
+}
+
+#[test]
+fn native_http_shutdown_now_cancels_streaming_response() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn very_late_chunk() {{
+    Stream.make(fn() {{
+        sleep(1000)
+        Some(("too-late", Stream.empty()))
+    }})
+}}
+
+fn handler(req) with Async {{
+    stream_response(200, {{}}, very_late_chunk())
+}}
+
+fn server() -> String with Async, AsyncFail {{
+    let h = serve_stream("127.0.0.1", {port}, handler)
+    let _sleep = sleep(100)
+    shutdown_now(h)
+    "forced"
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = read_all_http(conn, "")
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "native streaming forced shutdown fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
     assert!(!stdout.contains("too-late"), "{stdout}");
 }

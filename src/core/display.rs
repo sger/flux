@@ -619,6 +619,9 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::HttpParseResponse => out.push_str("HttpParseResponse"),
         CorePrimOp::JsonParse => out.push_str("JsonParse"),
         CorePrimOp::JsonStringify => out.push_str("JsonStringify"),
+        CorePrimOp::HttpWriteChunkedHead => out.push_str("HttpWriteChunkedHead"),
+        CorePrimOp::HttpWriteChunk => out.push_str("HttpWriteChunk"),
+        CorePrimOp::HttpWriteChunkedEnd => out.push_str("HttpWriteChunkedEnd"),
     }
 }
 

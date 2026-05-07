@@ -5,6 +5,8 @@
 // server orchestration so handlers stay on the VM fiber scheduler thread.
 
 import Flow.Async exposing (..)
+import Flow.Map as Map
+import Flow.Stream as Stream
 import Flow.Tcp as Tcp
 
 module Flow.Http {
@@ -46,6 +48,14 @@ module Flow.Http {
         }
     }
 
+    public data StreamResponse<body> {
+        StreamResponse {
+            status:  Int,
+            headers: Map<String, String>,
+            body:    body,
+        }
+    }
+
     public data ServerConfig {
         ServerConfig {
             max_connections:    Int,
@@ -78,6 +88,9 @@ module Flow.Http {
     intrinsic fn http_serve_config_prim<a>(listener_id: Int, scope_id: Int, config: a) -> Int = primop HttpServeConfig
     intrinsic fn http_parse_request_prim(raw: String, server_id: Int) -> HttpParseResult = primop HttpParseRequest
     intrinsic fn http_write_response_prim(resp: Response, keep_alive: Bool) -> String = primop HttpWriteResponse
+    intrinsic fn http_write_chunked_head_prim<a>(resp: StreamResponse<a>) -> String = primop HttpWriteChunkedHead
+    intrinsic fn http_write_chunk_prim(chunk: String) -> String = primop HttpWriteChunk
+    intrinsic fn http_write_chunked_end_prim() -> String = primop HttpWriteChunkedEnd
     intrinsic fn http_parse_url_prim(url: String) -> HttpUrlResult = primop HttpParseUrl
     intrinsic fn http_write_request_prim(method: Method, host: String, target: String, headers: Map<String, String>, body: String) -> String = primop HttpWriteRequest
     intrinsic fn http_parse_response_prim(raw: String) -> HttpResponseParseResult = primop HttpParseResponse
@@ -127,6 +140,28 @@ module Flow.Http {
         response(200, body)
     }
 
+    public fn stream_response<a>(status: Int, headers: Map<String, String>, body: a) -> StreamResponse<a> {
+        StreamResponse {
+            status:  status,
+            headers: headers,
+            body:    body,
+        }
+    }
+
+    public fn sse_event(payload: String) -> String {
+        "data: " + payload + "\n\n"
+    }
+
+    public fn sse_named_event(name: String, payload: String) -> String {
+        "event: " + name + "\n" + sse_event(payload)
+    }
+
+    public fn sse_response<a>(events: a) -> StreamResponse<a> {
+        let with_content_type = Map.set({}, "Content-Type", "text/event-stream")
+        let headers = Map.set(with_content_type, "Cache-Control", "no-cache")
+        stream_response(200, headers, events)
+    }
+
     public fn get(url: String) -> Response with Async, AsyncFail {
         request(Get, url, {}, "")
     }
@@ -154,6 +189,15 @@ module Flow.Http {
         handler: (Request) -> Response with Async | e
     ) -> ServerHandle with Async, AsyncFail {
         serve_config_impl(addr, port, handler, config)
+    }
+
+    public fn serve_stream_config<a>(
+        addr:    String,
+        port:    Int,
+        config:  ServerConfig,
+        handler: (Request) -> StreamResponse<a> with Async | e
+    ) -> ServerHandle with Async, AsyncFail {
+        serve_stream_config_impl(addr, port, handler, config)
     }
 
     fn request_parsed_url(
@@ -226,6 +270,36 @@ module Flow.Http {
     ) -> ServerHandle with Async, AsyncFail {
         let cfg = default_config()
         serve_config(addr, port, cfg, handler)
+    }
+
+    public fn serve_stream<a>(
+        addr:    String,
+        port:    Int,
+        handler: (Request) -> StreamResponse<a> with Async | e
+    ) -> ServerHandle with Async, AsyncFail {
+        let cfg = default_config()
+        serve_stream_config(addr, port, cfg, handler)
+    }
+
+    fn serve_stream_config_impl(
+        addr:    String,
+        port:    Int,
+        handler,
+        config:  ServerConfig
+    ) -> ServerHandle with Async, AsyncFail {
+        let listener = Tcp.listen(addr, port)
+        let server_scope = new_scope()
+        let server_id = http_serve_config_prim(Tcp.listener_id(listener), scope_id(server_scope), config)
+        let request_timeout_ms = config.request_timeout_ms
+        fn accept_loop_body() with Async, AsyncFail {
+            accept_stream_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+        }
+        fn serve_accept_body() with Async, AsyncFail {
+            let ignored_accept_result = try_(accept_loop_body)
+            http_server_stopped_prim(server_id)
+        }
+        let ignored_serve_fork = fork(server_scope, serve_accept_body)
+        ServerHandle(server_id)
     }
 
     public fn shutdown(h: ServerHandle) -> Unit with Async, AsyncFail {
@@ -405,6 +479,152 @@ module Flow.Http {
     fn close_connection(server_id: Int, conn) {
         let ignored_unregister_connection = http_unregister_connection_prim(server_id, Tcp.connection_id(conn))
         Tcp.close(conn)
+    }
+
+    fn accept_stream_loop<a>(
+        server_id:    Int,
+        listener,
+        server_scope,
+        request_timeout_ms: Int,
+        handler:      (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        if http_is_shutting_down_prim(server_id) { noop() }
+        else {
+            fn accept_once() with Async, AsyncFail {
+                Tcp.accept(listener)
+            }
+            fn accept_ok(conn) with Async, AsyncFail {
+                accepted_stream_connection(server_id, listener, server_scope, conn, request_timeout_ms, handler)
+            }
+            let accept_result = try_(accept_once)
+            result_or_else_async(
+                accept_result,
+                noop(),
+                accept_ok
+            )
+        }
+    }
+
+    fn accepted_stream_connection<a>(
+        server_id:    Int,
+        listener,
+        server_scope,
+        conn,
+        request_timeout_ms: Int,
+        handler:      (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        if http_is_shutting_down_prim(server_id) { Tcp.close(conn) }
+        else {
+            let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
+            fn connection_fork_body() with Async, AsyncFail {
+                stream_connection_worker(server_id, conn, "", request_timeout_ms, handler)
+            }
+            let ignored_connection_fork = fork(server_scope, connection_fork_body)
+            accept_stream_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+        }
+    }
+
+    fn stream_connection_worker<a>(
+        server_id: Int,
+        conn,
+        buffer:    String,
+        request_timeout_ms: Int,
+        handler:   (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        fn connection_body() with Async, AsyncFail {
+            stream_connection_loop(server_id, conn, buffer, request_timeout_ms, handler)
+        }
+        let ignored_connection_result = try_(connection_body)
+        close_connection(server_id, conn)
+    }
+
+    fn stream_connection_loop<a>(
+        server_id: Int,
+        conn,
+        buffer:    String,
+        request_timeout_ms: Int,
+        handler:   (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        match http_parse_request_prim(buffer, server_id) {
+            HttpNeedMore -> stream_need_more(server_id, conn, buffer, request_timeout_ms, handler),
+            HttpParseFailure(status, message) -> write_response_and_close(server_id, conn, response(status, message)),
+            HttpParsed(req, consumed, keep_alive) -> handle_stream_parsed(server_id, conn, req, request_timeout_ms, handler)
+        }
+    }
+
+    fn stream_need_more<a>(
+        server_id: Int,
+        conn,
+        buffer:    String,
+        request_timeout_ms: Int,
+        handler:   (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        if http_is_shutting_down_prim(server_id) { close_connection(server_id, conn) }
+        else {
+            fn read_once() with Async, AsyncFail {
+                Tcp.read(conn, 4096)
+            }
+            let read_result = timeout_result(50, read_once)
+            if result_is_timed_out(read_result) { stream_connection_loop(server_id, conn, buffer, request_timeout_ms, handler) }
+            else {
+                let chunk = result_or(read_result, "")
+                if chunk == "" { close_connection(server_id, conn) }
+                else { stream_connection_loop(server_id, conn, buffer + chunk, request_timeout_ms, handler) }
+            }
+        }
+    }
+
+    fn handle_stream_parsed<a>(
+        server_id:  Int,
+        conn,
+        req:        Request,
+        request_timeout_ms: Int,
+        handler:    (Request) -> StreamResponse<a> with Async | e
+    ) -> Unit with Async, AsyncFail {
+        fn handler_done(resp, handler_ok) with Async, AsyncFail {
+            if handler_ok { write_stream_response_and_close(server_id, conn, resp) }
+            else { write_response_and_close(server_id, conn, response(500, "Internal Server Error")) }
+        }
+        result_or_timeout_with_async(
+            run_stream_handler(req, request_timeout_ms, handler),
+            stream_response(504, {}, Stream.once("Gateway Timeout")),
+            stream_response(500, {}, Stream.once("Internal Server Error")),
+            handler_done
+        )
+    }
+
+    fn run_stream_handler<a>(
+        req: Request,
+        request_timeout_ms: Int,
+        handler: (Request) -> StreamResponse<a> with Async | e
+    ) with Async, AsyncFail {
+        fn handler_body() with Async {
+            handler(req)
+        }
+        timeout_result(request_timeout_ms, handler_body)
+    }
+
+    fn write_stream_response_and_close<a>(server_id: Int, conn, resp: StreamResponse<a>) -> Unit with Async, AsyncFail {
+        let ignored_head = Tcp.write_all(conn, http_write_chunked_head_prim(resp))
+        match resp {
+            StreamResponse { status, headers, body } -> write_stream_chunks_and_close(server_id, conn, body)
+        }
+    }
+
+    fn write_stream_chunks_and_close<a>(server_id: Int, conn, body: a) -> Unit with Async, AsyncFail {
+        match Stream.next(body) {
+            Some(pair) -> do {
+                if pair.0 == "" { noop() }
+                else {
+                    let ignored_chunk = Tcp.write_all(conn, http_write_chunk_prim(pair.0))
+                }
+                write_stream_chunks_and_close(server_id, conn, pair.1)
+            },
+            _ -> do {
+                let ignored_end = Tcp.write_all(conn, http_write_chunked_end_prim())
+                close_connection(server_id, conn)
+            }
+        }
     }
 
     fn wait_for_shutdown(server_id: Int) -> Unit with Async, AsyncFail {
