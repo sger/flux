@@ -134,6 +134,8 @@ mod vm_http {
         config: crate::runtime::http::BlockingServerConfig,
         active: HashSet<i64>,
         shutting_down: bool,
+        force_shutdown: bool,
+        stopped: bool,
     }
 
     #[derive(Debug, Default)]
@@ -167,6 +169,8 @@ mod vm_http {
                     config,
                     active: HashSet::new(),
                     shutting_down: false,
+                    force_shutdown: false,
+                    stopped: false,
                 },
             );
         });
@@ -215,6 +219,24 @@ mod vm_http {
         })
     }
 
+    pub fn mark_stopped(server: i64) {
+        SERVERS.with(|servers| {
+            if let Some(state) = servers.borrow_mut().get_mut(&server) {
+                state.stopped = true;
+            }
+        });
+    }
+
+    pub fn is_stopped(server: i64) -> bool {
+        SERVERS.with(|servers| {
+            servers
+                .borrow()
+                .get(&server)
+                .map(|state| state.stopped)
+                .unwrap_or(true)
+        })
+    }
+
     pub fn shutdown(server: i64, force: bool) -> ShutdownSnapshot {
         SERVERS.with(|servers| {
             let mut servers = servers.borrow_mut();
@@ -222,6 +244,7 @@ mod vm_http {
                 return ShutdownSnapshot::default();
             };
             state.shutting_down = true;
+            state.force_shutdown |= force;
             let active = state.active.iter().copied().collect::<Vec<_>>();
             if force {
                 state.active.clear();
@@ -2390,9 +2413,9 @@ pub fn execute_core_primop(
         // ── HTTP server-manager reserved primops (proposal 0174 Phase 3a) ──
         //
         // The first `Flow.Http` server slice is source-level over Flow.Tcp so
-        // VM closures remain on the owning fiber. These primops reserve the
-        // public intrinsic IDs and act as no-op handle/shutdown hooks until
-        // the detached runtime server manager can safely retain handlers.
+        // VM closures remain on the owning fiber. These primops track the
+        // detached accept-fiber lifecycle and connection set while the parser
+        // and writer stay Rust-owned.
         HttpServeConfig => vm_http_serve_config(ctx, &args),
         HttpShutdown => vm_http_shutdown(&args, false),
         HttpShutdownNow => vm_http_shutdown(&args, true),
@@ -2417,6 +2440,15 @@ pub fn execute_core_primop(
         HttpIsShuttingDown => {
             let server = eint(&args[0], "http_is_shutting_down")?;
             Ok(Value::Boolean(vm_http::is_shutting_down(server)))
+        }
+        HttpServerStopped => {
+            let server = eint(&args[0], "http_server_stopped")?;
+            vm_http::mark_stopped(server);
+            Ok(Value::None)
+        }
+        HttpIsServerStopped => {
+            let server = eint(&args[0], "http_is_server_stopped")?;
+            Ok(Value::Boolean(vm_http::is_stopped(server)))
         }
 
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────

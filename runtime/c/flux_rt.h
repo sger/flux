@@ -338,6 +338,8 @@ int64_t flux_http_register_connection(int64_t server_val, int64_t conn_val);
 int64_t flux_http_unregister_connection(int64_t server_val, int64_t conn_val);
 int64_t flux_http_active_connection_count(int64_t server_val);
 int64_t flux_http_is_shutting_down(int64_t server_val);
+int64_t flux_http_server_stopped(int64_t server_val);
+int64_t flux_http_is_server_stopped(int64_t server_val);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);

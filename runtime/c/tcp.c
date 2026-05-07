@@ -117,3 +117,13 @@ int64_t flux_http_is_shutting_down(int64_t server_val) {
     (void)server_val;
     return FLUX_FALSE;
 }
+
+int64_t flux_http_server_stopped(int64_t server_val) {
+    (void)server_val;
+    return FLUX_NONE;
+}
+
+int64_t flux_http_is_server_stopped(int64_t server_val) {
+    (void)server_val;
+    return FLUX_TRUE;
+}

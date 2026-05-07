@@ -13,17 +13,21 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+
+static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {
+    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
         "flux-vm-fiber-overlap-{}-{}-{}",
         std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
+        id,
         fixture_tag,
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir for fiber-overlap fixture");
