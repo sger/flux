@@ -117,6 +117,31 @@ fn main() {
 }
 
 #[test]
+fn flow_task_spawn_rejects_opaque_tcp_connection_payload() {
+    let (_stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+import Flow.Tcp exposing (..)
+
+fn move_conn(c: Connection) {
+    Task.spawn(fn() { c })
+}
+
+fn main() { () }
+"#,
+    );
+
+    assert!(
+        !success,
+        "Task.spawn must reject opaque TCP connection handles as non-Sendable"
+    );
+    assert!(
+        stderr.contains("E444") && stderr.contains("Sendable"),
+        "expected E444 Sendable diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
 #[cfg(feature = "llvm")]
 fn flow_task_native_compiles_and_passes() {
     // Uses a native-specific fixture (Int/String payloads only) because

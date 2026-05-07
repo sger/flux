@@ -79,7 +79,7 @@ target the original proposal aimed at.
 | 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` + `with_dns_pool_size(n)` builders + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `dns_pool_size` is now consumed by slice 2-viii; `fs_pool_size` remains reserved for future filesystem consumers. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
-| 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) already walks every `data` declaration, skips ADTs with function-typed fields, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) — 10 tests cover monomorphic ADTs, parameterized ADTs (positive and negative), function-field ADTs (rejected), recursive ADTs, and bare function types (rejected). The slice's only output was adding the recursive-ADT regression test that was missing from the original suite. |
+| 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
 | **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ | |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
@@ -1929,30 +1929,25 @@ pattern positions.
 
 #### 2-x — `Sendable` ADT auto-derivation
 
-Today, [`src/types/class_solver.rs`](../../src/types/class_solver.rs)'s
-`has_structural_builtin_instance` auto-derives `Sendable` (and `Eq`/`Ord`)
-for `Tuple`, `Option`, `List`, `Array`, `Map`, and `Either` only;
-user-defined ADTs require an explicit `instance Sendable<Foo> {}`. The
-proposal's stated rule (above, in the Phase 1a `Sendable<T>` section)
-is "ADTs whose every field is `Sendable`" — recursive structural
-derivation. Slice 2-x closes this gap.
+Status: landed. [`src/types/class_env.rs`](../../src/types/class_env.rs)'s
+`synthesize_sendable_instances` walks user `data` declarations and adds
+contextual `Sendable` instances when the ADT can safely cross task-worker
+boundaries. The existing class solver then discharges generated bounds and
+uses its cycle guard for recursive ADTs.
 
-- Extend `has_structural_builtin_instance` (or a new sibling) to handle
-  user ADT applications: look up the data declaration, walk every
-  constructor's field types, recursively check each is `Sendable`.
-- Reuse the existing `seen: &mut HashSet<String>` cycle guard to handle
-  recursive ADTs.
-- Opaque runtime handles such as `Tcp.Connection` and `Tcp.Listener`
-  remain non-`Sendable`: their data declarations either expose no
-  user-readable fields the solver can inspect or wrap a runtime-only
-  primitive whose type lacks a `Sendable` instance.
+- Monomorphic ADTs derive when their fields are sendable.
+- Parameterized ADTs derive contextual instances such as
+  `Sendable<a> => Sendable<Box<a>>`.
+- Recursive ADTs are accepted through the existing solver cycle guard.
+- Function-typed fields are not synthesized.
+- Explicit opaque runtime handles such as `Flow.Tcp.Connection` and
+  `Flow.Tcp.Listener` are not synthesized even though they wrap `Int`.
+- Explicit user-written instances still win because synthesis skips an
+  already-present matching head.
 
-Acceptance: `tests/type_inference/sendable_tests.rs` adds positive
-cases (a user `data Pair { Pair(Int, String) }` satisfies
-`Sendable<Pair>` without an explicit instance; a recursive
-`data Tree { Leaf | Node(Int, Tree, Tree) }` satisfies
-`Sendable<Tree>`) and negative cases
-(`data Bad { Bad(Connection) }` fails with E440).
+Acceptance lives in [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs)
+for direct solver behavior and [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs)
+for imported `Task.spawn` rejection of non-sendable TCP handles.
 
 #### Phase 2 deliverables
 

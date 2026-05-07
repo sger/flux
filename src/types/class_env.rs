@@ -467,6 +467,7 @@ impl ClassEnv {
                 } => {
                     Self::try_synthesize_sendable_for_adt(
                         env,
+                        interner,
                         sendable_id,
                         *name,
                         type_params,
@@ -495,6 +496,7 @@ impl ClassEnv {
 
     fn try_synthesize_sendable_for_adt(
         env: &mut ClassEnv,
+        interner: &Interner,
         sendable_id: Identifier,
         adt_name: Identifier,
         type_params: &[Identifier],
@@ -502,6 +504,10 @@ impl ClassEnv {
         instance_module: ModulePath,
         span: Span,
     ) {
+        if is_opaque_non_sendable_adt(instance_module, adt_name, interner) {
+            return;
+        }
+
         // Skip if any field anywhere contains a function type — the
         // positive-only rule. Closures and function values aren't sendable
         // and we have no way to make them so without copying.
@@ -1756,10 +1762,10 @@ impl ClassEnv {
         // primitives have explicit instances below; the constraint solver
         // synthesises structural instances for tuples and persistent
         // collections (`Option`, `List`, `Array`, `Map`, `Either`) whose
-        // element types are themselves `Sendable`. Closures, opaque
-        // runtime handles, and ADTs without an explicit instance simply
-        // do not satisfy the constraint — there are no negative
-        // instances; absence of an instance means "not sendable."
+        // element types are themselves `Sendable`. User ADTs get synthesized
+        // instances during collection when their fields are sendable; closures
+        // and explicit opaque runtime handles remain non-sendable. There are
+        // no negative instances; absence of an instance means "not sendable."
         self.register_builtin_class(sendable, vec![a_param], vec![]);
 
         // Sendable instances: Int, Float, String, Bool, Unit.
@@ -2022,6 +2028,17 @@ fn type_expr_contains_function(expr: &TypeExpr) -> bool {
         TypeExpr::Tuple { elements, .. } => elements.iter().any(type_expr_contains_function),
         TypeExpr::Named { args, .. } => args.iter().any(type_expr_contains_function),
     }
+}
+
+fn is_opaque_non_sendable_adt(
+    module: ModulePath,
+    adt_name: Identifier,
+    interner: &Interner,
+) -> bool {
+    let Some(module_name) = module.as_identifier().map(|id| interner.resolve(id)) else {
+        return false;
+    };
+    module_name == "Flow.Tcp" && matches!(interner.resolve(adt_name), "Connection" | "Listener")
 }
 
 #[cfg(test)]
