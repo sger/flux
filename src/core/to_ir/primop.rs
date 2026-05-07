@@ -120,6 +120,12 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::HttpServeConfig => "http_serve_config",
         CorePrimOp::HttpShutdown => "http_shutdown",
         CorePrimOp::HttpShutdownNow => "http_shutdown_now",
+        CorePrimOp::HttpParseRequest => "http_parse_request",
+        CorePrimOp::HttpWriteResponse => "http_write_response",
+        CorePrimOp::HttpRegisterConnection => "http_register_connection",
+        CorePrimOp::HttpUnregisterConnection => "http_unregister_connection",
+        CorePrimOp::HttpActiveConnectionCount => "http_active_connection_count",
+        CorePrimOp::HttpIsShuttingDown => "http_is_shutting_down",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -361,7 +367,13 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberTry
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
-            | CorePrimOp::HttpShutdownNow => {
+            | CorePrimOp::HttpShutdownNow
+            | CorePrimOp::HttpParseRequest
+            | CorePrimOp::HttpWriteResponse
+            | CorePrimOp::HttpRegisterConnection
+            | CorePrimOp::HttpUnregisterConnection
+            | CorePrimOp::HttpActiveConnectionCount
+            | CorePrimOp::HttpIsShuttingDown => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

@@ -613,7 +613,13 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberTry
         | CorePrimOp::HttpServeConfig
         | CorePrimOp::HttpShutdown
-        | CorePrimOp::HttpShutdownNow => false,
+        | CorePrimOp::HttpShutdownNow
+        | CorePrimOp::HttpParseRequest
+        | CorePrimOp::HttpWriteResponse
+        | CorePrimOp::HttpRegisterConnection
+        | CorePrimOp::HttpUnregisterConnection
+        | CorePrimOp::HttpActiveConnectionCount
+        | CorePrimOp::HttpIsShuttingDown => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

@@ -64,12 +64,12 @@ module Flow.Async {
 
     /// Entry point: run `action` under the fiber scheduler.
     /// VM: synchronous call. Native: installs Async effect handler.
-    intrinsic fn fiber_run_async<a>(action: () -> a with Async) -> a = primop FiberRunAsync
+    intrinsic fn fiber_run_async<a>(action: () -> a with Async | e) -> a = primop FiberRunAsync
 
     /// Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
     /// knobs. Each int is a tagged Flux Int; passing 0 means "use the default
     /// for that knob".
-    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async) -> a = primop FiberRunAsyncWith
+    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async | e) -> a = primop FiberRunAsyncWith
 
     /// Cooperative yield. VM: no-op. Native: reschedules current fiber.
     intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
@@ -87,7 +87,7 @@ module Flow.Async {
     intrinsic fn fiber_fail_prim<a>(err: AsyncError) -> a = primop FiberFail
 
     /// Run `body` under an async error boundary.
-    intrinsic fn fiber_try_prim<a>(body: () -> a with Async) -> Result<a, AsyncError> = primop FiberTry
+    intrinsic fn fiber_try_prim<a>(body: () -> a with Async | e) -> Result<a, AsyncError> = primop FiberTry
 
     /// Run two fibers concurrently, returning both results as a pair
     /// (proposal 0174 Phase 1b-vi-b₂.2). VM: real overlap via the fiber
@@ -105,7 +105,7 @@ module Flow.Async {
     /// Bound `f` by `ms` milliseconds: returns `Some(f())` if `f` completes
     /// in time, `None` if the timer fires first (proposal 0174 Phase 1b-vi
     /// follow-up). VM: real overlap via fiber scheduler. Native: 1b-vi-d.
-    intrinsic fn fiber_timeout_prim<a>(ms: Int, f: () -> a with Async) -> Option<a> = primop FiberTimeout
+    intrinsic fn fiber_timeout_prim<a>(ms: Int, f: () -> a with Async | e) -> Option<a> = primop FiberTimeout
 
     /// Allocate a new cancellation scope (proposal 0174 1b-vi-c).
     intrinsic fn fiber_new_scope_prim() -> Scope = primop FiberNewScope
@@ -184,7 +184,7 @@ module Flow.Async {
     /// Run an async computation. This is the boundary that installs the
     /// `Async` effect handler. Blocks the calling OS thread until the
     /// root fiber completes.
-    public fn run_async<a>(action: () -> a with Async) -> a {
+    public fn run_async<a>(action: () -> a with Async | e) -> a {
         fiber_run_async(action)
     }
 
@@ -192,7 +192,7 @@ module Flow.Async {
     /// See [`RuntimeConfig`] for field semantics. `worker_count == None`
     /// is encoded as the sentinel `0` in the primop call so the runtime
     /// can choose its default.
-    public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async) -> a {
+    public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async | e) -> a {
         let workers = match cfg.worker_count {
             Some(n) -> n,
             None    -> 0
@@ -207,15 +207,19 @@ module Flow.Async {
     /// Allocates a fresh scope ID and passes it to `f`. Any fibers forked
     /// inside `f` via `fork(s, ...)` are registered under this scope and can
     /// be cancelled together via `cancel(s)`.
-    public fn scope<a>(f: (Scope) -> a with Async) -> a with Async {
+    public fn scope<a>(f: (Scope) -> a with Async | e) -> a with Async | e {
         let s = fiber_new_scope_prim()
         f(s)
+    }
+
+    public fn new_scope() -> Scope with Async {
+        fiber_new_scope_prim()
     }
 
     /// Fork a child fiber attached to `s`.
     ///
     /// The child is registered under the scope so `cancel(s)` can stop it.
-    public fn fork<a>(s: Scope, f: () -> a with Async) -> Unit with Async {
+    public fn fork<a>(s: Scope, f: () -> a with Async | e) -> Unit with Async | e {
         fiber_fork_scoped_prim(s, f)
     }
 
@@ -226,6 +230,12 @@ module Flow.Async {
     /// so that `bracket`/`finally` cleanup arms run.
     public fn cancel(s: Scope) -> Unit with Async {
         fiber_cancel_scope_prim(s)
+    }
+
+    public fn scope_id(s: Scope) -> Int {
+        match s {
+            Scope(id) -> id
+        }
     }
 
     /// Run `f` and `g` concurrently; return both results.
@@ -268,14 +278,14 @@ module Flow.Async {
     /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.
     ///
     /// VM: always returns `Some(f())`.
-    public fn timeout<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
+    public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e {
         fiber_timeout_prim(ms, f)
     }
 
     /// Like `timeout` but preserves the error channel.
     ///
     /// VM: real overlap via fiber scheduler — same shape as `timeout`.
-    public fn timeout_result<a>(ms: Int, f: () -> a with Async) -> Result<a, AsyncError> with Async {
+    public fn timeout_result<a>(ms: Int, f: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
         match fiber_try_prim(fn() { fiber_timeout_prim(ms, f) }) {
             Ok(Some(v)) -> Ok(v),
             Ok(None)    -> Err(TimedOut),
@@ -307,8 +317,40 @@ module Flow.Async {
     }
 
     /// Catch async fiber failures in `body`.
-    public fn try_<a>(body: () -> a with Async) -> Result<a, AsyncError> with Async {
+    public fn try_<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
         fiber_try_prim(body)
+    }
+
+    public fn result_or<a>(r: Result<a, AsyncError>, fallback: a) -> a {
+        match r {
+            Ok(v) -> v,
+            Err(_) -> fallback
+        }
+    }
+
+    public fn result_is_timed_out<a>(r: Result<a, AsyncError>) -> Bool {
+        match r {
+            Err(TimedOut) -> true,
+            _ -> false
+        }
+    }
+
+    public fn result_is_ok<a>(r: Result<a, AsyncError>) -> Bool {
+        match r {
+            Ok(_) -> true,
+            _ -> false
+        }
+    }
+
+    public fn ok_result<a>(v: a) -> Result<a, AsyncError> {
+        Ok(v)
+    }
+
+    public fn result_or_else_async<a, b>(r: Result<a, AsyncError>, fallback: b, ok: (a) -> b with Async | e) -> b with Async | e {
+        match r {
+            Ok(v) -> ok(v),
+            Err(_) -> fallback
+        }
     }
 
     /// Raise an `AsyncError` inside the current fiber.
