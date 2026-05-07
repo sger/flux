@@ -745,7 +745,11 @@ pub enum CorePrimOp {
     HttpWriteRequest = 194,
     /// Parse one HTTP response from a buffered string. Args: (raw) -> HttpResponseParseResult.
     HttpParseResponse = 195,
-    // ── Next free ID: 196 ─────────────────────────────────────────────
+    /// Parse JSON text into Flow.Json.JsonResult<Json>. Args: (raw) -> JsonResult<Json>.
+    JsonParse = 196,
+    /// Serialize Flow.Json.Json into compact JSON text. Args: (Json) -> String.
+    JsonStringify = 197,
+    // ── Next free ID: 198 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -828,6 +832,8 @@ impl CorePrimOp {
             "HttpParseUrl" => return Some(Self::HttpParseUrl),
             "HttpWriteRequest" => return Some(Self::HttpWriteRequest),
             "HttpParseResponse" => return Some(Self::HttpParseResponse),
+            "JsonParse" => return Some(Self::JsonParse),
+            "JsonStringify" => return Some(Self::JsonStringify),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -943,6 +949,8 @@ impl CorePrimOp {
             Self::HttpParseUrl => Some("http_parse_url"),
             Self::HttpWriteRequest => Some("http_write_request"),
             Self::HttpParseResponse => Some("http_parse_response"),
+            Self::JsonParse => Some("json_parse"),
+            Self::JsonStringify => Some("json_stringify"),
             _ => None,
         }
     }
@@ -1133,6 +1141,8 @@ impl CorePrimOp {
             193 => HttpParseUrl,
             194 => HttpWriteRequest,
             195 => HttpParseResponse,
+            196 => JsonParse,
+            197 => JsonStringify,
             _ => return None,
         };
         Some(op)
@@ -1303,6 +1313,8 @@ impl CorePrimOp {
             ("http_parse_url", 1, CorePrimOp::HttpParseUrl),
             ("http_write_request", 5, CorePrimOp::HttpWriteRequest),
             ("http_parse_response", 1, CorePrimOp::HttpParseResponse),
+            ("json_parse", 1, CorePrimOp::JsonParse),
+            ("json_stringify", 1, CorePrimOp::JsonStringify),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1404,7 +1416,9 @@ impl CorePrimOp {
             | HttpServerStopped
             | HttpIsServerStopped
             | HttpParseUrl
-            | HttpParseResponse => 1,
+            | HttpParseResponse
+            | JsonParse
+            | JsonStringify => 1,
             Add
             | Sub
             | Mul

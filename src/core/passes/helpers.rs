@@ -624,7 +624,9 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::HttpIsServerStopped
         | CorePrimOp::HttpParseUrl
         | CorePrimOp::HttpWriteRequest
-        | CorePrimOp::HttpParseResponse => false,
+        | CorePrimOp::HttpParseResponse
+        | CorePrimOp::JsonParse
+        | CorePrimOp::JsonStringify => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

@@ -2063,6 +2063,71 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        if let CorePrimOp::JsonParse = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_json_parse",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("JsonNull", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonBool", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonNumber", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonString", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonArray", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonObject", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonError", 11))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonOk", 12))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonErr", 13))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::JsonStringify = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_json_stringify",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("JsonNull", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonBool", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonNumber", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonString", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonArray", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonObject", 10))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
             .iter()
             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -3717,6 +3782,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::HttpIsShuttingDown => return "flux_http_is_shutting_down".to_string(),
         CorePrimOp::HttpServerStopped => return "flux_http_server_stopped".to_string(),
         CorePrimOp::HttpIsServerStopped => return "flux_http_is_server_stopped".to_string(),
+        CorePrimOp::JsonParse => return "flux_json_parse".to_string(),
+        CorePrimOp::JsonStringify => return "flux_json_stringify".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3940,6 +4007,33 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_http_is_shutting_down" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_is_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_json_parse" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_json_stringify" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
         _ => return None,
     };
     Some(LlvmDecl {
