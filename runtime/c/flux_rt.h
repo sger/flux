@@ -377,6 +377,29 @@ int64_t flux_http_is_shutting_down(int64_t server_val);
 int64_t flux_http_server_stopped(int64_t server_val);
 int64_t flux_http_is_server_stopped(int64_t server_val);
 
+/* ── JSON (proposal 0174 Phase 3 Json-a) ───────────────────────────── */
+int64_t flux_json_parse(
+    int32_t json_null_tag,
+    int32_t json_bool_tag,
+    int32_t json_number_tag,
+    int32_t json_string_tag,
+    int32_t json_array_tag,
+    int32_t json_object_tag,
+    int32_t json_error_tag,
+    int32_t json_ok_tag,
+    int32_t json_err_tag,
+    int64_t raw_val
+);
+int64_t flux_json_stringify(
+    int32_t json_null_tag,
+    int32_t json_bool_tag,
+    int32_t json_number_tag,
+    int32_t json_string_tag,
+    int32_t json_array_tag,
+    int32_t json_object_tag,
+    int64_t value
+);
+
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
 size_t flux_gc_num_allocs(void);

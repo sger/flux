@@ -669,6 +669,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "array.c",
         "tasks.c",
         "tcp.c",
+        "json.c",
     ];
     let mut obj_files = Vec::new();
 

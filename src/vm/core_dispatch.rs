@@ -2424,6 +2424,8 @@ pub fn execute_core_primop(
         HttpParseUrl => vm_http_parse_url(&args),
         HttpWriteRequest => vm_http_write_request(&args),
         HttpParseResponse => vm_http_parse_response(&args),
+        JsonParse => vm_json_parse(&args),
+        JsonStringify => vm_json_stringify(&args),
         HttpRegisterConnection => {
             let server = eint(&args[0], "http_register_connection")?;
             let conn = eint(&args[1], "http_register_connection")?;
@@ -2876,6 +2878,136 @@ fn vm_http_parse_response(args: &[Value]) -> Result<Value, String> {
             constructor: Rc::new("HttpResponseFailure".to_string()),
             fields: AdtFields::Two(Value::Integer(0), Value::String(msg.into())),
         }))),
+    }
+}
+
+fn vm_json_parse(args: &[Value]) -> Result<Value, String> {
+    let raw = estr(&args[0], "json_parse")?;
+    Ok(match crate::runtime::json::parse(raw) {
+        Ok(value) => json_ok_value(json_to_value(&value)),
+        Err(err) => json_err_value(&err),
+    })
+}
+
+fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
+    let value = value_to_json(&args[0])?;
+    Ok(Value::String(
+        crate::runtime::json::stringify(&value).into(),
+    ))
+}
+
+fn json_ok_value(value: Value) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("JsonOk".to_string()),
+        fields: AdtFields::One(value),
+    }))
+}
+
+fn json_err_value(err: &crate::runtime::json::JsonError) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let error = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("JsonError".to_string()),
+        fields: AdtFields::Two(
+            Value::String(err.path.clone().into()),
+            Value::String(err.message.clone().into()),
+        ),
+    }));
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("JsonErr".to_string()),
+        fields: AdtFields::One(error),
+    }))
+}
+
+fn json_to_value(value: &crate::runtime::json::JsonValue) -> Value {
+    use crate::runtime::json::JsonValue;
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    match value {
+        JsonValue::Null => Value::AdtUnit(Rc::new("JsonNull".to_string())),
+        JsonValue::Bool(v) => Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("JsonBool".to_string()),
+            fields: AdtFields::One(Value::Boolean(*v)),
+        })),
+        JsonValue::Number(v) => Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("JsonNumber".to_string()),
+            fields: AdtFields::One(Value::Float(*v)),
+        })),
+        JsonValue::String(v) => Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("JsonString".to_string()),
+            fields: AdtFields::One(Value::String(v.clone().into())),
+        })),
+        JsonValue::Array(values) => Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("JsonArray".to_string()),
+            fields: AdtFields::One(Value::Array(Rc::new(
+                values.iter().map(json_to_value).collect(),
+            ))),
+        })),
+        JsonValue::Object(values) => {
+            let mut map = rc_hamt::hamt_empty();
+            for (key, item) in values {
+                map = rc_hamt::hamt_insert(&map, HashKey::String(key.clone()), json_to_value(item));
+            }
+            Value::Adt(Rc::new(AdtValue {
+                constructor: Rc::new("JsonObject".to_string()),
+                fields: AdtFields::One(Value::HashMap(map)),
+            }))
+        }
+    }
+}
+
+fn value_to_json(value: &Value) -> Result<crate::runtime::json::JsonValue, String> {
+    use crate::runtime::json::JsonValue;
+
+    match value {
+        Value::AdtUnit(name) if name.as_ref() == "JsonNull" => Ok(JsonValue::Null),
+        Value::Adt(adt) => match adt.constructor.as_str() {
+            "JsonBool" => match adt.fields.get(0) {
+                Some(Value::Boolean(v)) => Ok(JsonValue::Bool(*v)),
+                Some(other) => Err(terr("json_stringify(JsonBool)", "Bool", other)),
+                None => Err("JsonBool missing value".into()),
+            },
+            "JsonNumber" => match adt.fields.get(0) {
+                Some(Value::Float(v)) => Ok(JsonValue::Number(*v)),
+                Some(Value::Integer(v)) => Ok(JsonValue::Number(*v as f64)),
+                Some(other) => Err(terr("json_stringify(JsonNumber)", "Float", other)),
+                None => Err("JsonNumber missing value".into()),
+            },
+            "JsonString" => match adt.fields.get(0) {
+                Some(Value::String(v)) => Ok(JsonValue::String(v.to_string())),
+                Some(other) => Err(terr("json_stringify(JsonString)", "String", other)),
+                None => Err("JsonString missing value".into()),
+            },
+            "JsonArray" => match adt.fields.get(0) {
+                Some(Value::Array(items)) => {
+                    let values = items
+                        .iter()
+                        .map(value_to_json)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(JsonValue::Array(values))
+                }
+                Some(other) => Err(terr("json_stringify(JsonArray)", "Array", other)),
+                None => Err("JsonArray missing value".into()),
+            },
+            "JsonObject" => match adt.fields.get(0) {
+                Some(Value::HashMap(map)) => {
+                    let mut values = std::collections::BTreeMap::new();
+                    for (key, item) in rc_hamt::hamt_iter(map) {
+                        let HashKey::String(key) = key else {
+                            return Err("json_stringify(JsonObject): key must be String".into());
+                        };
+                        values.insert(key, value_to_json(&item)?);
+                    }
+                    Ok(JsonValue::Object(values))
+                }
+                Some(other) => Err(terr("json_stringify(JsonObject)", "Map", other)),
+                None => Err("JsonObject missing value".into()),
+            },
+            other => Err(format!("json_stringify expected Json, got {other}")),
+        },
+        other => Err(terr("json_stringify", "Json", other)),
     }
 }
 
