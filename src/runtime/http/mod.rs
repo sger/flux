@@ -51,6 +51,7 @@ impl Default for ParseLimits {
 pub struct BlockingServerConfig {
     pub max_connections: usize,
     pub limits: ParseLimits,
+    pub request_timeout_ms: usize,
 }
 
 impl Default for BlockingServerConfig {
@@ -58,6 +59,7 @@ impl Default for BlockingServerConfig {
         Self {
             max_connections: 10_000,
             limits: ParseLimits::default(),
+            request_timeout_ms: 30_000,
         }
     }
 }
