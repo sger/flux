@@ -162,11 +162,11 @@ fn main() with IO {
 }
 
 #[test]
-fn native_async_try_suspended_body_returns_some() {
+fn native_async_try_suspended_body_returns_ok() {
     let source = r#"
 import Flow.Async exposing (..)
 
-fn body() -> Option<Int> with Async {
+fn body() with Async {
     try_(fn() {
         sleep(10)
         42
@@ -174,11 +174,7 @@ fn body() -> Option<Int> with Async {
 }
 
 fn main() with IO {
-    let opt = run_async(body)
-    match opt {
-        Some(v) -> print(v),
-        None    -> print(-1)
-    }
+    print(run_async(body))
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_body");
@@ -186,7 +182,64 @@ fn main() with IO {
         success,
         "native async try_ body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert_eq!(stdout.trim(), "42");
+    assert_eq!(stdout.trim(), "Ok(42)");
+}
+
+#[test]
+fn native_async_try_catches_panic_and_worker_reuses_afterward() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn boom() -> Int with Async {
+    panic("boom")
+}
+
+fn ok() -> Int with Async {
+    sleep(10)
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { try_(boom) }))
+    print(run_async(fn() { try_(ok) }))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "try_panic_reuse");
+    assert!(
+        success,
+        "native async try_ panic must be caught and worker reused:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "Err(Panicked(\"boom\"))\nOk(7)");
+}
+
+#[test]
+fn native_async_try_catches_both_child_panic() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn boom() -> Int with Async {
+    panic("boom")
+}
+
+fn slow() -> Int with Async {
+    sleep(50)
+    1
+}
+
+fn body() with Async {
+    try_(fn() { both(boom, slow) })
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "try_both_panic");
+    assert!(
+        success,
+        "native async try_ must catch child panic from both:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "Err(Panicked(\"boom\"))");
 }
 
 #[test]
