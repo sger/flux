@@ -3574,6 +3574,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
             return "flux_http_active_connection_count".to_string();
         }
         CorePrimOp::HttpIsShuttingDown => return "flux_http_is_shutting_down".to_string(),
+        CorePrimOp::HttpServerStopped => return "flux_http_server_stopped".to_string(),
+        CorePrimOp::HttpIsServerStopped => return "flux_http_is_server_stopped".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3737,10 +3739,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         "flux_http_shutdown" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_shutdown_now" => (LlvmType::i64(), vec![LlvmType::i64()]),
-        "flux_http_parse_request" => (
-            LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64()],
-        ),
+        "flux_http_parse_request" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_http_write_response" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_http_register_connection" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
@@ -3750,6 +3749,8 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         }
         "flux_http_active_connection_count" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_is_shutting_down" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_is_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
         _ => return None,
     };
     Some(LlvmDecl {

@@ -171,9 +171,11 @@ mod tests {
         assert_eq!(cont.frames.len(), 2);
         assert_eq!(cont.stack.len(), 12);
         assert_eq!(cont.stack[0], Value::Integer(3));
-        assert!(cont.stack[1..10]
-            .iter()
-            .all(|value| matches!(value, Value::Uninit)));
+        assert!(
+            cont.stack[1..10]
+                .iter()
+                .all(|value| matches!(value, Value::Uninit))
+        );
         assert_eq!(cont.stack[10], Value::Integer(1));
         assert_eq!(cont.stack[11], Value::Integer(2));
     }
