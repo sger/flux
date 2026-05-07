@@ -1464,7 +1464,7 @@ impl Parser {
             if self.is_current_token(TokenType::RParen) {
                 break;
             }
-            if let Some(sym) = self.current_token.symbol {
+            if let Some(sym) = self.parse_qualified_name() {
                 classes.push(sym);
             }
             if self.is_peek_token(TokenType::Comma) {

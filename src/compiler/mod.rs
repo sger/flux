@@ -1159,10 +1159,19 @@ impl Compiler {
 
         if module_count == 1 {
             let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
-                generated.into_iter().partition(|stmt| match stmt {
-                    Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
-                    _ => false,
-                });
+                if self.is_flow_library_file() {
+                    (Vec::new(), generated)
+                } else {
+                    generated.into_iter().partition(|stmt| match stmt {
+                        Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
+                        _ => false,
+                    })
+                };
+            let first_non_import = program
+                .statements
+                .iter()
+                .position(|stmt| !matches!(stmt, Statement::Import { .. }))
+                .unwrap_or(program.statements.len());
             let statements = program
                 .statements
                 .iter()
@@ -1170,7 +1179,7 @@ impl Compiler {
                 .enumerate()
                 .flat_map(|(idx, stmt)| {
                     let mut emitted = Vec::new();
-                    if idx == 0 {
+                    if idx == first_non_import {
                         emitted.extend(top_level_generated.clone());
                     }
                     match stmt {
@@ -1196,8 +1205,21 @@ impl Compiler {
                 span: program.span,
             }
         } else {
-            let mut statements = generated;
-            statements.extend(program.statements.iter().cloned());
+            let first_non_import = program
+                .statements
+                .iter()
+                .position(|stmt| !matches!(stmt, Statement::Import { .. }))
+                .unwrap_or(program.statements.len());
+            let mut statements = Vec::new();
+            for (idx, stmt) in program.statements.iter().cloned().enumerate() {
+                if idx == first_non_import {
+                    statements.extend(generated.clone());
+                }
+                statements.push(stmt);
+            }
+            if first_non_import == program.statements.len() {
+                statements.extend(generated);
+            }
             Program {
                 statements,
                 span: program.span,

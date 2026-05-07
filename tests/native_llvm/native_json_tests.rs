@@ -100,3 +100,53 @@ fn main() with IO {
     );
     assert!(stdout.contains("\"[\"a\",false,null]\""), "{stdout}");
 }
+
+#[test]
+fn native_json_derived_record_and_sum_codecs() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Json as Json
+
+data Person { Person { name: String, age: Int } } deriving (Json.Encode, Json.Decode)
+data Shape { Dot, Circle(Float) } deriving (Encode, Decode)
+
+fn main() with IO {
+    let person = Person { name: "Ada", age: 42 }
+    let person_json = encode(person)
+    print(Json.encode_json(person_json))
+    let decoded_person = Json.result_or(decode(person_json), Person { name: "", age: 0 })
+    match decoded_person {
+        Person { name, age } -> print(name + ":" + to_string(age))
+    }
+
+    let circle_json = encode(Circle(2.5))
+    print(Json.encode_json(circle_json))
+    let decoded_circle = Json.result_or(decode(circle_json), Dot)
+    match decoded_circle {
+        Circle(r) -> print(to_string(r)),
+        _ -> print("not-circle")
+    }
+
+    let bad_person = Json.result_or(decode(Json.parse("{\"tag\":\"Nope\",\"fields\":[]}")), Person { name: "fallback", age: -1 })
+    match bad_person {
+        Person { name, age } -> print(name + ":" + to_string(age))
+    }
+}
+"#,
+    );
+    assert!(
+        ok,
+        "native JSON deriving fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("\"{\"fields\":{\"age\":42,\"name\":\"Ada\"},\"tag\":\"Person\"}\""),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\"Ada:42\""), "{stdout}");
+    assert!(
+        stdout.contains("\"{\"fields\":[2.5],\"tag\":\"Circle\"}\""),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\"2.5\""), "{stdout}");
+    assert!(stdout.contains("\"fallback:-1\""), "{stdout}");
+}

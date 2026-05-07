@@ -1112,7 +1112,9 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Data {
+                    is_public,
                     name,
+                    type_params,
                     deriving,
                     span,
                     ..
@@ -1122,10 +1124,19 @@ impl ClassEnv {
                         // a class in the same module as the data declaration,
                         // falling back to the bare-name shim. Mirrors the
                         // disambiguation rule used by `collect_instances`.
-                        let class_id = match env
+                        let class_def = env
                             .lookup_class_in_module_or_global(current_module, *class_name)
-                        {
-                            Some(def) => def.class_id(),
+                            .or_else(|| {
+                                interner
+                                    .try_resolve(*class_name)
+                                    .and_then(|name| name.rsplit('.').next())
+                                    .and_then(|short| interner.lookup(short))
+                                    .and_then(|short| {
+                                        env.lookup_class_in_module_or_global(current_module, short)
+                                    })
+                            });
+                        let (class_id, resolved_class_name) = match class_def {
+                            Some(def) => (def.class_id(), def.name),
                             None => {
                                 let class_display = interner.resolve(*class_name);
                                 let type_display = interner.resolve(*name);
@@ -1141,24 +1152,32 @@ impl ClassEnv {
                             }
                         };
 
-                        // Register a derived instance (no method bodies —
-                        // the constraint solver just needs to know it exists).
-                        let type_arg = builtin_type(*name);
+                        let type_arg = TypeExpr::Named {
+                            name: *name,
+                            args: type_params
+                                .iter()
+                                .map(|param| builtin_type(*param))
+                                .collect(),
+                            span: Span::default(),
+                        };
+                        let context = type_params
+                            .iter()
+                            .map(|param| ClassConstraint {
+                                class_name: resolved_class_name,
+                                type_args: vec![builtin_type(*param)],
+                                span: *span,
+                            })
+                            .collect();
                         env.instances.push(InstanceDef {
-                            class_name: *class_name,
+                            class_name: resolved_class_name,
                             class_id,
                             instance_module: current_module,
-                            // Derived instances inherit the data
-                            // declaration's visibility. ADTs don't yet
-                            // carry an `is_public` flag, so we default
-                            // to private for now; this is tightened
-                            // when ADT visibility lands later in Phase 2.
-                            is_public: false,
+                            is_public: *is_public,
                             type_args: vec![type_arg],
-                            context: vec![],
+                            context,
                             method_names: vec![],
                             method_effects: vec![],
-                            span: *span,
+                            span: Span::default(),
                         });
                     }
                 }

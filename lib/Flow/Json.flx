@@ -1,6 +1,9 @@
 import Flow.Array as Array
+import Flow.Array
 import Flow.List as List
+import Flow.List
 import Flow.Map as Map
+import Flow.Map
 
 module Flow.Json {
     public data Json {
@@ -71,6 +74,13 @@ module Flow.Json {
         }
     }
 
+    public fn and_then<a, b>(result: JsonResult<a>, f: (a) -> JsonResult<b>) -> JsonResult<b> {
+        match result {
+            JsonOk(value) -> f(value),
+            JsonErr(err) -> JsonErr(err)
+        }
+    }
+
     public fn error_message<a>(result: JsonResult<a>) -> String {
         match result {
             JsonOk(_) -> "",
@@ -86,6 +96,78 @@ module Flow.Json {
     public fn string(value: String) -> Json { JsonString(value) }
     public fn array(value: Array<Json>) -> Json { JsonArray(value) }
     public fn object(value: Map<String, Json>) -> Json { JsonObject(value) }
+
+    public fn ok<a>(value: a) -> JsonResult<a> { JsonOk(value) }
+
+    public fn err<a>(path: String, message: String) -> JsonResult<a> {
+        JsonErr(JsonError { path, message })
+    }
+
+    public fn empty_fields() -> Map<String, Json> { {} }
+
+    public fn set_field(fields: Map<String, Json>, name: String, value: Json) -> Map<String, Json> {
+        Flow.Map.set(fields, name, value)
+    }
+
+    public fn tagged(tag: String, fields: Json) -> Json {
+        JsonObject(set_field(set_field(empty_fields(), "tag", JsonString(tag)), "fields", fields))
+    }
+
+    public fn as_string(value: Json, path: String) -> JsonResult<String> {
+        match value {
+            JsonString(text) -> JsonOk(text),
+            _ -> JsonErr(JsonError { path, message: "expected JSON string" })
+        }
+    }
+
+    public fn as_bool(value: Json, path: String) -> JsonResult<Bool> {
+        match value {
+            JsonBool(flag) -> JsonOk(flag),
+            _ -> JsonErr(JsonError { path, message: "expected JSON bool" })
+        }
+    }
+
+    public fn as_float(value: Json, path: String) -> JsonResult<Float> {
+        match value {
+            JsonNumber(number) -> JsonOk(number),
+            _ -> JsonErr(JsonError { path, message: "expected JSON number" })
+        }
+    }
+
+    public fn as_int(value: Json, path: String) -> JsonResult<Int> {
+        match value {
+            JsonNumber(number) -> JsonOk(parse_int(to_string(number))),
+            _ -> JsonErr(JsonError { path, message: "expected JSON number" })
+        }
+    }
+
+    public fn as_array(value: Json, path: String) -> JsonResult<Array<Json>> {
+        match value {
+            JsonArray(items) -> JsonOk(items),
+            _ -> JsonErr(JsonError { path, message: "expected JSON array" })
+        }
+    }
+
+    public fn as_object(value: Json, path: String) -> JsonResult<Map<String, Json>> {
+        match value {
+            JsonObject(fields) -> JsonOk(fields),
+            _ -> JsonErr(JsonError { path, message: "expected JSON object" })
+        }
+    }
+
+    public fn object_get(fields: Map<String, Json>, name: String, path: String) -> JsonResult<Json> {
+        match Flow.Map.get(fields, name) {
+            Some(value) -> JsonOk(value),
+            _ -> JsonErr(JsonError { path, message: "missing JSON field" })
+        }
+    }
+
+    public fn array_get(items: Array<Json>, index: Int, path: String) -> JsonResult<Json> {
+        match items[index] {
+            Some(value) -> JsonOk(value),
+            _ -> JsonErr(JsonError { path, message: "missing JSON array element" })
+        }
+    }
 
     public instance Encode<Json> {
         fn encode(value) { value }
@@ -170,7 +252,7 @@ module Flow.Json {
 
     public instance Encode<a> => Encode<Array<a>> {
         fn encode(values) {
-            JsonArray(Array.map(values, fn(value) { encode(value) }))
+            JsonArray(Flow.Array.map(values, fn(value) { encode(value) }))
         }
     }
 
@@ -184,7 +266,7 @@ module Flow.Json {
                         } else {
                             match values[index] {
                                 Some(item) -> match decode(item) {
-                                    JsonOk(decoded) -> go(index + 1, Array.push(acc, decoded)),
+                                    JsonOk(decoded) -> go(index + 1, Flow.Array.push(acc, decoded)),
                                     JsonErr(err) -> JsonErr(err)
                                 },
                                 _ -> go(index + 1, acc)
@@ -200,14 +282,14 @@ module Flow.Json {
 
     public instance Encode<a> => Encode<List<a>> {
         fn encode(values) {
-            JsonArray(Array.map(List.to_array(values), fn(value) { encode(value) }))
+            JsonArray(Flow.Array.map(Flow.List.to_array(values), fn(value) { encode(value) }))
         }
     }
 
     public instance Decode<a> => Decode<List<a>> {
         fn decode(value) {
             match decode(value) {
-                JsonOk(values) -> JsonOk(Array.to_list(values)),
+                JsonOk(values) -> JsonOk(Flow.Array.to_list(values)),
                 JsonErr(err) -> JsonErr(err)
             }
         }
@@ -215,14 +297,14 @@ module Flow.Json {
 
     public instance Encode<a> => Encode<Map<String, a>> {
         fn encode(values) {
-            let keys = Map.keys(values)
+            let keys = Flow.Map.keys(values)
             fn go(index, acc) {
                 if index >= len(keys) {
                     acc
                 } else {
                     match keys[index] {
-                        Some(key) -> match Map.get(values, key) {
-                            Some(value) -> go(index + 1, Map.set(acc, key, encode(value))),
+                        Some(key) -> match Flow.Map.get(values, key) {
+                            Some(value) -> go(index + 1, Flow.Map.set(acc, key, encode(value))),
                             _ -> go(index + 1, acc)
                         },
                         _ -> go(index + 1, acc)
@@ -237,15 +319,15 @@ module Flow.Json {
         fn decode(value) {
             match value {
                 JsonObject(values) -> do {
-                    let keys = Map.keys(values)
+                    let keys = Flow.Map.keys(values)
                     fn go(index, acc) {
                         if index >= len(keys) {
                             JsonOk(acc)
                         } else {
                             match keys[index] {
-                                Some(key) -> match Map.get(values, key) {
+                                Some(key) -> match Flow.Map.get(values, key) {
                                     Some(item) -> match decode(item) {
-                                        JsonOk(decoded) -> go(index + 1, Map.set(acc, key, decoded)),
+                                        JsonOk(decoded) -> go(index + 1, Flow.Map.set(acc, key, decoded)),
                                         JsonErr(err) -> JsonErr(err)
                                     },
                                     _ -> go(index + 1, acc)
