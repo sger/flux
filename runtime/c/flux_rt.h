@@ -202,6 +202,7 @@ int64_t flux_fiber_sleep(int64_t ms);
 int64_t flux_fiber_both(int64_t f, int64_t g);
 int64_t flux_fiber_race(int64_t f, int64_t g);
 int64_t flux_fiber_first_of(int64_t children);
+int64_t flux_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
 int64_t flux_fiber_timeout(int64_t ms, int64_t f);
 /* scope_ctor_tag: Scope constructor's integer tag, supplied by LLVM codegen. */
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
@@ -220,10 +221,14 @@ int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, in
 typedef struct FluxAsyncCallbacks {
     int64_t (*call0)(int64_t closure);
     int64_t (*resume1)(int64_t continuation, int64_t value);
+    int32_t (*try_call0)(int64_t closure, int64_t *out);
+    int32_t (*try_resume1)(int64_t continuation, int64_t value, int64_t *out);
     void (*retain)(int64_t value);
     void (*release)(int64_t value);
     int64_t (*make_tuple2)(int64_t left, int64_t right);
     int64_t (*wrap_some)(int64_t value);
+    int64_t (*make_adt0)(int32_t ctor_tag);
+    int64_t (*make_adt1)(int32_t ctor_tag, int64_t value);
     int64_t (*suspend)(int64_t request_id, int64_t resume_value);
     int32_t (*is_suspended)(void);
     int64_t (*current_request)(void);
@@ -237,6 +242,7 @@ typedef struct FluxAsyncCallbacks {
 int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
 int32_t  flux_async_runtime_init(void);
 int64_t  flux_async_run_root(int64_t root_closure);
+int32_t  flux_async_last_run_failed(void);
 int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
@@ -246,6 +252,7 @@ void     flux_async_task_complete(uint64_t request_id, int64_t value);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
 uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
+uint64_t flux_async_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
 uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
@@ -264,10 +271,14 @@ int64_t  flux_async_current_request(void);
 void     flux_async_clear_suspend(void);
 int64_t  flux_async_call0(int64_t closure);
 int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+int32_t  flux_async_try_call0(int64_t closure, int64_t *out);
+int32_t  flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out);
 void     flux_async_retain(int64_t value);
 void     flux_async_release(int64_t value);
 int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
 int64_t  flux_async_wrap_some(int64_t value);
+int64_t  flux_async_make_adt0(int32_t ctor_tag);
+int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
 void     flux_async_promote(int64_t value);
 void     flux_async_enter_worker_thread(void);
 int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);
@@ -275,6 +286,7 @@ int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 int32_t  flux_async_runtime_init(void);
 int64_t  flux_async_run_root(int64_t root_closure);
+int32_t  flux_async_last_run_failed(void);
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
@@ -283,6 +295,7 @@ void     flux_async_task_complete(uint64_t request_id, int64_t value);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
 uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
+uint64_t flux_async_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
 uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
@@ -294,10 +307,17 @@ int64_t  flux_async_current_request(void);
 void     flux_async_clear_suspend(void);
 int64_t  flux_async_call0(int64_t closure);
 int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+int32_t  flux_async_try_call0(int64_t closure, int64_t *out);
+int32_t  flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out);
 void     flux_async_retain(int64_t value);
 void     flux_async_release(int64_t value);
 int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
 int64_t  flux_async_wrap_some(int64_t value);
+int64_t  flux_async_make_adt0(int32_t ctor_tag);
+int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out);
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out);
 
 /* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
 /* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */

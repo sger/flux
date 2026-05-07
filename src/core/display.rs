@@ -602,6 +602,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FiberCheckCancelled => out.push_str("FiberCheckCancelled"),
         CorePrimOp::FiberRunAsyncWith => out.push_str("FiberRunAsyncWith"),
         CorePrimOp::FiberFirstOf => out.push_str("FiberFirstOf"),
+        CorePrimOp::FiberTry => out.push_str("FiberTry"),
     }
 }
 

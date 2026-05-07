@@ -1,0 +1,37 @@
+// parity: vm, llvm
+// expect: success
+
+import Flow.Async exposing (..)
+
+fn ok_body() -> Int with Async {
+    10
+}
+
+fn panic_body() -> Int with Async {
+    panic("boom")
+}
+
+fn fail_body() -> Int with Async {
+    fail(canceled_error())
+}
+
+fn timeout_body() -> Int with Async {
+    sleep(50)
+    99
+}
+
+fn timeout_panic_body() -> Int with Async {
+    panic("timeout-boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { try_(ok_body) }))
+
+    print(run_async(fn() { try_(panic_body) }))
+
+    print(run_async(fn() { try_(fail_body) }))
+
+    print(run_async(fn() { timeout_result(1, timeout_body) }))
+
+    print(run_async(fn() { timeout_result(100, timeout_panic_body) }))
+}

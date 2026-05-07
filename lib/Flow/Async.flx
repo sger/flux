@@ -26,6 +26,8 @@ module Flow.Async {
         Canceled,
         /// A `timeout` or `timeout_result` deadline expired.
         TimedOut,
+        /// A fiber panicked while running under `Async.run_async`.
+        Panicked(String),
         /// TCP / UDP I/O failure. Fields: (errno, message, syscall).
         IoError(Int, String, String),
         /// DNS resolution failure. Fields: (code, message, host).
@@ -35,6 +37,13 @@ module Flow.Async {
         /// Address could not be parsed.
         InvalidAddress(String),
     }
+
+    public data Result<a, e> {
+        Ok(a),
+        Err(e),
+    }
+
+    public fn canceled_error() -> AsyncError { Canceled }
 
     // ── Structural handles ────────────────────────────────────────────
 
@@ -74,6 +83,9 @@ module Flow.Async {
 
     /// Raise an `AsyncError` in the current fiber.
     intrinsic fn fiber_fail_prim<a>(err: AsyncError) -> a = primop FiberFail
+
+    /// Run `body` under an async error boundary.
+    intrinsic fn fiber_try_prim<a>(body: () -> a with Async) -> Result<a, AsyncError> = primop FiberTry
 
     /// Run two fibers concurrently, returning both results as a pair
     /// (proposal 0174 Phase 1b-vi-b₂.2). VM: real overlap via the fiber
@@ -252,8 +264,12 @@ module Flow.Async {
     /// Like `timeout` but preserves the error channel.
     ///
     /// VM: real overlap via fiber scheduler — same shape as `timeout`.
-    public fn timeout_result<a>(ms: Int, f: () -> a with Async) -> Option<a> with Async {
-        fiber_timeout_prim(ms, f)
+    public fn timeout_result<a>(ms: Int, f: () -> a with Async) -> Result<a, AsyncError> with Async {
+        match fiber_try_prim(fn() { fiber_timeout_prim(ms, f) }) {
+            Ok(Some(v)) -> Ok(v),
+            Ok(None)    -> Err(TimedOut),
+            Err(err)    -> Err(err)
+        }
     }
 
     /// Run `body`; always run `cleanup` afterward.
@@ -279,11 +295,9 @@ module Flow.Async {
         result
     }
 
-    /// Catch errors in `body` and return as `None`.
-    ///
-    /// VM: returns `Some(body())`.
-    public fn try_<a>(body: () -> a with Async) -> Option<a> with Async {
-        Some(body())
+    /// Catch async fiber failures in `body`.
+    public fn try_<a>(body: () -> a with Async) -> Result<a, AsyncError> with Async {
+        fiber_try_prim(body)
     }
 
     /// Raise an `AsyncError` inside the current fiber.
@@ -305,19 +319,13 @@ module Flow.Async {
     /// should call this periodically and `return` early when it returns
     /// true.
     ///
-    /// `Async.yield_now()` is **not** yet a cancellation point on its
-    /// own — that comes in slice 2-vi together with the real
-    /// `Async.fail` raise machinery. Until then, pair this with an
-    /// explicit `return` or use `bail_if_cancelled` for the common
-    /// raise-and-unwind shape (see proposal 0174 slice 2-iv).
+    /// Pair this with `bail_if_cancelled` when the fiber should raise
+    /// `AsyncError.Canceled` at a cooperative checkpoint.
     public fn check_cancelled() -> Bool with Async {
         fiber_check_cancelled_prim()
     }
 
     /// Convenience wrapper: `if check_cancelled() { fail(AsyncError.Canceled) }`.
-    /// Until slice 2-vi makes `fail` a catchable raise, this aborts the
-    /// fiber via the existing soft-cancel path (today: VM `Err` string,
-    /// caught at the `run_async` boundary).
     public fn bail_if_cancelled() -> Unit with Async {
         if check_cancelled() { fail(Canceled) }
         else { () };

@@ -653,8 +653,7 @@ int64_t flux_fiber_get_context(void) {
 }
 
 int64_t flux_fiber_fail(int64_t error_value) {
-    (void)error_value;
-    flux_fiber_unimplemented("flux_fiber_fail");
+    flux_panic(error_value);
     return FLUX_NONE;
 }
 
@@ -664,10 +663,14 @@ static void flux_async_register_callbacks(void) {
     FluxAsyncCallbacks callbacks = {
         flux_async_call0,
         flux_async_resume1,
+        flux_async_try_call0,
+        flux_async_try_resume1,
         flux_async_retain,
         flux_async_release,
         flux_async_make_tuple2,
         flux_async_wrap_some,
+        flux_async_make_adt0,
+        flux_async_make_adt1,
         flux_async_suspend,
         flux_async_is_suspended,
         flux_async_current_request,
@@ -685,7 +688,11 @@ static void flux_async_register_callbacks(void) {
 
 int64_t flux_fiber_run_async(int64_t closure) {
     flux_async_register_callbacks();
-    return flux_async_run_root(closure);
+    int64_t result = flux_async_run_root(closure);
+    if (flux_async_last_run_failed() != 0) {
+        flux_panic(result);
+    }
+    return result;
 }
 
 int64_t flux_fiber_yield_now(void) {
@@ -714,6 +721,14 @@ int64_t flux_async_resume1(int64_t continuation, int64_t value) {
     return flux_call_closure_c(continuation, args, 1);
 }
 
+int32_t flux_async_try_call0(int64_t closure, int64_t *out) {
+    return flux_try_call0_raw(closure, out);
+}
+
+int32_t flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out) {
+    return flux_try_resume1_raw(continuation, value, out);
+}
+
 void flux_async_retain(int64_t value) {
     flux_dup(value);
 }
@@ -733,6 +748,24 @@ int64_t flux_async_make_tuple2(int64_t left, int64_t right) {
 
 int64_t flux_async_wrap_some(int64_t value) {
     return flux_wrap_some(value);
+}
+
+int64_t flux_async_make_adt0(int32_t ctor_tag) {
+    void *mem = flux_gc_alloc_header(8, 0, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = ctor_tag;
+    hdr[1] = 0;
+    return flux_tag_ptr(mem);
+}
+
+int64_t flux_async_make_adt1(int32_t ctor_tag, int64_t value) {
+    void *mem = flux_gc_alloc_header(8 + 8, 1, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = ctor_tag;
+    hdr[1] = 1;
+    int64_t *fields = (int64_t *)((char *)mem + 8);
+    fields[0] = value;
+    return flux_tag_ptr(mem);
 }
 
 void flux_async_promote(int64_t value) {
@@ -811,6 +844,11 @@ int64_t flux_fiber_first_of(int64_t children) {
 
     uint64_t request_id = flux_async_fiber_first_of(closures, (uintptr_t)len);
     free(closures);
+    return flux_async_suspend_request(request_id);
+}
+
+int64_t flux_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body) {
+    uint64_t request_id = flux_async_fiber_try(ok_ctor_tag, err_ctor_tag, panicked_ctor_tag, body);
     return flux_async_suspend_request(request_id);
 }
 

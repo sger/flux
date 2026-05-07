@@ -711,7 +711,10 @@ pub enum CorePrimOp {
     /// Int is the zero-based winning index. Empty-list checking lives in
     /// `Flow.Async.first_of`; the primop is the scheduler primitive.
     FiberFirstOf = 180,
-    // ── Next free ID: 181 ─────────────────────────────────────────────
+    /// Run an async action under a catch boundary, returning Result.
+    /// Args: (() -> a with Async) → Result<a, AsyncError>.
+    FiberTry = 181,
+    // ── Next free ID: 182 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -779,6 +782,7 @@ impl CorePrimOp {
             "FiberCheckCancelled" => return Some(Self::FiberCheckCancelled),
             "FiberRunAsyncWith" => return Some(Self::FiberRunAsyncWith),
             "FiberFirstOf" => return Some(Self::FiberFirstOf),
+            "FiberTry" => return Some(Self::FiberTry),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -879,6 +883,7 @@ impl CorePrimOp {
             Self::FiberCancelScope => Some("fiber_cancel_scope"),
             Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
             Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
+            Self::FiberTry => Some("fiber_try"),
             _ => None,
         }
     }
@@ -1054,6 +1059,7 @@ impl CorePrimOp {
             178 => FiberCheckCancelled,
             179 => FiberRunAsyncWith,
             180 => FiberFirstOf,
+            181 => FiberTry,
             _ => return None,
         };
         Some(op)
@@ -1196,6 +1202,7 @@ impl CorePrimOp {
             ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
             ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
+            ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
@@ -1235,7 +1242,8 @@ impl CorePrimOp {
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
-            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf => 1,
+            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf
+            | FiberTry => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
