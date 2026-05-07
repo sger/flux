@@ -161,6 +161,67 @@ fn handler(req) with Async {
 }
 
 #[test]
+fn native_http_serves_repeated_browser_style_connections() {
+    let port = next_port();
+    let source = format!(
+        r#"
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+import Flow.Tcp as Tcp
+
+fn handler(req) with Async {{
+    ok(req.path)
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve_config("127.0.0.1", {port}, default_config(), handler)
+    let _sleep = sleep(700)
+    shutdown(h)
+}}
+
+fn request_root() -> String with Async {{
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET / HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response
+}}
+
+fn request_favicon() -> String with Async {{
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /favicon.ico HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let _one: String = request_root()
+    let _two: String = request_favicon()
+    let _three: String = request_root()
+    "ok"
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+
+fn main() with IO {{
+    print(run_async(body))
+}}
+"#
+    );
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "native repeated HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("ok"), "{stdout}");
+}
+
+#[test]
 fn native_http_malformed_request_returns_400() {
     let port = next_port();
     let source = basic_source(
