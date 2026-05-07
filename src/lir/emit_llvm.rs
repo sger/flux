@@ -1925,6 +1925,43 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        if let CorePrimOp::HttpParseRequest = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_request",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("HttpNeedMore", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpParsed", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpParseFailure", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("Request", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("Get", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("Post", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("Put", 11))),
+                    (LlvmType::i32(), self.i32_const(tag("Delete", 12))),
+                    (LlvmType::i32(), self.i32_const(tag("Patch", 13))),
+                    (LlvmType::i32(), self.i32_const(tag("Head", 14))),
+                    (LlvmType::i32(), self.i32_const(tag("Options", 15))),
+                    (LlvmType::i64(), self.var(args[0])),
+                    (LlvmType::i64(), self.var(args[1])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
             .iter()
             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -3739,7 +3776,24 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         "flux_http_shutdown" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_shutdown_now" => (LlvmType::i64(), vec![LlvmType::i64()]),
-        "flux_http_parse_request" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_http_parse_request" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
         "flux_http_write_response" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_http_register_connection" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
