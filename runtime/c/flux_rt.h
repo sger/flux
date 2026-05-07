@@ -203,6 +203,7 @@ int64_t flux_fiber_sleep(int64_t ms);
 /* Fiber combinators — sequential-equivalent (proposal 0174 Phase 1b-vi-d). */
 int64_t flux_fiber_both(int64_t f, int64_t g);
 int64_t flux_fiber_race(int64_t f, int64_t g);
+int64_t flux_fiber_first_of(int64_t children);
 int64_t flux_fiber_timeout(int64_t ms, int64_t f);
 /* scope_ctor_tag: Scope constructor's integer tag, supplied by LLVM codegen. */
 int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
@@ -244,6 +245,7 @@ int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
 uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
@@ -278,6 +280,7 @@ int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
 uint64_t flux_async_fiber_both(int64_t left, int64_t right);
 uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
 uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
 uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);

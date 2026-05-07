@@ -4071,6 +4071,7 @@ impl<'a> FnLower<'a> {
             CorePrimOp::FiberSleep
             | CorePrimOp::FiberBoth
             | CorePrimOp::FiberRace
+            | CorePrimOp::FiberFirstOf
             | CorePrimOp::FiberTimeout
             | CorePrimOp::TcpConnect
             | CorePrimOp::TcpRead

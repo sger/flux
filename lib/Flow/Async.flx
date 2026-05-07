@@ -84,6 +84,10 @@ module Flow.Async {
     /// VM: real overlap; loser cancelled immediately on winner resolution (1b-vi-c).
     intrinsic fn fiber_race_prim<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a = primop FiberRace
 
+    /// Phase 2 slice 2-ii: run N fibers concurrently and return the
+    /// zero-based winning index plus the first result.
+    intrinsic fn fiber_first_of_prim<a>(fs: List<() -> a with Async>) -> (Int, a) = primop FiberFirstOf
+
     /// Bound `f` by `ms` milliseconds: returns `Some(f())` if `f` completes
     /// in time, `None` if the timer fires first (proposal 0174 Phase 1b-vi
     /// follow-up). VM: real overlap via fiber scheduler. Native: 1b-vi-d.
@@ -221,6 +225,21 @@ module Flow.Async {
     /// Parser limitation (Phase 1b): pass named `with Async` functions for both args.
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
         fiber_race_prim(f, g)
+    }
+
+    /// Run every async thunk in `fs`; return the zero-based index and value
+    /// from the first one that completes. Source order breaks immediate ties.
+    public fn first_of<a>(fs: List<() -> a with Async>) -> (Int, a) with Async {
+        match fs {
+            [_ | _] -> fiber_first_of_prim(fs),
+            _ -> panic("Async.first_of called on empty list")
+        }
+    }
+
+    /// Run every async thunk in `fs`; return the first completed value.
+    public fn first<a>(fs: List<() -> a with Async>) -> a with Async {
+        let pair = first_of(fs)
+        pair.1
     }
 
     /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.

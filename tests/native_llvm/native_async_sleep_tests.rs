@@ -279,6 +279,116 @@ fn main() with IO, Clock {
 }
 
 #[test]
+fn native_first_of_returns_fastest_index_and_cancels_losers() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(2000)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(50)
+    2
+}
+
+fn body() -> (Int, Int) with Async {
+    first_of([slow, fast, slow])
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let pair = run_async(body)
+    let t1 = now_ms()
+    print(pair.0)
+    print(pair.1)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "first_of_fastest");
+    assert!(
+        success,
+        "native first_of fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(&lines[..2], ["1", "2"]);
+    let measured_ms: i64 = lines[2].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "first_of waited for slow losers: {measured_ms}ms"
+    );
+}
+
+#[test]
+fn native_first_of_immediate_children_are_source_ordered() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn ten() -> Int with Async { 10 }
+fn twenty() -> Int with Async { 20 }
+fn thirty() -> Int with Async { 30 }
+
+fn body() -> (Int, Int) with Async {
+    first_of([ten, twenty, thirty])
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    print(pair.0)
+    print(pair.1)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "first_of_fifo");
+    assert!(
+        success,
+        "native first_of tie must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "0\n10");
+}
+
+#[test]
+fn native_first_returns_fastest_value() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(2000)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn body() -> Int with Async {
+    first([slow, fast, slow])
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let v = run_async(body)
+    let t1 = now_ms()
+    print(v)
+    print(t1 - t0)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "first_fastest");
+    assert!(
+        success,
+        "native first fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(lines[0], "7");
+    let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
+    assert!(
+        measured_ms < 500,
+        "first waited for slow losers: {measured_ms}ms"
+    );
+}
+
+#[test]
 fn native_timeout_returns_none_when_timer_wins() {
     let source = r#"
 import Flow.Async exposing (..)

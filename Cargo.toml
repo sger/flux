@@ -383,6 +383,10 @@ name = "vm_fiber_overlap"
 path = "tests/integration/vm_fiber_overlap.rs"
 
 [[test]]
+name = "vm_fiber_first_of"
+path = "tests/integration/vm_fiber_first_of.rs"
+
+[[test]]
 name = "vm_fiber_timeout"
 path = "tests/integration/vm_fiber_timeout.rs"
 
