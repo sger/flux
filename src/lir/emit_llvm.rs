@@ -1962,6 +1962,107 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        if let CorePrimOp::HttpParseUrl = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_url",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("HttpUrlParsed", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpUrlFailure", 6))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpWriteRequest = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_write_request",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("Get", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("Post", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("Put", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("Delete", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("Patch", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("Head", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("Options", 11))),
+                    (LlvmType::i64(), self.var(args[0])),
+                    (LlvmType::i64(), self.var(args[1])),
+                    (LlvmType::i64(), self.var(args[2])),
+                    (LlvmType::i64(), self.var(args[3])),
+                    (LlvmType::i64(), self.var(args[4])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpParseResponse = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_response",
+                vec![
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseNeedMore", 5)),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseParsed", 6)),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseFailure", 7)),
+                    ),
+                    (LlvmType::i32(), self.i32_const(tag("Response", 8))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
             .iter()
             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -3603,6 +3704,9 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::HttpShutdownNow => return "flux_http_shutdown_now".to_string(),
         CorePrimOp::HttpParseRequest => return "flux_http_parse_request".to_string(),
         CorePrimOp::HttpWriteResponse => return "flux_http_write_response".to_string(),
+        CorePrimOp::HttpParseUrl => return "flux_http_parse_url".to_string(),
+        CorePrimOp::HttpWriteRequest => return "flux_http_write_request".to_string(),
+        CorePrimOp::HttpParseResponse => return "flux_http_parse_response".to_string(),
         CorePrimOp::HttpRegisterConnection => return "flux_http_register_connection".to_string(),
         CorePrimOp::HttpUnregisterConnection => {
             return "flux_http_unregister_connection".to_string();
@@ -3795,6 +3899,37 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             ],
         ),
         "flux_http_write_response" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_http_parse_url" => (
+            LlvmType::i64(),
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+        ),
+        "flux_http_write_request" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_http_parse_response" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
         "flux_http_register_connection" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
         }

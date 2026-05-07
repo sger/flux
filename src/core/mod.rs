@@ -739,7 +739,13 @@ pub enum CorePrimOp {
     HttpServerStopped = 191,
     /// True once the detached source-level HTTP accept loop has stopped. Args: (server_id) -> Bool.
     HttpIsServerStopped = 192,
-    // ── Next free ID: 193 ─────────────────────────────────────────────
+    /// Parse a client URL. Args: (url) -> HttpUrlResult.
+    HttpParseUrl = 193,
+    /// Serialize a client request. Args: (Method, host, target, headers, body) -> String.
+    HttpWriteRequest = 194,
+    /// Parse one HTTP response from a buffered string. Args: (raw) -> HttpResponseParseResult.
+    HttpParseResponse = 195,
+    // ── Next free ID: 196 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -819,6 +825,9 @@ impl CorePrimOp {
             "HttpIsShuttingDown" => return Some(Self::HttpIsShuttingDown),
             "HttpServerStopped" => return Some(Self::HttpServerStopped),
             "HttpIsServerStopped" => return Some(Self::HttpIsServerStopped),
+            "HttpParseUrl" => return Some(Self::HttpParseUrl),
+            "HttpWriteRequest" => return Some(Self::HttpWriteRequest),
+            "HttpParseResponse" => return Some(Self::HttpParseResponse),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -931,6 +940,9 @@ impl CorePrimOp {
             Self::HttpIsShuttingDown => Some("http_is_shutting_down"),
             Self::HttpServerStopped => Some("http_server_stopped"),
             Self::HttpIsServerStopped => Some("http_is_server_stopped"),
+            Self::HttpParseUrl => Some("http_parse_url"),
+            Self::HttpWriteRequest => Some("http_write_request"),
+            Self::HttpParseResponse => Some("http_parse_response"),
             _ => None,
         }
     }
@@ -1118,6 +1130,9 @@ impl CorePrimOp {
             190 => HttpIsShuttingDown,
             191 => HttpServerStopped,
             192 => HttpIsServerStopped,
+            193 => HttpParseUrl,
+            194 => HttpWriteRequest,
+            195 => HttpParseResponse,
             _ => return None,
         };
         Some(op)
@@ -1285,6 +1300,9 @@ impl CorePrimOp {
             ("http_is_shutting_down", 1, CorePrimOp::HttpIsShuttingDown),
             ("http_server_stopped", 1, CorePrimOp::HttpServerStopped),
             ("http_is_server_stopped", 1, CorePrimOp::HttpIsServerStopped),
+            ("http_parse_url", 1, CorePrimOp::HttpParseUrl),
+            ("http_write_request", 5, CorePrimOp::HttpWriteRequest),
+            ("http_parse_response", 1, CorePrimOp::HttpParseResponse),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1384,7 +1402,9 @@ impl CorePrimOp {
             | HttpActiveConnectionCount
             | HttpIsShuttingDown
             | HttpServerStopped
-            | HttpIsServerStopped => 1,
+            | HttpIsServerStopped
+            | HttpParseUrl
+            | HttpParseResponse => 1,
             Add
             | Sub
             | Mul
@@ -1457,6 +1477,7 @@ impl CorePrimOp {
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
             | HttpServeConfig => 3,
             FiberRunAsyncWith => 4,
+            HttpWriteRequest => 5,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
