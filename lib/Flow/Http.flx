@@ -181,7 +181,7 @@ module Flow.Http {
         fn connection_body() with Async, AsyncFail {
             connection_loop(server_id, conn, buffer, handler)
         }
-        let ignored_connection_result = connection_body()
+        let ignored_connection_result = try_(connection_body)
         close_connection(server_id, conn)
     }
 

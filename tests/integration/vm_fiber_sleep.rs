@@ -89,3 +89,40 @@ fn main() with Async {
         "fiber_sleep(0) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
+
+#[test]
+fn forked_child_sleep_does_not_corrupt_parent_locals_across_helper_sleep() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+data Handle { Handle(Int) }
+
+fn child() -> Unit with Async {
+    sleep(20)
+}
+
+fn delay() -> Unit with Async {
+    sleep(10)
+}
+
+fn body() -> Int with Async {
+    let h = Handle(123)
+    let s = new_scope()
+    let _f = fork(s, child)
+    let _d = delay()
+    match h {
+        Handle(id) -> id
+    }
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source);
+    assert!(
+        success,
+        "parent locals must survive helper sleep with a forked child:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "123", "unexpected stdout:\n{stdout}");
+}

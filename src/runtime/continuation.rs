@@ -55,10 +55,7 @@ impl Continuation {
             return Ok(Value::None);
         }
 
-        let mut composed_frames = Vec::new();
-        let mut composed_stack = Vec::new();
-        let mut outermost: Option<Continuation> = None;
-        let mut innermost_sp = 0usize;
+        let mut continuations = Vec::new();
 
         for piece in pieces.iter().rev() {
             let cont = match piece {
@@ -70,15 +67,37 @@ impl Continuation {
                     ));
                 }
             };
-            if outermost.is_none() {
-                outermost = Some(cont.clone());
-            }
-            innermost_sp = cont.sp;
-            composed_frames.extend(cont.frames.clone());
-            composed_stack.extend(cont.stack.clone());
+            continuations.push(cont);
         }
 
-        let outermost = outermost.expect("pieces.is_empty handled above");
+        let outermost = continuations
+            .first()
+            .expect("pieces.is_empty handled above");
+        let innermost_sp = continuations
+            .last()
+            .expect("pieces.is_empty handled above")
+            .sp;
+        if innermost_sp < outermost.entry_sp {
+            return Err("Continuation::compose found inverted stack span".to_string());
+        }
+
+        let mut composed_frames = Vec::new();
+        let mut composed_stack = vec![Value::Uninit; innermost_sp - outermost.entry_sp];
+        for cont in &continuations {
+            if cont.entry_sp < outermost.entry_sp {
+                return Err("Continuation::compose found piece before outer boundary".to_string());
+            }
+            let offset = cont.entry_sp - outermost.entry_sp;
+            let end = offset + cont.stack.len();
+            if end > composed_stack.len() || cont.sp > innermost_sp {
+                return Err("Continuation::compose found piece outside stack span".to_string());
+            }
+            composed_frames.extend(cont.frames.clone());
+            for (idx, value) in cont.stack.iter().cloned().enumerate() {
+                composed_stack[offset + idx] = value;
+            }
+        }
+
         Ok(Value::Continuation(std::rc::Rc::new(
             std::cell::RefCell::new(Continuation {
                 frames: composed_frames,
@@ -150,6 +169,12 @@ mod tests {
         assert_eq!(cont.entry_frame_index, 0);
         assert_eq!(cont.sp, 22);
         assert_eq!(cont.frames.len(), 2);
-        assert_eq!(cont.stack.len(), 3);
+        assert_eq!(cont.stack.len(), 12);
+        assert_eq!(cont.stack[0], Value::Integer(3));
+        assert!(cont.stack[1..10]
+            .iter()
+            .all(|value| matches!(value, Value::Uninit)));
+        assert_eq!(cont.stack[10], Value::Integer(1));
+        assert_eq!(cont.stack[11], Value::Integer(2));
     }
 }
