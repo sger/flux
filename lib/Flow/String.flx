@@ -1,6 +1,6 @@
-// Flow.String — String helper operations.
-
 import Flow.Array as Array
+
+// Flow.String — String helper operations.
 
 module Flow.String {
 
