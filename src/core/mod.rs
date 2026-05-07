@@ -735,7 +735,11 @@ pub enum CorePrimOp {
     HttpActiveConnectionCount = 189,
     /// True once graceful or forced shutdown has been requested. Args: (server_id) -> Bool.
     HttpIsShuttingDown = 190,
-    // ── Next free ID: 191 ─────────────────────────────────────────────
+    /// Mark the detached source-level HTTP accept loop as stopped. Args: (server_id) -> Unit.
+    HttpServerStopped = 191,
+    /// True once the detached source-level HTTP accept loop has stopped. Args: (server_id) -> Bool.
+    HttpIsServerStopped = 192,
+    // ── Next free ID: 193 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -813,6 +817,8 @@ impl CorePrimOp {
             "HttpUnregisterConnection" => return Some(Self::HttpUnregisterConnection),
             "HttpActiveConnectionCount" => return Some(Self::HttpActiveConnectionCount),
             "HttpIsShuttingDown" => return Some(Self::HttpIsShuttingDown),
+            "HttpServerStopped" => return Some(Self::HttpServerStopped),
+            "HttpIsServerStopped" => return Some(Self::HttpIsServerStopped),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -923,6 +929,8 @@ impl CorePrimOp {
             Self::HttpUnregisterConnection => Some("http_unregister_connection"),
             Self::HttpActiveConnectionCount => Some("http_active_connection_count"),
             Self::HttpIsShuttingDown => Some("http_is_shutting_down"),
+            Self::HttpServerStopped => Some("http_server_stopped"),
+            Self::HttpIsServerStopped => Some("http_is_server_stopped"),
             _ => None,
         }
     }
@@ -1108,6 +1116,8 @@ impl CorePrimOp {
             188 => HttpUnregisterConnection,
             189 => HttpActiveConnectionCount,
             190 => HttpIsShuttingDown,
+            191 => HttpServerStopped,
+            192 => HttpIsServerStopped,
             _ => return None,
         };
         Some(op)
@@ -1257,10 +1267,24 @@ impl CorePrimOp {
             ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
             ("http_parse_request", 2, CorePrimOp::HttpParseRequest),
             ("http_write_response", 2, CorePrimOp::HttpWriteResponse),
-            ("http_register_connection", 2, CorePrimOp::HttpRegisterConnection),
-            ("http_unregister_connection", 2, CorePrimOp::HttpUnregisterConnection),
-            ("http_active_connection_count", 1, CorePrimOp::HttpActiveConnectionCount),
+            (
+                "http_register_connection",
+                2,
+                CorePrimOp::HttpRegisterConnection,
+            ),
+            (
+                "http_unregister_connection",
+                2,
+                CorePrimOp::HttpUnregisterConnection,
+            ),
+            (
+                "http_active_connection_count",
+                1,
+                CorePrimOp::HttpActiveConnectionCount,
+            ),
             ("http_is_shutting_down", 1, CorePrimOp::HttpIsShuttingDown),
+            ("http_server_stopped", 1, CorePrimOp::HttpServerStopped),
+            ("http_is_server_stopped", 1, CorePrimOp::HttpIsServerStopped),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1292,25 +1316,144 @@ impl CorePrimOp {
         match self {
             ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow | FiberNewScope
             | FiberCheckCancelled => 0,
-            Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
-            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
-            | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
-            | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
-            | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
-            | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
-            | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
-            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf | FiberTry
-            | HttpShutdown | HttpShutdownNow | HttpActiveConnectionCount
-            | HttpIsShuttingDown => 1,
-            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
-            | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
-            | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
-            | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
-            | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
-            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | TcpConnect
-            | TcpListen | TcpRead | TcpWriteAll | FiberBoth | FiberRace | FiberTimeout
-            | FiberForkScoped | HttpWriteResponse | HttpRegisterConnection
-            | HttpUnregisterConnection | HttpParseRequest => 2,
+            Abs
+            | ArrayLen
+            | DebugTrace
+            | IsArray
+            | IsBool
+            | IsFloat
+            | IsInt
+            | IsList
+            | IsMap
+            | IsNone
+            | IsSome
+            | IsString
+            | Len
+            | Lower
+            | Panic
+            | ParseInt
+            | Print
+            | Println
+            | ReadFile
+            | ReadLines
+            | StringLength
+            | ToString
+            | Trim
+            | Try
+            | AssertThrows
+            | TypeOf
+            | Upper
+            | HamtKeys
+            | HamtValues
+            | HamtSize
+            | Neg
+            | Not
+            | Unwrap
+            | FSqrt
+            | FSin
+            | FCos
+            | FExp
+            | FLog
+            | FFloor
+            | FCeil
+            | FRound
+            | FTan
+            | FAsin
+            | FAcos
+            | FAtan
+            | FSinh
+            | FCosh
+            | FTanh
+            | FTruncate
+            | TaskSpawn
+            | TaskBlockingJoin
+            | TaskCancel
+            | FiberSuspend
+            | FiberFork
+            | FiberFail
+            | TaskAwait
+            | FiberRunAsync
+            | FiberSleep
+            | TcpClose
+            | TcpAccept
+            | FiberCancelScope
+            | FiberFirstOf
+            | FiberTry
+            | HttpShutdown
+            | HttpShutdownNow
+            | HttpActiveConnectionCount
+            | HttpIsShuttingDown
+            | HttpServerStopped
+            | HttpIsServerStopped => 1,
+            Add
+            | Sub
+            | Mul
+            | Div
+            | Mod
+            | IAdd
+            | ISub
+            | IMul
+            | IDiv
+            | IMod
+            | FAdd
+            | FSub
+            | FMul
+            | FDiv
+            | Eq
+            | NEq
+            | Lt
+            | Le
+            | Gt
+            | Ge
+            | ICmpEq
+            | ICmpNe
+            | ICmpLt
+            | ICmpLe
+            | ICmpGt
+            | ICmpGe
+            | FCmpEq
+            | FCmpNe
+            | FCmpLt
+            | FCmpLe
+            | FCmpGt
+            | FCmpGe
+            | CmpEq
+            | CmpNe
+            | And
+            | Or
+            | Concat
+            | ArrayGet
+            | ArrayPush
+            | ArrayConcat
+            | HamtGet
+            | HamtContains
+            | HamtDelete
+            | HamtMerge
+            | Index
+            | Max
+            | Min
+            | Split
+            | StringConcat
+            | WriteFile
+            | SafeDiv
+            | SafeMod
+            | BitAnd
+            | BitOr
+            | BitXor
+            | BitShl
+            | BitShr
+            | TcpConnect
+            | TcpListen
+            | TcpRead
+            | TcpWriteAll
+            | FiberBoth
+            | FiberRace
+            | FiberTimeout
+            | FiberForkScoped
+            | HttpWriteResponse
+            | HttpRegisterConnection
+            | HttpUnregisterConnection
+            | HttpParseRequest => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
             | HttpServeConfig => 3,
             FiberRunAsyncWith => 4,

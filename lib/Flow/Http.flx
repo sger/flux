@@ -63,6 +63,8 @@ module Flow.Http {
     intrinsic fn http_unregister_connection_prim(server_id: Int, conn_id: Int) -> Unit = primop HttpUnregisterConnection
     intrinsic fn http_active_connection_count_prim(server_id: Int) -> Int = primop HttpActiveConnectionCount
     intrinsic fn http_is_shutting_down_prim(server_id: Int) -> Bool = primop HttpIsShuttingDown
+    intrinsic fn http_server_stopped_prim(server_id: Int) -> Unit = primop HttpServerStopped
+    intrinsic fn http_is_server_stopped_prim(server_id: Int) -> Bool = primop HttpIsServerStopped
     intrinsic fn http_shutdown_prim(h: Int) -> Unit = primop HttpShutdown
     intrinsic fn http_shutdown_now_prim(h: Int) -> Unit = primop HttpShutdownNow
 
@@ -121,8 +123,12 @@ module Flow.Http {
         let listener = Tcp.listen(addr, port)
         let server_scope = new_scope()
         let server_id = http_serve_config_prim(Tcp.listener_id(listener), scope_id(server_scope), config)
-        fn serve_accept_body() with Async, AsyncFail {
+        fn accept_loop_body() with Async, AsyncFail {
             accept_loop(server_id, listener, server_scope, handler)
+        }
+        fn serve_accept_body() with Async, AsyncFail {
+            let ignored_accept_result = try_(accept_loop_body)
+            http_server_stopped_prim(server_id)
         }
         let ignored_serve_fork = fork(server_scope, serve_accept_body)
         ServerHandle(server_id)
@@ -299,7 +305,7 @@ module Flow.Http {
     }
 
     fn wait_for_shutdown(server_id: Int) -> Unit with Async, AsyncFail {
-        if http_active_connection_count_prim(server_id) <= 0 { noop() }
+        if http_is_server_stopped_prim(server_id) && http_active_connection_count_prim(server_id) <= 0 { noop() }
         else {
             let ignored_shutdown_sleep = sleep(10)
             wait_for_shutdown(server_id)

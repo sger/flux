@@ -619,7 +619,9 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::HttpRegisterConnection
         | CorePrimOp::HttpUnregisterConnection
         | CorePrimOp::HttpActiveConnectionCount
-        | CorePrimOp::HttpIsShuttingDown => false,
+        | CorePrimOp::HttpIsShuttingDown
+        | CorePrimOp::HttpServerStopped
+        | CorePrimOp::HttpIsServerStopped => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet
