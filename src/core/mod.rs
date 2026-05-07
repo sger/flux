@@ -714,7 +714,15 @@ pub enum CorePrimOp {
     /// Run an async action under a catch boundary, returning Result.
     /// Args: (() -> a with Async) → Result<a, AsyncError>.
     FiberTry = 181,
-    // ── Next free ID: 182 ─────────────────────────────────────────────
+    // ── HTTP/1.1 server foundation (proposal 0174 Phase 3a) ───────────
+    /// Reserved server-manager entry point for Flow.Http. Args:
+    /// (addr, port, ServerConfig, handler) -> ServerHandle id.
+    HttpServeConfig = 182,
+    /// Graceful HTTP server shutdown. Args: (ServerHandle id) -> Unit.
+    HttpShutdown = 183,
+    /// Immediate HTTP server shutdown. Args: (ServerHandle id) -> Unit.
+    HttpShutdownNow = 184,
+    // ── Next free ID: 185 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -783,6 +791,9 @@ impl CorePrimOp {
             "FiberRunAsyncWith" => return Some(Self::FiberRunAsyncWith),
             "FiberFirstOf" => return Some(Self::FiberFirstOf),
             "FiberTry" => return Some(Self::FiberTry),
+            "HttpServeConfig" => return Some(Self::HttpServeConfig),
+            "HttpShutdown" => return Some(Self::HttpShutdown),
+            "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -884,6 +895,9 @@ impl CorePrimOp {
             Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
             Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
             Self::FiberTry => Some("fiber_try"),
+            Self::HttpServeConfig => Some("http_serve_config"),
+            Self::HttpShutdown => Some("http_shutdown"),
+            Self::HttpShutdownNow => Some("http_shutdown_now"),
             _ => None,
         }
     }
@@ -1060,6 +1074,9 @@ impl CorePrimOp {
             179 => FiberRunAsyncWith,
             180 => FiberFirstOf,
             181 => FiberTry,
+            182 => HttpServeConfig,
+            183 => HttpShutdown,
+            184 => HttpShutdownNow,
             _ => return None,
         };
         Some(op)
@@ -1204,6 +1221,9 @@ impl CorePrimOp {
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
+            ("http_serve_config", 4, CorePrimOp::HttpServeConfig),
+            ("http_shutdown", 1, CorePrimOp::HttpShutdown),
+            ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1242,7 +1262,8 @@ impl CorePrimOp {
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
-            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf | FiberTry => 1,
+            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf | FiberTry
+            | HttpShutdown | HttpShutdownNow => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
@@ -1253,6 +1274,7 @@ impl CorePrimOp {
             | FiberForkScoped => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
             FiberRunAsyncWith => 4,
+            HttpServeConfig => 4,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,

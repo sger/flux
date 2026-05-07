@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::io::Read as IoRead;
+use std::io::Write as IoWrite;
 use std::rc::Rc;
 use std::time::{Instant, SystemTime};
 
@@ -2275,6 +2276,15 @@ pub fn execute_core_primop(
             other => Err(terr("tcp_accept", "Int", other)),
         },
 
+        // ── HTTP server-manager reserved primops (proposal 0174 Phase 3a) ──
+        //
+        // The first `Flow.Http` server slice is source-level over Flow.Tcp so
+        // VM closures remain on the owning fiber. These primops reserve the
+        // public intrinsic IDs and act as no-op handle/shutdown hooks until
+        // the detached runtime server manager can safely retain handlers.
+        HttpServeConfig => vm_http_serve_config(ctx, &args),
+        HttpShutdown | HttpShutdownNow => Ok(Value::None),
+
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
         | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
@@ -2498,6 +2508,151 @@ fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
             b.type_name()
         )),
     }
+}
+
+fn vm_http_serve_config(ctx: &mut dyn RuntimeContext, args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::{
+        HttpError, HttpResponse, ParseLimits, parse_request, write_response,
+    };
+    use crate::runtime::value::{AdtFields, AdtValue};
+    use std::net::TcpListener;
+
+    let (host, port, handler) = match (&args[0], &args[1], &args[3]) {
+        (Value::String(host), Value::Integer(port), handler) => {
+            let port: u16 = (*port)
+                .try_into()
+                .map_err(|_| format!("http_serve_config: bad port: {port}"))?;
+            (host.to_string(), port, handler.clone())
+        }
+        _ => return Err("http_serve_config: expected (String, Int, ServerConfig, handler)".into()),
+    };
+
+    let listener = TcpListener::bind((host.as_str(), port))
+        .map_err(|e| format!("http_serve_config: bind failed: {e}"))?;
+    let (mut stream, _) = listener
+        .accept()
+        .map_err(|e| format!("http_serve_config: accept failed: {e}"))?;
+
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let parsed = loop {
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| format!("http_serve_config: read failed: {e}"))?;
+        if n == 0 {
+            return Err("http_serve_config: client closed before request".into());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        match parse_request(&buf, ParseLimits::default()) {
+            Ok((req, _used)) => break req,
+            Err(HttpError::NeedMore) => continue,
+            Err(HttpError::PayloadTooLarge(msg)) => {
+                let wire = write_response(&HttpResponse {
+                    status: 413,
+                    reason: "Payload Too Large".into(),
+                    headers: vec![("Connection".into(), "close".into())],
+                    body: msg.into_bytes(),
+                });
+                let _ = stream.write_all(&wire);
+                return Ok(Value::Integer(0));
+            }
+            Err(HttpError::BadRequest(msg)) => {
+                let wire = write_response(&HttpResponse {
+                    status: 400,
+                    reason: "Bad Request".into(),
+                    headers: vec![("Connection".into(), "close".into())],
+                    body: msg.into_bytes(),
+                });
+                let _ = stream.write_all(&wire);
+                return Ok(Value::Integer(0));
+            }
+        }
+    };
+
+    let request_value = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Request".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::AdtUnit(Rc::new(method_constructor(&parsed.method).to_string())),
+            Value::String(parsed.target.into()),
+            Value::HashMap(rc_hamt::hamt_empty()),
+            Value::String(String::from_utf8_lossy(&parsed.body).to_string().into()),
+        ]),
+    }));
+    let response_value = ctx.invoke_value(handler, vec![request_value])?;
+    let (status, body) = response_parts(&response_value)?;
+    let wire = write_response(&HttpResponse {
+        status: status as u16,
+        reason: http_reason(status),
+        headers: vec![("Connection".into(), "close".into())],
+        body: body.into_bytes(),
+    });
+    stream
+        .write_all(&wire)
+        .map_err(|e| format!("http_serve_config: write failed: {e}"))?;
+    Ok(Value::Integer(0))
+}
+
+fn method_constructor(method: &str) -> &'static str {
+    match method {
+        "POST" => "Post",
+        "PUT" => "Put",
+        "DELETE" => "Delete",
+        "PATCH" => "Patch",
+        "HEAD" => "Head",
+        "OPTIONS" => "Options",
+        _ => "Get",
+    }
+}
+
+fn response_parts(value: &Value) -> Result<(i64, String), String> {
+    let Value::Adt(adt) = value else {
+        return Err(format!(
+            "http handler returned {}, expected Response",
+            value.type_name()
+        ));
+    };
+    if adt.constructor.as_ref() != "Response" {
+        return Err(format!(
+            "http handler returned {}, expected Response",
+            adt.constructor
+        ));
+    }
+    let status = match adt.fields.get(0) {
+        Some(Value::Integer(n)) => *n,
+        Some(other) => {
+            return Err(format!(
+                "Response.status expected Int, got {}",
+                other.type_name()
+            ));
+        }
+        None => return Err("Response missing status field".into()),
+    };
+    let body = match adt.fields.get(2) {
+        Some(Value::String(s)) => s.to_string(),
+        Some(other) => {
+            return Err(format!(
+                "Response.body expected String, got {}",
+                other.type_name()
+            ));
+        }
+        None => return Err("Response missing body field".into()),
+    };
+    Ok((status, body))
+}
+
+fn http_reason(status: i64) -> String {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
+        504 => "Gateway Timeout",
+        _ => "OK",
+    }
+    .to_string()
 }
 
 // ── VM-side task state (proposal 0174 D5-a, sequential dispatch) ───────────

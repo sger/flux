@@ -32,6 +32,8 @@ module Flow.Async {
         IoError(Int, String, String),
         /// DNS resolution failure. Fields: (code, message, host).
         DnsError(Int, String, String),
+        /// HTTP protocol/framing failure. Fields: (status, message).
+        ProtocolError(Int, String),
         /// The remote peer closed the connection.
         ConnectionClosed,
         /// Address could not be parsed.

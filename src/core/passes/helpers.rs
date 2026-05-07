@@ -610,7 +610,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberCheckCancelled
         | CorePrimOp::FiberRunAsyncWith
         | CorePrimOp::FiberFirstOf
-        | CorePrimOp::FiberTry => false,
+        | CorePrimOp::FiberTry
+        | CorePrimOp::HttpServeConfig
+        | CorePrimOp::HttpShutdown
+        | CorePrimOp::HttpShutdownNow => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet
