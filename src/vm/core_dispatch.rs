@@ -1972,10 +1972,10 @@ pub fn execute_core_primop(
             Ok(Value::None)
         }
 
-        // task_await: fiber-suspending join. On the VM path this is identical
-        // to blocking_join — consult the task state table.
+        // task_await: VM task execution is still sequential, but the primop
+        // now mirrors native's internal Option result shape.
         TaskAwait => match &args[0] {
-            Value::Integer(id) => vm_task_state::take(*id),
+            Value::Integer(id) => vm_task_state::take_for_await(*id),
             other => Err(terr("task_await", "Int", other)),
         },
 
@@ -2300,6 +2300,7 @@ mod vm_task_state {
     use super::Value;
     use std::cell::RefCell;
     use std::collections::{HashMap, HashSet};
+    use std::rc::Rc;
 
     thread_local! {
         static NEXT_ID: RefCell<i64> = const { RefCell::new(1) };
@@ -2331,6 +2332,19 @@ mod vm_task_state {
         RESULTS
             .with(|r| r.borrow_mut().remove(&id))
             .ok_or_else(|| format!("task {id} not found (already joined or never spawned)"))
+    }
+
+    /// Consume the stored result for `Task.await`. The public Flow wrapper
+    /// raises `TaskCancelled` when the primop returns `None`.
+    pub(super) fn take_for_await(id: i64) -> Result<Value, String> {
+        if CANCELLED.with(|c| c.borrow_mut().remove(&id)) {
+            RESULTS.with(|r| r.borrow_mut().remove(&id));
+            return Ok(Value::None);
+        }
+        let value = RESULTS
+            .with(|r| r.borrow_mut().remove(&id))
+            .ok_or_else(|| format!("task {id} not found (already joined or never spawned)"))?;
+        Ok(Value::Some(Rc::new(value)))
     }
 
     /// Mark a task cancelled. Idempotent. A subsequent `take` surfaces the

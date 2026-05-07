@@ -57,7 +57,7 @@ target the original proposal aimed at.
 | 1a-iii — Worker pool + `RuntimeTarget` | ✅ | [`task_manager.rs`](../../src/runtime/async/task_manager.rs): N-thread worker pool with a shared per-priority FIFO (`MAX_PRIO = 2`), `Condvar`-parked workers, `start`/`submit`/`shutdown` lifecycle, `Drop` joins on teardown to keep libtest from wedging on Windows. [`runtime_target.rs`](../../src/runtime/async/runtime_target.rs): `TaskId` + `RuntimeTarget` enum (Task variant; Fiber variant lands in 1b). End-to-end completion routing waits on the actual `Task<a>` user surface (1a-vi). |
 | 1a-iv — Hybrid atomic-on-share RC | ✅ (C side) | [`runtime/c/rc.c`](../../runtime/c/rc.c): `FluxHeader.refcount` is now `_Atomic(int32_t)` with sign-bit encoding (`rc > 0` ST mode, relaxed; `rc < 0` MT mode, atomic; last MT drop is acq_rel). New API in [`flux_rt.h`](../../runtime/c/flux_rt.h): `flux_rc_promote` (recursive ST → MT promotion with release ordering, walks evidence vectors and standard scan offsets), `flux_rc_is_shared`. LLVM-emitted inline `rc == 1` reuse/uniqueness checks (in [`prelude.rs`](../../src/llvm/codegen/prelude.rs)) naturally fail for negative refcounts and fall back to `flux_drop` — no LLVM changes required. Native `Task.spawn` is the first C-side cross-worker consumer and promotes the closure before handing it to a worker thread. **Rust `Value` mirror still deferred** because the VM task path remains sequential and does not send `Rc<Value>` across OS threads. Regression coverage: the full native-LLVM test suite (which exercises dup/drop heavily) passes unchanged, proving the ST hot path is encoding-equivalent. |
 | 1a-v — `Sendable<T>` type class | ✅ (primitives + structural + ADTs) | Marker class registered in [`class_env.rs`](../../src/types/class_env.rs)'s `register_builtins`, no methods. Built-in primitive instances: `Int`, `Float`, `String`, `Bool`, `Unit`. Positive-only structural derivation in [`class_solver.rs`](../../src/types/class_solver.rs)'s `has_structural_builtin_instance`: tuples, `Option`, `List`, `Array`, `Map`, `Either` auto-derive `Sendable` when their element types satisfy it. User ADTs whose fields satisfy `Sendable` are synthesized by [`synthesize_sendable_instances`](../../src/types/class_env.rs); function-typed fields and closures remain non-sendable. Tests in [`sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) cover primitives, tuples, collections, ADTs, recursive ADTs, and negative function cases. The stale ADT follow-up was closed by the revision-9 audit as Phase 2 slice 2-x. |
-| 1a-vi — `Task<a>` + `Flow.Task` | ✅ end-to-end VM + native surface | **Rust scheduler:** [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs) — `TaskScheduler` wraps the 1a-iii [`TaskManager`](../../src/runtime/async/task_manager.rs) with per-task `Arc<TaskState>` (outcome `Mutex` + `Condvar` + cancel `AtomicBool`). `spawn(action: FnOnce() -> T + Send + 'static)` returns a `TaskHandle<T>`; `blocking_join` consumes it and surfaces `TaskJoinError::Cancelled`/`Panicked` for non-value outcomes (panics are caught by the worker so the pool isn't poisoned). **Flux source surface:** [`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) — `data Task<a> { Task(Int) }` plus `spawn<a: Sendable>` / `blocking_join<a: Sendable>` / `cancel<a>` / `await<a: Sendable>` signatures. **VM:** sequential task table executes the action and stores the result; `cancel` before join/await surfaces an error. **Native:** [`runtime/c/tasks.c`](../../runtime/c/tasks.c) implements `flux_task_spawn` / `flux_task_blocking_join` / `flux_task_cancel` / `flux_task_await` using POSIX pthreads or Win32 threads, promotes closures with `flux_rc_promote`, and matches the VM-observable cancel-before-join/await behavior. Native `Task.await` is a Phase 1b closeout shim over blocking join; true fiber-suspending task await is a post-1b follow-up. [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs) verifies the VM source surface, cross-module `Sendable` enforcement, and native Int/String/cancel/await fixtures. |
+| 1a-vi — `Task<a>` + `Flow.Task` | ✅ end-to-end VM + native surface | **Rust scheduler:** [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs) — `TaskScheduler` wraps the 1a-iii [`TaskManager`](../../src/runtime/async/task_manager.rs) with per-task `Arc<TaskState>` (outcome `Mutex` + `Condvar` + cancel `AtomicBool`). `spawn(action: FnOnce() -> T + Send + 'static)` returns a `TaskHandle<T>`; `blocking_join` consumes it and surfaces `TaskJoinError::Cancelled`/`Panicked` for non-value outcomes (panics are caught by the worker so the pool isn't poisoned). **Flux source surface:** [`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) — `data Task<a> { Task(Int) }` plus `spawn<a: Sendable>` / `blocking_join<a: Sendable>` / `cancel<a>` / `await<a: Sendable>` signatures. **VM:** sequential task table executes the action and stores the result; `cancel` before join/await surfaces an error. **Native:** [`runtime/c/tasks.c`](../../runtime/c/tasks.c) implements `flux_task_spawn` / `flux_task_blocking_join` / `flux_task_cancel` using POSIX pthreads or Win32 threads, promotes closures with `flux_rc_promote`, and keeps `blocking_join` as the non-async condvar wait. Native fiber-suspending `Task.await` landed in Phase 2 slice 2-i. [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs) verifies the VM source surface, cross-module `Sendable` enforcement, and native Int/String/cancel/await fixtures. |
 | 1a-vii — TCP readiness state machines | ✅ | New `IoHandle` type and `CompletionPayload::TcpHandle` variant in [`backend.rs`](../../src/runtime/async/backend.rs); `AsyncBackend` extended with `tcp_connect` / `tcp_read` / `tcp_write` / `tcp_close` (default impls panic; in-memory backend left unimplemented since real-socket round-trips have no deterministic stub). [`backends/mio.rs`](../../src/runtime/async/backends/mio.rs) gets a per-iteration TCP command queue (owning thread → reactor) and per-`IoHandle` `TcpConnState` holding pending connect/read/write requests. The reactor resolves a pending connect on writable + `take_error()`, services pending reads on readable (`WouldBlock` is "wait for next event", empty buffer = EOF), and loops writes through `WouldBlock` so partial writes resume from the recorded offset under the same `RequestId`. Loopback echo round-trip and refused-connect tests prove the cross-thread substrate end-to-end. **Cancellation of in-flight TCP ops not yet wired** — falls back to the registry-side cancel-set rewrite from 0e (sound but does some wasted I/O work); explicit reactor-side teardown lands when there's a consumer for it. |
 | **Phase 1b** — Fiber layer + structured concurrency | ✅ complete for current scope | **VM path fully functional for current scope:** Slices 1b-i through 1b-v landed (effect seams, FiberScheduler, fiber CorePrimOps, Flow.Async source surface). 1b-vi-a/b₁/b₂.1/b₂.2 + `Async.timeout` landed: `Async.sleep` routes through mio reactor; every `Async.run_async` boundary owns a real `FiberScheduler`; `FiberSleep`, `FiberBoth`, `FiberRace`, `FiberTimeout` capture continuations and park/resume through dispatch loop, giving genuine wall-clock overlap. TCP parity (1b-vi-e) works on VM and LLVM/native: both fixtures pass with concurrent server/client through the shared mio-backed async request/completion flow. **LLVM/native core async works:** native `sleep`, `both`, `race`, `timeout`, `scope`, `fork`, `cancel`, direct async calls, indirect async closure calls, and TCP primitives suspend/resume through the Rust native async runtime; native child fibers are assigned to home-worker queues and non-root workers run generated code concurrently on OS threads. `Task.await` is usable on VM and native for the closeout scope. Deferred post-1b follow-ups: VM OS-worker dispatch needs a VM `Value` promotion/thread-safety story, and true fiber-suspending native `Task.await` needs native tasks to publish scheduler completions instead of blocking join. |
 | 1b-i to 1b-v | ✅ | Effect seams (`Suspend` / `Fork` / `GetContext` / `AsyncFail`) seeded in [`src/syntax/builtin_effects.rs`](../../src/syntax/builtin_effects.rs); 5 new fiber `CorePrimOp` variants (`fiber_suspend` / `fiber_fork` / `fiber_get_context` / `fiber_run_async` / `fiber_yield_now` / `fiber_sleep`) wired through Core / VM dispatch / LLVM lowering; [`src/runtime/async/fiber.rs`](../../src/runtime/async/fiber.rs) + [`src/runtime/async/scheduler.rs`](../../src/runtime/async/scheduler.rs) provide the `FiberScheduler` layer on top of 1a's `TaskManager`; [`lib/Flow/Async.flx`](../../lib/Flow/Async.flx) ships the structured-concurrency primitives (`scope` / `fork` / `both` / `race` / `timeout` / `timeout_result` / `bracket` / `finally` / `try_` / `fail` / `yield_now` / `sleep`); [`lib/Flow/Tcp.flx`](../../lib/Flow/Tcp.flx) ships the TCP wrapper surface (`connect` / `read` / `write` / `close` / `with_connection`) backed by [`runtime/c/tcp.c`](../../runtime/c/tcp.c) shims. 7 small parity fixtures under [`tests/parity/`](../../tests/parity/) validate the source-surface contract on VM and LLVM. |
@@ -70,7 +70,7 @@ target the original proposal aimed at.
 | 1b-vi-d — Native (LLVM) fiber suspend/resume | ✅ core async complete | Native `flux_fiber_run_async` enters a Rust-owned native async scheduler loop via C ABI shims. `flux_fiber_sleep` starts a Rust/mio timer and suspends instead of blocking. `flux_fiber_both`, `flux_fiber_race`, and `flux_fiber_timeout` enqueue child fibers under Rust scheduler state and resume parents with VM-observable semantics. Direct call-site yield propagation is implemented for transitive direct async calls; indirect async closure yield propagation is implemented conservatively for functions whose effect row proves `Async`. Native `scope`/`fork`/`cancel` allocate Rust-tracked scopes and cancel pending scoped child fibers. Tests: [`native_async_sleep_tests.rs`](../../tests/native_llvm/native_async_sleep_tests.rs) and [`native_async_indirect_tests.rs`](../../tests/native_llvm/native_async_indirect_tests.rs). **Not included:** indirect calls that lack `with Async` evidence and VM-side OS-thread fiber workers. |
 | 1b-vi-e — Real TCP parity | ✅ VM + LLVM/native | [`tests/parity/tcp_listen_accept.flx`](../../tests/parity/tcp_listen_accept.flx) and [`tests/parity/tcp_connect_write_read.flx`](../../tests/parity/tcp_connect_write_read.flx) now run as `// parity: vm, llvm`. VM continues to route TCP through the fiber scheduler and mio reactor. LLVM/native `runtime/c/tcp.c` is now a thin fiber-suspending wrapper layer: it decodes Flux `String`/`Int` values, copies host/data into Rust-owned buffers, submits `connect`, `listen`, `accept`, `read`, and `write_all` to the Rust `MioBackend`, and suspends on the returned request id. Native completion routing converts `TcpHandle` to tagged `Int`, `Bytes` to Flux `String`, and `Unit`/errors to `None`; `close` remains synchronous. Windows bypasses the old C TCP stub path through this Rust backend bridge. Richer TCP `AsyncError` values remain a later cleanup. |
 | **Phase 2** — Concurrency closeout + runtime gaps | ⏳ | |
-| 2-i — Real fiber-suspending `Task.await` | ⏳ | Native `flux_task_await` publishes a scheduler completion instead of parking the OS worker on a condvar; VM `Task.await` integrates with `FiberScheduler`. Fixes the Phase 1b closeout footnote. |
+| 2-i — Real fiber-suspending `Task.await` | ✅ | Native `flux_task_await` now registers a scheduler request, suspends only the current fiber, and resumes from the native task worker through `flux_async_task_complete`; `Task.blocking_join` remains the condvar path. VM `Task.await` keeps sequential task execution but returns the same internal `Option` shape as native. Tests in [`flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs) cover native scheduler overlap, completed-task await, cancellation, and unchanged blocking joins. |
 | 2-ii — N-way `race` / `first` / `first_of` | ✅ | [`CorePrimOp::FiberFirstOf`](../../src/core/mod.rs) plus VM and native scheduler await records spawn a list of async thunks under one parent, resume with `(winning_index, value)`, cancel all losers, and preserve source-order FIFO ties. [`lib/Flow/Async.flx`](../../lib/Flow/Async.flx) exposes `first_of` and `first`; coverage: [`vm_fiber_first_of.rs`](../../tests/integration/vm_fiber_first_of.rs), [`native_async_sleep_tests.rs`](../../tests/native_llvm/native_async_sleep_tests.rs), and [`async_first_of.flx`](../../tests/parity/async_first_of.flx). |
 | 2-iii — `Flow.Channel` decision | ✅ | Decision: `Flow.Channel` is **deferred to a follow-on proposal**. Phase 2-4 cross-worker communication uses `Task.spawn` / `Task.await` only. Stale `Channel.send` references in the Sendable section reworded to mention `Flow.Channel` only as a deferred future; the illustrative `module Flow.Channel { ... }` block in the Sendable example is flagged as non-deliverable. |
 | 2-iv — Cancellation observation in pure loops | ✅ | New `CorePrimOp::FiberCheckCancelled = 178` with VM dispatch in [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs); `flux_fiber_check_cancelled` C shim ([`runtime/c/tasks.c`](../../runtime/c/tasks.c)) over `flux_async_check_cancelled` extern in [`src/runtime/async/native_abi.rs`](../../src/runtime/async/native_abi.rs); LLVM emit-name in [`src/lir/emit_llvm.rs`](../../src/lir/emit_llvm.rs). Per-thread `CANCELLED_IDS: HashSet<FiberId>` in `vm_fibers` mirrors the scheduler's cancel set so a *currently executing* fiber can observe its scope's cancellation, not just suspended fibers. Library: `Async.check_cancelled() -> Bool with Async` plus convenience `Async.bail_if_cancelled()` that calls `Async.fail(Canceled)` (ergonomic shim; becomes a real catchable raise once slice 2-vi lands). **Signature deviation from the proposal text**: ships as `-> Bool` not `-> Unit`-with-raise because real raise machinery is slice 2-vi territory; helper covers the raise idiom. Tests: [`tests/integration/vm_fiber_check_cancelled.rs`](../../tests/integration/vm_fiber_check_cancelled.rs) (no-cancel + timeout-cancellation cases); [`tests/parity/async_check_cancelled_false_when_not_cancelled.flx`](../../tests/parity/async_check_cancelled_false_when_not_cancelled.flx) (vm/llvm). `yield_now` cancellation-point retrofit deferred to 2-vi (today still a no-op). |
@@ -1492,14 +1492,14 @@ the missing runtime infrastructure (DNS, transparent type aliases,
 
 #### 2-i — Real fiber-suspending `Task.await`
 
-`Task.await` ships with the right type but the wrong semantics today.
-[`runtime/c/tasks.c`](../../runtime/c/tasks.c) `flux_task_await` is a
-blocking join: it parks the calling **OS worker** on a condvar until
-the task finishes, which means every other fiber on that worker is
-stalled too. For Phase 3 HTTP this is a real foot-gun — a request
-handler that does `Task.spawn` for a heavy compute step and then
-`Task.await`s its result will silently halt the server's other
-in-flight connections that happen to share that worker.
+`Task.await` shipped with the right type but the wrong native semantics:
+[`runtime/c/tasks.c`](../../runtime/c/tasks.c) `flux_task_await` was a
+blocking join that parked the calling **OS worker** on a condvar until
+the task finished, which meant every other fiber on that worker was
+stalled too. For Phase 3 HTTP this was a real foot-gun — a request
+handler that did `Task.spawn` for a heavy compute step and then
+`Task.await`ed its result could silently halt the server's other
+in-flight connections that happened to share that worker.
 
 ```flux
 import Flow.Async exposing (..)
@@ -1528,25 +1528,34 @@ fn body() -> Int with Async {
 fn main() with IO { let _ = run_async(body) }
 ```
 
-Slice 2-i wires `Task.await` to the fiber scheduler instead of to a
-condvar:
+Slice 2-i wires native `Task.await` to the fiber scheduler instead of
+to a condvar:
 
-- Native: extend `runtime/c/tasks.c` so the task-completion path
-  publishes a `Completion` record into the scheduler's completion
-  channel keyed by the task's request id, rather than only signalling
-  the per-task condvar. Existing blocking-thread / Win32 task workers
-  remain.
-- Both backends: `Task.await(t)` desugars to a fiber suspend on the
-  task's request id; resume happens on the awaiting fiber's home
-  worker when the completion arrives.
-- `Task.blocking_join` keeps its current behaviour and remains the
-  escape hatch for non-`Async` callers.
+- Native: `runtime/c/tasks.c` allocates a scheduler request for
+  `flux_task_await`, records it on the task slot, detaches/closes the
+  task thread handle for async ownership, and suspends the current fiber.
+  The task worker publishes `Some(result)` or `None` to the active native
+  async run through `flux_async_task_complete`.
+- Native completed/cancelled tasks still use the same suspend/resume shape:
+  they publish an already-ready completion and then suspend on that request,
+  matching the LLVM yield-propagation contract for `TaskAwait`.
+- VM: task execution remains sequential because VM `Value` is still
+  `Rc`-backed and not sent across OS workers. VM `TaskAwait` now returns the
+  same internal `Option` shape as native (`Some(result)` / `None`), and the
+  public `Flow.Task.await` wrapper preserves the `a with Async` source API.
+- `Task.blocking_join` keeps its current behaviour and remains the escape
+  hatch for non-`Async` callers. Task handles remain single-consumer:
+  attempting `blocking_join` after an async awaiter is registered is a clear
+  runtime error.
 
-Acceptance: a parity test that observes wall-clock overlap between a
-`Task.spawn(cpu_loop)` and a sibling `Async.sleep` running under
-`Async.both`, passing on `vm` and `llvm`. Today both run sequentially
-because the worker is parked; after this slice, total wall-clock
-should be `max(cpu_loop, sleep)` not `cpu_loop + sleep`.
+Acceptance: `flow_task_tests.rs` includes a native fixture that measures a
+CPU-bound `Task.spawn(fib(36))` awaited on the root native worker alongside
+a sibling `Async.sleep(100)` under `Async.both`. The elapsed time tracks
+`max(cpu_loop, sleep)`, not `cpu_loop + sleep`, proving `Task.await` no
+longer blocks scheduler timer routing. The same suite covers awaiting an
+already-completed task, cancellation, and unchanged blocking joins. VM tests
+continue to assert sequential success/cancellation semantics without claiming
+wall-clock overlap.
 
 #### 2-ii — N-way `race` / `first` / `first_of`
 
