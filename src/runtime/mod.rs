@@ -28,6 +28,7 @@ pub mod handler_arm;
 pub mod handler_descriptor;
 pub mod handler_frame;
 pub mod hash_key;
+pub mod http;
 pub mod leak_detector;
 pub mod perform_descriptor;
 pub mod runtime_type;

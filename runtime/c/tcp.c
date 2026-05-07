@@ -62,3 +62,26 @@ int64_t flux_tcp_accept(int64_t listener_val) {
     uint64_t request_id = flux_async_tcp_accept(listener);
     return flux_tcp_suspend_or_abort(request_id, "flux_tcp_accept");
 }
+
+int64_t flux_http_serve_config(
+    int64_t addr_val,
+    int64_t port_val,
+    int64_t config_val,
+    int64_t handler_val
+) {
+    (void)addr_val;
+    (void)port_val;
+    (void)config_val;
+    (void)handler_val;
+    return flux_tag_int(0);
+}
+
+int64_t flux_http_shutdown(int64_t handle_val) {
+    (void)handle_val;
+    return FLUX_NONE;
+}
+
+int64_t flux_http_shutdown_now(int64_t handle_val) {
+    (void)handle_val;
+    return FLUX_NONE;
+}

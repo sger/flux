@@ -3560,6 +3560,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberCheckCancelled => return "flux_fiber_check_cancelled".to_string(),
         // Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
         CorePrimOp::FiberRunAsyncWith => return "flux_fiber_run_async_with".to_string(),
+        // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
+        CorePrimOp::HttpServeConfig => return "flux_http_serve_config".to_string(),
+        CorePrimOp::HttpShutdown => return "flux_http_shutdown".to_string(),
+        CorePrimOp::HttpShutdownNow => return "flux_http_shutdown_now".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3717,6 +3721,17 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_tcp_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_tcp_listen" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_accept" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_serve_config" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_http_shutdown" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_shutdown_now" => (LlvmType::i64(), vec![LlvmType::i64()]),
         _ => return None,
     };
     Some(LlvmDecl {
