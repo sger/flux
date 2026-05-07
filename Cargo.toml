@@ -335,6 +335,10 @@ name = "native_json_tests"
 path = "tests/native_llvm/native_json_tests.rs"
 
 [[test]]
+name = "native_stream_tests"
+path = "tests/native_llvm/native_stream_tests.rs"
+
+[[test]]
 name = "native_async_indirect_tests"
 path = "tests/native_llvm/native_async_indirect_tests.rs"
 
@@ -433,6 +437,10 @@ path = "tests/integration/vm_http_client.rs"
 [[test]]
 name = "vm_json"
 path = "tests/integration/vm_json.rs"
+
+[[test]]
+name = "vm_stream"
+path = "tests/integration/vm_stream.rs"
 
 [[test]]
 name = "non_zero_type_tests"
