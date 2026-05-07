@@ -241,6 +241,183 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
+fn handler_timeout_returns_504() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    let _slow = sleep(200)
+    ok("too-late")
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let config = server_config(1, 65536, 8388608, 50)
+    let h = serve_config("127.0.0.1", {port}, config, handler)
+    let _sleep = sleep(300)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 504 Gateway Timeout"), "{stdout}");
+    assert!(stdout.contains("Gateway Timeout"), "{stdout}");
+    assert!(!stdout.contains("too-late"), "{stdout}");
+}
+
+#[test]
+fn fast_handler_succeeds_with_request_timeout_configured() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    let _fast = sleep(20)
+    ok("fast")
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let config = server_config(1, 65536, 8388608, 200)
+    let h = serve_config("127.0.0.1", {port}, config, handler)
+    let _sleep = sleep(200)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /fast HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
+    assert!(stdout.contains("fast"), "{stdout}");
+}
+
+#[test]
+fn timed_out_handler_closes_pipelined_connection() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    if req.path == "/slow" {{
+        let _slow = sleep(200)
+        ok("too-late")
+    }} else {{
+        ok("second")
+    }}
+}}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let config = server_config(1, 65536, 8388608, 50)
+    let h = serve_config("127.0.0.1", {port}, config, handler)
+    let _sleep = sleep(300)
+    shutdown(h)
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    let tail = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response + tail
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.matches("HTTP/1.1 504 Gateway Timeout").count(),
+        1,
+        "{stdout}"
+    );
+    assert_eq!(stdout.matches("HTTP/1.1 200 OK").count(), 0, "{stdout}");
+    assert!(!stdout.contains("second"), "{stdout}");
+}
+
+#[test]
+fn handler_timeout_does_not_break_graceful_shutdown_drain() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    let _slow = sleep(100)
+    ok("drained")
+}}
+
+fn server() -> String with Async, AsyncFail {{
+    let config = server_config(1, 65536, 8388608, 300)
+    let h = serve_config("127.0.0.1", {port}, config, handler)
+    let _sleep = sleep(80)
+    shutdown(h)
+    "stopped"
+}}
+
+fn client() -> String with Async {{
+    let _wait = sleep(50)
+    let conn = Tcp.connect("127.0.0.1", {port})
+    let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+    let response = Tcp.read(conn, 4096)
+    Tcp.close(conn)
+    response
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
+    assert!(stdout.contains("drained"), "{stdout}");
+    assert!(!stdout.contains("Gateway Timeout"), "{stdout}");
+}
+
+#[test]
 fn shutdown_now_cancels_active_connection() {
     let port = next_port();
     let source = lifecycle_source(&format!(
