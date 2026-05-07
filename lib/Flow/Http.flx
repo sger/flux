@@ -242,12 +242,15 @@ module Flow.Http {
         request_timeout_ms: Int,
         handler:      (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
-        let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
-        fn connection_fork_body() with Async, AsyncFail {
-            connection_worker(server_id, conn, "", request_timeout_ms, handler)
+        if http_is_shutting_down_prim(server_id) { Tcp.close(conn) }
+        else {
+            let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
+            fn connection_fork_body() with Async, AsyncFail {
+                connection_worker(server_id, conn, "", request_timeout_ms, handler)
+            }
+            let ignored_connection_fork = fork(server_scope, connection_fork_body)
+            accept_loop(server_id, listener, server_scope, request_timeout_ms, handler)
         }
-        let ignored_connection_fork = fork(server_scope, connection_fork_body)
-        accept_loop(server_id, listener, server_scope, request_timeout_ms, handler)
     }
 
     fn read_chunk(
@@ -279,12 +282,15 @@ module Flow.Http {
     ) -> Unit with Async, AsyncFail {
         let rest = substring(buffer, consumed, len(buffer))
         let next_keep_alive = keep_alive && !http_is_shutting_down_prim(server_id)
-        let handler_result = run_handler(req, request_timeout_ms, handler)
-        if result_is_timed_out(handler_result) { write_response_and_close(server_id, conn, response(504, "Gateway Timeout")) }
-        else {
-            let resp = result_or(handler_result, response(500, "Internal Server Error"))
-            write_response_then_continue(server_id, conn, rest, resp, next_keep_alive, request_timeout_ms, handler)
+        fn handler_done(resp, handler_ok) with Async, AsyncFail {
+            write_response_then_continue(server_id, conn, rest, resp, handler_ok && next_keep_alive, request_timeout_ms, handler)
         }
+        result_or_timeout_with_async(
+            run_handler(req, request_timeout_ms, handler),
+            response(504, "Gateway Timeout"),
+            response(500, "Internal Server Error"),
+            handler_done
+        )
     }
 
     fn write_response_then_continue(
@@ -320,7 +326,9 @@ module Flow.Http {
     fn wait_for_shutdown(server_id: Int) -> Unit with Async, AsyncFail {
         if http_is_server_stopped_prim(server_id) && http_active_connection_count_prim(server_id) <= 0 { noop() }
         else {
-            let ignored_shutdown_sleep = sleep(10)
+            if http_active_connection_count_prim(server_id) <= 0 { http_shutdown_prim(server_id) }
+            else { noop() }
+            let ignored_shutdown_sleep = sleep(250)
             wait_for_shutdown(server_id)
         }
     }

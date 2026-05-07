@@ -4079,8 +4079,7 @@ impl<'a> FnLower<'a> {
             | CorePrimOp::TcpRead
             | CorePrimOp::TcpWriteAll
             | CorePrimOp::TcpListen
-            | CorePrimOp::TcpAccept
-            | CorePrimOp::HttpServeConfig => {
+            | CorePrimOp::TcpAccept => {
                 let result = self.fresh_var();
                 let sink = self.fresh_var();
                 self.emit(LirInstr::PrimCall {

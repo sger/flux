@@ -323,6 +323,10 @@ name = "native_async_sleep_tests"
 path = "tests/native_llvm/native_async_sleep_tests.rs"
 
 [[test]]
+name = "native_http_server_tests"
+path = "tests/native_llvm/native_http_server_tests.rs"
+
+[[test]]
 name = "native_async_indirect_tests"
 path = "tests/native_llvm/native_async_indirect_tests.rs"
 

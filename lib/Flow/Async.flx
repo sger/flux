@@ -353,6 +353,14 @@ module Flow.Async {
         }
     }
 
+    public fn result_or_timeout_with_async<a, b>(r: Result<a, AsyncError>, timed_out: a, failed: a, ok: (a, Bool) -> b with Async | e) -> b with Async | e {
+        match r {
+            Ok(v) -> ok(v, true),
+            Err(TimedOut) -> ok(timed_out, false),
+            Err(_) -> ok(failed, false)
+        }
+    }
+
     /// Raise an `AsyncError` inside the current fiber.
     public fn fail<a>(err: AsyncError) -> a with Async {
         fiber_fail_prim(err)
