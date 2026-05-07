@@ -37,7 +37,7 @@ fn app() -> Unit with Async, AsyncFail {
 }
 
 fn main() with IO {
-    let _started = print("Starting browser demo on http://127.0.0.1:24905/")
-    let _hint = print("Press Ctrl+C to stop it.")
+    print("Starting browser demo on http://127.0.0.1:24905/")
+    print("Press Ctrl+C to stop it.")
     run_async(app)
 }

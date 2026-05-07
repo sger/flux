@@ -403,10 +403,8 @@ module Flow.Http {
         if http_is_shutting_down_prim(server_id) { Tcp.close(conn) }
         else {
             let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
-            fn connection_fork_body() with Async, AsyncFail {
-                connection_worker(server_id, conn, "", request_timeout_ms, handler)
-            }
-            let ignored_connection_fork = fork(server_scope, connection_fork_body)
+            let ignored_connection = connection_worker(server_id, conn, "", request_timeout_ms, handler)
+            let ignored_accept_yield = yield_now()
             accept_loop(server_id, listener, server_scope, request_timeout_ms, handler)
         }
     }
@@ -516,10 +514,8 @@ module Flow.Http {
         if http_is_shutting_down_prim(server_id) { Tcp.close(conn) }
         else {
             let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
-            fn connection_fork_body() with Async, AsyncFail {
-                stream_connection_worker(server_id, conn, "", request_timeout_ms, handler)
-            }
-            let ignored_connection_fork = fork(server_scope, connection_fork_body)
+            let ignored_connection = stream_connection_worker(server_id, conn, "", request_timeout_ms, handler)
+            let ignored_accept_yield = yield_now()
             accept_stream_loop(server_id, listener, server_scope, request_timeout_ms, handler)
         }
     }
