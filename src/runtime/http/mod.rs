@@ -1,9 +1,12 @@
-//! HTTP/1.1 parser and writer foundation (proposal 0174 Phase 3a).
+//! HTTP/1.1 parser, writer, and blocking VM server foundation.
 //!
-//! This module is intentionally parser/writer only. It owns no sockets and
-//! does not resume Flux code; callers feed it bytes from the async TCP layer.
+//! This module owns HTTP wire behavior only. The blocking server helper accepts
+//! a Rust callback for each parsed request; VM value construction and Flux
+//! handler invocation stay in `src/vm/core_dispatch.rs`.
 
 use std::collections::BTreeMap;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequest {
@@ -42,6 +45,128 @@ impl Default for ParseLimits {
             max_body_bytes: 8_388_608,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BlockingServerConfig {
+    pub max_connections: usize,
+    pub limits: ParseLimits,
+}
+
+impl Default for BlockingServerConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: 10_000,
+            limits: ParseLimits::default(),
+        }
+    }
+}
+
+pub fn serve_blocking<F>(
+    host: &str,
+    port: u16,
+    config: BlockingServerConfig,
+    mut handler: F,
+) -> Result<usize, String>
+where
+    F: FnMut(HttpRequest) -> Result<HttpResponse, String>,
+{
+    if config.max_connections == 0 {
+        return Ok(0);
+    }
+
+    let listener = TcpListener::bind((host, port))
+        .map_err(|e| format!("http_serve_config: bind failed: {e}"))?;
+    let mut accepted = 0usize;
+    while accepted < config.max_connections {
+        let (mut stream, _) = listener
+            .accept()
+            .map_err(|e| format!("http_serve_config: accept failed: {e}"))?;
+        accepted += 1;
+        handle_connection(&mut stream, config.limits, &mut handler)?;
+    }
+    Ok(accepted)
+}
+
+fn handle_connection<F>(
+    stream: &mut TcpStream,
+    limits: ParseLimits,
+    handler: &mut F,
+) -> Result<(), String>
+where
+    F: FnMut(HttpRequest) -> Result<HttpResponse, String>,
+{
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+
+    loop {
+        let (req, used) = loop {
+            match parse_request(&buf, limits) {
+                Ok(parsed) => break parsed,
+                Err(HttpError::NeedMore) => {
+                    let n = stream
+                        .read(&mut chunk)
+                        .map_err(|e| format!("http_serve_config: read failed: {e}"))?;
+                    if n == 0 {
+                        return Ok(());
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                Err(HttpError::PayloadTooLarge(msg)) => {
+                    write_error_response(stream, 413, "Payload Too Large", msg)?;
+                    return Ok(());
+                }
+                Err(HttpError::BadRequest(msg)) => {
+                    write_error_response(stream, 400, "Bad Request", msg)?;
+                    return Ok(());
+                }
+            }
+        };
+
+        buf.drain(..used);
+        let keep_alive = req.keep_alive;
+        let mut response = handler(req)?;
+        ensure_connection_header(&mut response, keep_alive);
+        let wire = write_response(&response);
+        stream
+            .write_all(&wire)
+            .map_err(|e| format!("http_serve_config: write failed: {e}"))?;
+        if !keep_alive {
+            return Ok(());
+        }
+    }
+}
+
+fn write_error_response(
+    stream: &mut TcpStream,
+    status: u16,
+    reason: &str,
+    message: String,
+) -> Result<(), String> {
+    let response = HttpResponse {
+        status,
+        reason: reason.into(),
+        headers: vec![("Connection".into(), "close".into())],
+        body: message.into_bytes(),
+    };
+    let wire = write_response(&response);
+    stream
+        .write_all(&wire)
+        .map_err(|e| format!("http_serve_config: write failed: {e}"))
+}
+
+fn ensure_connection_header(response: &mut HttpResponse, keep_alive: bool) {
+    if response
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("connection"))
+    {
+        return;
+    }
+    response.headers.push((
+        "Connection".into(),
+        if keep_alive { "keep-alive" } else { "close" }.into(),
+    ));
 }
 
 pub fn parse_request(input: &[u8], limits: ParseLimits) -> Result<(HttpRequest, usize), HttpError> {
@@ -289,6 +414,26 @@ mod tests {
         assert_eq!(req.target, "/hello");
         assert_eq!(req.headers[0], ("Host".into(), "example.test".into()));
         assert!(req.keep_alive);
+    }
+
+    #[test]
+    fn parses_pipelined_requests_by_consumed_offset() {
+        let raw = b"GET /one HTTP/1.1\r\nHost: local\r\n\r\nGET /two HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n";
+        let (first, used) = parse_request(raw, ParseLimits::default()).unwrap();
+        assert_eq!(first.target, "/one");
+        assert!(first.keep_alive);
+
+        let (second, second_used) = parse_request(&raw[used..], ParseLimits::default()).unwrap();
+        assert_eq!(second.target, "/two");
+        assert!(!second.keep_alive);
+        assert_eq!(used + second_used, raw.len());
+    }
+
+    #[test]
+    fn connection_close_marks_request_not_keep_alive() {
+        let raw = b"GET / HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n";
+        let (req, _) = parse_request(raw, ParseLimits::default()).unwrap();
+        assert!(!req.keep_alive);
     }
 
     #[test]
