@@ -64,15 +64,13 @@ int64_t flux_tcp_accept(int64_t listener_val) {
 }
 
 int64_t flux_http_serve_config(
-    int64_t addr_val,
-    int64_t port_val,
-    int64_t config_val,
-    int64_t handler_val
+    int64_t listener_val,
+    int64_t scope_val,
+    int64_t config_val
 ) {
-    (void)addr_val;
-    (void)port_val;
+    (void)listener_val;
+    (void)scope_val;
     (void)config_val;
-    (void)handler_val;
     return flux_tag_int(0);
 }
 
@@ -84,4 +82,38 @@ int64_t flux_http_shutdown(int64_t handle_val) {
 int64_t flux_http_shutdown_now(int64_t handle_val) {
     (void)handle_val;
     return FLUX_NONE;
+}
+
+int64_t flux_http_parse_request(int64_t raw_val, int64_t config_val) {
+    (void)raw_val;
+    (void)config_val;
+    return FLUX_NONE;
+}
+
+int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val) {
+    (void)response_val;
+    (void)keep_alive_val;
+    return flux_string_new("", 0);
+}
+
+int64_t flux_http_register_connection(int64_t server_val, int64_t conn_val) {
+    (void)server_val;
+    (void)conn_val;
+    return FLUX_NONE;
+}
+
+int64_t flux_http_unregister_connection(int64_t server_val, int64_t conn_val) {
+    (void)server_val;
+    (void)conn_val;
+    return FLUX_NONE;
+}
+
+int64_t flux_http_active_connection_count(int64_t server_val) {
+    (void)server_val;
+    return flux_tag_int(0);
+}
+
+int64_t flux_http_is_shutting_down(int64_t server_val) {
+    (void)server_val;
+    return FLUX_FALSE;
 }

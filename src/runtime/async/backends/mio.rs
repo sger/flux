@@ -648,6 +648,13 @@ fn drain_tcp_commands(
                 } else if let Some(mut ls) = listeners.remove(&handle) {
                     listener_tokens.remove(&ls.token);
                     let _ = registry.deregister(&mut ls.listener);
+                    if let Some(req) = ls.pending_accept.take() {
+                        push_completion(
+                            shared,
+                            req,
+                            CompletionPayload::Error("listener closed".into()),
+                        );
+                    }
                 }
             }
             TcpCommand::Listen { req, handle, addr } => {

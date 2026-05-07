@@ -722,7 +722,20 @@ pub enum CorePrimOp {
     HttpShutdown = 183,
     /// Immediate HTTP server shutdown. Args: (ServerHandle id) -> Unit.
     HttpShutdownNow = 184,
-    // ── Next free ID: 185 ─────────────────────────────────────────────
+    /// Parse one HTTP request from a buffered string. Args:
+    /// (raw, max_header_bytes, max_body_bytes) -> HttpParseResult.
+    HttpParseRequest = 185,
+    /// Serialize an HTTP response. Args: (Response, keep_alive) -> String.
+    HttpWriteResponse = 186,
+    /// Track an active server connection. Args: (server_id, conn_id) -> Unit.
+    HttpRegisterConnection = 187,
+    /// Stop tracking an active server connection. Args: (server_id, conn_id) -> Unit.
+    HttpUnregisterConnection = 188,
+    /// Return active connection count. Args: (server_id) -> Int.
+    HttpActiveConnectionCount = 189,
+    /// True once graceful or forced shutdown has been requested. Args: (server_id) -> Bool.
+    HttpIsShuttingDown = 190,
+    // ── Next free ID: 191 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -794,6 +807,12 @@ impl CorePrimOp {
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
             "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
+            "HttpParseRequest" => return Some(Self::HttpParseRequest),
+            "HttpWriteResponse" => return Some(Self::HttpWriteResponse),
+            "HttpRegisterConnection" => return Some(Self::HttpRegisterConnection),
+            "HttpUnregisterConnection" => return Some(Self::HttpUnregisterConnection),
+            "HttpActiveConnectionCount" => return Some(Self::HttpActiveConnectionCount),
+            "HttpIsShuttingDown" => return Some(Self::HttpIsShuttingDown),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -898,6 +917,12 @@ impl CorePrimOp {
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
             Self::HttpShutdownNow => Some("http_shutdown_now"),
+            Self::HttpParseRequest => Some("http_parse_request"),
+            Self::HttpWriteResponse => Some("http_write_response"),
+            Self::HttpRegisterConnection => Some("http_register_connection"),
+            Self::HttpUnregisterConnection => Some("http_unregister_connection"),
+            Self::HttpActiveConnectionCount => Some("http_active_connection_count"),
+            Self::HttpIsShuttingDown => Some("http_is_shutting_down"),
             _ => None,
         }
     }
@@ -1077,6 +1102,12 @@ impl CorePrimOp {
             182 => HttpServeConfig,
             183 => HttpShutdown,
             184 => HttpShutdownNow,
+            185 => HttpParseRequest,
+            186 => HttpWriteResponse,
+            187 => HttpRegisterConnection,
+            188 => HttpUnregisterConnection,
+            189 => HttpActiveConnectionCount,
+            190 => HttpIsShuttingDown,
             _ => return None,
         };
         Some(op)
@@ -1221,9 +1252,15 @@ impl CorePrimOp {
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
-            ("http_serve_config", 4, CorePrimOp::HttpServeConfig),
+            ("http_serve_config", 3, CorePrimOp::HttpServeConfig),
             ("http_shutdown", 1, CorePrimOp::HttpShutdown),
             ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
+            ("http_parse_request", 2, CorePrimOp::HttpParseRequest),
+            ("http_write_response", 2, CorePrimOp::HttpWriteResponse),
+            ("http_register_connection", 2, CorePrimOp::HttpRegisterConnection),
+            ("http_unregister_connection", 2, CorePrimOp::HttpUnregisterConnection),
+            ("http_active_connection_count", 1, CorePrimOp::HttpActiveConnectionCount),
+            ("http_is_shutting_down", 1, CorePrimOp::HttpIsShuttingDown),
             ("task_await", 1, CorePrimOp::TaskAwait),
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
@@ -1263,7 +1300,8 @@ impl CorePrimOp {
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
             | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf | FiberTry
-            | HttpShutdown | HttpShutdownNow => 1,
+            | HttpShutdown | HttpShutdownNow | HttpActiveConnectionCount
+            | HttpIsShuttingDown => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
@@ -1271,10 +1309,11 @@ impl CorePrimOp {
             | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
             | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr | TcpConnect
             | TcpListen | TcpRead | TcpWriteAll | FiberBoth | FiberRace | FiberTimeout
-            | FiberForkScoped => 2,
-            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            | FiberForkScoped | HttpWriteResponse | HttpRegisterConnection
+            | HttpUnregisterConnection | HttpParseRequest => 2,
+            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
+            | HttpServeConfig => 3,
             FiberRunAsyncWith => 4,
-            HttpServeConfig => 4,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,

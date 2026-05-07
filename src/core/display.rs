@@ -606,6 +606,12 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::HttpServeConfig => out.push_str("HttpServeConfig"),
         CorePrimOp::HttpShutdown => out.push_str("HttpShutdown"),
         CorePrimOp::HttpShutdownNow => out.push_str("HttpShutdownNow"),
+        CorePrimOp::HttpParseRequest => out.push_str("HttpParseRequest"),
+        CorePrimOp::HttpWriteResponse => out.push_str("HttpWriteResponse"),
+        CorePrimOp::HttpRegisterConnection => out.push_str("HttpRegisterConnection"),
+        CorePrimOp::HttpUnregisterConnection => out.push_str("HttpUnregisterConnection"),
+        CorePrimOp::HttpActiveConnectionCount => out.push_str("HttpActiveConnectionCount"),
+        CorePrimOp::HttpIsShuttingDown => out.push_str("HttpIsShuttingDown"),
     }
 }
 
