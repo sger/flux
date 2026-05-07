@@ -156,7 +156,7 @@ static int64_t http_parse_failure(int32_t tag, int status, const char *message) 
         flux_tag_int(status),
         flux_string_new(message, (uint32_t)strlen(message)),
     };
-    return http_make_adt_scan(tag, fields, 2, 0);
+    return http_make_adt(tag, fields, 2);
 }
 
 static int64_t http_method_value(const char *method, size_t len, const int32_t *method_tags) {
@@ -267,7 +267,7 @@ static int64_t http_url_failure(int32_t tag, const char *message) {
         flux_tag_int(0),
         flux_string_new(message, (uint32_t)strlen(message)),
     };
-    return http_make_adt_scan(tag, fields, 2, 0);
+    return http_make_adt(tag, fields, 2);
 }
 
 int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url_val) {
@@ -351,7 +351,7 @@ int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url
         flux_string_new(target, (uint32_t)target_len),
     };
     free(owned_target);
-    return http_make_adt_scan(parsed_tag, fields, 3, 0);
+    return http_make_adt(parsed_tag, fields, 3);
 }
 
 int64_t flux_http_write_request(
@@ -434,7 +434,7 @@ static int64_t http_response_parse_failure(int32_t tag, int status, const char *
         flux_tag_int(status),
         flux_string_new(message, (uint32_t)strlen(message)),
     };
-    return http_make_adt_scan(tag, fields, 2, 0);
+    return http_make_adt(tag, fields, 2);
 }
 
 int64_t flux_http_parse_response(
@@ -601,7 +601,7 @@ int64_t flux_http_parse_response(
     int64_t response = http_response_value(response_tag, (int)status, body, body_len);
     free(decoded);
     int64_t fields[2] = { response, flux_tag_int((int64_t)consumed) };
-    return http_make_adt_scan(parsed_tag, fields, 2, 0);
+    return http_make_adt(parsed_tag, fields, 2);
 }
 
 static int64_t flux_tcp_suspend_or_abort(uint64_t request_id, const char *which) {
@@ -914,7 +914,7 @@ int64_t flux_http_parse_request(
     );
     free(decoded);
     int64_t fields[3] = { request, flux_tag_int((int64_t)consumed), flux_make_bool(keep_alive) };
-    return http_make_adt_scan(parsed_tag, fields, 3, 0);
+    return http_make_adt(parsed_tag, fields, 3);
 }
 
 int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val) {

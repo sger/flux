@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/http/stream_pipeline.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>
