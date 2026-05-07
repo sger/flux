@@ -77,6 +77,7 @@ enum AwaitKind {
     },
     Race {
         children: Vec<u64>,
+        completed: Vec<(u64, i64)>,
     },
     Timeout {
         body: u64,
@@ -189,6 +190,12 @@ impl NativeRun {
             || self.ready.iter().any(|queue| !queue.is_empty())
     }
 
+    fn is_ready(&self, fiber_id: u64) -> bool {
+        self.ready
+            .iter()
+            .any(|queue| queue.iter().any(|fiber| fiber.id == fiber_id))
+    }
+
     fn spawn_child(&mut self, closure: i64) -> u64 {
         let id = next_fiber_id();
         let home_worker = self.next_child_worker();
@@ -256,7 +263,24 @@ impl NativeRun {
             return;
         }
         self.fiber_request.insert(fiber.id, req);
+        let fiber_id = fiber.id;
         self.suspended.insert(req, fiber);
+
+        let parent_reqs = self
+            .awaiter_index
+            .get(&fiber_id)
+            .cloned()
+            .unwrap_or_default();
+        for parent_req in parent_reqs {
+            if matches!(self.awaits.get(&parent_req), Some(AwaitKind::Race { .. }))
+                && let Some(AwaitKind::Race {
+                    children,
+                    completed,
+                }) = self.awaits.remove(&parent_req)
+            {
+                self.resolve_race(parent_req, children, completed);
+            }
+        }
     }
 
     fn wake(&mut self, req: u64, value: i64) {
@@ -346,11 +370,12 @@ impl NativeRun {
                         }
                     }
                 }
-                AwaitKind::Race { children } => {
-                    self.wake(parent_req, value);
-                    let losers: Vec<u64> =
-                        children.into_iter().filter(|child| *child != id).collect();
-                    self.cancel_fibers(&losers);
+                AwaitKind::Race {
+                    children,
+                    mut completed,
+                } => {
+                    completed.push((id, value));
+                    self.resolve_race(parent_req, children, completed);
                 }
                 AwaitKind::Timeout { body } => {
                     if id == body {
@@ -365,6 +390,57 @@ impl NativeRun {
                 }
             }
         }
+    }
+
+    fn resolve_race(&mut self, parent_req: u64, children: Vec<u64>, completed: Vec<(u64, i64)>) {
+        let winner = children.iter().copied().find(|child| {
+            completed
+                .iter()
+                .any(|(completed_child, _)| completed_child == child)
+        });
+
+        let Some(winner) = winner else {
+            self.awaits.insert(
+                parent_req,
+                AwaitKind::Race {
+                    children,
+                    completed,
+                },
+            );
+            return;
+        };
+
+        let blocked_by_earlier_ready = children
+            .iter()
+            .take_while(|child| **child != winner)
+            .any(|child| self.is_ready(*child));
+
+        if blocked_by_earlier_ready {
+            self.awaits.insert(
+                parent_req,
+                AwaitKind::Race {
+                    children,
+                    completed,
+                },
+            );
+            return;
+        }
+
+        let mut winner_value = FLUX_NONE;
+        for (completed_child, completed_value) in completed {
+            if completed_child == winner {
+                winner_value = completed_value;
+            } else {
+                release_completion_value(completed_value);
+            }
+        }
+
+        self.wake(parent_req, winner_value);
+        let losers: Vec<u64> = children
+            .into_iter()
+            .filter(|child| *child != winner)
+            .collect();
+        self.cancel_fibers(&losers);
     }
 
     fn cancel_fibers(&mut self, fiber_ids: &[u64]) {
@@ -967,6 +1043,7 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
             parent_req,
             AwaitKind::Race {
                 children: vec![left_id, right_id],
+                completed: Vec::new(),
             },
         );
         parent_req
