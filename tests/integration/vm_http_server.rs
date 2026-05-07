@@ -53,7 +53,7 @@ fn handler(req) with Async {{
 fn server() -> Unit with Async, AsyncFail {{
     let config = server_config({max_connections}, {max_header}, {max_body}, 30000)
     let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(500)
+    let _sleep = sleep(200)
     shutdown(h)
 }}
 
@@ -62,8 +62,9 @@ fn client() -> String with Async {{
     let conn = Tcp.connect("127.0.0.1", {port})
     let _write = Tcp.write_all(conn, {request:?})
     let response = Tcp.read(conn, 4096)
+    let tail = Tcp.read(conn, 4096)
     Tcp.close(conn)
-    response
+    response + tail
 }}
 
 fn body() -> String with Async {{
