@@ -349,6 +349,7 @@ fn route_stmt(
         | Statement::Data { .. }
         | Statement::EffectDecl { .. }
         | Statement::EffectAlias { .. }
+        | Statement::TypeAlias(_)
         | Statement::Class { .. }
         | Statement::Instance { .. } => false,
     }
@@ -734,6 +735,7 @@ fn collect_default_effects_stmt(
         | Statement::Data { .. }
         | Statement::EffectDecl { .. }
         | Statement::EffectAlias { .. }
+        | Statement::TypeAlias(_)
         | Statement::Class { .. }
         | Statement::Instance { .. } => {}
     }

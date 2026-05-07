@@ -3967,6 +3967,7 @@ impl Compiler {
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
             Statement::EffectAlias { .. } => {}
+            Statement::TypeAlias(_) => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }

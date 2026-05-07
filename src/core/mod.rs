@@ -1242,8 +1242,7 @@ impl CorePrimOp {
             | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
             | FAtan | FSinh | FCosh | FTanh | FTruncate | TaskSpawn | TaskBlockingJoin
             | TaskCancel | FiberSuspend | FiberFork | FiberFail | TaskAwait | FiberRunAsync
-            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf
-            | FiberTry => 1,
+            | FiberSleep | TcpClose | TcpAccept | FiberCancelScope | FiberFirstOf | FiberTry => 1,
             Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
             | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
             | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe

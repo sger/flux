@@ -1353,6 +1353,7 @@ impl Compiler {
                 // Effect aliases are compile-time only (Proposal 0161 B1); the
                 // compiler's alias table is populated before codegen runs.
                 Statement::EffectAlias { .. } => {}
+                Statement::TypeAlias(_) => {}
                 // Type class declarations are syntax only — no bytecode emitted.
                 Statement::Class { .. } => {}
                 Statement::Instance { .. } => {}
@@ -1988,6 +1989,7 @@ impl Compiler {
                 // for the same reason EffectDecl is — they only affect the
                 // compile-time alias table.
                 Statement::EffectAlias { .. } => {}
+                Statement::TypeAlias(_) => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(

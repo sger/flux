@@ -29,6 +29,7 @@ impl Compiler {
         // references. The full effect_ops_registry collection still happens
         // below; this step only touches `effect_row_aliases`.
         self.collect_effect_aliases_for_contracts(program);
+        self.collect_transparent_type_aliases(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);
@@ -134,6 +135,7 @@ impl Compiler {
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
             | Statement::EffectAlias { .. }
+            | Statement::TypeAlias(_)
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }
@@ -329,6 +331,7 @@ impl Compiler {
             | Statement::Data { .. }
             | Statement::EffectDecl { .. }
             | Statement::EffectAlias { .. }
+            | Statement::TypeAlias(_)
             | Statement::Class { .. }
             | Statement::Instance { .. } => {}
         }

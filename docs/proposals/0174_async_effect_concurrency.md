@@ -78,7 +78,7 @@ target the original proposal aimed at.
 | 2-vi — Fiber panic semantics | ✅ | `Async.try_` now returns `Result<a, AsyncError>`; `panic` inside a fiber is converted to `AsyncError.Panicked`, `Async.fail` is catchable, structured-concurrency awaits propagate errors and cancel siblings, and native workers catch fiber panics without poisoning. |
 | 2-vii — Runtime config knobs | ✅ | New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4: workers, fs, dns, action) wired through VM dispatch, native ABI (`flux_async_run_root_with`), C shim (`flux_fiber_run_async_with`), and LLVM emit. Library: `data RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }` + `default_runtime_config()` + `with_worker_count(n)` + `with_dns_pool_size(n)` builders + `run_async_with(cfg, action)`. `FLUX_WORKERS` env-var fallback parsed once on the VM via `OnceLock`. **Native runtime currently ignores `worker_count`** (still uses compile-time `LOGICAL_WORKERS = 2`); the extern accepts the value for API parity, full native runtime-config support is a follow-up. `dns_pool_size` is now consumed by slice 2-viii; `fs_pool_size` remains reserved for future filesystem consumers. Tests in [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs). |
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
-| 2-ix — Transparent type aliases | ⏳ | Extend `alias Name = ...` to accept ordinary type expressions, not only effect rows. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
+| 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) already walks every `data` declaration, skips ADTs with function-typed fields, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) — 10 tests cover monomorphic ADTs, parameterized ADTs (positive and negative), function-field ADTs (rejected), recursive ADTs, and bare function types (rejected). The slice's only output was adding the recursive-ADT regression test that was missing from the original suite. |
 | **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ | |
 | **Phase 4** — TLS + database client | ⏳ | |
@@ -1896,6 +1896,11 @@ connects to `"localhost"` and round-trips bytes, passing on `vm` and
 
 #### 2-ix — Transparent type aliases
 
+Status: landed. The compiler now parses transparent type aliases,
+collects them during validation, expands them before HM inference, and
+keeps them out of runtime/Core output. Existing `alias Name = <...>`
+effect-row aliases remain source-compatible.
+
 Detailed specification in [Required language features](#required-language-features)
 above (originally written for Phase 1b prep). Implementation summary,
 restated here for the Phase 2 work-plan:
@@ -1903,9 +1908,10 @@ restated here for the Phase 2 work-plan:
 - Parser: extend `parse_alias_statement` in
   [`src/syntax/parser/statement.rs`](../../src/syntax/parser/statement.rs) —
   when the RHS does not start with `<`, parse a `TypeExpr`.
-- AST: new variant `Statement::TypeAlias { is_public, name, params, body, span }`
+- AST: new `Statement::TypeAlias` declaration carrying visibility, name,
+  params, body, and span
   in [`src/syntax/statement.rs`](../../src/syntax/statement.rs) (today
-  only `Statement::EffectAlias` exists).
+  alongside `Statement::EffectAlias`).
 - Name resolution: per-module transparent-alias table populated
   alongside the existing ADT, effect, and effect-alias tables.
 - Type expansion: extend the existing substitution path to detect alias

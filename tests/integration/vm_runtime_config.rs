@@ -64,7 +64,10 @@ fn main() with IO {
         success,
         "run_async_with(Some(1)) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(stdout.contains("42"), "expected 42 on stdout, got: {stdout:?}");
+    assert!(
+        stdout.contains("42"),
+        "expected 42 on stdout, got: {stdout:?}"
+    );
     assert!(elapsed < Duration::from_secs(5));
 }
 
@@ -90,7 +93,10 @@ fn main() with IO {
         success,
         "run_async_with(default) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(stdout.contains("7"), "expected 7 on stdout, got: {stdout:?}");
+    assert!(
+        stdout.contains("7"),
+        "expected 7 on stdout, got: {stdout:?}"
+    );
 }
 
 #[test]
@@ -113,8 +119,7 @@ fn main() with IO {
     print(v)
 }
 "#;
-    let (stdout, stderr, success, _elapsed) =
-        run_source_with_env(source, &[("FLUX_WORKERS", "1")]);
+    let (stdout, stderr, success, _elapsed) = run_source_with_env(source, &[("FLUX_WORKERS", "1")]);
     assert!(
         success,
         "run_async with FLUX_WORKERS=1 must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
