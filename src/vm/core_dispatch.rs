@@ -2421,6 +2421,9 @@ pub fn execute_core_primop(
         HttpShutdownNow => vm_http_shutdown(&args, true),
         HttpParseRequest => vm_http_parse_request(&args),
         HttpWriteResponse => vm_http_write_response(&args),
+        HttpParseUrl => vm_http_parse_url(&args),
+        HttpWriteRequest => vm_http_write_request(&args),
+        HttpParseResponse => vm_http_parse_response(&args),
         HttpRegisterConnection => {
             let server = eint(&args[0], "http_register_connection")?;
             let conn = eint(&args[1], "http_register_connection")?;
@@ -2810,6 +2813,72 @@ fn vm_http_write_response(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+fn vm_http_parse_url(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::{HttpError, parse_url};
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let url = estr(&args[0], "http_parse_url")?;
+    match parse_url(url) {
+        Ok(parsed) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpUrlParsed".to_string()),
+            fields: AdtFields::from_vec(vec![
+                Value::String(parsed.host.into()),
+                Value::Integer(parsed.port as i64),
+                Value::String(parsed.target.into()),
+            ]),
+        }))),
+        Err(HttpError::BadRequest(msg) | HttpError::PayloadTooLarge(msg)) => {
+            Ok(Value::Adt(Rc::new(AdtValue {
+                constructor: Rc::new("HttpUrlFailure".to_string()),
+                fields: AdtFields::Two(Value::Integer(0), Value::String(msg.into())),
+            })))
+        }
+        Err(HttpError::NeedMore) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpUrlFailure".to_string()),
+            fields: AdtFields::Two(
+                Value::Integer(0),
+                Value::String("incomplete URL".to_string().into()),
+            ),
+        }))),
+    }
+}
+
+fn vm_http_write_request(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::write_request;
+
+    let method = http_method_name(&args[0])?;
+    let host = estr(&args[1], "http_write_request(host)")?;
+    let target = estr(&args[2], "http_write_request(target)")?;
+    let headers = http_header_pairs(&args[3], "http_write_request(headers)")?;
+    let body = estr(&args[4], "http_write_request(body)")?;
+    let wire = write_request(method, host, target, &headers, body.as_bytes());
+    Ok(Value::String(
+        String::from_utf8_lossy(&wire).to_string().into(),
+    ))
+}
+
+fn vm_http_parse_response(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::{HttpError, ParseLimits, parse_response};
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let raw = estr(&args[0], "http_parse_response")?;
+    match parse_response(raw.as_bytes(), ParseLimits::default()) {
+        Ok((resp, consumed)) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpResponseParsed".to_string()),
+            fields: AdtFields::Two(http_response_value(&resp), Value::Integer(consumed as i64)),
+        }))),
+        Err(HttpError::NeedMore) => Ok(Value::AdtUnit(Rc::new("HttpResponseNeedMore".to_string()))),
+        Err(HttpError::PayloadTooLarge(msg)) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpResponseFailure".to_string()),
+            fields: AdtFields::Two(Value::Integer(413), Value::String(msg.into())),
+        }))),
+        Err(HttpError::BadRequest(msg)) => Ok(Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("HttpResponseFailure".to_string()),
+            fields: AdtFields::Two(Value::Integer(0), Value::String(msg.into())),
+        }))),
+    }
+}
+
 fn http_request_value(req: &crate::runtime::http::HttpRequest) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     Value::Adt(Rc::new(AdtValue {
@@ -2821,6 +2890,59 @@ fn http_request_value(req: &crate::runtime::http::HttpRequest) -> Value {
             Value::String(String::from_utf8_lossy(&req.body).to_string().into()),
         ]),
     }))
+}
+
+fn http_response_value(resp: &crate::runtime::http::HttpResponse) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let mut headers = rc_hamt::hamt_empty();
+    for (name, value) in &resp.headers {
+        headers = rc_hamt::hamt_insert(
+            &headers,
+            HashKey::String(name.clone()),
+            Value::String(value.clone().into()),
+        );
+    }
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Response".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(resp.status as i64),
+            Value::HashMap(headers),
+            Value::String(String::from_utf8_lossy(&resp.body).to_string().into()),
+        ]),
+    }))
+}
+
+fn http_method_name(value: &Value) -> Result<&'static str, String> {
+    let name = match value {
+        Value::AdtUnit(name) => name.as_ref(),
+        Value::Adt(adt) if adt.fields.len() == 0 => adt.constructor.as_ref(),
+        other => return Err(terr("http_write_request(method)", "Method", other)),
+    };
+    Ok(match name.as_str() {
+        "Post" => "POST",
+        "Put" => "PUT",
+        "Delete" => "DELETE",
+        "Patch" => "PATCH",
+        "Head" => "HEAD",
+        "Options" => "OPTIONS",
+        _ => "GET",
+    })
+}
+
+fn http_header_pairs(value: &Value, op: &str) -> Result<Vec<(String, String)>, String> {
+    let node = ehamt(value, op)?;
+    let mut out = Vec::new();
+    for (key, value) in rc_hamt::hamt_iter(node) {
+        let HashKey::String(name) = key else {
+            return Err(format!("{op}: header name must be String"));
+        };
+        let Value::String(header_value) = value else {
+            return Err(format!("{op}: header value must be String"));
+        };
+        out.push((name, header_value.to_string()));
+    }
+    Ok(out)
 }
 
 fn config_usize_field(

@@ -47,6 +47,10 @@ module Flow.Async {
 
     public fn canceled_error() -> AsyncError { Canceled }
 
+    public fn protocol_error(status: Int, message: String) -> AsyncError {
+        ProtocolError(status, message)
+    }
+
     // ── Structural handles ────────────────────────────────────────────
 
     /// Cancellation boundary. Fibers forked inside a `scope` call are

@@ -21,6 +21,14 @@ module Flow.Http {
         Options,
     }
 
+    public fn method_get() -> Method { Get }
+    public fn method_post() -> Method { Post }
+    public fn method_put() -> Method { Put }
+    public fn method_delete() -> Method { Delete }
+    public fn method_patch() -> Method { Patch }
+    public fn method_head() -> Method { Head }
+    public fn method_options() -> Method { Options }
+
     public data Request {
         Request {
             method:  Method,
@@ -56,9 +64,23 @@ module Flow.Http {
         HttpParseFailure(Int, String),
     }
 
+    data HttpUrlResult {
+        HttpUrlParsed(String, Int, String),
+        HttpUrlFailure(Int, String),
+    }
+
+    data HttpResponseParseResult {
+        HttpResponseNeedMore,
+        HttpResponseParsed(Response, Int),
+        HttpResponseFailure(Int, String),
+    }
+
     intrinsic fn http_serve_config_prim<a>(listener_id: Int, scope_id: Int, config: a) -> Int = primop HttpServeConfig
     intrinsic fn http_parse_request_prim(raw: String, server_id: Int) -> HttpParseResult = primop HttpParseRequest
     intrinsic fn http_write_response_prim(resp: Response, keep_alive: Bool) -> String = primop HttpWriteResponse
+    intrinsic fn http_parse_url_prim(url: String) -> HttpUrlResult = primop HttpParseUrl
+    intrinsic fn http_write_request_prim(method: Method, host: String, target: String, headers: Map<String, String>, body: String) -> String = primop HttpWriteRequest
+    intrinsic fn http_parse_response_prim(raw: String) -> HttpResponseParseResult = primop HttpParseResponse
     intrinsic fn http_register_connection_prim(server_id: Int, conn_id: Int) -> Unit = primop HttpRegisterConnection
     intrinsic fn http_unregister_connection_prim(server_id: Int, conn_id: Int) -> Unit = primop HttpUnregisterConnection
     intrinsic fn http_active_connection_count_prim(server_id: Int) -> Int = primop HttpActiveConnectionCount
@@ -105,6 +127,26 @@ module Flow.Http {
         response(200, body)
     }
 
+    public fn get(url: String) -> Response with Async, AsyncFail {
+        request(Get, url, {}, "")
+    }
+
+    public fn post(url: String, body: String) -> Response with Async, AsyncFail {
+        request(Post, url, {}, body)
+    }
+
+    public fn request(
+        method:  Method,
+        url:     String,
+        headers: Map<String, String>,
+        body:    String
+    ) -> Response with Async, AsyncFail {
+        match http_parse_url_prim(url) {
+            HttpUrlFailure(status, message) -> fail(protocol_error(status, message)),
+            HttpUrlParsed(host, port, target) -> request_parsed_url(method, host, port, target, headers, body)
+        }
+    }
+
     public fn serve_config(
         addr:    String,
         port:    Int,
@@ -112,6 +154,48 @@ module Flow.Http {
         handler: (Request) -> Response with Async | e
     ) -> ServerHandle with Async, AsyncFail {
         serve_config_impl(addr, port, handler, config)
+    }
+
+    fn request_parsed_url(
+        method:  Method,
+        host:    String,
+        port:    Int,
+        target:  String,
+        headers: Map<String, String>,
+        body:    String
+    ) -> Response with Async, AsyncFail {
+        let conn = Tcp.connect(host, port)
+        let wire = http_write_request_prim(method, host, target, headers, body)
+        let ignored_write_request = Tcp.write_all(conn, wire)
+        read_response_loop(conn, "")
+    }
+
+    fn read_response_loop(conn, buffer: String) -> Response with Async, AsyncFail {
+        match http_parse_response_prim(buffer) {
+            HttpResponseParsed(resp, consumed) -> close_and_return_response(conn, resp),
+            HttpResponseFailure(status, message) -> close_and_fail_response(conn, status, "HTTP response parse failed"),
+            HttpResponseNeedMore -> read_more_response(conn, buffer)
+        }
+    }
+
+    fn close_and_return_response(conn, resp: Response) -> Response with Async {
+        Tcp.close(conn)
+        resp
+    }
+
+    fn close_and_fail_response(conn, status: Int, message: String) -> Response with Async, AsyncFail {
+        let ignored_close = Tcp.close(conn)
+        fail(protocol_error(status, message))
+    }
+
+    fn read_more_response(conn, buffer: String) -> Response with Async, AsyncFail {
+        let chunk = Tcp.read(conn, 4096)
+        if chunk == "" {
+            let ignored_close = Tcp.close(conn)
+            fail(protocol_error(0, "connection closed before complete HTTP response"))
+        } else {
+            read_response_loop(conn, buffer + chunk)
+        }
     }
 
     fn serve_config_impl(

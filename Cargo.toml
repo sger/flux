@@ -327,6 +327,10 @@ name = "native_http_server_tests"
 path = "tests/native_llvm/native_http_server_tests.rs"
 
 [[test]]
+name = "native_http_client_tests"
+path = "tests/native_llvm/native_http_client_tests.rs"
+
+[[test]]
 name = "native_async_indirect_tests"
 path = "tests/native_llvm/native_async_indirect_tests.rs"
 
@@ -417,6 +421,10 @@ path = "tests/integration/vm_tcp_echo.rs"
 [[test]]
 name = "vm_http_server"
 path = "tests/integration/vm_http_server.rs"
+
+[[test]]
+name = "vm_http_client"
+path = "tests/integration/vm_http_client.rs"
 
 [[test]]
 name = "non_zero_type_tests"

@@ -204,6 +204,402 @@ static const char *http_reason(int64_t status) {
     }
 }
 
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} HttpBuffer;
+
+static void http_buf_append(HttpBuffer *buf, const char *data, size_t len) {
+    if (len == 0) return;
+    if (buf->len + len + 1 > buf->cap) {
+        size_t next_cap = buf->cap == 0 ? 256 : buf->cap;
+        while (next_cap < buf->len + len + 1) next_cap *= 2;
+        char *next = (char *)realloc(buf->data, next_cap);
+        if (!next) {
+            fprintf(stderr, "http buffer append: out of memory\n");
+            abort();
+        }
+        buf->data = next;
+        buf->cap = next_cap;
+    }
+    memcpy(buf->data + buf->len, data, len);
+    buf->len += len;
+    buf->data[buf->len] = '\0';
+}
+
+static void http_buf_append_cstr(HttpBuffer *buf, const char *data) {
+    http_buf_append(buf, data, strlen(data));
+}
+
+static void http_buf_append_value_string(HttpBuffer *buf, int64_t value) {
+    http_buf_append(buf, flux_string_data(value), (size_t)flux_string_len(value));
+}
+
+static int http_header_name_eq(int64_t key_val, const char *expected) {
+    const char *key = flux_string_data(key_val);
+    uint32_t key_len = flux_string_len(key_val);
+    return http_ascii_eq_ci(key, key_len, expected);
+}
+
+static const char *http_method_name_from_value(
+    int64_t method_val,
+    const int32_t *method_tags
+) {
+    int32_t tag = 0;
+    int32_t count = 0;
+    (void)http_adt_fields(method_val, &tag, &count);
+    if (tag == method_tags[1]) return "POST";
+    if (tag == method_tags[2]) return "PUT";
+    if (tag == method_tags[3]) return "DELETE";
+    if (tag == method_tags[4]) return "PATCH";
+    if (tag == method_tags[5]) return "HEAD";
+    if (tag == method_tags[6]) return "OPTIONS";
+    return "GET";
+}
+
+static int64_t http_url_failure(int32_t tag, const char *message) {
+    int64_t fields[2] = {
+        flux_tag_int(0),
+        flux_string_new(message, (uint32_t)strlen(message)),
+    };
+    return http_make_adt_scan(tag, fields, 2, 0);
+}
+
+int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url_val) {
+    const char *url = flux_string_data(url_val);
+    size_t len = (size_t)flux_string_len(url_val);
+    const char *prefix = "http://";
+    size_t prefix_len = strlen(prefix);
+    if (len < prefix_len || memcmp(url, prefix, prefix_len) != 0) {
+        return http_url_failure(failure_tag, "only http:// URLs are supported in this phase");
+    }
+
+    const char *rest = url + prefix_len;
+    size_t rest_len = len - prefix_len;
+    size_t split = rest_len;
+    for (size_t i = 0; i < rest_len; i++) {
+        if (rest[i] == '/' || rest[i] == '?') {
+            split = i;
+            break;
+        }
+    }
+    if (split == 0) return http_url_failure(failure_tag, "HTTP URL missing host");
+
+    const char *authority = rest;
+    size_t authority_len = split;
+    const char *target = "/";
+    size_t target_len = 1;
+    char *owned_target = NULL;
+    if (split < rest_len) {
+        if (rest[split] == '?') {
+            target_len = rest_len - split + 1;
+            owned_target = (char *)malloc(target_len + 1);
+            if (!owned_target) {
+                fprintf(stderr, "flux_http_parse_url: out of memory\n");
+                abort();
+            }
+            owned_target[0] = '/';
+            memcpy(owned_target + 1, rest + split, rest_len - split);
+            owned_target[target_len] = '\0';
+            target = owned_target;
+        } else {
+            target = rest + split;
+            target_len = rest_len - split;
+        }
+    }
+
+    size_t host_len = authority_len;
+    int64_t port = 80;
+    for (size_t i = authority_len; i > 0; i--) {
+        if (authority[i - 1] == ':') {
+            host_len = i - 1;
+            if (host_len == 0 || i >= authority_len) {
+                free(owned_target);
+                return http_url_failure(failure_tag, "HTTP URL has invalid port");
+            }
+            char port_buf[16];
+            size_t port_len = authority_len - i;
+            if (port_len == 0 || port_len >= sizeof(port_buf)) {
+                free(owned_target);
+                return http_url_failure(failure_tag, "HTTP URL has invalid port");
+            }
+            memcpy(port_buf, authority + i, port_len);
+            port_buf[port_len] = '\0';
+            char *endptr = NULL;
+            long parsed = strtol(port_buf, &endptr, 10);
+            if (!endptr || *endptr != '\0' || parsed <= 0 || parsed > 65535) {
+                free(owned_target);
+                return http_url_failure(failure_tag, "HTTP URL has invalid port");
+            }
+            port = parsed;
+            break;
+        }
+    }
+    if (host_len == 0) {
+        free(owned_target);
+        return http_url_failure(failure_tag, "HTTP URL missing host");
+    }
+
+    int64_t fields[3] = {
+        flux_string_new(authority, (uint32_t)host_len),
+        flux_tag_int(port),
+        flux_string_new(target, (uint32_t)target_len),
+    };
+    free(owned_target);
+    return http_make_adt_scan(parsed_tag, fields, 3, 0);
+}
+
+int64_t flux_http_write_request(
+    int32_t get_tag,
+    int32_t post_tag,
+    int32_t put_tag,
+    int32_t delete_tag,
+    int32_t patch_tag,
+    int32_t head_tag,
+    int32_t options_tag,
+    int64_t method_val,
+    int64_t host_val,
+    int64_t target_val,
+    int64_t headers_val,
+    int64_t body_val
+) {
+    int32_t method_tags[7] = {
+        get_tag, post_tag, put_tag, delete_tag, patch_tag, head_tag, options_tag
+    };
+    const char *method = http_method_name_from_value(method_val, method_tags);
+    HttpBuffer buf = {0};
+    http_buf_append_cstr(&buf, method);
+    http_buf_append_cstr(&buf, " ");
+    http_buf_append_value_string(&buf, target_val);
+    http_buf_append_cstr(&buf, " HTTP/1.1\r\n");
+
+    int has_host = 0;
+    int has_connection = 0;
+    int has_content_length = 0;
+    int64_t keys = flux_hamt_keys(headers_val);
+    int64_t key_count_val = flux_array_len(keys);
+    int64_t key_count = flux_untag_int(key_count_val);
+    for (int64_t i = 0; i < key_count; i++) {
+        int64_t key = flux_array_get(keys, flux_tag_int(i));
+        int64_t value = flux_hamt_get(headers_val, key);
+        if (http_header_name_eq(key, "Host")) has_host = 1;
+        else if (http_header_name_eq(key, "Connection")) has_connection = 1;
+        else if (http_header_name_eq(key, "Content-Length")) has_content_length = 1;
+        http_buf_append_value_string(&buf, key);
+        http_buf_append_cstr(&buf, ": ");
+        http_buf_append_value_string(&buf, value);
+        http_buf_append_cstr(&buf, "\r\n");
+    }
+    if (!has_host) {
+        http_buf_append_cstr(&buf, "Host: ");
+        http_buf_append_value_string(&buf, host_val);
+        http_buf_append_cstr(&buf, "\r\n");
+    }
+    if (!has_connection) {
+        http_buf_append_cstr(&buf, "Connection: close\r\n");
+    }
+    if (!has_content_length) {
+        char len_buf[64];
+        snprintf(len_buf, sizeof(len_buf), "Content-Length: %u\r\n", flux_string_len(body_val));
+        http_buf_append_cstr(&buf, len_buf);
+    }
+    http_buf_append_cstr(&buf, "\r\n");
+    http_buf_append_value_string(&buf, body_val);
+    int64_t result = flux_string_new(buf.data ? buf.data : "", (uint32_t)buf.len);
+    free(buf.data);
+    return result;
+}
+
+static int64_t http_response_value(
+    int32_t response_tag,
+    int status,
+    const char *body,
+    size_t body_len
+) {
+    int64_t fields[3] = {
+        flux_tag_int(status),
+        flux_hamt_empty(),
+        flux_string_new(body, (uint32_t)body_len),
+    };
+    return http_make_adt(response_tag, fields, 3);
+}
+
+static int64_t http_response_parse_failure(int32_t tag, int status, const char *message) {
+    int64_t fields[2] = {
+        flux_tag_int(status),
+        flux_string_new(message, (uint32_t)strlen(message)),
+    };
+    return http_make_adt_scan(tag, fields, 2, 0);
+}
+
+int64_t flux_http_parse_response(
+    int32_t need_more_tag,
+    int32_t parsed_tag,
+    int32_t failure_tag,
+    int32_t response_tag,
+    int64_t raw_val
+) {
+    const char *raw = flux_string_data(raw_val);
+    size_t raw_len = (size_t)flux_string_len(raw_val);
+    size_t max_header = 65536;
+    size_t max_body = 8388608;
+
+    size_t header_end = http_find_bytes(raw, raw_len, "\r\n\r\n", 4);
+    if (header_end == (size_t)-1) {
+        if (raw_len > max_header) {
+            return http_response_parse_failure(failure_tag, 413, "HTTP response header block exceeds max_header_bytes");
+        }
+        return http_make_adt_scan(need_more_tag, NULL, 0, 0);
+    }
+    if (header_end > max_header) {
+        return http_response_parse_failure(failure_tag, 413, "HTTP response header block exceeds max_header_bytes");
+    }
+
+    size_t line_end = http_find_bytes(raw, header_end, "\r\n", 2);
+    if (line_end == (size_t)-1) {
+        return http_response_parse_failure(failure_tag, 0, "missing status line");
+    }
+    if (line_end < 12 || memcmp(raw, "HTTP/1.1 ", 9) != 0) {
+        return http_response_parse_failure(failure_tag, 0, "unsupported HTTP response version");
+    }
+    char status_buf[4];
+    memcpy(status_buf, raw + 9, 3);
+    status_buf[3] = '\0';
+    char *status_end = NULL;
+    long status = strtol(status_buf, &status_end, 10);
+    if (!status_end || *status_end != '\0') {
+        return http_response_parse_failure(failure_tag, 0, "invalid HTTP response status");
+    }
+
+    long long content_length = -1;
+    int chunked = 0;
+    size_t pos = line_end + 2;
+    while (pos < header_end) {
+        size_t end = pos;
+        while (end < header_end && !(raw[end] == '\r' && end + 1 < header_end && raw[end + 1] == '\n')) {
+            end++;
+        }
+        if (end == pos) break;
+        if (raw[pos] == ' ' || raw[pos] == '\t') {
+            return http_response_parse_failure(failure_tag, 0, "obsolete folded HTTP headers are rejected");
+        }
+        const char *colon = memchr(raw + pos, ':', end - pos);
+        if (!colon) return http_response_parse_failure(failure_tag, 0, "HTTP header missing ':'");
+        size_t name_len = (size_t)(colon - (raw + pos));
+        const char *value = colon + 1;
+        const char *value_end = raw + end;
+        while (value < value_end && (*value == ' ' || *value == '\t')) value++;
+        while (value_end > value && (value_end[-1] == ' ' || value_end[-1] == '\t')) value_end--;
+        size_t value_len = (size_t)(value_end - value);
+        if (http_ascii_eq_ci(raw + pos, name_len, "Content-Length")) {
+            char buf_len[32];
+            if (value_len >= sizeof(buf_len)) {
+                return http_response_parse_failure(failure_tag, 0, "invalid Content-Length");
+            }
+            memcpy(buf_len, value, value_len);
+            buf_len[value_len] = '\0';
+            char *endptr = NULL;
+            long long parsed = strtoll(buf_len, &endptr, 10);
+            if (!endptr || *endptr != '\0' || parsed < 0) {
+                return http_response_parse_failure(failure_tag, 0, "invalid Content-Length");
+            }
+            if (content_length >= 0 && content_length != parsed) {
+                return http_response_parse_failure(failure_tag, 0, "conflicting Content-Length headers");
+            }
+            content_length = parsed;
+        } else if (http_ascii_eq_ci(raw + pos, name_len, "Transfer-Encoding")) {
+            if (http_ascii_eq_ci(value, value_len, "chunked")) chunked = 1;
+        }
+        pos = end + 2;
+    }
+    if (chunked && content_length >= 0) {
+        return http_response_parse_failure(failure_tag, 0, "conflicting Content-Length and Transfer-Encoding");
+    }
+
+    size_t body_start = header_end + 4;
+    const char *body = raw + body_start;
+    size_t body_len = 0;
+    size_t consumed = body_start;
+    char *decoded = NULL;
+    if (chunked) {
+        size_t chunk_pos = body_start;
+        size_t cap = 0;
+        while (1) {
+            size_t crlf = http_find_bytes(raw + chunk_pos, raw_len - chunk_pos, "\r\n", 2);
+            if (crlf == (size_t)-1) return http_make_adt_scan(need_more_tag, NULL, 0, 0);
+            char size_buf[32];
+            size_t size_len = crlf;
+            if (size_len >= sizeof(size_buf)) {
+                return http_response_parse_failure(failure_tag, 0, "invalid chunk size");
+            }
+            memcpy(size_buf, raw + chunk_pos, size_len);
+            size_buf[size_len] = '\0';
+            char *semi = strchr(size_buf, ';');
+            if (semi) *semi = '\0';
+            char *endptr = NULL;
+            long chunk_size = strtol(size_buf, &endptr, 16);
+            if (!endptr || (*endptr != '\0' && *endptr != ';') || chunk_size < 0) {
+                free(decoded);
+                return http_response_parse_failure(failure_tag, 0, "invalid chunk size");
+            }
+            chunk_pos += crlf + 2;
+            if (chunk_size == 0) {
+                if (raw_len < chunk_pos + 2) {
+                    free(decoded);
+                    return http_make_adt_scan(need_more_tag, NULL, 0, 0);
+                }
+                if (memcmp(raw + chunk_pos, "\r\n", 2) != 0) {
+                    free(decoded);
+                    return http_response_parse_failure(failure_tag, 0, "chunk trailer fields are not supported in Phase 3");
+                }
+                consumed = chunk_pos + 2;
+                body = decoded ? decoded : "";
+                break;
+            }
+            if (body_len + (size_t)chunk_size > max_body) {
+                free(decoded);
+                return http_response_parse_failure(failure_tag, 413, "HTTP response body exceeds max_body_bytes");
+            }
+            if (raw_len < chunk_pos + (size_t)chunk_size + 2) {
+                free(decoded);
+                return http_make_adt_scan(need_more_tag, NULL, 0, 0);
+            }
+            if (memcmp(raw + chunk_pos + chunk_size, "\r\n", 2) != 0) {
+                free(decoded);
+                return http_response_parse_failure(failure_tag, 0, "chunk missing trailing CRLF");
+            }
+            if (body_len + (size_t)chunk_size > cap) {
+                cap = (body_len + (size_t)chunk_size) * 2 + 16;
+                char *next = (char *)realloc(decoded, cap);
+                if (!next) {
+                    free(decoded);
+                    fprintf(stderr, "flux_http_parse_response: out of memory\n");
+                    abort();
+                }
+                decoded = next;
+            }
+            memcpy(decoded + body_len, raw + chunk_pos, (size_t)chunk_size);
+            body_len += (size_t)chunk_size;
+            chunk_pos += (size_t)chunk_size + 2;
+        }
+    } else if (content_length >= 0) {
+        if ((size_t)content_length > max_body) {
+            return http_response_parse_failure(failure_tag, 413, "HTTP response body exceeds max_body_bytes");
+        }
+        if (raw_len < body_start + (size_t)content_length) {
+            return http_make_adt_scan(need_more_tag, NULL, 0, 0);
+        }
+        body_len = (size_t)content_length;
+        consumed = body_start + body_len;
+    }
+
+    int64_t response = http_response_value(response_tag, (int)status, body, body_len);
+    free(decoded);
+    int64_t fields[2] = { response, flux_tag_int((int64_t)consumed) };
+    return http_make_adt_scan(parsed_tag, fields, 2, 0);
+}
+
 static int64_t flux_tcp_suspend_or_abort(uint64_t request_id, const char *which) {
     if (request_id == 0) {
         fprintf(stderr, "%s: async TCP request registration failed\n", which);

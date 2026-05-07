@@ -614,6 +614,9 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::HttpIsShuttingDown => out.push_str("HttpIsShuttingDown"),
         CorePrimOp::HttpServerStopped => out.push_str("HttpServerStopped"),
         CorePrimOp::HttpIsServerStopped => out.push_str("HttpIsServerStopped"),
+        CorePrimOp::HttpParseUrl => out.push_str("HttpParseUrl"),
+        CorePrimOp::HttpWriteRequest => out.push_str("HttpWriteRequest"),
+        CorePrimOp::HttpParseResponse => out.push_str("HttpParseResponse"),
     }
 }
 
