@@ -22,7 +22,7 @@ use crate::{
     syntax::{
         Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
     },
-    types::infer_type::InferType,
+    types::{infer_type::InferType, type_constructor::TypeConstructor},
 };
 
 use super::{
@@ -443,12 +443,40 @@ impl<'a> AstLowerer<'a> {
         &self,
         name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
     ) -> Option<Identifier> {
         let class_env = self.class_env?;
         let interner = self.interner?;
 
         // Check if this name is a class method.
         let (class_name, _class_def) = class_env.method_to_class(name)?;
+
+        // `Decode<a>.decode(Json) -> JsonResult<a>` must be selected from
+        // the inferred result, not from its Json input argument.
+        if interner.resolve(name) == "decode"
+            && interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            return self
+                .hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type(ty, interner))
+                .and_then(|decoded_type| {
+                    class_env
+                        .resolve_instance_with_subst(class_name, &[decoded_type], interner)
+                        .and_then(|(instance, _subst)| {
+                            let type_key = instance
+                                .type_args
+                                .iter()
+                                .map(|a| a.display_with(interner))
+                                .collect::<Vec<_>>()
+                                .join("_");
+                            let class_str = interner.resolve(class_name);
+                            let method_str = interner.resolve(name);
+                            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+                            interner.lookup(&mangled)
+                        })
+                });
+        }
 
         // Try compile-time resolution: if the first argument's type is concrete,
         // find the matching instance and build the mangled name from all of
@@ -485,17 +513,18 @@ impl<'a> AstLowerer<'a> {
         &self,
         function: &crate::syntax::expression::Expression,
         arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
     ) -> Option<Identifier> {
         match function {
             crate::syntax::expression::Expression::Identifier { name, .. } => {
-                self.try_resolve_class_call(*name, arguments)
+                self.try_resolve_class_call(*name, arguments, call_id)
             }
             crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
                 let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
                 else {
                     return None;
                 };
-                self.try_resolve_class_call(*member, arguments)
+                self.try_resolve_class_call(*member, arguments, call_id)
             }
             _ => None,
         }
@@ -505,6 +534,7 @@ impl<'a> AstLowerer<'a> {
         &self,
         method_name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
     ) -> Vec<CoreExpr> {
         let (class_env, interner) = match (self.class_env, self.interner) {
             (Some(class_env), Some(interner)) => (class_env, interner),
@@ -520,12 +550,20 @@ impl<'a> AstLowerer<'a> {
             return Vec::new();
         };
 
+        let actual_type_args = if interner.resolve(method_name) == "decode"
+            && interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            self.hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type(ty, interner))
+                .map(|ty| vec![ty])
+                .unwrap_or_else(|| vec![first_arg_type.clone()])
+        } else {
+            vec![first_arg_type.clone()]
+        };
+
         class_env
-            .resolve_instance_context_dictionaries(
-                class_name,
-                std::slice::from_ref(first_arg_type),
-                interner,
-            )
+            .resolve_instance_context_dictionaries(class_name, &actual_type_args, interner)
             .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
             .unwrap_or_default()
     }
@@ -1757,6 +1795,20 @@ fn tarjan_scc(
     }
 
     result
+}
+
+fn json_result_payload_type(
+    ty: &InferType,
+    interner: &crate::syntax::interner::Interner,
+) -> Option<InferType> {
+    let InferType::App(TypeConstructor::Adt(sym), args) = ty else {
+        return None;
+    };
+    if args.len() != 1 {
+        return None;
+    }
+    let name = interner.resolve(*sym);
+    (name.rsplit('.').next() == Some("JsonResult")).then(|| args[0].clone())
 }
 
 #[cfg(test)]

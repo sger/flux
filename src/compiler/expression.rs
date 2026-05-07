@@ -49,7 +49,10 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
+    types::{
+        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
+        type_subst::TypeSubst, unify::unify,
+    },
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -811,6 +814,7 @@ impl Compiler {
             Expression::Call {
                 function,
                 arguments,
+                id,
                 ..
             } => {
                 self.check_known_call_arity(expression.span(), function, arguments)?;
@@ -830,11 +834,12 @@ impl Compiler {
                 // If the callee is a class method with a known argument type,
                 // compile a call to the mangled instance function directly.
                 if let Expression::Identifier { name, .. } = function.as_ref()
-                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
+                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments, *id)
                 {
                     let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
                         *name,
                         arguments,
+                        *id,
                         function.span(),
                     );
                     resolved_args.extend(arguments.clone());
@@ -862,11 +867,13 @@ impl Compiler {
                 // we only need the method name to find the mangled function.
                 if let Expression::MemberAccess { object, member, .. } = function.as_ref()
                     && self.resolve_module_name_from_expr(object).is_some()
-                    && let Some(mangled) = self.try_resolve_class_method_call(*member, arguments)
+                    && let Some(mangled) =
+                        self.try_resolve_class_method_call(*member, arguments, *id)
                 {
                     let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
                         *member,
                         arguments,
+                        *id,
                         function.span(),
                     );
                     resolved_args.extend(arguments.clone());
@@ -4269,11 +4276,37 @@ impl Compiler {
         &self,
         name: crate::syntax::Identifier,
         arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
     ) -> Option<crate::syntax::Identifier> {
         if self.class_env.classes.is_empty() {
             return None;
         }
         let (class_name, _) = self.class_env.method_to_class(name)?;
+
+        if self.interner.resolve(name) == "decode"
+            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            return self
+                .hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
+                .and_then(|decoded_type| {
+                    self.class_env
+                        .resolve_instance_with_subst(class_name, &[decoded_type], &self.interner)
+                        .and_then(|(instance, _subst)| {
+                            let type_key = instance
+                                .type_args
+                                .iter()
+                                .map(|a| a.display_with(&self.interner))
+                                .collect::<Vec<_>>()
+                                .join("_");
+                            let class_str = self.interner.resolve(class_name);
+                            let method_str = self.interner.resolve(name);
+                            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+                            self.interner.lookup(&mangled)
+                        })
+                });
+        }
 
         // Try compile-time resolution: if the first argument's type is concrete,
         // resolve directly to the mangled instance function.
@@ -4344,6 +4377,7 @@ impl Compiler {
         &mut self,
         method_name: crate::syntax::Identifier,
         arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
         span: Span,
     ) -> Vec<Expression> {
         let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
@@ -4356,15 +4390,20 @@ impl Compiler {
             return Vec::new();
         };
 
+        let actual_type_args = if self.interner.resolve(method_name) == "decode"
+            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            self.hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
+                .map(|ty| vec![ty])
+                .unwrap_or_else(|| vec![first_arg_ty.clone()])
+        } else {
+            vec![first_arg_ty.clone()]
+        };
+
         self.class_env
-            .resolve_method_call_instance_from_first_arg(class_name, first_arg_ty, &self.interner)
-            .and_then(|(_instance, concrete_type_args)| {
-                self.class_env.resolve_instance_context_dictionaries(
-                    class_name,
-                    &concrete_type_args,
-                    &self.interner,
-                )
-            })
+            .resolve_instance_context_dictionaries(class_name, &actual_type_args, &self.interner)
             .map(|dicts| {
                 dicts
                     .iter()
@@ -4470,4 +4509,18 @@ impl Compiler {
             )
         })
     }
+}
+
+fn json_result_payload_type_ast(
+    ty: &InferType,
+    interner: &crate::syntax::interner::Interner,
+) -> Option<InferType> {
+    let InferType::App(TypeConstructor::Adt(sym), args) = ty else {
+        return None;
+    };
+    if args.len() != 1 {
+        return None;
+    }
+    let name = interner.resolve(*sym);
+    (name.rsplit('.').next() == Some("JsonResult")).then(|| args[0].clone())
 }
