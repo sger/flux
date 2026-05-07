@@ -1,0 +1,24 @@
+// Phase 3 web example: pure pull streams without HTTP.
+
+import Flow.Async exposing (..)
+import Flow.List as List
+import Flow.Stream as Stream
+
+fn sum_chunk(chunk) {
+    List.fold(chunk, 0, fn(acc, value) { acc + value })
+}
+
+fn body() -> String with Async {
+    let values = Stream.from_array([|1, 2, 3, 4, 5, 6|])
+    let shaped = Stream.map(
+        Stream.filter(values, fn(value) { value % 2 == 0 }),
+        fn(value) { value * 10 }
+    )
+    let chunks = Stream.chunk(shaped, 2)
+    let sums = Stream.map(chunks, sum_chunk)
+    to_string(Stream.to_array(sums))
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

@@ -373,7 +373,7 @@ module Flow.Http {
         request_timeout_ms: Int,
         handler:   (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
-        if http_is_shutting_down_prim(server_id) { close_connection(server_id, conn) }
+        if http_is_shutting_down_prim(server_id) { noop() }
         else {
             fn read_once() with Async, AsyncFail {
                 Tcp.read(conn, 4096)
@@ -419,13 +419,13 @@ module Flow.Http {
         request_timeout_ms: Int,
         handler:   (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
-        if chunk == "" { close_connection(server_id, conn) }
+        if chunk == "" { noop() }
         else { connection_loop(server_id, conn, buffer + chunk, request_timeout_ms, handler) }
     }
 
     fn write_response_and_close(server_id: Int, conn, resp: Response) -> Unit with Async, AsyncFail {
         let ignored_write_close = Tcp.write_all(conn, http_write_response_prim(resp, false))
-        close_connection(server_id, conn)
+        noop()
     }
 
     fn handle_parsed(
@@ -439,7 +439,7 @@ module Flow.Http {
         handler:    (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
         let rest = substring(buffer, consumed, len(buffer))
-        let next_keep_alive = keep_alive && !http_is_shutting_down_prim(server_id)
+        let next_keep_alive = keep_alive && len(rest) > 0 && !http_is_shutting_down_prim(server_id)
         fn handler_done(resp, handler_ok) with Async, AsyncFail {
             write_response_then_continue(server_id, conn, rest, resp, handler_ok && next_keep_alive, request_timeout_ms, handler)
         }
@@ -462,7 +462,7 @@ module Flow.Http {
     ) -> Unit with Async, AsyncFail {
         let ignored_write_continue = Tcp.write_all(conn, http_write_response_prim(resp, next_keep_alive))
         if next_keep_alive { connection_loop(server_id, conn, rest, request_timeout_ms, handler) }
-        else { close_connection(server_id, conn) }
+        else { noop() }
     }
 
     fn run_handler(
@@ -559,7 +559,7 @@ module Flow.Http {
         request_timeout_ms: Int,
         handler:   (Request) -> StreamResponse<a> with Async | e
     ) -> Unit with Async, AsyncFail {
-        if http_is_shutting_down_prim(server_id) { close_connection(server_id, conn) }
+        if http_is_shutting_down_prim(server_id) { noop() }
         else {
             fn read_once() with Async, AsyncFail {
                 Tcp.read(conn, 4096)
@@ -568,7 +568,7 @@ module Flow.Http {
             if result_is_timed_out(read_result) { stream_connection_loop(server_id, conn, buffer, request_timeout_ms, handler) }
             else {
                 let chunk = result_or(read_result, "")
-                if chunk == "" { close_connection(server_id, conn) }
+                if chunk == "" { noop() }
                 else { stream_connection_loop(server_id, conn, buffer + chunk, request_timeout_ms, handler) }
             }
         }
@@ -622,7 +622,7 @@ module Flow.Http {
             },
             _ -> do {
                 let ignored_end = Tcp.write_all(conn, http_write_chunked_end_prim())
-                close_connection(server_id, conn)
+                noop()
             }
         }
     }

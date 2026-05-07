@@ -1,0 +1,43 @@
+// Browser-friendly HTTP service.
+//
+// Run:
+//   cargo run -- --no-cache examples/http/browser_hello_service.flx
+//
+// Then open:
+//   http://127.0.0.1:24905/
+//   http://127.0.0.1:24905/hello
+//
+// The server stays alive until you stop it with Ctrl+C.
+
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+
+fn page(path: String) -> String {
+    "<!doctype html>" +
+    "<html><head><title>Flux HTTP</title></head>" +
+    "<body style=\"font-family: sans-serif; max-width: 40rem; margin: 3rem auto; line-height: 1.5\">" +
+    "<h1>Hello from Flux</h1>" +
+    "<p>The request path was <strong>" + path + "</strong>.</p>" +
+    "<p>Stop the server manually with Ctrl+C in the terminal.</p>" +
+    "</body></html>"
+}
+
+fn handler(req) with Async {
+    response(200, page(req.path))
+}
+
+fn keep_alive() -> Unit with Async, AsyncFail {
+    let _wait = sleep(60000)
+    keep_alive()
+}
+
+fn app() -> Unit with Async, AsyncFail {
+    let h = serve("127.0.0.1", 24905, handler)
+    keep_alive()
+}
+
+fn main() with IO {
+    let _started = print("Starting browser demo on http://127.0.0.1:24905/")
+    let _hint = print("Press Ctrl+C to stop it.")
+    run_async(app)
+}
