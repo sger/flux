@@ -1,0 +1,274 @@
+// Flow.Stream — pull-based streams for Flux.
+//
+// Streams are pure state machines: each pull returns the next value plus the
+// next stream state. This keeps cursor state explicit and avoids hidden
+// mutation.
+
+import Flow.Array as Array
+import Flow.List as List
+
+module Flow.Stream {
+
+    public data Stream<a> {
+        Stream(() -> Option<(a, Stream<a>)> with Async)
+    }
+
+    public fn make<a>(pull: () -> Option<(a, Stream<a>)> with Async) -> Stream<a> {
+        Stream(pull)
+    }
+
+    public fn next<a>(stream: Stream<a>) -> Option<(a, Stream<a>)> with Async {
+        match stream {
+            Stream(pull) -> pull()
+        }
+    }
+
+    public fn empty<a>() -> Stream<a> {
+        fn empty_pull() -> Option<(a, Stream<a>)> with Async {
+            None
+        }
+        Stream(empty_pull)
+    }
+
+    public fn once<a>(value: a) -> Stream<a> {
+        fn once_pull() -> Option<(a, Stream<a>)> with Async {
+            Some((value, empty()))
+        }
+        Stream(once_pull)
+    }
+
+    public fn from_array<a>(values: Array<a>) -> Stream<a> {
+        from_array_at(values, 0)
+    }
+
+    fn from_array_at<a>(values: Array<a>, index: Int) -> Stream<a> {
+        fn array_pull() -> Option<(a, Stream<a>)> with Async {
+            if index >= len(values) {
+                None
+            } else {
+                match values[index] {
+                    Some(value) -> Some((value, from_array_at(values, index + 1))),
+                    _ -> None
+                }
+            }
+        }
+        Stream(array_pull)
+    }
+
+    public fn from_list<a>(values: List<a>) -> Stream<a> {
+        fn list_pull() -> Option<(a, Stream<a>)> with Async {
+            match values {
+                [head | tail] -> Some((head, from_list(tail))),
+                _ -> None
+            }
+        }
+        Stream(list_pull)
+    }
+
+    public fn repeat<a>(value: a) -> Stream<a> {
+        fn repeat_pull() -> Option<(a, Stream<a>)> with Async {
+            Some((value, repeat(value)))
+        }
+        Stream(repeat_pull)
+    }
+
+    public fn unfold<a, b>(seed: b, step: (b) -> Option<(a, b)>) -> Stream<a> {
+        fn unfold_pull() -> Option<(a, Stream<a>)> with Async {
+            match step(seed) {
+                Some(pair) -> Some((pair.0, unfold(pair.1, step))),
+                _ -> None
+            }
+        }
+        Stream(unfold_pull)
+    }
+
+    public fn fold<a, b>(stream: Stream<a>, init: b, step: (b, a) -> b) -> b with Async {
+        stream_fold(stream, init, step)
+    }
+
+    fn stream_fold<a, b>(stream: Stream<a>, init: b, step: (b, a) -> b) -> b with Async {
+        match next(stream) {
+            Some(pair) -> stream_fold(pair.1, step(init, pair.0), step),
+            _ -> init
+        }
+    }
+
+    public fn to_array<a>(stream: Stream<a>) -> Array<a> with Async {
+        stream_fold(stream, [||], fn(acc, value) { Array.push(acc, value) })
+    }
+
+    public fn to_list<a>(stream: Stream<a>) -> List<a> with Async {
+        List.reverse(stream_fold(stream, [], fn(acc, value) { [value | acc] }))
+    }
+
+    public fn count<a>(stream: Stream<a>) -> Int with Async {
+        stream_fold(stream, 0, fn(acc, _value) { acc + 1 })
+    }
+
+    public fn map<a, b>(stream: Stream<a>, f: (a) -> b) -> Stream<b> {
+        stream_map(stream, f)
+    }
+
+    fn stream_map<a, b>(stream: Stream<a>, f: (a) -> b) -> Stream<b> {
+        fn map_pull() -> Option<(b, Stream<b>)> with Async {
+            match next(stream) {
+                Some(pair) -> Some((f(pair.0), stream_map(pair.1, f))),
+                _ -> None
+            }
+        }
+        Stream(map_pull)
+    }
+
+    public fn filter<a>(stream: Stream<a>, pred: (a) -> Bool) -> Stream<a> {
+        stream_filter(stream, pred)
+    }
+
+    fn stream_filter<a>(stream: Stream<a>, pred: (a) -> Bool) -> Stream<a> {
+        fn filter_pull() -> Option<(a, Stream<a>)> with Async {
+            match next(stream) {
+                Some(pair) -> if pred(pair.0) {
+                    Some((pair.0, stream_filter(pair.1, pred)))
+                } else {
+                    next(stream_filter(pair.1, pred))
+                },
+                _ -> None
+            }
+        }
+        Stream(filter_pull)
+    }
+
+    public fn take<a>(stream: Stream<a>, n: Int) -> Stream<a> {
+        stream_take(stream, n)
+    }
+
+    fn stream_take<a>(stream: Stream<a>, n: Int) -> Stream<a> {
+        if n <= 0 {
+            empty()
+        } else {
+            fn take_pull() -> Option<(a, Stream<a>)> with Async {
+                match next(stream) {
+                    Some(pair) -> Some((pair.0, stream_take(pair.1, n - 1))),
+                    _ -> None
+                }
+            }
+            Stream(take_pull)
+        }
+    }
+
+    public fn drop<a>(stream: Stream<a>, n: Int) -> Stream<a> {
+        drop_impl(stream, n)
+    }
+
+    fn drop_impl<a>(stream: Stream<a>, n: Int) -> Stream<a> {
+        fn drop_pull() -> Option<(a, Stream<a>)> with Async {
+            if n <= 0 {
+                next(stream)
+            } else {
+                match next(stream) {
+                    Some(pair) -> next(drop_impl(pair.1, n - 1)),
+                    _ -> None
+                }
+            }
+        }
+        Stream(drop_pull)
+    }
+
+    public fn take_while<a>(stream: Stream<a>, pred: (a) -> Bool) -> Stream<a> {
+        stream_take_while(stream, pred)
+    }
+
+    fn stream_take_while<a>(stream: Stream<a>, pred: (a) -> Bool) -> Stream<a> {
+        fn take_while_pull() -> Option<(a, Stream<a>)> with Async {
+            match next(stream) {
+                Some(pair) -> if pred(pair.0) {
+                    Some((pair.0, stream_take_while(pair.1, pred)))
+                } else {
+                    None
+                },
+                _ -> None
+            }
+        }
+        Stream(take_while_pull)
+    }
+
+    public fn chunk<a>(stream: Stream<a>, size: Int) -> Stream<List<a>> {
+        stream_chunk(stream, size)
+    }
+
+    fn stream_chunk<a>(stream: Stream<a>, size: Int) -> Stream<List<a>> {
+        if size <= 0 {
+            empty()
+        } else {
+            fn chunk_pull() -> Option<(List<a>, Stream<List<a>>)> with Async {
+                match chunk_collect(stream, size, []) {
+                    Some(pair) -> Some((pair.0, stream_chunk(pair.1, size))),
+                    _ -> None
+                }
+            }
+            Stream(chunk_pull)
+        }
+    }
+
+    fn chunk_collect<a>(stream: Stream<a>, remaining: Int, acc: List<a>) -> Option<(List<a>, Stream<a>)> with Async {
+        if remaining <= 0 {
+            Some((List.reverse(acc), stream))
+        } else {
+            match next(stream) {
+                Some(pair) -> chunk_collect(pair.1, remaining - 1, [pair.0 | acc]),
+                _ -> match acc {
+                    [_ | _] -> Some((List.reverse(acc), empty())),
+                    _ -> None
+                }
+            }
+        }
+    }
+
+    public fn append<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
+        stream_append(left, right)
+    }
+
+    public fn append_stream<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
+        stream_append(left, right)
+    }
+
+    fn stream_append<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
+        fn append_pull() -> Option<(a, Stream<a>)> with Async {
+            match next(left) {
+                Some(pair) -> Some((pair.0, stream_append(pair.1, right))),
+                _ -> next(right)
+            }
+        }
+        Stream(append_pull)
+    }
+
+    public fn merge<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
+        merge_state(left, right, true, false, false)
+    }
+
+    fn merge_state<a>(left: Stream<a>, right: Stream<a>, prefer_left: Bool, left_done: Bool, right_done: Bool) -> Stream<a> {
+        fn merge_pull() -> Option<(a, Stream<a>)> with Async {
+            if left_done && right_done {
+                None
+            } else if prefer_left {
+                if left_done {
+                    next(merge_state(left, right, false, left_done, right_done))
+                } else {
+                    match next(left) {
+                        Some(pair) -> Some((pair.0, merge_state(pair.1, right, false, false, right_done))),
+                        _ -> next(merge_state(left, right, false, true, right_done))
+                    }
+                }
+            } else {
+                if right_done {
+                    next(merge_state(left, right, true, left_done, right_done))
+                } else {
+                    match next(right) {
+                        Some(pair) -> Some((pair.0, merge_state(left, pair.1, true, left_done, false))),
+                        _ -> next(merge_state(left, right, true, left_done, true))
+                    }
+                }
+            }
+        }
+        Stream(merge_pull)
+    }
+}
