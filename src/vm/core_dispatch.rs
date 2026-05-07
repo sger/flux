@@ -2421,6 +2421,9 @@ pub fn execute_core_primop(
         HttpShutdownNow => vm_http_shutdown(&args, true),
         HttpParseRequest => vm_http_parse_request(&args),
         HttpWriteResponse => vm_http_write_response(&args),
+        HttpWriteChunkedHead => vm_http_write_chunked_head(&args),
+        HttpWriteChunk => vm_http_write_chunk(&args),
+        HttpWriteChunkedEnd => vm_http_write_chunked_end(&args),
         HttpParseUrl => vm_http_parse_url(&args),
         HttpWriteRequest => vm_http_write_request(&args),
         HttpParseResponse => vm_http_parse_response(&args),
@@ -2815,6 +2818,34 @@ fn vm_http_write_response(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+fn vm_http_write_chunked_head(args: &[Value]) -> Result<Value, String> {
+    use crate::runtime::http::write_chunked_head;
+
+    let (status, headers) = stream_response_head_parts(&args[0])?;
+    let status_u16: u16 = status
+        .try_into()
+        .map_err(|_| format!("StreamResponse.status out of HTTP range: {status}"))?;
+    let wire = write_chunked_head(status_u16, &http_reason(status), &headers);
+    Ok(Value::String(
+        String::from_utf8_lossy(&wire).to_string().into(),
+    ))
+}
+
+fn vm_http_write_chunk(args: &[Value]) -> Result<Value, String> {
+    let chunk = estr(&args[0], "http_write_chunk")?;
+    let wire = crate::runtime::http::write_chunk(chunk.as_bytes());
+    Ok(Value::String(
+        String::from_utf8_lossy(&wire).to_string().into(),
+    ))
+}
+
+fn vm_http_write_chunked_end(_args: &[Value]) -> Result<Value, String> {
+    let wire = crate::runtime::http::write_chunked_end();
+    Ok(Value::String(
+        String::from_utf8_lossy(&wire).to_string().into(),
+    ))
+}
+
 fn vm_http_parse_url(args: &[Value]) -> Result<Value, String> {
     use crate::runtime::http::{HttpError, parse_url};
     use crate::runtime::value::{AdtFields, AdtValue};
@@ -3143,10 +3174,41 @@ fn response_parts(value: &Value) -> Result<(i64, String), String> {
     Ok((status, body))
 }
 
+fn stream_response_head_parts(value: &Value) -> Result<(i64, Vec<(String, String)>), String> {
+    let Value::Adt(adt) = value else {
+        return Err(format!(
+            "http streaming handler returned {}, expected StreamResponse",
+            value.type_name()
+        ));
+    };
+    if adt.constructor.as_ref() != "StreamResponse" {
+        return Err(format!(
+            "http streaming handler returned {}, expected StreamResponse",
+            adt.constructor
+        ));
+    }
+    let status = match adt.fields.get(0) {
+        Some(Value::Integer(n)) => *n,
+        Some(other) => {
+            return Err(format!(
+                "StreamResponse.status expected Int, got {}",
+                other.type_name()
+            ));
+        }
+        None => return Err("StreamResponse missing status field".into()),
+    };
+    let headers = match adt.fields.get(1) {
+        Some(value) => http_header_pairs(value, "http_write_chunked_head")?,
+        None => return Err("StreamResponse missing headers field".into()),
+    };
+    Ok((status, headers))
+}
+
 fn http_reason(status: i64) -> String {
     match status {
         200 => "OK",
         201 => "Created",
+        202 => "Accepted",
         204 => "No Content",
         400 => "Bad Request",
         404 => "Not Found",

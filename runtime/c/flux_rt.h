@@ -348,6 +348,9 @@ int64_t flux_http_parse_request(
     int64_t server_val
 );
 int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val);
+int64_t flux_http_write_chunked_head(int64_t response_val);
+int64_t flux_http_write_chunk(int64_t chunk_val);
+int64_t flux_http_write_chunked_end(void);
 int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url_val);
 int64_t flux_http_write_request(
     int32_t get_tag,

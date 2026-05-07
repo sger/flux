@@ -133,6 +133,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::HttpParseResponse => "http_parse_response",
         CorePrimOp::JsonParse => "json_parse",
         CorePrimOp::JsonStringify => "json_stringify",
+        CorePrimOp::HttpWriteChunkedHead => "http_write_chunked_head",
+        CorePrimOp::HttpWriteChunk => "http_write_chunk",
+        CorePrimOp::HttpWriteChunkedEnd => "http_write_chunked_end",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -387,7 +390,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::HttpWriteRequest
             | CorePrimOp::HttpParseResponse
             | CorePrimOp::JsonParse
-            | CorePrimOp::JsonStringify => {
+            | CorePrimOp::JsonStringify
+            | CorePrimOp::HttpWriteChunkedHead
+            | CorePrimOp::HttpWriteChunk
+            | CorePrimOp::HttpWriteChunkedEnd => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target
