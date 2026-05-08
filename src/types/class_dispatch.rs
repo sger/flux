@@ -836,7 +836,7 @@ fn json_encode_value_expr(ty: &TypeExpr, value: &str, interner: &Interner) -> St
     match json_primitive_type_name(ty, interner).as_deref() {
         Some("String") => format!("Json.string({value})"),
         Some("Bool") => format!("Json.bool({value})"),
-        Some("Int") => format!("Json.parse(to_string({value}))"),
+        Some("Int") => format!("Json.int({value})"),
         Some("Float") => format!("Json.number({value})"),
         Some("Json") => value.to_string(),
         _ => format!("encode({value})"),
