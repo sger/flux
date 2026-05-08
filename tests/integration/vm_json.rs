@@ -39,6 +39,7 @@ fn parses_nested_values_and_stringifies_deterministically() {
     let (stdout, stderr, ok) = run_source(
         r#"
 import Flow.Json as Json
+import Flow.Json exposing (..)
 
 fn main() with IO {
     print(Json.encode_json(Json.parse("{\"b\":2,\"a\":[true,null,\"x\"]}")))
@@ -107,6 +108,56 @@ fn main() with IO {
 }
 
 #[test]
+fn integer_json_numbers_round_trip_without_precision_loss() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Json as Json
+
+fn main() with IO {
+    print(Json.stringify(Json.parse("9007199254740993")))
+    print(Json.stringify(Json.int(9007199254740993)))
+}
+"#,
+    );
+    assert!(
+        ok,
+        "JSON integer fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.matches("\"9007199254740993\"").count(),
+        2,
+        "{stdout}"
+    );
+}
+
+#[test]
+fn int_decode_rejects_fractional_and_unsafe_float_numbers() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+fn main() with IO {
+    print(Json.result_or(Json.as_int(Json.parse("42"), "$"), -1))
+    print(Json.result_or(Json.as_int(Json.number(42.0), "$"), -1))
+    let fractional = Json.as_int(Json.number(42.5), "$")
+    print(Json.result_is_ok(fractional))
+    print(Json.error_message(fractional))
+    print(Json.result_or(Json.as_int(Json.number(9007199254740994.0), "$"), -1))
+}
+"#,
+    );
+    assert!(
+        ok,
+        "JSON int decode fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("42"), "{stdout}");
+    assert!(stdout.contains("-1"), "{stdout}");
+    assert!(stdout.contains("false"), "{stdout}");
+    assert!(stdout.contains("$: expected safe integral JSON number"), "{stdout}");
+}
+
+#[test]
 fn derived_record_and_sum_codecs_round_trip() {
     let (stdout, stderr, ok) = run_source(
         r#"
@@ -155,4 +206,35 @@ fn main() with IO {
     );
     assert!(stdout.contains("\"2.5\""), "{stdout}");
     assert!(stdout.contains("\"fallback:-1\""), "{stdout}");
+}
+
+#[test]
+fn derived_decoders_return_structured_json_errors() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+data Person { Person { name: String, age: Int } } deriving (Json.Encode, Json.Decode)
+
+fn error_or(result, fallback) -> String {
+    let _fallback = Json.result_or(result, fallback)
+    Json.error_message(result)
+}
+
+fn main() with IO {
+    let fallback = Person { name: "fallback", age: -1 }
+    print(error_or(decode(Json.parse("{\"tag\":\"Nope\",\"fields\":[]}")), fallback))
+    print(error_or(decode(Json.parse("{\"tag\":\"Person\",\"fields\":{\"name\":\"Ada\"}}")), fallback))
+    print(error_or(decode(Json.parse("{\"tag\":\"Person\",\"fields\":{\"name\":\"Ada\",\"age\":\"old\"}}")), fallback))
+}
+"#,
+    );
+    assert!(
+        ok,
+        "JSON structured error fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("unknown constructor"), "{stdout}");
+    assert!(stdout.contains("missing JSON field"), "{stdout}");
+    assert!(stdout.contains("expected JSON number"), "{stdout}");
 }

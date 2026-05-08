@@ -2778,7 +2778,7 @@ fn json_err_value(err: &crate::runtime::json::JsonError) -> Value {
 }
 
 fn json_to_value(value: &crate::runtime::json::JsonValue) -> Value {
-    use crate::runtime::json::JsonValue;
+    use crate::runtime::json::{JsonNumber, JsonValue};
     use crate::runtime::value::{AdtFields, AdtValue};
 
     match value {
@@ -2787,10 +2787,22 @@ fn json_to_value(value: &crate::runtime::json::JsonValue) -> Value {
             constructor: Rc::new("JsonBool".to_string()),
             fields: AdtFields::One(Value::Boolean(*v)),
         })),
-        JsonValue::Number(v) => Value::Adt(Rc::new(AdtValue {
-            constructor: Rc::new("JsonNumber".to_string()),
-            fields: AdtFields::One(Value::Float(*v)),
-        })),
+        JsonValue::Number(number) => {
+            let payload = match number {
+                JsonNumber::Int(v) => Value::Adt(Rc::new(AdtValue {
+                    constructor: Rc::new("JsonInt".to_string()),
+                    fields: AdtFields::One(Value::Integer(*v)),
+                })),
+                JsonNumber::Float(v) => Value::Adt(Rc::new(AdtValue {
+                    constructor: Rc::new("JsonFloat".to_string()),
+                    fields: AdtFields::One(Value::Float(*v)),
+                })),
+            };
+            Value::Adt(Rc::new(AdtValue {
+                constructor: Rc::new("JsonNumber".to_string()),
+                fields: AdtFields::One(payload),
+            }))
+        }
         JsonValue::String(v) => Value::Adt(Rc::new(AdtValue {
             constructor: Rc::new("JsonString".to_string()),
             fields: AdtFields::One(Value::String(v.clone().into())),
@@ -2815,7 +2827,7 @@ fn json_to_value(value: &crate::runtime::json::JsonValue) -> Value {
 }
 
 fn value_to_json(value: &Value) -> Result<crate::runtime::json::JsonValue, String> {
-    use crate::runtime::json::JsonValue;
+    use crate::runtime::json::{JsonNumber, JsonValue};
 
     match value {
         Value::AdtUnit(name) if name.as_ref() == "JsonNull" => Ok(JsonValue::Null),
@@ -2826,9 +2838,23 @@ fn value_to_json(value: &Value) -> Result<crate::runtime::json::JsonValue, Strin
                 None => Err("JsonBool missing value".into()),
             },
             "JsonNumber" => match adt.fields.get(0) {
-                Some(Value::Float(v)) => Ok(JsonValue::Number(*v)),
-                Some(Value::Integer(v)) => Ok(JsonValue::Number(*v as f64)),
-                Some(other) => Err(terr("json_stringify(JsonNumber)", "Float", other)),
+                Some(Value::Adt(payload)) if payload.constructor.as_str() == "JsonInt" => {
+                    match payload.fields.get(0) {
+                        Some(Value::Integer(v)) => Ok(JsonValue::Number(JsonNumber::Int(*v))),
+                        Some(other) => Err(terr("json_stringify(JsonInt)", "Int", other)),
+                        None => Err("JsonInt missing value".into()),
+                    }
+                }
+                Some(Value::Adt(payload)) if payload.constructor.as_str() == "JsonFloat" => {
+                    match payload.fields.get(0) {
+                        Some(Value::Float(v)) => Ok(JsonValue::Number(JsonNumber::Float(*v))),
+                        Some(other) => Err(terr("json_stringify(JsonFloat)", "Float", other)),
+                        None => Err("JsonFloat missing value".into()),
+                    }
+                }
+                Some(Value::Float(v)) => Ok(JsonValue::Number(JsonNumber::Float(*v))),
+                Some(Value::Integer(v)) => Ok(JsonValue::Number(JsonNumber::Int(*v))),
+                Some(other) => Err(terr("json_stringify(JsonNumber)", "JsonNumber", other)),
                 None => Err("JsonNumber missing value".into()),
             },
             "JsonString" => match adt.fields.get(0) {

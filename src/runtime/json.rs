@@ -4,10 +4,16 @@ use std::collections::BTreeMap;
 pub enum JsonValue {
     Null,
     Bool(bool),
-    Number(f64),
+    Number(JsonNumber),
     String(String),
     Array(Vec<JsonValue>),
     Object(BTreeMap<String, JsonValue>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsonNumber {
+    Int(i64),
+    Float(f64),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,7 +218,7 @@ impl Parser<'_> {
         Ok(value)
     }
 
-    fn parse_number(&mut self, path: &str) -> Result<f64, JsonError> {
+    fn parse_number(&mut self, path: &str) -> Result<JsonNumber, JsonError> {
         let start = self.pos;
         self.consume(b'-');
         match self.peek() {
@@ -230,7 +236,9 @@ impl Parser<'_> {
             }
             _ => return Err(JsonError::new(path, "invalid number")),
         }
+        let mut integral = true;
         if self.consume(b'.') {
+            integral = false;
             if !matches!(self.peek(), Some(b'0'..=b'9')) {
                 return Err(JsonError::new(path, "invalid number"));
             }
@@ -239,6 +247,7 @@ impl Parser<'_> {
             }
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
+            integral = false;
             self.pos += 1;
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.pos += 1;
@@ -252,13 +261,18 @@ impl Parser<'_> {
         }
         let raw = std::str::from_utf8(&self.input[start..self.pos])
             .map_err(|_| JsonError::new(path, "invalid number"))?;
+        if integral {
+            if let Ok(n) = raw.parse::<i64>() {
+                return Ok(JsonNumber::Int(n));
+            }
+        }
         let n = raw
             .parse::<f64>()
             .map_err(|_| JsonError::new(path, "invalid number"))?;
         if !n.is_finite() {
             return Err(JsonError::new(path, "number is out of range"));
         }
-        Ok(n)
+        Ok(JsonNumber::Float(n))
     }
 
     fn expect_literal(&mut self, literal: &[u8], path: &str) -> Result<(), JsonError> {
@@ -312,7 +326,8 @@ fn write_json(value: &JsonValue, out: &mut String) {
         JsonValue::Null => out.push_str("null"),
         JsonValue::Bool(true) => out.push_str("true"),
         JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(n) => out.push_str(&format_number(*n)),
+        JsonValue::Number(JsonNumber::Int(n)) => out.push_str(&n.to_string()),
+        JsonValue::Number(JsonNumber::Float(n)) => out.push_str(&format_number(*n)),
         JsonValue::String(s) => write_string(s, out),
         JsonValue::Array(values) => {
             out.push('[');
@@ -362,5 +377,35 @@ fn format_number(n: f64) -> String {
         format!("{n:.0}")
     } else {
         format!("{n}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse, stringify, JsonNumber, JsonValue};
+
+    #[test]
+    fn integer_numbers_parse_and_stringify_losslessly() {
+        let value = parse("9007199254740993").expect("parse large integer");
+        assert_eq!(value, JsonValue::Number(JsonNumber::Int(9_007_199_254_740_993)));
+        assert_eq!(stringify(&value), "9007199254740993");
+    }
+
+    #[test]
+    fn fractional_and_exponent_numbers_remain_float_numbers() {
+        assert_eq!(
+            parse("3.5").expect("parse fraction"),
+            JsonValue::Number(JsonNumber::Float(3.5))
+        );
+        assert_eq!(
+            parse("1e3").expect("parse exponent"),
+            JsonValue::Number(JsonNumber::Float(1000.0))
+        );
+    }
+
+    #[test]
+    fn all_json_variants_stringify_deterministically() {
+        let value = parse(r#"{"b":[true,null,"x"],"a":-7}"#).expect("parse object");
+        assert_eq!(stringify(&value), r#"{"a":-7,"b":[true,null,"x"]}"#);
     }
 }
