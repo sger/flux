@@ -94,10 +94,10 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 - [x] **A-2** — `LOGICAL_WORKERS` promoted to `AtomicUsize`; `flux_async_run_root_with` honours `worker_count > 0` at runtime
 - [x] **A-3** — `AsyncBackend` optional ops (`tcp_connect`, `http_*`, `dns_resolve`, `sleep`) default to `push_error_completion` instead of `panic!`
 - [x] **A-4** — Blocking pool + DNS resolver (`AsyncBackend::dns_resolve`, `CompletionPayload::AddressList`)
-- [ ] **A-5** — `both` / `race` / `timeout_after` parity: VM and LLVM emit identical observable ordering
-- [ ] **A-6** — `AwaitCoordinator` extracted and reused across `both`, `race`, `all`, `any`
-- [ ] **A-7** — `AsyncFail` bracket/finally cleanup audit complete (all async failure paths release resources)
-- [ ] **A-8** — Worker-count configuration exposed via `run_async_with_workers(n, body)` Flux surface
+- [x] **A-5** — `both` / `race` / `timeout_after` parity: VM and LLVM emit identical observable ordering
+- [x] **A-6** — `AwaitCoordinator` extracted and reused across `both`, `race`, `all`, `any`
+- [x] **A-7** — `AsyncFail` bracket/finally cleanup audit complete (all async failure paths release resources)
+- [x] **A-8** — Worker-count configuration exposed via `run_async_with_workers(n, body)` Flux surface
 
 ### Syntax fixes
 

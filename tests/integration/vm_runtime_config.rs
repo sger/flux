@@ -72,6 +72,31 @@ fn main() with IO {
 }
 
 #[test]
+fn run_async_with_workers_convenience_returns_value() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    123
+}
+
+fn main() with IO {
+    let v = run_async_with_workers(1, body)
+    print(v)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source_with_env(source, &[]);
+    assert!(
+        success,
+        "run_async_with_workers program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("123"),
+        "expected 123 on stdout, got: {stdout:?}"
+    );
+}
+
+#[test]
 fn run_async_with_defaults_returns_value() {
     // worker_count = None means "use the runtime default". The path
     // through `run_async_with` is the same; only the resolved worker
