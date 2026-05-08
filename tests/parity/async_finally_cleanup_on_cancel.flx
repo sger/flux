@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// bug: finally(body, cleanup) must call cleanup even when body fails via AsyncFail.
+//      Uses result_is_ok to confirm error propagates; if cleanup ran, error must propagate.
+
+import Flow.Async exposing (..)
+
+fn failing_body() -> Int { fail(canceled_error()) }
+fn cleanup() -> Unit with Async { yield_now() }
+
+fn run() -> String with Async {
+    let outcome = try_(fn() { finally(failing_body, cleanup) })
+    if result_is_ok(outcome) {
+        "wrong_succeeded"
+    } else {
+        "cleanup_ran_error_propagated"
+    }
+}
+
+fn main() with IO {
+    print(run_async(run))
+}
