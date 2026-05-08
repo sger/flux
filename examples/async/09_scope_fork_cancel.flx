@@ -1,0 +1,54 @@
+// 09 — scope, fork, cancel
+//
+// `Async.scope(f)` allocates a fresh cancellation boundary and runs the
+// callback `f` with the resulting `Scope` value. Any fiber forked under it
+// via `fork(s, work)` is attached to that scope and will be cancelled when
+// `cancel(s)` is called or when the scope is unwound by an error.
+//
+// This is the structured-concurrency primitive: every fork has a clear
+// owner, no fiber outlives the scope it was forked under.
+//
+// Note: the `Scope` ADT is opaque to user code — pass the value through
+// `fork` / `cancel` without inspecting it. We use an anonymous lambda
+// because the `Scope` type name isn't directly importable.
+
+// parity-expected-stdout-begin
+// "ok"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Long-running background work. Without cancellation this `sleep(5000)`
+// would delay the whole program by five seconds.
+fn worker() -> Unit with Async { sleep(5000) }
+
+fn body() -> String with Async {
+    // `scope(\s -> ...)` allocates a fresh `Scope` and passes it as `s`.
+    // Anything forked under `s` is owned by this scope.
+    scope(fn(s) {
+        // `fork(s, worker)` schedules `worker` as a sibling fiber under
+        // this scope. `fork` returns `Unit` and the child runs
+        // independently.
+        fork(s, worker)
+
+        // Yield long enough for the scheduler to actually start the
+        // child fiber. Without this, on some backends `cancel` could
+        // race ahead of registration.
+        sleep(20)
+
+        // `cancel(s)` tears down every fiber forked under `s` —
+        // pending I/O is aborted, continuations are resumed with
+        // `AsyncError.Canceled`, and `bracket`/`finally` cleanup arms
+        // run. After this point `worker`'s 5000ms sleep never resolves.
+        cancel(s)
+
+        "ok"             // the scope's body returns this; `worker`'s
+                         // result is discarded
+    })
+}
+
+fn main() with IO {
+    // Without scope/fork/cancel, this program would hang for ~5s. With
+    // it, finishes in ~20ms.
+    print(run_async(body))
+}

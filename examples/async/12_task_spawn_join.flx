@@ -1,0 +1,48 @@
+// 12 — Task.spawn, Task.blocking_join, Sendable
+//
+// `Flow.Task` is the OS-thread-spawning surface. Unlike fibers (which are
+// cooperatively scheduled inside `run_async`), tasks live on the worker
+// pool and can run truly in parallel on native.
+//
+// `Task.spawn(action)` requires the result type to satisfy `Sendable` so
+// the produced value can cross a worker boundary. Primitives, tuples,
+// `Option`/`List`/`Map`/`Either`, and user ADTs whose fields are all
+// `Sendable` qualify automatically. Function values do NOT satisfy
+// `Sendable`, by design — you cannot ship a closure to a worker today.
+//
+// `Task.blocking_join(t)` blocks the calling OS thread until the task
+// finishes and returns its result. (For the async-friendly variant that
+// only suspends the current fiber, see example 13.)
+
+// parity-expected-stdout-begin
+// "result = 1638"
+// parity-expected-stdout-end
+
+import Flow.Task exposing (..)
+
+// Pure CPU work. No `with Async`: tasks are not fibers, they don't run
+// inside `run_async`. The body must satisfy `Sendable` from below.
+fn sum_squares(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { sum_squares(n - 1, acc + n * n) }
+}
+
+// `slow_compute` returns `Int`. `Sendable<Int>` is a built-in instance,
+// so `spawn(slow_compute)` type-checks. (Try changing the return type
+// to a closure and you'll get a class-instance not-found error — that's
+// the Sendable gate working.)
+fn slow_compute() -> Int { sum_squares(13, 0) }
+
+fn main() with IO {
+    // `spawn` returns immediately with a `Task<Int>` handle. On native
+    // each task runs on its own OS thread; on the VM the body executes
+    // on the spawning thread (sequentially equivalent semantics — no
+    // source change needed when the VM gains real parallelism).
+    let t1 = spawn(slow_compute)
+    let t2 = spawn(slow_compute)
+
+    // `blocking_join(t)` parks the *OS thread* (not just a fiber) until
+    // the task finishes. Use `Task.await` (next example) when you want
+    // to suspend just the calling fiber.
+    let r  = blocking_join(t1) + blocking_join(t2)
+    print("result = " + to_string(r))
+}

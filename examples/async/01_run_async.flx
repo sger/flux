@@ -1,0 +1,37 @@
+// 01 — run_async
+//
+// `Async.run_async(action)` is the boundary that installs the async effect
+// handler and runs `action` to completion. Outside this boundary you cannot
+// call any function carrying `with Async`; inside, you can call all of them.
+//
+// Think of it like an `await`-at-the-edge: pure `with IO` code calls
+// `run_async`, but everything beneath the call is fiber-scheduled.
+
+// parity-expected-stdout-begin
+// "answer = 42"
+// parity-expected-stdout-end
+
+// `exposing (..)` brings the public names of Flow.Async into scope:
+// `run_async`, `sleep`, `both`, `race`, `try_`, `fail`, ...
+import Flow.Async exposing (..)
+
+// A function in the async world. The `with Async` annotation declares
+// that this function may suspend. Today this body is pure, but the
+// effect signature lets it call `sleep`, `both`, `race`, etc. without
+// further annotation.
+fn compute() -> Int with Async {
+    let base = 40    // ordinary let-binding; no special async semantics
+    base + 2         // the value of the last expression is the return value
+}
+
+// `main` carries `with IO`. `IO` is a superset effect row that includes
+// `Console`, `FileSystem`, `Clock`, ... — anything user code is allowed
+// to do at the program entry point.
+fn main() with IO {
+    // `run_async` is the boundary: it installs the async effect handler,
+    // runs `compute` to completion on the fiber scheduler, and returns
+    // the value. Outside this call you cannot invoke any `with Async`
+    // function.
+    let answer = run_async(compute)
+    print("answer = " + to_string(answer))
+}
