@@ -59,6 +59,7 @@ pub struct BlockingServerConfig {
     pub max_connections: usize,
     pub limits: ParseLimits,
     pub request_timeout_ms: usize,
+    pub worker_count: Option<usize>,
 }
 
 impl Default for BlockingServerConfig {
@@ -67,6 +68,7 @@ impl Default for BlockingServerConfig {
             max_connections: 10_000,
             limits: ParseLimits::default(),
             request_timeout_ms: 30_000,
+            worker_count: None,
         }
     }
 }
