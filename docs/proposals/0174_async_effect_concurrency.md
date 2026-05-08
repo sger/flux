@@ -86,6 +86,69 @@ target the original proposal aimed at.
 
 Current green bar after Phase 1b closeout: `cargo check --features llvm`, focused native async tests, VM fiber/TCP/task integration tests, `MioBackend` TCP unit tests, both TCP parity fixtures under `--ways vm,llvm`, full `cargo run --features llvm -- parity-check tests/parity`, and `cargo test --all --all-features` pass. Phase 2 (runtime gaps) is now unblocked.
 
+## Checklist
+
+### Architecture fixes
+
+- [x] **A-1** — `AsyncFail` effect row alias defined in `Flow.Async` (`alias AsyncFail = Suspend, Fork, GetContext, Fail`)
+- [x] **A-2** — `LOGICAL_WORKERS` promoted to `AtomicUsize`; `flux_async_run_root_with` honours `worker_count > 0` at runtime
+- [x] **A-3** — `AsyncBackend` optional ops (`tcp_connect`, `http_*`, `dns_resolve`, `sleep`) default to `push_error_completion` instead of `panic!`
+- [x] **A-4** — Blocking pool + DNS resolver (`AsyncBackend::dns_resolve`, `CompletionPayload::AddressList`)
+- [ ] **A-5** — `both` / `race` / `timeout_after` parity: VM and LLVM emit identical observable ordering
+- [ ] **A-6** — `AwaitCoordinator` extracted and reused across `both`, `race`, `all`, `any`
+- [ ] **A-7** — `AsyncFail` bracket/finally cleanup audit complete (all async failure paths release resources)
+- [ ] **A-8** — Worker-count configuration exposed via `run_async_with_workers(n, body)` Flux surface
+
+### Syntax fixes
+
+- [x] **S-1** — `with IO | Net` (bar between two names) emits `Did you mean \`with …, Net\`?` hint _(landed: `parse_effect_expr`)_
+- [x] **S-2** — `deriving` trailing-comma and missing-`)` parse errors recover and emit diagnostics _(landed: `parse_deriving_list`)_
+- [x] **S-3** — `deriving` rejects non-identifier class names _(landed: guard in `parse_deriving_list`)_
+- [x] **S-4** — `type Foo = | A | B` ADT bodies parse `deriving (...)` clause _(landed: `parse_type_adt_statement`)_
+- [x] **S-5** — `data` / `type` ADT type-params reuse `parse_function_type_params_angle_bracket`; `Statement::Data.type_params: Vec<FunctionTypeParam>` _(landed)_
+- [x] **S-6** — `alias` with type params + effect alias body emits a clear error instead of silently producing wrong AST _(landed: `parse_alias_statement`)_
+- [x] **S-7** — `fn` keyword inside effect-alias body (`effect alias Foo = fn bar`) emits diagnostic instead of hanging _(landed: `parse_effect_alias_body`)_
+
+### Phase 3 — HTTP / JSON / Streams
+
+#### 3-A HTTP server
+- [ ] **3-A-i** — Detached server manager task (long-lived `serve` loop as a background fiber)
+- [ ] **3-A-ii** — Graceful shutdown: drain in-flight requests then stop accepting
+- [ ] **3-A-iii** — Forced shutdown (`shutdown_now`): close listener immediately
+- [ ] **3-A-iv** — Handler timeout enforcement (kill handler fiber after `timeout_ms`)
+- [ ] **3-A-v** — Native/LLVM handler execution parity (LLVM shim calls Flux handler via C ABI)
+- [ ] **3-A-vi** — `serve_config` with `ServerConfig` fields wired through to runtime
+
+#### 3-B HTTP client
+- [ ] **3-B-i** — `get` / `post` helpers in `Flow.Http` (VM path)
+- [ ] **3-B-ii** — `get` / `post` native/LLVM path via `flux_http_*` C shims
+- [ ] **3-B-iii** — `Response` record: `status`, `headers`, `body` fields accessible from Flux
+
+#### 3-C JSON
+- [ ] **3-C-i** — `Json.encode` round-trips all `JsonValue` variants without loss
+- [x] **3-C-ii** — `Json.as_int` / `Decode<Int>.decode` bounds-check: reject values outside `[-2^53, 2^53]` _(landed)_
+- [ ] **3-C-iii** — `JsonNumber` internal representation decision: keep `Float` or split `Int | Float`
+- [ ] **3-C-iv** — `Json.decode` error path returns structured `JsonErr` (not a bare string)
+- [x] **3-C-v** — `deriving (Encode, Decode)` synthesises both instance bodies via Phase 0c AST pass _(landed)_
+
+#### 3-D Streams
+- [x] **3-D-i** — `Stream.flat_map` implemented in `lib/Flow/Stream.flx` _(landed)_
+- [x] **3-D-ii** — `Stream.merge` round-robin semantics documented and implemented _(landed)_
+- [x] **3-D-iii** — `append_stream` removed; callers migrated to `flat_map` _(landed)_
+- [ ] **3-D-iv** — `Stream.zip` combinator
+
+### Phase 4 — TLS + PostgreSQL
+
+#### 4-A TLS
+- [ ] **4-A-i** — `rustls` integration behind `tls` feature flag
+- [ ] **4-A-ii** — `Tcp.connect_tls` / `Tcp.accept_tls` surface in `Flow.Tcp`
+- [ ] **4-A-iii** — `Flow.Http` `get`/`post` upgrade to HTTPS when scheme is `https://`
+
+#### 4-B PostgreSQL client
+- [ ] **4-B-i** — `tokio-postgres` (or equivalent) wired through `AsyncBackend`
+- [ ] **4-B-ii** — `Flow.Db` module: `connect`, `query`, `execute`, `transaction`
+- [ ] **4-B-iii** — `Decode` class instances for common Postgres types (`Int`, `String`, `Bool`, `Float`)
+
 ## Relationship to 0143
 
 [Proposal 0143](0143_actor_concurrency_roadmap.md) specifies an

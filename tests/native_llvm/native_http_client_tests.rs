@@ -2,13 +2,16 @@
 
 #![cfg(feature = "llvm")]
 
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::thread;
+use std::time::{Duration, Instant};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-static NEXT_PORT: AtomicUsize = AtomicUsize::new(23880);
 static NATIVE_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn workspace_root() -> &'static Path {
@@ -16,7 +19,11 @@ fn workspace_root() -> &'static Path {
 }
 
 fn next_port() -> u16 {
-    NEXT_PORT.fetch_add(1, Ordering::Relaxed) as u16
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");
+    listener
+        .local_addr()
+        .expect("read ephemeral loopback port")
+        .port()
 }
 
 fn write_fixture(source: String) -> PathBuf {
@@ -50,7 +57,7 @@ fn native_http_client_test_lock() -> std::sync::MutexGuard<'static, ()> {
     NATIVE_HTTP_CLIENT_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("native HTTP client test lock poisoned")
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn client_server_source(port: u16, client: &str, handler: &str) -> String {
@@ -119,6 +126,33 @@ fn run_ok(source: String) -> String {
         "native client fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     stdout
+}
+
+fn spawn_malformed_response_server(listener: TcpListener) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        listener
+            .set_nonblocking(true)
+            .expect("set malformed server nonblocking");
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _addr)) => {
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                    let mut buf = [0_u8; 4096];
+                    let _ = stream.read(&mut buf);
+                    let _ = stream.write_all(b"NOPE\r\n\r\n");
+                    return;
+                }
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => return,
+            }
+        }
+    })
 }
 
 #[test]
@@ -195,24 +229,32 @@ fn native_http_client_decodes_chunked_response() {
 #[test]
 fn native_http_client_malformed_response_fails() {
     let _guard = native_http_client_test_lock();
-    let port = next_port();
-    let source = raw_server_source(
-        port,
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind malformed response server");
+    let port = listener
+        .local_addr()
+        .expect("read malformed response server port")
+        .port();
+    let server = spawn_malformed_response_server(listener);
+    let source = format!(
         r#"
-    let _raw = Tcp.read(conn, 4096)
-    let _write = Tcp.write_all(conn, "NOPE\r\n\r\n")
-"#,
-        &format!(
-            r#"
-    fn call_get() -> Response with Async, AsyncFail {{
-        get("http://127.0.0.1:{port}/bad")
+    import Flow.Async exposing (..)
+    import Flow.Http exposing (..)
+
+    fn body() -> String with Async, AsyncFail {{
+        fn call_get() -> Response with Async, AsyncFail {{
+            get("http://127.0.0.1:{port}/bad")
+        }}
+        let result = try_(call_get)
+        if result_is_ok(result) {{ "unexpected-ok" }} else {{ "protocol-failed" }}
     }}
-    let result = try_(call_get)
-    if result_is_ok(result) {{ "unexpected-ok" }} else {{ "protocol-failed" }}
+
+    fn main() with IO {{
+        print(run_async_with(with_worker_count(1), body))
+    }}
 "#
-        ),
     );
     let stdout = run_ok(source);
+    server.join().expect("malformed response server thread");
     assert!(stdout.contains("protocol-failed"), "{stdout}");
 }
 
