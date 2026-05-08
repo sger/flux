@@ -105,7 +105,7 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 - [x] **S-2** — `deriving` trailing-comma and missing-`)` parse errors recover and emit diagnostics _(landed: `parse_deriving_list`)_
 - [x] **S-3** — `deriving` rejects non-identifier class names _(landed: guard in `parse_deriving_list`)_
 - [x] **S-4** — `type Foo = | A | B` ADT bodies parse `deriving (...)` clause _(landed: `parse_type_adt_statement`)_
-- [x] **S-5** — `data` / `type` ADT type-params reuse `parse_function_type_params_angle_bracket`; `Statement::Data.type_params: Vec<FunctionTypeParam>` _(landed)_
+- [x] **S-5** — `data` / `type` ADT type-params reuse `parse_function_type_params_angle_bracket` for the parse path; `Statement::Data.type_params` remains `Vec<Identifier>` (kinded params not surfaced in the AST yet) _(landed)_
 - [x] **S-6** — `alias` with type params + effect alias body emits a clear error instead of silently producing wrong AST _(landed: `parse_alias_statement`)_
 - [x] **S-7** — `fn` keyword inside effect-alias body (`effect alias Foo = fn bar`) emits diagnostic instead of hanging _(landed: `parse_effect_alias_body`)_
 

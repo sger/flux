@@ -1,0 +1,51 @@
+// 06 — timeout, timeout_result
+//
+// `Async.timeout(ms, f)` runs `f` against a deadline. If `f` finishes in
+// time you get `Some(value)`; if the timer fires first you get `None` and
+// `f` is cancelled.
+//
+// `Async.timeout_result(ms, f)` is the same shape but flattens to a
+// `Result<a, AsyncError>` — use the `result_*` helpers in `Flow.Async` to
+// inspect it without needing the `Ok` / `Err` constructors in scope.
+
+// parity-expected-stdout-begin
+// "fast = Some 7"
+// "slow = None"
+// "timed_out = true"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Body that completes well within any reasonable deadline.
+fn fast() -> Int with Async { sleep(20); 7 }
+// Body that intentionally takes longer than the deadlines below.
+fn slow() -> Int with Async { sleep(1000); 99 }
+
+// Tiny render helper — `Option` doesn't auto-stringify nicely for a
+// header line, so we destructure once.
+fn opt_to_string(o: Option<Int>) -> String {
+    match o {
+        Some(v) -> "Some " + to_string(v),     // body finished in time
+        None    -> "None"                       // timer fired first
+    }
+}
+
+// `timeout(ms, f)` returns `Some(value)` if `f` beats the deadline,
+// `None` otherwise — and on `None`, `f` is cancelled (its pending I/O is
+// aborted and any cleanup arms fire).
+fn run_fast() -> Option<Int> with Async { timeout(200, fast) }
+fn run_slow() -> Option<Int> with Async { timeout(50, slow) }
+
+// `timeout_result` is the same shape but flattens the timeout signal
+// into a `Result<a, AsyncError>`. Use this when you want to distinguish
+// "timed out" from "the body itself raised". `result_is_timed_out` is a
+// helper for the common case.
+fn run_slow_result() -> Bool with Async {
+    result_is_timed_out(timeout_result(50, slow))
+}
+
+fn main() with IO {
+    print("fast = " + opt_to_string(run_async(run_fast)))
+    print("slow = " + opt_to_string(run_async(run_slow)))
+    print("timed_out = " + to_string(run_async(run_slow_result)))
+}

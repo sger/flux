@@ -1,0 +1,44 @@
+// 05 — first / first_of: N-way race over a list of fibers
+//
+// `Async.first_of(fs)` returns `(index, value)` where `index` is the
+// zero-based position in `fs` of the fiber that finished first. `first(fs)`
+// is the same but discards the index. All losers are cancelled.
+//
+// Source order breaks immediate ties (lower index wins).
+
+// parity-expected-stdout-begin
+// "winner index = 1"
+// "winner value = 50"
+// "tie index = 0"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Three fibers with different sleep durations. Each is a top-level named
+// `() -> Int with Async` function so we can put them into a list.
+fn s100() -> Int with Async { sleep(100); 100 }
+fn s50()  -> Int with Async { sleep(50);   50 }
+fn s200() -> Int with Async { sleep(200); 200 }
+
+// Two fibers that complete *immediately* — used to demonstrate tie-
+// breaking: when several thunks are ready at the same instant, the one
+// at the lower list index wins.
+fn ten()    -> Int with Async { 10 }
+fn twenty() -> Int with Async { 20 }
+
+// `first_of` takes a `List<() -> a with Async>` and returns
+// `(winning_index, winning_value)`. Losers are cancelled.
+fn race_three() -> (Int, Int) with Async { first_of([s100, s50, s200]) }
+fn race_tie()   -> (Int, Int) with Async { first_of([ten, twenty]) }
+
+fn main() with IO {
+    let win = run_async(race_three)
+    // Index 1 wins (the 50ms sleeper, position 1 in the list).
+    print("winner index = " + to_string(win.0))
+    print("winner value = " + to_string(win.1))
+
+    let tie = run_async(race_tie)
+    // Both `ten` and `twenty` are ready at the same instant; source
+    // order picks index 0.
+    print("tie index = " + to_string(tie.0))
+}

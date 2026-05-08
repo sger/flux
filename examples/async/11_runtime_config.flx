@@ -1,0 +1,49 @@
+// 11 — RuntimeConfig, run_async_with, run_async_with_workers
+//
+// By default `run_async` uses runtime defaults for worker count, blocking
+// FS pool, and DNS pool. To override one, build a `RuntimeConfig`:
+//
+//   default_runtime_config()    -- all defaults
+//   with_worker_count(n)        -- pin scheduler workers
+//   with_dns_pool_size(n)       -- DNS-heavy workloads
+//
+// Then call `run_async_with(cfg, action)`, or for the common case use the
+// shortcut `run_async_with_workers(n, action)`.
+//
+// Native today still uses a compile-time worker count regardless of the
+// `worker_count` knob — the knob is plumbed and accepted, but native
+// doesn't yet honour it. VM and `dns_pool_size` already work end-to-end.
+
+// parity-expected-stdout-begin
+// "default = 1"
+// "pinned = 2"
+// "tuned = 3"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Three trivial fiber bodies — the *what* doesn't matter for this
+// example, only *which* `run_async` boundary launches them.
+fn one()   -> Int with Async { sleep(10); 1 }
+fn two()   -> Int with Async { sleep(10); 2 }
+fn three() -> Int with Async { sleep(10); 3 }
+
+// The plain `run_async` path. Worker count comes from
+// `available_parallelism()` (or `FLUX_WORKERS` env var if set).
+fn run_default() -> Int { run_async(one) }
+
+// `run_async_with_workers(n, action)` is sugar for the common case of
+// "I want exactly N workers, defaults for the rest."
+fn run_pinned()  -> Int { run_async_with_workers(4, two) }
+
+// Full builder form: build a `RuntimeConfig` and pass it to
+// `run_async_with`. `with_dns_pool_size(8)` constructs a config with
+// `dns_pool_size = 8` and defaults for the rest. There are similar
+// builders (`with_worker_count`, `default_runtime_config`).
+fn run_tuned()   -> Int { run_async_with(with_dns_pool_size(8), three) }
+
+fn main() with IO {
+    print("default = " + to_string(run_default()))
+    print("pinned = "  + to_string(run_pinned()))
+    print("tuned = "   + to_string(run_tuned()))
+}

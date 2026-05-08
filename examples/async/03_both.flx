@@ -1,0 +1,42 @@
+// 03 — both: run two fibers concurrently, return both results
+//
+// `Async.both(f, g)` spawns `f` and `g` as sibling fibers and returns the
+// pair `(f_result, g_result)` once both finish. On the VM the two branches
+// are interleaved by the fiber scheduler; with two 50ms sleeps the wall
+// clock should be ~50ms, not ~100ms.
+//
+// Source order is preserved in the tuple regardless of which branch
+// finishes first.
+
+// parity-expected-stdout-begin
+// "left = 1"
+// "right = 2"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Two sibling fibers. They have the same shape but are independent — each
+// has its own continuation, its own suspension state, its own cancel flag.
+fn left() -> Int with Async {
+    sleep(50)        // both branches sleep concurrently, not back-to-back
+    1
+}
+
+fn right() -> Int with Async {
+    sleep(50)
+    2
+}
+
+// `both(f, g)` returns a pair `(f_result, g_result)`. The tuple position
+// reflects source order, not finish order — even if `right` finishes
+// first, you get `(left_result, right_result)`.
+fn body() -> (Int, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    // Tuple field access uses `.0` / `.1` — like Rust.
+    print("left = "  + to_string(pair.0))
+    print("right = " + to_string(pair.1))
+}

@@ -1,0 +1,38 @@
+// 02 — sleep and yield_now
+//
+// `Async.sleep(ms)` suspends the current fiber for at least `ms`
+// milliseconds. On native it parks the fiber and lets others run; on the VM
+// it currently blocks the OS thread (still observable as a delay).
+//
+// `Async.yield_now()` is a cooperative yield: a hint that other fibers may
+// run. On native it reschedules; on the VM it is a no-op today.
+
+// parity-expected-stdout-begin
+// "done = 1"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    // `sleep(20)` suspends the current fiber for at least 20ms. On
+    // native this parks the fiber and lets others run on the same
+    // worker. On the VM today it blocks the OS thread — the wall-clock
+    // delay is identical, only the scheduling story differs.
+    sleep(20)
+
+    // `yield_now()` is a cheap reschedule hint: "I have more work but
+    // other fibers may want a turn." On native it bounces back to the
+    // scheduler; on the VM it is a no-op (single fiber per OS thread).
+    yield_now()
+
+    // Multiple suspension points in one body are fine — each is an
+    // independent point where this fiber can be resumed onto a
+    // different worker.
+    sleep(20)
+
+    1                // last expression is the return value
+}
+
+fn main() with IO {
+    print("done = " + to_string(run_async(body)))
+}
