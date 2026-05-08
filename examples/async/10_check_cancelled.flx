@@ -1,0 +1,52 @@
+// 10 — check_cancelled, bail_if_cancelled
+//
+// Fibers that spend a long time in pure CPU work (no `await`, no `sleep`,
+// no I/O) are not cancellable by default — there is no suspension point
+// for the scheduler to deliver the cancel at.
+//
+// `Async.check_cancelled()` is a cheap scheduler-flag read: it returns
+// `true` iff the enclosing scope has been cancelled. Long loops should
+// poll it periodically and exit early.
+//
+// `Async.bail_if_cancelled()` is the convenience form: poll the flag and
+// `fail(Canceled)` if it's set.
+
+// parity-expected-stdout-begin
+// "cancelled? false"
+// "sum = 1275"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Pure tail-recursive accumulator. There's no `await`, no `sleep`, no
+// I/O — without an explicit checkpoint the scheduler has no chance to
+// deliver a cancellation to this loop.
+fn cpu_work(n: Int, acc: Int) -> Int with Async {
+    if n <= 0 {
+        acc
+    } else {
+        // `bail_if_cancelled()` does two things atomically:
+        //   1. read the scope's cancel flag (one int load)
+        //   2. if set, `fail(Canceled)` — which unwinds out of this
+        //      loop without further iterations
+        // It costs essentially nothing when not cancelled. Sprinkle one
+        // call per ~thousand iterations of a hot loop.
+        bail_if_cancelled()
+        cpu_work(n - 1, acc + n)
+    }
+}
+
+// `check_cancelled()` is the inspection variant — it returns `Bool`
+// instead of raising. Use it when you want to clean up gracefully and
+// `return` a partial result rather than unwinding.
+fn check_flag() -> Bool with Async { check_cancelled() }
+
+// 1 + 2 + ... + 50 = 1275.
+fn run_loop()   -> Int  with Async { cpu_work(50, 0) }
+
+fn main() with IO {
+    // The top-level scope is not cancelled, so the flag is `false` and
+    // the loop runs to completion.
+    print("cancelled? " + to_string(run_async(check_flag)))
+    print("sum = "      + to_string(run_async(run_loop)))
+}

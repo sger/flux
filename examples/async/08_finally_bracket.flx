@@ -1,0 +1,51 @@
+// 08 — finally, bracket
+//
+// `Async.finally(body, cleanup)` runs `body`, then always runs `cleanup`,
+// then returns body's result.
+//
+// `Async.bracket(acquire, release, body)` is the resource pattern:
+// `acquire` produces a resource, `body` uses it, `release` always runs at
+// the end. `release` is polymorphic in its return type — drop its result
+// to discharge it.
+
+// parity-expected-stdout-begin
+// "result = 42"
+// "finally = 99"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Pretend `acquire` opens a file or socket and returns a handle.
+fn acquire() -> String { "fd-7" }
+
+// `release` is the teardown hook. `bracket` runs it whether `body`
+// returns, raises, or is cancelled. Its return type is polymorphic in
+// the API — `Int` here is just a placeholder; the value is dropped.
+fn release(r: String) -> Int { 0 }
+
+// `body` (the third bracket arg) is the only one that may carry
+// `with Async`. This is a current parser limitation: only the *last*
+// callback parameter of a multi-callback function may be annotated with
+// effects.
+fn use_resource(r: String) -> Int with Async {
+    sleep(10)            // simulate doing real I/O with the handle
+    42
+}
+
+// `finally` is the simpler shape: no resource, just "always run cleanup".
+fn body() -> Int { 99 }
+fn cleanup() -> Unit with Async { yield_now() }
+
+// `bracket(acquire, release, body)` runs `acquire`, hands the result to
+// `body`, then unconditionally runs `release` on the same value. The
+// return value of `body` is what `bracket` returns.
+fn run_bracket() -> Int with Async { bracket(acquire, release, use_resource) }
+
+// `finally(body, cleanup)` runs `body`, then `cleanup`, then returns
+// body's result. Cleanup fires on the failure path too.
+fn run_finally() -> Int with Async { finally(body, cleanup) }
+
+fn main() with IO {
+    print("result = "  + to_string(run_async(run_bracket)))   // 42
+    print("finally = " + to_string(run_async(run_finally)))   // 99
+}
