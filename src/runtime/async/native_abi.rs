@@ -25,7 +25,7 @@ static READY_TIMERS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 static ACTIVE_RUN: OnceLock<Mutex<Option<RunHandle>>> = OnceLock::new();
 
 const FLUX_NONE: i64 = 0;
-const LOGICAL_WORKERS: usize = 2;
+const DEFAULT_LOGICAL_WORKERS: usize = 2;
 
 thread_local! {
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
@@ -134,9 +134,10 @@ struct RunShared {
 }
 
 impl NativeRun {
-    fn new(root_closure: i64) -> Self {
+    fn new(root_closure: i64, worker_count: usize) -> Self {
         let root = next_fiber_id();
-        let mut ready = (0..LOGICAL_WORKERS)
+        let worker_count = worker_count.max(1);
+        let mut ready = (0..worker_count)
             .map(|_| VecDeque::new())
             .collect::<Vec<_>>();
         ready[0].push_back(Fiber {
@@ -150,7 +151,7 @@ impl NativeRun {
         Self {
             root,
             ready,
-            next_child_worker: if LOGICAL_WORKERS > 1 { 1 } else { 0 },
+            next_child_worker: if worker_count > 1 { 1 } else { 0 },
             suspended: HashMap::new(),
             pending_wakes: HashMap::new(),
             cancelled_requests: HashSet::new(),
@@ -737,10 +738,10 @@ fn release_outcome(outcome: FiberOutcome) {
 }
 
 impl RunHandle {
-    fn new(root_closure: i64) -> Self {
+    fn new(root_closure: i64, worker_count: usize) -> Self {
         Self {
             shared: Arc::new(RunShared {
-                state: Mutex::new(NativeRun::new(root_closure)),
+                state: Mutex::new(NativeRun::new(root_closure, worker_count)),
                 cvar: Condvar::new(),
             }),
         }
@@ -946,8 +947,12 @@ fn worker_loop(handle: RunHandle, worker: usize, cb: FluxAsyncCallbacks) {
     }
 }
 
-fn spawn_workers(handle: &RunHandle, cb: FluxAsyncCallbacks) -> Vec<JoinHandle<()>> {
-    (1..LOGICAL_WORKERS)
+fn spawn_workers(
+    handle: &RunHandle,
+    cb: FluxAsyncCallbacks,
+    worker_count: usize,
+) -> Vec<JoinHandle<()>> {
+    (1..worker_count.max(1))
         .map(|worker| {
             let handle = handle.clone();
             std::thread::Builder::new()
@@ -1132,6 +1137,10 @@ pub extern "C" fn flux_async_tcp_close(handle: u64) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
+    flux_async_run_root_configured(root_closure, DEFAULT_LOGICAL_WORKERS)
+}
+
+fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64 {
     let Some(cb) = callbacks().copied() else {
         return FLUX_NONE;
     };
@@ -1142,9 +1151,9 @@ pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
     LAST_RUN_FAILED.with(|failed| failed.set(false));
 
     let previous_run = active_run();
-    let handle = RunHandle::new(root_closure);
+    let handle = RunHandle::new(root_closure, worker_count);
     set_active_run(Some(handle.clone()));
-    let workers = spawn_workers(&handle, cb);
+    let workers = spawn_workers(&handle, cb, worker_count);
     let mut result = FLUX_NONE;
 
     loop {
@@ -1393,13 +1402,9 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
 /// Phase 2 slice 2-vii: `flux_async_run_root` with an explicit
 /// `RuntimeConfig` (worker_count, fs_pool_size, dns_pool_size).
 ///
-/// Native still uses the compile-time `LOGICAL_WORKERS` constant for fiber
-/// workers. `dns_pool_size` configures the blocking DNS pool before the
-/// backend is initialized; `fs_pool_size` is accepted for future filesystem
-/// consumers.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root_with(
-    _worker_count: i64,
+    worker_count: i64,
     _fs_pool_size: i64,
     dns_pool_size: i64,
     root_closure: i64,
@@ -1407,7 +1412,12 @@ pub extern "C" fn flux_async_run_root_with(
     if dns_pool_size > 0 {
         configure_default_dns_pool_size(dns_pool_size as usize);
     }
-    flux_async_run_root(root_closure)
+    let worker_count = if worker_count > 0 {
+        worker_count as usize
+    } else {
+        DEFAULT_LOGICAL_WORKERS
+    };
+    flux_async_run_root_configured(root_closure, worker_count)
 }
 
 /// Phase 2 slice 2-iv: poll whether the *current* fiber's enclosing scope
