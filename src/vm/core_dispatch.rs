@@ -2511,7 +2511,7 @@ fn vm_http_serve_config(ctx: &mut dyn RuntimeContext, args: &[Value]) -> Result<
     let _ = ctx;
     let listener = eint(&args[0], "http_serve_config(listener)")?;
     let scope = eint(&args[1], "http_serve_config(scope)")?;
-    let config = http_server_config(&args[2]).unwrap_or_default();
+    let config = http_server_config(&args[2])?;
     Ok(Value::Integer(vm_http::register(
         listener,
         scope as u64,
@@ -2545,6 +2545,7 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
     let max_header_bytes = config_usize_field(fields, 1, "max_header_bytes")?;
     let max_body_bytes = config_usize_field(fields, 2, "max_body_bytes")?;
     let request_timeout_ms = config_usize_field(fields, 3, "request_timeout_ms")?;
+    let worker_count = config_optional_usize_field(fields, 4, "worker_count")?;
 
     Ok(crate::runtime::http::BlockingServerConfig {
         max_connections,
@@ -2553,6 +2554,7 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
             max_body_bytes,
         },
         request_timeout_ms,
+        worker_count,
     })
 }
 
@@ -2949,6 +2951,31 @@ fn config_usize_field(
     }
 }
 
+fn config_optional_usize_field(
+    fields: &crate::runtime::value::AdtFields,
+    index: usize,
+    name: &str,
+) -> Result<Option<usize>, String> {
+    match fields.get(index) {
+        Some(Value::None) => Ok(None),
+        Some(Value::Some(inner)) => match inner.as_ref() {
+            Value::Integer(n) if *n >= 0 => Ok(Some(*n as usize)),
+            Value::Integer(n) => Err(format!(
+                "http_serve_config: ServerConfig.{name} must be non-negative, got {n}"
+            )),
+            other => Err(format!(
+                "http_serve_config: ServerConfig.{name} expected Option<Int>, got Some({})",
+                other.type_name()
+            )),
+        },
+        Some(other) => Err(format!(
+            "http_serve_config: ServerConfig.{name} expected Option<Int>, got {}",
+            other.type_name()
+        )),
+        None => Err(format!("http_serve_config: ServerConfig missing {name}")),
+    }
+}
+
 fn method_constructor(method: &str) -> &'static str {
     match method {
         "POST" => "Post",
@@ -3105,5 +3132,51 @@ mod vm_task_state {
         CANCELLED.with(|c| {
             c.borrow_mut().insert(id);
         });
+    }
+}
+
+#[cfg(test)]
+mod http_config_tests {
+    use super::*;
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    fn server_config_value(worker_count: Value) -> Value {
+        Value::Adt(Rc::new(AdtValue {
+            constructor: Rc::new("ServerConfig".to_string()),
+            fields: AdtFields::from_vec(vec![
+                Value::Integer(11),
+                Value::Integer(22),
+                Value::Integer(33),
+                Value::Integer(44),
+                worker_count,
+            ]),
+        }))
+    }
+
+    #[test]
+    fn http_server_config_parses_worker_count_option() {
+        let parsed = http_server_config(&server_config_value(Value::Some(Rc::new(
+            Value::Integer(3),
+        ))))
+        .expect("parse ServerConfig");
+
+        assert_eq!(parsed.max_connections, 11);
+        assert_eq!(parsed.limits.max_header_bytes, 22);
+        assert_eq!(parsed.limits.max_body_bytes, 33);
+        assert_eq!(parsed.request_timeout_ms, 44);
+        assert_eq!(parsed.worker_count, Some(3));
+    }
+
+    #[test]
+    fn http_server_config_rejects_negative_worker_count() {
+        let err = http_server_config(&server_config_value(Value::Some(Rc::new(Value::Integer(
+            -1,
+        )))))
+        .expect_err("negative worker_count should fail");
+
+        assert!(
+            err.contains("ServerConfig.worker_count must be non-negative"),
+            "{err}"
+        );
     }
 }

@@ -252,8 +252,9 @@ module Flow.Http {
         let server_scope = new_scope()
         let server_id = http_serve_config_prim(Tcp.listener_id(listener), scope_id(server_scope), config)
         let request_timeout_ms = config.request_timeout_ms
+        let max_connections = config.max_connections
         fn accept_loop_body() with Async, AsyncFail {
-            accept_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+            accept_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
         fn serve_accept_body() with Async, AsyncFail {
             let ignored_accept_result = try_(accept_loop_body)
@@ -291,8 +292,9 @@ module Flow.Http {
         let server_scope = new_scope()
         let server_id = http_serve_config_prim(Tcp.listener_id(listener), scope_id(server_scope), config)
         let request_timeout_ms = config.request_timeout_ms
+        let max_connections = config.max_connections
         fn accept_loop_body() with Async, AsyncFail {
-            accept_stream_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+            accept_stream_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
         fn serve_accept_body() with Async, AsyncFail {
             let ignored_accept_result = try_(accept_loop_body)
@@ -318,16 +320,21 @@ module Flow.Http {
         server_id:    Int,
         listener,
         server_scope,
+        max_connections: Int,
         request_timeout_ms: Int,
         handler:      (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
         if http_is_shutting_down_prim(server_id) { noop() }
+        else if http_active_connection_count_prim(server_id) >= max_connections {
+            let ignored_backpressure_sleep = sleep(50)
+            accept_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
+        }
         else {
             fn accept_once() with Async, AsyncFail {
                 Tcp.accept(listener)
             }
             fn accept_ok(conn) with Async, AsyncFail {
-                accepted_connection(server_id, listener, server_scope, conn, request_timeout_ms, handler)
+                accepted_connection(server_id, listener, server_scope, conn, max_connections, request_timeout_ms, handler)
             }
             let accept_result = try_(accept_once)
             result_or_else_async(
@@ -397,6 +404,7 @@ module Flow.Http {
         listener,
         server_scope,
         conn,
+        max_connections: Int,
         request_timeout_ms: Int,
         handler:      (Request) -> Response with Async | e
     ) -> Unit with Async, AsyncFail {
@@ -405,7 +413,7 @@ module Flow.Http {
             let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
             let ignored_connection = connection_worker(server_id, conn, "", request_timeout_ms, handler)
             let ignored_accept_yield = yield_now()
-            accept_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+            accept_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
     }
 
@@ -483,16 +491,21 @@ module Flow.Http {
         server_id:    Int,
         listener,
         server_scope,
+        max_connections: Int,
         request_timeout_ms: Int,
         handler:      (Request) -> StreamResponse<a> with Async | e
     ) -> Unit with Async, AsyncFail {
         if http_is_shutting_down_prim(server_id) { noop() }
+        else if http_active_connection_count_prim(server_id) >= max_connections {
+            let ignored_backpressure_sleep = sleep(50)
+            accept_stream_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
+        }
         else {
             fn accept_once() with Async, AsyncFail {
                 Tcp.accept(listener)
             }
             fn accept_ok(conn) with Async, AsyncFail {
-                accepted_stream_connection(server_id, listener, server_scope, conn, request_timeout_ms, handler)
+                accepted_stream_connection(server_id, listener, server_scope, conn, max_connections, request_timeout_ms, handler)
             }
             let accept_result = try_(accept_once)
             result_or_else_async(
@@ -508,6 +521,7 @@ module Flow.Http {
         listener,
         server_scope,
         conn,
+        max_connections: Int,
         request_timeout_ms: Int,
         handler:      (Request) -> StreamResponse<a> with Async | e
     ) -> Unit with Async, AsyncFail {
@@ -516,7 +530,7 @@ module Flow.Http {
             let ignored_register_connection = http_register_connection_prim(server_id, Tcp.connection_id(conn))
             let ignored_connection = stream_connection_worker(server_id, conn, "", request_timeout_ms, handler)
             let ignored_accept_yield = yield_now()
-            accept_stream_loop(server_id, listener, server_scope, request_timeout_ms, handler)
+            accept_stream_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
     }
 
@@ -633,7 +647,5 @@ module Flow.Http {
         }
     }
 
-    fn noop() -> Unit {
-        http_shutdown_now_prim(-1)
-    }
+    fn noop() -> Unit {}
 }
