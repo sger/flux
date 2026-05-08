@@ -7,6 +7,7 @@
 //! layers the worker pool, the `mio` reactor backend, and the `Task<a>`
 //! primitive on top; Phase 1b adds fibers and structured concurrency.
 
+pub mod await_coordinator;
 pub mod backend;
 pub mod backends;
 pub mod blocking_pool;

@@ -13,6 +13,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use super::await_coordinator::{AwaitCoordinator, AwaitEvent};
 use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
 use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
 
@@ -79,29 +80,10 @@ struct Fiber {
     work: Work,
 }
 
-enum AwaitKind {
-    Both {
-        left: u64,
-        right: u64,
-        left_value: Option<FiberOutcome>,
-        right_value: Option<FiberOutcome>,
-    },
-    Try {
-        child: u64,
-        ok_ctor_tag: i32,
-        err_ctor_tag: i32,
-    },
-    Race {
-        children: Vec<u64>,
-        completed: Vec<(u64, FiberOutcome)>,
-    },
-    FirstOf {
-        children: Vec<(u64, usize)>,
-        completed: Vec<(u64, usize, FiberOutcome)>,
-    },
-    Timeout {
-        body: u64,
-    },
+#[derive(Clone, Copy, Debug)]
+struct TryMeta {
+    ok_ctor_tag: i32,
+    err_ctor_tag: i32,
 }
 
 struct NativeRun {
@@ -112,8 +94,7 @@ struct NativeRun {
     pending_wakes: HashMap<u64, FiberOutcome>,
     cancelled_requests: HashSet<u64>,
     fiber_request: HashMap<u64, u64>,
-    awaits: HashMap<u64, AwaitKind>,
-    awaiter_index: HashMap<u64, Vec<u64>>,
+    awaits: AwaitCoordinator<u64, FiberOutcome, TryMeta>,
     scopes: HashMap<u64, HashSet<u64>>,
     fiber_scope: HashMap<u64, u64>,
     cancelled_fibers: HashSet<u64>,
@@ -156,8 +137,7 @@ impl NativeRun {
             pending_wakes: HashMap::new(),
             cancelled_requests: HashSet::new(),
             fiber_request: HashMap::new(),
-            awaits: HashMap::new(),
-            awaiter_index: HashMap::new(),
+            awaits: AwaitCoordinator::new(),
             scopes: HashMap::new(),
             fiber_scope: HashMap::new(),
             cancelled_fibers: HashSet::new(),
@@ -199,7 +179,7 @@ impl NativeRun {
 
     fn forget_cancelled_fiber(&mut self, id: u64) {
         self.cancelled_fibers.remove(&id);
-        self.awaiter_index.remove(&id);
+        self.awaits.remove_child(id);
     }
 
     fn release_discarded_fiber(&mut self, fiber: Fiber) {
@@ -211,12 +191,6 @@ impl NativeRun {
         self.running > 0
             || !self.suspended.is_empty()
             || self.ready.iter().any(|queue| !queue.is_empty())
-    }
-
-    fn is_ready(&self, fiber_id: u64) -> bool {
-        self.ready
-            .iter()
-            .any(|queue| queue.iter().any(|fiber| fiber.id == fiber_id))
     }
 
     fn spawn_child(&mut self, closure: i64) -> u64 {
@@ -296,27 +270,11 @@ impl NativeRun {
         let fiber_id = fiber.id;
         self.suspended.insert(req, fiber);
 
-        let parent_reqs = self
-            .awaiter_index
-            .get(&fiber_id)
-            .cloned()
-            .unwrap_or_default();
-        for parent_req in parent_reqs {
-            match self.awaits.remove(&parent_req) {
-                Some(AwaitKind::Race {
-                    children,
-                    completed,
-                }) => self.resolve_race(parent_req, children, completed),
-                Some(AwaitKind::FirstOf {
-                    children,
-                    completed,
-                }) => self.resolve_first_of(parent_req, children, completed),
-                Some(other) => {
-                    self.awaits.insert(parent_req, other);
-                }
-                None => {}
-            }
-        }
+        let ready = self.ready_fiber_ids();
+        let events = self
+            .awaits
+            .record_suspended(fiber_id, |child| ready.contains(&child));
+        self.apply_await_events(events);
     }
 
     fn wake(&mut self, req: u64, outcome: FiberOutcome) {
@@ -373,251 +331,140 @@ impl NativeRun {
             children.remove(&id);
         }
 
-        let Some(parent_reqs) = self.awaiter_index.remove(&id) else {
-            return;
-        };
+        let ready = self.ready_fiber_ids();
+        let events = self.awaits.record_completed(
+            id,
+            outcome,
+            |child| ready.contains(&child),
+            |outcome| matches!(outcome, FiberOutcome::Error(_)),
+        );
+        self.apply_await_events(events);
+    }
 
-        for parent_req in parent_reqs {
-            let Some(await_kind) = self.awaits.remove(&parent_req) else {
-                continue;
-            };
-            match await_kind {
-                AwaitKind::Both {
+    fn ready_fiber_ids(&self) -> HashSet<u64> {
+        self.ready
+            .iter()
+            .flat_map(|queue| queue.iter().map(|fiber| fiber.id))
+            .collect()
+    }
+
+    fn apply_await_events(&mut self, events: Vec<AwaitEvent<u64, FiberOutcome, TryMeta>>) {
+        for event in events {
+            match event {
+                AwaitEvent::BothReady {
+                    request,
                     left,
                     right,
-                    mut left_value,
-                    mut right_value,
-                } => {
-                    if id == left {
-                        left_value = Some(outcome);
-                    } else if id == right {
-                        right_value = Some(outcome);
-                    }
-
-                    if let FiberOutcome::Error(err) = outcome {
-                        let loser = if id == left { right } else { left };
-                        self.wake(parent_req, FiberOutcome::Error(err));
-                        self.cancel_fibers(&[loser]);
-                        continue;
-                    }
-
-                    match (left_value, right_value) {
-                        (Some(l), Some(r)) => match (l, r) {
-                            (FiberOutcome::Value(l), FiberOutcome::Value(r)) => {
-                                if let Some(cb) = callbacks() {
-                                    let tuple = unsafe { (cb.make_tuple2)(l, r) };
-                                    promote_value(tuple);
-                                    self.wake(parent_req, FiberOutcome::Value(tuple));
-                                }
-                            }
-                            (FiberOutcome::Error(err), _) | (_, FiberOutcome::Error(err)) => {
-                                self.wake(parent_req, FiberOutcome::Error(err));
-                            }
-                        },
-                        (left_value, right_value) => {
-                            self.awaits.insert(
-                                parent_req,
-                                AwaitKind::Both {
-                                    left,
-                                    right,
-                                    left_value,
-                                    right_value,
-                                },
-                            );
-                        }
-                    }
-                }
-                AwaitKind::Try {
-                    child,
-                    ok_ctor_tag,
-                    err_ctor_tag,
-                } => {
-                    if id == child {
+                } => match (left, right) {
+                    (FiberOutcome::Value(left), FiberOutcome::Value(right)) => {
                         if let Some(cb) = callbacks() {
-                            let result = match outcome {
-                                FiberOutcome::Value(v) => unsafe { (cb.make_adt1)(ok_ctor_tag, v) },
-                                FiberOutcome::Error(err) => unsafe {
-                                    (cb.make_adt1)(err_ctor_tag, err)
-                                },
-                            };
-                            promote_value(result);
-                            self.wake(parent_req, FiberOutcome::Value(result));
-                        } else {
-                            self.wake(parent_req, FiberOutcome::Value(FLUX_NONE));
+                            let tuple = unsafe { (cb.make_tuple2)(left, right) };
+                            promote_value(tuple);
+                            self.wake(request, FiberOutcome::Value(tuple));
                         }
                     }
-                }
-                AwaitKind::Race {
-                    children,
-                    mut completed,
+                    (FiberOutcome::Error(err), other) | (other, FiberOutcome::Error(err)) => {
+                        release_outcome(other);
+                        self.wake(request, FiberOutcome::Error(err));
+                    }
+                },
+                AwaitEvent::BothError {
+                    request,
+                    error,
+                    loser,
+                    discarded,
                 } => {
-                    completed.push((id, outcome));
-                    self.resolve_race(parent_req, children, completed);
-                }
-                AwaitKind::FirstOf {
-                    children,
-                    mut completed,
-                } => {
-                    let Some((_, index)) = children.iter().find(|(child, _)| *child == id) else {
+                    for outcome in discarded {
                         release_outcome(outcome);
-                        self.awaits.insert(
-                            parent_req,
-                            AwaitKind::FirstOf {
-                                children,
-                                completed,
-                            },
-                        );
-                        continue;
-                    };
-                    completed.push((id, *index, outcome));
-                    self.resolve_first_of(parent_req, children, completed);
+                    }
+                    self.wake(request, error);
+                    self.cancel_fibers(&[loser]);
                 }
-                AwaitKind::Timeout { body } => {
-                    if id == body {
-                        backend().cancel(RequestId(parent_req));
-                        self.cancelled_requests.insert(parent_req);
-                        match outcome {
-                            FiberOutcome::Value(value) => {
-                                if let Some(cb) = callbacks() {
-                                    let some = unsafe { (cb.wrap_some)(value) };
-                                    promote_value(some);
-                                    self.wake(parent_req, FiberOutcome::Value(some));
-                                }
+                AwaitEvent::TryReady {
+                    request,
+                    outcome,
+                    meta,
+                } => {
+                    if let Some(cb) = callbacks() {
+                        let result = match outcome {
+                            FiberOutcome::Value(v) => unsafe {
+                                (cb.make_adt1)(meta.ok_ctor_tag, v)
+                            },
+                            FiberOutcome::Error(err) => unsafe {
+                                (cb.make_adt1)(meta.err_ctor_tag, err)
+                            },
+                        };
+                        promote_value(result);
+                        self.wake(request, FiberOutcome::Value(result));
+                    } else {
+                        release_outcome(outcome);
+                        self.wake(request, FiberOutcome::Value(FLUX_NONE));
+                    }
+                }
+                AwaitEvent::RaceReady {
+                    request,
+                    outcome,
+                    losers,
+                    discarded,
+                } => {
+                    for outcome in discarded {
+                        release_outcome(outcome);
+                    }
+                    self.wake(request, outcome);
+                    self.cancel_fibers(&losers);
+                }
+                AwaitEvent::FirstOfReady {
+                    request,
+                    index,
+                    outcome,
+                    losers,
+                    discarded,
+                } => {
+                    for outcome in discarded {
+                        release_outcome(outcome);
+                    }
+                    match outcome {
+                        FiberOutcome::Value(winner_value) => {
+                            if let Some(cb) = callbacks() {
+                                let tuple = unsafe {
+                                    (cb.make_tuple2)(tag_int(index as u64), winner_value)
+                                };
+                                promote_value(tuple);
+                                self.wake(request, FiberOutcome::Value(tuple));
+                            } else {
+                                release_completion_value(winner_value);
+                                self.wake(request, FiberOutcome::Value(FLUX_NONE));
                             }
-                            FiberOutcome::Error(err) => {
-                                self.wake(parent_req, FiberOutcome::Error(err));
+                        }
+                        FiberOutcome::Error(err) => self.wake(request, FiberOutcome::Error(err)),
+                    }
+                    self.cancel_fibers(&losers);
+                }
+                AwaitEvent::TimeoutBodyReady { request, outcome } => {
+                    backend().cancel(RequestId(request));
+                    self.cancelled_requests.insert(request);
+                    match outcome {
+                        FiberOutcome::Value(value) => {
+                            if let Some(cb) = callbacks() {
+                                let some = unsafe { (cb.wrap_some)(value) };
+                                promote_value(some);
+                                self.wake(request, FiberOutcome::Value(some));
+                            } else {
+                                release_completion_value(value);
+                                self.wake(request, FiberOutcome::Value(FLUX_NONE));
                             }
+                        }
+                        FiberOutcome::Error(err) => {
+                            self.wake(request, FiberOutcome::Error(err));
                         }
                     }
                 }
-            }
-        }
-    }
-
-    fn resolve_race(
-        &mut self,
-        parent_req: u64,
-        children: Vec<u64>,
-        completed: Vec<(u64, FiberOutcome)>,
-    ) {
-        let winner = children.iter().copied().find(|child| {
-            completed
-                .iter()
-                .any(|(completed_child, _)| completed_child == child)
-        });
-
-        let Some(winner) = winner else {
-            self.awaits.insert(
-                parent_req,
-                AwaitKind::Race {
-                    children,
-                    completed,
-                },
-            );
-            return;
-        };
-
-        let blocked_by_earlier_ready = children
-            .iter()
-            .take_while(|child| **child != winner)
-            .any(|child| self.is_ready(*child));
-
-        if blocked_by_earlier_ready {
-            self.awaits.insert(
-                parent_req,
-                AwaitKind::Race {
-                    children,
-                    completed,
-                },
-            );
-            return;
-        }
-
-        let mut winner_outcome = FiberOutcome::Value(FLUX_NONE);
-        for (completed_child, completed_value) in completed {
-            if completed_child == winner {
-                winner_outcome = completed_value;
-            } else {
-                release_outcome(completed_value);
-            }
-        }
-
-        self.wake(parent_req, winner_outcome);
-        let losers: Vec<u64> = children
-            .into_iter()
-            .filter(|child| *child != winner)
-            .collect();
-        self.cancel_fibers(&losers);
-    }
-
-    fn resolve_first_of(
-        &mut self,
-        parent_req: u64,
-        children: Vec<(u64, usize)>,
-        completed: Vec<(u64, usize, FiberOutcome)>,
-    ) {
-        let winner = children.iter().copied().find(|(child, _)| {
-            completed
-                .iter()
-                .any(|(completed_child, _, _)| completed_child == child)
-        });
-
-        let Some((winner, index)) = winner else {
-            self.awaits.insert(
-                parent_req,
-                AwaitKind::FirstOf {
-                    children,
-                    completed,
-                },
-            );
-            return;
-        };
-
-        let blocked_by_earlier_ready = children
-            .iter()
-            .take_while(|(child, _)| *child != winner)
-            .any(|(child, _)| self.is_ready(*child));
-
-        if blocked_by_earlier_ready {
-            self.awaits.insert(
-                parent_req,
-                AwaitKind::FirstOf {
-                    children,
-                    completed,
-                },
-            );
-            return;
-        }
-
-        let mut winner_outcome = FiberOutcome::Value(FLUX_NONE);
-        for (completed_child, _, completed_value) in completed {
-            if completed_child == winner {
-                winner_outcome = completed_value;
-            } else {
-                release_outcome(completed_value);
-            }
-        }
-
-        match winner_outcome {
-            FiberOutcome::Value(winner_value) => {
-                if let Some(cb) = callbacks() {
-                    let tuple = unsafe { (cb.make_tuple2)(tag_int(index as u64), winner_value) };
-                    promote_value(tuple);
-                    self.wake(parent_req, FiberOutcome::Value(tuple));
-                } else {
-                    release_completion_value(winner_value);
-                    self.wake(parent_req, FiberOutcome::Value(FLUX_NONE));
+                AwaitEvent::TimeoutTimerReady { request, body } => {
+                    self.wake(request, FiberOutcome::Value(FLUX_NONE));
+                    self.cancel_fibers(&[body]);
                 }
             }
-            FiberOutcome::Error(err) => self.wake(parent_req, FiberOutcome::Error(err)),
         }
-
-        let losers: Vec<u64> = children
-            .into_iter()
-            .map(|(child, _)| child)
-            .filter(|child| *child != winner)
-            .collect();
-        self.cancel_fibers(&losers);
     }
 
     fn cancel_fibers(&mut self, fiber_ids: &[u64]) {
@@ -684,9 +531,8 @@ impl NativeRun {
             return;
         }
 
-        if let Some(AwaitKind::Timeout { body }) = self.awaits.remove(&req) {
-            self.wake(req, FiberOutcome::Value(FLUX_NONE));
-            self.cancel_fibers(&[body]);
+        if let Some(event) = self.awaits.route_timeout_timer(req) {
+            self.apply_await_events(vec![event]);
             return;
         }
 
@@ -1256,23 +1102,7 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
         let parent_req = next_request_id();
         let left_id = run.spawn_child(left);
         let right_id = run.spawn_child(right);
-        run.awaiter_index
-            .entry(left_id)
-            .or_default()
-            .push(parent_req);
-        run.awaiter_index
-            .entry(right_id)
-            .or_default()
-            .push(parent_req);
-        run.awaits.insert(
-            parent_req,
-            AwaitKind::Both {
-                left: left_id,
-                right: right_id,
-                left_value: None,
-                right_value: None,
-            },
-        );
+        run.awaits.register_both(parent_req, left_id, right_id);
         parent_req
     })
     .unwrap_or(0)
@@ -1284,21 +1114,8 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
         let parent_req = next_request_id();
         let left_id = run.spawn_child_on(current_worker(), next_fiber_id(), left);
         let right_id = run.spawn_child(right);
-        run.awaiter_index
-            .entry(left_id)
-            .or_default()
-            .push(parent_req);
-        run.awaiter_index
-            .entry(right_id)
-            .or_default()
-            .push(parent_req);
-        run.awaits.insert(
-            parent_req,
-            AwaitKind::Race {
-                children: vec![left_id, right_id],
-                completed: Vec::new(),
-            },
-        );
+        run.awaits
+            .register_race(parent_req, vec![left_id, right_id]);
         parent_req
     })
     .unwrap_or(0)
@@ -1319,16 +1136,9 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
             } else {
                 run.spawn_child(closure)
             };
-            run.awaiter_index.entry(id).or_default().push(parent_req);
             child_ids.push((id, idx));
         }
-        run.awaits.insert(
-            parent_req,
-            AwaitKind::FirstOf {
-                children: child_ids,
-                completed: Vec::new(),
-            },
-        );
+        run.awaits.register_first_of(parent_req, child_ids);
         parent_req
     })
     .unwrap_or(0)
@@ -1345,14 +1155,10 @@ pub extern "C" fn flux_async_fiber_try(
         run.panicked_ctor_tag = panicked_ctor_tag;
         let parent_req = next_request_id();
         let child_id = run.spawn_child(body);
-        run.awaiter_index
-            .entry(child_id)
-            .or_default()
-            .push(parent_req);
-        run.awaits.insert(
+        run.awaits.register_try(
             parent_req,
-            AwaitKind::Try {
-                child: child_id,
+            child_id,
+            TryMeta {
                 ok_ctor_tag,
                 err_ctor_tag,
             },
@@ -1367,12 +1173,7 @@ pub extern "C" fn flux_async_fiber_timeout(ms: i64, body: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
         let body_id = run.spawn_child(body);
-        run.awaiter_index
-            .entry(body_id)
-            .or_default()
-            .push(parent_req);
-        run.awaits
-            .insert(parent_req, AwaitKind::Timeout { body: body_id });
+        run.awaits.register_timeout(parent_req, body_id);
         let delay = if ms < 0 { 0 } else { ms as u64 };
         backend().timer_start(RequestId(parent_req), delay);
         parent_req

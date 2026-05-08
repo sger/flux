@@ -1,0 +1,51 @@
+// parity: vm, llvm
+// expect: success
+// bug: structured async combinators must expose identical ordering on VM and LLVM.
+//      `both` returns source-ordered pairs, immediate `race`/`first_of` ties
+//      choose the leftmost child, and timeout reports both body-win and
+//      timer-win cases consistently.
+
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async { 1 }
+fn right() -> Int with Async { 2 }
+fn ten() -> Int with Async { 10 }
+fn twenty() -> Int with Async { 20 }
+fn slow() -> Int with Async {
+    sleep(100)
+    30
+}
+
+fn fast() -> Int with Async {
+    sleep(1)
+    40
+}
+
+fn body() -> Unit with Async {
+    let pair = both(right, left)
+    print(pair.0)
+    print(pair.1)
+
+    let race_tie = race(ten, twenty)
+    print(race_tie)
+
+    let first_tie = first_of([ten, twenty])
+    print(first_tie.0)
+    print(first_tie.1)
+
+    let body_win = timeout(1000, fast)
+    match body_win {
+        Some(v) -> print(v),
+        None    -> print(-1)
+    }
+
+    let timer_win = timeout(1, slow)
+    match timer_win {
+        Some(v) -> print(v),
+        None    -> print(-2)
+    }
+}
+
+fn main() with IO {
+    run_async(body)
+}

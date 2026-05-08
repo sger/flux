@@ -62,6 +62,28 @@ fn main() with IO {
 }
 
 #[test]
+fn native_run_async_with_workers_convenience_returns_value() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    321
+}
+
+fn main() with IO {
+    let v = run_async_with_workers(1, body)
+    print(v)
+}
+"#;
+    let (stdout, stderr, success, _elapsed) = run_source(source, "run_async_with_workers");
+    assert!(
+        success,
+        "native run_async_with_workers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "321");
+}
+
+#[test]
 fn native_sleep_path_does_not_use_blocking_os_sleep() {
     let tasks = std::fs::read_to_string(workspace_root().join("runtime/c/tasks.c"))
         .expect("read runtime/c/tasks.c");
