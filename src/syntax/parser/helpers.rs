@@ -974,12 +974,15 @@ impl Parser {
                 }
 
                 if !is_lowercase_ident(&self.current_token.literal) {
+                    let tail_name = self.current_token.literal.clone();
                     self.emit_parser_diagnostic(
                         unexpected_token(
                             self.current_token.span(),
                             "Effect row tail variables must be lowercase identifiers.".to_string(),
                         )
-                        .with_hint_text("Use a lowercase tail name, for example `with IO | e`."),
+                        .with_hint_text(format!(
+                            "Did you mean `with ..., {tail_name}`? Use `,` to list multiple effects; use `| e` only for lowercase row-tail variables."
+                        )),
                     );
                     return None;
                 }

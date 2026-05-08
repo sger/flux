@@ -783,6 +783,20 @@ fn rejects_generic_constraint_trailing_plus() {
 }
 
 #[test]
+fn rejects_effect_bar_between_names_with_comma_hint() {
+    let (_program, parser) = parse_with_errors("fn main() with IO | Net { () }");
+    assert!(
+        parser.errors.iter().any(|d| {
+            d.hints()
+                .iter()
+                .any(|hint| hint.text.contains("Did you mean") && hint.text.contains("Net"))
+        }),
+        "expected comma-oriented effect-list hint, got: {:?}",
+        parser.errors
+    );
+}
+
+#[test]
 fn parses_non_generic_function_has_empty_type_params() {
     let (program, _) = parse_ok("fn f(x: Int) -> Int { x }");
     match &program.statements[0] {
@@ -913,6 +927,100 @@ fn parses_type_adt_sugar_generic() {
         }
         _ => panic!("expected desugared data statement"),
     }
+}
+
+#[test]
+fn parses_type_adt_sugar_with_deriving_clause() {
+    let (program, interner) = parse_ok("type Result<T, E> = Ok(T) | Err(E) deriving (Eq, Show)");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Data {
+            name,
+            type_params,
+            deriving,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Result");
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(deriving.len(), 2);
+            assert_eq!(interner.resolve(deriving[0]), "Eq");
+            assert_eq!(interner.resolve(deriving[1]), "Show");
+        }
+        _ => panic!("expected desugared data statement"),
+    }
+}
+
+#[test]
+fn data_and_type_adt_reuse_constrained_type_param_parser() {
+    let (program, interner) =
+        parse_ok("data Box<a: Sendable> { Box(a) }\ntype Wrap<a: Sendable> = Wrap(a)");
+    assert_eq!(program.statements.len(), 2);
+    match &program.statements[0] {
+        Statement::Data { type_params, .. } => {
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0]), "a");
+        }
+        _ => panic!("expected data statement"),
+    }
+    match &program.statements[1] {
+        Statement::Data { type_params, .. } => {
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0]), "a");
+        }
+        _ => panic!("expected type ADT sugar to desugar to data"),
+    }
+}
+
+#[test]
+fn deriving_list_reports_trailing_comma_missing_close_and_non_identifier() {
+    let cases = [
+        (
+            "data Color { Red } deriving (Eq,)",
+            "Trailing Deriving Comma",
+        ),
+        (
+            "data Color { Red } deriving (Eq",
+            "Missing Deriving Close Paren",
+        ),
+        (
+            "data Color { Red } deriving (123)",
+            "Invalid Deriving Class",
+        ),
+    ];
+    for (source, title) in cases {
+        let (_program, parser) = parse_with_errors(source);
+        assert!(
+            parser
+                .errors
+                .iter()
+                .any(|d| d.display_title() == Some(title)),
+            "expected {title} diagnostic for {source:?}, got: {:?}",
+            parser.errors
+        );
+    }
+}
+
+#[test]
+fn alias_effect_body_reports_generic_and_fn_keyword_errors() {
+    let (_program, parser) = parse_with_errors("alias Async<a> = <Suspend | Fork>");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.display_title() == Some("Invalid Generic Effect Alias")),
+        "expected generic effect alias diagnostic, got: {:?}",
+        parser.errors
+    );
+
+    let (_program, parser) = parse_with_errors("alias Async = <Suspend | fn bar>");
+    assert!(
+        parser
+            .errors
+            .iter()
+            .any(|d| d.display_title() == Some("Missing Effect Name After `|`")),
+        "expected effect alias body diagnostic, got: {:?}",
+        parser.errors
+    );
 }
 
 #[test]
