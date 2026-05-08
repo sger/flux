@@ -299,25 +299,33 @@ module Flow.Async {
 
     /// Run `body`; always run `cleanup` afterward.
     ///
-    /// VM: runs `body`, then `cleanup`, returns body's result.
-    ///
-    /// Parser limitation (Phase 1b): `cleanup` may carry `with Async`; `body` is unannotated.
+    /// Note: `body` carries no `with Async` annotation here due to a parser limitation
+    /// (the `with` clause can only appear on the last parameter). If `body` needs to
+    /// perform async operations or be cancellation-aware, use `bracket` instead, or
+    /// flip the argument order and call `finally_async(cleanup, body)`.
     public fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async {
-        let result = body()
-        let _ = cleanup()
-        result
+        match fiber_try_prim(fn() { body() }) {
+            Ok(result) -> do { let _ = cleanup(); result },
+            Err(e)     -> do { let _ = cleanup(); fail(e) }
+        }
     }
 
-    /// Acquire a resource, run `body`, then always call `release`.
-    ///
-    /// VM: acquire → body → release, sequentially.
-    ///
-    /// Parser limitation (Phase 1b): only `body` may carry `with Async`.
+    /// Run `body`; always run `cleanup` afterward, even if `body` fails or is cancelled.
+    /// Arguments are in (cleanup, body) order so the parser can annotate `body` with `with Async`.
+    public fn finally_async<a>(cleanup: () -> Unit, body: () -> a with Async) -> a with Async {
+        match fiber_try_prim(body) {
+            Ok(result) -> do { let _ = cleanup(); result },
+            Err(e)     -> do { let _ = cleanup(); fail(e) }
+        }
+    }
+
+    /// Acquire a resource, run `body`, then always call `release`, even on failure or cancellation.
     public fn bracket<r, c, a>(acquire: () -> r, release: (r) -> c, body: (r) -> a with Async) -> a with Async {
         let resource = acquire()
-        let result = body(resource)
-        let _ = release(resource)
-        result
+        match fiber_try_prim(fn() { body(resource) }) {
+            Ok(result) -> do { let _ = release(resource); result },
+            Err(e)     -> do { let _ = release(resource); fail(e) }
+        }
     }
 
     /// Catch async fiber failures in `body`.

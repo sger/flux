@@ -322,36 +322,12 @@ mod vm_fibers {
 
     use super::vm_async;
     use crate::runtime::RuntimeContext;
+    use crate::runtime::r#async::await_coordinator::{AwaitCoordinator, Outcome};
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
-
-    /// How a parent fiber's resume value is assembled when its child(ren)
-    /// finish (proposal 0174 Phase 1b-vi-b₂.2).
-    enum AwaitKind {
-        Both {
-            left: FiberId,
-            right: FiberId,
-        },
-        Try {
-            child: FiberId,
-        },
-        Race {
-            children: Vec<FiberId>,
-            won: bool,
-        },
-        FirstOf {
-            children: Vec<(FiberId, usize)>,
-        },
-        /// `Async.timeout`: parent_req is shared between the body fiber's
-        /// completion (delivers `Some(result)`) and a backend timer
-        /// completion (delivers `None`). Whichever fires first wins.
-        Timeout {
-            body_child: FiberId,
-        },
-    }
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
@@ -370,23 +346,16 @@ mod vm_fibers {
         // loop uses this to recognise root-fiber completion and propagate the
         // result.  None when no run_async is active.
         static ROOT: Cell<Option<FiberId>> = const { Cell::new(None) };
-        // Synthetic-await coordination (Phase 1b-vi-b₂.2).
-        static AWAITS: RefCell<HashMap<u64, AwaitKind>> = RefCell::new(HashMap::new());
-        static AWAITER_INDEX: RefCell<HashMap<FiberId, Vec<u64>>> =
-            RefCell::new(HashMap::new());
-        static RESULTS: RefCell<HashMap<FiberId, FiberOutcome>> = RefCell::new(HashMap::new());
+        // Await coordination (Phase 1b-vi-b₂.2) — delegated to the shared
+        // AwaitCoordinator. Replaces the former individual AWAITS,
+        // AWAITER_INDEX, RESULTS, SCOPE_REGISTRY, and CANCELLED_IDS statics.
+        static COORD: RefCell<AwaitCoordinator<FiberOutcome>> =
+            RefCell::new(AwaitCoordinator::new());
+        // Tracks which parent_reqs were registered as Try awaits so
+        // on_fiber_done_outcome can wrap their raw outcomes in Ok/Err ADTs.
+        static TRY_REQS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
         static RESUME_OUTCOMES: RefCell<HashMap<u64, FiberOutcome>> = RefCell::new(HashMap::new());
         static PENDING_FIBER_ERROR: RefCell<Option<Value>> = const { RefCell::new(None) };
-        // Scope-cancellation registry (Phase 1b-vi-c): scope_id → Vec<FiberId>.
-        static SCOPE_REGISTRY: RefCell<HashMap<u64, Vec<FiberId>>> =
-            RefCell::new(HashMap::new());
-        // Set of fiber ids whose enclosing scope has been cancelled
-        // (Phase 2 slice 2-iv). Populated by `cancel_losers` /
-        // `FiberCancelScope`; queried by `FiberCheckCancelled` from a fiber
-        // that may currently be executing (and therefore is not in the
-        // scheduler's `suspended` map). Cleared at outermost run_async exit.
-        static CANCELLED_IDS: RefCell<HashSet<FiberId>> =
-            RefCell::new(HashSet::new());
         // Pending RuntimeConfig knobs for the next outermost FiberRunAsync
         // boundary (Phase 2 slice 2-vii). Set by `FiberRunAsyncWith` before
         // calling `enter_run_async`; consumed by `enter_run_async` and
@@ -402,6 +371,7 @@ mod vm_fibers {
     #[derive(Debug, Clone, Copy)]
     pub struct PendingRunConfig {
         pub worker_count: u32,
+        #[allow(dead_code)]
         pub fs_pool_size: u32,
         pub dns_pool_size: u32,
     }
@@ -410,6 +380,12 @@ mod vm_fibers {
     pub enum FiberOutcome {
         Value(Value),
         Error(Value),
+    }
+
+    impl Outcome for FiberOutcome {
+        fn is_error(&self) -> bool {
+            matches!(self, FiberOutcome::Error(_))
+        }
     }
 
     fn adt1(name: &str, value: Value) -> Value {
@@ -561,11 +537,9 @@ mod vm_fibers {
             });
             CURRENT.with(|c| c.set(None));
             // Phase 1b-vi-b₂.2: also tear down await coordination state
-            // so a second top-level run_async on the same thread starts fresh.
+            // (including cancelled-fiber set — 2-iv) so a second top-level
+            // run_async on the same thread starts fresh.
             clear_await_state();
-            // Phase 2 slice 2-iv: drop the cancelled-id set so a second
-            // top-level run_async on the same thread starts fresh.
-            CANCELLED_IDS.with(|c| c.borrow_mut().clear());
             // Phase 2 slice 2-vii: drop the pending config so the next
             // top-level run_async picks up its own (or falls back to env/default).
             PENDING_RUN_CONFIG.with(|c| c.set(None));
@@ -680,38 +654,19 @@ mod vm_fibers {
 
     /// Register a `FiberBoth` await: parent_req fires when both children finish.
     pub fn register_both_await(parent_req: u64, left: FiberId, right: FiberId) {
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::Both { left, right })
-        });
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            idx.entry(left).or_default().push(parent_req);
-            idx.entry(right).or_default().push(parent_req);
-        });
+        COORD.with(|c| c.borrow_mut().register_both(parent_req, left, right));
     }
 
     pub fn register_try_await(parent_req: u64, child: FiberId) {
-        AWAITS.with(|a| a.borrow_mut().insert(parent_req, AwaitKind::Try { child }));
-        AWAITER_INDEX.with(|idx| {
-            idx.borrow_mut().entry(child).or_default().push(parent_req);
-        });
+        COORD.with(|c| c.borrow_mut().register_try(parent_req, child));
+        TRY_REQS.with(|t| t.borrow_mut().insert(parent_req));
     }
 
     /// Register a `FiberTimeout` await: parent_req fires when either the
     /// body child completes (delivers `Some(result)`) or a backend timer
     /// keyed on `parent_req` fires (delivers `None`).
     pub fn register_timeout_await(parent_req: u64, body_child: FiberId) {
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::Timeout { body_child })
-        });
-        AWAITER_INDEX.with(|idx| {
-            idx.borrow_mut()
-                .entry(body_child)
-                .or_default()
-                .push(parent_req);
-        });
+        COORD.with(|c| c.borrow_mut().register_timeout(parent_req, body_child));
     }
 
     /// Called by the backend completion pump just before `scheduler.complete`.
@@ -722,61 +677,28 @@ mod vm_fibers {
     /// cancelled by the caller (1b-vi-c).  Returns `None` for non-Timeout
     /// completions (caller may still call `scheduler.complete`).
     pub fn try_route_timer_for_timeout(req: u64) -> Option<FiberId> {
-        let kind = AWAITS.with(|a| a.borrow_mut().remove(&req));
-        match kind {
-            Some(AwaitKind::Timeout { body_child }) => {
-                // Drop the body child from the awaiter index so its
-                // mark-done sees no waiter for this parent_req.
-                AWAITER_INDEX.with(|idx| {
-                    let mut idx = idx.borrow_mut();
-                    if let Some(reqs) = idx.get_mut(&body_child) {
-                        reqs.retain(|r| *r != req);
-                    }
-                });
-                set_resume_outcome(req, FiberOutcome::Value(Value::None));
-                Some(body_child)
+        COORD.with(|c| {
+            let mut coord = c.borrow_mut();
+            let body_child = coord.on_timer_fired(req, || FiberOutcome::Value(Value::None))?;
+            // Drop the body child from the awaiter index so its
+            // mark-done sees no waiter for this parent_req.
+            if let Some(reqs) = coord.awaiter_index.get_mut(&body_child) {
+                reqs.retain(|r| *r != req);
             }
-            Some(other) => {
-                // Not a Timeout — put it back (we removed-then-checked).
-                AWAITS.with(|a| a.borrow_mut().insert(req, other));
-                None
-            }
-            None => None,
-        }
+            set_resume_outcome(req, FiberOutcome::Value(Value::None));
+            Some(body_child)
+        })
     }
 
     /// Register a `FiberRace` await: parent_req fires when any child finishes.
     pub fn register_race_await(parent_req: u64, children: Vec<FiberId>) {
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            for c in &children {
-                idx.entry(*c).or_default().push(parent_req);
-            }
-        });
-        AWAITS.with(|a| {
-            a.borrow_mut().insert(
-                parent_req,
-                AwaitKind::Race {
-                    children,
-                    won: false,
-                },
-            )
-        });
+        COORD.with(|c| c.borrow_mut().register_race(parent_req, children));
     }
 
     /// Register a `FiberFirstOf` await: parent_req fires when the first child
     /// in source-order tie-break semantics finishes.
     pub fn register_first_of_await(parent_req: u64, children: Vec<(FiberId, usize)>) {
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            for (child, _) in &children {
-                idx.entry(*child).or_default().push(parent_req);
-            }
-        });
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::FirstOf { children })
-        });
+        COORD.with(|c| c.borrow_mut().register_first_of(parent_req, children));
     }
 
     pub fn set_resume_outcome(req: u64, outcome: FiberOutcome) {
@@ -789,7 +711,7 @@ mod vm_fibers {
 
     /// Outcome of a child fiber finishing (proposal 0174 Phase 1b-vi-c).
     pub struct FiberDoneOutcome {
-        /// `(parent_req, resume_val)` pairs to flush via `set_resume_value` +
+        /// `(parent_req, resume_val)` pairs to flush via `set_resume_outcome` +
         /// `scheduler.complete`.
         pub completions: Vec<(u64, FiberOutcome)>,
         /// Fibers that became losers as a result of this completion and should
@@ -797,13 +719,11 @@ mod vm_fibers {
         pub losers: Vec<FiberId>,
     }
 
-    /// A child fiber finished with `value`. Stash the result, walk awaiters,
-    /// determine which parent requests are now satisfiable, build their
-    /// resume values, and return the outcome.  The caller (dispatch loop) is
-    /// responsible for storing each resume value via `set_resume_value`,
-    /// calling `scheduler.complete(parent_req)` to wake the parent, and
-    /// calling `cancel_losers` for the returned losers — all done outside
-    /// the AWAITS borrow to avoid re-entrant `RefCell` panics.
+    /// A child fiber finished with `value`. Delegates to `AwaitCoordinator` and
+    /// translates `FiberResolution` back to the VM's `FiberDoneOutcome`.
+    ///
+    /// The `Try` case wraps the raw outcome in `Ok`/`Err` ADTs here because the
+    /// coordinator forwards the outcome as-is; only the VM knows about `Value`.
     pub fn on_fiber_done(id: FiberId, value: Value) -> FiberDoneOutcome {
         on_fiber_done_outcome(id, FiberOutcome::Value(value))
     }
@@ -813,127 +733,56 @@ mod vm_fibers {
     }
 
     fn on_fiber_done_outcome(id: FiberId, outcome: FiberOutcome) -> FiberDoneOutcome {
-        RESULTS.with(|r| r.borrow_mut().insert(id, outcome));
+        let resolution = COORD.with(|c| {
+            c.borrow_mut().on_fiber_done(
+                id,
+                outcome,
+                &mut |l: FiberOutcome, r: FiberOutcome| {
+                    let lv = match l {
+                        FiberOutcome::Value(v) => v,
+                        e @ FiberOutcome::Error(_) => return e,
+                    };
+                    let rv = match r {
+                        FiberOutcome::Value(v) => v,
+                        e @ FiberOutcome::Error(_) => return e,
+                    };
+                    FiberOutcome::Value(Value::Tuple(Rc::new(vec![lv, rv])))
+                },
+                &mut |o: FiberOutcome| match o {
+                    FiberOutcome::Value(v) => FiberOutcome::Value(Value::Some(Rc::new(v))),
+                    e @ FiberOutcome::Error(_) => e,
+                },
+                &mut |index: usize, o: FiberOutcome| match o {
+                    FiberOutcome::Value(v) => FiberOutcome::Value(Value::Tuple(Rc::new(vec![
+                        Value::Integer(index as i64),
+                        v,
+                    ]))),
+                    e @ FiberOutcome::Error(_) => e,
+                },
+            )
+        });
 
-        let parent_reqs: Vec<u64> = AWAITER_INDEX
-            .with(|idx| idx.borrow_mut().remove(&id))
-            .unwrap_or_default();
-
-        let mut completions: Vec<(u64, FiberOutcome)> = Vec::new();
-        let mut losers: Vec<FiberId> = Vec::new();
-        for parent_req in parent_reqs {
-            let take_result = |fid: FiberId| -> Option<FiberOutcome> {
-                RESULTS.with(|r| r.borrow_mut().remove(&fid))
-            };
-            let peek_result =
-                |fid: FiberId| -> bool { RESULTS.with(|r| r.borrow().contains_key(&fid)) };
-
-            let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
-            let Some(kind) = kind else { continue };
-            match kind {
-                AwaitKind::Both { left, right } => {
-                    if matches!(
-                        RESULTS.with(|r| r.borrow().get(&id).cloned()),
-                        Some(FiberOutcome::Error(_))
-                    ) {
-                        let err = match take_result(id).expect("just inserted") {
-                            FiberOutcome::Error(err) => err,
-                            FiberOutcome::Value(_) => unreachable!(),
-                        };
-                        completions.push((parent_req, FiberOutcome::Error(err)));
-                        losers.push(if id == left { right } else { left });
-                    } else if peek_result(left) && peek_result(right) {
-                        let l = take_result(left).expect("left present");
-                        let r = take_result(right).expect("right present");
-                        match (l, r) {
-                            (FiberOutcome::Value(l), FiberOutcome::Value(r)) => {
-                                let tuple = Value::Tuple(Rc::new(vec![l, r]));
-                                completions.push((parent_req, FiberOutcome::Value(tuple)));
-                            }
-                            (FiberOutcome::Error(err), _) | (_, FiberOutcome::Error(err)) => {
-                                completions.push((parent_req, FiberOutcome::Error(err)));
-                            }
-                        }
-                    } else {
-                        // Only one of the pair is done — re-insert the await
-                        // and keep the index entry alive for the other child.
-                        AWAITS.with(|a| {
-                            a.borrow_mut()
-                                .insert(parent_req, AwaitKind::Both { left, right })
-                        });
-                        // Also re-add this parent_req to the awaiter index
-                        // for whichever child hasn't finished yet, so its
-                        // mark-done will see us.
-                        let other = if id == left { right } else { left };
-                        AWAITER_INDEX.with(|idx| {
-                            idx.borrow_mut().entry(other).or_default().push(parent_req)
-                        });
-                    }
+        // The coordinator forwards `Try` raw outcomes; TRY_REQS tracks which
+        // parent reqs need Ok/Err ADT wrapping (only the VM knows about Value).
+        let completions = resolution
+            .wakeups
+            .into_iter()
+            .map(|(req, outcome)| {
+                if TRY_REQS.with(|t| t.borrow_mut().remove(&req)) {
+                    let wrapped = match outcome {
+                        FiberOutcome::Value(v) => FiberOutcome::Value(result_ok(v)),
+                        FiberOutcome::Error(err) => FiberOutcome::Value(result_err(err)),
+                    };
+                    (req, wrapped)
+                } else {
+                    (req, outcome)
                 }
-                AwaitKind::Try { child } => {
-                    if id == child {
-                        let result = match take_result(id).expect("try child present") {
-                            FiberOutcome::Value(v) => result_ok(v),
-                            FiberOutcome::Error(err) => result_err(err),
-                        };
-                        completions.push((parent_req, FiberOutcome::Value(result)));
-                    }
-                }
-                AwaitKind::Race { children, won } => {
-                    if !won {
-                        // First-wins: deliver this child's result, mark won.
-                        let result = take_result(id).expect("just inserted");
-                        completions.push((parent_req, result));
-                        // Cancel the losing children (1b-vi-c): collect all
-                        // children except the winner into `losers`.
-                        for child in children {
-                            if child != id {
-                                losers.push(child);
-                            }
-                        }
-                    } else {
-                        // Should not happen — once won, AWAITS is gone, so
-                        // we wouldn't have hit this case.
-                        unreachable!("race awaiter saw second completion despite won=true");
-                    }
-                }
-                AwaitKind::FirstOf { children } => {
-                    resolve_first_of(parent_req, children, &mut completions, &mut losers);
-                }
-                AwaitKind::Timeout { body_child } => {
-                    if id == body_child {
-                        // Body finished before the timer.  Deliver
-                        // Some(result).  The backend timer is still
-                        // outstanding; if it fires later,
-                        // try_route_timer_for_timeout will see no AWAITS
-                        // entry and `scheduler.complete` will silently
-                        // fail (parent not in suspended map anymore).
-                        match take_result(id).expect("just inserted") {
-                            FiberOutcome::Value(result) => {
-                                completions.push((
-                                    parent_req,
-                                    FiberOutcome::Value(Value::Some(Rc::new(result))),
-                                ));
-                            }
-                            FiberOutcome::Error(err) => {
-                                completions.push((parent_req, FiberOutcome::Error(err)));
-                            }
-                        }
-                    } else {
-                        // Some other fiber accidentally indexed under this
-                        // await — defensive no-op.
-                        AWAITS.with(|a| {
-                            a.borrow_mut()
-                                .insert(parent_req, AwaitKind::Timeout { body_child })
-                        });
-                    }
-                }
-            }
-        }
+            })
+            .collect();
 
         FiberDoneOutcome {
             completions,
-            losers,
+            losers: resolution.losers,
         }
     }
 
@@ -941,89 +790,46 @@ mod vm_fibers {
     /// lets a later completed child win once all earlier source-order siblings
     /// have either completed or reached a suspension point.
     pub fn on_fiber_suspended(id: FiberId) -> FiberDoneOutcome {
-        let parent_reqs: Vec<u64> = AWAITER_INDEX
-            .with(|idx| idx.borrow().get(&id).cloned())
-            .unwrap_or_default();
+        let resolution = COORD.with(|c| {
+            c.borrow_mut().on_fiber_suspended(
+                id,
+                &|fid| {
+                    SCHED.with(|s| {
+                        s.borrow()
+                            .as_ref()
+                            .map(|sched| sched.is_ready(fid))
+                            .unwrap_or(false)
+                    })
+                },
+                &mut |index: usize, o: FiberOutcome| match o {
+                    FiberOutcome::Value(v) => FiberOutcome::Value(Value::Tuple(Rc::new(vec![
+                        Value::Integer(index as i64),
+                        v,
+                    ]))),
+                    e @ FiberOutcome::Error(_) => e,
+                },
+            )
+        });
 
-        let mut completions: Vec<(u64, FiberOutcome)> = Vec::new();
-        let mut losers: Vec<FiberId> = Vec::new();
-        for parent_req in parent_reqs {
-            let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
-            match kind {
-                Some(AwaitKind::FirstOf { children }) => {
-                    resolve_first_of(parent_req, children, &mut completions, &mut losers);
+        let completions = resolution
+            .wakeups
+            .into_iter()
+            .map(|(req, outcome)| {
+                if TRY_REQS.with(|t| t.borrow_mut().remove(&req)) {
+                    let wrapped = match outcome {
+                        FiberOutcome::Value(v) => FiberOutcome::Value(result_ok(v)),
+                        FiberOutcome::Error(err) => FiberOutcome::Value(result_err(err)),
+                    };
+                    (req, wrapped)
+                } else {
+                    (req, outcome)
                 }
-                Some(other) => {
-                    AWAITS.with(|a| a.borrow_mut().insert(parent_req, other));
-                }
-                None => {}
-            }
-        }
+            })
+            .collect();
 
         FiberDoneOutcome {
             completions,
-            losers,
-        }
-    }
-
-    fn resolve_first_of(
-        parent_req: u64,
-        children: Vec<(FiberId, usize)>,
-        completions: &mut Vec<(u64, FiberOutcome)>,
-        losers: &mut Vec<FiberId>,
-    ) {
-        let winner = children
-            .iter()
-            .copied()
-            .find(|(child, _)| RESULTS.with(|r| r.borrow().contains_key(child)));
-
-        let Some((winner, index)) = winner else {
-            AWAITS.with(|a| {
-                a.borrow_mut()
-                    .insert(parent_req, AwaitKind::FirstOf { children })
-            });
-            return;
-        };
-
-        let blocked_by_earlier_ready = children
-            .iter()
-            .take_while(|(child, _)| *child != winner)
-            .any(|(child, _)| {
-                SCHED.with(|s| {
-                    s.borrow()
-                        .as_ref()
-                        .map(|sched| sched.is_ready(*child))
-                        .unwrap_or(false)
-                })
-            });
-
-        if blocked_by_earlier_ready {
-            AWAITS.with(|a| {
-                a.borrow_mut()
-                    .insert(parent_req, AwaitKind::FirstOf { children })
-            });
-            return;
-        }
-
-        let result = RESULTS
-            .with(|r| r.borrow_mut().remove(&winner))
-            .expect("first_of winner result present");
-        match result {
-            FiberOutcome::Value(result) => {
-                let tuple = Value::Tuple(Rc::new(vec![Value::Integer(index as i64), result]));
-                completions.push((parent_req, FiberOutcome::Value(tuple)));
-            }
-            FiberOutcome::Error(err) => completions.push((parent_req, FiberOutcome::Error(err))),
-        }
-
-        for (child, _) in children {
-            if child == winner {
-                continue;
-            }
-            if let Some(value) = RESULTS.with(|r| r.borrow_mut().remove(&child)) {
-                drop(value);
-            }
-            losers.push(child);
+            losers: resolution.losers,
         }
     }
 
@@ -1037,39 +843,14 @@ mod vm_fibers {
         loser_ids: &[FiberId],
         backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
     ) {
-        let reqs: Vec<u64> = SCHED.with(|s| {
-            s.borrow()
-                .as_ref()
-                .map(|sc| {
-                    loser_ids
-                        .iter()
-                        .filter_map(|id| sc.find_request_for_fiber(*id))
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
+        // Ask the coordinator to mark cancelled and collect backend request IDs.
+        let reqs = COORD.with(|c| c.borrow_mut().mark_cancelled(loser_ids));
         for req in reqs {
             backend.cancel(RequestId(req));
         }
         SCHED.with(|s| {
             if let Some(sc) = s.borrow_mut().as_mut() {
                 sc.cancel_fibers(loser_ids);
-            }
-        });
-        mark_cancelled(loser_ids);
-    }
-
-    /// Record `ids` as cancelled so a fiber that is currently *executing*
-    /// (not in the scheduler's `suspended` map) can observe its scope's
-    /// cancellation via `is_current_cancelled()` (Phase 2 slice 2-iv).
-    pub fn mark_cancelled(ids: &[FiberId]) {
-        if ids.is_empty() {
-            return;
-        }
-        CANCELLED_IDS.with(|c| {
-            let mut set = c.borrow_mut();
-            for id in ids {
-                set.insert(*id);
             }
         });
     }
@@ -1081,45 +862,51 @@ mod vm_fibers {
             Some(id) => id,
             None => return false,
         };
-        CANCELLED_IDS.with(|c| c.borrow().contains(&id))
+        COORD.with(|c| c.borrow().is_cancelled(id))
     }
 
     /// Introspection hook for Phase 2 slice 2-vii tests: report the worker
     /// count of the currently active `FiberScheduler`. Returns 0 when no
     /// scheduler is active (i.e., outside `run_async`).
+    #[allow(dead_code)]
     pub fn current_num_workers() -> usize {
         SCHED.with(|s| s.borrow().as_ref().map(|sc| sc.num_workers()).unwrap_or(0))
     }
 
     // ── Scope helpers (1b-vi-c) ─────────────────────────────────────────
 
-    /// Allocate a fresh scope ID and register an empty fiber list for it.
+    /// Allocate a fresh scope ID and register an empty fiber set for it.
     pub fn new_scope() -> u64 {
         let id = NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
-        SCOPE_REGISTRY.with(|r| r.borrow_mut().insert(id, Vec::new()));
+        COORD.with(|c| c.borrow_mut().new_scope(id));
         id
     }
 
     /// Register a fiber under a scope so it can be cancelled with the scope.
     pub fn register_fiber_in_scope(scope_id: u64, fiber_id: FiberId) {
-        SCOPE_REGISTRY.with(|r| {
-            r.borrow_mut().entry(scope_id).or_default().push(fiber_id);
-        });
+        COORD.with(|c| c.borrow_mut().register_in_scope(scope_id, fiber_id));
     }
 
     /// Remove and return all fibers registered under a scope.
     pub fn take_scope_fibers(scope_id: u64) -> Vec<FiberId> {
-        SCOPE_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+        COORD.with(|c| c.borrow_mut().cancel_scope(scope_id))
     }
 
     /// Tear down the await-coordination state at run_async exit
     /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
     pub fn clear_await_state() {
-        AWAITS.with(|a| a.borrow_mut().clear());
-        AWAITER_INDEX.with(|idx| idx.borrow_mut().clear());
-        RESULTS.with(|r| r.borrow_mut().clear());
+        COORD.with(|c| {
+            let mut coord = c.borrow_mut();
+            coord.awaits.clear();
+            coord.awaiter_index.clear();
+            coord.results.clear();
+            coord.scopes.clear();
+            coord.fiber_scope.clear();
+            coord.cancelled_fibers.clear();
+            coord.fiber_request.clear();
+        });
+        TRY_REQS.with(|t| t.borrow_mut().clear());
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
-        SCOPE_REGISTRY.with(|r| r.borrow_mut().clear());
     }
 
     /// Drive the FiberRunAsync dispatch loop until all fibers are done or
@@ -2750,7 +2537,6 @@ fn vm_http_shutdown(args: &[Value], force: bool) -> Result<Value, String> {
                 let fibers = vm_fibers::take_scope_fibers(scope);
                 if !fibers.is_empty() {
                     vm_fibers::cancel_losers(&fibers, backend);
-                    vm_fibers::mark_cancelled(&fibers);
                 }
             }
         }
