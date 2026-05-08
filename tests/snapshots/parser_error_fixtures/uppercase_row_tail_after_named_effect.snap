@@ -15,7 +15,7 @@ Effect row tail variables must be lowercase identifiers.
   |                            ^
 
 Hint:
-  Use a lowercase tail name, for example `with IO | e`.
+  Did you mean `with ..., E`? Use `,` to list multiple effects; use `| e` only for lowercase row-tail variables.
 
 Note:
   while parsing function `main`
