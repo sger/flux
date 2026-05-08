@@ -322,36 +322,12 @@ mod vm_fibers {
 
     use super::vm_async;
     use crate::runtime::RuntimeContext;
+    use crate::runtime::r#async::await_coordinator::{AwaitCoordinator, AwaitEvent};
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
-
-    /// How a parent fiber's resume value is assembled when its child(ren)
-    /// finish (proposal 0174 Phase 1b-vi-b₂.2).
-    enum AwaitKind {
-        Both {
-            left: FiberId,
-            right: FiberId,
-        },
-        Try {
-            child: FiberId,
-        },
-        Race {
-            children: Vec<FiberId>,
-            won: bool,
-        },
-        FirstOf {
-            children: Vec<(FiberId, usize)>,
-        },
-        /// `Async.timeout`: parent_req is shared between the body fiber's
-        /// completion (delivers `Some(result)`) and a backend timer
-        /// completion (delivers `None`). Whichever fires first wins.
-        Timeout {
-            body_child: FiberId,
-        },
-    }
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
@@ -371,10 +347,8 @@ mod vm_fibers {
         // result.  None when no run_async is active.
         static ROOT: Cell<Option<FiberId>> = const { Cell::new(None) };
         // Synthetic-await coordination (Phase 1b-vi-b₂.2).
-        static AWAITS: RefCell<HashMap<u64, AwaitKind>> = RefCell::new(HashMap::new());
-        static AWAITER_INDEX: RefCell<HashMap<FiberId, Vec<u64>>> =
-            RefCell::new(HashMap::new());
-        static RESULTS: RefCell<HashMap<FiberId, FiberOutcome>> = RefCell::new(HashMap::new());
+        static AWAITS: RefCell<AwaitCoordinator<FiberId, FiberOutcome>> =
+            RefCell::new(AwaitCoordinator::new());
         static RESUME_OUTCOMES: RefCell<HashMap<u64, FiberOutcome>> = RefCell::new(HashMap::new());
         static PENDING_FIBER_ERROR: RefCell<Option<Value>> = const { RefCell::new(None) };
         // Scope-cancellation registry (Phase 1b-vi-c): scope_id → Vec<FiberId>.
@@ -680,38 +654,18 @@ mod vm_fibers {
 
     /// Register a `FiberBoth` await: parent_req fires when both children finish.
     pub fn register_both_await(parent_req: u64, left: FiberId, right: FiberId) {
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::Both { left, right })
-        });
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            idx.entry(left).or_default().push(parent_req);
-            idx.entry(right).or_default().push(parent_req);
-        });
+        AWAITS.with(|a| a.borrow_mut().register_both(parent_req, left, right));
     }
 
     pub fn register_try_await(parent_req: u64, child: FiberId) {
-        AWAITS.with(|a| a.borrow_mut().insert(parent_req, AwaitKind::Try { child }));
-        AWAITER_INDEX.with(|idx| {
-            idx.borrow_mut().entry(child).or_default().push(parent_req);
-        });
+        AWAITS.with(|a| a.borrow_mut().register_try(parent_req, child, ()));
     }
 
     /// Register a `FiberTimeout` await: parent_req fires when either the
     /// body child completes (delivers `Some(result)`) or a backend timer
     /// keyed on `parent_req` fires (delivers `None`).
     pub fn register_timeout_await(parent_req: u64, body_child: FiberId) {
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::Timeout { body_child })
-        });
-        AWAITER_INDEX.with(|idx| {
-            idx.borrow_mut()
-                .entry(body_child)
-                .or_default()
-                .push(parent_req);
-        });
+        AWAITS.with(|a| a.borrow_mut().register_timeout(parent_req, body_child));
     }
 
     /// Called by the backend completion pump just before `scheduler.complete`.
@@ -722,61 +676,24 @@ mod vm_fibers {
     /// cancelled by the caller (1b-vi-c).  Returns `None` for non-Timeout
     /// completions (caller may still call `scheduler.complete`).
     pub fn try_route_timer_for_timeout(req: u64) -> Option<FiberId> {
-        let kind = AWAITS.with(|a| a.borrow_mut().remove(&req));
-        match kind {
-            Some(AwaitKind::Timeout { body_child }) => {
-                // Drop the body child from the awaiter index so its
-                // mark-done sees no waiter for this parent_req.
-                AWAITER_INDEX.with(|idx| {
-                    let mut idx = idx.borrow_mut();
-                    if let Some(reqs) = idx.get_mut(&body_child) {
-                        reqs.retain(|r| *r != req);
-                    }
-                });
+        match AWAITS.with(|a| a.borrow_mut().route_timeout_timer(req)) {
+            Some(AwaitEvent::TimeoutTimerReady { body, .. }) => {
                 set_resume_outcome(req, FiberOutcome::Value(Value::None));
-                Some(body_child)
+                Some(body)
             }
-            Some(other) => {
-                // Not a Timeout — put it back (we removed-then-checked).
-                AWAITS.with(|a| a.borrow_mut().insert(req, other));
-                None
-            }
-            None => None,
+            _ => None,
         }
     }
 
     /// Register a `FiberRace` await: parent_req fires when any child finishes.
     pub fn register_race_await(parent_req: u64, children: Vec<FiberId>) {
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            for c in &children {
-                idx.entry(*c).or_default().push(parent_req);
-            }
-        });
-        AWAITS.with(|a| {
-            a.borrow_mut().insert(
-                parent_req,
-                AwaitKind::Race {
-                    children,
-                    won: false,
-                },
-            )
-        });
+        AWAITS.with(|a| a.borrow_mut().register_race(parent_req, children));
     }
 
     /// Register a `FiberFirstOf` await: parent_req fires when the first child
     /// in source-order tie-break semantics finishes.
     pub fn register_first_of_await(parent_req: u64, children: Vec<(FiberId, usize)>) {
-        AWAITER_INDEX.with(|idx| {
-            let mut idx = idx.borrow_mut();
-            for (child, _) in &children {
-                idx.entry(*child).or_default().push(parent_req);
-            }
-        });
-        AWAITS.with(|a| {
-            a.borrow_mut()
-                .insert(parent_req, AwaitKind::FirstOf { children })
-        });
+        AWAITS.with(|a| a.borrow_mut().register_first_of(parent_req, children));
     }
 
     pub fn set_resume_outcome(req: u64, outcome: FiberOutcome) {
@@ -813,217 +730,125 @@ mod vm_fibers {
     }
 
     fn on_fiber_done_outcome(id: FiberId, outcome: FiberOutcome) -> FiberDoneOutcome {
-        RESULTS.with(|r| r.borrow_mut().insert(id, outcome));
-
-        let parent_reqs: Vec<u64> = AWAITER_INDEX
-            .with(|idx| idx.borrow_mut().remove(&id))
-            .unwrap_or_default();
-
-        let mut completions: Vec<(u64, FiberOutcome)> = Vec::new();
-        let mut losers: Vec<FiberId> = Vec::new();
-        for parent_req in parent_reqs {
-            let take_result = |fid: FiberId| -> Option<FiberOutcome> {
-                RESULTS.with(|r| r.borrow_mut().remove(&fid))
-            };
-            let peek_result =
-                |fid: FiberId| -> bool { RESULTS.with(|r| r.borrow().contains_key(&fid)) };
-
-            let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
-            let Some(kind) = kind else { continue };
-            match kind {
-                AwaitKind::Both { left, right } => {
-                    if matches!(
-                        RESULTS.with(|r| r.borrow().get(&id).cloned()),
-                        Some(FiberOutcome::Error(_))
-                    ) {
-                        let err = match take_result(id).expect("just inserted") {
-                            FiberOutcome::Error(err) => err,
-                            FiberOutcome::Value(_) => unreachable!(),
-                        };
-                        completions.push((parent_req, FiberOutcome::Error(err)));
-                        losers.push(if id == left { right } else { left });
-                    } else if peek_result(left) && peek_result(right) {
-                        let l = take_result(left).expect("left present");
-                        let r = take_result(right).expect("right present");
-                        match (l, r) {
-                            (FiberOutcome::Value(l), FiberOutcome::Value(r)) => {
-                                let tuple = Value::Tuple(Rc::new(vec![l, r]));
-                                completions.push((parent_req, FiberOutcome::Value(tuple)));
-                            }
-                            (FiberOutcome::Error(err), _) | (_, FiberOutcome::Error(err)) => {
-                                completions.push((parent_req, FiberOutcome::Error(err)));
-                            }
-                        }
-                    } else {
-                        // Only one of the pair is done — re-insert the await
-                        // and keep the index entry alive for the other child.
-                        AWAITS.with(|a| {
-                            a.borrow_mut()
-                                .insert(parent_req, AwaitKind::Both { left, right })
-                        });
-                        // Also re-add this parent_req to the awaiter index
-                        // for whichever child hasn't finished yet, so its
-                        // mark-done will see us.
-                        let other = if id == left { right } else { left };
-                        AWAITER_INDEX.with(|idx| {
-                            idx.borrow_mut().entry(other).or_default().push(parent_req)
-                        });
-                    }
-                }
-                AwaitKind::Try { child } => {
-                    if id == child {
-                        let result = match take_result(id).expect("try child present") {
-                            FiberOutcome::Value(v) => result_ok(v),
-                            FiberOutcome::Error(err) => result_err(err),
-                        };
-                        completions.push((parent_req, FiberOutcome::Value(result)));
-                    }
-                }
-                AwaitKind::Race { children, won } => {
-                    if !won {
-                        // First-wins: deliver this child's result, mark won.
-                        let result = take_result(id).expect("just inserted");
-                        completions.push((parent_req, result));
-                        // Cancel the losing children (1b-vi-c): collect all
-                        // children except the winner into `losers`.
-                        for child in children {
-                            if child != id {
-                                losers.push(child);
-                            }
-                        }
-                    } else {
-                        // Should not happen — once won, AWAITS is gone, so
-                        // we wouldn't have hit this case.
-                        unreachable!("race awaiter saw second completion despite won=true");
-                    }
-                }
-                AwaitKind::FirstOf { children } => {
-                    resolve_first_of(parent_req, children, &mut completions, &mut losers);
-                }
-                AwaitKind::Timeout { body_child } => {
-                    if id == body_child {
-                        // Body finished before the timer.  Deliver
-                        // Some(result).  The backend timer is still
-                        // outstanding; if it fires later,
-                        // try_route_timer_for_timeout will see no AWAITS
-                        // entry and `scheduler.complete` will silently
-                        // fail (parent not in suspended map anymore).
-                        match take_result(id).expect("just inserted") {
-                            FiberOutcome::Value(result) => {
-                                completions.push((
-                                    parent_req,
-                                    FiberOutcome::Value(Value::Some(Rc::new(result))),
-                                ));
-                            }
-                            FiberOutcome::Error(err) => {
-                                completions.push((parent_req, FiberOutcome::Error(err)));
-                            }
-                        }
-                    } else {
-                        // Some other fiber accidentally indexed under this
-                        // await — defensive no-op.
-                        AWAITS.with(|a| {
-                            a.borrow_mut()
-                                .insert(parent_req, AwaitKind::Timeout { body_child })
-                        });
-                    }
-                }
-            }
-        }
-
-        FiberDoneOutcome {
-            completions,
-            losers,
-        }
+        let events = AWAITS.with(|a| {
+            a.borrow_mut()
+                .record_completed(id, outcome, is_ready, |outcome| {
+                    matches!(outcome, FiberOutcome::Error(_))
+                })
+        });
+        events_to_done_outcome(events)
     }
 
     /// Re-evaluate deferred `first_of` awaits when a child parks. This is what
     /// lets a later completed child win once all earlier source-order siblings
     /// have either completed or reached a suspension point.
     pub fn on_fiber_suspended(id: FiberId) -> FiberDoneOutcome {
-        let parent_reqs: Vec<u64> = AWAITER_INDEX
-            .with(|idx| idx.borrow().get(&id).cloned())
-            .unwrap_or_default();
+        let events = AWAITS.with(|a| a.borrow_mut().record_suspended(id, is_ready));
+        events_to_done_outcome(events)
+    }
 
-        let mut completions: Vec<(u64, FiberOutcome)> = Vec::new();
-        let mut losers: Vec<FiberId> = Vec::new();
-        for parent_req in parent_reqs {
-            let kind = AWAITS.with(|a| a.borrow_mut().remove(&parent_req));
-            match kind {
-                Some(AwaitKind::FirstOf { children }) => {
-                    resolve_first_of(parent_req, children, &mut completions, &mut losers);
+    fn is_ready(id: FiberId) -> bool {
+        SCHED.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map(|sched| sched.is_ready(id))
+                .unwrap_or(false)
+        })
+    }
+
+    fn events_to_done_outcome(
+        events: Vec<AwaitEvent<FiberId, FiberOutcome, ()>>,
+    ) -> FiberDoneOutcome {
+        let mut completions = Vec::new();
+        let mut losers = Vec::new();
+
+        for event in events {
+            match event {
+                AwaitEvent::BothReady {
+                    request,
+                    left,
+                    right,
+                } => match (left, right) {
+                    (FiberOutcome::Value(left), FiberOutcome::Value(right)) => {
+                        let tuple = Value::Tuple(Rc::new(vec![left, right]));
+                        completions.push((request, FiberOutcome::Value(tuple)));
+                    }
+                    (FiberOutcome::Error(err), other) | (other, FiberOutcome::Error(err)) => {
+                        drop(other);
+                        completions.push((request, FiberOutcome::Error(err)));
+                    }
+                },
+                AwaitEvent::BothError {
+                    request,
+                    error,
+                    loser,
+                    discarded,
+                } => {
+                    for value in discarded {
+                        drop(value);
+                    }
+                    completions.push((request, error));
+                    losers.push(loser);
                 }
-                Some(other) => {
-                    AWAITS.with(|a| a.borrow_mut().insert(parent_req, other));
+                AwaitEvent::TryReady {
+                    request, outcome, ..
+                } => {
+                    let result = match outcome {
+                        FiberOutcome::Value(v) => result_ok(v),
+                        FiberOutcome::Error(err) => result_err(err),
+                    };
+                    completions.push((request, FiberOutcome::Value(result)));
                 }
-                None => {}
+                AwaitEvent::RaceReady {
+                    request,
+                    outcome,
+                    losers: event_losers,
+                    discarded,
+                } => {
+                    for value in discarded {
+                        drop(value);
+                    }
+                    completions.push((request, outcome));
+                    losers.extend(event_losers);
+                }
+                AwaitEvent::FirstOfReady {
+                    request,
+                    index,
+                    outcome,
+                    losers: event_losers,
+                    discarded,
+                } => {
+                    for value in discarded {
+                        drop(value);
+                    }
+                    match outcome {
+                        FiberOutcome::Value(result) => {
+                            let tuple =
+                                Value::Tuple(Rc::new(vec![Value::Integer(index as i64), result]));
+                            completions.push((request, FiberOutcome::Value(tuple)));
+                        }
+                        FiberOutcome::Error(err) => {
+                            completions.push((request, FiberOutcome::Error(err)));
+                        }
+                    }
+                    losers.extend(event_losers);
+                }
+                AwaitEvent::TimeoutBodyReady { request, outcome } => match outcome {
+                    FiberOutcome::Value(result) => {
+                        completions
+                            .push((request, FiberOutcome::Value(Value::Some(Rc::new(result)))));
+                    }
+                    FiberOutcome::Error(err) => {
+                        completions.push((request, FiberOutcome::Error(err)));
+                    }
+                },
+                AwaitEvent::TimeoutTimerReady { .. } => {}
             }
         }
 
         FiberDoneOutcome {
             completions,
             losers,
-        }
-    }
-
-    fn resolve_first_of(
-        parent_req: u64,
-        children: Vec<(FiberId, usize)>,
-        completions: &mut Vec<(u64, FiberOutcome)>,
-        losers: &mut Vec<FiberId>,
-    ) {
-        let winner = children
-            .iter()
-            .copied()
-            .find(|(child, _)| RESULTS.with(|r| r.borrow().contains_key(child)));
-
-        let Some((winner, index)) = winner else {
-            AWAITS.with(|a| {
-                a.borrow_mut()
-                    .insert(parent_req, AwaitKind::FirstOf { children })
-            });
-            return;
-        };
-
-        let blocked_by_earlier_ready = children
-            .iter()
-            .take_while(|(child, _)| *child != winner)
-            .any(|(child, _)| {
-                SCHED.with(|s| {
-                    s.borrow()
-                        .as_ref()
-                        .map(|sched| sched.is_ready(*child))
-                        .unwrap_or(false)
-                })
-            });
-
-        if blocked_by_earlier_ready {
-            AWAITS.with(|a| {
-                a.borrow_mut()
-                    .insert(parent_req, AwaitKind::FirstOf { children })
-            });
-            return;
-        }
-
-        let result = RESULTS
-            .with(|r| r.borrow_mut().remove(&winner))
-            .expect("first_of winner result present");
-        match result {
-            FiberOutcome::Value(result) => {
-                let tuple = Value::Tuple(Rc::new(vec![Value::Integer(index as i64), result]));
-                completions.push((parent_req, FiberOutcome::Value(tuple)));
-            }
-            FiberOutcome::Error(err) => completions.push((parent_req, FiberOutcome::Error(err))),
-        }
-
-        for (child, _) in children {
-            if child == winner {
-                continue;
-            }
-            if let Some(value) = RESULTS.with(|r| r.borrow_mut().remove(&child)) {
-                drop(value);
-            }
-            losers.push(child);
         }
     }
 
@@ -1116,8 +941,6 @@ mod vm_fibers {
     /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
     pub fn clear_await_state() {
         AWAITS.with(|a| a.borrow_mut().clear());
-        AWAITER_INDEX.with(|idx| idx.borrow_mut().clear());
-        RESULTS.with(|r| r.borrow_mut().clear());
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
         SCOPE_REGISTRY.with(|r| r.borrow_mut().clear());
     }

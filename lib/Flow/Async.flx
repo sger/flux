@@ -201,6 +201,12 @@ module Flow.Async {
         fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, action)
     }
 
+    /// Run an async computation with an explicit worker count and default
+    /// settings for the other runtime knobs.
+    public fn run_async_with_workers<a>(n: Int, action: () -> a with Async | e) -> a {
+        run_async_with(with_worker_count(n), action)
+    }
+
     // ── Structured concurrency ────────────────────────────────────────
 
     /// Establish a cancellation boundary.
@@ -253,8 +259,8 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return whichever finishes first.
     ///
-    /// VM: real first-wins via the fiber scheduler. Loser keeps running
-    /// until completion (cancellation lands in 1b-vi-c).
+    /// VM/native: real first-wins via the fiber scheduler. Losers are
+    /// cancelled when the winner resolves.
     ///
     /// Parser limitation (Phase 1b): pass named `with Async` functions for both args.
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
@@ -278,7 +284,8 @@ module Flow.Async {
 
     /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.
     ///
-    /// VM: always returns `Some(f())`.
+    /// VM/native: returns `Some(f())` if the body wins, `None` if the timer
+    /// wins.
     public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e {
         fiber_timeout_prim(ms, f)
     }
