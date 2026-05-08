@@ -134,8 +134,8 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 #### 3-D Streams
 - [x] **3-D-i** — `Stream.flat_map` implemented in `lib/Flow/Stream.flx` _(landed)_
 - [x] **3-D-ii** — `Stream.merge` round-robin semantics documented and implemented _(landed)_
-- [x] **3-D-iii** — `append_stream` removed; callers migrated to `flat_map` _(landed)_
-- [ ] **3-D-iv** — `Stream.zip` combinator
+- [x] **3-D-iii** — `append_stream` removed; callers migrated to `append` / `flat_map` _(landed)_
+- [x] **3-D-iv** — `Stream.zip` combinator _(landed)_
 
 ### Phase 4 — TLS + PostgreSQL
 
@@ -2269,15 +2269,19 @@ bodies, including exact `Json.int` emission for `Int` fields.
 ```flux
 module Flow.Stream {
     // A stream is a pull-based iterator that may suspend on Async I/O.
-    // Defined as a transparent type alias (no runtime wrapper).
-    public alias Stream<a> = () -> Option<a> with Async
+    public data Stream<a> {
+        Stream(() -> Option<(a, Stream<a>)> with Async)
+    }
 
     public fn map<a, b>(s: Stream<a>, f: (a) -> b) -> Stream<b>
     public fn filter<a>(s: Stream<a>, p: (a) -> Bool) -> Stream<a>
+    public fn flat_map<a, b>(s: Stream<a>, f: (a) -> Stream<b>) -> Stream<b>
     public fn fold<a, b>(s: Stream<a>, init: b, f: (b, a) -> b) -> b with Async
     public fn take<a>(s: Stream<a>, n: Int) -> Stream<a>
     public fn chunk<a>(s: Stream<a>, size: Int) -> Stream<List<a>>
+    public fn append<a>(left: Stream<a>, right: Stream<a>) -> Stream<a>
     public fn merge<a>(s1: Stream<a>, s2: Stream<a>) -> Stream<a>
+    public fn zip<a, b>(left: Stream<a>, right: Stream<b>) -> Stream<(a, b)>
 }
 ```
 
@@ -2311,7 +2315,7 @@ against the VM path via `cargo run -- --no-cache`. Status and known issues:
 | `json_echo_service.flx` | ✅ works | Uses manual JSON field extraction. Now that structured decode errors and deriving have landed, a follow-up example can replace the local `decode_echo_request` helper with `Json.decode(req.body)`. |
 | `parallel_http_fetch.flx` | ✅ works | Good example of `both` for concurrent client requests. No changes needed. |
 | `sse_broadcaster.flx` | ⚠️ partial | Uses `serve_stream` which is not in the proposal surface — should use `serve` + `sse_response`. `Tcp.read` loop as client is low-level; once `Http.get_stream` lands (3-B-ii) this should use the streaming client. |
-| `stream_pipeline.flx` | ✅ works | Pure stream pipeline, no HTTP. Good smoke test. No `flat_map` demo — add one once 3-D-ii lands. |
+| `stream_pipeline.flx` | ✅ works | Pure stream pipeline, no HTTP. Good smoke test. A richer example can now add `flat_map` / `zip` once the example catalogue is refreshed. |
 | `browser_hello_service.flx` | ✅ works | Long-running server via recursive `keep_alive`. The `keep_alive()` tail-recursive pattern is fine but should be replaced with `Async.forever` once that helper lands. |
 
 **Missing examples (add during Phase 3):**
@@ -2435,38 +2439,23 @@ for encoded `Int` fields.
 
 #### Track 3-D: Streams — correctness and missing combinators
 
-**3-D-i — Remove `append_stream` duplicate**
-`append` and `append_stream` in `lib/Flow/Stream.flx` are identical. Remove
-`append_stream`.
-
-**3-D-ii — Add `flat_map`**
+**3-D-i — `flat_map` (landed)**
 `flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b>` is
-the most commonly needed combinator after `map` and `filter` and is absent.
+implemented lazily by appending each mapped inner stream to the recursively
+flattened tail.
 
-```flux
-fn flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b> {
-    fn flat_map_pull() -> Option<(b, Stream<b>)> with Async {
-        match next(stream) {
-            Some(pair) -> next(append(f(pair.0), flat_map(pair.1, f))),
-            _ -> None
-        }
-    }
-    Stream(flat_map_pull)
-}
-```
+**3-D-ii — `merge` semantics documentation (landed)**
+`merge` is round-robin (alternating left/right pulls), not concurrent. A true
+concurrent merge (first-available) remains a distinct future operation.
 
-**3-D-iii — `merge` semantics documentation**
-`merge` is round-robin (alternating left/right pulls), not concurrent. The
-comment should say "interleaves elements in round-robin order." A true
-concurrent merge (first-available) requires two forked fibers and is a
-distinct operation. Add `merge_concurrent` or document the gap explicitly.
+**3-D-iii — Remove `append_stream` duplicate (landed)**
+`append` is the single public append combinator. The duplicate
+`append_stream` alias has been removed.
 
-**3-D-iv — `Stream<a>` effect row hardwiring**
-`Stream<a>` hardwires `with Async` into the pull function type. Pure
-in-memory streams pay unnecessary overhead. The ideal shape is
-`Stream<a, e>` with a row variable, requiring higher-kinded aliases. Short
-term: document the tradeoff and note pure streams pay a trivial cost that
-compiles away in practice. Defer the generalization.
+**3-D-iv — `zip` (landed)**
+`zip<a, b>(left: Stream<a>, right: Stream<b>) -> Stream<(a, b)>` pulls left
+then right and emits paired values until either side ends. It does not pad,
+fail, buffer, fork, or introduce concurrent pulling.
 
 ### Phase 4: TLS + database client
 
@@ -2830,7 +2819,7 @@ Tracked here so they are not lost.
   machinery, convert to raising `AsyncError.Canceled` directly, or make the
   `bail_if_cancelled` choice explicit and update the proposal. Either way the
   status should be unambiguous before Phase 3 ships.
-- **`Stream<a>` effect-row generalization** — see 3-D-iv. Requires higher-kinded
+- **`Stream<a>` effect-row generalization** — deferred beyond Track 3-D. Requires higher-kinded
   aliases; defer until that language feature is evaluated.
 - **HTTP/2** — significant complexity; separate proposal.
 - **VM `Value: Send`** — see A-5. Schedule for Phase 3/4 boundary.
