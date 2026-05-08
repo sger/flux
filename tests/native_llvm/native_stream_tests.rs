@@ -102,3 +102,40 @@ fn main() with IO {
     assert!(stdout.contains("[|1, 2, 3, 4, 5|]"), "{stdout}");
     assert!(stdout.contains("[|7|]"), "{stdout}");
 }
+
+#[test]
+fn native_stream_flat_map_and_zip_compose() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Async exposing (..)
+import Flow.Stream as Stream
+
+fn body() -> Unit with Async, Console {
+    let expanded = Stream.flat_map(Stream.from_array([|1, 2, 3|]), fn(x) {
+        Stream.from_array([|x, x * 10|])
+    })
+    print(Stream.to_array(expanded))
+
+    let zipped = Stream.zip(Stream.from_array([|1, 2, 3|]), Stream.from_array([|"a", "b", "c"|]))
+    print(Stream.to_array(zipped))
+
+    let short_left = Stream.zip(Stream.from_array([|1|]), Stream.from_array([|"a", "b"|]))
+    print(Stream.to_array(short_left))
+
+    let short_right = Stream.zip(Stream.from_array([|1, 2|]), Stream.from_array([|"a"|]))
+    print(Stream.to_array(short_right))
+}
+
+fn main() with IO {
+    run_async(body)
+}
+"#,
+    );
+    assert!(
+        ok,
+        "native Stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("[|1, 10, 2, 20, 3, 30|]"), "{stdout}");
+    assert!(stdout.contains(r#"[|(1, "a"), (2, "b"), (3, "c")|]"#), "{stdout}");
+    assert_eq!(stdout.matches(r#"[|(1, "a")|]"#).count(), 2, "{stdout}");
+}
