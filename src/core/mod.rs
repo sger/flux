@@ -755,7 +755,11 @@ pub enum CorePrimOp {
     HttpWriteChunk = 199,
     /// Serialize the terminating HTTP chunk. Args: () -> String.
     HttpWriteChunkedEnd = 200,
-    // ── Next free ID: 201 ─────────────────────────────────────────────
+    /// Report the worker count of the currently active `run_async`
+    /// scheduler (proposal 0174 slice 2-vii follow-up). Returns 0 outside
+    /// `run_async`. Args: () -> Int.
+    FiberCurrentWorkerCount = 201,
+    // ── Next free ID: 202 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -824,6 +828,7 @@ impl CorePrimOp {
             "FiberRunAsyncWith" => return Some(Self::FiberRunAsyncWith),
             "FiberFirstOf" => return Some(Self::FiberFirstOf),
             "FiberTry" => return Some(Self::FiberTry),
+            "FiberCurrentWorkerCount" => return Some(Self::FiberCurrentWorkerCount),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
             "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
@@ -944,6 +949,7 @@ impl CorePrimOp {
             Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
             Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
             Self::FiberTry => Some("fiber_try"),
+            Self::FiberCurrentWorkerCount => Some("fiber_current_worker_count"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
             Self::HttpShutdownNow => Some("http_shutdown_now"),
@@ -1158,6 +1164,7 @@ impl CorePrimOp {
             198 => HttpWriteChunkedHead,
             199 => HttpWriteChunk,
             200 => HttpWriteChunkedEnd,
+            201 => FiberCurrentWorkerCount,
             _ => return None,
         };
         Some(op)
@@ -1299,6 +1306,11 @@ impl CorePrimOp {
             ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
             ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
             ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
+            (
+                "fiber_current_worker_count",
+                0,
+                CorePrimOp::FiberCurrentWorkerCount,
+            ),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
@@ -1366,8 +1378,14 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time | FiberGetContext | FiberYieldNow | FiberNewScope
-            | FiberCheckCancelled => 0,
+            ClockNow
+            | ReadStdin
+            | Time
+            | FiberGetContext
+            | FiberYieldNow
+            | FiberNewScope
+            | FiberCheckCancelled
+            | FiberCurrentWorkerCount => 0,
             Abs
             | ArrayLen
             | DebugTrace

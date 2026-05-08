@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+//
+// Locks the user-visible behaviour of `run_async_with_workers` and
+// `run_async_with(with_worker_count(n), ...)` across both backends
+// (proposal 0174 slice 2-vii cleanup). Each call exercises a different
+// arm of the worker-count resolver: the convenience wrapper, an explicit
+// builder, and the default-config path.
+
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async { 42 }
+
+fn main() with IO {
+    print(run_async_with_workers(4, body))
+    print(run_async_with(with_worker_count(2), body))
+    print(run_async_with(default_runtime_config(), body))
+    print(run_async(body))
+}

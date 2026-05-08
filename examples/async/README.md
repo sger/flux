@@ -26,6 +26,8 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [12_task_spawn_join.flx](12_task_spawn_join.flx) | `Task.spawn`, `blocking_join`, `Sendable` |
 | [13_task_await.flx](13_task_await.flx) | `Task.await` from inside a fiber |
 | [14_task_cancel.flx](14_task_cancel.flx) | `Task.cancel` and cancel-then-await |
+| [15_concurrent_jobs.flx](15_concurrent_jobs.flx) | Fiber concurrency + task parallelism in one program |
+| [16_current_worker_count.flx](16_current_worker_count.flx) | `Async.current_worker_count` introspection |
 
 ## Effect surface cheat sheet
 

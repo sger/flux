@@ -10,9 +10,11 @@
 // Then call `run_async_with(cfg, action)`, or for the common case use the
 // shortcut `run_async_with_workers(n, action)`.
 //
-// Native today still uses a compile-time worker count regardless of the
-// `worker_count` knob — the knob is plumbed and accepted, but native
-// doesn't yet honour it. VM and `dns_pool_size` already work end-to-end.
+// Both backends honour `worker_count` per call: VM configures its
+// `FiberScheduler` with the resolved logical-worker count; native
+// `NativeRun` sizes ready queues and spawns the requested number of OS
+// worker threads. When the field is `None`, the runtime falls back to
+// `FLUX_WORKERS` env, then `std::thread::available_parallelism()`, then 2.
 
 // parity-expected-stdout-begin
 // "default = 1"

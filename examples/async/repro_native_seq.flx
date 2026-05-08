@@ -1,0 +1,47 @@
+// Smallest known reproducer for the LLVM compile hang documented in
+// docs/internals/async_syntax.md §14.8.
+//
+// **WARNING — DO NOT RUN HISTORICAL/OLDER COMPILERS UNDER `--native`
+// WITHOUT A TIMEOUT.** This source is the known trigger for an LLVM
+// compile/link hang just before producing the final executable (output
+// stops at `[12 of 13] Linking Flow.Either`). The current native backend
+// outlines excess run_async_with* sites before LLVM, but timeout wrappers
+// remain mandatory for regression/debug runs. The VM path runs fine.
+//
+// Always invoke with an external timeout, e.g.:
+//
+//   timeout 60 cargo run --features llvm -- --native \
+//       examples/async/repro_native_seq.flx
+//
+// Trigger conditions (bisected 2026-05-08):
+//   - 9 sequential `run_async_with_workers(N, ...)` call sites in main
+//   - at least one of the bodies (here: `slept`) contains a suspending
+//     call such as `sleep`
+//   - 8 call sites compile cleanly; 9 hangs the LLVM optimizer
+//
+// Suspected: an LLVM pass scaling super-linearly with `flux_fiber_run_async_with`
+// call sites that share a suspending body. Specific pass not yet identified.
+//
+// Run on VM to confirm the program is semantically correct:
+//
+//   cargo run -- examples/async/repro_native_seq.flx
+//
+// VM output: the integers 1..9, then "done".
+
+import Flow.Async exposing (..)
+
+fn report() -> Int with Async { current_worker_count() }
+fn slept()  -> Int with Async { sleep(10); current_worker_count() }
+
+fn main() with IO {
+    print(run_async_with_workers(1, report))
+    print(run_async_with_workers(2, report))
+    print(run_async_with_workers(3, report))
+    print(run_async_with_workers(4, report))
+    print(run_async_with_workers(5, report))
+    print(run_async_with_workers(6, report))
+    print(run_async_with_workers(7, report))
+    print(run_async_with_workers(8, report))
+    print(run_async_with_workers(9, slept))
+    print("done")
+}

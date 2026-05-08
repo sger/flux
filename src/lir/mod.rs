@@ -17,6 +17,7 @@ pub mod cont_split;
 pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
+pub mod run_async_outline;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -467,19 +468,41 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
     const ASYNC_SYMBOLS: &[&str] = &[
         "Flow_Async_sleep",
         "Flow_Async_fiber_sleep_prim",
+        "Flow_Async_scope",
+        "Flow_Async_new_scope",
+        "Flow_Async_fork",
+        "Flow_Async_cancel",
         "Flow_Async_both",
         "Flow_Async_fiber_both_prim",
         "Flow_Async_race",
         "Flow_Async_fiber_race_prim",
+        "Flow_Async_first",
+        "Flow_Async_first_of",
+        "Flow_Async_fiber_first_of_prim",
         "Flow_Async_timeout",
         "Flow_Async_timeout_result",
         "Flow_Async_fiber_timeout_prim",
         "Flow_Async_try_",
         "Flow_Async_fiber_try_prim",
+        "Flow_Async_finally",
+        "Flow_Async_bracket",
+        "Flow_Async_result_or_else_async",
+        "Flow_Async_result_or_timeout_with_async",
+        "Flow_Async_yield_now",
+        "Flow_Async_fiber_yield_now_prim",
+        "Flow_Async_check_cancelled",
+        "Flow_Async_bail_if_cancelled",
         "Flow_Async_fail",
         "Flow_Async_fiber_fail_prim",
         "Flow_Task_await",
         "Flow_Task_task_await_id",
+        "Flow_Http_get",
+        "Flow_Http_post",
+        "Flow_Http_request",
+        "Flow_Http_serve",
+        "Flow_Http_serve_stream",
+        "Flow_Http_shutdown",
+        "Flow_Http_shutdown_now",
         "Flow_Tcp_connect",
         "Flow_Tcp_tcp_connect_prim",
         "Flow_Tcp_read",
