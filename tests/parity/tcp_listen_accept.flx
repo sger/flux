@@ -1,6 +1,5 @@
 // parity: vm, llvm
 // expect: success
-// skip: hardcoded port conflicts when vm and llvm processes run concurrently
 // bug: TCP listen/accept/close through the VM handle table.
 //      Phase 1b-vi-e: basic connection handshake via Async.both.
 
