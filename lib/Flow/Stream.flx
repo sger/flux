@@ -137,6 +137,20 @@ module Flow.Stream {
         Stream(filter_pull)
     }
 
+    public fn flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b> {
+        stream_flat_map(stream, f)
+    }
+
+    fn stream_flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b> {
+        fn flat_map_pull() -> Option<(b, Stream<b>)> with Async {
+            match next(stream) {
+                Some(pair) -> next(stream_append(f(pair.0), stream_flat_map(pair.1, f))),
+                _ -> None
+            }
+        }
+        Stream(flat_map_pull)
+    }
+
     public fn take<a>(stream: Stream<a>, n: Int) -> Stream<a> {
         stream_take(stream, n)
     }
@@ -227,10 +241,6 @@ module Flow.Stream {
         stream_append(left, right)
     }
 
-    public fn append_stream<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
-        stream_append(left, right)
-    }
-
     fn stream_append<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
         fn append_pull() -> Option<(a, Stream<a>)> with Async {
             match next(left) {
@@ -239,6 +249,23 @@ module Flow.Stream {
             }
         }
         Stream(append_pull)
+    }
+
+    public fn zip<a, b>(left: Stream<a>, right: Stream<b>) -> Stream<(a, b)> {
+        stream_zip(left, right)
+    }
+
+    fn stream_zip<a, b>(left: Stream<a>, right: Stream<b>) -> Stream<(a, b)> {
+        fn zip_pull() -> Option<((a, b), Stream<(a, b)>)> with Async {
+            match next(left) {
+                Some(left_pair) -> match next(right) {
+                    Some(right_pair) -> Some(((left_pair.0, right_pair.0), stream_zip(left_pair.1, right_pair.1))),
+                    _ -> None
+                },
+                _ -> None
+            }
+        }
+        Stream(zip_pull)
     }
 
     public fn merge<a>(left: Stream<a>, right: Stream<a>) -> Stream<a> {
