@@ -2,12 +2,9 @@
 
 #![cfg(feature = "llvm")]
 
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
@@ -35,10 +32,6 @@ fn write_fixture(source: String) -> PathBuf {
 }
 
 fn run_source(source: String) -> (String, String, bool) {
-    let _guard = NATIVE_HTTP_CLIENT_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("native HTTP client test lock poisoned");
     let path = write_fixture(source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -51,6 +44,13 @@ fn run_source(source: String) -> (String, String, bool) {
         String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
         output.status.success(),
     )
+}
+
+fn native_http_client_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    NATIVE_HTTP_CLIENT_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("native HTTP client test lock poisoned")
 }
 
 fn client_server_source(port: u16, client: &str, handler: &str) -> String {
@@ -121,22 +121,9 @@ fn run_ok(source: String) -> String {
     stdout
 }
 
-fn spawn_one_response_server(port: u16, response: &'static [u8]) -> std::thread::JoinHandle<()> {
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let handle = std::thread::spawn(move || {
-        let listener = TcpListener::bind(("127.0.0.1", port)).expect("bind response server");
-        ready_tx.send(()).expect("signal ready");
-        let (mut stream, _) = listener.accept().expect("accept client");
-        let mut buf = [0u8; 4096];
-        let _ = stream.read(&mut buf);
-        let _ = stream.write_all(response);
-    });
-    ready_rx.recv().expect("response server ready");
-    handle
-}
-
 #[test]
 fn native_http_client_get_loopback() {
+    let _guard = native_http_client_test_lock();
     let port = next_port();
     let source = client_server_source(
         port,
@@ -161,6 +148,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_client_post_loopback() {
+    let _guard = native_http_client_test_lock();
     let port = next_port();
     let source = client_server_source(
         port,
@@ -185,6 +173,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_client_decodes_chunked_response() {
+    let _guard = native_http_client_test_lock();
     let port = next_port();
     let source = raw_server_source(
         port,
@@ -205,33 +194,31 @@ fn native_http_client_decodes_chunked_response() {
 
 #[test]
 fn native_http_client_malformed_response_fails() {
+    let _guard = native_http_client_test_lock();
     let port = next_port();
-    let handle = spawn_one_response_server(port, b"NOPE\r\n\r\n");
-    let source = format!(
+    let source = raw_server_source(
+        port,
         r#"
-import Flow.Async exposing (..)
-import Flow.Http exposing (..)
-
-fn body() -> String with Async, AsyncFail {{
-    let resp = get("http://127.0.0.1:{port}/bad")
-    resp.body
-}}
-
-fn main() with IO {{
-    print(run_async(body))
-}}
+    let _raw = Tcp.read(conn, 4096)
+    let _write = Tcp.write_all(conn, "NOPE\r\n\r\n")
+"#,
+        &format!(
+            r#"
+    fn call_get() -> Response with Async, AsyncFail {{
+        get("http://127.0.0.1:{port}/bad")
+    }}
+    let result = try_(call_get)
+    if result_is_ok(result) {{ "unexpected-ok" }} else {{ "protocol-failed" }}
 "#
+        ),
     );
-    let (stdout, stderr, success) = run_source(source);
-    handle.join().expect("response server join");
-    assert!(
-        !success,
-        "malformed response should reject/fail:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    let stdout = run_ok(source);
+    assert!(stdout.contains("protocol-failed"), "{stdout}");
 }
 
 #[test]
 fn native_http_client_rejects_https_scheme() {
+    let _guard = native_http_client_test_lock();
     let source = r#"
 import Flow.Async exposing (..)
 import Flow.Http exposing (..)

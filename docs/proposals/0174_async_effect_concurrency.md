@@ -1,6 +1,6 @@
 - Feature Name: Async Effect & Concurrency Roadmap
 - Start Date: 2026-04-27
-- Status: Draft (revision 9 — supersedes the original five-phase plan; see "Revision history" at end)
+- Status: Draft (revision 10 — supersedes the original five-phase plan; see "Revision history" at end)
 - Proposal PR:
 - Flux Issue:
 - Depends on: existing effect handlers ([runtime/c/effects.c](../../runtime/c/effects.c), [src/runtime/continuation.rs](../../src/runtime/continuation.rs)), existing FFI primop machinery
@@ -80,7 +80,7 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
-| **Phase 3** — HTTP/1.1 + JSON + Streams | ⏳ in progress | HTTP server/runtime foundation and server-loop slice landed: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; HTTP primops `HttpServeConfig = 182`, `HttpShutdown = 183`, and `HttpShutdownNow = 184` are reserved through Core/VM/LIR/LLVM/C stubs. [`src/runtime/http/`](../../src/runtime/http/) contains the scratch-built parser/writer foundation plus the blocking VM server loop: request line/header parser, OWS normalization, obs-fold rejection, `Content-Length`/chunked framing, response writer, sequential accept up to `max_connections`, keep-alive/pipelined request handling, and `max_header_bytes` / `max_body_bytes` 413 enforcement. [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) verifies real loopback serving, two sequential connections, two keep-alive requests, malformed 400 handling, and oversized-body 413 handling. Remaining Phase 3 HTTP work: detached long-lived server manager, graceful/forced shutdown semantics beyond reserved no-op handles, handler timeout enforcement, native handler execution parity, HTTP client helpers, JSON, and Streams. |
+| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server/runtime foundation and server-loop slice landed: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; HTTP primops `HttpServeConfig = 182`, `HttpShutdown = 183`, and `HttpShutdownNow = 184` are reserved through Core/VM/LIR/LLVM/C stubs. [`src/runtime/http/`](../../src/runtime/http/) contains the scratch-built parser/writer foundation plus the blocking VM server loop: request line/header parser, OWS normalization, obs-fold rejection, `Content-Length`/chunked framing, response writer, sequential accept up to `max_connections`, keep-alive/pipelined request handling, and `max_header_bytes` / `max_body_bytes` 413 enforcement. [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) verifies real loopback serving, two sequential connections, two keep-alive requests, malformed 400 handling, and oversized-body 413 handling. Remaining Phase 3 HTTP work: detached long-lived server manager, graceful/forced shutdown semantics beyond reserved no-op handles, handler timeout enforcement, native handler execution parity, HTTP client helpers, JSON, and Streams. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
 
@@ -2234,11 +2234,187 @@ The transparent `alias Stream<a> = ...` form depends on Phase 2 slice
 - `lib/Flow/Http.flx`, `lib/Flow/Json.flx`, `lib/Flow/Stream.flx` — ~600 lines Flux total. **Status:** `Flow.Http` server surface has landed; JSON and Stream modules remain.
 - `src/runtime/http/` — scratch-built HTTP/1.1 parser, response/request writer, keep-alive state machine. ~600-900 lines Rust plus tests. **No `vendor/` directory, no third-party HTTP parser dependency.** **Status:** parser/writer foundation and blocking VM keep-alive loop have landed; detached manager and native parity remain.
 - `src/core/passes/dict_elaborate.rs` (or a new `derive_codec` pass) — JSON codec body synthesis (Phase 3-Json-b).
-- Examples: hello-world microservice, JSON echo, SSE broadcaster, parallel HTTP fetch.
+- Examples: see §Examples below for current state and gaps.
 - Documentation: HTTP server quickstart, JSON codec guide.
-- Acceptance load test: 10k concurrent HTTP/1.1 keep-alive connections (carried over from the original Phase 1b acceptance, deferred there to a real HTTP workload).
+- Acceptance load test: 10k concurrent HTTP/1.1 keep-alive connections (carried over from the original Phase 1b acceptance, deferred there to a real HTTP workload). See §Load test spec below.
 
 Estimated effort: 6 weeks.
+
+#### Examples: current state and gaps
+
+Six examples currently live under `examples/http/`. All compile and run
+against the VM path via `cargo run -- --no-cache`. Status and known issues:
+
+| File | Status | Issues |
+|------|--------|--------|
+| `hello_http_service.flx` | ✅ works | Uses `with Async, AsyncFail` redundantly — `AsyncFail` is already inside `Async`. Cleanup once effect-alias expansion is verified. |
+| `json_echo_service.flx` | ✅ works | Uses manual JSON field extraction instead of `deriving`. Once 3-C-iv lands, replace with `Json.decode(req.body)` directly. `decode_echo_request` is a workaround, not an example of intended usage. |
+| `parallel_http_fetch.flx` | ✅ works | Good example of `both` for concurrent client requests. No changes needed. |
+| `sse_broadcaster.flx` | ⚠️ partial | Uses `serve_stream` which is not in the proposal surface — should use `serve` + `sse_response`. `Tcp.read` loop as client is low-level; once `Http.get_stream` lands (3-B-ii) this should use the streaming client. |
+| `stream_pipeline.flx` | ✅ works | Pure stream pipeline, no HTTP. Good smoke test. No `flat_map` demo — add one once 3-D-ii lands. |
+| `browser_hello_service.flx` | ✅ works | Long-running server via recursive `keep_alive`. The `keep_alive()` tail-recursive pattern is fine but should be replaced with `Async.forever` once that helper lands. |
+
+**Missing examples (add during Phase 3):**
+
+- **`load_test_server.flx`** — server side of the 10k acceptance scenario. Starts `serve_config` with `max_connections: 10_000`, echoes request path back as response body. No computation in handler. Used as the target for the Rust-side load driver.
+- **`crud_service.flx`** — replaces `json_echo_service.flx` as the idiomatic Phase 3 example once `deriving (Json.Encode, Json.Decode)` works end-to-end. Uses `data` with named fields, `deriving`, and `Http.json_response`.
+- **`task_plus_http.flx`** — demonstrates `Task.spawn` for a CPU-bound step inside an HTTP handler while other connections keep serving. Validates that `Task.await` does not block the worker (the Phase 2-i fix).
+- **`timeout_server.flx`** — server with a slow-handler route (`sleep(5000)`) and `request_timeout_ms: 500` so clients receive 504. Documents the timeout enforcement behavior.
+
+#### Load test spec
+
+The 10k acceptance test has been deferred since Phase 1b. Phase 3 is the
+right home because the test is HTTP-shaped. Exact definition:
+
+**Target:** `load_test_server.flx` running on native LLVM with
+`max_connections: 10_000`, `worker_count: None` (all available cores).
+
+**Driver:** a Rust integration test in `tests/integration/http_load_test.rs`
+that uses `reqwest` (or raw `TcpStream`) to open 10,000 HTTP/1.1 keep-alive
+connections in parallel, sends two requests per connection, and verifies all
+20,000 responses have status 200.
+
+**Acceptance criteria:**
+- All 20,000 responses received with no 5xx, no dropped connections, no
+  assertion failures.
+- Wall-clock time ≤ 10 seconds on a 4-core CI machine (not a latency
+  guarantee — a throughput floor).
+- No file descriptor leak: `ulimit -n` headroom checked before and after.
+
+**VM exclusion:** VM path is explicitly excluded from the 10k test because
+VM fibers run on a single OS thread (see A-5). The VM path has its own
+sequential acceptance test in `tests/integration/vm_http_server.rs`.
+
+**Prerequisite gates:** 3-A-i (concurrent connections) and A-2
+(`LOGICAL_WORKERS` native config) must land first. Running the load test
+before those fixes will either fail immediately (sequential accept) or
+silently cap at 2 workers.
+
+### Phase 3 (remainder): detailed slice plan
+
+The remaining Phase 3 work is split into four parallel tracks. Within a team
+they can proceed concurrently; each track is independently releasable.
+
+#### Track 3-A: HTTP server — concurrency and production-readiness
+
+**3-A-i — Concurrent connection handling (correctness bug)**
+`Http.serve` accepts one connection and holds it before accepting the next.
+Each accepted connection must be forked as a child fiber using `Async.fork`.
+Implement `connection_worker` as a proper fiber so the server accept loop
+is unblocked. This is a correctness issue: the current sequential loop
+contradicts the concurrency model documented in `Http.serve`'s contract.
+
+**3-A-ii — Request timeout enforcement**
+`ServerConfig.request_timeout_ms` is defined but not enforced. Wrap each
+handler invocation in `Async.timeout(config.request_timeout_ms, handle_request)`
+and return 503 on timeout. Must be per-connection, not per-server.
+
+**3-A-iii — Graceful shutdown**
+`shutdown(h)` is a no-op. Implement: stop accepting new connections, drain
+in-flight handlers up to a configured grace period, then close the listener.
+Use the `Scope` cancel mechanism to signal all connection fibers.
+
+**3-A-iv — Response size limit**
+The client fetch path has no response size limit. Add `max_response_bytes`
+enforcement parallel to the existing `max_body_bytes` server-side enforcement.
+
+**3-A-v — Native (LLVM) handler execution parity**
+HTTP handlers currently run only on the VM path. Wire the native-side HTTP
+primops (`HttpServeConfig = 182`, `HttpShutdown = 183`, `HttpShutdownNow = 184`)
+through the LLVM/C ABI shim layer to the same `src/runtime/http/` server loop.
+Add a parity test under `tests/parity/`.
+
+**3-A-vi — `noop()` / shutdown sentinel fix**
+`noop()` internally calls `http_shutdown_now_prim(-1)` — a sentinel integer
+hack. Replace with an explicit `ServerHandle.Noop` variant or boolean flag so
+the shutdown path does not rely on a magic value.
+
+#### Track 3-B: HTTP client helpers
+
+**3-B-i — `Http.get` / `Http.post`**
+`get(url: String) -> Response with Async` and
+`post(url: String, body: Bytes) -> Response with Async` as thin wrappers
+over the TCP + HTTP serializer/parser already in `src/runtime/http/`. No
+third-party HTTP client library.
+
+**3-B-ii — Client response streaming**
+For SSE and chunked JSON, add a streaming variant:
+`get_stream(url: String) -> Stream<Bytes> with Async`. This avoids
+buffering the entire response body before returning.
+
+**3-B-iii — `Tcp.with_connection`**
+`Tcp.with_connection(host, port, fn(conn) { ... })` is referenced in
+multiple examples but absent from `lib/Flow/Tcp.flx`. Implement as
+`Async.bracket(fn() { connect(h, p) }, fn(c) { close(c) }, body)`.
+
+#### Track 3-C: JSON correctness and ergonomics
+
+**3-C-i — `Encode<Int>` precision fix (correctness)**
+`Encode<Int>` currently encodes via `parse(to_string(value))` — a
+float-parse round-trip that loses precision for integers above 2^53.
+Replace with a direct `JsonNumber` construction that preserves integer
+exact value.
+
+**3-C-ii — `as_int` precision fix (correctness)**
+`as_int` converts via `parse_int(to_string(number))` where `number` is a
+`Float`. Any integer above 2^53 silently loses bits. Add bounds-checking
+before conversion and return a `JsonErr` when out of safe integer range.
+
+**3-C-iii — `JsonResult<a>` unification with `Async.Result`**
+`JsonResult<a>` is a separate type from `Result<a, AsyncError>`. Every
+JSON decode result must be manually mapped before use with async
+error-propagation combinators. Either alias `JsonResult<a>` to
+`Result<a, JsonError>` and add `AsyncError.JsonDecodeError(JsonError)`, or
+provide a `json_result_to_result` bridge. The former is the cleaner long-term
+shape.
+
+**3-C-iv — `deriving (Json.Encode, Json.Decode)` synthesis**
+The synthesis pass exists but the `deriving` parser has an off-by-one on the
+trailing `)` (see syntax fixes below) that may eat the first token of the next
+statement. Fix the parser bug first, then verify all ADT shapes (positional,
+named-field, multi-variant, parameterized) produce correct `encode`/`decode`
+implementations. Add a parity test for a non-trivial ADT.
+
+**3-C-v — `deriving` on `type` ADT sugar**
+`type Result<T, E> = Ok(T) | Err(E) deriving (Encode, Decode)` silently
+drops the `deriving` clause. Fix `parse_type_adt_statement` to call
+`parse_deriving_list` after the last variant and forward the list to the
+desugared `Statement::Data`.
+
+#### Track 3-D: Streams — correctness and missing combinators
+
+**3-D-i — Remove `append_stream` duplicate**
+`append` and `append_stream` in `lib/Flow/Stream.flx` are identical. Remove
+`append_stream`.
+
+**3-D-ii — Add `flat_map`**
+`flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b>` is
+the most commonly needed combinator after `map` and `filter` and is absent.
+
+```flux
+fn flat_map<a, b>(stream: Stream<a>, f: (a) -> Stream<b>) -> Stream<b> {
+    fn flat_map_pull() -> Option<(b, Stream<b>)> with Async {
+        match next(stream) {
+            Some(pair) -> next(append(f(pair.0), flat_map(pair.1, f))),
+            _ -> None
+        }
+    }
+    Stream(flat_map_pull)
+}
+```
+
+**3-D-iii — `merge` semantics documentation**
+`merge` is round-robin (alternating left/right pulls), not concurrent. The
+comment should say "interleaves elements in round-robin order." A true
+concurrent merge (first-available) requires two forked fibers and is a
+distinct operation. Add `merge_concurrent` or document the gap explicitly.
+
+**3-D-iv — `Stream<a>` effect row hardwiring**
+`Stream<a>` hardwires `with Async` into the pull function type. Pure
+in-memory streams pay unnecessary overhead. The ideal shape is
+`Stream<a, e>` with a row variable, requiring higher-kinded aliases. Short
+term: document the tradeoff and note pure streams pay a trivial cost that
+compiles away in practice. Defer the generalization.
 
 ### Phase 4: TLS + database client
 
@@ -2309,15 +2485,56 @@ parameterized handler state). User code remains pure.
 Wire-protocol parser in pure Flux, ~800 lines. Connection pool and
 transaction logic ~300 lines.
 
+#### 4-A: TLS
+
+**4-A-i — Choose and integrate TLS backend**
+Use `rustls` (pure Rust, no system OpenSSL/SecureTransport/SChannel
+dependency). Expose it via the same `AsyncBackend` seam as a `TlsBackend`
+wrapper around `MioBackend` TCP. TLS state machines are driven by the same
+`mio` TCP readiness events; no separate I/O thread is needed.
+
+**4-A-ii — `Tls.connect` / `Tls.serve`**
+`tls_connect(host: String, port: Int, cert_path: Option<String>) -> TlsConnection with Async`
+and `tls_serve(addr, port, cert_path, key_path, handler) -> ServerHandle with Async`.
+Reuse the HTTP server loop from Phase 3 with TLS transport substituted.
+Certificate verification is on by default; disable via config flag.
+
+**4-A-iii — `Http.https_get` / `Http.https_post`**
+Thin wrappers over Phase 3 HTTP client using the TLS transport. Same API
+shape as `Http.get`/`Http.post`. The URL scheme drives transport selection
+transparently.
+
+#### 4-B: Database client
+
+**4-B-i — PostgreSQL wire protocol**
+Implement the minimal PostgreSQL wire protocol (protocol v3): startup +
+authentication, parameterized `Query`/`Execute`, typed result rows,
+`BEGIN`/`COMMIT`/`ROLLBACK`. No ORM. Wire-protocol parser in pure Rust
+under `src/runtime/db/`, ~800 lines.
+
+**4-B-ii — Connection pool**
+`Postgres.Pool` with `min_conns`/`max_conns`, idle timeout, and
+`Postgres.with_connection(pool, fn(conn) { ... })` via `Async.bracket`.
+The pool is internally mutable behind the `Async` effect; user code stays
+pure. `Pool` declares an explicit `Sendable` instance because its internal
+mutation uses atomic operations on the hybrid-RC fast path, making it safe
+to share across worker threads.
+
+**4-B-iii — JSON/JSONB bridge**
+`Row.get_json(col: String) -> Json` — parse PostgreSQL JSONB columns
+directly into `Flow.Json.Json`. This closes the loop for the motivating
+microservice shape in the Summary section.
+
 #### Phase 4 deliverables
 
 - `lib/Flow/Tls.flx`, `lib/Flow/Postgres.flx` — ~1100 lines Flux.
 - `src/runtime/async/tls.rs` — rustls state-machine integration.
+- `src/runtime/db/` — PostgreSQL wire protocol, connection pool, ~1100 lines Rust.
 - Examples: HTTPS server, database-backed CRUD microservice (the
   motivating example from Summary).
 - Integration tests against a real Postgres instance.
 
-Estimated effort: 4 weeks.
+Estimated effort: 6–8 weeks.
 
 ### Phase 5 (optional): io_uring backend for Linux
 
@@ -2335,6 +2552,239 @@ the same `AsyncBackend` trait.
 Estimated effort: 4-6 weeks if/when triggered. Skipped for the foreseeable
 future; `mio` on epoll is more than adequate for the proposal's stated
 workload until measurements prove otherwise.
+
+### Architecture: known issues and next steps
+
+This section records architectural issues surfaced during review of Phases
+0–3 (revision 10 audit). Items are ordered by impact.
+
+#### A-1 — Dual VM/native implementation (top priority before Phase 4)
+
+Two completely independent async execution paths share the `FiberScheduler`
+struct and `MioBackend`, but duplicate every other concern:
+
+```
+VM bytecode
+  └─ vm_fibers  (thread-locals in core_dispatch.rs, ~1000 lines)
+       ├─ dispatch_loop
+       ├─ FiberSleep / FiberBoth / FiberRace handlers
+       └─ capture_to_fiber_boundary / resume_from_dispatch
+
+LLVM/native
+  └─ NativeRun  (native_abi.rs, ~1500 lines)
+       ├─ FluxAsyncCallbacks vtable
+       └─ native scheduler loop
+```
+
+Any bug fixed in one path must be manually replicated in the other. Extract
+a `FiberRuntime` trait into `src/runtime/async/fiber_runtime.rs` that owns
+`dispatch_loop`, `on_fiber_done`, `fire_fiber`, and cancellation propagation.
+Two thin bridges (`vm_bridge.rs`, `native_bridge.rs`) provide only what is
+execution-path-specific: how to invoke `resume_from_dispatch` on an
+`Rc<Value>` continuation (VM), or how to call back into generated native code
+via the C ABI vtable (native).
+
+Estimated effort: 1–2 weeks. The payoff compounds with every Phase 3/4
+addition (TLS completion routing, DB client wakeup, HTTP handler fiber
+lifecycle) because each new operation is written once instead of twice.
+
+#### A-2 — `LOGICAL_WORKERS = 2` hardcoded in native_abi.rs (fix during 3-A)
+
+`RuntimeConfig.worker_count` is consumed by the VM via `FiberRunAsyncWith`
+but the native `flux_async_run_root_with` extern accepts the value and ignores
+it. Fix: thread `worker_count` from `flux_async_run_root_with` into the native
+scheduler's thread pool initialisation. The argument is already in the call
+chain — it is one assignment being dropped. This must land before any
+production load test or benchmark; a 2-worker cap with `FLUX_WORKERS=8` silently
+does nothing on the native path.
+
+#### A-3 — `AsyncBackend` default-panic instead of Err (fix before Phase 4)
+
+Every method on `AsyncBackend` has a default implementation that panics:
+
+```rust
+fn tcp_connect(&self, ...) -> RequestId {
+    panic!("tcp_connect not implemented")
+}
+```
+
+A new backend (test backend, TLS wrapper, future io_uring backend) that
+partially implements the trait compiles silently and panics at runtime on the
+first unimplemented call. Change all defaults to return
+`Err(AsyncError::NotSupported(...))`. This prevents an entire class of
+confusing runtime failures when Phase 4's TLS backend is partially wired.
+
+#### A-4 — `bracket`/`finally` do not run cleanup on `AsyncFail` (correctness)
+
+`Async.bracket(acquire, release, body)` and `Async.finally(body, cleanup)` do
+not run the cleanup function when the body fails via `AsyncFail`. This is a
+resource-leak bug: any HTTP handler that opens a DB connection via `bracket`
+and is cancelled mid-flight will leak the connection. The mechanism to fix this
+exists — slice 2-vi landed catchable `AsyncFail` via `Async.try_`. Re-implement
+`bracket` as:
+
+```flux
+public fn bracket<r, a, e>(acquire, release, body) -> a with <Async | e> {
+    let resource = acquire()
+    match try_(fn() { body(resource) }) {
+        Ok(result) -> { release(resource); result },
+        Err(e)     -> { release(resource); fail(e) }
+    }
+}
+```
+
+Same fix for `finally`. **This must land before any Phase 3 production HTTP
+work that relies on connection lifecycle guarantees.**
+
+#### A-5 — VM `Value: !Send` caps VM concurrency (medium-term, before Phase 4)
+
+VM `Value` is `Rc<...>` — not `Send`. The VM dispatch loop therefore runs all
+fibers on a single OS thread (logical-only scheduling). The VM will never use
+real multi-worker scheduling until `Value` can cross thread boundaries.
+
+Path forward: apply the same hybrid RC scheme that already exists on the C side
+(`flux_rc_promote`, sign-bit encoding) to Rust `Value`. Once `Value: Send`,
+the VM dispatch loop can route ready fibers to real worker threads using the
+same `TaskManager` that the native path already uses. The `vm_bridge` from A-1
+then becomes a full peer of the native bridge.
+
+Estimated effort: 3–4 weeks. Does not block Phase 3 (VM is correct today,
+just single-threaded). Target: Phase 3/4 boundary.
+
+#### A-6 — mio reactor single completions `Mutex` (load-testing concern)
+
+All worker threads contend on one mutex to dequeue completions. At high fiber
+counts this serialises resume dispatch. Fix: per-worker completion queues with
+work-stealing on idle. Same shape as the `TaskManager`'s per-priority FIFO —
+reuse that design. Defer until load testing reveals it as a measured bottleneck.
+
+#### A-7 — One pending operation per `TcpConnState` (Phase 3 pipelining concern)
+
+`TcpConnState` holds a single `Option<PendingRead>` and `Option<PendingWrite>`.
+A fiber issuing a second write while one is in-flight has nowhere to queue it.
+Fix: replace with `VecDeque` per direction. Becomes visible once HTTP
+keep-alive + pipelining + concurrent handlers are running under load.
+
+#### A-8 — `fire_due_timers` holds three locks (latency concern)
+
+The timer expiry path acquires completions lock, timer heap lock, and cancel-set
+lock in sequence. Under load this creates a latency spike every time a batch of
+timers fires. Fix: batch expired timers into a local `Vec`, release all locks,
+then push completions lock-free. Defer to Phase 5 / io_uring evaluation.
+
+#### Architecture fix priority order
+
+| # | Priority | When |
+|---|----------|------|
+| A-4 | `bracket`/`finally` resource leak | Before Phase 3 HTTP production work |
+| A-2 | `LOGICAL_WORKERS` native config | Before any load test |
+| A-3 | `AsyncBackend` default-panic → Err | Before Phase 4 TLS backend |
+| A-1 | `FiberRuntime` trait extraction | Before Phase 4 adds more operations |
+| A-6 | Completions mutex → per-worker | Before Phase 5 load testing |
+| A-5 | VM `Value: Send` + hybrid RC | Phase 3/4 boundary |
+| A-7 | One-op-per-connection → VecDeque | Phase 3 pipelining under load |
+| A-8 | `fire_due_timers` lock batching | Phase 5 / io_uring evaluation |
+
+---
+
+### Syntax: known issues and fixes
+
+This section records parser and syntax issues surfaced during the revision 10
+audit of the async/Sendable/HTTP/JSON surface. These are not blocking any
+phase but several affect code being actively written and should be addressed
+in a short dedicated sprint.
+
+#### S-1 — `with IO | Net` gives misleading error (high priority)
+
+`parse_effect_expr` in `src/syntax/parser/helpers.rs` treats a bare `|` in a
+`with` clause as an implicit row-variable prefix (`with |e`) and emits
+"Implicit row variables are no longer supported." When the user writes
+`with IO | Net` intending effect union, the error is wrong. Fix: detect the
+`Named + Bar + Named` pattern and emit "use `with IO, Net` or `with IO + Net`;
+`|` is only for explicit row tail variables."
+
+#### S-2 — `deriving` trailing `)` off-by-one (high priority — potential silent token loss)
+
+`parse_deriving_list` in `src/syntax/parser/statement.rs` handles the closing
+`)` inconsistently. After the loop, it does `if self.is_peek_token(RParen) {
+self.next_token() }`, but the loop itself breaks when `current_token == RParen`.
+If the list ends with no trailing comma, `current` is already `)` and the peek
+check consumes the first token of the next statement. Fix the end condition so
+exactly one `)` is consumed.
+
+#### S-3 — `type` ADT sugar silently drops `deriving` (high priority — silent bug)
+
+`parse_type_adt_statement` does not call `parse_deriving_list` after the last
+variant. `type Result<T, E> = Ok(T) | Err(E) deriving (Encode, Decode)` parses
+but the `deriving` clause is ignored; the token falls through to the next
+statement and typically errors there with a confusing message. Fix: call
+`parse_deriving_list` in `parse_type_adt_statement` and forward the result to
+the desugared `Statement::Data`.
+
+#### S-4 — `alias` fragile `<` disambiguation (medium priority)
+
+`parse_alias_statement` decides effect-alias vs type-alias by checking whether
+the RHS starts with `<`. Any zero-param type alias whose body begins with `<`
+(e.g. a future type application syntax) would be mis-parsed as an effect-alias
+body. Fix: inspect the first non-`<` token to confirm it looks like an effect
+label (uppercase ident optionally followed by `|`) before taking the
+effect-alias path.
+
+#### S-5 — `data` type params cannot carry `Sendable` constraints (medium priority)
+
+`parse_data_statement` uses a bare ident loop for type params with no
+colon-constraint parsing. `data MyChannel<a: Sendable> { ... }` is not
+supported, forcing redundant `instance Sendable<...>` declarations. Mirror
+`parse_function_type_params_angle_bracket`'s colon-constraint parsing in
+`parse_data_statement`.
+
+#### S-6 — Row-var-in-alias body gives confusing error (low priority)
+
+If the user writes `alias Async = <Suspend | Fork | |e>`, `parse_effect_alias_body`
+emits "Expected `>` to close the effect-row body" rather than "row tail
+variables are not allowed inside alias bodies; use them at call sites." Add a
+dedicated diagnostic path.
+
+#### S-7 — Optional `fn` prefix in `effect` body not guarded (low priority)
+
+`parse_effect_statement` silently consumes a leading `fn` keyword inside an
+effect body without checking that the next token is an identifier. An anonymous
+function type (`fn(String) -> ()`) would be mis-parsed. Guard the `fn`
+consumption with a `is_peek_token(TokenType::Ident)` check.
+
+#### Syntax fix priority order
+
+| # | Priority | File | Fix |
+|---|----------|------|-----|
+| S-2 | High | `parser/statement.rs` | `deriving` trailing `)` off-by-one |
+| S-3 | High | `parser/statement.rs` | `type` ADT sugar drops `deriving` |
+| S-1 | High | `parser/helpers.rs` | `IO \| Net` misleading error |
+| S-4 | Medium | `parser/statement.rs` | `alias` fragile `<` disambiguation |
+| S-5 | Medium | `parser/statement.rs` | `data` type params lack constraint syntax |
+| S-6 | Low | `parser/statement.rs` | Row-var-in-alias confusing error |
+| S-7 | Low | `parser/statement.rs` | `effect` optional `fn` prefix unguarded |
+
+---
+
+### Deferred items
+
+These surfaced during the revision 10 review but have no Phase 3/4 home.
+Tracked here so they are not lost.
+
+- **`Flow.Channel`** — deferred per Phase 2 slice 2-iii. Revisit after Phase 4
+  once cross-worker data exchange patterns from real use cases are understood.
+- **`check_cancelled` semantic cleanup** — Phase 2-iv shipped `check_cancelled`
+  as `-> Bool` rather than raising directly. Now that 2-vi landed real raise
+  machinery, convert to raising `AsyncError.Canceled` directly, or make the
+  `bail_if_cancelled` choice explicit and update the proposal. Either way the
+  status should be unambiguous before Phase 3 ships.
+- **`Stream<a>` effect-row generalization** — see 3-D-iv. Requires higher-kinded
+  aliases; defer until that language feature is evaluated.
+- **HTTP/2** — significant complexity; separate proposal.
+- **VM `Value: Send`** — see A-5. Schedule for Phase 3/4 boundary.
+- **`FiberRuntime` trait extraction** — see A-1. Schedule before Phase 4.
+
+---
 
 ## Drawbacks
 
@@ -2515,7 +2965,128 @@ ships hybrid RC.
 - **Revision 6** — bookkeeping pass after Phase 1a → Phase 1b transition: D1 (cross-module class-bound enforcement) closed via constraint preservation + consumer-side dict elaboration + internal-linkage dict CoreDefs; Phase 1b 1b-i through 1b-v landed (effect seams, FiberScheduler, 5 fiber CorePrimOps, Flow.Async + Flow.Tcp source surface) with sequential-equivalent VM dispatch; native Task<a> ships on POSIX (pthreads) and Windows (Win32 + SEH for panic propagation across LLVM frames). 1b-vi (real M:N fiber multiplexing) and Phase 2/3/4 remain. D5-c reframed: native Task is implemented entirely in `runtime/c/tasks.c` rather than via a Rust `TaskScheduler<i64>` staticlib bridge — D5-b/c's original integration is deferred until a feature needs it.
 - **Revision 7** — Phase 1b 1b-vi VM-side multiplexing landed in five sub-slices (a, b₁, b₂.1, b₂.2, timeout). `Async.sleep` routes through the mio reactor; every `Async.run_async` boundary owns a real `FiberScheduler`; `FiberSleep`/`FiberBoth`/`FiberRace`/`FiberTimeout` capture continuations and park/resume through a dispatch loop in [`vm_fibers::dispatch_loop`](../../src/vm/core_dispatch.rs). Three new native primops added (`FiberBoth = 172`, `FiberRace = 173`, `FiberTimeout = 174`). Acid tests prove genuine wall-clock overlap (`both(sleep(500), sleep(500))` ≈ 500ms) and that `Async.timeout` actually bounds its body. Native (LLVM) fiber suspend/resume (1b-vi-d), per-worker queues + multi-OS-thread workers (1b-vi-c), and cancellation propagation remain. The continuation re-entry mechanic from "Unresolved questions" #1 — capturing and resuming through `OpPerform`'s machinery with the run_async boundary as the delimiter — is now settled on the VM path; the same pattern will apply on the native backend in 1b-vi-d.
 - **Revision 8** — Phase 1b native LLVM core async is implemented through the proposal's narrow C ABI into Rust scheduler state rather than through pthread fiber workarounds. Native `sleep`, `both`, `race`, `timeout`, `scope`, `fork`, and `cancel` suspend/resume through the Rust native async runtime; direct async helper calls and conservative `with Async` indirect closure calls propagate native yield sentinels correctly. Native generated-code re-entry now runs in parallel on OS workers, cooperative cancellation suppresses cancelled running fibers at scheduler/backend boundaries, and LLVM TCP parity is implemented through the same Rust `AsyncBackend`/`MioBackend` path. Native `Task.cancel` and the Phase 1b closeout `Task.await` shim match VM-observable cancel-before-join/await behavior. The remaining VM OS-worker dispatch and true nonblocking native `Task.await` work are documented as post-1b follow-ups rather than Phase 1b blockers.
-- **Revision 9 (this version)** — Restructure after a readiness audit of Phase 0/1a/1b against the proposal's deliverable lists found three runtime prerequisites that the original Phase 1a/1b plan listed but did not actually land: blocking-thread DNS resolver / `blocking_pool.rs` (Phase 1a deliverable, missing — `tcp_connect` today rejects hostnames because `socket_addr_from_raw` calls `SocketAddr::from_str`), transparent type aliases (Phase 1b prep, missing — only `Statement::EffectAlias` exists today, no `Statement::TypeAlias`), and `Sendable<T>` ADT auto-derivation (Phase 1a deliverable, missing — `has_structural_builtin_instance` only handles built-in containers). A second audit of the user-facing concurrency surface found seven semantics questions Phase 1b had left under-specified that Phase 3 (HTTP) would otherwise have to invent on the fly: (1) `Task.await` ships with the right type but the wrong semantics — it parks the OS worker on a condvar instead of suspending the calling fiber; (2) `race` is binary-only with no N-way `first` / `first_of`; (3) `Channel.send` is referenced once in the proposal text without a corresponding `Flow.Channel` definition; (4) cancellation is observable only at `await` points, with no `Async.check_cancelled` for long pure loops; (5) `Http.serve` lacks production knobs (connection limit, graceful shutdown, timeouts, per-server worker count); (6) fiber panic semantics are unspecified for Phase 1b (`Task` panics are caught, fibers' aren't documented); (7) runtime config has no centralised `RuntimeConfig` knob, only ad-hoc env vars. These ten items together form the new **Phase 2 (Concurrency closeout + runtime gaps)**, a no-user-facing-API-regression infrastructure phase analogous in shape to Phase 0. The previously-numbered Phase 2 (HTTP/JSON/Streams) becomes **Phase 3**, Phase 3 (TLS + database client) becomes **Phase 4**, and the optional Phase 4 (io_uring backend) becomes **Phase 5**. Independently, the Phase 3 HTTP design retracts the earlier "vendor llhttp" decision: the HTTP/1.1 parser is now scratch-built in Rust under `src/runtime/http/` over the existing `mio` TCP substrate, with no `vendor/` directory and no third-party HTTP-parser dependency, matching the broader proposal direction of a Rust-owned runtime. The JSON design is split: ship parser + manual `Json.Encode`/`Json.Decode` instances first, then synthesised `deriving` codec bodies as a follow-on Phase 3 sub-slice with its own design review. The Phase 1b 10k-connection acceptance bullet moves to Phase 3's HTTP server acceptance — the load test is HTTP-shaped, not runtime-shaped.
+- **Revision 10 (this version)** — Post-Phase-2/3-foundation audit. Adds four new sections plus examples/load-test spec: (1) **Phase 3 (remainder) detailed slice plan** — four parallel tracks (3-A HTTP concurrency+production-knobs, 3-B HTTP client helpers, 3-C JSON correctness+ergonomics, 3-D Streams correctness+combinators) with per-slice descriptions and the sequencing recommendation that JSON precision fixes and concurrent connection handling land first as they are correctness issues; (2) **Architecture: known issues and next steps** — eight tracked items (A-1 through A-8) including the dual VM/native implementation problem and extraction plan for a shared `FiberRuntime` trait, the hardcoded `LOGICAL_WORKERS = 2` native config gap, `AsyncBackend` default-panic safety, the `bracket`/`finally` resource-leak on `AsyncFail`, VM `Value: !Send` blocking real multi-worker VM scheduling, and three mio reactor bottlenecks prioritised for load-test gating; (3) **Syntax: known issues and fixes** — seven tracked parser issues (S-1 through S-7) with priority order including the `with IO | Net` misleading error, the `deriving` off-by-one that can silently consume the next statement's first token, `type` ADT sugar that silently drops `deriving`, the fragile `alias` `<` disambiguation, and missing constraint syntax on `data` type params; (4) **Deferred items** — `Flow.Channel`, `check_cancelled` semantic cleanup, `Stream<a>` effect-row generalization, HTTP/2, VM `Value: Send`, and `FiberRuntime` extraction. Phase 4 detailed into three TLS sub-slices (4-A-i rustls, 4-A-ii Tls.connect/serve, 4-A-iii Http.https_get/post) and three database sub-slices (4-B-i PostgreSQL wire, 4-B-ii connection pool, 4-B-iii JSON/JSONB bridge); estimated effort revised from 4 to 6–8 weeks. Also adds **Examples: current state and gaps** table auditing the six existing `examples/http/` files (two with known issues: `sse_broadcaster.flx` uses an undocumented `serve_stream` surface; `json_echo_service.flx` uses manual field extraction as a workaround for missing `deriving`), four missing examples (`load_test_server.flx`, `crud_service.flx`, `task_plus_http.flx`, `timeout_server.flx`), and a **Load test spec** that formally defines the 10k acceptance test (10,000 keep-alive connections × 2 requests, native-only, ≤10s on 4-core CI, prerequisite-gated on 3-A-i and A-2). Adds **Post-Phase-3 example catalogue** — 16 examples across four groups (service patterns, concurrency patterns, streaming patterns, JSON patterns, documentation-driven) that become buildable in pure Flux source once Phase 3 is complete, with no new primitives required.
+- **Revision 9** — Restructure after a readiness audit of Phase 0/1a/1b against the proposal's deliverable lists found three runtime prerequisites that the original Phase 1a/1b plan listed but did not actually land: blocking-thread DNS resolver / `blocking_pool.rs` (Phase 1a deliverable, missing — `tcp_connect` today rejects hostnames because `socket_addr_from_raw` calls `SocketAddr::from_str`), transparent type aliases (Phase 1b prep, missing — only `Statement::EffectAlias` exists today, no `Statement::TypeAlias`), and `Sendable<T>` ADT auto-derivation (Phase 1a deliverable, missing — `has_structural_builtin_instance` only handles built-in containers). A second audit of the user-facing concurrency surface found seven semantics questions Phase 1b had left under-specified that Phase 3 (HTTP) would otherwise have to invent on the fly: (1) `Task.await` ships with the right type but the wrong semantics — it parks the OS worker on a condvar instead of suspending the calling fiber; (2) `race` is binary-only with no N-way `first` / `first_of`; (3) `Channel.send` is referenced once in the proposal text without a corresponding `Flow.Channel` definition; (4) cancellation is observable only at `await` points, with no `Async.check_cancelled` for long pure loops; (5) `Http.serve` lacks production knobs (connection limit, graceful shutdown, timeouts, per-server worker count); (6) fiber panic semantics are unspecified for Phase 1b (`Task` panics are caught, fibers' aren't documented); (7) runtime config has no centralised `RuntimeConfig` knob, only ad-hoc env vars. These ten items together form the new **Phase 2 (Concurrency closeout + runtime gaps)**, a no-user-facing-API-regression infrastructure phase analogous in shape to Phase 0. The previously-numbered Phase 2 (HTTP/JSON/Streams) becomes **Phase 3**, Phase 3 (TLS + database client) becomes **Phase 4**, and the optional Phase 4 (io_uring backend) becomes **Phase 5**. Independently, the Phase 3 HTTP design retracts the earlier "vendor llhttp" decision: the HTTP/1.1 parser is now scratch-built in Rust under `src/runtime/http/` over the existing `mio` TCP substrate, with no `vendor/` directory and no third-party HTTP-parser dependency, matching the broader proposal direction of a Rust-owned runtime. The JSON design is split: ship parser + manual `Json.Encode`/`Json.Decode` instances first, then synthesised `deriving` codec bodies as a follow-on Phase 3 sub-slice with its own design review. The Phase 1b 10k-connection acceptance bullet moves to Phase 3's HTTP server acceptance — the load test is HTTP-shaped, not runtime-shaped.
+
+## Post-Phase-3 example catalogue
+
+Once Phase 3 is complete (concurrent HTTP server, `Http.get`/`Http.post`,
+`deriving (Json.Encode, Json.Decode)`, `flat_map`, full `Flow.Stream`) the
+following examples become buildable in pure Flux source with no new primitives.
+They are grouped by the concept they demonstrate. TLS and database examples
+are Phase 4 territory and excluded here.
+
+### Service patterns
+
+**`crud_service.flx`**
+Full CRUD API over HTTP/JSON: `GET /items`, `POST /items`, `DELETE /items/:id`.
+No database — in-memory `Map` owned by a single fiber. Shows `deriving`,
+named-field `data`, `Json.decode`/`Json.encode`, routing by method + path, and
+correct 404/405 responses. Replaces `json_echo_service.flx` as the canonical
+"this is why deriving exists" reference.
+
+**`rate_limited_api.flx`**
+HTTP server with per-IP rate limiting. A dedicated fiber owns a
+`Map<String, Int>` of request counts; handler fibers query it via a shared
+async channel pattern. Returns 429 when the limit is exceeded. Demonstrates
+shared mutable state without threads — one fiber owns the state, others
+interact through `Async` operations.
+
+**`timeout_server.flx`**
+Server with one fast route and one slow route (`sleep(5000)`). Shows
+`request_timeout_ms` returning 504 and the connection staying open for the next
+request. Reference documentation for `ServerConfig` timeout enforcement.
+
+**`graceful_shutdown_demo.flx`**
+Server that accepts a shutdown signal via a sibling `Task`, drains in-flight
+requests, and exits cleanly. Documents the observable difference between
+`shutdown(h)` (drain) and `shutdown_now(h)` (cancel) with timing output.
+
+### Concurrency patterns
+
+**`task_plus_http.flx`**
+HTTP handler that off-loads CPU work (`fib(36)`) via `Task.spawn` and
+`Task.await`s the result. Runs alongside other connections in parallel.
+Proves that `Task.await` does not block the worker (Phase 2-i guarantee).
+The canonical example for "CPU-bound work inside an async handler."
+
+**`parallel_scraper.flx`**
+Given a list of URLs, fetches all concurrently with `first_of` / `both`,
+collects results into a JSON array. Shows `Http.get` + `Stream.from_array` +
+`first_of` composing to replace a sequential loop with a single concurrent
+fan-out expression.
+
+**`retry_with_backoff.flx`**
+Wraps `Http.get` in a retry loop with exponential backoff using
+`timeout_result` + `sleep`. Pure Flux — no new primitives. Reference for
+library patterns built on existing structured-concurrency primitives.
+
+**`cancellable_search.flx`**
+Long pure computation loop that calls `Async.check_cancelled()` on each
+iteration, wrapped in `Async.timeout(100, ...)`. The canonical example for
+the Phase 2-iv pattern in a non-trivial context.
+
+### Streaming patterns
+
+**`csv_stream.flx`**
+Reads a large newline-delimited CSV string, uses `Stream.flat_map` to split
+lines into fields, filters rows by a predicate, and folds into a summary
+record. Demonstrates the full combinator chain: `from_array` → `flat_map` →
+`filter` → `fold`. Reference for `flat_map` (added in 3-D-ii).
+
+**`live_tail.flx`**
+TCP client that connects to a log server and streams lines using
+`Stream.take_while`. Shows long-lived streaming connections and how
+`Async.timeout` can bound a stream read without losing partial results.
+
+**`fanout_stream.flx`**
+Takes one `Stream<String>` and distributes items across N worker tasks via
+`Task.spawn`. Shows the interaction between pull streams and the task
+substrate — each worker pulls its own slice of the stream.
+
+**`sse_counter.flx`**
+HTTP server that pushes incrementing integers as Server-Sent Events every
+500ms. Replaces the current `sse_broadcaster.flx` using proper `Http.serve`
++ `sse_response` instead of the `serve_stream` workaround. Reference for
+SSE output with `Flow.Stream`.
+
+### JSON patterns
+
+**`json_schema_validator.flx`**
+Validates a JSON value against a hand-written schema expressed as a Flux
+function. Uses `Json.as_object`, `Json.object_get`, `Json.and_then`
+combinators directly — no `deriving`. Shows structural JSON access when the
+schema is dynamic or external.
+
+**`json_transform.flx`**
+Takes a JSON array of objects, filters by a field, renames keys, and
+re-encodes. Shows `Map<String, Json>` manipulation and the intended contrast
+between structural JSON access and typed `Decode`.
+
+**`multi_codec.flx`**
+Three `data` types all with `deriving (Json.Encode, Json.Decode)`. Decodes
+an incoming payload, transforms it through the typed representation, and
+re-encodes. The primary reference example for deriving-based codec workflow.
+
+### Documentation-driven
+
+**`quickstart.flx`**
+The minimal working HTTP service from the proposal Summary section.
+`handler` + `main`, five lines. The first example in the docs; nothing else.
+Verifies the out-of-the-box experience is exactly that short.
+
+**`effects_composition.flx`**
+Shows `with <Async | Console | e>` in a handler: logs each request, does
+async I/O, propagates the row variable to callers. The reference example for
+effect row composition and the `|e` open-row tail pattern.
+
+**`sendable_across_tasks.flx`**
+Spawns 10 tasks each returning a `data` record whose `Sendable` instance was
+auto-derived. Joins all results with `Task.await` into an array and prints it.
+End-to-end validation that `Sendable` ADT auto-derivation works through the
+full `Task.spawn` / `Task.await` path.
+
+---
 
 ## Future possibilities
 
