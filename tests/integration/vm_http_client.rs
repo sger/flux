@@ -42,40 +42,13 @@ fn run_source(source: String) -> (String, String, bool) {
     )
 }
 
-fn client_server_source(port: u16, client: &str, handler: &str) -> String {
-    format!(
-        r#"
-import Flow.Async exposing (..)
-import Flow.Http exposing (..)
-
-{handler}
-
-fn server() -> Unit with Async, AsyncFail {{
-    let h = serve("127.0.0.1", {port}, handler)
-    let _sleep = sleep(200)
-    shutdown(h)
-}}
-
-{client}
-
-fn body() -> String with Async, AsyncFail {{
-    let pair = both(server, client)
-    pair.1
-}}
-
-fn main() with IO {{
-    print(run_async(body))
-}}
-"#
-    )
-}
-
 fn raw_server_source(port: u16, server_body: &str, client_body: &str) -> String {
     format!(
         r#"
 import Flow.Async exposing (..)
 import Flow.Http exposing (..)
 import Flow.Http as Http
+import Flow.Map as Map
 import Flow.Tcp as Tcp
 import Flow.String as Str
 
@@ -127,51 +100,55 @@ fn spawn_one_response_server(port: u16, response: &'static [u8]) -> std::thread:
 }
 
 #[test]
-fn get_returns_200_body_from_local_server() {
+fn get_returns_response_fields_from_local_server() {
     let port = next_port();
-    let source = client_server_source(
+    let source = raw_server_source(
         port,
+        r#"
+    let _raw = Tcp.read(conn, 4096)
+    let _write = Tcp.write_all(conn, "HTTP/1.1 201 Created\r\nX-Test: vm-get\r\nConnection: close\r\nContent-Length: 9\r\n\r\n/hello:ok")
+"#,
         &format!(
             r#"
-fn client() -> String with Async, AsyncFail {{
-    let _wait = sleep(50)
     let resp = get("http://127.0.0.1:{port}/hello")
-    resp.body
-}}
+    let status = if resp.status == 201 {{ "created" }} else {{ "bad-status" }}
+    let header = match Map.get(resp.headers, "X-Test") {{
+        Some(value) -> value,
+        _ -> "missing-header"
+    }}
+    status + ":" + header + ":" + resp.body
 "#
         ),
-        r#"
-fn handler(req) with Async {
-    ok(req.path + ":ok")
-}
-"#,
     );
     let stdout = run_ok(source);
-    assert!(stdout.contains("/hello:ok"), "{stdout}");
+    assert!(stdout.contains("created:vm-get:/hello:ok"), "{stdout}");
 }
 
 #[test]
 fn post_sends_body_and_returns_response() {
     let port = next_port();
-    let source = client_server_source(
+    let source = raw_server_source(
         port,
+        r#"
+    let raw = Tcp.read(conn, 4096)
+    let body = if Str.str_contains(raw, "payload") { "/echo:payload" } else { "missing" }
+    let wire = "HTTP/1.1 202 Accepted\r\nX-Mode: vm-post\r\nConnection: close\r\nContent-Length: 13\r\n\r\n" + body
+    let _write = Tcp.write_all(conn, wire)
+"#,
         &format!(
             r#"
-fn client() -> String with Async, AsyncFail {{
-    let _wait = sleep(50)
     let resp = post("http://127.0.0.1:{port}/echo", "payload")
-    resp.body
-}}
+    let status = if resp.status == 202 {{ "accepted" }} else {{ "bad-status" }}
+    let header = match Map.get(resp.headers, "X-Mode") {{
+        Some(value) -> value,
+        _ -> "missing-header"
+    }}
+    status + ":" + header + ":" + resp.body
 "#
         ),
-        r#"
-fn handler(req) with Async {
-    ok(req.path + ":" + req.body)
-}
-"#,
     );
     let stdout = run_ok(source);
-    assert!(stdout.contains("/echo:payload"), "{stdout}");
+    assert!(stdout.contains("accepted:vm-post:/echo:payload"), "{stdout}");
 }
 
 #[test]

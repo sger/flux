@@ -441,12 +441,13 @@ int64_t flux_http_write_request(
 static int64_t http_response_value(
     int32_t response_tag,
     int status,
+    int64_t headers,
     const char *body,
     size_t body_len
 ) {
     int64_t fields[3] = {
         flux_tag_int(status),
-        flux_hamt_empty(),
+        headers,
         flux_string_new(body, (uint32_t)body_len),
     };
     return http_make_adt(response_tag, fields, 3);
@@ -501,6 +502,7 @@ int64_t flux_http_parse_response(
 
     long long content_length = -1;
     int chunked = 0;
+    int64_t headers_val = flux_hamt_empty();
     size_t pos = line_end + 2;
     while (pos < header_end) {
         size_t end = pos;
@@ -519,6 +521,9 @@ int64_t flux_http_parse_response(
         while (value < value_end && (*value == ' ' || *value == '\t')) value++;
         while (value_end > value && (value_end[-1] == ' ' || value_end[-1] == '\t')) value_end--;
         size_t value_len = (size_t)(value_end - value);
+        int64_t name_val = flux_string_new(raw + pos, (uint32_t)name_len);
+        int64_t header_value_val = flux_string_new(value, (uint32_t)value_len);
+        headers_val = flux_hamt_set(headers_val, name_val, header_value_val);
         if (http_ascii_eq_ci(raw + pos, name_len, "Content-Length")) {
             char buf_len[32];
             if (value_len >= sizeof(buf_len)) {
@@ -621,7 +626,7 @@ int64_t flux_http_parse_response(
         consumed = body_start + body_len;
     }
 
-    int64_t response = http_response_value(response_tag, (int)status, body, body_len);
+    int64_t response = http_response_value(response_tag, (int)status, headers_val, body, body_len);
     free(decoded);
     int64_t fields[2] = { response, flux_tag_int((int64_t)consumed) };
     return http_make_adt(parsed_tag, fields, 2);

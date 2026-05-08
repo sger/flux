@@ -80,7 +80,7 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
-| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Coverage lives in [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) and [`native_http_server_tests.rs`](../../tests/native_llvm/native_http_server_tests.rs). Remaining Phase 3 work: HTTP client follow-up, JSON, and Streams refinements. |
+| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. HTTP client Track 3-B is complete: `get` / `post` route through the Flux-level TCP request flow on VM and LLVM/native, native response parsing preserves `status` / `headers` / `body`, and coverage lives in [`vm_http_client.rs`](../../tests/integration/vm_http_client.rs) plus [`native_http_client_tests.rs`](../../tests/native_llvm/native_http_client_tests.rs). [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Remaining Phase 3 work: JSON and Streams refinements. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
 
@@ -120,9 +120,9 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 - [x] **3-A-vi** — `serve_config` with `ServerConfig` fields wired through to runtime
 
 #### 3-B HTTP client
-- [ ] **3-B-i** — `get` / `post` helpers in `Flow.Http` (VM path)
-- [ ] **3-B-ii** — `get` / `post` native/LLVM path via `flux_http_*` C shims
-- [ ] **3-B-iii** — `Response` record: `status`, `headers`, `body` fields accessible from Flux
+- [x] **3-B-i** — `get` / `post` helpers in `Flow.Http` (VM path)
+- [x] **3-B-ii** — `get` / `post` native/LLVM path via `flux_http_*` C shims
+- [x] **3-B-iii** — `Response` record: `status`, `headers`, `body` fields accessible from Flux
 
 #### 3-C JSON
 - [ ] **3-C-i** — `Json.encode` round-trips all `JsonValue` variants without loss
@@ -2394,21 +2394,21 @@ storage. The local `noop()` helper is a true unit-returning no-op.
 
 #### Track 3-B: HTTP client helpers
 
-**3-B-i — `Http.get` / `Http.post`**
+**3-B-i — `Http.get` / `Http.post` (landed)**
 `get(url: String) -> Response with Async` and
 `post(url: String, body: Bytes) -> Response with Async` as thin wrappers
 over the TCP + HTTP serializer/parser already in `src/runtime/http/`. No
 third-party HTTP client library.
 
-**3-B-ii — Client response streaming**
-For SSE and chunked JSON, add a streaming variant:
-`get_stream(url: String) -> Stream<Bytes> with Async`. This avoids
-buffering the entire response body before returning.
+**3-B-ii — Native/LLVM client shims (landed)**
+LLVM/native uses the same Flux-level request flow as the VM, with
+`flux_http_parse_url`, `flux_http_write_request`, and
+`flux_http_parse_response` C shims matching the Rust parser/writer behavior.
 
-**3-B-iii — `Tcp.with_connection`**
-`Tcp.with_connection(host, port, fn(conn) { ... })` is referenced in
-multiple examples but absent from `lib/Flow/Tcp.flx`. Implement as
-`Async.bracket(fn() { connect(h, p) }, fn(c) { close(c) }, body)`.
+**3-B-iii — `Response` field access (landed)**
+`Response { status, headers, body }` is available from Flux on VM and
+LLVM/native. Regression coverage reads all three fields for both `get` and
+`post`, including native response headers populated by the C parser shim.
 
 #### Track 3-C: JSON correctness and ergonomics
 
