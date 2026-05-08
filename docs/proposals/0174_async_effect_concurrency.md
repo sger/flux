@@ -80,7 +80,7 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
-| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server/runtime foundation and server-loop slice landed: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; HTTP primops `HttpServeConfig = 182`, `HttpShutdown = 183`, and `HttpShutdownNow = 184` are reserved through Core/VM/LIR/LLVM/C stubs. [`src/runtime/http/`](../../src/runtime/http/) contains the scratch-built parser/writer foundation plus the blocking VM server loop: request line/header parser, OWS normalization, obs-fold rejection, `Content-Length`/chunked framing, response writer, sequential accept up to `max_connections`, keep-alive/pipelined request handling, and `max_header_bytes` / `max_body_bytes` 413 enforcement. [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) verifies real loopback serving, two sequential connections, two keep-alive requests, malformed 400 handling, and oversized-body 413 handling. Remaining Phase 3 HTTP work: detached long-lived server manager, graceful/forced shutdown semantics beyond reserved no-op handles, handler timeout enforcement, native handler execution parity, HTTP client helpers, JSON, and Streams. |
+| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Coverage lives in [`vm_http_server.rs`](../../tests/integration/vm_http_server.rs) and [`native_http_server_tests.rs`](../../tests/native_llvm/native_http_server_tests.rs). Remaining Phase 3 work: HTTP client follow-up, JSON, and Streams refinements. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
 
@@ -112,12 +112,12 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 ### Phase 3 — HTTP / JSON / Streams
 
 #### 3-A HTTP server
-- [ ] **3-A-i** — Detached server manager task (long-lived `serve` loop as a background fiber)
-- [ ] **3-A-ii** — Graceful shutdown: drain in-flight requests then stop accepting
-- [ ] **3-A-iii** — Forced shutdown (`shutdown_now`): close listener immediately
-- [ ] **3-A-iv** — Handler timeout enforcement (kill handler fiber after `timeout_ms`)
-- [ ] **3-A-v** — Native/LLVM handler execution parity (LLVM shim calls Flux handler via C ABI)
-- [ ] **3-A-vi** — `serve_config` with `ServerConfig` fields wired through to runtime
+- [x] **3-A-i** — Detached server manager task (long-lived `serve` loop as a background fiber)
+- [x] **3-A-ii** — Graceful shutdown: drain in-flight requests then stop accepting
+- [x] **3-A-iii** — Forced shutdown (`shutdown_now`): close listener immediately
+- [x] **3-A-iv** — Handler timeout enforcement (kill handler fiber after `timeout_ms`)
+- [x] **3-A-v** — Native/LLVM handler execution parity (LLVM shim calls Flux handler via C ABI)
+- [x] **3-A-vi** — `serve_config` with `ServerConfig` fields wired through to runtime
 
 #### 3-B HTTP client
 - [ ] **3-B-i** — `get` / `post` helpers in `Flow.Http` (VM path)
@@ -2113,23 +2113,24 @@ The server surface is pinned by Phase 2 slice 2-v — `ServerConfig`,
 together with `serve` so production deployments do not have to wait
 for a follow-up.
 
-**Implementation status (Phase 3a foundation + 3a-ii loop landed).**
-The first HTTP slices ship the public `Flow.Http` surface with `Bytes`
-as a transparent `String` alias, reserve the HTTP server-manager primops
-(`HttpServeConfig = 182`, `HttpShutdown = 183`, `HttpShutdownNow = 184`),
-and add the parser/writer foundation under `src/runtime/http/`. On the
-VM path, `HttpServeConfig` now delegates socket and wire behavior to a
-blocking runtime helper: it binds once, accepts up to `max_connections`
-sequential client connections, loops over keep-alive/pipelined requests
-on each connection, enforces `max_header_bytes` and `max_body_bytes`
-with 413 responses before invoking the handler, builds a `Request`,
-invokes the Flux handler, writes a response, and returns `ServerHandle(0)`.
-`request_timeout_ms` is validated but not enforced yet, and `worker_count`
-is accepted for API parity. This is covered by
-`tests/integration/vm_http_server.rs`. It is not yet the full detached
-production server: live connection accounting, graceful drain, forced
-cancellation, timeout wrapping, and native handler execution parity remain
-open HTTP sub-slices.
+**Implementation status (Track 3-A complete).**
+The HTTP server surface ships as source-level `Flow.Http` orchestration
+over the async TCP backend, with Rust/C primops owning parser/writer and
+server-state bookkeeping. `serve_config` binds the listener, registers
+the runtime `ServerConfig`, forks a long-lived accept manager, and returns
+a `ServerHandle` immediately. Accepted connections are registered against
+the server, and handlers execute through the same Flux function path on VM
+and LLVM/native. `shutdown` marks the server
+draining, closes the listener, and waits for active connections to finish;
+`shutdown_now` closes the listener and active sockets and cancels the
+server scope. `request_timeout_ms` wraps each handler and returns 504 on
+expiry. `max_connections` is enforced as a live-connection back-pressure
+limit, `max_header_bytes` / `max_body_bytes` reject with 413 before the
+handler runs, and `worker_count` is parsed/stored for configuration
+parity while the surrounding `run_async` boundary remains authoritative
+for actual scheduler sizing. VM coverage lives in
+`tests/integration/vm_http_server.rs`; LLVM/native coverage lives in
+`tests/native_llvm/native_http_server_tests.rs`.
 
 ```flux
 module Flow.Http {
@@ -2226,9 +2227,11 @@ module Flow.Http {
   `Async.timeout(request_timeout_ms, ...)`. Expiry returns a 504
   Gateway Timeout to the client and cancels the handler via the
   standard scope-cancellation rules from Phase 2 slice 2-vi.
-- `worker_count`: passed through to the underlying `Async.RuntimeConfig`
-  (slice 2-vii). On VM, values > 1 are accepted but only worker 0
-  runs fibers (slice 2-vii non-goal documents this).
+- `worker_count`: accepted and stored in server runtime state for parity.
+  Because `serve_config` executes inside an already-running `run_async`
+  boundary, it does not resize the scheduler; callers use
+  `run_async_with_workers(n, body)` to choose the worker count for a
+  server program.
 
 `shutdown` vs `shutdown_now`: both are idempotent and safe to call
 from any fiber. `shutdown` is the production default; `shutdown_now`
@@ -2348,7 +2351,7 @@ connections in parallel, sends two requests per connection, and verifies all
 VM fibers run on a single OS thread (see A-5). The VM path has its own
 sequential acceptance test in `tests/integration/vm_http_server.rs`.
 
-**Prerequisite gates:** 3-A-i (concurrent connections) and A-2
+**Prerequisite gates:** 3-A-i (detached server manager) and A-2
 (`LOGICAL_WORKERS` native config) must land first. Running the load test
 before those fixes will either fail immediately (sequential accept) or
 silently cap at 2 workers.
@@ -2360,37 +2363,34 @@ they can proceed concurrently; each track is independently releasable.
 
 #### Track 3-A: HTTP server — concurrency and production-readiness
 
-**3-A-i — Concurrent connection handling (correctness bug)**
-`Http.serve` accepts one connection and holds it before accepting the next.
-Each accepted connection must be forked as a child fiber using `Async.fork`.
-Implement `connection_worker` as a proper fiber so the server accept loop
-is unblocked. This is a correctness issue: the current sequential loop
-contradicts the concurrency model documented in `Http.serve`'s contract.
+**3-A-i — Detached server manager (landed)**
+`serve_config` and `serve_stream_config` fork a long-lived accept manager
+that owns the listener, registers accepted connections, and keeps serving
+until shutdown closes the listener.
 
-**3-A-ii — Request timeout enforcement**
-`ServerConfig.request_timeout_ms` is defined but not enforced. Wrap each
-handler invocation in `Async.timeout(config.request_timeout_ms, handle_request)`
-and return 503 on timeout. Must be per-connection, not per-server.
+**3-A-ii — Request timeout enforcement (landed)**
+Each handler invocation is wrapped in `timeout_result(config.request_timeout_ms, ...)`.
+Expiry returns `504 Gateway Timeout`, cancels the handler fiber, and prevents
+late handler output from writing to the connection.
 
-**3-A-iii — Graceful shutdown**
-`shutdown(h)` is a no-op. Implement: stop accepting new connections, drain
-in-flight handlers up to a configured grace period, then close the listener.
-Use the `Scope` cancel mechanism to signal all connection fibers.
+**3-A-iii — Graceful shutdown (landed)**
+`shutdown(h)` marks the server draining, closes the listener, stops accepting
+new connections, and waits for active connections to unregister.
 
-**3-A-iv — Response size limit**
-The client fetch path has no response size limit. Add `max_response_bytes`
-enforcement parallel to the existing `max_body_bytes` server-side enforcement.
+**3-A-iv — Forced shutdown (landed)**
+`shutdown_now(h)` closes the listener and active sockets immediately and
+cancels the server scope so the background manager stops through the
+standard cancellation path.
 
-**3-A-v — Native (LLVM) handler execution parity**
-HTTP handlers currently run only on the VM path. Wire the native-side HTTP
-primops (`HttpServeConfig = 182`, `HttpShutdown = 183`, `HttpShutdownNow = 184`)
-through the LLVM/C ABI shim layer to the same `src/runtime/http/` server loop.
-Add a parity test under `tests/parity/`.
+**3-A-v — Native (LLVM) handler execution parity (landed)**
+LLVM/native uses the same `Flow.Http` source-level manager and invokes Flux
+handlers through the async C ABI path. Native C shims provide parser/writer
+and server-state primitives only.
 
-**3-A-vi — `noop()` / shutdown sentinel fix**
-`noop()` internally calls `http_shutdown_now_prim(-1)` — a sentinel integer
-hack. Replace with an explicit `ServerHandle.Noop` variant or boolean flag so
-the shutdown path does not rely on a magic value.
+**3-A-vi — `serve_config` config wiring (landed)**
+`ServerConfig` fields are wired through VM and native runtime state:
+`max_connections`, parser limits, handler timeout, and `worker_count`
+storage. The local `noop()` helper is a true unit-returning no-op.
 
 #### Track 3-B: HTTP client helpers
 

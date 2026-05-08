@@ -273,6 +273,33 @@ fn handler(req) with Async {
 }
 
 #[test]
+fn native_http_oversized_header_returns_413() {
+    let port = next_port();
+    let source = basic_source(
+        port,
+        24,
+        8_388_608,
+        30_000,
+        "GET /wide HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n",
+        r#"
+fn handler(req) with Async {
+    ok("unexpected")
+}
+"#,
+    );
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        success,
+        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("HTTP/1.1 413 Payload Too Large"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("unexpected"), "{stdout}");
+}
+
+#[test]
 fn native_http_handler_timeout_returns_504() {
     let port = next_port();
     let source = basic_source(

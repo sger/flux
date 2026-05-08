@@ -27,6 +27,7 @@ typedef struct {
     size_t max_header_bytes;
     size_t max_body_bytes;
     size_t request_timeout_ms;
+    size_t worker_count;
 } HttpServerState;
 
 static HttpServerState *http_servers = NULL;
@@ -96,6 +97,28 @@ static int64_t http_config_int_field(int64_t config, int index, int64_t fallback
     }
     if (index >= count || !flux_is_int(fields[index])) return fallback;
     int64_t value = flux_untag_int(fields[index]);
+    return value >= 0 ? value : fallback;
+}
+
+static int64_t http_config_option_int_field(int64_t config, int index, int64_t fallback) {
+    int32_t count = 0;
+    int64_t *fields = http_adt_fields(config, NULL, &count);
+    if (!fields) return fallback;
+    if (count == 1) {
+        int32_t inner_count = 0;
+        int64_t *inner = http_adt_fields(fields[0], NULL, &inner_count);
+        if (inner && inner_count >= 5) {
+            fields = inner;
+            count = inner_count;
+        }
+    }
+    if (index >= count) return fallback;
+    int64_t option = fields[index];
+    int32_t option_count = 0;
+    int64_t *option_fields = http_adt_fields(option, NULL, &option_count);
+    if (!option_fields || option_count == 0) return fallback;
+    if (!flux_is_int(option_fields[0])) return fallback;
+    int64_t value = flux_untag_int(option_fields[0]);
     return value >= 0 ? value : fallback;
 }
 
@@ -684,6 +707,7 @@ int64_t flux_http_serve_config(
     state->max_header_bytes = (size_t)http_config_int_field(config_val, 1, 65536);
     state->max_body_bytes = (size_t)http_config_int_field(config_val, 2, 8388608);
     state->request_timeout_ms = (size_t)http_config_int_field(config_val, 3, 30000);
+    state->worker_count = (size_t)http_config_option_int_field(config_val, 4, 0);
     http_unlock();
     return flux_tag_int(id);
 }
@@ -693,9 +717,7 @@ int64_t flux_http_shutdown(int64_t handle_val) {
     HttpServerState *state = http_find_server(flux_untag_int(handle_val));
     if (state) {
         state->shutting_down = 1;
-        if (state->active_len == 0) {
-            state->stopped = 1;
-        }
+        http_close_listener(state);
     }
     http_unlock();
     return FLUX_NONE;
@@ -1058,9 +1080,6 @@ int64_t flux_http_unregister_connection(int64_t server_val, int64_t conn_val) {
     http_lock();
     HttpServerState *state = http_find_server(flux_untag_int(server_val));
     http_active_remove(state, (uint64_t)flux_untag_int(conn_val));
-    if (state && state->shutting_down && state->active_len == 0) {
-        state->stopped = 1;
-    }
     http_unlock();
     return FLUX_NONE;
 }

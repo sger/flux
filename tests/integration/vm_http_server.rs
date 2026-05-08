@@ -1,5 +1,6 @@
 //! VM HTTP/1.1 server tests (proposal 0174 Phase 3a).
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -174,6 +175,33 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
+fn serve_config_rejects_negative_config_fields() {
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    ok("unexpected")
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let config = server_config(0 - 1, 65536, 8388608, 30000)
+    let _h = serve_config("127.0.0.1", {port}, config, handler)
+    "unexpected"
+}}
+"#
+    ));
+    let (stdout, stderr, success) = run_source(source);
+    assert!(
+        !success,
+        "negative config fixture unexpectedly succeeded:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("ServerConfig.max_connections must be non-negative"),
+        "expected max_connections diagnostic, got:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn shutdown_stops_accepting_new_connections() {
     let _guard = VM_HTTP_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
@@ -220,6 +248,97 @@ fn body() -> String with Async, AsyncFail {{
         late_connect.is_err(),
         "late connection unexpectedly succeeded"
     );
+}
+
+#[test]
+fn max_connections_backpressures_live_connections() {
+    let _guard = VM_HTTP_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("VM HTTP test lock poisoned");
+    let port = next_port();
+    let source = lifecycle_source(&format!(
+        r#"
+fn handler(req) with Async {{
+    if req.path == "/hold" {{
+        let _slow = sleep(300)
+        ok("hold")
+    }} else {{
+        ok("second")
+    }}
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let config = server_config(1, 65536, 8388608, 30000)
+    let h = serve_config("127.0.0.1", {port}, config, handler)
+    let _sleep = sleep(900)
+    shutdown(h)
+    "server-done"
+}}
+"#
+    ));
+    let path = write_fixture(source);
+    let child = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--no-cache"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn flux");
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut first =
+        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500))
+            .expect("connect first client");
+    first
+        .write_all(b"GET /hold HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        .expect("write first request");
+
+    std::thread::sleep(std::time::Duration::from_millis(75));
+    let mut second =
+        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500))
+            .expect("connect second client");
+    second
+        .write_all(b"GET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        .expect("write second request");
+    second
+        .set_read_timeout(Some(std::time::Duration::from_millis(120)))
+        .expect("set second short timeout");
+    let mut early = [0u8; 128];
+    let early_read = second.read(&mut early);
+    assert!(
+        early_read.is_err(),
+        "second request was served while first connection was still active: {early_read:?}"
+    );
+
+    first
+        .set_read_timeout(Some(std::time::Duration::from_millis(1000)))
+        .expect("set first timeout");
+    let mut first_response = String::new();
+    first
+        .read_to_string(&mut first_response)
+        .expect("read first response");
+    assert!(first_response.contains("hold"), "{first_response}");
+
+    second
+        .set_read_timeout(Some(std::time::Duration::from_millis(1000)))
+        .expect("set second timeout");
+    let mut second_response = String::new();
+    second
+        .read_to_string(&mut second_response)
+        .expect("read second response");
+    assert!(second_response.contains("second"), "{second_response}");
+
+    let output = child.wait_with_output().expect("wait for flux");
+    let _ = std::fs::remove_file(&path);
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+    assert!(
+        output.status.success(),
+        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("server-done"), "{stdout}");
 }
 
 #[test]
