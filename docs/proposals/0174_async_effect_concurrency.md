@@ -80,7 +80,7 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
-| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. HTTP client Track 3-B is complete: `get` / `post` route through the Flux-level TCP request flow on VM and LLVM/native, native response parsing preserves `status` / `headers` / `body`, and coverage lives in [`vm_http_client.rs`](../../tests/integration/vm_http_client.rs) plus [`native_http_client_tests.rs`](../../tests/native_llvm/native_http_client_tests.rs). [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Remaining Phase 3 work: JSON and Streams refinements. |
+| **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. HTTP client Track 3-B is complete: `get` / `post` route through the Flux-level TCP request flow on VM and LLVM/native, native response parsing preserves `status` / `headers` / `body`, and coverage lives in [`vm_http_client.rs`](../../tests/integration/vm_http_client.rs) plus [`native_http_client_tests.rs`](../../tests/native_llvm/native_http_client_tests.rs). JSON Track 3-C is complete: `JsonNumber` is split into exact `JsonInt(Int)` and compact `JsonFloat(Float)`, VM/native parser-stringifier paths preserve all JSON variants, and decode failures use structured `JsonErr(JsonError { path, message })`. [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Remaining Phase 3 work: Streams refinements. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |
 
@@ -125,10 +125,10 @@ Current green bar after Phase 1b closeout: `cargo check --features llvm`, focuse
 - [x] **3-B-iii** — `Response` record: `status`, `headers`, `body` fields accessible from Flux
 
 #### 3-C JSON
-- [ ] **3-C-i** — `Json.encode` round-trips all `JsonValue` variants without loss
+- [x] **3-C-i** — `Json.encode` round-trips all `JsonValue` variants without loss _(landed)_
 - [x] **3-C-ii** — `Json.as_int` / `Decode<Int>.decode` bounds-check: reject values outside `[-2^53, 2^53]` _(landed)_
-- [ ] **3-C-iii** — `JsonNumber` internal representation decision: keep `Float` or split `Int | Float`
-- [ ] **3-C-iv** — `Json.decode` error path returns structured `JsonErr` (not a bare string)
+- [x] **3-C-iii** — `JsonNumber` internal representation decision: split into `JsonInt(Int) | JsonFloat(Float)` _(landed)_
+- [x] **3-C-iv** — `Json.decode` error path returns structured `JsonErr` (not a bare string) _(landed)_
 - [x] **3-C-v** — `deriving (Encode, Decode)` synthesises both instance bodies via Phase 0c AST pass _(landed)_
 
 #### 3-D Streams
@@ -2245,12 +2245,13 @@ proposal (significant complexity for marginal Phase-3 gain).
 
 Two parts, sequenced as separate sub-slices:
 
-**Phase 3-Json-a (ship first):** `data Json { ... }`, parser, encoder,
+**Phase 3-Json-a (landed):** `data Json { ... }`, parser, encoder,
 and **manual** `Json.Encode` / `Json.Decode` instances written once
 for primitives plus `Option`, `List`, and `Map`.
 
 - `Flow.Json.parse: String -> Json` — tagged union value
-  (`data Json { JsonNull, JsonBool(Bool), JsonNumber(Float), JsonString(String), JsonArray(Array<Json>), JsonObject(Map<String, Json>) }`).
+  (`data JsonNumber { JsonInt(Int), JsonFloat(Float) }` and
+  `data Json { JsonNull, JsonBool(Bool), JsonNumber(JsonNumber), JsonString(String), JsonArray(Array<Json>), JsonObject(Map<String, Json>) }`).
 - Pretty-printer `Flow.Json.encode: Json -> String`.
 - `class Json.Encode<a>` and `class Json.Decode<a>` declarations plus
   hand-written instances for the primitives above.
@@ -2259,16 +2260,9 @@ This sub-slice is independent of any compiler-synthesis work and is
 sufficient for the Phase 3 demos (hello-world microservice, JSON
 echo, parallel HTTP fetch).
 
-**Phase 3-Json-b (follow-on):** `deriving (Json.Encode, Json.Decode)`
-codec method-body synthesis. Today the parser/elaboration registers
-derived instances with no method bodies (see
-[`src/types/class_env.rs`](../../src/types/class_env.rs)
-`collect_deriving`); body synthesis lands in
-[`src/core/passes/dict_elaborate.rs`](../../src/core/passes/dict_elaborate.rs)
-or a new `derive_codec` pass. Per-record codecs aim for
-zero-allocation when the type permits (ADTs with all flat fields).
-This sub-slice carries its own design review because synthesised
-method bodies are a new compiler capability, not a glue layer.
+**Phase 3-Json-b (landed):** `deriving (Json.Encode, Json.Decode)`
+codec method-body synthesis. The Phase 0c AST pass now emits both instance
+bodies, including exact `Json.int` emission for `Int` fields.
 
 #### Streams
 
@@ -2297,9 +2291,9 @@ The transparent `alias Stream<a> = ...` form depends on Phase 2 slice
 
 #### Phase 3 deliverables
 
-- `lib/Flow/Http.flx`, `lib/Flow/Json.flx`, `lib/Flow/Stream.flx` — ~600 lines Flux total. **Status:** `Flow.Http` server surface has landed; JSON and Stream modules remain.
-- `src/runtime/http/` — scratch-built HTTP/1.1 parser, response/request writer, keep-alive state machine. ~600-900 lines Rust plus tests. **No `vendor/` directory, no third-party HTTP parser dependency.** **Status:** parser/writer foundation and blocking VM keep-alive loop have landed; detached manager and native parity remain.
-- `src/core/passes/dict_elaborate.rs` (or a new `derive_codec` pass) — JSON codec body synthesis (Phase 3-Json-b).
+- `lib/Flow/Http.flx`, `lib/Flow/Json.flx`, `lib/Flow/Stream.flx` — ~600 lines Flux total. **Status:** `Flow.Http` server/client surfaces and `Flow.Json` have landed; Stream refinements remain.
+- `src/runtime/http/` — scratch-built HTTP/1.1 parser, response/request writer, keep-alive state machine. ~600-900 lines Rust plus tests. **No `vendor/` directory, no third-party HTTP parser dependency.** **Status:** parser/writer foundation, detached manager, shutdown semantics, and native parity have landed.
+- Phase 0c JSON codec body synthesis — landed in the type/class pipeline, with derived encoders preserving exact integers.
 - Examples: see §Examples below for current state and gaps.
 - Documentation: HTTP server quickstart, JSON codec guide.
 - Acceptance load test: 10k concurrent HTTP/1.1 keep-alive connections (carried over from the original Phase 1b acceptance, deferred there to a real HTTP workload). See §Load test spec below.
@@ -2314,7 +2308,7 @@ against the VM path via `cargo run -- --no-cache`. Status and known issues:
 | File | Status | Issues |
 |------|--------|--------|
 | `hello_http_service.flx` | ✅ works | Uses `with Async, AsyncFail` redundantly — `AsyncFail` is already inside `Async`. Cleanup once effect-alias expansion is verified. |
-| `json_echo_service.flx` | ✅ works | Uses manual JSON field extraction instead of `deriving`. Once 3-C-iv lands, replace with `Json.decode(req.body)` directly. `decode_echo_request` is a workaround, not an example of intended usage. |
+| `json_echo_service.flx` | ✅ works | Uses manual JSON field extraction. Now that structured decode errors and deriving have landed, a follow-up example can replace the local `decode_echo_request` helper with `Json.decode(req.body)`. |
 | `parallel_http_fetch.flx` | ✅ works | Good example of `both` for concurrent client requests. No changes needed. |
 | `sse_broadcaster.flx` | ⚠️ partial | Uses `serve_stream` which is not in the proposal surface — should use `serve` + `sse_response`. `Tcp.read` loop as client is low-level; once `Http.get_stream` lands (3-B-ii) this should use the streaming client. |
 | `stream_pipeline.flx` | ✅ works | Pure stream pipeline, no HTTP. Good smoke test. No `flat_map` demo — add one once 3-D-ii lands. |
@@ -2323,7 +2317,7 @@ against the VM path via `cargo run -- --no-cache`. Status and known issues:
 **Missing examples (add during Phase 3):**
 
 - **`load_test_server.flx`** — server side of the 10k acceptance scenario. Starts `serve_config` with `max_connections: 10_000`, echoes request path back as response body. No computation in handler. Used as the target for the Rust-side load driver.
-- **`crud_service.flx`** — replaces `json_echo_service.flx` as the idiomatic Phase 3 example once `deriving (Json.Encode, Json.Decode)` works end-to-end. Uses `data` with named fields, `deriving`, and `Http.json_response`.
+- **`crud_service.flx`** — adds an idiomatic Phase 3 example using `data` with named fields, `deriving`, and `Http.json_response`.
 - **`task_plus_http.flx`** — demonstrates `Task.spawn` for a CPU-bound step inside an HTTP handler while other connections keep serving. Validates that `Task.await` does not block the worker (the Phase 2-i fix).
 - **`timeout_server.flx`** — server with a slow-handler route (`sleep(5000)`) and `request_timeout_ms: 500` so clients receive 504. Documents the timeout enforcement behavior.
 
@@ -2412,37 +2406,32 @@ LLVM/native. Regression coverage reads all three fields for both `get` and
 
 #### Track 3-C: JSON correctness and ergonomics
 
-**3-C-i — `Encode<Int>` precision fix (correctness)**
-`Encode<Int>` currently encodes via `parse(to_string(value))` — a
-float-parse round-trip that loses precision for integers above 2^53.
-Replace with a direct `JsonNumber` construction that preserves integer
-exact value.
+**3-C-i — `Json.encode` variant round-trip (landed)**
+The VM Rust runtime and LLVM/native C shims now parse and stringify every
+`Json` variant deterministically. Integer-looking numbers that fit Flux `Int`
+round-trip through the exact `JsonNumber(JsonInt(value))` path instead of a
+lossy float parse/stringify cycle.
 
-**3-C-ii — `as_int` precision fix (correctness)**
-`as_int` converts via `parse_int(to_string(number))` where `number` is a
-`Float`. Any integer above 2^53 silently loses bits. Add bounds-checking
-before conversion and return a `JsonErr` when out of safe integer range.
+**3-C-ii — `as_int` precision fix (landed)**
+`Json.as_int` and `Decode<Int>.decode` accept exact `JsonInt` values and safe
+integral `JsonFloat` values inside `[-2^53, 2^53]`. Fractional, unsafe,
+non-finite, and out-of-range values return structured `JsonErr` failures.
 
-**3-C-iii — `JsonResult<a>` unification with `Async.Result`**
-`JsonResult<a>` is a separate type from `Result<a, AsyncError>`. Every
-JSON decode result must be manually mapped before use with async
-error-propagation combinators. Either alias `JsonResult<a>` to
-`Result<a, JsonError>` and add `AsyncError.JsonDecodeError(JsonError)`, or
-provide a `json_result_to_result` bridge. The former is the cleaner long-term
-shape.
+**3-C-iii — `JsonNumber` representation decision (landed)**
+Decision: split the payload as `JsonNumber(JsonInt(Int) | JsonFloat(Float))`.
+This preserves Flux integers exactly without introducing arbitrary-precision
+decimal or bigint support in this slice.
 
-**3-C-iv — `deriving (Json.Encode, Json.Decode)` synthesis**
-The synthesis pass exists but the `deriving` parser has an off-by-one on the
-trailing `)` (see syntax fixes below) that may eat the first token of the next
-statement. Fix the parser bug first, then verify all ADT shapes (positional,
-named-field, multi-variant, parameterized) produce correct `encode`/`decode`
-implementations. Add a parity test for a non-trivial ADT.
+**3-C-iv — structured decode errors (landed)**
+`JsonResult<a>` remains a JSON-specific result type, but failure payloads are
+structured as `JsonErr(JsonError { path, message })` throughout parser,
+manual decoder, and derived decoder paths. `Json.error_message` is retained as
+a formatting helper.
 
-**3-C-v — `deriving` on `type` ADT sugar**
-`type Result<T, E> = Ok(T) | Err(E) deriving (Encode, Decode)` silently
-drops the `deriving` clause. Fix `parse_type_adt_statement` to call
-`parse_deriving_list` after the last variant and forward the list to the
-desugared `Statement::Data`.
+**3-C-v — `deriving (Encode, Decode)` synthesis (landed)**
+The Phase 0c AST pass synthesizes both encoder and decoder method bodies for
+supported ADT shapes, including `type` ADT sugar and exact `Json.int` emission
+for encoded `Int` fields.
 
 #### Track 3-D: Streams — correctness and missing combinators
 

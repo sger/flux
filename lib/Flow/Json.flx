@@ -4,12 +4,18 @@ import Flow.List as List
 import Flow.List
 import Flow.Map as Map
 import Flow.Map
+import Flow.Math as Math
 
 module Flow.Json {
+    public data JsonNumber {
+        JsonInt(Int),
+        JsonFloat(Float)
+    }
+
     public data Json {
         JsonNull,
         JsonBool(Bool),
-        JsonNumber(Float),
+        JsonNumber(JsonNumber),
         JsonString(String),
         JsonArray(Array<Json>),
         JsonObject(Map<String, Json>)
@@ -92,7 +98,8 @@ module Flow.Json {
 
     public fn null() -> Json { JsonNull }
     public fn bool(value: Bool) -> Json { JsonBool(value) }
-    public fn number(value: Float) -> Json { JsonNumber(value) }
+    public fn int(value: Int) -> Json { JsonNumber(JsonInt(value)) }
+    public fn number(value: Float) -> Json { JsonNumber(JsonFloat(value)) }
     public fn string(value: String) -> Json { JsonString(value) }
     public fn array(value: Array<Json>) -> Json { JsonArray(value) }
     public fn object(value: Map<String, Json>) -> Json { JsonObject(value) }
@@ -129,14 +136,22 @@ module Flow.Json {
 
     public fn as_float(value: Json, path: String) -> JsonResult<Float> {
         match value {
-            JsonNumber(number) -> JsonOk(number),
+            JsonNumber(JsonFloat(number)) -> JsonOk(number),
             _ -> JsonErr(JsonError { path, message: "expected JSON number" })
         }
     }
 
     public fn as_int(value: Json, path: String) -> JsonResult<Int> {
         match value {
-            JsonNumber(number) -> JsonOk(parse_int(to_string(number))),
+            JsonNumber(JsonInt(number)) -> JsonOk(number),
+            JsonNumber(JsonFloat(number)) -> do {
+                let truncated = Math.truncate(number)
+                if number == truncated && number >= -9007199254740992.0 && number <= 9007199254740992.0 {
+                    JsonOk(parse_int(to_string(truncated)))
+                } else {
+                    JsonErr(JsonError { path, message: "expected safe integral JSON number" })
+                }
+            },
             _ -> JsonErr(JsonError { path, message: "expected JSON number" })
         }
     }
@@ -204,28 +219,22 @@ module Flow.Json {
     }
 
     public instance Encode<Int> {
-        fn encode(value) { parse(to_string(value)) }
+        fn encode(value) { JsonNumber(JsonInt(value)) }
     }
 
     public instance Decode<Int> {
         fn decode(value) {
-            match value {
-                JsonNumber(n) -> JsonOk(parse_int(to_string(n))),
-                _ -> JsonErr(JsonError { path: "$", message: "expected JSON number" })
-            }
+            as_int(value, "$")
         }
     }
 
     public instance Encode<Float> {
-        fn encode(value) { JsonNumber(value) }
+        fn encode(value) { JsonNumber(JsonFloat(value)) }
     }
 
     public instance Decode<Float> {
         fn decode(value) {
-            match value {
-                JsonNumber(n) -> JsonOk(n),
-                _ -> JsonErr(JsonError { path: "$", message: "expected JSON number" })
-            }
+            as_float(value, "$")
         }
     }
 

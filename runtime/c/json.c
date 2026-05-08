@@ -4,6 +4,7 @@
 
 #include "flux_rt.h"
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,8 @@ typedef struct {
     int32_t json_null_tag;
     int32_t json_bool_tag;
     int32_t json_number_tag;
+    int32_t json_int_tag;
+    int32_t json_float_tag;
     int32_t json_string_tag;
     int32_t json_array_tag;
     int32_t json_object_tag;
@@ -340,8 +343,26 @@ static int64_t json_parse_number(JsonParser *p) {
         json_set_error(p, "invalid number");
         return FLUX_NONE;
     }
+    int integral = 1;
+    for (size_t i = 0; i < n; i++) {
+        if (tmp[i] == '.' || tmp[i] == 'e' || tmp[i] == 'E') {
+            integral = 0;
+            break;
+        }
+    }
+    if (integral) {
+        errno = 0;
+        char *int_end = NULL;
+        long long parsed = strtoll(tmp, &int_end, 10);
+        if (errno != ERANGE && int_end && *int_end == '\0') {
+            int64_t i = flux_tag_int((int64_t)parsed);
+            int64_t payload = json_make_adt(p->tags.json_int_tag, &i, 1);
+            return json_make_adt(p->tags.json_number_tag, &payload, 1);
+        }
+    }
     int64_t f = flux_box_float(d);
-    return json_make_adt(p->tags.json_number_tag, &f, 1);
+    int64_t payload = json_make_adt(p->tags.json_float_tag, &f, 1);
+    return json_make_adt(p->tags.json_number_tag, &payload, 1);
 }
 
 static int64_t json_parse_value(JsonParser *p) {
@@ -396,6 +417,8 @@ int64_t flux_json_parse(
     int32_t json_null_tag,
     int32_t json_bool_tag,
     int32_t json_number_tag,
+    int32_t json_int_tag,
+    int32_t json_float_tag,
     int32_t json_string_tag,
     int32_t json_array_tag,
     int32_t json_object_tag,
@@ -405,8 +428,9 @@ int64_t flux_json_parse(
     int64_t raw_val
 ) {
     JsonTags tags = {
-        json_null_tag, json_bool_tag, json_number_tag, json_string_tag, json_array_tag,
-        json_object_tag, json_error_tag, json_ok_tag, json_err_tag
+        json_null_tag, json_bool_tag, json_number_tag, json_int_tag, json_float_tag,
+        json_string_tag, json_array_tag, json_object_tag, json_error_tag, json_ok_tag,
+        json_err_tag
     };
     JsonParser p = {
         flux_string_data(raw_val),
@@ -473,7 +497,13 @@ static void json_stringify_value(JsonBuf *buf, JsonTags tags, int64_t value) {
         json_buf_mem(buf, fields[0] == FLUX_TRUE ? "true" : "false", fields[0] == FLUX_TRUE ? 4 : 5);
     } else if (tag == tags.json_number_tag && fields && count >= 1) {
         char tmp[64];
-        if (flux_val_is_float(fields[0])) {
+        int32_t payload_tag = 0, payload_count = 0;
+        int64_t *payload_fields = json_adt_fields(fields[0], &payload_tag, &payload_count);
+        if (payload_tag == tags.json_int_tag && payload_fields && payload_count >= 1 && flux_is_int(payload_fields[0])) {
+            snprintf(tmp, sizeof(tmp), "%lld", (long long)flux_untag_int(payload_fields[0]));
+        } else if (payload_tag == tags.json_float_tag && payload_fields && payload_count >= 1 && flux_val_is_float(payload_fields[0])) {
+            snprintf(tmp, sizeof(tmp), "%.17g", flux_unbox_float(payload_fields[0]));
+        } else if (flux_val_is_float(fields[0])) {
             snprintf(tmp, sizeof(tmp), "%.17g", flux_unbox_float(fields[0]));
         } else if (flux_is_int(fields[0])) {
             snprintf(tmp, sizeof(tmp), "%lld", (long long)flux_untag_int(fields[0]));
@@ -520,14 +550,16 @@ int64_t flux_json_stringify(
     int32_t json_null_tag,
     int32_t json_bool_tag,
     int32_t json_number_tag,
+    int32_t json_int_tag,
+    int32_t json_float_tag,
     int32_t json_string_tag,
     int32_t json_array_tag,
     int32_t json_object_tag,
     int64_t value
 ) {
     JsonTags tags = {
-        json_null_tag, json_bool_tag, json_number_tag, json_string_tag, json_array_tag,
-        json_object_tag, 0, 0, 0
+        json_null_tag, json_bool_tag, json_number_tag, json_int_tag, json_float_tag,
+        json_string_tag, json_array_tag, json_object_tag, 0, 0, 0
     };
     JsonBuf buf = {0};
     json_stringify_value(&buf, tags, value);
