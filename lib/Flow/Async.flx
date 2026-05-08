@@ -129,10 +129,7 @@ module Flow.Async {
     ///
     /// - `worker_count`: `Some(n)` requests `n` worker workers (>= 1).
     ///   `None` means "use the runtime default" — `available_parallelism()`
-    ///   on platforms that report it, falling back to 2 logical workers
-    ///   on the VM. Honored on the VM today; the native runtime currently
-    ///   uses its compile-time `LOGICAL_WORKERS` constant and ignores
-    ///   this field (full native support is a follow-up).
+    ///   on platforms that report it, falling back to 2 logical workers.
     /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
     ///   Accepted today and stored; consulted once filesystem blocking
     ///   consumers land. `0` means "use default".
