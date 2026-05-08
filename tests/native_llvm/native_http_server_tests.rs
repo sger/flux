@@ -68,7 +68,7 @@ fn read_all_http(conn, acc: String) -> String with Async {{
 {body}
 
 fn main() with IO {{
-    print(run_async(body))
+    print(run_async_with(with_worker_count(1), body))
 }}
 "#
     )
@@ -209,7 +209,7 @@ fn body() -> String with Async, AsyncFail {{
 }}
 
 fn main() with IO {{
-    print(run_async(body))
+    print(run_async_with(with_worker_count(1), body))
 }}
 "#
     );

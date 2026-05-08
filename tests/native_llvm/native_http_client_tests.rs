@@ -87,7 +87,7 @@ fn body() -> String with Async, AsyncFail {{
 }}
 
 fn main() with IO {{
-    print(run_async(body))
+    print(run_async_with(with_worker_count(1), body))
 }}
 "#
     )
@@ -180,7 +180,10 @@ fn native_http_client_post_loopback() {
         ),
     );
     let stdout = run_ok(source);
-    assert!(stdout.contains("accepted:native-post:/echo:payload"), "{stdout}");
+    assert!(
+        stdout.contains("accepted:native-post:/echo:payload"),
+        "{stdout}"
+    );
 }
 
 #[test]

@@ -112,6 +112,32 @@ Sugar for the common case of pinning the worker count.
 let result = run_async_with_workers(4, my_action)
 ```
 
+### 3.4 `current_worker_count` (introspection)
+
+```flux
+public fn current_worker_count() -> Int with Async
+```
+
+Reports the worker count of the currently active `run_async` scheduler.
+Backed by `CorePrimOp::FiberCurrentWorkerCount = 201`. Returns the number
+of OS worker threads on native (one main thread + `flux-async-worker-{N}`
+threads visible in `ps -T` / Process Explorer); on the VM, the
+logical-worker count of the active `FiberScheduler`.
+
+```flux
+fn body() -> Int with Async {
+    current_worker_count()
+}
+
+fn main() with IO {
+    print(run_async_with_workers(8, body))   // → 8
+    print(run_async(body))                    // → available_parallelism()
+}
+```
+
+This is the recommended way to verify your `RuntimeConfig` is being
+honoured. See also [`examples/async/16_current_worker_count.flx`](../../examples/async/16_current_worker_count.flx).
+
 ---
 
 ## 4. Suspension primitives
@@ -655,7 +681,7 @@ public data RuntimeConfig {
 
 | Field | Default | Native today |
 |---|---|---|
-| `worker_count` | `None` → `available_parallelism()`, fallback 2 | **Ignored** — native uses compile-time `LOGICAL_WORKERS = 2` |
+| `worker_count` | `None` → `FLUX_WORKERS` env → `available_parallelism()` → `2` | Honoured per call. `NativeRun` sizes ready queues and the worker thread pool to the requested count. |
 | `fs_pool_size` | `0` → reserved | Plumbed but unused |
 | `dns_pool_size` | `0` → `FLUX_DNS_THREADS` env, fallback 4 | Honoured |
 
@@ -721,9 +747,54 @@ Only `canceled_error()` and `protocol_error(status, msg)` are exposed as constru
 
 Mitigation: don't write `Sendable` instances by hand. Let the synthesizer derive them.
 
-### 14.6 `worker_count` ignored on native
+### 14.8 LLVM compile hangs on many `run_async_with*` call sites + a suspending body
 
-`RuntimeConfig.worker_count` is plumbed end-to-end but the native runtime currently uses a compile-time constant. The field is accepted for forward compatibility.
+Investigated 2026-05-08. **Not a runtime bug** — the symptom is the LLVM
+compile/link of the user binary hanging at
+`[12 of 13] Linking Flow.Either` (just before the user module would link).
+Earlier writeups described this as a "native sequential deadlock"; that
+characterisation was wrong, the program never reaches runtime.
+
+**Reproducer:** in a single function, place **9 sequential
+`run_async_with_workers(N, fn)` call sites** where at least one of the
+bodies contains a suspending call (e.g. `sleep`). Eight call sites
+compile fine; nine hangs the LLVM optimizer/linker indefinitely.
+
+```flux
+// Hangs the build at the user-module link step:
+fn main() with IO {
+    print(run_async_with_workers(1, report))
+    // ... 7 more identical calls ...
+    print(run_async_with_workers(9, slept))      // body contains sleep(10)
+}
+```
+
+**Suspected cause:** an LLVM optimization pass scaling super-linearly
+with the number of `flux_fiber_run_async_with` call sites that share a
+suspending closure body. Specific pass not yet identified; investigation
+parked.
+
+**Compiler workaround:** the native LIR→LLVM path now transparently outlines
+excess `run_async_with*` sites into noinline helper functions before LLVM
+optimization. User source does not need to change; the source-level workaround
+remains to keep ≤ 8 sequential `run_async_with*` call sites in any one function
+if testing an older compiler.
+
+**LLVM-side diagnostics:** any future pass-localization work must run under an
+external timeout. Extract IR with `--emit-llvm`/`--dump-lir-llvm`, then invoke
+`opt` or native compilation diagnostics with a timeout wrapper (for example
+PowerShell `Start-Process` plus `Wait-Process -Timeout`, or Unix `timeout 60`).
+Do not run this reproducer through unbounded `--native`.
+
+**Reproducer file:** [`examples/async/repro_native_seq.flx`](../../examples/async/repro_native_seq.flx)
+— preserved as the smallest known trigger for future debugging.
+
+**Related design implication:** the architecture *was* hypothesised to
+have a runtime sequential-teardown bug. Phase B testing confirmed
+sequential `run_async_with*` boundaries on native are fine — the
+runtime correctly tears down each `NativeRun`, joins workers, and starts
+the next run. The earlier proposal-0174 §14.8 wording about runtime
+deadlock has been corrected.
 
 ---
 
@@ -747,6 +818,7 @@ User-facing async functions are thin wrappers over `CorePrimOp` variants. This t
 | `run_async_with` | `FiberRunAsyncWith = 179` | same as `run_async` + cfg |
 | `first_of` | `FiberFirstOf = 180` | N-way awaiter |
 | `try_` | `FiberTry = 181` | error boundary |
+| `current_worker_count` | `FiberCurrentWorkerCount = 201` | active scheduler introspection |
 | `Task.spawn` | `TaskSpawn` | `flux_task_spawn` (native) |
 | `Task.blocking_join` | `TaskBlockingJoin` | `flux_task_blocking_join` |
 | `Task.await` | `TaskAwait` | `flux_task_await` |
@@ -820,6 +892,134 @@ fn read_with_timeout(s: Socket) -> String with Async {
         Some(line) -> line,
         None       -> ""
     }
+}
+```
+
+### 16.6 Pinning the worker count for a benchmark
+
+```flux
+fn benchmark() -> Int with Async {
+    // Confirm the runtime actually allocated the workers we asked for.
+    let n = current_worker_count()
+    print("benchmark on " + to_string(n) + " workers")
+    workload()
+}
+
+fn main() with IO {
+    print(run_async_with_workers(8, benchmark))
+}
+```
+
+### 16.7 Tuning at startup from an env var
+
+```flux
+// Caller already set FLUX_WORKERS=N; let the resolver pick it up.
+fn main() with IO {
+    print("running with " + to_string(run_async(fn() -> Int with Async {
+        current_worker_count()
+    })) + " workers")
+}
+```
+
+### 16.8 Scatter + gather
+
+Spawn N parallel tasks for CPU work, await them all from a fiber while
+the OS thread keeps servicing other fibers.
+
+```flux
+fn job(seed: Int) -> Int { sum_squares(seed, 0) }
+
+fn worker_count_or_default() -> Int with Async {
+    let n = current_worker_count()
+    if n > 0 { n } else { 4 }
+}
+
+fn scatter_gather() -> Int with Async {
+    let n = worker_count_or_default()
+    let handles = map(range(0, n), fn(i) { Task.spawn(fn() { job(i * 100) }) })
+    sum_list(map(handles, Task.await))
+}
+```
+
+### 16.9 Race with cleanup
+
+`bracket` cleanup arms fire on every termination path including
+`race`-loser cancellation:
+
+```flux
+fn slow() -> String with Async {
+    bracket(
+        fn()  { acquire_handle() },
+        fn(h) { release_handle(h) },        // runs even when cancelled
+        fn(h) { sleep(2000); read(h) }
+    )
+}
+
+fn fast() -> String with Async { sleep(20); "fast" }
+
+fn body() -> String with Async {
+    race(fast, slow)                         // returns "fast" in ~20ms
+}                                            // slow's release_handle still runs
+```
+
+### 16.10 Cooperative checkpoint inside a streaming reduction
+
+```flux
+fn reduce_until<a, b>(items: Stream<a>, seed: b, step: (b, a) -> b) -> b with Async {
+    bail_if_cancelled()                      // honour scope cancellation
+    match Stream.next(items) {
+        None         -> seed,
+        Some((x, rest)) -> reduce_until(rest, step(seed, x), step)
+    }
+}
+```
+
+### 16.11 Bounded concurrency with first_of
+
+Run N candidates, return the first one that succeeds, cancel the rest:
+
+```flux
+fn fetch(url: String) -> String with Async { http_get(url) }
+
+fn fastest_mirror() -> String with Async {
+    let mirrors = [
+        fn() { fetch("https://a.example.com") },
+        fn() { fetch("https://b.example.com") },
+        fn() { fetch("https://c.example.com") }
+    ]
+    first(mirrors)                           // returns the fastest, cancels the others
+}
+```
+
+### 16.12 Catching panics in workers
+
+`Async.try_` catches both explicit `fail` and panics, returning a
+`Result<a, AsyncError>` you inspect with helper functions:
+
+```flux
+fn risky() -> Int with Async {
+    if random() < 0.5 { panic("nope") }
+    else              { 42 }
+}
+
+fn safe() -> Int with Async {
+    result_or(try_(risky), -1)               // -1 on panic or fail
+}
+```
+
+### 16.13 Timeout cascades
+
+Stack timeouts when a sub-operation has its own deadline:
+
+```flux
+fn outer() -> Option<String> with Async {
+    timeout(5000, fn() {
+        let early = timeout(1000, fast_path)
+        match early {
+            Some(v) -> v,                    // fast path won
+            None    -> slow_path()           // 4s budget remains
+        }
+    })
 }
 ```
 

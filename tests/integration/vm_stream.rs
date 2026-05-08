@@ -169,7 +169,10 @@ fn main() with IO {
         "stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("[|1, 10, 2, 20, 3, 30|]"), "{stdout}");
-    assert!(stdout.contains(r#"[|(1, "a"), (2, "b"), (3, "c")|]"#), "{stdout}");
+    assert!(
+        stdout.contains(r#"[|(1, "a"), (2, "b"), (3, "c")|]"#),
+        "{stdout}"
+    );
     assert_eq!(stdout.matches(r#"[|(1, "a")|]"#).count(), 2, "{stdout}");
     assert_eq!(stdout.matches("[||]").count(), 2, "{stdout}");
 }

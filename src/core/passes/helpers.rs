@@ -608,6 +608,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberForkScoped
         | CorePrimOp::FiberCancelScope
         | CorePrimOp::FiberCheckCancelled
+        | CorePrimOp::FiberCurrentWorkerCount
         | CorePrimOp::FiberRunAsyncWith
         | CorePrimOp::FiberFirstOf
         | CorePrimOp::FiberTry

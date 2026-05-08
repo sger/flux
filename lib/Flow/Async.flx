@@ -83,6 +83,10 @@ module Flow.Async {
     /// suspend, no backend round-trip — a scheduler flag check.
     intrinsic fn fiber_check_cancelled_prim() -> Bool = primop FiberCheckCancelled
 
+    /// Slice 2-vii follow-up: report the worker count of the currently
+    /// active `run_async` scheduler. Returns 0 outside `run_async`.
+    intrinsic fn fiber_current_worker_count_prim() -> Int = primop FiberCurrentWorkerCount
+
     /// Wall-clock sleep for `ms` milliseconds.
     /// VM: blocks OS thread. Native: suspends fiber, wakes on timer.
     intrinsic fn fiber_sleep_prim(ms: Int) -> Unit = primop FiberSleep
@@ -398,6 +402,19 @@ module Flow.Async {
     public fn bail_if_cancelled() -> Unit with Async {
         if check_cancelled() { fail(Canceled) }
         else { () };
+    }
+
+    /// Report the worker count of the currently active `run_async`
+    /// scheduler. Useful for tests and runtime introspection. Returns
+    /// 0 outside an active `run_async` boundary.
+    ///
+    /// On native, this is the number of OS worker threads spawned by
+    /// the scheduler (one is the main thread, others are
+    /// `flux-async-worker-{n}` threads visible in `ps -T` / Process
+    /// Explorer). On the VM, it's the logical-worker count of the
+    /// `FiberScheduler` (single OS thread, multiple logical workers).
+    public fn current_worker_count() -> Int with Async {
+        fiber_current_worker_count_prim()
     }
 
     /// Suspend the current fiber for at least `ms` milliseconds.
