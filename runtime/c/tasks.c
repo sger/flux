@@ -898,6 +898,12 @@ int64_t flux_fiber_check_cancelled(void) {
     return flux_make_bool(flux_async_check_cancelled() != 0);
 }
 
+/* Slice 2-vii follow-up: report the active scheduler's worker count.
+ * Returns 0 outside `run_async`. */
+int64_t flux_fiber_current_worker_count(void) {
+    return flux_tag_int((int64_t)flux_async_current_worker_count());
+}
+
 /* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
  * The Flux ints are NaN-boxed; untag before forwarding to Rust. */
 int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure) {

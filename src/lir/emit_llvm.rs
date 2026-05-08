@@ -121,6 +121,14 @@ pub fn emit_llvm_module_with_yield_options(
     export_user_ctor_name_helper: bool,
     force_yield_checks: bool,
 ) -> LlvmModule {
+    // Work around an LLVM optimizer hang triggered by many
+    // flux_fiber_run_async_with call sites in one generated function.
+    // Run before continuation splitting so subsequent native emission sees an
+    // ordinary LIR program with small noinline helper functions.
+    let outlined_program =
+        crate::lir::run_async_outline::outline_excess_run_async_with_sites(program.clone());
+    let program = &outlined_program;
+
     // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
     // the continuation-splitting pre-pass to synthesize per-call-site
     // continuation functions and populate `Call.yield_cont`. The yield-check
@@ -262,7 +270,10 @@ pub fn emit_llvm_module_with_yield_options(
     // Emit closure entry wrappers for direct functions used as higher-order values.
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
     for func in &program.functions {
-        if func.capture_vars.is_empty() && func.qualified_name != "main" {
+        if func.capture_vars.is_empty()
+            && func.qualified_name != "main"
+            && !crate::lir::run_async_outline::is_run_async_with_outline_helper(func)
+        {
             let linkage = if is_dict_lir_function(func) {
                 Linkage::Internal
             } else {
@@ -973,8 +984,10 @@ impl<'a> FnEmitter<'a> {
             let param_types: Vec<LlvmType> =
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
+            let is_outline_helper =
+                crate::lir::run_async_outline::is_run_async_with_outline_helper(self.func);
             LlvmFunction {
-                linkage: if is_dict_lir_function(self.func) {
+                linkage: if is_outline_helper || is_dict_lir_function(self.func) {
                     Linkage::Internal
                 } else {
                     Linkage::External
@@ -987,7 +1000,11 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Fastcc,
                 },
                 params: param_locals,
-                attrs: vec!["nounwind".to_string()],
+                attrs: if is_outline_helper {
+                    vec!["noinline".to_string(), "nounwind".to_string()]
+                } else {
+                    vec!["nounwind".to_string()]
+                },
                 blocks,
             }
         } else {
@@ -2948,15 +2965,15 @@ impl<'a> FnEmitter<'a> {
                         self.emit(instr);
                     }
                     term
-                } else if self.emit_yield_checks && !suppress_yield_check {
+                } else if self.emit_yield_checks && !suppress_yield_check && yield_cont.is_some() {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
                     // continuation function (populated in Call.yield_cont by
                     // the `cont_split` pre-pass) and hand it to
-                    // `flux_yield_extend`. When the pre-pass produced no
-                    // synthesized continuation, fall back to the stub path
-                    // that drops the continuation — only reachable for
-                    // degenerate cont subgraphs.
+                    // `flux_yield_extend`. Calls without a populated
+                    // continuation are known non-suspending call sites after
+                    // cont_split filtering, so they must not observe a stale
+                    // yielding flag and return a bare sentinel.
                     let passed_cont: Option<(LirFuncId, &[LirVar])> =
                         yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
                     self.emit_yield_check_after_call(*cont, passed_cont)
@@ -3765,6 +3782,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberCancelScope => return "flux_fiber_cancel_scope".to_string(),
         // Phase 2 slice 2-iv: poll the current fiber's scope cancel flag.
         CorePrimOp::FiberCheckCancelled => return "flux_fiber_check_cancelled".to_string(),
+        // Slice 2-vii follow-up: report active scheduler's worker count.
+        CorePrimOp::FiberCurrentWorkerCount => {
+            return "flux_fiber_current_worker_count".to_string();
+        }
         // Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
         CorePrimOp::FiberRunAsyncWith => return "flux_fiber_run_async_with".to_string(),
         // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
@@ -3930,6 +3951,8 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_cancel_scope" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // Phase 2 slice 2-iv: zero-arg, returns tagged Flux Bool.
         "flux_fiber_check_cancelled" => (LlvmType::i64(), vec![]),
+        // Slice 2-vii follow-up: zero-arg, returns tagged Flux Int.
+        "flux_fiber_current_worker_count" => (LlvmType::i64(), vec![]),
         // Phase 2 slice 2-vii: 4-arg run_async_with (workers, fs, dns, closure).
         "flux_fiber_run_async_with" => (
             LlvmType::i64(),

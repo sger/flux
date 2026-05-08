@@ -117,6 +117,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FiberRunAsyncWith => "fiber_run_async_with",
         CorePrimOp::FiberFirstOf => "fiber_first_of",
         CorePrimOp::FiberTry => "fiber_try",
+        CorePrimOp::FiberCurrentWorkerCount => "fiber_current_worker_count",
         CorePrimOp::HttpServeConfig => "http_serve_config",
         CorePrimOp::HttpShutdown => "http_shutdown",
         CorePrimOp::HttpShutdownNow => "http_shutdown_now",
@@ -375,6 +376,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberRunAsyncWith
             | CorePrimOp::FiberFirstOf
             | CorePrimOp::FiberTry
+            | CorePrimOp::FiberCurrentWorkerCount
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
             | CorePrimOp::HttpShutdownNow

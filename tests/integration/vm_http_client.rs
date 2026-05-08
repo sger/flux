@@ -148,7 +148,10 @@ fn post_sends_body_and_returns_response() {
         ),
     );
     let stdout = run_ok(source);
-    assert!(stdout.contains("accepted:vm-post:/echo:payload"), "{stdout}");
+    assert!(
+        stdout.contains("accepted:vm-post:/echo:payload"),
+        "{stdout}"
+    );
 }
 
 #[test]

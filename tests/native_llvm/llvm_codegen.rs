@@ -9,8 +9,13 @@ use std::{
 
 use flux::{
     compiler::Compiler,
-    core::{lower_ast::lower_program_ast, passes::run_core_passes_with_interner},
-    lir::{emit_llvm::emit_llvm_ir, lower::lower_program_with_interner},
+    core::{
+        CorePrimOp, FluxRep, lower_ast::lower_program_ast, passes::run_core_passes_with_interner,
+    },
+    lir::{
+        BlockId, LirBlock, LirConst, LirFuncId, LirFunction, LirInstr, LirProgram, LirTerminator,
+        LirVar, emit_llvm::emit_llvm_ir, lower::lower_program_with_interner,
+    },
     llvm::{LlvmModule, emit_prelude_and_arith, render_module},
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
@@ -36,6 +41,17 @@ fn compile_to_llvm_ir(src: &str) -> String {
     let (core, interner) = parse_and_lower_core(src);
     let lir = lower_program_with_interner(&core, Some(&interner), None);
     emit_llvm_ir(&lir)
+}
+
+fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
+    let marker = format!("@{name}(");
+    let start = ll
+        .find(&marker)
+        .unwrap_or_else(|| panic!("missing function {name}"));
+    let function_start = ll[..start].rfind("define ").unwrap_or(start);
+    let rest = &ll[function_start..];
+    let end = rest.find("\ndefine ").unwrap_or(rest.len());
+    &rest[..end]
 }
 
 #[test]
@@ -196,6 +212,84 @@ fn factorial(n, acc) {
         "opt verify failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
+    let mut instrs = vec![
+        LirInstr::Const {
+            dst: LirVar(0),
+            value: LirConst::Tagged(1),
+        },
+        LirInstr::Const {
+            dst: LirVar(1),
+            value: LirConst::Tagged(0),
+        },
+        LirInstr::Const {
+            dst: LirVar(2),
+            value: LirConst::Tagged(0),
+        },
+        LirInstr::Const {
+            dst: LirVar(3),
+            value: LirConst::None,
+        },
+    ];
+    for idx in 0..9 {
+        instrs.push(LirInstr::PrimCall {
+            dst: Some(LirVar(4 + idx)),
+            op: CorePrimOp::FiberRunAsyncWith,
+            args: vec![LirVar(0), LirVar(1), LirVar(2), LirVar(3)],
+        });
+    }
+
+    let mut program = LirProgram::new();
+    program.push_function(LirFunction {
+        name: "main".to_string(),
+        id: LirFuncId(1),
+        qualified_name: "main".to_string(),
+        is_dict_def: false,
+        params: Vec::new(),
+        blocks: vec![LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs,
+            terminator: LirTerminator::Return(LirVar(12)),
+        }],
+        next_var: 13,
+        capture_vars: Vec::new(),
+        param_reps: Vec::new(),
+        result_rep: FluxRep::TaggedRep,
+    });
+
+    let ll = emit_llvm_ir(&program);
+    let main = llvm_function_text(&ll, "flux_main");
+    assert_eq!(
+        main.matches("@flux_fiber_run_async_with").count(),
+        8,
+        "main should keep only the safe inline call-site count:\n{main}"
+    );
+
+    let helper_name = "flux___flux_run_async_with_outline_main_";
+    let helper_line = ll[..]
+        .lines()
+        .find(|line| line.contains(helper_name) && line.starts_with("define internal fastcc"))
+        .unwrap_or_else(|| panic!("missing noinline helper definition:\n{ll}"));
+    assert!(helper_line.contains("noinline"));
+    assert!(helper_line.contains("nounwind"));
+
+    let helper_symbol = helper_line
+        .split('@')
+        .nth(1)
+        .and_then(|tail| tail.split('(').next())
+        .expect("helper symbol in definition");
+    let helper_marker = format!("define internal fastcc i64 @{helper_symbol}(");
+    let helper_start = ll
+        .find(&helper_marker)
+        .unwrap_or_else(|| panic!("missing helper definition marker {helper_marker}"));
+    let helper_rest = &ll[helper_start..];
+    let helper_end = helper_rest.find("\ndefine ").unwrap_or(helper_rest.len());
+    let helper = &helper_rest[..helper_end];
+    assert_eq!(helper.matches("@flux_fiber_run_async_with").count(), 1);
 }
 
 // ---------------------------------------------------------------------------

@@ -603,6 +603,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FiberRunAsyncWith => out.push_str("FiberRunAsyncWith"),
         CorePrimOp::FiberFirstOf => out.push_str("FiberFirstOf"),
         CorePrimOp::FiberTry => out.push_str("FiberTry"),
+        CorePrimOp::FiberCurrentWorkerCount => out.push_str("FiberCurrentWorkerCount"),
         CorePrimOp::HttpServeConfig => out.push_str("HttpServeConfig"),
         CorePrimOp::HttpShutdown => out.push_str("HttpShutdown"),
         CorePrimOp::HttpShutdownNow => out.push_str("HttpShutdownNow"),

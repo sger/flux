@@ -154,7 +154,10 @@ fn main() with IO {
     assert!(stdout.contains("42"), "{stdout}");
     assert!(stdout.contains("-1"), "{stdout}");
     assert!(stdout.contains("false"), "{stdout}");
-    assert!(stdout.contains("$: expected safe integral JSON number"), "{stdout}");
+    assert!(
+        stdout.contains("$: expected safe integral JSON number"),
+        "{stdout}"
+    );
 }
 
 #[test]

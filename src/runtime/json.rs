@@ -382,12 +382,15 @@ fn format_number(n: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, stringify, JsonNumber, JsonValue};
+    use super::{JsonNumber, JsonValue, parse, stringify};
 
     #[test]
     fn integer_numbers_parse_and_stringify_losslessly() {
         let value = parse("9007199254740993").expect("parse large integer");
-        assert_eq!(value, JsonValue::Number(JsonNumber::Int(9_007_199_254_740_993)));
+        assert_eq!(
+            value,
+            JsonValue::Number(JsonNumber::Int(9_007_199_254_740_993))
+        );
         assert_eq!(stringify(&value), "9007199254740993");
     }
 

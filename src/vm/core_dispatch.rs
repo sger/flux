@@ -376,6 +376,9 @@ mod vm_fibers {
     #[derive(Debug, Clone, Copy)]
     pub struct PendingRunConfig {
         pub worker_count: u32,
+        // Accepted by RuntimeConfig for native/VM parity, but the VM does not
+        // have a filesystem blocking pool to configure yet.
+        #[allow(dead_code)]
         pub fs_pool_size: u32,
         pub dns_pool_size: u32,
     }
@@ -429,8 +432,11 @@ mod vm_fibers {
     ///   1. Explicit `PendingRunConfig.worker_count` (non-zero), set by
     ///      `FiberRunAsyncWith`.
     ///   2. `FLUX_WORKERS` env var, parsed once.
-    ///   3. Default (2 logical workers — matches the previous hardcoded
-    ///      Phase 1b-vi-c logical-worker count for VM dispatch).
+    ///   3. `std::thread::available_parallelism()` — the documented
+    ///      default per `core/mod.rs::FiberRunAsyncWith` (proposal 0174
+    ///      slice 2-vii). Mirrors `native_abi::resolve_default_worker_count`.
+    ///   4. Hardcoded fallback of 2 logical workers when parallelism cannot
+    ///      be determined (matches the Phase 1b-vi-c default).
     fn resolved_worker_count() -> usize {
         if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
             && cfg.worker_count > 0
@@ -440,7 +446,9 @@ mod vm_fibers {
         if let Some(n) = env_workers_once() {
             return n;
         }
-        2
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
     }
 
     /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
@@ -471,9 +479,8 @@ mod vm_fibers {
         });
         if depth == 0 {
             // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
-            // knobs set by `FiberRunAsyncWith`, with a `FLUX_WORKERS`
-            // env-var fallback and a default of 2 logical workers
-            // (matching the previous Phase 1b-vi-c hardcoded count).
+            // knobs set by `FiberRunAsyncWith`. `fs_pool_size` is stored for
+            // API parity but has no VM filesystem pool to configure yet.
             if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
                 && cfg.dns_pool_size > 0
             {
@@ -909,9 +916,10 @@ mod vm_fibers {
         CANCELLED_IDS.with(|c| c.borrow().contains(&id))
     }
 
-    /// Introspection hook for Phase 2 slice 2-vii tests: report the worker
-    /// count of the currently active `FiberScheduler`. Returns 0 when no
-    /// scheduler is active (i.e., outside `run_async`).
+    /// Report the worker count of the currently active `FiberScheduler`.
+    /// Returns 0 when no scheduler is active (i.e., outside `run_async`).
+    /// Exposed to user code via `Async.current_worker_count` and the
+    /// `FiberCurrentWorkerCount` primop.
     pub fn current_num_workers() -> usize {
         SCHED.with(|s| s.borrow().as_ref().map(|sc| sc.num_workers()).unwrap_or(0))
     }
@@ -1923,6 +1931,12 @@ pub fn execute_core_primop(
         // Composes with Async.fail when the caller wants to raise; slice
         // 2-vi makes that raise catchable.
         FiberCheckCancelled => Ok(Value::Boolean(vm_fibers::is_current_cancelled())),
+
+        // fiber_current_worker_count: report the worker count of the
+        // currently active FiberScheduler (proposal 0174 slice 2-vii
+        // follow-up). Returns 0 outside `run_async`. Scheduler-state
+        // read; no suspend.
+        FiberCurrentWorkerCount => Ok(Value::Integer(vm_fibers::current_num_workers() as i64)),
 
         // sleep: capture the current fiber's continuation back to the
         // FiberRunAsync boundary, register a timer with the mio backend,

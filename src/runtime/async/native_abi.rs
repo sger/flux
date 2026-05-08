@@ -28,6 +28,26 @@ static ACTIVE_RUN: OnceLock<Mutex<Option<RunHandle>>> = OnceLock::new();
 const FLUX_NONE: i64 = 0;
 const DEFAULT_LOGICAL_WORKERS: usize = 2;
 
+/// Resolve the worker count when the caller passes the "use default"
+/// sentinel (`worker_count <= 0`). Precedence:
+///   1. `FLUX_WORKERS` env var (parsed once, positive integer).
+///   2. `std::thread::available_parallelism()`.
+///   3. `DEFAULT_LOGICAL_WORKERS` (2) as ultimate fallback.
+///
+/// Mirrors the VM's `resolved_worker_count` in `vm/core_dispatch.rs` so
+/// VM and native give the same default sizing on multi-core machines.
+fn resolve_default_worker_count() -> usize {
+    static ENV_WORKERS: OnceLock<Option<usize>> = OnceLock::new();
+    let env = *ENV_WORKERS.get_or_init(|| {
+        std::env::var("FLUX_WORKERS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+    });
+    env.or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+        .unwrap_or(DEFAULT_LOGICAL_WORKERS)
+}
+
 thread_local! {
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
     static CURRENT_WORKER: Cell<usize> = const { Cell::new(0) };
@@ -983,7 +1003,7 @@ pub extern "C" fn flux_async_tcp_close(handle: u64) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
-    flux_async_run_root_configured(root_closure, DEFAULT_LOGICAL_WORKERS)
+    flux_async_run_root_configured(root_closure, resolve_default_worker_count())
 }
 
 fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64 {
@@ -1216,7 +1236,7 @@ pub extern "C" fn flux_async_run_root_with(
     let worker_count = if worker_count > 0 {
         worker_count as usize
     } else {
-        DEFAULT_LOGICAL_WORKERS
+        resolve_default_worker_count()
     };
     flux_async_run_root_configured(root_closure, worker_count)
 }
@@ -1240,6 +1260,18 @@ pub extern "C" fn flux_async_check_cancelled() -> i32 {
         Some(true) => 1,
         _ => 0,
     }
+}
+
+/// Slice 2-vii follow-up: report the worker count of the active
+/// `Async.run_async` boundary. Returns the native scheduler's
+/// configured worker count, or `0` outside any active run.
+///
+/// Mirrors `vm_fibers::current_num_workers` on the VM path. The
+/// C shim `flux_fiber_current_worker_count` boxes this into a
+/// tagged Flux `Int`.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_current_worker_count() -> i32 {
+    with_run(|run| run.ready.len() as i32).unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
