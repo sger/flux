@@ -12,9 +12,9 @@
 //! function-typed payloads are rejected through the imported `Flow.Task`
 //! surface, while concrete sendable payloads still type-check.
 //!
-//! VM keeps sequential task execution. Native `Task.await` is
-//! fiber-suspending: it parks only the calling fiber while native task workers
-//! publish completions back into the async scheduler.
+//! VM and native task execution both use worker threads. `Task.await` parks
+//! only the calling fiber while task workers publish completions back into
+//! the async scheduler.
 
 use std::path::Path;
 use std::process::Command;
@@ -89,8 +89,111 @@ fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
     assert!(success, "Flow.Task surface tests must pass:\n{stdout}");
     assert!(
-        stdout.contains("8 passed"),
-        "expected 8 passing tests, got:\n{stdout}"
+        stdout.contains("9 passed"),
+        "expected 9 passing tests, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn flow_task_vm_spawn_runs_cpu_jobs_in_parallel() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let solo = fib(36)
+    let t1 = now_ms()
+    let a = Task.spawn(fn() { fib(36) })
+    let b = Task.spawn(fn() { fib(36) })
+    let ra = Task.blocking_join(a)
+    let rb = Task.blocking_join(b)
+    let t2 = now_ms()
+    print(solo)
+    print(ra)
+    print(rb)
+    print(t1 - t0)
+    print(t2 - t1)
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "VM Task.spawn parallel fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(&lines[..3], ["14930352", "14930352", "14930352"]);
+    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
+    let pair_ms: i64 = lines[4].parse().expect("pair task elapsed ms");
+    assert!(
+        solo_ms >= 20,
+        "fib(36) completed too quickly to prove VM task overlap: {solo_ms}ms"
+    );
+    assert!(
+        pair_ms < solo_ms * 2 - 10,
+        "VM Task.spawn appears sequential: solo={solo_ms}ms pair={pair_ms}ms"
+    );
+}
+
+#[test]
+fn flow_task_vm_await_does_not_block_fiber_scheduler() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn wait_task() -> Int with Async {
+    Task.await(Task.spawn(fn() { fib(36) }))
+}
+
+fn tick() -> Int with Async {
+    sleep(100)
+    7
+}
+
+fn pair_body() -> (Int, Int) with Async {
+    both(tick, wait_task)
+}
+
+fn main() with IO, Clock {
+    let t0 = now_ms()
+    let solo = run_async(wait_task)
+    let t1 = now_ms()
+    let pair = run_async(pair_body)
+    let t2 = now_ms()
+    print(solo)
+    print(pair.0)
+    print(pair.1)
+    print(t1 - t0)
+    print(t2 - t1)
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "VM Task.await overlap fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(&lines[..3], ["14930352", "7", "14930352"]);
+    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
+    let both_ms: i64 = lines[4].parse().expect("both elapsed ms");
+    assert!(
+        solo_ms >= 20,
+        "fib(36) completed too quickly to prove VM await overlap: {solo_ms}ms"
+    );
+    assert!(
+        both_ms < solo_ms + 1000,
+        "VM Task.await appears to block scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
     );
 }
 

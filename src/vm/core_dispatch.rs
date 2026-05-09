@@ -1207,6 +1207,21 @@ mod vm_fibers {
 
             // Pump the backend until a completion arrives, then route it.
             loop {
+                if let Some((request_id, result)) = super::super::task::try_recv_completion() {
+                    let outcome = match result {
+                        Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
+                        Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
+                        Err(err) => FiberOutcome::Error(async_panicked(err)),
+                    };
+                    set_resume_outcome(request_id, outcome);
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .complete_request(RequestId(request_id));
+                    });
+                    break;
+                }
                 if let Some(c) = backend.next_completion() {
                     // Route TCP payloads as resume values before waking the fiber.
                     use crate::runtime::r#async::backend::CompletionPayload;
@@ -1822,29 +1837,22 @@ pub fn execute_core_primop(
 
         // ── Concurrency (proposal 0174 D5-a) ─────────────────────────
         //
-        // VM implementation is **sequential / degenerate**: spawn invokes
-        // the closure synchronously on the calling thread and stashes the
-        // result in a thread-local table keyed by a fresh task id. join
-        // returns the stored value; cancel drops the entry and tags the id
-        // as cancelled so a subsequent join surfaces an error.
-        //
-        // Real M:N parallelism (running on the
-        // [`TaskScheduler`](crate::runtime::r#async::task_scheduler) worker
-        // pool) is gated on the staticlib + extern-C bridge from D5-b/c.
-        // VM `Value` is `Rc<...>` which is `!Send`, so genuine parallel
-        // execution on the VM path needs a separate value-promotion story.
+        // VM tasks run on the Rust TaskScheduler through `src/vm/task.rs`.
+        // That layer deep-copies sendable values into an isolated worker VM
+        // and rehydrates the result back into the caller's normal Rc-backed
+        // value graph. The main VM stack, continuations, and handler state do
+        // not cross OS-thread boundaries.
         TaskSpawn => {
-            let result = ctx.invoke_value(args[0].clone(), vec![])?;
-            let id = vm_task_state::store(result);
+            let id = ctx.vm_task_spawn(args[0].clone())?;
             Ok(Value::Integer(id))
         }
         TaskBlockingJoin => match &args[0] {
-            Value::Integer(id) => vm_task_state::take(*id),
+            Value::Integer(id) => ctx.vm_task_blocking_join(*id),
             other => Err(terr("task_blocking_join", "Int", other)),
         },
         TaskCancel => match &args[0] {
             Value::Integer(id) => {
-                vm_task_state::cancel(*id);
+                ctx.vm_task_cancel(*id)?;
                 Ok(Value::None)
             }
             other => Err(terr("task_cancel", "Int", other)),
@@ -2148,10 +2156,22 @@ pub fn execute_core_primop(
             Ok(Value::None)
         }
 
-        // task_await: VM task execution is still sequential, but the primop
-        // now mirrors native's internal Option result shape.
+        // task_await: inside Async.run_async, park the current fiber and let a
+        // waiter thread publish the task result back into the VM scheduler.
+        // Outside an async boundary, fall back to blocking join.
         TaskAwait => match &args[0] {
-            Value::Integer(id) => vm_task_state::take_for_await(*id),
+            Value::Integer(id) => {
+                if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    let req = vm_async::alloc_request_id();
+                    let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    super::task::start_await(*id, req.0)?;
+                    vm_fibers::signal_park(req, cont);
+                    Err("__flux_fiber_park__".to_string())
+                } else {
+                    let value = ctx.vm_task_blocking_join(*id)?;
+                    Ok(Value::Some(Rc::new(value)))
+                }
+            }
             other => Err(terr("task_await", "Int", other)),
         },
 
@@ -3108,71 +3128,6 @@ fn http_reason(status: i64) -> String {
         _ => "OK",
     }
     .to_string()
-}
-
-// ── VM-side task state (proposal 0174 D5-a, sequential dispatch) ───────────
-//
-// Thread-local because VM `Value` carries `Rc<...>` which is `!Send`. Genuine
-// cross-worker tasks land in D5-b/c via the staticlib bridge to the Rust
-// scheduler.
-mod vm_task_state {
-    use super::Value;
-    use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
-    use std::rc::Rc;
-
-    thread_local! {
-        static NEXT_ID: RefCell<i64> = const { RefCell::new(1) };
-        static RESULTS: RefCell<HashMap<i64, Value>> = RefCell::new(HashMap::new());
-        static CANCELLED: RefCell<HashSet<i64>> = RefCell::new(HashSet::new());
-    }
-
-    /// Allocate a fresh task id and stash the closure's result against it.
-    pub(super) fn store(v: Value) -> i64 {
-        let id = NEXT_ID.with(|n| {
-            let mut n = n.borrow_mut();
-            let id = *n;
-            *n += 1;
-            id
-        });
-        RESULTS.with(|r| r.borrow_mut().insert(id, v));
-        id
-    }
-
-    /// Consume the stored result for `id`. Returns an error if the task was
-    /// cancelled (matches the [`TaskJoinError::Cancelled`] semantics from
-    /// the Rust scheduler) or never existed.
-    pub(super) fn take(id: i64) -> Result<Value, String> {
-        if CANCELLED.with(|c| c.borrow_mut().remove(&id)) {
-            // Drop any stored value too; cancellation wins.
-            RESULTS.with(|r| r.borrow_mut().remove(&id));
-            return Err(format!("task {id} was cancelled"));
-        }
-        RESULTS
-            .with(|r| r.borrow_mut().remove(&id))
-            .ok_or_else(|| format!("task {id} not found (already joined or never spawned)"))
-    }
-
-    /// Consume the stored result for `Task.await`. The public Flow wrapper
-    /// raises `TaskCancelled` when the primop returns `None`.
-    pub(super) fn take_for_await(id: i64) -> Result<Value, String> {
-        if CANCELLED.with(|c| c.borrow_mut().remove(&id)) {
-            RESULTS.with(|r| r.borrow_mut().remove(&id));
-            return Ok(Value::None);
-        }
-        let value = RESULTS
-            .with(|r| r.borrow_mut().remove(&id))
-            .ok_or_else(|| format!("task {id} not found (already joined or never spawned)"))?;
-        Ok(Value::Some(Rc::new(value)))
-    }
-
-    /// Mark a task cancelled. Idempotent. A subsequent `take` surfaces the
-    /// cancellation; if the task was already joined, the cancel is a no-op.
-    pub(super) fn cancel(id: i64) {
-        CANCELLED.with(|c| {
-            c.borrow_mut().insert(id);
-        });
-    }
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ mod function_call;
 mod index_ops;
 mod primop;
 pub mod profiling;
+mod task;
 pub mod test_runner;
 mod trace;
 

@@ -1,13 +1,8 @@
 // 13 — Task.await from inside a fiber
 //
 // `Task.await(t)` is the structured-concurrency-friendly join: it is
-// callable only with the `Async` effect, and on native it suspends *just
-// the calling fiber* — other fibers on the same worker keep running.
-//
-// On the VM today, `await` and `blocking_join` are sequentially equivalent
-// because VM task bodies execute on the spawning thread; the type-level
-// surface is fixed so the same source compiles when the runtime gains
-// real parallelism.
+// callable only with the `Async` effect, and it suspends *just the calling
+// fiber* — other fibers on the same worker keep running.
 //
 // Combine `Task.spawn` with `Async.both` for "scatter compute on workers,
 // gather results from the fiber" style.
@@ -28,16 +23,14 @@ fn two()   -> Int { 2 }
 fn three() -> Int { 3 }
 
 fn body() -> Int with Async {
-    // Spawn three OS-thread-backed tasks. Each call returns
-    // immediately; on native they run in parallel.
+    // Spawn three OS-thread-backed tasks. Each call returns immediately.
     let a = Task.spawn(one)
     let b = Task.spawn(two)
     let c = Task.spawn(three)
 
     // `Task.await(t)` requires `with Async` — that's what makes it the
-    // fiber-friendly join. On native it suspends just *this* fiber;
-    // other fibers on the same worker keep making progress while the
-    // task threads compute.
+    // fiber-friendly join. It suspends just *this* fiber; other fibers on
+    // the same worker keep making progress while the task threads compute.
     //
     // Compose with `Async.both` / `Async.race` to scatter work onto
     // workers and gather it from the fiber side.

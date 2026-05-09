@@ -17,12 +17,10 @@
 //! ## Phase status
 //!
 //! Slice 1b-iv provides the data structure skeleton and the public API.  The
-//! actual fiber-switching (stack-switching or green-thread trampoline) is
+//! actual fiber-switching (stack-switching or green-thread trampoline) was
 //! deferred to Slice 1b-v/vi when the `FiberSuspend` / `FiberFork` primops
-//! are wired into the VM and C runtime.  Until then, `run_fiber_body` is a
-//! thin stub that runs the fiber body synchronously (same semantics as
-//! Phase 1a task spawn — sequentially equivalent, correct for non-concurrent
-//! tests).
+//! were wired into the VM and C runtime. Early skeleton tests used inline
+//! fiber-body execution before the dispatch loop landed.
 //!
 //! ## No-fiber-migration invariant
 //!

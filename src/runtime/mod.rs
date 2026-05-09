@@ -63,6 +63,24 @@ pub trait RuntimeContext {
         None
     }
 
+    // ── VM task hooks ─────────────────────────────────────────────────────
+    //
+    // Only the VM implements these. They let the backend-neutral CorePrimOp
+    // dispatch route Flow.Task operations to an isolated VM worker runtime
+    // without downcasting the `RuntimeContext` trait object.
+
+    fn vm_task_spawn(&mut self, _action: Value) -> Result<i64, String> {
+        Err("Task.spawn is not implemented for this runtime context".to_string())
+    }
+
+    fn vm_task_blocking_join(&mut self, _id: i64) -> Result<Value, String> {
+        Err("Task.blocking_join is not implemented for this runtime context".to_string())
+    }
+
+    fn vm_task_cancel(&mut self, _id: i64) -> Result<(), String> {
+        Err("Task.cancel is not implemented for this runtime context".to_string())
+    }
+
     // ── Fiber-suspend hooks (proposal 0174 Phase 1b-vi-b₂.1) ────────────
     // Default impls panic; only the VM implementor needs to provide real
     // bodies. The native (LLVM) backend will get its own implementation in
