@@ -2814,6 +2814,40 @@ impl Compiler {
         bindings
     }
 
+    fn task_spawn_import_metadata(&mut self, program: &Program) -> (HashSet<Symbol>, bool) {
+        use crate::syntax::statement::ImportExposing;
+
+        let flow_task = self.interner.intern("Flow.Task");
+        let spawn = self.interner.intern("spawn");
+        let mut task_module_bindings = HashSet::new();
+        let mut task_spawn_exposed = false;
+
+        for statement in &program.statements {
+            let Statement::Import {
+                name,
+                alias,
+                exposing,
+                except,
+                ..
+            } = statement
+            else {
+                continue;
+            };
+            if *name != flow_task {
+                continue;
+            }
+
+            task_module_bindings.insert(alias.unwrap_or(*name));
+            task_spawn_exposed = match exposing {
+                ImportExposing::All => !except.contains(&spawn),
+                ImportExposing::Names(names) => names.contains(&spawn),
+                ImportExposing::None => !except.is_empty() && !except.contains(&spawn),
+            };
+        }
+
+        (task_module_bindings, task_spawn_exposed)
+    }
+
     fn scheme_from_contract(contract: &FnContract, interner: &Interner) -> Option<Scheme> {
         // For HM member lookup we require a complete typed signature.
         if contract.params.iter().any(|p| p.is_none()) || contract.ret.is_none() {
@@ -2989,6 +3023,7 @@ impl Compiler {
     /// Can be called multiple times (e.g. for two-phase inference).
     fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+        let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
         let flow_module_symbol = self.interner.intern("Flow");
 
         // Exposed import schemes are used as unqualified identifiers by HM inference.
@@ -3037,6 +3072,8 @@ impl Compiler {
             file_path: Some(self.file_path.as_str().into()),
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
+            task_module_bindings,
+            task_spawn_exposed,
             known_flow_names: HashSet::new(),
             flow_module_symbol,
             class_env,

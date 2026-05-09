@@ -59,6 +59,29 @@ fn test_spawn_join_adt_round_trip() {
     assert_eq(packet_score(r), 9)
 }
 
+fn test_spawn_join_captured_int_round_trip() {
+    let offset = 40;
+    let t = Task.spawn(fn() { offset + 2 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
+}
+
+fn test_spawn_join_captured_string_round_trip() {
+    let label = "task";
+    let t = Task.spawn(fn() { label + "-capture" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "task-capture")
+}
+
+fn test_spawn_join_captured_list_tuple_adt_round_trip() {
+    let nums = [1, 2, 3];
+    let pair = (7, "ok");
+    let packet = Packet(9, "nine");
+    let t = Task.spawn(fn() { (nums, pair, packet_score(packet)) });
+    let r = Task.blocking_join(t);
+    assert_eq(r, ([1, 2, 3], (7, "ok"), 9))
+}
+
 fn test_await_int_round_trip() {
     let r = run_async(await_int_body);
     assert_eq(r, 42)

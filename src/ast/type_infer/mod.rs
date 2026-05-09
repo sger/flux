@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::{
         CONSTRUCTOR_ARITY_MISMATCH, Diagnostic, DiagnosticBuilder,
         compiler_errors::{
@@ -154,6 +155,8 @@ struct InferCtx<'a> {
     subst: TypeSubst,
     expr_types: HashMap<ExprId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    task_module_bindings: HashSet<Identifier>,
+    task_spawn_exposed: bool,
     binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
     known_flow_names: HashSet<Identifier>,
     flow_module_symbol: Identifier,
@@ -241,6 +244,8 @@ impl<'a> InferCtx<'a> {
             file_path,
             preloaded_base_schemes,
             preloaded_module_member_schemes,
+            task_module_bindings,
+            task_spawn_exposed,
             known_flow_names,
             flow_module_symbol,
             preloaded_effect_op_signatures,
@@ -264,6 +269,8 @@ impl<'a> InferCtx<'a> {
             subst: TypeSubst::empty(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
+            task_module_bindings,
+            task_spawn_exposed,
             binding_schemes_by_span: HashMap::new(),
             known_flow_names,
             flow_module_symbol,
@@ -461,6 +468,8 @@ struct InferCtxConfig {
     file_path: Rc<str>,
     preloaded_base_schemes: HashMap<Identifier, Scheme>,
     preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    task_module_bindings: HashSet<Identifier>,
+    task_spawn_exposed: bool,
     known_flow_names: HashSet<Identifier>,
     flow_module_symbol: Identifier,
     preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
@@ -490,6 +499,8 @@ pub struct InferProgramConfig {
     pub file_path: Option<Rc<str>>,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    pub task_module_bindings: HashSet<Identifier>,
+    pub task_spawn_exposed: bool,
     pub known_flow_names: HashSet<Identifier>,
     pub flow_module_symbol: Identifier,
     pub preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), Scheme>,
@@ -535,6 +546,8 @@ pub fn infer_program(
             file_path: file,
             preloaded_base_schemes: config.preloaded_base_schemes,
             preloaded_module_member_schemes: config.preloaded_module_member_schemes,
+            task_module_bindings: config.task_module_bindings,
+            task_spawn_exposed: config.task_spawn_exposed,
             known_flow_names: config.known_flow_names,
             flow_module_symbol: config.flow_module_symbol,
             preloaded_effect_op_signatures: config.preloaded_effect_op_signatures,
