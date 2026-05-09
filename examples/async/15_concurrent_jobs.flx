@@ -6,9 +6,8 @@
 //    single worker. The total wall clock is ~max(50, 80, 30) ms = 80ms,
 //    not 50+80+30 = 160ms. This is the "concurrent" half.
 //
-// 2. TASKS — `Task.spawn` runs two CPU-bound jobs on real OS threads on
-//    the native backend (sequentially equivalent on the VM today). This
-//    is the "parallel" half.
+// 2. TASKS — `Task.spawn` runs two CPU-bound jobs on real OS threads.
+//    This is the "parallel" half.
 //
 // Combine them: spawn tasks for CPU work, gather them with `Task.await`
 // from a fiber, and use `Async.both` to interleave I/O.
@@ -45,7 +44,7 @@ fn cpu_b() -> Int { sum_to(4, 0) }       // 1+2+3+4 = 10
 
 // Run concurrent IO and parallel CPU together, gather both halves.
 fn combined() -> Int with Async {
-    // Kick off CPU work on real workers (native: parallel; VM: sequential).
+    // Kick off CPU work on real workers.
     let t1 = Task.spawn(cpu_a)
     let t2 = Task.spawn(cpu_b)
 

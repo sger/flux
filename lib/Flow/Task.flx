@@ -4,20 +4,17 @@
 // constraint gates which values may cross a worker boundary.
 //
 // **Backend status:**
-// - **VM:** `spawn` runs the body synchronously on the calling thread,
-//   stashes the result, and returns a handle. `blocking_join` and `await`
-//   return the stored value. This is correct sequentially-equivalent
-//   semantics; real M:N parallelism on the VM path is gated on a separate
-//   value-promotion slice (Rust `Value` is `!Send`).
+// - **VM:** `spawn` runs the body on a Rust worker thread through a
+//   sendable deep-copy boundary, then rehydrates the result back into normal
+//   Rc-backed VM values. `blocking_join` blocks the caller; `await` suspends
+//   only the current VM fiber while the task computes.
 // - **Native (LLVM):** `spawn` runs the body on a native OS thread and
 //   promotes the closure across the worker boundary. `blocking_join` blocks
 //   the caller; `await` suspends only the current fiber and resumes through
 //   the native async scheduler when the task finishes.
 //
 // Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
-// require `Sendable<a>`; `cancel` is unconstrained on `a`. Users who write
-// against this surface today will get parallelism for free once the
-// runtime work lands — no source changes required.
+// require `Sendable<a>`; `cancel` is unconstrained on `a`.
 
 module Flow.Task {
 
@@ -68,10 +65,8 @@ module Flow.Task {
 
     /// Async-surface join.
     ///
-    /// VM: sequentially equivalent to `blocking_join` because VM task bodies
-    /// still execute synchronously at `spawn`.
-    /// Native: fiber-suspending; the calling native worker keeps running other
-    /// fibers while the task OS thread computes.
+    /// VM/native: fiber-suspending; the calling fiber keeps running other
+    /// work while the task worker thread computes.
     public fn await<a: Sendable>(t: Task<a>) -> a with Async {
         match t {
             Task(id) -> match task_await_id(id) {

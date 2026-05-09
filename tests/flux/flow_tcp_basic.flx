@@ -2,9 +2,8 @@
 // Verifies that the TCP primops type-check and that single-threaded
 // operations (listen + close) work on the VM path.
 //
-// Full round-trip tests (connect + accept + echo) require real OS-thread
-// concurrency because the VM path is single-threaded (Task.spawn is
-// sequential). Those tests will run on the native backend.
+// Full round-trip tests (connect + accept + echo) live in the async TCP
+// integration suite where the scheduler can drive both sides explicitly.
 
 import Flow.Tcp exposing (..)
 import Flow.Async exposing (..)

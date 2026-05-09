@@ -579,6 +579,18 @@ impl RuntimeContext for VM {
         VM::invoke_value(self, callee, args)
     }
 
+    fn vm_task_spawn(&mut self, action: Value) -> Result<i64, String> {
+        self.spawn_vm_task(action)
+    }
+
+    fn vm_task_blocking_join(&mut self, id: i64) -> Result<Value, String> {
+        super::task::blocking_join(id)
+    }
+
+    fn vm_task_cancel(&mut self, id: i64) -> Result<(), String> {
+        super::task::cancel(id)
+    }
+
     fn invoke_base_function_borrowed(
         &mut self,
         _base_fn_index: usize,

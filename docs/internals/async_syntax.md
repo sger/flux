@@ -465,7 +465,7 @@ For *currently executing* fibers, `vm_fibers` mirrors the cancel set in a per-th
 | Fiber state | `Vm` instance state | C effect-context TLS + scheduler state in Rust |
 | Cross-worker fiber dispatch | **Disabled**: VM stays single-OS-thread because `Rc<Value>` is non-Send | Enabled |
 
-The VM logical-only constraint is why VM `Task.spawn` is sequentially equivalent to inline execution today. The user surface is identical on both backends.
+The VM logical-only constraint applies to fibers, not tasks. VM `Task.spawn` crosses a sendable deep-copy boundary into an isolated worker VM, so task bodies can run in parallel without making the normal `Rc<Value>` graph thread-safe.
 
 ---
 
@@ -495,7 +495,7 @@ Blocks the calling **OS thread** until the task finishes and returns the result.
 public fn await<a: Sendable>(t: Task<a>) -> a with Async
 ```
 
-The fiber-friendly join. On native, suspends only the current fiber; other fibers on the same worker keep running. On the VM today, sequentially equivalent to `blocking_join` because VM tasks execute synchronously at `spawn`.
+The fiber-friendly join. On VM and native, suspends only the current fiber; other fibers on the same worker keep running while the task completes.
 
 Awaiting a cancelled task panics — wrap in `try_` to recover:
 
@@ -658,9 +658,9 @@ The solver ([src/types/class_solver.rs](../../src/types/class_solver.rs) `has_st
 | `sleep(ms)` | Blocks OS thread (mio-backed timer; one fiber per worker) | Suspends fiber, frees OS thread |
 | `yield_now()` | No-op | Real reschedule |
 | `both` / `race` | Real fiber overlap on a single OS thread | Real fiber overlap across OS threads |
-| `Task.spawn` | Body runs on the spawning thread synchronously, result stashed | Body runs on a real OS worker thread |
-| `Task.blocking_join` | Returns stashed value | Condvar wait |
-| `Task.await` | Sequentially equivalent to `blocking_join` | Suspends current fiber, resumes when task completes |
+| `Task.spawn` | Body runs in an isolated worker VM on a real OS thread | Body runs on a real OS worker thread |
+| `Task.blocking_join` | Waits for worker completion | Condvar wait |
+| `Task.await` | Suspends current fiber, resumes when task completes | Suspends current fiber, resumes when task completes |
 | `Async.scope` / `cancel` | Real cancellation through scheduler/backend | Real cancellation through scheduler/backend |
 
 The **type-level surface is identical** on both backends. Source written today against the VM compiles unchanged on native and gains parallelism for free where the runtime supports it.
