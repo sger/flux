@@ -2631,7 +2631,11 @@ impl Compiler {
             &self.interner,
         );
         self.class_env = env;
-        self.warnings.extend(diagnostics);
+        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
+            .into_iter()
+            .partition(|diag| diag.code() == Some("E453"));
+        self.errors.extend(errors);
+        self.warnings.extend(warnings);
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
