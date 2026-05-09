@@ -67,6 +67,7 @@ pub enum WantedClassConstraintOrigin {
     InferredOperator,
     MethodCall,
     SchemeUse,
+    TaskSpawnCapture { capture_name: Identifier },
 }
 
 #[derive(Debug, Clone)]

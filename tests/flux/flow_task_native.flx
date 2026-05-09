@@ -31,6 +31,20 @@ fn test_spawn_join_string_round_trip() {
     assert_eq(r, "hello-task")
 }
 
+fn test_spawn_join_captured_int_round_trip() {
+    let offset = 40;
+    let t = Task.spawn(fn() { offset + 2 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
+}
+
+fn test_spawn_join_captured_string_round_trip() {
+    let label = "native";
+    let t = Task.spawn(fn() { label + "-capture" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "native-capture")
+}
+
 fn test_cancel_before_join_surfaces_error() {
     let t = Task.spawn(fn() { 99 });
     Task.cancel(t);

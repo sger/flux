@@ -132,6 +132,24 @@ impl TypeEnv {
         self.bindings.get(&name)?.last().and_then(|e| e.def_span)
     }
 
+    /// Look up the scope level of the visible binding for `name`.
+    pub fn lookup_level(&self, name: Identifier) -> Option<u32> {
+        let stack = self.bindings.get(&name)?;
+        let depth = stack.len();
+        let mut remaining = depth;
+        for (level, names) in self.scope_markers.iter().enumerate().rev() {
+            for bound in names.iter().rev() {
+                if *bound == name {
+                    remaining = remaining.saturating_sub(1);
+                    if remaining == 0 {
+                        return Some(level as u32);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Push a new empty scope and bump the level.
     pub fn enter_scope(&mut self) {
         self.level += 1;
