@@ -24,7 +24,7 @@ use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
-    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
+    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -264,12 +264,8 @@ impl ClassEnv {
 
         // Proposal 0174 D4: synthesize `Sendable<Foo>` for user-declared ADTs.
         // Positive-only — we only synthesize when no field type contains a
-        // function type. The contextual instance bounds every type
-        // parameter `a` of `Foo` with `Sendable<a>`, so the existing
-        // contextual-instance solver does the recursive checking at use
-        // sites. Explicit user instances win if both exist (synthesis
-        // skips when an instance for the same head already lives in
-        // `self.instances`).
+        // function type. User-written Sendable instances are rejected because
+        // Sendable is compiler-owned and authorizes worker-boundary transfer.
         Self::synthesize_sendable_instances(statements, ModulePath::EMPTY, self, interner);
 
         diagnostics
@@ -443,8 +439,9 @@ impl ClassEnv {
     /// The existing contextual-instance solver then enforces the bound
     /// recursively at every use site.
     ///
-    /// Skips ADTs that already have an explicit `instance Sendable<Foo>`
-    /// declaration so user-written instances always win.
+    /// User-written `instance Sendable<Foo>` declarations are rejected before
+    /// synthesis; this pass is the only ADT path that may create Sendable
+    /// evidence.
     fn synthesize_sendable_instances(
         statements: &[Statement],
         current_module: ModulePath,
@@ -519,7 +516,6 @@ impl ClassEnv {
             }
         }
 
-        // Skip if the user already wrote an explicit `instance Sendable<Foo>`.
         let head_args: Vec<TypeExpr> = if type_params.is_empty() {
             vec![TypeExpr::Named {
                 name: adt_name,
@@ -540,18 +536,6 @@ impl ClassEnv {
                 span: Span::default(),
             }]
         };
-        let already_present = env.instances.iter().any(|inst| {
-            inst.class_name == sendable_id
-                && inst.type_args.len() == head_args.len()
-                && inst
-                    .type_args
-                    .iter()
-                    .zip(&head_args)
-                    .all(|(a, b)| a.structural_eq(b))
-        });
-        if already_present {
-            return;
-        }
 
         // Bound every type parameter with `Sendable<a>`.
         let context: Vec<ClassConstraint> = type_params
@@ -855,6 +839,11 @@ impl ClassEnv {
                         }
                     };
 
+                    if Self::is_builtin_sendable_class(&class_def, interner) {
+                        diagnostics.push(Self::sealed_sendable_diagnostic(*span));
+                        continue;
+                    }
+
                     if type_args.len() != class_def.type_params.len() {
                         let display_class = interner.resolve(*class_name);
                         diagnostics.push(
@@ -1094,6 +1083,24 @@ impl ClassEnv {
         }
     }
 
+    /// Return whether `class_def` is the compiler-owned built-in `Sendable`.
+    fn is_builtin_sendable_class(class_def: &ClassDef, interner: &Interner) -> bool {
+        class_def.module.is_empty() && interner.resolve(class_def.name) == "Sendable"
+    }
+
+    /// Build the diagnostic used when user code tries to implement `Sendable`.
+    fn sealed_sendable_diagnostic(span: Span) -> Diagnostic {
+        diagnostic_for(&SEALED_CLASS_INSTANCE)
+            .with_span(span)
+            .with_message(
+                "Sendable is compiler-derived and cannot be implemented manually.".to_string(),
+            )
+            .with_hint_text(
+                "Remove the instance; data types become Sendable automatically when all fields are Sendable."
+                    .to_string(),
+            )
+    }
+
     /// Collect derived instances from `deriving` clauses on data declarations.
     ///
     /// `current_module` is the dotted path of the enclosing `module` block,
@@ -1151,6 +1158,13 @@ impl ClassEnv {
                                 continue;
                             }
                         };
+                        if let Some(def) =
+                            env.lookup_class_in_module_or_global(current_module, *class_name)
+                            && Self::is_builtin_sendable_class(def, interner)
+                        {
+                            diagnostics.push(Self::sealed_sendable_diagnostic(*span));
+                            continue;
+                        }
 
                         let type_arg = TypeExpr::Named {
                             name: *name,

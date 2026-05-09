@@ -241,6 +241,11 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Return whether a call resolves to the `Flow.Task.spawn` surface.
+    ///
+    /// This uses import-origin metadata instead of matching every function named
+    /// `spawn`, so unrelated module members and local shadows do not receive
+    /// Task-specific closure-capture constraints.
     fn is_task_spawn_callee(&self, function: &Expression, param_tys: &[InferType]) -> bool {
         let has_spawn_shape = || {
             param_tys

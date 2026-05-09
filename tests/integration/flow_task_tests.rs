@@ -326,6 +326,39 @@ fn main() { () }
 }
 
 #[test]
+fn flow_task_spawn_rejects_bogus_manual_sendable_instance() {
+    let (_stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+data WithFn {
+    WithFn(Int -> Int),
+}
+
+instance Sendable<WithFn> {}
+
+fn main() {
+    let f = fn(x) { x + 1 }
+    let boxed = WithFn(f)
+    Task.spawn(fn() {
+        let _captured = boxed
+        1
+    })
+}
+"#,
+    );
+
+    assert!(
+        !success,
+        "manual Sendable instances must not allow unsafe Task.spawn captures"
+    );
+    assert!(
+        stderr.contains("E453") && stderr.contains("Sendable"),
+        "expected sealed Sendable diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn flow_task_spawn_rejects_captured_local_function_value() {
     let (_stdout, stderr, success) = run_flux_source(
         r#"

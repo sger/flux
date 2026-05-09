@@ -189,6 +189,61 @@ fn main() {
 }
 
 #[test]
+fn sendable_rejects_manual_instance_for_safe_adt() {
+    let result = compile_source(
+        r#"
+data Safe { Safe(Int, String) }
+
+instance Sendable<Safe> {}
+
+fn main() { () }
+"#,
+    );
+    let errs = result.expect_err("manual Sendable instances must be sealed");
+    let joined = errs.join("\n");
+    assert!(
+        joined.contains("E453") && joined.contains("Sendable"),
+        "expected sealed Sendable diagnostic, got:\n{joined}"
+    );
+}
+
+#[test]
+fn sendable_rejects_manual_instance_for_function_field_adt() {
+    let result = compile_source(
+        r#"
+data WithFn { WithFn(Int -> Int) }
+
+instance Sendable<WithFn> {}
+
+fn main() { () }
+"#,
+    );
+    let errs = result.expect_err("manual Sendable must not bless function fields");
+    let joined = errs.join("\n");
+    assert!(
+        joined.contains("E453") && joined.contains("Sendable"),
+        "expected sealed Sendable diagnostic, got:\n{joined}"
+    );
+}
+
+#[test]
+fn sendable_rejects_deriving_clause() {
+    let result = compile_source(
+        r#"
+data Safe { Safe(Int) } deriving (Sendable)
+
+fn main() { () }
+"#,
+    );
+    let errs = result.expect_err("deriving Sendable must be sealed");
+    let joined = errs.join("\n");
+    assert!(
+        joined.contains("E453") && joined.contains("Sendable"),
+        "expected sealed Sendable diagnostic, got:\n{joined}"
+    );
+}
+
+#[test]
 fn sendable_recursive_adt_is_auto_derived() {
     // Proposal 0174 Phase 2 slice 2-x acceptance: a recursive ADT whose
     // every field is Sendable (transitively, including the recursive
