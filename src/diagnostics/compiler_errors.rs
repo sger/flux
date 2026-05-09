@@ -935,6 +935,16 @@ pub const INSTANCE_METHOD_EFFECT_FLOOR: ErrorCode = ErrorCode {
     ),
 };
 
+pub const SEALED_CLASS_INSTANCE: ErrorCode = ErrorCode {
+    code: "E453",
+    title: "SEALED CLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Class `{}` is compiler-derived and cannot be implemented manually.",
+    hint: Some(
+        "Remove the instance; data types become Sendable automatically when all fields are Sendable.",
+    ),
+};
+
 /// Proposal 0151, Phase 2: a `public class` signature must not mention a
 /// private type — otherwise importers see a class method whose parameter
 /// or return type they cannot name.
