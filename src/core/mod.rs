@@ -759,7 +759,23 @@ pub enum CorePrimOp {
     /// scheduler (proposal 0174 slice 2-vii follow-up). Returns 0 outside
     /// `run_async`. Args: () -> Int.
     FiberCurrentWorkerCount = 201,
-    // ── Next free ID: 202 ─────────────────────────────────────────────
+    /// Create a bounded cross-fiber channel. Args: (capacity: Int) -> channel id.
+    ChanMake = 202,
+    /// Send on a channel, suspending the current fiber if full.
+    ChanSend = 203,
+    /// Receive from a channel, suspending the current fiber if empty.
+    ChanRecv = 204,
+    /// Non-blocking send. Args: (channel id, value) -> Bool.
+    ChanTrySend = 205,
+    /// Non-blocking receive. Args: (channel id) -> Option<a>.
+    ChanTryRecv = 206,
+    /// Close a channel and wake parked senders/receivers.
+    ChanClose = 207,
+    /// Return the current buffered length.
+    ChanLen = 208,
+    /// Return the channel capacity.
+    ChanCap = 209,
+    // ── Next free ID: 210 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -829,6 +845,14 @@ impl CorePrimOp {
             "FiberFirstOf" => return Some(Self::FiberFirstOf),
             "FiberTry" => return Some(Self::FiberTry),
             "FiberCurrentWorkerCount" => return Some(Self::FiberCurrentWorkerCount),
+            "ChanMake" => return Some(Self::ChanMake),
+            "ChanSend" => return Some(Self::ChanSend),
+            "ChanRecv" => return Some(Self::ChanRecv),
+            "ChanTrySend" => return Some(Self::ChanTrySend),
+            "ChanTryRecv" => return Some(Self::ChanTryRecv),
+            "ChanClose" => return Some(Self::ChanClose),
+            "ChanLen" => return Some(Self::ChanLen),
+            "ChanCap" => return Some(Self::ChanCap),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
             "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
@@ -950,6 +974,14 @@ impl CorePrimOp {
             Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
             Self::FiberTry => Some("fiber_try"),
             Self::FiberCurrentWorkerCount => Some("fiber_current_worker_count"),
+            Self::ChanMake => Some("chan_make"),
+            Self::ChanSend => Some("chan_send"),
+            Self::ChanRecv => Some("chan_recv"),
+            Self::ChanTrySend => Some("chan_try_send"),
+            Self::ChanTryRecv => Some("chan_try_recv"),
+            Self::ChanClose => Some("chan_close"),
+            Self::ChanLen => Some("chan_len"),
+            Self::ChanCap => Some("chan_cap"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
             Self::HttpShutdownNow => Some("http_shutdown_now"),
@@ -1165,6 +1197,14 @@ impl CorePrimOp {
             199 => HttpWriteChunk,
             200 => HttpWriteChunkedEnd,
             201 => FiberCurrentWorkerCount,
+            202 => ChanMake,
+            203 => ChanSend,
+            204 => ChanRecv,
+            205 => ChanTrySend,
+            206 => ChanTryRecv,
+            207 => ChanClose,
+            208 => ChanLen,
+            209 => ChanCap,
             _ => return None,
         };
         Some(op)
@@ -1311,6 +1351,14 @@ impl CorePrimOp {
                 0,
                 CorePrimOp::FiberCurrentWorkerCount,
             ),
+            ("chan_cap", 1, CorePrimOp::ChanCap),
+            ("chan_close", 1, CorePrimOp::ChanClose),
+            ("chan_len", 1, CorePrimOp::ChanLen),
+            ("chan_make", 1, CorePrimOp::ChanMake),
+            ("chan_recv", 1, CorePrimOp::ChanRecv),
+            ("chan_send", 2, CorePrimOp::ChanSend),
+            ("chan_try_recv", 1, CorePrimOp::ChanTryRecv),
+            ("chan_try_send", 2, CorePrimOp::ChanTrySend),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
@@ -1449,6 +1497,12 @@ impl CorePrimOp {
             | FiberCancelScope
             | FiberFirstOf
             | FiberTry
+            | ChanMake
+            | ChanRecv
+            | ChanTryRecv
+            | ChanClose
+            | ChanLen
+            | ChanCap
             | HttpShutdown
             | HttpShutdownNow
             | HttpActiveConnectionCount
@@ -1527,6 +1581,8 @@ impl CorePrimOp {
             | FiberRace
             | FiberTimeout
             | FiberForkScoped
+            | ChanSend
+            | ChanTrySend
             | HttpWriteResponse
             | HttpRegisterConnection
             | HttpUnregisterConnection

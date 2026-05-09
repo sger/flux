@@ -137,6 +137,14 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::HttpWriteChunkedHead => "http_write_chunked_head",
         CorePrimOp::HttpWriteChunk => "http_write_chunk",
         CorePrimOp::HttpWriteChunkedEnd => "http_write_chunked_end",
+        CorePrimOp::ChanMake => "chan_make",
+        CorePrimOp::ChanSend => "chan_send",
+        CorePrimOp::ChanRecv => "chan_recv",
+        CorePrimOp::ChanTrySend => "chan_try_send",
+        CorePrimOp::ChanTryRecv => "chan_try_recv",
+        CorePrimOp::ChanClose => "chan_close",
+        CorePrimOp::ChanLen => "chan_len",
+        CorePrimOp::ChanCap => "chan_cap",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -377,6 +385,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberFirstOf
             | CorePrimOp::FiberTry
             | CorePrimOp::FiberCurrentWorkerCount
+            | CorePrimOp::ChanMake
+            | CorePrimOp::ChanSend
+            | CorePrimOp::ChanRecv
+            | CorePrimOp::ChanTrySend
+            | CorePrimOp::ChanTryRecv
+            | CorePrimOp::ChanClose
+            | CorePrimOp::ChanLen
+            | CorePrimOp::ChanCap
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
             | CorePrimOp::HttpShutdownNow

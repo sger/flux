@@ -1,0 +1,32 @@
+import Flow.Async as Async
+import Flow.Channel as Channel
+
+data JobConfig {
+    JobConfig(Int, String),
+}
+
+fn weight(config: JobConfig, value: Int) -> Int {
+    match config {
+        JobConfig(scale, label) -> if label == "heavy" { value * scale } else { value }
+    }
+}
+
+fn channel_main() -> String with Async {
+    let config = JobConfig(3, "heavy")
+    let ch = Channel.make(5)
+
+    Channel.send(ch, weight(config, 4))
+    Channel.send(ch, weight(config, 5))
+
+    let first = Channel.recv(ch)
+    let second = Channel.recv(ch)
+
+    match (first, second) {
+        (Some(a), Some(b)) -> "total: " + to_string(a + b),
+        _ -> "closed"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(channel_main))
+}

@@ -3788,6 +3788,14 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         }
         // Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
         CorePrimOp::FiberRunAsyncWith => return "flux_fiber_run_async_with".to_string(),
+        CorePrimOp::ChanMake => return "flux_chan_make".to_string(),
+        CorePrimOp::ChanSend => return "flux_chan_send".to_string(),
+        CorePrimOp::ChanRecv => return "flux_chan_recv".to_string(),
+        CorePrimOp::ChanTrySend => return "flux_chan_try_send".to_string(),
+        CorePrimOp::ChanTryRecv => return "flux_chan_try_recv".to_string(),
+        CorePrimOp::ChanClose => return "flux_chan_close".to_string(),
+        CorePrimOp::ChanLen => return "flux_chan_len".to_string(),
+        CorePrimOp::ChanCap => return "flux_chan_cap".to_string(),
         // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
         CorePrimOp::HttpServeConfig => return "flux_http_serve_config".to_string(),
         CorePrimOp::HttpShutdown => return "flux_http_shutdown".to_string(),
@@ -3963,6 +3971,14 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
             ],
         ),
+        "flux_chan_make" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_try_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_try_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_len" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_cap" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
