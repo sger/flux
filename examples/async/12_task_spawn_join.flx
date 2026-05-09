@@ -2,7 +2,7 @@
 //
 // `Flow.Task` is the OS-thread-spawning surface. Unlike fibers (which are
 // cooperatively scheduled inside `run_async`), tasks live on the worker
-// pool and can run truly in parallel on native.
+// pool and can run truly in parallel.
 //
 // `Task.spawn(action)` requires the result type to satisfy `Sendable` so
 // the produced value can cross a worker boundary. Primitives, tuples,
@@ -33,10 +33,8 @@ fn sum_squares(n: Int, acc: Int) -> Int {
 fn slow_compute() -> Int { sum_squares(13, 0) }
 
 fn main() with IO {
-    // `spawn` returns immediately with a `Task<Int>` handle. On native
-    // each task runs on its own OS thread; on the VM the body executes
-    // on the spawning thread (sequentially equivalent semantics — no
-    // source change needed when the VM gains real parallelism).
+    // `spawn` returns immediately with a `Task<Int>` handle. Each task
+    // runs on a worker thread.
     let t1 = spawn(slow_compute)
     let t2 = spawn(slow_compute)
 
