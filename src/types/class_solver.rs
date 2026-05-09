@@ -81,6 +81,23 @@ pub fn solve_class_constraints(
 
         if !has_matching_instance {
             let class_display = interner.resolve(constraint.class_name);
+            if let WantedClassConstraintOrigin::TaskSpawnCapture { capture_name } =
+                constraint.origin
+            {
+                let capture_display = interner.resolve(capture_name);
+                diagnostics.push(
+                    diagnostic_for(&NO_INSTANCE)
+                        .with_span(constraint.span)
+                        .with_message(format!(
+                            "Task.spawn closure captures non-Sendable value `{capture_display}: {type_display}`."
+                        ))
+                        .with_hint_text(
+                            "Only values with a Sendable instance can cross the task worker boundary."
+                                .to_string(),
+                        ),
+                );
+                continue;
+            }
             diagnostics.push(
                 diagnostic_for(&NO_INSTANCE)
                     .with_span(constraint.span)

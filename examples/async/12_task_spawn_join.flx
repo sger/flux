@@ -8,7 +8,8 @@
 // the produced value can cross a worker boundary. Primitives, tuples,
 // `Option`/`List`/`Map`/`Either`, and user ADTs whose fields are all
 // `Sendable` qualify automatically. Function values do NOT satisfy
-// `Sendable`, by design — you cannot ship a closure to a worker today.
+// `Sendable`, by design; closures passed directly to `spawn` may capture
+// immutable values when each capture is Sendable.
 //
 // `Task.blocking_join(t)` blocks the calling OS thread until the task
 // finishes and returns its result. (For the async-friendly variant that

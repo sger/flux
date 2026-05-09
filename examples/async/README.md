@@ -28,6 +28,8 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [14_task_cancel.flx](14_task_cancel.flx) | `Task.cancel` and cancel-then-await |
 | [15_concurrent_jobs.flx](15_concurrent_jobs.flx) | Fiber concurrency + task parallelism in one program |
 | [16_current_worker_count.flx](16_current_worker_count.flx) | `Async.current_worker_count` introspection |
+| [17_worker_diagnostic.flx](17_worker_diagnostic.flx) | worker-count diagnostics |
+| [18_task_closure_captures.flx](18_task_closure_captures.flx) | `Task.spawn` with immutable closure captures |
 
 ## Effect surface cheat sheet
 

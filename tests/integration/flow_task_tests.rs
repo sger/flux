@@ -89,8 +89,8 @@ fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
     assert!(success, "Flow.Task surface tests must pass:\n{stdout}");
     assert!(
-        stdout.contains("9 passed"),
-        "expected 9 passing tests, got:\n{stdout}"
+        stdout.contains("12 passed"),
+        "expected 12 passing tests, got:\n{stdout}"
     );
 }
 
@@ -245,6 +245,162 @@ fn main() { () }
 }
 
 #[test]
+fn flow_task_spawn_accepts_sendable_closure_captures_cross_module() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+data Packet {
+    Packet(Int, String),
+}
+
+fn main() with IO {
+    let offset = 40
+    let label = "ok"
+    let nums = [1, 2, 3]
+    let packet = Packet(9, label)
+    let t = Task.spawn(fn() { (offset + 2, label, nums, packet) })
+    let r = Task.blocking_join(t)
+    print(r.0)
+    print(r.1)
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "Task.spawn should accept Sendable captured values:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.lines().collect::<Vec<_>>(), ["42", "\"ok\""]);
+}
+
+#[test]
+fn flow_task_spawn_accepts_exposed_import_closure_capture() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task exposing (spawn, blocking_join)
+
+fn main() with IO {
+    let base = 41
+    let t = spawn(fn() { base + 1 })
+    print(blocking_join(t))
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "exposed Flow.Task.spawn should accept a Sendable captured value:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "42");
+}
+
+#[test]
+fn flow_task_spawn_rejects_non_sendable_capture_even_with_sendable_result() {
+    let (_stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+import Flow.Tcp exposing (..)
+
+fn move_conn(c: Connection) {
+    Task.spawn(fn() {
+        let _captured = c
+        1
+    })
+}
+
+fn main() { () }
+"#,
+    );
+
+    assert!(
+        !success,
+        "Task.spawn must reject non-Sendable captured values even when the result is Sendable"
+    );
+    assert!(
+        stderr.contains("E444")
+            && stderr.contains("Task.spawn closure captures non-Sendable value")
+            && stderr.contains("c:"),
+        "expected capture-specific E444 Sendable diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn flow_task_spawn_rejects_captured_local_function_value() {
+    let (_stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+fn main() {
+    let f = fn(x) { x + 1 }
+    Task.spawn(fn() { f(41) })
+}
+"#,
+    );
+
+    assert!(
+        !success,
+        "Task.spawn must reject captured local function values"
+    );
+    assert!(
+        stderr.contains("E444")
+            && stderr.contains("Task.spawn closure captures non-Sendable value")
+            && stderr.contains("f:"),
+        "expected capture-specific E444 Sendable diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn non_task_spawn_member_does_not_get_task_capture_constraints() {
+    let dir = std::env::temp_dir().join(format!(
+        "flux-flow-task-non-task-spawn-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir for non-task spawn fixture");
+    let other_path = dir.join("Other.flx");
+    let main_path = dir.join("main.flx");
+    std::fs::write(
+        &other_path,
+        r#"
+module Other {
+    public fn spawn(action: () -> Int) -> Int {
+        action()
+    }
+}
+"#,
+    )
+    .expect("write Other.flx fixture");
+    std::fs::write(
+        &main_path,
+        r#"
+import Other
+
+fn main() with IO {
+    let f = fn(x) { x + 1 }
+    print(Other.spawn(fn() { f(41) }))
+}
+"#,
+    )
+    .expect("write main.flx fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([main_path.to_str().unwrap(), "--no-cache", "--dump-cfg"])
+        .output()
+        .expect("run non-task spawn fixture");
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+    let _ = std::fs::remove_file(&other_path);
+    let _ = std::fs::remove_file(&main_path);
+
+    assert!(
+        output.status.success(),
+        "non-Flow.Task spawn members must not get Task.spawn capture constraints:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
 #[cfg(feature = "llvm")]
 fn flow_task_native_compiles_and_passes() {
     // Uses a native-specific fixture (Int/String payloads only) because
@@ -268,8 +424,8 @@ fn flow_task_native_compiles_and_passes() {
         "native Task tests must pass:\n{stdout}"
     );
     assert!(
-        stdout.contains("6 passed"),
-        "expected 6 passing native tests, got:\n{stdout}"
+        stdout.contains("8 passed"),
+        "expected 8 passing native tests, got:\n{stdout}"
     );
 }
 
