@@ -21,7 +21,7 @@ use super::{VM, slot};
 type TaskResult = Result<VmSendValue, String>;
 
 #[derive(Clone)]
-enum VmSendValue {
+pub(super) enum VmSendValue {
     Uninit,
     Integer(i64),
     Float(f64),
@@ -47,7 +47,7 @@ enum VmSendValue {
 }
 
 #[derive(Clone)]
-struct VmSendFunction {
+pub(super) struct VmSendFunction {
     instructions: Instructions,
     num_locals: usize,
     num_parameters: usize,
@@ -57,7 +57,7 @@ struct VmSendFunction {
 }
 
 #[derive(Clone)]
-struct VmSendClosure {
+pub(super) struct VmSendClosure {
     function: VmSendFunction,
     free: Vec<VmSendValue>,
 }
@@ -277,7 +277,7 @@ impl VmSendValue {
         Self::try_from_value(value).unwrap_or_else(|err| Self::Unsupported(err))
     }
 
-    fn try_from_value(value: &Value) -> Result<Self, String> {
+    pub(super) fn try_from_value(value: &Value) -> Result<Self, String> {
         Ok(match value {
             Value::Uninit => Self::Uninit,
             Value::Integer(v) => Self::Integer(*v),
@@ -332,7 +332,7 @@ impl VmSendValue {
         })
     }
 
-    fn to_value(self) -> Result<Value, String> {
+    pub(super) fn to_value(self) -> Result<Value, String> {
         Ok(match self {
             Self::Uninit => Value::Uninit,
             Self::Integer(v) => Value::Integer(v),

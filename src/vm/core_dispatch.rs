@@ -1222,6 +1222,20 @@ mod vm_fibers {
                     });
                     break;
                 }
+                if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
+                    let outcome = match result {
+                        Ok(value) => FiberOutcome::Value(value),
+                        Err(err) => FiberOutcome::Error(async_panicked(err)),
+                    };
+                    set_resume_outcome(request_id, outcome);
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .complete_request(RequestId(request_id));
+                    });
+                    break;
+                }
                 if let Some(c) = backend.next_completion() {
                     // Route TCP payloads as resume values before waking the fiber.
                     use crate::runtime::r#async::backend::CompletionPayload;
@@ -2173,6 +2187,64 @@ pub fn execute_core_primop(
                 }
             }
             other => Err(terr("task_await", "Int", other)),
+        },
+
+        // ── Channel primops (cross-fiber producer/consumer queues) ───
+        ChanMake => match &args[0] {
+            Value::Integer(capacity) => super::channel::make(*capacity).map(Value::Integer),
+            other => Err(terr("chan_make", "Int", other)),
+        },
+        ChanSend => match &args[0] {
+            Value::Integer(id) => {
+                if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    let req = vm_async::alloc_request_id();
+                    let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    super::channel::start_send(*id, &args[1], req.0)?;
+                    vm_fibers::signal_park(req, cont);
+                    Err("__flux_fiber_park__".to_string())
+                } else {
+                    super::channel::send(*id, &args[1])?;
+                    Ok(Value::None)
+                }
+            }
+            other => Err(terr("chan_send", "Int", other)),
+        },
+        ChanRecv => match &args[0] {
+            Value::Integer(id) => {
+                if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    let req = vm_async::alloc_request_id();
+                    let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    super::channel::start_recv(*id, req.0)?;
+                    vm_fibers::signal_park(req, cont);
+                    Err("__flux_fiber_park__".to_string())
+                } else {
+                    super::channel::recv(*id)
+                }
+            }
+            other => Err(terr("chan_recv", "Int", other)),
+        },
+        ChanTrySend => match &args[0] {
+            Value::Integer(id) => super::channel::try_send(*id, &args[1]).map(Value::Boolean),
+            other => Err(terr("chan_try_send", "Int", other)),
+        },
+        ChanTryRecv => match &args[0] {
+            Value::Integer(id) => super::channel::try_recv(*id),
+            other => Err(terr("chan_try_recv", "Int", other)),
+        },
+        ChanClose => match &args[0] {
+            Value::Integer(id) => {
+                super::channel::close(*id)?;
+                Ok(Value::None)
+            }
+            other => Err(terr("chan_close", "Int", other)),
+        },
+        ChanLen => match &args[0] {
+            Value::Integer(id) => super::channel::len(*id).map(Value::Integer),
+            other => Err(terr("chan_len", "Int", other)),
+        },
+        ChanCap => match &args[0] {
+            Value::Integer(id) => super::channel::cap(*id).map(Value::Integer),
+            other => Err(terr("chan_cap", "Int", other)),
         },
 
         // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────

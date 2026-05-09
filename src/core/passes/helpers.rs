@@ -612,6 +612,14 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberRunAsyncWith
         | CorePrimOp::FiberFirstOf
         | CorePrimOp::FiberTry
+        | CorePrimOp::ChanMake
+        | CorePrimOp::ChanSend
+        | CorePrimOp::ChanRecv
+        | CorePrimOp::ChanTrySend
+        | CorePrimOp::ChanTryRecv
+        | CorePrimOp::ChanClose
+        | CorePrimOp::ChanLen
+        | CorePrimOp::ChanCap
         | CorePrimOp::HttpServeConfig
         | CorePrimOp::HttpShutdown
         | CorePrimOp::HttpShutdownNow
