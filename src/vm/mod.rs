@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod binary_ops;
+mod channel;
 mod comparison_ops;
 mod core_dispatch;
 mod dispatch;

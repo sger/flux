@@ -220,6 +220,16 @@ int64_t flux_fiber_current_worker_count(void);
  * Int; a value of 0 means "use the default". */
 int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure);
 
+/* Flow.Channel<a> (bounded producer/consumer channels). */
+int64_t flux_chan_make(int64_t capacity);
+int64_t flux_chan_send(int64_t id, int64_t value);
+int64_t flux_chan_recv(int64_t id);
+int64_t flux_chan_try_send(int64_t id, int64_t value);
+int64_t flux_chan_try_recv(int64_t id);
+int64_t flux_chan_close(int64_t id);
+int64_t flux_chan_len(int64_t id);
+int64_t flux_chan_cap(int64_t id);
+
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 typedef struct FluxAsyncCallbacks {
     int64_t (*call0)(int64_t closure);

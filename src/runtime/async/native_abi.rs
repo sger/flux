@@ -1132,8 +1132,12 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
 pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
-        let left_id = run.spawn_child_on(current_worker(), next_fiber_id(), left);
-        let right_id = run.spawn_child(right);
+        let worker = current_worker();
+        // Launch race candidates on the caller's worker in source order so
+        // immediate completions have deterministic FIFO tie-breaking. Once a
+        // child suspends, backend completions still race normally.
+        let left_id = run.spawn_child_on(worker, next_fiber_id(), left);
+        let right_id = run.spawn_child_on(worker, next_fiber_id(), right);
         run.awaits
             .register_race(parent_req, vec![left_id, right_id]);
         parent_req
@@ -1149,13 +1153,10 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
     let closures = unsafe { slice::from_raw_parts(children, len) };
     with_run(|run| {
         let parent_req = next_request_id();
+        let worker = current_worker();
         let mut child_ids = Vec::with_capacity(closures.len());
         for (idx, closure) in closures.iter().copied().enumerate() {
-            let id = if idx == 0 {
-                run.spawn_child_on(current_worker(), next_fiber_id(), closure)
-            } else {
-                run.spawn_child(closure)
-            };
+            let id = run.spawn_child_on(worker, next_fiber_id(), closure);
             child_ids.push((id, idx));
         }
         run.awaits.register_first_of(parent_req, child_ids);
