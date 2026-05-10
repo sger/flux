@@ -28,10 +28,8 @@ fn write_fixture(source: String) -> PathBuf {
 }
 
 fn run_source(source: String) -> (String, String, bool) {
-    let _guard = VM_HTTP_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("VM HTTP test lock poisoned");
+    let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let path = write_fixture(source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -203,10 +201,8 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn shutdown_stops_accepting_new_connections() {
-    let _guard = VM_HTTP_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("VM HTTP test lock poisoned");
+    let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let port = next_port();
     let source = lifecycle_source(&format!(
         r#"
@@ -252,10 +248,8 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn max_connections_backpressures_live_connections() {
-    let _guard = VM_HTTP_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("VM HTTP test lock poisoned");
+    let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let port = next_port();
     let source = lifecycle_source(&format!(
         r#"
@@ -285,12 +279,22 @@ fn body() -> String with Async, AsyncFail {{
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("spawn flux");
-    std::thread::sleep(std::time::Duration::from_millis(150));
 
+    // The VM compiles all modules before the server starts accepting. Retry
+    // connecting for up to 3s to accommodate slow/debug builds.
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let mut first =
-        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500))
-            .expect("connect first client");
+    let mut first = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(100)) {
+                Ok(s) => break s,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => panic!("connect first client: {e}"),
+            }
+        }
+    };
     first
         .write_all(b"GET /hold HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
         .expect("write first request");
