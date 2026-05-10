@@ -183,12 +183,20 @@ int64_t flux_task_spawn(int64_t closure) {
     pthread_create(&e->thread, NULL, flux_task_worker, e);
     pthread_mutex_unlock(&task_table_mutex);
 
+    /* Register with the active run's root-task safety net so an unawaited
+     * task is cancelled at run_async teardown instead of leaking the OS
+     * thread until process exit. No-op when no run is active. */
+    flux_async_register_root_task(id);
+
     return flux_tag_int(id);
 }
 
 int64_t flux_task_blocking_join(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
+
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
 
     pthread_mutex_lock(&task_table_mutex);
     FluxTaskEntry *e = NULL;
@@ -235,6 +243,9 @@ int64_t flux_task_cancel(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
 
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
+
     pthread_mutex_lock(&task_table_mutex);
     FluxTaskEntry *e = NULL;
     for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
@@ -260,6 +271,9 @@ int64_t flux_task_cancel(int64_t task) {
 int64_t flux_task_await(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
+
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
 
     pthread_mutex_lock(&task_table_mutex);
     FluxTaskEntry *e = NULL;
@@ -485,12 +499,20 @@ int64_t flux_task_spawn(int64_t closure) {
     }
     LeaveCriticalSection(&task_table_mutex);
 
+    /* Register with the active run's root-task safety net so an unawaited
+     * task is cancelled at run_async teardown instead of leaking the OS
+     * thread until process exit. No-op when no run is active. */
+    flux_async_register_root_task(id);
+
     return flux_tag_int(id);
 }
 
 int64_t flux_task_blocking_join(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
+
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
 
     EnterCriticalSection(&task_table_mutex);
     FluxTaskEntry *e = NULL;
@@ -537,6 +559,9 @@ int64_t flux_task_cancel(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
 
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
+
     EnterCriticalSection(&task_table_mutex);
     FluxTaskEntry *e = NULL;
     for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
@@ -561,6 +586,9 @@ int64_t flux_task_cancel(int64_t task) {
 int64_t flux_task_await(int64_t task) {
     task_table_init_once();
     int64_t id = flux_untag_int(task);
+
+    /* User has taken ownership of the handle — drop the root-task safety net. */
+    flux_async_deregister_root_task(id);
 
     EnterCriticalSection(&task_table_mutex);
     FluxTaskEntry *e = NULL;
@@ -681,6 +709,8 @@ static void flux_async_register_callbacks(void) {
         flux_async_make_string,
         flux_task_spawn,
         flux_task_cancel,
+        flux_async_register_root_task,
+        flux_async_deregister_root_task,
     };
     if (flux_async_set_callbacks(&callbacks) != 0) {
         fprintf(stderr, "flux_async_set_callbacks failed\n");
