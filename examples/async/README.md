@@ -30,6 +30,7 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [16_current_worker_count.flx](16_current_worker_count.flx) | `Async.current_worker_count` introspection |
 | [17_worker_diagnostic.flx](17_worker_diagnostic.flx) | worker-count diagnostics |
 | [18_task_closure_captures.flx](18_task_closure_captures.flx) | `Task.spawn` with immutable closure captures |
+| [19_task_spawn_scoped.flx](19_task_spawn_scoped.flx) | `Task.spawn_scoped` — structured concurrency for tasks |
 
 ## Effect surface cheat sheet
 

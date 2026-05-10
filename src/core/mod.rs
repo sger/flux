@@ -775,7 +775,11 @@ pub enum CorePrimOp {
     ChanLen = 208,
     /// Return the channel capacity.
     ChanCap = 209,
-    // ── Next free ID: 210 ─────────────────────────────────────────────
+    /// Spawn a task and register it under a fiber scope. When `cancel(scope)`
+    /// is called, the task is cancelled automatically alongside any forked
+    /// fibers. Requires `with Async` — only valid inside a `run_async` boundary.
+    TaskSpawnScoped = 210,
+    // ── Next free ID: 211 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -853,6 +857,7 @@ impl CorePrimOp {
             "ChanClose" => return Some(Self::ChanClose),
             "ChanLen" => return Some(Self::ChanLen),
             "ChanCap" => return Some(Self::ChanCap),
+            "TaskSpawnScoped" => return Some(Self::TaskSpawnScoped),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
             "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
@@ -982,6 +987,7 @@ impl CorePrimOp {
             Self::ChanClose => Some("chan_close"),
             Self::ChanLen => Some("chan_len"),
             Self::ChanCap => Some("chan_cap"),
+            Self::TaskSpawnScoped => Some("task_spawn_scoped"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
             Self::HttpShutdownNow => Some("http_shutdown_now"),
@@ -1205,6 +1211,7 @@ impl CorePrimOp {
             207 => ChanClose,
             208 => ChanLen,
             209 => ChanCap,
+            210 => TaskSpawnScoped,
             _ => return None,
         };
         Some(op)
@@ -1401,6 +1408,7 @@ impl CorePrimOp {
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
             ("task_spawn", 1, CorePrimOp::TaskSpawn),
+            ("task_spawn_scoped", 2, CorePrimOp::TaskSpawnScoped),
             ("tcp_accept", 1, CorePrimOp::TcpAccept),
             ("tcp_close", 1, CorePrimOp::TcpClose),
             ("tcp_connect", 2, CorePrimOp::TcpConnect),
@@ -1581,6 +1589,7 @@ impl CorePrimOp {
             | FiberRace
             | FiberTimeout
             | FiberForkScoped
+            | TaskSpawnScoped
             | ChanSend
             | ChanTrySend
             | HttpWriteResponse

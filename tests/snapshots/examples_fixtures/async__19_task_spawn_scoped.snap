@@ -1,0 +1,11 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 33
+---
+Fixture: examples/async/19_task_spawn_scoped.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

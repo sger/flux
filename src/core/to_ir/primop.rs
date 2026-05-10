@@ -90,6 +90,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
         CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskSpawnScoped => "task_spawn_scoped",
         CorePrimOp::TaskBlockingJoin => "task_blocking_join",
         CorePrimOp::TaskCancel => "task_cancel",
         // Fiber primops (proposal 0174 Phase 1b)
@@ -356,6 +357,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
             | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskSpawnScoped
             | CorePrimOp::TaskBlockingJoin
             | CorePrimOp::TaskCancel
             // Fiber primops (proposal 0174 Phase 1b)

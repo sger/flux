@@ -17,6 +17,13 @@ use super::await_coordinator::{AwaitCoordinator, AwaitEvent};
 use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
 use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
 
+// C runtime task functions called from the native scheduler (e.g. to cancel
+// a task registered under a scope when the scope is cancelled).
+unsafe extern "C" {
+    fn flux_task_spawn(closure: i64) -> i64;
+    fn flux_task_cancel(task_id: i64) -> i64;
+}
+
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
 static CALLBACKS: OnceLock<FluxAsyncCallbacks> = OnceLock::new();
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -118,6 +125,7 @@ struct NativeRun {
     scopes: HashMap<u64, HashSet<u64>>,
     fiber_scope: HashMap<u64, u64>,
     cancelled_fibers: HashSet<u64>,
+    scope_tasks: HashMap<u64, Vec<i64>>,
     panicked_ctor_tag: i32,
     root_result: Option<FiberOutcome>,
     running: usize,
@@ -161,6 +169,7 @@ impl NativeRun {
             scopes: HashMap::new(),
             fiber_scope: HashMap::new(),
             cancelled_fibers: HashSet::new(),
+            scope_tasks: HashMap::new(),
             panicked_ctor_tag: 0,
             root_result: None,
             running: 0,
@@ -528,6 +537,10 @@ impl NativeRun {
         }
     }
 
+    fn register_task_in_scope(&mut self, scope: u64, task_id: i64) {
+        self.scope_tasks.entry(scope).or_default().push(task_id);
+    }
+
     fn cancel_scope(&mut self, scope: u64) {
         let children: Vec<u64> = self
             .scopes
@@ -535,6 +548,12 @@ impl NativeRun {
             .map(|children| children.into_iter().collect())
             .unwrap_or_default();
         self.cancel_fibers(&children);
+        // Also cancel any tasks registered under this scope via spawn_scoped.
+        // flux_task_cancel is idempotent — no-op for already-completed tasks.
+        let task_ids = self.scope_tasks.remove(&scope).unwrap_or_default();
+        for task_id in task_ids {
+            unsafe { flux_task_cancel(task_id) };
+        }
     }
 
     fn route_backend_completion(&mut self, req: u64, payload: CompletionPayload) {
@@ -1219,6 +1238,19 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
     with_run(|run| run.cancel_scope(scope))
         .map(|_| 0)
         .unwrap_or(-1)
+}
+
+/// Spawn a task under a fiber scope. The task runs on an OS thread; when
+/// `cancel(scope)` is called, the task is cancelled alongside any forked
+/// fibers. Returns the task id (positive), or a negative error code.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 {
+    let task_id = unsafe { flux_task_spawn(closure) };
+    if task_id <= 0 {
+        return task_id;
+    }
+    with_run(|run| run.register_task_in_scope(scope, task_id));
+    task_id
 }
 
 /// Phase 2 slice 2-vii: `flux_async_run_root` with an explicit

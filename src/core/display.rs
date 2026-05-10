@@ -576,6 +576,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::SafeMod => out.push_str("SafeMod"),
         // Concurrency (proposal 0174 D5-a)
         CorePrimOp::TaskSpawn => out.push_str("TaskSpawn"),
+        CorePrimOp::TaskSpawnScoped => out.push_str("TaskSpawnScoped"),
         CorePrimOp::TaskBlockingJoin => out.push_str("TaskBlockingJoin"),
         CorePrimOp::TaskCancel => out.push_str("TaskCancel"),
         // Fiber primops (proposal 0174 Phase 1b)
