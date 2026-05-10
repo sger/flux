@@ -2287,7 +2287,7 @@ impl Compiler {
         match exposing {
             ImportExposing::None => {}
             ImportExposing::All => {
-                // Expose all public members of the module.
+                // Expose all public functions / let-bindings of the module.
                 let public_members: Vec<Symbol> = self
                     .module_function_visibility
                     .iter()
@@ -2298,14 +2298,69 @@ impl Compiler {
                     let qualified = self.interner.intern_join(module_name, member);
                     self.exposed_bindings.insert(member, qualified);
                 }
+                // Expose public ADT type names so users can write the type in
+                // annotations (e.g. `fn helper(s: Scope) -> ...`) without
+                // qualifying or listing the type explicitly.
+                let public_adt_types: Vec<Symbol> = self
+                    .module_adt_visibility
+                    .iter()
+                    .filter(|((mod_name, _), is_public)| *mod_name == module_name && **is_public)
+                    .map(|((_, name), _)| *name)
+                    .collect();
+                for adt in public_adt_types {
+                    let qualified = self.interner.intern_join(module_name, adt);
+                    self.exposed_bindings.insert(adt, qualified);
+                }
+                // Expose constructors of public ADTs so `Ok(x)` / `Err(e)` /
+                // `Canceled` etc. resolve unqualified at the call site.
+                let public_ctor_short_names: Vec<Symbol> = self
+                    .module_adt_constructors
+                    .iter()
+                    .filter(|((mod_name, _), adt)| {
+                        *mod_name == module_name
+                            && self
+                                .module_adt_visibility
+                                .get(&(module_name, **adt))
+                                .copied()
+                                .unwrap_or(false)
+                    })
+                    .filter_map(|((_, ctor), _)| {
+                        let ctor_name = self.sym(*ctor);
+                        if ctor_name.contains('.') {
+                            None
+                        } else {
+                            Some(*ctor)
+                        }
+                    })
+                    .collect();
+                for ctor in public_ctor_short_names {
+                    let qualified = self.interner.intern_join(module_name, ctor);
+                    self.exposed_bindings.insert(ctor, qualified);
+                }
             }
             ImportExposing::Names(names) => {
                 for &member in names {
-                    // Validate the member exists and is public.
+                    // Validate the member exists and is public. Resolve in
+                    // priority: function/let-binding, then ADT type name,
+                    // then ADT constructor (only if its owning ADT is public).
                     let is_public = self
                         .module_function_visibility
                         .get(&(module_name, member))
-                        .copied();
+                        .copied()
+                        .or_else(|| {
+                            self.module_adt_visibility
+                                .get(&(module_name, member))
+                                .copied()
+                        })
+                        .or_else(|| {
+                            self.module_adt_constructors
+                                .get(&(module_name, member))
+                                .and_then(|adt| {
+                                    self.module_adt_visibility
+                                        .get(&(module_name, *adt))
+                                        .copied()
+                                })
+                        });
                     match is_public {
                         Some(true) => {
                             let qualified = self.interner.intern_join(module_name, member);

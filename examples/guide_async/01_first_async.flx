@@ -1,0 +1,34 @@
+// 01 — your first async function
+//
+// Goal: see the smallest possible `with Async` program.
+//
+// The TWO things that make a program "async" in Flux:
+//   1. A function declared `with Async` — it may suspend.
+//   2. A `run_async(...)` call somewhere up the chain — the boundary
+//      that installs the runtime and runs the fiber to completion.
+//
+// Without `run_async`, you cannot call a `with Async` function, just
+// like you cannot call `print` without `with IO`.
+
+// parity-expected-stdout-begin
+// "answer = 42"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// `with Async` here means "this function may suspend." We don't
+// actually suspend in this body — but the annotation reserves the
+// right to call `sleep`, `both`, `race`, etc. without further fuss.
+fn compute() -> Int with Async {
+    40 + 2
+}
+
+fn main() with IO {
+    // `run_async(action)` is the boundary. It:
+    //   - installs the async effect handler,
+    //   - schedules `compute` as the root fiber,
+    //   - drives the runtime until `compute` returns, and
+    //   - hands you back the value.
+    let answer = run_async(compute)
+    print("answer = " + to_string(answer))
+}

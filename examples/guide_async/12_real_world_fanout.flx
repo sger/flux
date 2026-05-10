@@ -1,0 +1,57 @@
+// 12 — putting it all together
+//
+// Goal: a tiny end-to-end example combining several primitives.
+//
+// We pretend to fetch three "mirrors" of a service, race them, and
+// fall back to a default if everything times out.
+//
+//   - `try` recovers from individual failures (so a broken mirror
+//     doesn't crash the program).
+//   - `first_of` races the three mirror calls; the fastest wins.
+//   - `timeout` bounds the whole race so we don't hang forever.
+
+// parity-expected-stdout-begin
+// "result = mirror-1 OK"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Three "mirrors" with different behaviours:
+fn mirror_0() -> String with Async {
+    sleep(80)
+    fail(canceled_error())                 // this one always fails
+}
+
+fn mirror_1() -> String with Async {
+    sleep(20)                              // fastest healthy mirror
+    "mirror-1 OK"
+}
+
+fn mirror_2() -> String with Async {
+    sleep(40)
+    "mirror-2 OK"
+}
+
+// Wrap each mirror call in `try`, so a single failure doesn't take
+// the whole race down — a failing mirror returns a placeholder
+// instead and continues to "compete." The real winner is the
+// fastest one whose `try` returns `Ok`.
+fn safe_0() -> String with Async { match try_(mirror_0) { Ok(s) -> s, Err(_) -> "mirror-0 FAILED" } }
+fn safe_1() -> String with Async { match try_(mirror_1) { Ok(s) -> s, Err(_) -> "mirror-1 FAILED" } }
+fn safe_2() -> String with Async { match try_(mirror_2) { Ok(s) -> s, Err(_) -> "mirror-2 FAILED" } }
+
+fn race_mirrors() -> (Int, String) with Async {
+    first_of([safe_0, safe_1, safe_2])
+}
+
+fn body() -> String with Async {
+    // Bound the whole race with a 1-second deadline as a safety net.
+    match timeout(1000, race_mirrors) {
+        Some(winner) -> winner.1,
+        None         -> "all mirrors timed out"
+    }
+}
+
+fn main() with IO {
+    print("result = " + run_async(body))
+}

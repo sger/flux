@@ -55,12 +55,12 @@ fn resolve_default_worker_count() -> usize {
 /// owner-only debugging or as a regression escape hatch.
 fn work_stealing_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        match std::env::var("FLUX_WORK_STEALING").ok().as_deref() {
+    *ENABLED.get_or_init(
+        || match std::env::var("FLUX_WORK_STEALING").ok().as_deref() {
             Some("0") | Some("false") | Some("FALSE") | Some("off") | Some("OFF") => false,
             _ => true,
-        }
-    })
+        },
+    )
 }
 
 thread_local! {
@@ -1531,7 +1531,9 @@ mod tests {
         let ordered = run.spawn_child_on_with_stealable(0, next_fiber_id(), 0, false);
 
         assert!(run.pop_ready_or_steal(1).is_none());
-        let local = run.pop_ready_or_steal(0).expect("worker 0 keeps root first");
+        let local = run
+            .pop_ready_or_steal(0)
+            .expect("worker 0 keeps root first");
         assert_eq!(local.id, run.root);
         release_cancelled_fiber(local);
         let local = run

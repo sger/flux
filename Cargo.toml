@@ -387,6 +387,10 @@ name = "flow_task_tests"
 path = "tests/integration/flow_task_tests.rs"
 
 [[test]]
+name = "flow_async_surface_tests"
+path = "tests/integration/flow_async_surface_tests.rs"
+
+[[test]]
 name = "vm_channel_tests"
 path = "tests/integration/vm_channel_tests.rs"
 

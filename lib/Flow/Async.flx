@@ -9,12 +9,11 @@
 // The `Async` effect alias (`<Suspend | Fork | GetContext | AsyncFail>`) is
 // compiler-seeded in `src/compiler/mod.rs` and declared in `lib/Flow/Effects.flx`.
 //
-// Parser note: Flux does not yet support `with <effect>` in a non-final
-// function parameter type (the comma separating parameters is ambiguous with
-// the row separator inside the `with` clause). For functions that take multiple
-// callbacks, only the *last* callback before `) ->` may carry `with Async`.
-// Callers pass named `with Async` functions; multi-callback combinators use
-// unannotated parameter types for all but the final argument.
+// Parens scope effect rows: a callback parameter that carries `with <effect>`
+// must wrap its function type in parens, e.g. `f: (() -> a with Async | e)`.
+// The bare form `f: () -> a with Async` works only on the *final* parameter
+// (where the `with` is unambiguously the enclosing function's effect clause);
+// any non-final callback that carries an effect row needs the parens.
 
 module Flow.Async {
 
@@ -254,9 +253,6 @@ module Flow.Async {
     /// VM: real concurrent execution via the fiber scheduler — `f` and `g`
     /// run interleaved on a single OS thread. Native: 1b-vi-d.
     ///
-    /// Parser limitation (Phase 1b): only the last callback parameter may carry
-    /// `with Async`. Pass named `with Async` functions for both arguments; the
-    /// effect is inferred at the call site.
     public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
         fiber_both_prim(f, g)
     }
@@ -266,7 +262,6 @@ module Flow.Async {
     /// VM/native: real first-wins via the fiber scheduler. Losers are
     /// cancelled when the winner resolves.
     ///
-    /// Parser limitation (Phase 1b): pass named `with Async` functions for both args.
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
         fiber_race_prim(f, g)
     }
@@ -309,7 +304,6 @@ module Flow.Async {
     ///
     /// VM: runs `body`, then `cleanup`, returns body's result.
     ///
-    /// Parser limitation (Phase 1b): `cleanup` may carry `with Async`; `body` is unannotated.
     public fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async {
         let result = body()
         let _ = cleanup()
@@ -320,7 +314,6 @@ module Flow.Async {
     ///
     /// VM: acquire → body → release, sequentially.
     ///
-    /// Parser limitation (Phase 1b): only `body` may carry `with Async`.
     public fn bracket<r, c, a>(acquire: () -> r, release: (r) -> c, body: (r) -> a with Async) -> a with Async {
         let resource = acquire()
         let result = body(resource)
@@ -329,6 +322,11 @@ module Flow.Async {
     }
 
     /// Catch async fiber failures in `body`.
+    ///
+    /// Spelled `try_` (with trailing underscore) because the bare name
+    /// `try` collides with a C/C++ keyword in the native backend's name
+    /// mangling. The underscore is a deliberate workaround, not a stylistic
+    /// quirk.
     public fn try_<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
         fiber_try_prim(body)
     }
