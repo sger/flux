@@ -105,6 +105,27 @@ where
         self.awaiter_index.clear();
     }
 
+    /// Remove a pending await registration by parent request id.
+    /// Called when a parent fiber aborts at park time (cancelled before
+    /// parking) so orphaned child completions are silently discarded
+    /// rather than trying to wake a parent that will never consume them.
+    pub fn remove(&mut self, parent_req: u64) {
+        if let Some(kind) = self.awaits.remove(&parent_req) {
+            let children: Vec<F> = match kind {
+                AwaitKind::Both { left, right, .. } => vec![left, right],
+                AwaitKind::Try { child, .. } => vec![child],
+                AwaitKind::Race { children, .. } => children,
+                AwaitKind::FirstOf { children, .. } => {
+                    children.into_iter().map(|(f, _)| f).collect()
+                }
+                AwaitKind::Timeout { body } => vec![body],
+            };
+            for child in children {
+                self.unindex_child_request(child, parent_req);
+            }
+        }
+    }
+
     pub fn remove_child(&mut self, child: F) {
         self.awaiter_index.remove(&child);
     }
