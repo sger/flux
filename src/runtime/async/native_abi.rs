@@ -77,6 +77,8 @@ pub struct FluxAsyncCallbacks {
     make_string: unsafe extern "C" fn(*const u8, usize) -> i64,
     task_spawn: unsafe extern "C" fn(i64) -> i64,
     task_cancel: unsafe extern "C" fn(i64) -> i64,
+    register_root_task: unsafe extern "C" fn(i64),
+    deregister_root_task: unsafe extern "C" fn(i64),
 }
 
 fn callbacks() -> Option<&'static FluxAsyncCallbacks> {
@@ -121,6 +123,11 @@ struct NativeRun {
     fiber_scope: HashMap<u64, u64>,
     cancelled_fibers: HashSet<u64>,
     scope_tasks: HashMap<u64, Vec<i64>>,
+    /// Tasks spawned via detached `Task.spawn` while this run is active.
+    /// Cancelled at root teardown; deregistered when the user awaits, joins,
+    /// or explicitly cancels the handle. Closes the OS-thread leak hole for
+    /// `Task.spawn` invoked inside `run_async` without a matching await.
+    root_tasks: HashSet<i64>,
     panicked_ctor_tag: i32,
     root_result: Option<FiberOutcome>,
     running: usize,
@@ -165,6 +172,7 @@ impl NativeRun {
             fiber_scope: HashMap::new(),
             cancelled_fibers: HashSet::new(),
             scope_tasks: HashMap::new(),
+            root_tasks: HashSet::new(),
             panicked_ctor_tag: 0,
             root_result: None,
             running: 0,
@@ -1125,6 +1133,24 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     for worker in workers {
         let _ = worker.join();
     }
+
+    // Drain the root-task safety net: any task spawned via detached
+    // `Task.spawn` during this run that the user never awaited / joined /
+    // cancelled gets cancelled here. flux_task_cancel is idempotent for
+    // already-completed tasks, so the call is safe even when the task
+    // finished on its own. Bounds Task.spawn lifetime to run_async.
+    let leaked: Vec<i64> = {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        state.root_tasks.drain().collect()
+    };
+    for task_id in leaked {
+        unsafe { (cb.task_cancel)(task_id) };
+    }
+
     set_active_run(previous_run);
     result
 }
@@ -1239,6 +1265,28 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Register a detached task with the active run's root task set so it is
+/// cancelled at `run_async` teardown if never awaited / joined / cancelled.
+/// No-op if no run is active (preserves detached semantics outside `run_async`).
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_register_root_task(task_id: i64) {
+    if task_id <= 0 {
+        return;
+    }
+    let _ = with_run(|run| run.root_tasks.insert(task_id));
+}
+
+/// Remove a task from the active run's root task set. Called when the user
+/// owns the handle (await, blocking_join, cancel) — the safety net is no
+/// longer needed. No-op if no run is active or the id isn't tracked.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_deregister_root_task(task_id: i64) {
+    if task_id <= 0 {
+        return;
+    }
+    let _ = with_run(|run| run.root_tasks.remove(&task_id));
+}
+
 /// Spawn a task under a fiber scope. The task runs on an OS thread; when
 /// `cancel(scope)` is called, the task is cancelled alongside any forked
 /// fibers. Returns the task id (positive), or a negative error code.
@@ -1251,7 +1299,13 @@ pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 
     if task_id <= 0 {
         return task_id;
     }
-    with_run(|run| run.register_task_in_scope(scope, task_id));
+    // The C `flux_task_spawn` adds the id to `root_tasks` as a safety net.
+    // A scoped task already has an explicit owner, so move it from
+    // root_tasks → scope_tasks to avoid double-cancel-on-teardown.
+    with_run(|run| {
+        run.root_tasks.remove(&task_id);
+        run.register_task_in_scope(scope, task_id);
+    });
     task_id
 }
 

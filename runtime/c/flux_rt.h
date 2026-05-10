@@ -252,6 +252,8 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*make_string)(const uint8_t *data, uintptr_t len);
     int64_t (*task_spawn)(int64_t closure);
     int64_t (*task_cancel)(int64_t task_id);
+    void    (*register_root_task)(int64_t task_id);
+    void    (*deregister_root_task)(int64_t task_id);
 } FluxAsyncCallbacks;
 
 int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
@@ -273,6 +275,8 @@ uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
 int32_t  flux_async_cancel_scope(uint64_t scope_id);
 int64_t  flux_async_task_spawn_scoped(uint64_t scope_id, int64_t closure);
+void     flux_async_register_root_task(int64_t task_id);
+void     flux_async_deregister_root_task(int64_t task_id);
 int32_t  flux_async_check_cancelled(void);
 int32_t  flux_async_current_worker_count(void);
 uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
@@ -318,6 +322,8 @@ uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
 int32_t  flux_async_cancel_scope(uint64_t scope_id);
 int64_t  flux_async_task_spawn_scoped(uint64_t scope_id, int64_t closure);
+void     flux_async_register_root_task(int64_t task_id);
+void     flux_async_deregister_root_task(int64_t task_id);
 int32_t  flux_async_poll_dispatch(uint64_t request_id);
 int32_t  flux_async_shutdown(void);
 int32_t  flux_async_is_suspended(void);
