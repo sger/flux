@@ -331,23 +331,39 @@ fn rust_staticlib_path() -> Option<PathBuf> {
 
 fn discover_rust_staticlib() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let profile_dir = exe.parent()?; // target/<profile>/
+    let exe_dir = exe.parent()?;
 
-    // Fast path: sidecar written by a previous successful link. We verify the
-    // symbol is present — the sidecar may point at a feature-less archive written
-    // by `cargo build` (without --features llvm) which lacks flux_async_* symbols.
+    // Test binaries land in target/<profile>/deps/ while the main `flux`
+    // binary lands in target/<profile>/. Normalise so `profile_dir` always
+    // points at target/<profile>/ and `deps_dir` at target/<profile>/deps/.
+    let (profile_dir, deps_dir) = if exe_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        == Some("deps")
+    {
+        let profile = exe_dir.parent()?;
+        (profile.to_path_buf(), exe_dir.to_path_buf())
+    } else {
+        (exe_dir.to_path_buf(), exe_dir.join("deps"))
+    };
+
+    // The archive must export the sentinel proving it was built with
+    // --features llvm (a feature-less build lacks flux_async_* symbols).
+    let has_sentinel = |path: &Path| archive_exports_symbol(path, "flux_async_run_root");
+
+    // Fast path: sidecar written by a previous successful link.
+    // The archive filename embeds a cargo content hash — if native_abi.rs
+    // changed, cargo produces a new hash and the old sidecar path no longer
+    // exists on disk, causing an automatic fallthrough to the slow scan.
     let sidecar = profile_dir.join("flux-staticlib.path");
     if let Ok(raw) = fs::read_to_string(&sidecar) {
         let path = PathBuf::from(raw.trim());
-        if path.exists() && archive_exports_symbol(&path, "flux_async_run_root") {
+        if path.exists() && has_sentinel(&path) {
             return Some(path);
         }
     }
 
-    // Slow fallback: scan deps/ newest-first. On a clean build build.rs runs
-    // before the archive is written, so the sidecar is absent on first use.
-    // After finding the archive we write the sidecar so subsequent runs are fast.
-    let deps_dir = profile_dir.join("deps");
+    // Slow fallback: scan deps/ newest-first.
     let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
         .into_iter()
         .flatten()
@@ -367,9 +383,10 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     candidates.reverse(); // newest first
     let found = candidates
         .into_iter()
-        .find(|p| archive_exports_symbol(p, "flux_async_run_root"))?;
+        .find(|p| has_sentinel(p))?;
 
-    // Cache the result so the next invocation skips the scan entirely.
+    // Cache result. Next run uses the fast path unless the file disappears
+    // (which happens automatically when cargo rebuilds with a new content hash).
     let _ = fs::write(&sidecar, found.to_string_lossy().as_bytes());
     Some(found)
 }

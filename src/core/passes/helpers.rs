@@ -584,6 +584,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows
         | CorePrimOp::TaskSpawn
+        | CorePrimOp::TaskSpawnScoped
         | CorePrimOp::TaskBlockingJoin
         | CorePrimOp::TaskCancel
         // Fiber primops (proposal 0174 Phase 1b) — not higher-order promoted

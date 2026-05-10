@@ -1040,6 +1040,7 @@ pub struct Compiler {
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
+    pub(super) preloaded_adt_registry: AdtRegistry,
     pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
@@ -1282,6 +1283,7 @@ impl Compiler {
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
+            preloaded_adt_registry: AdtRegistry::new(),
             field_registry: FieldRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
@@ -1960,6 +1962,11 @@ impl Compiler {
         self.preloaded_adt_variants.extend(adt_variants);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
+        // Register dep ADT types so cross-module type references in function
+        // signatures (e.g. `s: Flow.Async.Scope`) pass the unknown-type check.
+        for statement in &program.statements {
+            self.collect_dep_adt_definitions_from_stmt(statement);
+        }
         self.collect_native_constructor_tags(program);
         // Proposal 0161 B1: populate alias table before contract collection.
         self.collect_effect_aliases_for_contracts(program);
@@ -2296,6 +2303,28 @@ impl Compiler {
         self.adt_contract_specs.clear();
         for statement in &program.statements {
             self.collect_adt_definitions_from_stmt(statement, None);
+        }
+        // Accumulate this module's ADT types into the preloaded registry so
+        // that later compilations in the same Compiler session (e.g. snapshot
+        // test loops that call `compile` per module) can reference them in
+        // function-signature type checks.
+        for statement in &program.statements {
+            self.collect_dep_adt_definitions_from_stmt(statement);
+        }
+    }
+
+    fn collect_dep_adt_definitions_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Data { name, variants, .. } => {
+                self.preloaded_adt_registry
+                    .register_adt(*name, variants, &self.interner);
+            }
+            Statement::Module { body, .. } => {
+                for stmt in &body.statements {
+                    self.collect_dep_adt_definitions_from_stmt(stmt);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -4676,6 +4705,7 @@ impl Compiler {
                 | "Option"
                 | "Either"
         ) || self.adt_registry.lookup_adt(name).is_some()
+            || self.preloaded_adt_registry.lookup_adt(name).is_some()
     }
 
     fn strict_missing_ambient_effects(

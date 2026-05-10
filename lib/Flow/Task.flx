@@ -16,6 +16,8 @@
 // Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
 // require `Sendable<a>`; `cancel` is unconstrained on `a`.
 
+import Flow.Async exposing (..)
+
 module Flow.Task {
 
     /// Handle to a task running on the worker pool. Wraps an opaque task id
@@ -74,5 +76,20 @@ module Flow.Task {
                 None    -> panic("TaskCancelled")
             }
         }
+    }
+
+    /// Compiler intrinsic — `CorePrimOp::TaskSpawnScoped`. Takes a `Scope` and
+    /// the action, returns the task id.
+    intrinsic fn task_spawn_scoped_id<a>(s: Scope, action: () -> a) -> Int = primop TaskSpawnScoped
+
+    /// Spawn a task and register it under `s`. When `cancel(s)` is called,
+    /// this task is cancelled automatically alongside any forked fibers.
+    ///
+    /// The task body runs on a worker thread (or VM worker pool). `a` must
+    /// be `Sendable` for the same reason as `spawn`. The returned handle can
+    /// be `await`ed, `blocking_join`ed, or discarded — the scope owns the
+    /// lifetime regardless.
+    public fn spawn_scoped<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async {
+        Task(task_spawn_scoped_id(s, action))
     }
 }
