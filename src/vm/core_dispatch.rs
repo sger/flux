@@ -375,6 +375,13 @@ mod vm_fibers {
         // TaskSpawnScoped; cleared by FiberCancelScope and run_async exit.
         static SCOPE_TASK_REGISTRY: RefCell<HashMap<u64, Vec<i64>>> =
             RefCell::new(HashMap::new());
+        // Root-task safety net for detached `Task.spawn` invoked while a
+        // run_async is active. `Some` only between enter_run_async and exit.
+        // Populated by TaskSpawn; deregistered by TaskAwait /
+        // TaskBlockingJoin / TaskCancel; drained (and cancelled) at outermost
+        // run_async exit so unawaited tasks cannot leak past the run.
+        static RUN_ROOT_TASKS: RefCell<Option<HashSet<i64>>> =
+            const { RefCell::new(None) };
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -514,6 +521,9 @@ mod vm_fibers {
             SCHED.with(|s| {
                 *s.borrow_mut() = Some(FiberScheduler::new(n_workers));
             });
+            // Phase 2: arm the root-task safety net for `Task.spawn` calls
+            // made inside this run_async. Cleared at outermost exit.
+            RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = Some(HashSet::new()));
         }
         let root = SCHED.with(|s| {
             s.borrow_mut()
@@ -574,7 +584,55 @@ mod vm_fibers {
             // Phase 2 slice 2-vii: drop the pending config so the next
             // top-level run_async picks up its own (or falls back to env/default).
             PENDING_RUN_CONFIG.with(|c| c.set(None));
+            // Tear down the root-task safety net. Cancellation of any leftover
+            // tasks happens at the dispatch site (which has the RuntimeContext)
+            // via `take_all_root_tasks`; reaching this point should leave the
+            // set empty.
+            RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
         }
+    }
+
+    /// True if the current thread is at the outermost `run_async` boundary
+    /// (depth == 1 — i.e., the next `exit_run_async` will tear down the
+    /// scheduler). Used by the dispatch site to decide whether to drain the
+    /// root-task safety net.
+    pub fn at_outermost_run_async() -> bool {
+        DEPTH.with(|d| d.get() == 1)
+    }
+
+    /// Drain the root-task safety net. Returns every task id still registered
+    /// (i.e., spawned via detached `Task.spawn` and never awaited / joined /
+    /// cancelled). Caller should `vm_task_cancel` each id before
+    /// `exit_run_async` so unawaited tasks cannot leak past the run.
+    pub fn take_all_root_tasks() -> Vec<i64> {
+        RUN_ROOT_TASKS.with(|r| {
+            r.borrow_mut()
+                .as_mut()
+                .map(|set| set.drain().collect())
+                .unwrap_or_default()
+        })
+    }
+
+    /// Add a task id to the root-task safety net if a run_async is active.
+    /// No-op outside `run_async` (preserves detached semantics for
+    /// `Task.spawn` invoked from synchronous code).
+    pub fn register_root_task(task_id: i64) {
+        RUN_ROOT_TASKS.with(|r| {
+            if let Some(set) = r.borrow_mut().as_mut() {
+                set.insert(task_id);
+            }
+        });
+    }
+
+    /// Remove a task id from the root-task safety net once the user owns
+    /// the handle (await / blocking_join / cancel). No-op if the set is
+    /// inactive or the id isn't tracked.
+    pub fn deregister_root_task(task_id: i64) {
+        RUN_ROOT_TASKS.with(|r| {
+            if let Some(set) = r.borrow_mut().as_mut() {
+                set.remove(&task_id);
+            }
+        });
     }
 
     /// Allocate a child fiber via the scheduler and return its id. Must be
@@ -1006,6 +1064,14 @@ mod vm_fibers {
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
         SCOPE_REGISTRY.with(|r| r.borrow_mut().clear());
         SCOPE_TASK_REGISTRY.with(|r| r.borrow_mut().clear());
+        // Defense in depth: the dispatch site is supposed to drain
+        // RUN_ROOT_TASKS before exit_run_async. If anything bypasses that
+        // path, drop the leftover ids here so they don't bleed across runs.
+        RUN_ROOT_TASKS.with(|r| {
+            if let Some(set) = r.borrow_mut().as_mut() {
+                set.clear();
+            }
+        });
     }
 
     /// Drive the FiberRunAsync dispatch loop until all fibers are done or
@@ -1946,6 +2012,10 @@ pub fn execute_core_primop(
         // not cross OS-thread boundaries.
         TaskSpawn => {
             let id = ctx.vm_task_spawn(args[0].clone())?;
+            // Bound the task's lifetime to the enclosing run_async: if the
+            // user never awaits / joins / cancels, the dispatch-site drain
+            // at run_async exit will cancel it. No-op outside run_async.
+            vm_fibers::register_root_task(id);
             Ok(Value::Integer(id))
         }
         TaskSpawnScoped => {
@@ -1961,11 +2031,16 @@ pub fn execute_core_primop(
             Ok(Value::Integer(id))
         }
         TaskBlockingJoin => match &args[0] {
-            Value::Integer(id) => ctx.vm_task_blocking_join(*id),
+            Value::Integer(id) => {
+                // User has taken ownership — drop the root-task safety net.
+                vm_fibers::deregister_root_task(*id);
+                ctx.vm_task_blocking_join(*id)
+            }
             other => Err(terr("task_blocking_join", "Int", other)),
         },
         TaskCancel => match &args[0] {
             Value::Integer(id) => {
+                vm_fibers::deregister_root_task(*id);
                 ctx.vm_task_cancel(*id)?;
                 Ok(Value::None)
             }
@@ -1995,6 +2070,15 @@ pub fn execute_core_primop(
 
             vm_fibers::clear_root();
             vm_fibers::restore_boundary(prev_boundary);
+            // Drain the root-task safety net before tearing down the run:
+            // any task spawned via detached `Task.spawn` that the user never
+            // awaited / joined / cancelled gets cancelled here so it cannot
+            // leak past run_async. Idempotent for already-completed tasks.
+            if vm_fibers::at_outermost_run_async() {
+                for id in vm_fibers::take_all_root_tasks() {
+                    let _ = ctx.vm_task_cancel(id);
+                }
+            }
             vm_fibers::exit_run_async(root);
             result
         }
@@ -2040,6 +2124,12 @@ pub fn execute_core_primop(
 
             vm_fibers::clear_root();
             vm_fibers::restore_boundary(prev_boundary);
+            // Same root-task safety-net drain as `FiberRunAsync`. See comment there.
+            if vm_fibers::at_outermost_run_async() {
+                for id in vm_fibers::take_all_root_tasks() {
+                    let _ = ctx.vm_task_cancel(id);
+                }
+            }
             vm_fibers::exit_run_async(root);
             result
         }
@@ -2325,6 +2415,8 @@ pub fn execute_core_primop(
         // Outside an async boundary, fall back to blocking join.
         TaskAwait => match &args[0] {
             Value::Integer(id) => {
+                // User has taken ownership — drop the root-task safety net.
+                vm_fibers::deregister_root_task(*id);
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
                     if vm_fibers::is_current_cancelled() {
                         vm_fibers::signal_cancel_error();

@@ -1,0 +1,6 @@
+### Changed
+- `Task.spawn` invoked inside `run_async` is now bound to the run's lifetime: any task whose handle is never `await`ed, `blocking_join`ed, or `cancel`ed is automatically cancelled when `run_async` exits, on both VM and native. Closes the OS-thread leak that previously persisted detached tasks until process exit. Public API is unchanged; `Task.spawn_scoped` continues to provide explicit child-of-this-scope ownership. Tasks spawned from purely synchronous code (no `run_async` on the stack) keep today's detached behavior. Added `examples/async/20_task_spawn_root_reaper.flx` demonstrating the guarantee on both backends.
+
+### Fixed
+- Windows: `link.exe` no longer fails with unresolved `flux_task_spawn` / `flux_task_cancel` externals when building `flux.exe` with the `llvm` feature. Native scheduler now reaches `tasks.c` through the existing `FluxAsyncCallbacks` registration table instead of direct `extern "C"` imports, matching the existing pattern for the rest of the runtime bridge.
+- Windows: `Flow.Channel` runtime is now implemented natively (CRITICAL_SECTION / CONDITION_VARIABLE / Interlocked\*), replacing the `not implemented on this platform` abort. `channel.c` is now a single body with thin platform-abstraction macros so POSIX and Win32 stay in lockstep.
