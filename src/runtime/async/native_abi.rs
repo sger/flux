@@ -5,6 +5,7 @@
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::slice;
 use std::str;
@@ -51,7 +52,7 @@ fn resolve_default_worker_count() -> usize {
 /// Work-stealing + least-loaded-queue spawn placement on by default.
 /// `FLUX_WORK_STEALING=0` (or `false`/`off`) restores the original
 /// per-worker FIFO + round-robin spawn placement — useful for strict
-/// no-fiber-migration debugging or as a regression escape hatch.
+/// owner-only debugging or as a regression escape hatch.
 fn work_stealing_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -86,6 +87,10 @@ pub struct FluxAsyncCallbacks {
     current_request: unsafe extern "C" fn() -> i64,
     clear_suspend: unsafe extern "C" fn(),
     compose_conts: unsafe extern "C" fn() -> i64,
+    capture_effect_context: unsafe extern "C" fn() -> *mut c_void,
+    restore_effect_context: unsafe extern "C" fn(*mut c_void),
+    reset_effect_context: unsafe extern "C" fn(),
+    release_effect_context: unsafe extern "C" fn(*mut c_void),
     promote: unsafe extern "C" fn(i64),
     enter_worker_thread: unsafe extern "C" fn(),
     make_string: unsafe extern "C" fn(*const u8, usize) -> i64,
@@ -111,11 +116,42 @@ enum FiberOutcome {
     Error(i64),
 }
 
-#[derive(Clone, Copy)]
+struct EffectSnapshot(*mut c_void);
+
+unsafe impl Send for EffectSnapshot {}
+
+impl EffectSnapshot {
+    fn capture(cb: &FluxAsyncCallbacks) -> Self {
+        Self(unsafe { (cb.capture_effect_context)() })
+    }
+
+    fn null() -> Self {
+        Self(std::ptr::null_mut())
+    }
+
+    fn restore(&self, cb: &FluxAsyncCallbacks) {
+        unsafe { (cb.restore_effect_context)(self.0) };
+    }
+
+    fn reset_thread(cb: &FluxAsyncCallbacks) {
+        unsafe { (cb.reset_effect_context)() };
+    }
+
+    fn release(self, cb: &FluxAsyncCallbacks) {
+        unsafe { (cb.release_effect_context)(self.0) };
+    }
+}
+
 struct Fiber {
     id: u64,
+    /// Queue that receives normal wakeups. Native idle workers may still run
+    /// this fiber by stealing it from that queue.
     home_worker: usize,
     work: Work,
+    effect_context: EffectSnapshot,
+    /// False for immediate `race` / `first_of` candidates that participate in
+    /// source-order tie-breaking. `park` flips this on after first suspend.
+    stealable: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -172,6 +208,10 @@ impl NativeRun {
                 closure: root_closure,
                 owned: false,
             },
+            effect_context: callbacks()
+                .map(EffectSnapshot::capture)
+                .unwrap_or_else(EffectSnapshot::null),
+            stealable: false,
         });
         Self {
             root,
@@ -199,8 +239,8 @@ impl NativeRun {
     /// When work-stealing is enabled (the default), use **least-loaded-queue**
     /// placement: argmin len(self.ready[w]), tie-broken by lowest worker id
     /// for deterministic test behavior. This proactively keeps queues
-    /// balanced so the steal path is the exception, not the steady state —
-    /// a Flux-specific optimization neither Tokio nor Go does.
+    /// balanced so the steal path handles uneven fiber durations rather
+    /// than compensating for avoidable spawn imbalance.
     ///
     /// When `FLUX_WORK_STEALING=0`, fall back to the original round-robin
     /// counter. The `next_child_worker` field stays so the round-robin path
@@ -222,8 +262,9 @@ impl NativeRun {
 
     fn push_ready(&mut self, fiber: Fiber) {
         if self.cancelled_fibers.contains(&fiber.id) {
-            release_cancelled_work(fiber.work);
-            self.forget_cancelled_fiber(fiber.id);
+            let fiber_id = fiber.id;
+            release_cancelled_fiber(fiber);
+            self.forget_cancelled_fiber(fiber_id);
             return;
         }
         self.ready[fiber.home_worker].push_back(fiber);
@@ -231,27 +272,29 @@ impl NativeRun {
 
     /// Pop the next fiber to execute on `worker`.
     ///
-    /// Today: owner-only FIFO from the local queue. Cross-worker stealing
-    /// is **disabled** because the C effects context
-    /// (`flux_thread_ctx` in `runtime/c/effects.c`) is per-OS-thread and
-    /// `flux_async_clear_suspend` does not reset `current_evv` (the
-    /// handler stack pointer). Without migration this is benign — each
-    /// worker thread runs a coherent chain of related fibers and the
-    /// stale `current_evv` between yields stays compatible. With
-    /// migration it corrupts the handler stack across unrelated fiber
-    /// chains. The
-    /// `native_direct_helper_rounds_resume_after_each_combinator` test
-    /// caught this as `STATUS_HEAP_CORRUPTION` when stealing was
-    /// originally enabled.
-    ///
-    /// To safely enable stealing later, the effects-context state (at
-    /// minimum `current_evv`) needs to be captured into the `Fiber`
-    /// struct on suspend and restored on resume. That is its own
-    /// change. Until then, the **least-loaded-queue spawn placement**
-    /// in `pick_next_worker` carries the load-balancing improvement
-    /// without relaxing the no-migration invariant.
+    /// Local queues are FIFO. When the local queue is empty and
+    /// `FLUX_WORK_STEALING` is enabled, idle workers steal from the back of
+    /// another worker's queue. Victim scan order is deterministic so tests
+    /// and diagnostics stay reproducible.
     fn pop_ready_or_steal(&mut self, worker: usize) -> Option<Fiber> {
-        let fiber = self.ready[worker].pop_front()?;
+        let fiber = self.ready[worker].pop_front().or_else(|| {
+            if !work_stealing_enabled() || self.ready.len() <= 1 {
+                return None;
+            }
+            for offset in 1..self.ready.len() {
+                let victim = (worker + offset) % self.ready.len();
+                let Some(pos) = self.ready[victim]
+                    .iter()
+                    .rposition(|fiber| fiber.id != self.root && fiber.stealable)
+                else {
+                    continue;
+                };
+                if let Some(fiber) = self.ready[victim].remove(pos) {
+                    return Some(fiber);
+                }
+            }
+            None
+        })?;
         self.running += 1;
         Some(fiber)
     }
@@ -270,8 +313,9 @@ impl NativeRun {
     }
 
     fn release_discarded_fiber(&mut self, fiber: Fiber) {
-        release_cancelled_work(fiber.work);
-        self.forget_cancelled_fiber(fiber.id);
+        let fiber_id = fiber.id;
+        release_cancelled_fiber(fiber);
+        self.forget_cancelled_fiber(fiber_id);
     }
 
     fn has_live_work(&self) -> bool {
@@ -287,6 +331,16 @@ impl NativeRun {
     }
 
     fn spawn_child_on(&mut self, home_worker: usize, id: u64, closure: i64) -> u64 {
+        self.spawn_child_on_with_stealable(home_worker, id, closure, true)
+    }
+
+    fn spawn_child_on_with_stealable(
+        &mut self,
+        home_worker: usize,
+        id: u64,
+        closure: i64,
+        stealable: bool,
+    ) -> u64 {
         if let Some(cb) = callbacks() {
             unsafe {
                 (cb.retain)(closure);
@@ -300,6 +354,10 @@ impl NativeRun {
                 closure,
                 owned: true,
             },
+            effect_context: callbacks()
+                .map(EffectSnapshot::capture)
+                .unwrap_or_else(EffectSnapshot::null),
+            stealable,
         });
         id
     }
@@ -321,17 +379,20 @@ impl NativeRun {
 
     fn park(&mut self, req: u64, mut fiber: Fiber, continuation: i64) {
         if self.is_cancelled(fiber.id) {
+            let fiber_id = fiber.id;
             release_cancelled_work(Work::Resume {
                 continuation,
                 value: FLUX_NONE,
             });
+            release_cancelled_fiber(fiber);
             if let Some(value) = self.pending_wakes.remove(&req) {
                 release_outcome(value);
             }
-            self.forget_cancelled_fiber(fiber.id);
+            self.forget_cancelled_fiber(fiber_id);
             return;
         }
         promote_value(continuation);
+        fiber.stealable = true;
         fiber.work = Work::Resume {
             continuation,
             value: FLUX_NONE,
@@ -368,9 +429,10 @@ impl NativeRun {
         if let Some(mut fiber) = self.suspended.remove(&req) {
             self.fiber_request.remove(&fiber.id);
             if self.is_cancelled(fiber.id) {
-                release_cancelled_work(fiber.work);
+                let fiber_id = fiber.id;
+                release_cancelled_fiber(fiber);
                 release_outcome(outcome);
-                self.forget_cancelled_fiber(fiber.id);
+                self.forget_cancelled_fiber(fiber_id);
                 return;
             }
             match outcome {
@@ -566,8 +628,9 @@ impl NativeRun {
             let mut kept = VecDeque::new();
             while let Some(fiber) = queue.pop_front() {
                 if losers.contains(&fiber.id) {
-                    release_cancelled_work(fiber.work);
-                    discarded.push(fiber.id);
+                    let fiber_id = fiber.id;
+                    release_cancelled_fiber(fiber);
+                    discarded.push(fiber_id);
                 } else {
                     kept.push_back(fiber);
                 }
@@ -588,8 +651,9 @@ impl NativeRun {
                 backend().cancel(RequestId(req));
                 self.cancelled_requests.insert(req);
                 if let Some(fiber) = self.suspended.remove(&req) {
-                    release_cancelled_work(fiber.work);
-                    self.forget_cancelled_fiber(fiber.id);
+                    let fiber_id = fiber.id;
+                    release_cancelled_fiber(fiber);
+                    self.forget_cancelled_fiber(fiber_id);
                 }
             }
         }
@@ -665,6 +729,22 @@ fn release_executed_work(work: Work) {
             }
         }
     }
+}
+
+fn release_effect_context(snapshot: EffectSnapshot) {
+    if let Some(cb) = callbacks() {
+        snapshot.release(cb);
+    }
+}
+
+fn release_finished_fiber(fiber: Fiber) {
+    release_executed_work(fiber.work);
+    release_effect_context(fiber.effect_context);
+}
+
+fn release_cancelled_fiber(fiber: Fiber) {
+    release_cancelled_work(fiber.work);
+    release_effect_context(fiber.effect_context);
 }
 
 fn release_completion_value(value: i64) {
@@ -793,7 +873,7 @@ fn with_run<R>(f: impl FnOnce(&mut NativeRun) -> R) -> Option<R> {
     Some(result)
 }
 
-fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncCallbacks) {
+fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAsyncCallbacks) {
     {
         let mut state = handle
             .shared
@@ -811,6 +891,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
 
     CURRENT_WORKER.with(|current| current.set(worker));
     CURRENT_FIBER.with(|current| current.set(fiber.id));
+    fiber.effect_context.restore(&cb);
     let mut result = FLUX_NONE;
     let ok = unsafe {
         match fiber.work {
@@ -834,6 +915,10 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
         unsafe {
             (cb.clear_suspend)();
         }
+        let previous_context =
+            std::mem::replace(&mut fiber.effect_context, EffectSnapshot::capture(&cb));
+        previous_context.release(&cb);
+        EffectSnapshot::reset_thread(&cb);
         let executed_work = fiber.work;
         state.park(request, fiber, continuation);
         state.worker_finished();
@@ -843,7 +928,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
         return;
     }
 
-    release_executed_work(fiber.work);
+    EffectSnapshot::reset_thread(&cb);
     let outcome = if ok {
         FiberOutcome::Value(result)
     } else if is_adt_value(result) {
@@ -861,6 +946,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, fiber: Fiber, cb: FluxAsyncC
     state.complete_fiber(fiber.id, outcome);
     state.worker_finished();
     drop(state);
+    release_finished_fiber(fiber);
     handle.notify_all();
 }
 
@@ -1235,8 +1321,8 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
         // Launch race candidates on the caller's worker in source order so
         // immediate completions have deterministic FIFO tie-breaking. Once a
         // child suspends, backend completions still race normally.
-        let left_id = run.spawn_child_on(worker, next_fiber_id(), left);
-        let right_id = run.spawn_child_on(worker, next_fiber_id(), right);
+        let left_id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), left, false);
+        let right_id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), right, false);
         run.awaits
             .register_race(parent_req, vec![left_id, right_id]);
         parent_req
@@ -1255,7 +1341,7 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
         let worker = current_worker();
         let mut child_ids = Vec::with_capacity(closures.len());
         for (idx, closure) in closures.iter().copied().enumerate() {
-            let id = run.spawn_child_on(worker, next_fiber_id(), closure);
+            let id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), closure, false);
             child_ids.push((id, idx));
         }
         run.awaits.register_first_of(parent_req, child_ids);
@@ -1416,6 +1502,44 @@ pub extern "C" fn flux_async_check_cancelled() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_current_worker_count() -> i32 {
     with_run(|run| run.ready.len() as i32).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_worker_steals_from_back_of_another_ready_queue() {
+        let mut run = NativeRun::new(0, 2);
+        let first = run.spawn_child_on(0, next_fiber_id(), 0);
+        let second = run.spawn_child_on(0, next_fiber_id(), 0);
+
+        let stolen = run.pop_ready_or_steal(1).expect("worker 1 should steal");
+        assert_eq!(stolen.id, second);
+        assert_ne!(stolen.id, run.root);
+
+        release_cancelled_fiber(stolen);
+        run.cancel_fibers(&[first]);
+        while let Some(fiber) = run.ready[0].pop_front() {
+            release_cancelled_fiber(fiber);
+        }
+    }
+
+    #[test]
+    fn stealing_skips_order_sensitive_ready_fibers() {
+        let mut run = NativeRun::new(0, 2);
+        let ordered = run.spawn_child_on_with_stealable(0, next_fiber_id(), 0, false);
+
+        assert!(run.pop_ready_or_steal(1).is_none());
+        let local = run.pop_ready_or_steal(0).expect("worker 0 keeps root first");
+        assert_eq!(local.id, run.root);
+        release_cancelled_fiber(local);
+        let local = run
+            .pop_ready_or_steal(0)
+            .expect("worker 0 runs ordered child");
+        assert_eq!(local.id, ordered);
+        release_cancelled_fiber(local);
+    }
 }
 
 #[unsafe(no_mangle)]
