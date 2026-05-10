@@ -84,6 +84,103 @@ fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
     (stdout, stderr, output.status.success())
 }
 
+#[cfg(feature = "llvm")]
+fn generated_native_many_task_source(count: usize, mode: &str) -> String {
+    let mut source = String::from("import Flow.Async exposing (..)\nimport Flow.Task as Task\n\n");
+    source.push_str(&format!("fn task_count() -> Int {{ {count} }}\n\n"));
+    match mode {
+        "join" => {
+            source.push_str(
+                r#"
+fn spawn_many(n, acc) {
+    if n <= 0 { acc } else { spawn_many(n - 1, [Task.spawn(fn() { 1 }) | acc]) }
+}
+
+fn join_all(tasks, acc) {
+    match tasks {
+        [h | t] -> join_all(t, acc + Task.blocking_join(h)),
+        _ -> acc
+    }
+}
+
+fn main() with IO {
+    let tasks = spawn_many(task_count(), [])
+    print(join_all(tasks, 0))
+}
+"#,
+            );
+        }
+        "await" => {
+            source.push_str(
+                r#"
+fn spawn_many(n, acc) {
+    if n <= 0 { acc } else { spawn_many(n - 1, [Task.spawn(fn() { 1 }) | acc]) }
+}
+
+fn join_all(tasks, acc) {
+    match tasks {
+        [h | t] -> join_all(t, acc + Task.blocking_join(h)),
+        _ -> acc
+    }
+}
+
+fn await_one_then_join_rest(tasks) with Async {
+    match tasks {
+        [h | t] -> Task.await(h) + join_all(t, 0),
+        _ -> 0
+    }
+}
+
+fn body() -> Int with Async {
+    await_one_then_join_rest(spawn_many(task_count(), []))
+}
+
+fn main() with IO {
+    print(run_async_with_workers(4, body))
+}
+"#,
+            );
+        }
+        "cancel" => {
+            source.push_str(
+                r#"
+fn spawn_many(n, acc) {
+    if n <= 0 { acc } else { spawn_many(n - 1, [Task.spawn(fn() { 1 }) | acc]) }
+}
+
+fn cancel_all(tasks) {
+    match tasks {
+        [h | t] -> do {
+            Task.cancel(h);
+            cancel_all(t)
+        },
+        _ -> ()
+    }
+}
+
+fn expect_cancelled(tasks) {
+    match tasks {
+        [h | t] -> do {
+            assert_throws(fn() { Task.blocking_join(h) });
+            expect_cancelled(t)
+        },
+        _ -> ()
+    }
+}
+
+fn main() {
+    let tasks = spawn_many(task_count(), [])
+    cancel_all(tasks);
+    expect_cancelled(tasks)
+}
+"#,
+            );
+        }
+        other => panic!("unknown many-task source mode: {other}"),
+    }
+    source
+}
+
 #[test]
 fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
@@ -549,6 +646,44 @@ fn main() with IO {
         "native Task.await completed fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "42");
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_registry_grows_past_old_slot_limit_for_blocking_join() {
+    let count = 1025;
+    let source = generated_native_many_task_source(count, "join");
+    let (stdout, stderr, success) = run_flux_source_native(&source, "many_join");
+    assert!(
+        success,
+        "native Task registry must grow past old slot limit for blocking_join:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), count.to_string());
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_registry_grows_past_old_slot_limit_for_await() {
+    let count = 1025;
+    let source = generated_native_many_task_source(count, "await");
+    let (stdout, stderr, success) = run_flux_source_native(&source, "many_await");
+    assert!(
+        success,
+        "native Task registry must grow past old slot limit for Task.await:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), count.to_string());
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn flow_task_native_cancel_above_old_slot_limit_remains_join_observable() {
+    let count = 1025;
+    let source = generated_native_many_task_source(count, "cancel");
+    let (stdout, stderr, success) = run_flux_source_native(&source, "many_cancel");
+    assert!(
+        success,
+        "native Task cancel must work past old slot limit:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[test]
