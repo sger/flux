@@ -17,13 +17,6 @@ use super::await_coordinator::{AwaitCoordinator, AwaitEvent};
 use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
 use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
 
-// C runtime task functions called from the native scheduler (e.g. to cancel
-// a task registered under a scope when the scope is cancelled).
-unsafe extern "C" {
-    fn flux_task_spawn(closure: i64) -> i64;
-    fn flux_task_cancel(task_id: i64) -> i64;
-}
-
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
 static CALLBACKS: OnceLock<FluxAsyncCallbacks> = OnceLock::new();
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -82,6 +75,8 @@ pub struct FluxAsyncCallbacks {
     promote: unsafe extern "C" fn(i64),
     enter_worker_thread: unsafe extern "C" fn(),
     make_string: unsafe extern "C" fn(*const u8, usize) -> i64,
+    task_spawn: unsafe extern "C" fn(i64) -> i64,
+    task_cancel: unsafe extern "C" fn(i64) -> i64,
 }
 
 fn callbacks() -> Option<&'static FluxAsyncCallbacks> {
@@ -551,8 +546,12 @@ impl NativeRun {
         // Also cancel any tasks registered under this scope via spawn_scoped.
         // flux_task_cancel is idempotent — no-op for already-completed tasks.
         let task_ids = self.scope_tasks.remove(&scope).unwrap_or_default();
-        for task_id in task_ids {
-            unsafe { flux_task_cancel(task_id) };
+        if !task_ids.is_empty()
+            && let Some(cb) = callbacks()
+        {
+            for task_id in task_ids {
+                unsafe { (cb.task_cancel)(task_id) };
+            }
         }
     }
 
@@ -1245,7 +1244,10 @@ pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
 /// fibers. Returns the task id (positive), or a negative error code.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 {
-    let task_id = unsafe { flux_task_spawn(closure) };
+    let Some(cb) = callbacks() else {
+        return -1;
+    };
+    let task_id = unsafe { (cb.task_spawn)(closure) };
     if task_id <= 0 {
         return task_id;
     }
