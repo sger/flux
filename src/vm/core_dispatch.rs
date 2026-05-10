@@ -367,6 +367,10 @@ mod vm_fibers {
         // cleared at outermost exit. `None` means "use defaults".
         static PENDING_RUN_CONFIG: Cell<Option<PendingRunConfig>> =
             const { Cell::new(None) };
+        // Set by signal_park when the current fiber is already cancelled —
+        // tells the call site to propagate cancellation rather than parking.
+        // Cleared by check_and_clear_park_cancelled immediately after.
+        static PARK_CANCELLED: Cell<bool> = const { Cell::new(false) };
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -399,6 +403,22 @@ mod vm_fibers {
 
     pub fn async_panicked(message: impl Into<String>) -> Value {
         adt1("Panicked", Value::String(Rc::new(message.into())))
+    }
+
+    pub fn async_canceled() -> Value {
+        Value::AdtUnit(Rc::new("Canceled".to_string()))
+    }
+
+    /// Signal an automatic cancellation error for the current fiber.
+    /// Pair with `Err("__fiber_error__")` at the call site.
+    pub fn signal_cancel_error() {
+        signal_fiber_error(async_canceled());
+    }
+
+    /// Remove an orphaned await registration when a parent fiber aborts
+    /// at park time due to cancellation.
+    pub fn deregister_await(parent_req: u64) {
+        AWAITS.with(|a| a.borrow_mut().remove(parent_req));
     }
 
     fn result_ok(value: Value) -> Value {
@@ -601,8 +621,28 @@ mod vm_fibers {
     /// FiberSleep / FiberSuspend signal that the current fiber has captured
     /// its continuation and parked on `req`.  The dispatch loop will see
     /// this on the next tick boundary.
+    ///
+    /// If the current fiber is already cancelled, `cont` is dropped and
+    /// `PARK_CANCELLED` is set instead.  The call site must check
+    /// `check_and_clear_park_cancelled()` immediately after and propagate
+    /// the cancel error rather than returning `__fiber_park__`.
     pub fn signal_park(req: RequestId, cont: Value) {
+        if is_current_cancelled() {
+            drop(cont);
+            PARK_CANCELLED.with(|c| c.set(true));
+            return;
+        }
         PENDING_PARK.with(|p| *p.borrow_mut() = Some((req.0, cont)));
+    }
+
+    /// Returns true and clears the flag if `signal_park` aborted due to
+    /// cancellation.  Call immediately after `signal_park`.
+    pub fn check_and_clear_park_cancelled() -> bool {
+        PARK_CANCELLED.with(|c| {
+            let v = c.get();
+            c.set(false);
+            v
+        })
     }
 
     pub fn take_park() -> Option<(u64, Value)> {
@@ -1312,8 +1352,27 @@ fn park_tcp_op(
     req: crate::runtime::r#async::backend::RequestId,
 ) -> Result<Value, String> {
     if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+        // Automatic cancel checkpoint: if the fiber is already cancelled,
+        // cancel the backend request we just issued and abort immediately.
+        if vm_fibers::is_current_cancelled() {
+            if let Ok(backend) = vm_async::backend() {
+                use crate::runtime::r#async::backend::AsyncBackend;
+                backend.cancel(req);
+            }
+            vm_fibers::signal_cancel_error();
+            return Err("__fiber_error__".to_string());
+        }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
         vm_fibers::signal_park(req, cont);
+        if let Err(e) = propagate_if_park_cancelled() {
+            // signal_park detected cancellation after cont capture —
+            // cancel the backend request that was already issued.
+            if let Ok(backend) = vm_async::backend() {
+                use crate::runtime::r#async::backend::AsyncBackend;
+                backend.cancel(req);
+            }
+            return Err(e);
+        }
         Err("__fiber_park__".to_string())
     } else {
         // No fiber boundary: pump backend synchronously (single-fiber fallback).
@@ -1341,6 +1400,20 @@ fn park_tcp_op(
             }
             std::thread::park_timeout(std::time::Duration::from_millis(1));
         }
+    }
+}
+
+/// Called immediately after `signal_park`. If the fiber was already cancelled
+/// and `signal_park` set `PARK_CANCELLED` instead of storing the park,
+/// signals the cancel error and returns `Err` so the call site can propagate
+/// it without returning `__fiber_park__`.
+#[inline]
+fn propagate_if_park_cancelled() -> Result<(), String> {
+    if vm_fibers::check_and_clear_park_cancelled() {
+        vm_fibers::signal_cancel_error();
+        Err("__fiber_error__".to_string())
+    } else {
+        Ok(())
     }
 }
 
@@ -1944,8 +2017,15 @@ pub fn execute_core_primop(
             result
         }
 
-        // yield_now: cooperative yield point. No-op on the VM sequential path.
-        FiberYieldNow => Ok(Value::None),
+        // yield_now: cooperative yield point — and automatic cancel checkpoint.
+        // On the non-cancelled path this is a no-op (no real park on the VM).
+        FiberYieldNow => {
+            if vm_fibers::is_current_cancelled() {
+                vm_fibers::signal_cancel_error();
+                return Err("__fiber_error__".to_string());
+            }
+            Ok(Value::None)
+        }
 
         // fiber_check_cancelled: returns true iff the current fiber's
         // enclosing scope has been cancelled (proposal 0174 Phase 2 slice
@@ -1978,6 +2058,11 @@ pub fn execute_core_primop(
                     // park; dispatch loop resumes us when timer fires.
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     vm_fibers::signal_park(req, cont);
+                    if let Err(e) = propagate_if_park_cancelled() {
+                        // Timer was already armed — cancel it.
+                        backend.cancel(req);
+                        return Err(e);
+                    }
                     Err("__fiber_park__".to_string())
                 } else {
                     // No boundary (e.g. `main() with Async` is the host
@@ -2034,6 +2119,12 @@ pub fn execute_core_primop(
             vm_fibers::register_both_await(req.0, child_a, child_b);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
+            if let Err(e) = propagate_if_park_cancelled() {
+                vm_fibers::deregister_await(req.0);
+                let backend = vm_async::backend()?;
+                vm_fibers::cancel_losers(&[child_a, child_b], backend);
+                return Err(e);
+            }
             Err("__fiber_park__".to_string())
         }
 
@@ -2047,6 +2138,12 @@ pub fn execute_core_primop(
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
+            if let Err(e) = propagate_if_park_cancelled() {
+                vm_fibers::deregister_await(req.0);
+                let backend = vm_async::backend()?;
+                vm_fibers::cancel_losers(&[child_a, child_b], backend);
+                return Err(e);
+            }
             Err("__fiber_park__".to_string())
         }
 
@@ -2066,9 +2163,16 @@ pub fn execute_core_primop(
                 .map(|(idx, body)| (vm_fibers::spawn_child_with_body(body), idx))
                 .collect();
             let req = vm_async::alloc_request_id();
-            vm_fibers::register_first_of_await(req.0, children);
+            vm_fibers::register_first_of_await(req.0, children.clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
+            if let Err(e) = propagate_if_park_cancelled() {
+                vm_fibers::deregister_await(req.0);
+                let child_ids: Vec<_> = children.iter().map(|(id, _)| *id).collect();
+                let backend = vm_async::backend()?;
+                vm_fibers::cancel_losers(&child_ids, backend);
+                return Err(e);
+            }
             Err("__fiber_park__".to_string())
         }
 
@@ -2081,6 +2185,12 @@ pub fn execute_core_primop(
             vm_fibers::register_try_await(req.0, child);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
+            if let Err(e) = propagate_if_park_cancelled() {
+                vm_fibers::deregister_await(req.0);
+                let backend = vm_async::backend()?;
+                vm_fibers::cancel_losers(&[child], backend);
+                return Err(e);
+            }
             Err("__fiber_park__".to_string())
         }
 
@@ -2113,6 +2223,12 @@ pub fn execute_core_primop(
             backend.timer_start(req, ms);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
+            if let Err(e) = propagate_if_park_cancelled() {
+                vm_fibers::deregister_await(req.0);
+                backend.cancel(req);
+                vm_fibers::cancel_losers(&[body_child], backend);
+                return Err(e);
+            }
             Err("__fiber_park__".to_string())
         }
 
@@ -2176,6 +2292,10 @@ pub fn execute_core_primop(
         TaskAwait => match &args[0] {
             Value::Integer(id) => {
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    if vm_fibers::is_current_cancelled() {
+                        vm_fibers::signal_cancel_error();
+                        return Err("__fiber_error__".to_string());
+                    }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::task::start_await(*id, req.0)?;
@@ -2197,6 +2317,10 @@ pub fn execute_core_primop(
         ChanSend => match &args[0] {
             Value::Integer(id) => {
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    if vm_fibers::is_current_cancelled() {
+                        vm_fibers::signal_cancel_error();
+                        return Err("__fiber_error__".to_string());
+                    }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::channel::start_send(*id, &args[1], req.0)?;
@@ -2212,6 +2336,10 @@ pub fn execute_core_primop(
         ChanRecv => match &args[0] {
             Value::Integer(id) => {
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                    if vm_fibers::is_current_cancelled() {
+                        vm_fibers::signal_cancel_error();
+                        return Err("__fiber_error__".to_string());
+                    }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::channel::start_recv(*id, req.0)?;
