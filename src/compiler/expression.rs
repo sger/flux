@@ -137,7 +137,7 @@ impl Compiler {
     ) -> CompileResult<ConditionalJump> {
         // Validate constructor exists and arity matches (same as compile_pattern_check).
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+        if let Some(info) = self.lookup_constructor_resolved(*name)
             && fields.len() != info.arity
         {
             return Err(Self::boxed(
@@ -244,7 +244,7 @@ impl Compiler {
         local_idx: usize,
     ) -> CompileResult<ConditionalJump> {
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+        if let Some(info) = self.lookup_constructor_resolved(*name)
             && fields.len() != info.arity
         {
             return Err(Self::boxed(
@@ -536,6 +536,26 @@ impl Compiler {
                     // Unqualified access to an exposed module member.
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
+                    } else if let Some(info) = self.lookup_constructor_resolved(name) {
+                        // Zero-arg ADT constructor exposed via `import M exposing (..)`
+                        // (e.g. `Canceled`, `TimedOut`). Non-zero-arg constructors used as
+                        // values flow through Application/Constructor expression compile.
+                        if info.arity == 0 {
+                            let constructor_name = self.interner.resolve(name).to_string();
+                            let const_idx =
+                                self.add_constant(Value::String(Rc::new(constructor_name.clone())));
+                            self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
+                        } else {
+                            let name_str = self.interner.resolve(name).to_string();
+                            return Err(Self::boxed(
+                                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Constructor `{}` expects {} argument(s) but got 0.",
+                                        name_str, info.arity
+                                    )),
+                            ));
+                        }
                     } else {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
@@ -551,7 +571,7 @@ impl Compiler {
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
-                    } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                    } else if let Some(info) = self.lookup_constructor_resolved(name) {
                         // Zero-arg ADT constructor used inside a module (e.g. `Dot`, `Leaf`)
                         if info.arity != 0 {
                             let name_str = self.interner.resolve(name).to_string();
@@ -597,7 +617,7 @@ impl Compiler {
                             self.make_undefined_variable_error(name_str, *span),
                         ));
                     }
-                } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                } else if let Some(info) = self.lookup_constructor_resolved(name) {
                     // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
                     if info.arity != 0 {
                         let name_str = self.interner.resolve(name).to_string();
@@ -2900,7 +2920,7 @@ impl Compiler {
             }
             Pattern::Constructor { name, fields, span } => {
                 // 1. Check if this is a known constructor
-                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                let Some(constructor_info) = self.lookup_constructor_resolved(*name) else {
                     // Before reporting unknown constructor, check for cross-module access
                     // via a qualified name (e.g. Module.Ctor used in a pattern).
                     if let Some((member_name, qualifier)) =
@@ -3171,7 +3191,7 @@ impl Compiler {
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
             Pattern::Constructor { name, fields, span } => {
-                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                let Some(constructor_info) = self.lookup_constructor_resolved(*name) else {
                     // Before reporting unknown constructor, check for cross-module access
                     // via a qualified name (e.g. Module.Ctor used in a pattern).
                     if let Some((member_name, qualifier)) =
@@ -4184,7 +4204,10 @@ impl Compiler {
         };
 
         // Only intercept if the constructor is known.
-        let Some(info) = self.adt_registry.lookup_constructor(name) else {
+        let info_arity = self
+            .lookup_constructor_resolved(name)
+            .map(|info| info.arity);
+        let Some(expected_arity) = info_arity else {
             if let Some((member_name, qualifier)) =
                 self.module_constructor_boundary_from_qualified_identifier(name)
             {
@@ -4241,7 +4264,6 @@ impl Compiler {
             );
         }
 
-        let expected_arity = info.arity;
         let actual_arity = arguments.len();
 
         if actual_arity != expected_arity {

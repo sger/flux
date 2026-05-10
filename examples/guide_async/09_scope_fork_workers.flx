@@ -1,0 +1,44 @@
+// 09 — `scope` / `fork` / `cancel`: structured concurrency
+//
+// Goal: spawn ad-hoc background fibers with a clear owner.
+//
+// `both` and `race` are great when you have exactly N callbacks. For
+// more flexible patterns — "spawn a background worker, do some other
+// work, optionally cancel it" — use the structured-concurrency
+// primitives directly:
+//
+//   - scope(body)    allocates a fresh cancellation boundary,
+//                    passes a `Scope` handle to `body`.
+//   - fork(s, f)     schedules `f` under scope `s`.
+//   - cancel(s)      cancels every fiber forked under `s`.
+//
+// When the scope's body returns, every forked child is awaited.
+// If you call `cancel(s)`, they are torn down instead.
+
+// parity-expected-stdout-begin
+// "scope returned: ok"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// A would-be 5-second background worker. We will cancel it long
+// before it finishes — that is the test of cancellation.
+fn slow_worker() -> Unit with Async {
+    sleep(5000)              // five whole seconds
+}
+
+fn body() -> String with Async {
+    scope(fn(s) {
+        fork(s, slow_worker) // schedule under this scope
+        sleep(20)            // let the worker actually start
+
+        cancel(s)            // tear down every fiber under `s`;
+                             // worker's `sleep(5000)` never resolves
+        "ok"                 // scope body returns this
+    })
+}
+
+fn main() with IO {
+    // Without `cancel`, this would take ~5 seconds. With it, ~20ms.
+    print("scope returned: " + run_async(body))
+}
