@@ -336,11 +336,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // Test binaries land in target/<profile>/deps/ while the main `flux`
     // binary lands in target/<profile>/. Normalise so `profile_dir` always
     // points at target/<profile>/ and `deps_dir` at target/<profile>/deps/.
-    let (profile_dir, deps_dir) = if exe_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        == Some("deps")
-    {
+    let (profile_dir, deps_dir) = if exe_dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
         let profile = exe_dir.parent()?;
         (profile.to_path_buf(), exe_dir.to_path_buf())
     } else {
@@ -381,9 +377,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
     candidates.reverse(); // newest first
-    let found = candidates
-        .into_iter()
-        .find(|p| has_sentinel(p))?;
+    let found = candidates.into_iter().find(|p| has_sentinel(p))?;
 
     // Cache result. Next run uses the fast path unless the file disappears
     // (which happens automatically when cargo rebuilds with a new content hash).
@@ -461,14 +455,17 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
     // (e.g. Flow.Channel added after the archive was built) would pass the mtime
     // check if its .o happens to share a timestamp with the archive, but would
     // silently be missing from the archive, causing undefined symbol errors.
-    let archive_members: std::collections::HashSet<String> =
-        match std::process::Command::new("ar").arg("t").arg(archive_path).output() {
-            Ok(out) => String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .map(|l| l.trim().to_owned())
-                .collect(),
-            Err(_) => return false,
-        };
+    let archive_members: std::collections::HashSet<String> = match std::process::Command::new("ar")
+        .arg("t")
+        .arg(archive_path)
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_owned())
+            .collect(),
+        Err(_) => return false,
+    };
     obj_paths.iter().all(|obj| {
         let name = obj
             .file_name()

@@ -286,19 +286,19 @@ public fn try_<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with As
 
 `fail` raises an `AsyncError` in the current fiber and propagates outward — siblings under the same scope are cancelled, ownership unwinds to the nearest `try_` (or to the `run_async` boundary, where it surfaces as a panic).
 
-`try_` is the recovery primitive. The trailing underscore is mandatory because `try` is a reserved word.
+`try_` is the recovery primitive. The trailing underscore is a deliberate workaround: the bare name `try` is a C/C++ keyword and collides with the native backend's name mangling, so a stray `try` definition silently miscompiles on the LLVM path. Spell it `try_`.
 
 ```flux
 fn body() -> Int with Async { fail(canceled_error()) }
 
 fn caught() -> Bool with Async {
-    result_is_ok(try_(body))             // → false
+    result_is_ok(try_(body))            // → false
 }
 ```
 
 ### 7.3 Result helpers
 
-`Result<a, AsyncError>` is exported from `Flow.Async` but its constructors `Ok` / `Err` are **not** brought in by `import Flow.Async exposing (..)`. Use these helpers:
+`import Flow.Async exposing (..)` brings the `Result<a, e>` type and its `Ok` / `Err` constructors into scope, so direct pattern matching on `Ok(v)` / `Err(e)` works at the call site. The helpers below remain available for cases where you don't want to pattern-match:
 
 | Helper | Purpose |
 |---|---|
@@ -307,8 +307,6 @@ fn caught() -> Bool with Async {
 | `result_or(r, fallback)` | `a` — value or fallback |
 | `result_or_else_async(r, fallback, ok_fn)` | continuation form |
 | `result_or_timeout_with_async(r, t_val, e_val, ok_fn)` | three-way fork on Ok / Err(TimedOut) / other |
-
-To pattern-match `Ok` / `Err` directly today you must qualify (`Flow.Async.Ok`) or write a tiny inspector function inside `lib/Flow/`. This is a known surface gap.
 
 See [`07_try_fail.flx`](../../examples/async/07_try_fail.flx).
 
@@ -359,7 +357,7 @@ See [`08_finally_bracket.flx`](../../examples/async/08_finally_bracket.flx).
 public fn scope<a>(f: (Scope) -> a with Async | e) -> a with Async | e
 ```
 
-Allocates a fresh cancellation boundary `Scope` and passes it to `f`. The scope ID is opaque; users pass it through `fork` / `cancel` rather than inspecting it. The `Scope` type name is **not directly importable from user code today** — write `scope(fn(s) { ... })` instead of annotating the parameter type.
+Allocates a fresh cancellation boundary `Scope` and passes it to `f`. The scope ID is opaque; users pass it through `fork` / `cancel` rather than inspecting it. With `import Flow.Async exposing (..)` the `Scope` type is in scope unqualified, so user code can annotate helpers like `fn child_runner(s: Scope) -> Unit with Async { ... }`.
 
 ### 9.2 `fork`
 
@@ -711,35 +709,23 @@ See [`11_runtime_config.flx`](../../examples/async/11_runtime_config.flx).
 
 These are real today; users will hit them. Each has a tracked roadmap entry.
 
-### 14.1 Effect annotations on non-final callbacks
+### 14.1 Parens scope effect rows on callback parameters
 
-Only the **last** callback parameter of a multi-callback function may carry `with Async`. The parser cannot disambiguate the comma between callbacks from the row separator inside `with`.
+A callback parameter that carries `with <effect>` must wrap its function type in parens when it is not the final parameter. The bare form `f: () -> a with Async` works only on the final parameter (where the `with` is unambiguously the enclosing function's effect clause).
 
 ```flux
-// ❌ rejected
-fn both<a, b>(f: () -> a with Async, g: () -> b with Async) -> (a, b)
+// ✅ accepted — both callbacks carry Async via parens
+fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async
 
-// ✅ accepted
-fn both<a, b>(f: () -> a, g: () -> b with Async) -> (a, b) with Async
+// ✅ accepted — final-callback bare form is also fine
+fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async
 ```
 
-This shows up in `bracket` (`release` cannot be `with Async`), `finally` (`body` cannot), and any user combinator with multiple effectful callbacks.
-
-### 14.2 `Result` constructors not in scope
-
-`import Flow.Async exposing (..)` does not bring `Ok` / `Err` into scope. Use `result_is_ok`, `result_or`, `result_is_timed_out` instead, or write a small wrapper inside `Flow.Async`.
-
-### 14.3 `Scope` type not directly nameable
-
-`Scope` is exported but cannot be used as a type annotation in user code (the constructor is opaque). Pass scopes through anonymous lambdas: `scope(fn(s) { ... })`.
+`Flow.Async.both` / `race` / `bracket` / `finally` all use this convention.
 
 ### 14.4 `AsyncError` runtime variants are opaque
 
 Only `canceled_error()` and `protocol_error(status, msg)` are exposed as constructor helpers. Other variants come back via the runtime; users construct them only by calling failing primitives.
-
-### 14.5 `try_` naming
-
-`try` is a reserved word, so the recovery primitive is spelled `try_`. The underscore is mandatory and is not removable without a parser change.
 
 ### 14.7 `Sendable` has no teeth against bad user instances
 
@@ -994,7 +980,7 @@ fn fastest_mirror() -> String with Async {
 ### 16.12 Catching panics in workers
 
 `Async.try_` catches both explicit `fail` and panics, returning a
-`Result<a, AsyncError>` you inspect with helper functions:
+`Result<a, AsyncError>` you can pattern-match or inspect with helper functions:
 
 ```flux
 fn risky() -> Int with Async {

@@ -1,0 +1,48 @@
+// 03 — why async exists, in 50 lines
+//
+// Goal: see the wall-clock difference between sequential and concurrent.
+//
+// We have two pretend-slow operations that each "wait" 80ms. Done
+// sequentially the program waits 160ms. Done concurrently with `both`,
+// it waits ~80ms — both fibers sleep at the same time on the same OS
+// thread, and the runtime resumes whichever is ready first.
+//
+// `now_ms()` lets us measure it. Don't compare elapsed times to
+// hardcoded numbers — schedulers have jitter — just compare relative.
+
+// parity-expected-stdout-begin
+// "concurrent < sequential = true"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn slow_a() -> Int with Async { sleep(80); 1 }
+fn slow_b() -> Int with Async { sleep(80); 2 }
+
+fn run_sequential() -> Int with Async {
+    let a = slow_a()         // wait 80ms
+    let b = slow_b()         // then wait another 80ms
+    a + b                    // ≈ 160ms total
+}
+
+fn run_concurrent() -> Int with Async {
+    // `both` schedules both fibers, then suspends until BOTH return.
+    // Since both fibers sleep at the same time, total wall-clock is
+    // max(80, 80) = ~80ms, not 80 + 80.
+    let (a, b) = both(slow_a, slow_b)
+    a + b
+}
+
+fn main() with IO, Time {
+    let t0 = now_ms()
+    let _seq = run_async(run_sequential)
+    let t1 = now_ms()
+    let _con = run_async(run_concurrent)
+    let t2 = now_ms()
+
+    let sequential_ms = t1 - t0
+    let concurrent_ms = t2 - t1
+
+    // The whole point: concurrent finishes faster than sequential.
+    print("concurrent < sequential = " + to_string(concurrent_ms < sequential_ms))
+}

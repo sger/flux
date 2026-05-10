@@ -23,11 +23,8 @@ fn workspace_root() -> &'static Path {
 }
 
 fn run_source_with_env(source: &str, tag: &str, env: &[(&str, &str)]) -> (String, String, bool) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-load-balance-{}-{}",
-        std::process::id(),
-        tag,
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("flux-load-balance-{}-{}", std::process::id(), tag,));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("fixture.flx");
     std::fs::write(&path, source).expect("write fixture");

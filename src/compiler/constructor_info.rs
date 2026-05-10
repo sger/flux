@@ -1,5 +1,6 @@
 use crate::{core::FluxRep, syntax::symbol::Symbol};
 
+#[derive(Clone)]
 pub struct ConstructorInfo {
     /// Owning ADT name. Populated by `AdtRegistry::register_adt` but not
     /// yet read; retained for the same representation-directed work that

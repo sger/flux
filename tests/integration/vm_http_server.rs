@@ -286,7 +286,8 @@ fn body() -> String with Async, AsyncFail {{
     let mut first = {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
-            match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(100)) {
+            match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(100))
+            {
                 Ok(s) => break s,
                 Err(_) if std::time::Instant::now() < deadline => {
                     std::thread::sleep(std::time::Duration::from_millis(50));

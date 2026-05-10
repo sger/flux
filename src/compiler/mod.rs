@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
 use crate::ast::type_infer::InferProgramConfig;
 use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
+use crate::compiler::constructor_info::ConstructorInfo;
 use crate::compiler::effect_rows::EffectRow;
 use crate::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::syntax::expression::ExprId;
@@ -1031,6 +1032,11 @@ pub struct Compiler {
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub module_member_is_value: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
+    /// Visibility of ADT type declarations within each module, keyed by
+    /// `(module_name, adt_type_name)`. Mirrors `module_function_visibility`
+    /// so `import M exposing (..)` can pull public ADT type names (and their
+    /// constructors) into scope alongside functions.
+    pub(super) module_adt_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) native_constructor_tags: HashMap<Symbol, i32>,
     pub(super) next_native_constructor_tag: i32,
     pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
@@ -1274,6 +1280,7 @@ impl Compiler {
             module_function_visibility: HashMap::new(),
             module_member_is_value: HashMap::new(),
             module_adt_constructors: HashMap::new(),
+            module_adt_visibility: HashMap::new(),
             native_constructor_tags: HashMap::new(),
             next_native_constructor_tag: 5,
             preloaded_ctor_field_names: HashMap::new(),
@@ -1594,6 +1601,7 @@ impl Compiler {
             preloaded_visibility,
             preloaded_member_kinds,
             preloaded_adt_ctors,
+            preloaded_adt_visibility,
             preloaded_ctor_tags,
             preloaded_next_ctor_tag,
             preloaded_ctor_field_names,
@@ -1602,6 +1610,7 @@ impl Compiler {
             preloaded_effect_sigs,
         ) = match mode {
             LoweringPreparationMode::Fresh => (
+                HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
@@ -1618,6 +1627,7 @@ impl Compiler {
                 self.module_function_visibility.clone(),
                 self.module_member_is_value.clone(),
                 self.module_adt_constructors.clone(),
+                self.module_adt_visibility.clone(),
                 self.native_constructor_tags.clone(),
                 self.next_native_constructor_tag,
                 self.preloaded_ctor_field_names.clone(),
@@ -1642,6 +1652,7 @@ impl Compiler {
         self.module_function_visibility = preloaded_visibility;
         self.module_member_is_value = preloaded_member_kinds;
         self.module_adt_constructors = preloaded_adt_ctors;
+        self.module_adt_visibility = preloaded_adt_visibility;
         self.native_constructor_tags = preloaded_ctor_tags;
         self.next_native_constructor_tag = preloaded_next_ctor_tag;
         self.preloaded_ctor_field_names = preloaded_ctor_field_names;
@@ -2697,8 +2708,15 @@ impl Compiler {
         module_name: Option<Symbol>,
     ) {
         match statement {
-            Statement::Data { name, variants, .. } => {
+            Statement::Data {
+                name,
+                is_public,
+                variants,
+                ..
+            } => {
                 if let Some(module_name) = module_name {
+                    self.module_adt_visibility
+                        .insert((module_name, *name), *is_public);
                     for variant in variants {
                         self.module_adt_constructors
                             .insert((module_name, variant.name), *name);
@@ -4706,6 +4724,30 @@ impl Compiler {
                 | "Either"
         ) || self.adt_registry.lookup_adt(name).is_some()
             || self.preloaded_adt_registry.lookup_adt(name).is_some()
+    }
+
+    /// Resolve a constructor name to its `ConstructorInfo` across both the
+    /// current compilation unit's ADT registry and the preloaded dependency
+    /// registry, with an `exposed_bindings` fallback for short names that
+    /// were brought into scope by `import M exposing (..)` / `exposing
+    /// (Ctor, ...)`. Used by pattern-compile and ADT-arm sites that
+    /// previously consulted only `self.adt_registry`.
+    pub(super) fn lookup_constructor_resolved(&self, name: Symbol) -> Option<&ConstructorInfo> {
+        if let Some(info) = self.adt_registry.lookup_constructor(name) {
+            return Some(info);
+        }
+        if let Some(info) = self.preloaded_adt_registry.lookup_constructor(name) {
+            return Some(info);
+        }
+        if let Some(&qualified) = self.exposed_bindings.get(&name) {
+            if let Some(info) = self.adt_registry.lookup_constructor(qualified) {
+                return Some(info);
+            }
+            if let Some(info) = self.preloaded_adt_registry.lookup_constructor(qualified) {
+                return Some(info);
+            }
+        }
+        None
     }
 
     fn strict_missing_ambient_effects(
