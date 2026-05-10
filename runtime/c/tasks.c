@@ -44,8 +44,6 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
-#define FLUX_TASK_TABLE_MAX 1024
-
 typedef enum {
     TASK_PENDING   = 0,
     TASK_RUNNING   = 1,
@@ -53,8 +51,8 @@ typedef enum {
     TASK_CANCELLED = 3,
 } TaskStatus;
 
-typedef struct {
-    int64_t          task_id;        /* 0 = slot unused; real ids start at 1 */
+typedef struct FluxTaskEntry {
+    int64_t          task_id;        /* real ids start at 1 */
     int64_t          closure;        /* rc-bumped NaN-boxed FluxClosure       */
     int64_t          result;         /* written by worker, read by join       */
     pthread_t        thread;
@@ -63,29 +61,71 @@ typedef struct {
     pthread_cond_t   finished;
     _Atomic(int32_t) cancelled_flag; /* 0 = live, 1 = cancel requested       */
     TaskStatus       status;         /* protected by per-slot mutex           */
+    struct FluxTaskEntry *next;
 } FluxTaskEntry;
 
-static FluxTaskEntry    task_table[FLUX_TASK_TABLE_MAX];
+static FluxTaskEntry   *task_registry = NULL;
 static pthread_mutex_t  task_table_mutex = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic(int64_t) next_task_id     = 1;
-static pthread_once_t   task_table_once  = PTHREAD_ONCE_INIT;
-
-static void task_table_do_init(void) {
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        task_table[i].task_id = 0;
-        pthread_mutex_init(&task_table[i].mutex, NULL);
-        pthread_cond_init(&task_table[i].finished, NULL);
-    }
-}
+static _Atomic(size_t)  task_live_count  = 0;
+static _Atomic(size_t)  task_high_water  = 0;
 
 static void task_table_init_once(void) {
-    pthread_once(&task_table_once, task_table_do_init);
+}
+
+static FluxTaskEntry *flux_task_entry_new(void) {
+    FluxTaskEntry *e = (FluxTaskEntry *)calloc(1, sizeof(FluxTaskEntry));
+    if (!e) return NULL;
+    pthread_mutex_init(&e->mutex, NULL);
+    pthread_cond_init(&e->finished, NULL);
+    return e;
+}
+
+static void flux_task_entry_destroy(FluxTaskEntry *e) {
+    if (!e) return;
+    pthread_cond_destroy(&e->finished);
+    pthread_mutex_destroy(&e->mutex);
+    free(e);
+}
+
+static void flux_task_register_entry(FluxTaskEntry *e) {
+    pthread_mutex_lock(&task_table_mutex);
+    e->next = task_registry;
+    task_registry = e;
+    size_t live = atomic_fetch_add_explicit(&task_live_count, 1, memory_order_relaxed) + 1;
+    if (live > atomic_load_explicit(&task_high_water, memory_order_relaxed)) {
+        atomic_store_explicit(&task_high_water, live, memory_order_relaxed);
+    }
+    pthread_mutex_unlock(&task_table_mutex);
+}
+
+static FluxTaskEntry *flux_task_lookup(int64_t id) {
+    FluxTaskEntry *e = NULL;
+    pthread_mutex_lock(&task_table_mutex);
+    for (FluxTaskEntry *cur = task_registry; cur != NULL; cur = cur->next) {
+        if (cur->task_id == id) { e = cur; break; }
+    }
+    pthread_mutex_unlock(&task_table_mutex);
+    return e;
 }
 
 static void flux_task_free_slot(FluxTaskEntry *e) {
     pthread_mutex_lock(&task_table_mutex);
+    FluxTaskEntry **cur = &task_registry;
+    while (*cur != NULL) {
+        if (*cur == e) {
+            *cur = e->next;
+            if (atomic_load_explicit(&task_live_count, memory_order_relaxed) > 0) {
+                atomic_fetch_sub_explicit(&task_live_count, 1, memory_order_relaxed);
+            }
+            break;
+        }
+        cur = &(*cur)->next;
+    }
     e->task_id = 0;
+    e->next = NULL;
     pthread_mutex_unlock(&task_table_mutex);
+    flux_task_entry_destroy(e);
 }
 
 static void flux_task_publish_async_completion(FluxTaskEntry *e) {
@@ -157,17 +197,14 @@ int64_t flux_task_spawn(int64_t closure) {
     flux_rc_promote(closure);
     flux_dup(closure);
 
-    pthread_mutex_lock(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == 0) { e = &task_table[i]; break; }
-    }
+    FluxTaskEntry *e = flux_task_entry_new();
     if (!e) {
-        pthread_mutex_unlock(&task_table_mutex);
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: task table full (max %d concurrent tasks)\n",
-            FLUX_TASK_TABLE_MAX);
+            "flux: flux_task_spawn: failed to allocate task entry "
+            "(live=%zu high_water=%zu)\n",
+            atomic_load_explicit(&task_live_count, memory_order_relaxed),
+            atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
     }
 
@@ -179,9 +216,20 @@ int64_t flux_task_spawn(int64_t closure) {
     e->status  = TASK_PENDING;
     e->await_request = 0;
     atomic_store_explicit(&e->cancelled_flag, 0, memory_order_relaxed);
+    flux_task_register_entry(e);
 
-    pthread_create(&e->thread, NULL, flux_task_worker, e);
-    pthread_mutex_unlock(&task_table_mutex);
+    int err = pthread_create(&e->thread, NULL, flux_task_worker, e);
+    if (err != 0) {
+        flux_task_free_slot(e);
+        flux_drop(closure);
+        fprintf(stderr,
+            "flux: flux_task_spawn: pthread_create failed (errno=%d, "
+            "live=%zu high_water=%zu)\n",
+            err,
+            atomic_load_explicit(&task_live_count, memory_order_relaxed),
+            atomic_load_explicit(&task_high_water, memory_order_relaxed));
+        abort();
+    }
 
     /* Register with the active run's root-task safety net so an unawaited
      * task is cancelled at run_async teardown instead of leaking the OS
@@ -198,12 +246,7 @@ int64_t flux_task_blocking_join(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    pthread_mutex_lock(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    pthread_mutex_unlock(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (!e) {
         fprintf(stderr,
@@ -246,12 +289,7 @@ int64_t flux_task_cancel(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    pthread_mutex_lock(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    pthread_mutex_unlock(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (e) {
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
@@ -275,12 +313,7 @@ int64_t flux_task_await(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    pthread_mutex_lock(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    pthread_mutex_unlock(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (!e) {
         fprintf(stderr,
@@ -341,8 +374,6 @@ int64_t flux_task_await(int64_t task) {
 #include <process.h>      /* _beginthreadex / _endthreadex */
 #include <stdatomic.h>
 
-#define FLUX_TASK_TABLE_MAX 1024
-
 typedef enum {
     TASK_PENDING   = 0,
     TASK_RUNNING   = 1,
@@ -350,8 +381,8 @@ typedef enum {
     TASK_CANCELLED = 3,
 } TaskStatus;
 
-typedef struct {
-    int64_t            task_id;        /* 0 = slot unused; real ids start at 1 */
+typedef struct FluxTaskEntry {
+    int64_t            task_id;        /* real ids start at 1 */
     int64_t            closure;        /* rc-bumped NaN-boxed FluxClosure       */
     int64_t            result;         /* written by worker, read by join       */
     HANDLE             thread;
@@ -360,21 +391,19 @@ typedef struct {
     CONDITION_VARIABLE finished;
     _Atomic(int32_t)   cancelled_flag; /* 0 = live, 1 = cancel requested       */
     TaskStatus         status;         /* protected by per-slot mutex           */
+    struct FluxTaskEntry *next;
 } FluxTaskEntry;
 
-static FluxTaskEntry    task_table[FLUX_TASK_TABLE_MAX];
+static FluxTaskEntry   *task_registry = NULL;
 static CRITICAL_SECTION task_table_mutex;
 static _Atomic(int64_t) next_task_id = 1;
+static _Atomic(size_t)  task_live_count = 0;
+static _Atomic(size_t)  task_high_water = 0;
 static INIT_ONCE        task_table_once = INIT_ONCE_STATIC_INIT;
 
 static BOOL CALLBACK task_table_do_init(PINIT_ONCE once, PVOID param, PVOID *ctx) {
     (void)once; (void)param; (void)ctx;
     InitializeCriticalSection(&task_table_mutex);
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        task_table[i].task_id = 0;
-        InitializeCriticalSection(&task_table[i].mutex);
-        InitializeConditionVariable(&task_table[i].finished);
-    }
     return TRUE;
 }
 
@@ -382,10 +411,58 @@ static void task_table_init_once(void) {
     InitOnceExecuteOnce(&task_table_once, task_table_do_init, NULL, NULL);
 }
 
+static FluxTaskEntry *flux_task_entry_new(void) {
+    FluxTaskEntry *e = (FluxTaskEntry *)calloc(1, sizeof(FluxTaskEntry));
+    if (!e) return NULL;
+    InitializeCriticalSection(&e->mutex);
+    InitializeConditionVariable(&e->finished);
+    return e;
+}
+
+static void flux_task_entry_destroy(FluxTaskEntry *e) {
+    if (!e) return;
+    DeleteCriticalSection(&e->mutex);
+    free(e);
+}
+
+static void flux_task_register_entry(FluxTaskEntry *e) {
+    EnterCriticalSection(&task_table_mutex);
+    e->next = task_registry;
+    task_registry = e;
+    size_t live = atomic_fetch_add_explicit(&task_live_count, 1, memory_order_relaxed) + 1;
+    if (live > atomic_load_explicit(&task_high_water, memory_order_relaxed)) {
+        atomic_store_explicit(&task_high_water, live, memory_order_relaxed);
+    }
+    LeaveCriticalSection(&task_table_mutex);
+}
+
+static FluxTaskEntry *flux_task_lookup(int64_t id) {
+    FluxTaskEntry *e = NULL;
+    EnterCriticalSection(&task_table_mutex);
+    for (FluxTaskEntry *cur = task_registry; cur != NULL; cur = cur->next) {
+        if (cur->task_id == id) { e = cur; break; }
+    }
+    LeaveCriticalSection(&task_table_mutex);
+    return e;
+}
+
 static void flux_task_free_slot(FluxTaskEntry *e) {
     EnterCriticalSection(&task_table_mutex);
+    FluxTaskEntry **cur = &task_registry;
+    while (*cur != NULL) {
+        if (*cur == e) {
+            *cur = e->next;
+            if (atomic_load_explicit(&task_live_count, memory_order_relaxed) > 0) {
+                atomic_fetch_sub_explicit(&task_live_count, 1, memory_order_relaxed);
+            }
+            break;
+        }
+        cur = &(*cur)->next;
+    }
     e->task_id = 0;
+    e->next = NULL;
     LeaveCriticalSection(&task_table_mutex);
+    flux_task_entry_destroy(e);
 }
 
 static void flux_task_publish_async_completion(FluxTaskEntry *e) {
@@ -460,17 +537,14 @@ int64_t flux_task_spawn(int64_t closure) {
     flux_rc_promote(closure);
     flux_dup(closure);
 
-    EnterCriticalSection(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == 0) { e = &task_table[i]; break; }
-    }
+    FluxTaskEntry *e = flux_task_entry_new();
     if (!e) {
-        LeaveCriticalSection(&task_table_mutex);
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: task table full (max %d concurrent tasks)\n",
-            FLUX_TASK_TABLE_MAX);
+            "flux: flux_task_spawn: failed to allocate task entry "
+            "(live=%zu high_water=%zu)\n",
+            atomic_load_explicit(&task_live_count, memory_order_relaxed),
+            atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
     }
 
@@ -482,6 +556,7 @@ int64_t flux_task_spawn(int64_t closure) {
     e->status  = TASK_PENDING;
     e->await_request = 0;
     atomic_store_explicit(&e->cancelled_flag, 0, memory_order_relaxed);
+    flux_task_register_entry(e);
 
     /* _beginthreadex returns a uintptr_t cast of the HANDLE, or 0 on failure.
      * Using it (instead of CreateThread) gives the worker thread proper CRT
@@ -489,15 +564,16 @@ int64_t flux_task_spawn(int64_t closure) {
      * fprintf, etc. through the Flux runtime. */
     e->thread = (HANDLE)_beginthreadex(NULL, 0, flux_task_worker, e, 0, NULL);
     if (e->thread == NULL) {
-        e->task_id = 0;
-        LeaveCriticalSection(&task_table_mutex);
+        flux_task_free_slot(e);
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: _beginthreadex failed (errno=%d)\n",
-            errno);
+            "flux: flux_task_spawn: _beginthreadex failed (errno=%d, "
+            "live=%zu high_water=%zu)\n",
+            errno,
+            atomic_load_explicit(&task_live_count, memory_order_relaxed),
+            atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
     }
-    LeaveCriticalSection(&task_table_mutex);
 
     /* Register with the active run's root-task safety net so an unawaited
      * task is cancelled at run_async teardown instead of leaking the OS
@@ -514,12 +590,7 @@ int64_t flux_task_blocking_join(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    EnterCriticalSection(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    LeaveCriticalSection(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (!e) {
         fprintf(stderr,
@@ -562,12 +633,7 @@ int64_t flux_task_cancel(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    EnterCriticalSection(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    LeaveCriticalSection(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (e) {
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
@@ -590,12 +656,7 @@ int64_t flux_task_await(int64_t task) {
     /* User has taken ownership of the handle — drop the root-task safety net. */
     flux_async_deregister_root_task(id);
 
-    EnterCriticalSection(&task_table_mutex);
-    FluxTaskEntry *e = NULL;
-    for (int i = 0; i < FLUX_TASK_TABLE_MAX; i++) {
-        if (task_table[i].task_id == id) { e = &task_table[i]; break; }
-    }
-    LeaveCriticalSection(&task_table_mutex);
+    FluxTaskEntry *e = flux_task_lookup(id);
 
     if (!e) {
         fprintf(stderr,
