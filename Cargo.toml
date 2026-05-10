@@ -343,6 +343,10 @@ name = "native_async_indirect_tests"
 path = "tests/native_llvm/native_async_indirect_tests.rs"
 
 [[test]]
+name = "native_work_stealing_tests"
+path = "tests/native_llvm/native_work_stealing_tests.rs"
+
+[[test]]
 name = "native_runtime_config_tests"
 path = "tests/native_llvm/native_runtime_config_tests.rs"
 

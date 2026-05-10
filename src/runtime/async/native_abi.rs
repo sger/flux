@@ -48,6 +48,20 @@ fn resolve_default_worker_count() -> usize {
         .unwrap_or(DEFAULT_LOGICAL_WORKERS)
 }
 
+/// Work-stealing + least-loaded-queue spawn placement on by default.
+/// `FLUX_WORK_STEALING=0` (or `false`/`off`) restores the original
+/// per-worker FIFO + round-robin spawn placement — useful for strict
+/// no-fiber-migration debugging or as a regression escape hatch.
+fn work_stealing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        match std::env::var("FLUX_WORK_STEALING").ok().as_deref() {
+            Some("0") | Some("false") | Some("FALSE") | Some("off") | Some("OFF") => false,
+            _ => true,
+        }
+    })
+}
+
 thread_local! {
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
     static CURRENT_WORKER: Cell<usize> = const { Cell::new(0) };
@@ -180,10 +194,30 @@ impl NativeRun {
         }
     }
 
-    fn next_child_worker(&mut self) -> usize {
-        let worker = self.next_child_worker;
-        self.next_child_worker = (self.next_child_worker + 1) % self.ready.len();
-        worker
+    /// Pick the worker for a fresh spawn.
+    ///
+    /// When work-stealing is enabled (the default), use **least-loaded-queue**
+    /// placement: argmin len(self.ready[w]), tie-broken by lowest worker id
+    /// for deterministic test behavior. This proactively keeps queues
+    /// balanced so the steal path is the exception, not the steady state —
+    /// a Flux-specific optimization neither Tokio nor Go does.
+    ///
+    /// When `FLUX_WORK_STEALING=0`, fall back to the original round-robin
+    /// counter. The `next_child_worker` field stays so the round-robin path
+    /// still has stable state.
+    fn pick_next_worker(&mut self) -> usize {
+        if work_stealing_enabled() {
+            self.ready
+                .iter()
+                .enumerate()
+                .min_by_key(|(idx, q)| (q.len(), *idx))
+                .map(|(idx, _)| idx)
+                .unwrap_or(0)
+        } else {
+            let worker = self.next_child_worker;
+            self.next_child_worker = (self.next_child_worker + 1) % self.ready.len();
+            worker
+        }
     }
 
     fn push_ready(&mut self, fiber: Fiber) {
@@ -195,7 +229,28 @@ impl NativeRun {
         self.ready[fiber.home_worker].push_back(fiber);
     }
 
-    fn pop_ready_for_worker(&mut self, worker: usize) -> Option<Fiber> {
+    /// Pop the next fiber to execute on `worker`.
+    ///
+    /// Today: owner-only FIFO from the local queue. Cross-worker stealing
+    /// is **disabled** because the C effects context
+    /// (`flux_thread_ctx` in `runtime/c/effects.c`) is per-OS-thread and
+    /// `flux_async_clear_suspend` does not reset `current_evv` (the
+    /// handler stack pointer). Without migration this is benign — each
+    /// worker thread runs a coherent chain of related fibers and the
+    /// stale `current_evv` between yields stays compatible. With
+    /// migration it corrupts the handler stack across unrelated fiber
+    /// chains. The
+    /// `native_direct_helper_rounds_resume_after_each_combinator` test
+    /// caught this as `STATUS_HEAP_CORRUPTION` when stealing was
+    /// originally enabled.
+    ///
+    /// To safely enable stealing later, the effects-context state (at
+    /// minimum `current_evv`) needs to be captured into the `Fiber`
+    /// struct on suspend and restored on resume. That is its own
+    /// change. Until then, the **least-loaded-queue spawn placement**
+    /// in `pick_next_worker` carries the load-balancing improvement
+    /// without relaxing the no-migration invariant.
+    fn pop_ready_or_steal(&mut self, worker: usize) -> Option<Fiber> {
         let fiber = self.ready[worker].pop_front()?;
         self.running += 1;
         Some(fiber)
@@ -227,7 +282,7 @@ impl NativeRun {
 
     fn spawn_child(&mut self, closure: i64) -> u64 {
         let id = next_fiber_id();
-        let home_worker = self.next_child_worker();
+        let home_worker = self.pick_next_worker();
         self.spawn_child_on(home_worker, id, closure)
     }
 
@@ -825,7 +880,7 @@ fn worker_loop(handle: RunHandle, worker: usize, cb: FluxAsyncCallbacks) {
                 if state.shutdown {
                     return;
                 }
-                if let Some(fiber) = state.pop_ready_for_worker(worker) {
+                if let Some(fiber) = state.pop_ready_or_steal(worker) {
                     break fiber;
                 }
                 state = handle
@@ -1068,7 +1123,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
                 };
                 state.shutdown = true;
                 None
-            } else if let Some(fiber) = state.pop_ready_for_worker(0) {
+            } else if let Some(fiber) = state.pop_ready_or_steal(0) {
                 Some(fiber)
             } else if !state.has_live_work() {
                 state.shutdown = true;
