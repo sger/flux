@@ -59,6 +59,8 @@
 #  define FLUX_TLS _Thread_local
 #endif
 
+#define FLUX_EFFECT_CONTS_MAX 8
+
 typedef struct FluxEffectContext {
     /* Yield payload. */
     int32_t  yielding;             /* 0=no, 1=yielding, 2=final */
@@ -67,7 +69,7 @@ typedef struct FluxEffectContext {
     int64_t  op_arg;               /* performed argument (unused for 0-arity) */
     int64_t  op_state;             /* current handler parameter, or 0 when absent */
     int32_t  op_arity;             /* user-visible arity of the op (0 or 1) */
-    int64_t  conts[8];             /* accumulated continuation closures */
+    int64_t  conts[FLUX_EFFECT_CONTS_MAX]; /* accumulated continuation closures */
     int32_t  conts_count;
     int64_t  yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
     /* Evidence vector. */
@@ -79,6 +81,95 @@ typedef struct FluxEffectContext {
 } FluxEffectContext;
 
 static FLUX_TLS FluxEffectContext flux_thread_ctx;
+#ifdef FLUX_DEBUG
+static FLUX_TLS int flux_thread_ctx_capture_transferred;
+#endif
+
+typedef struct FluxEffectContextSnapshot {
+    FluxEffectContext ctx;
+} FluxEffectContextSnapshot;
+
+void flux_effect_context_reset(void);
+
+static void flux_effect_context_dup_fields(const FluxEffectContext *ctx) {
+    flux_dup(ctx->clause);
+    flux_dup(ctx->op_arg);
+    flux_dup(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_dup(ctx->conts[i]);
+    }
+    flux_dup(ctx->yield_evv);
+    flux_dup(ctx->current_evv);
+}
+
+static void flux_effect_context_drop_fields(const FluxEffectContext *ctx) {
+    flux_drop(ctx->clause);
+    flux_drop(ctx->op_arg);
+    flux_drop(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_drop(ctx->conts[i]);
+    }
+    flux_drop(ctx->yield_evv);
+    flux_drop(ctx->current_evv);
+}
+
+#ifdef FLUX_DEBUG
+static int flux_effect_context_has_tagged_fields(const FluxEffectContext *ctx) {
+    if (ctx->clause != 0 || ctx->op_arg != 0 || ctx->op_state != 0 ||
+        ctx->yield_evv != 0 || ctx->current_evv != 0) {
+        return 1;
+    }
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        if (ctx->conts[i] != 0) return 1;
+    }
+    return 0;
+}
+#endif
+
+void *flux_effect_context_capture(void) {
+    FluxEffectContextSnapshot *snapshot =
+        (FluxEffectContextSnapshot *)malloc(sizeof(FluxEffectContextSnapshot));
+    if (!snapshot) return NULL;
+    snapshot->ctx = flux_thread_ctx;
+    flux_effect_context_dup_fields(&snapshot->ctx);
+#ifdef FLUX_DEBUG
+    flux_thread_ctx_capture_transferred = 1;
+#endif
+    return snapshot;
+}
+
+void flux_effect_context_restore(void *snapshot_raw) {
+    flux_effect_context_reset();
+    if (!snapshot_raw) return;
+    FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+    flux_thread_ctx = snapshot->ctx;
+}
+
+/* Reset only clears TLS bookkeeping. It does not drop fields: while a fiber is
+ * running, TLS borrows references owned by that fiber's snapshot or by the
+ * executing stack. Callers must capture/transfer any state that should survive
+ * before calling this helper.
+ */
+void flux_effect_context_reset(void) {
+#ifdef FLUX_DEBUG
+    if (flux_effect_context_has_tagged_fields(&flux_thread_ctx) &&
+        !flux_thread_ctx_capture_transferred) {
+        fprintf(stderr,
+                "flux_effect_context_reset: non-empty TLS effect context "
+                "without prior capture\n");
+        abort();
+    }
+    flux_thread_ctx_capture_transferred = 0;
+#endif
+    memset(&flux_thread_ctx, 0, sizeof(flux_thread_ctx));
+}
+
+void flux_effect_context_release(void *snapshot_raw) {
+    if (!snapshot_raw) return;
+    FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+    flux_effect_context_drop_fields(&snapshot->ctx);
+    free(snapshot);
+}
 
 /* ── Evidence vector ───────────────────────────────────────────────── */
 
@@ -486,7 +577,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
  * cont: a closure representing "the rest of this function's computation"
  */
 int64_t flux_yield_extend(int64_t cont) {
-    if (flux_thread_ctx.conts_count >= 8) {
+    if (flux_thread_ctx.conts_count >= FLUX_EFFECT_CONTS_MAX) {
         /* Overflow: compose existing conts into one, then add the new one. */
         int64_t composed = flux_compose_conts();
         flux_thread_ctx.conts[0] = composed;
@@ -649,6 +740,12 @@ int64_t flux_async_current_request(void) {
 }
 
 void flux_async_clear_suspend(void) {
+    /* The async marker may have propagated through user effect prompts before
+     * the scheduler observes it. In that case current_evv has been restored
+     * to an outer handler, while yield_evv still records the handler chain at
+     * the actual suspension site. Preserve that chain as the fiber's resume
+     * context before clearing the transient yield payload. */
+    flux_thread_ctx.current_evv = flux_thread_ctx.yield_evv;
     flux_thread_ctx.yielding    = 0;
     flux_thread_ctx.marker      = 0;
     flux_thread_ctx.clause      = 0;

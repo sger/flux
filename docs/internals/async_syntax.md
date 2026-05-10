@@ -411,7 +411,7 @@ The user-facing surface above is built on a fiber model that's worth understandi
 A `Fiber` is the unit of cooperative concurrency inside `run_async`. Data-structurally it owns ([src/runtime/async/fiber.rs](../../src/runtime/async/fiber.rs)):
 
 - A monotonic `FiberId` allocated from `NEXT_FIBER_ID: AtomicU64` — unique per scheduler lifetime.
-- A `home_worker` assignment. The fiber stays on this worker for its whole life; there is no migration. (This follows OCaml/Eio's invariant; it makes per-worker bump-arena allocation safe.)
+- A `home_worker` assignment. On the VM this remains a logical no-migration invariant. On native, the fiber is initially queued there and backend completions return it there, but the scheduler may let an idle worker steal ready work. Native fibers carry a C effect-context snapshot so handler/evidence state is restored before execution on whichever OS thread runs them.
 - A `state: FiberState` — one of `Ready`, `Suspended { request_id }`, `Done`, `Cancelled`.
 - A `parked: Option<Rc<RefCell<Continuation>>>` — the captured delimited continuation when suspended.
 - A `last_completion_req: Option<RequestId>` — set by the dispatch loop just before resuming, so the fiber knows which completion woke it (used to assemble e.g. the `(left, right)` tuple for `both`).
@@ -444,7 +444,7 @@ The same machinery is reused for `both` / `race` / `timeout` / `first_of` / `Tas
 
 ### 9.5.3 Worker assignment
 
-Root fibers (the body of `run_async`) live on worker 0. Child fibers spawned by `fork` / `both` / `race` / `first_of` are round-robin-assigned via `next_child_worker`, starting at worker 1 in multi-worker setups so multiple ready queues are exercised immediately. Once assigned, the home-worker invariant holds for the fiber's whole life.
+Root fibers (the body of `run_async`) live on worker 0. On the VM, workers are logical and fibers keep their home-worker affinity for their whole lifetime. On native, child fibers spawned by `fork` / `both` / `timeout` are placed on the least-loaded ready queue by default; `race` / `first_of` still enqueue immediate candidates on the caller's worker to preserve source-order tie behavior. With native work stealing enabled, idle OS workers may steal ready fibers from other workers. `FLUX_WORK_STEALING=0` restores the original owner-only FIFO plus round-robin placement fallback for debugging.
 
 ### 9.5.4 Cancellation propagation
 
