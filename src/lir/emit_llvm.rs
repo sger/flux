@@ -3749,6 +3749,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         // abort at runtime. The full FFI bridge to the Rust scheduler
         // lands in D5-b/c.
         CorePrimOp::TaskSpawn => return "flux_task_spawn".to_string(),
+        CorePrimOp::TaskSpawnScoped => return "flux_async_task_spawn_scoped".to_string(),
         CorePrimOp::TaskBlockingJoin => return "flux_task_blocking_join".to_string(),
         CorePrimOp::TaskCancel => return "flux_task_cancel".to_string(),
         // Fiber primops (proposal 0174 Phase 1b).
@@ -3928,6 +3929,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Concurrency (proposal 0174 D5-a). C stubs in `runtime/c/tasks.c`
         // abort at runtime; the full Rust-scheduler bridge lands in D5-b/c.
         "flux_task_spawn" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_async_task_spawn_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_task_blocking_join" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_task_cancel" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // Fiber primops (proposal 0174 Phase 1b).

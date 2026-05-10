@@ -371,6 +371,10 @@ mod vm_fibers {
         // tells the call site to propagate cancellation rather than parking.
         // Cleared by check_and_clear_park_cancelled immediately after.
         static PARK_CANCELLED: Cell<bool> = const { Cell::new(false) };
+        // Scoped task registry: scope_id → Vec<task_id>. Populated by
+        // TaskSpawnScoped; cleared by FiberCancelScope and run_async exit.
+        static SCOPE_TASK_REGISTRY: RefCell<HashMap<u64, Vec<i64>>> =
+            RefCell::new(HashMap::new());
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -985,12 +989,23 @@ mod vm_fibers {
         SCOPE_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
     }
 
+    pub fn register_task_in_scope(scope_id: u64, task_id: i64) {
+        SCOPE_TASK_REGISTRY.with(|r| {
+            r.borrow_mut().entry(scope_id).or_default().push(task_id);
+        });
+    }
+
+    pub fn take_scope_tasks(scope_id: u64) -> Vec<i64> {
+        SCOPE_TASK_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+    }
+
     /// Tear down the await-coordination state at run_async exit
     /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
     pub fn clear_await_state() {
         AWAITS.with(|a| a.borrow_mut().clear());
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
         SCOPE_REGISTRY.with(|r| r.borrow_mut().clear());
+        SCOPE_TASK_REGISTRY.with(|r| r.borrow_mut().clear());
     }
 
     /// Drive the FiberRunAsync dispatch loop until all fibers are done or
@@ -1933,6 +1948,18 @@ pub fn execute_core_primop(
             let id = ctx.vm_task_spawn(args[0].clone())?;
             Ok(Value::Integer(id))
         }
+        TaskSpawnScoped => {
+            let scope_id = match &args[0] {
+                Value::Adt(a) if a.constructor.as_ref() == "Scope" => match &a.fields {
+                    crate::runtime::value::AdtFields::One(Value::Integer(n)) => *n as u64,
+                    _ => return Err("task_spawn_scoped: malformed Scope ADT".to_string()),
+                },
+                other => return Err(terr("task_spawn_scoped", "Scope", other)),
+            };
+            let id = ctx.vm_task_spawn(args[1].clone())?;
+            vm_fibers::register_task_in_scope(scope_id, id);
+            Ok(Value::Integer(id))
+        }
         TaskBlockingJoin => match &args[0] {
             Value::Integer(id) => ctx.vm_task_blocking_join(*id),
             other => Err(terr("task_blocking_join", "Int", other)),
@@ -2269,7 +2296,8 @@ pub fn execute_core_primop(
             Ok(Value::None)
         }
 
-        // fiber_cancel_scope: cancel all fibers registered under the scope.
+        // fiber_cancel_scope: cancel all fibers and scoped tasks registered
+        // under the scope.
         FiberCancelScope => {
             let scope_id = match &args[0] {
                 Value::Adt(a) if a.constructor.as_ref() == "Scope" => match &a.fields {
@@ -2282,6 +2310,12 @@ pub fn execute_core_primop(
             if !fiber_ids.is_empty() {
                 let backend = vm_async::backend()?;
                 vm_fibers::cancel_losers(&fiber_ids, backend);
+            }
+            // Also cancel any tasks registered under this scope via spawn_scoped.
+            // vm_task_cancel is idempotent — no-op for already-completed tasks.
+            let task_ids = vm_fibers::take_scope_tasks(scope_id);
+            for task_id in task_ids {
+                let _ = ctx.vm_task_cancel(task_id);
             }
             Ok(Value::None)
         }
