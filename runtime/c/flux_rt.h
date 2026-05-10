@@ -247,6 +247,10 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*current_request)(void);
     void (*clear_suspend)(void);
     int64_t (*compose_conts)(void);
+    void   *(*capture_effect_context)(void);
+    void    (*restore_effect_context)(void *snapshot);
+    void    (*reset_effect_context)(void);
+    void    (*release_effect_context)(void *snapshot);
     void (*promote)(int64_t value);
     void (*enter_worker_thread)(void);
     int64_t (*make_string)(const uint8_t *data, uintptr_t len);
@@ -649,6 +653,10 @@ int64_t flux_yield_extend(int64_t cont);
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
 int64_t flux_compose_conts(void);
 int32_t flux_is_yielding(void);
+void   *flux_effect_context_capture(void);
+void    flux_effect_context_restore(void *snapshot);
+void    flux_effect_context_reset(void);
+void    flux_effect_context_release(void *snapshot);
 
 /* Proposal 0162 Phase 3 (partial): short-circuit detection for non-TR
  * handlers on the native backend.  `flux_resume_mark_called` is used as

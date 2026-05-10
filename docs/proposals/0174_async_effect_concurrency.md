@@ -182,20 +182,12 @@ Concretely, the original 0143 phases re-scope as follows once 0174 lands:
   the handler level. **Spawn placement** moved from blind round-robin
   to least-loaded-queue (Phase 2 follow-up): a fresh fiber lands on
   the worker whose ready queue is shortest, eliminating the most
-  common steady-state imbalance class (uneven spawn distribution)
-  without relaxing any invariants. Eio's no-fiber-migration invariant
-  is preserved — fibers do not migrate. **Cross-worker work-stealing
-  is still deferred**: an attempted implementation revealed that the
-  C effects context (`flux_thread_ctx` in `runtime/c/effects.c`) is
-  per-OS-thread and not migration-safe — `flux_async_clear_suspend`
-  does not reset `current_evv` (the handler stack pointer), so a
-  stolen fiber inherits a stale evv from the stealer's previous
-  fiber chain, corrupting the handler stack. Enabling stealing
-  requires capturing the relevant effects-context state into the
-  `Fiber` struct on suspend and restoring it on resume; that work is
-  scheduled as a separate change. `FLUX_WORK_STEALING=0` restores
-  the original round-robin spawn placement as a regression escape
-  hatch.
+  common steady-state imbalance class (uneven spawn distribution).
+  Native fibers now carry an owned C effect-context snapshot, so idle
+  workers can steal ready fibers from the back of other workers'
+  queues and restore the fiber's handler/evidence state before
+  execution. `FLUX_WORK_STEALING=0` restores the original owner-only
+  FIFO plus round-robin placement path as a regression escape hatch.
 
 The driving goal stated by the project — **HTTP microservices and data
 streams** — points at the I/O-layer story. 0174 Phase 1a+1b+2+3 ships a

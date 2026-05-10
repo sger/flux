@@ -1,18 +1,13 @@
 //! Native scheduler load-balancing tests (proposal 0174 Phase 2 follow-up).
 //!
-//! What landed: **least-loaded-queue spawn placement** in
-//! `pick_next_worker`. New fibers go to the worker with the shortest ready
-//! queue (tied → lowest index for determinism), replacing the original
-//! blind round-robin counter. Cross-worker stealing is **not yet enabled**
-//! (the C effects context is per-OS-thread and an attempted steal path
-//! caused `STATUS_HEAP_CORRUPTION` in
-//! `native_direct_helper_rounds_resume_after_each_combinator`; safe
-//! migration requires capturing `current_evv` into the `Fiber` struct on
-//! suspend, which is its own change).
+//! Native fibers use least-loaded-queue spawn placement and real
+//! cross-worker stealing. Each fiber carries a C effect-context snapshot so
+//! a stolen fiber can resume with the handler/evidence state it had on its
+//! previous worker.
 //!
 //! These tests cover the **escape hatch**: every async program must still
 //! pass with `FLUX_WORK_STEALING=0` so a future regression rooted in the
-//! new placement has a clean fallback. They run the same program twice —
+//! stealing path has a clean fallback. They run the same program twice —
 //! once with placement on (default), once off — and assert identical
 //! output. Race tie-breaking is the highest-risk surface; covered both by
 //! `native_race_is_fifo_for_immediate_children` (default settings) and
@@ -160,4 +155,84 @@ fn main() with IO {
         "many concurrent fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "16");
+}
+
+/// Race children are intentionally queued on the caller's worker for FIFO
+/// tie-breaking. Once a child suspends, it becomes stealable; after the fast
+/// child's timer fires, an idle worker can resume it and still run a
+/// parameterized handler correctly on the stealing worker.
+#[test]
+fn stolen_fiber_runs_parameterized_handler() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+effect Counter {
+    next: () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let _first = perform Counter.next()
+    perform Counter.next()
+}
+
+fn slow() -> Int with Async {
+    sleep(20)
+    99
+}
+
+fn fast() -> Int with Async {
+    sleep(1)
+    count_twice() handle Counter(5) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+}
+
+fn body() -> Int with Async {
+    race(slow, fast)
+}
+
+fn main() with IO {
+    print(run_async_with_workers(2, body))
+}
+"#;
+    let (stdout, stderr, ok) = run_source_with_env(source, "stolen_handler", &[]);
+    assert!(
+        ok,
+        "stolen fiber must run parameterized handler:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "6");
+}
+
+/// Many same-parent candidates should still complete correctly under the
+/// default scheduler, even when source-order-sensitive immediate candidates
+/// are protected from stealing until they suspend.
+#[test]
+fn imbalanced_ready_queue_completes_under_stealing() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(20)
+    1
+}
+
+fn fast1() -> Int with Async { 41 }
+fn fast2() -> Int with Async { 42 }
+fn fast3() -> Int with Async { 43 }
+fn fast4() -> Int with Async { 44 }
+
+fn body() -> Int with Async {
+    first_of([slow, fast1, fast2, fast3, fast4]).1
+}
+
+fn main() with IO {
+    print(run_async_with_workers(4, body))
+}
+"#;
+    let (stdout, stderr, ok) = run_source_with_env(source, "imbalanced_ready", &[]);
+    assert!(
+        ok,
+        "imbalanced ready queue must complete under stealing:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(["41", "42", "43", "44"].contains(&stdout.trim()));
 }
