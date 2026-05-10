@@ -3386,13 +3386,13 @@ primitives, parallel to (not through) the Rust `TaskScheduler`.
 **What ships today:**
 
 - **POSIX path** — pthreads + per-task mutex/condvar + atomic
-  cancel flag, with a 1024-slot task table, MT-RC promotion via
+  cancel flag, with a dynamically growing task registry, MT-RC promotion via
   `flux_rc_promote`, and the same VM-observable cancel-before-join
   semantics as the Flow.Task fixture. Worker threads set
   `flux_worker_thread = 1` to bypass the bump arena.
 - **Windows path** — Win32 `_beginthreadex` + `CRITICAL_SECTION` +
-  `CONDITION_VARIABLE`, mirroring the POSIX path 1:1; same slot
-  table, same cancel semantics, same MT-RC discipline. The runtime
+  `CONDITION_VARIABLE`, mirroring the POSIX path 1:1; same dynamic
+  registry, same cancel semantics, same MT-RC discipline. The runtime
   also uses SEH (`RaiseException` + `__try`/`__except`) instead of
   `setjmp`/`longjmp` for `flux_panic` / `flux_assert_throws`, since
   Windows `longjmp` walks the SEH chain via `RtlUnwindEx` and trips

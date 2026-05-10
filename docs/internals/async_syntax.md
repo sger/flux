@@ -551,9 +551,9 @@ Native panics inside the task body are caught by `catch_unwind` so a single pani
 
 #### Native backend (`runtime/c/tasks.c`)
 
-The native task table is fixed-size: `FLUX_TASK_TABLE_MAX = 1024` slots. Each slot is a `FluxTaskEntry` with:
+The native task registry is heap-backed and grows with live task handles. Each registered `FluxTaskEntry` has:
 
-- `task_id` (0 = free)
+- `task_id` (real ids start at 1)
 - platform thread handle (`pthread_t` on POSIX, `HANDLE` on Win32)
 - per-task `mutex` + `finished` condvar (POSIX) or `CRITICAL_SECTION` + `CONDITION_VARIABLE` (Win32)
 - atomic `cancelled_flag`
@@ -563,7 +563,7 @@ The native task table is fixed-size: `FLUX_TASK_TABLE_MAX = 1024` slots. Each sl
 Spawn flow:
 
 1. Allocate a task id (atomic increment).
-2. Find a free slot; abort with diagnostic if `FLUX_TASK_TABLE_MAX` is exhausted.
+2. Allocate/register a task entry; abort with a diagnostic only if entry allocation or OS thread creation fails.
 3. `flux_rc_promote(closure)` — recursively promote the closure's reference count from single-threaded to atomic mode (sign-bit encoding in [runtime/c/rc.c](../../runtime/c/rc.c)). Required because the worker thread will dup/drop concurrently.
 4. `flux_dup(closure)` — bump the count once for the worker.
 5. `pthread_create` (or `_beginthreadex` on Win32; we prefer `_beginthreadex` over `CreateThread` for proper CRT init).
