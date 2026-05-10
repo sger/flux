@@ -4,6 +4,10 @@
  * Bounded FIFO channels backed by a process-local table. Suspending send/recv
  * use the same request-id ABI as Task.await: register a request, park the
  * current fiber, and publish completion with flux_async_task_complete.
+ *
+ * Cross-platform: POSIX uses pthreads + stdatomic; Windows uses
+ * CRITICAL_SECTION / CONDITION_VARIABLE / Interlocked*. Mirror the layout of
+ * tasks.c so the two runtimes stay parallel.
  */
 
 #include "flux_rt.h"
@@ -12,10 +16,52 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if !defined(_WIN32) && !defined(_MSC_VER)
+/* ── Platform sync primitives ─────────────────────────────────────────── */
+
+#if defined(_WIN32) || defined(_MSC_VER)
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+typedef CRITICAL_SECTION   flux_mutex_t;
+typedef CONDITION_VARIABLE flux_cond_t;
+
+#define FLUX_MUTEX_INIT(m)       InitializeCriticalSection(m)
+#define FLUX_MUTEX_LOCK(m)       EnterCriticalSection(m)
+#define FLUX_MUTEX_UNLOCK(m)     LeaveCriticalSection(m)
+#define FLUX_COND_INIT(c)        InitializeConditionVariable(c)
+#define FLUX_COND_WAIT(c, m)     SleepConditionVariableCS((c), (m), INFINITE)
+#define FLUX_COND_BROADCAST(c)   WakeAllConditionVariable(c)
+
+/* Atomic int64 — Interlocked* on volatile LONG64. */
+typedef volatile LONG64 flux_atomic_i64;
+static inline int64_t flux_atomic_fetch_add_i64(flux_atomic_i64 *p, int64_t v) {
+    return (int64_t)InterlockedExchangeAdd64(p, (LONG64)v);
+}
+
+#else
 
 #include <pthread.h>
 #include <stdatomic.h>
+
+typedef pthread_mutex_t flux_mutex_t;
+typedef pthread_cond_t  flux_cond_t;
+
+#define FLUX_MUTEX_INIT(m)       pthread_mutex_init((m), NULL)
+#define FLUX_MUTEX_LOCK(m)       pthread_mutex_lock(m)
+#define FLUX_MUTEX_UNLOCK(m)     pthread_mutex_unlock(m)
+#define FLUX_COND_INIT(c)        pthread_cond_init((c), NULL)
+#define FLUX_COND_WAIT(c, m)     pthread_cond_wait((c), (m))
+#define FLUX_COND_BROADCAST(c)   pthread_cond_broadcast(c)
+
+typedef _Atomic(int64_t) flux_atomic_i64;
+static inline int64_t flux_atomic_fetch_add_i64(flux_atomic_i64 *p, int64_t v) {
+    return atomic_fetch_add_explicit(p, v, memory_order_relaxed);
+}
+
+#endif
+
+/* ── Channel runtime (single implementation) ──────────────────────────── */
 
 #define FLUX_CHANNEL_TABLE_MAX 1024
 
@@ -40,25 +86,40 @@ typedef struct {
     int send_head;
     int send_len;
 
-    pthread_mutex_t mutex;
-    pthread_cond_t ready;
+    flux_mutex_t mutex;
+    flux_cond_t  ready;
 } FluxChannel;
 
 static FluxChannel channels[FLUX_CHANNEL_TABLE_MAX];
-static pthread_mutex_t channels_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_once_t channels_once = PTHREAD_ONCE_INIT;
-static _Atomic(int64_t) next_channel_id = 1;
+static flux_atomic_i64 next_channel_id = 1;
+
+/* One-shot table init. POSIX used pthread_once; portable replacement is an
+ * Interlocked compare-exchange flag with a ready flag. */
+static volatile LONG64 channels_init_state = 0; /* 0 = uninit, 1 = initing, 2 = ready */
 
 static void channels_do_init(void) {
     for (int i = 0; i < FLUX_CHANNEL_TABLE_MAX; i++) {
         channels[i].id = 0;
-        pthread_mutex_init(&channels[i].mutex, NULL);
-        pthread_cond_init(&channels[i].ready, NULL);
+        FLUX_MUTEX_INIT(&channels[i].mutex);
+        FLUX_COND_INIT(&channels[i].ready);
     }
 }
 
 static void channels_init_once(void) {
-    pthread_once(&channels_once, channels_do_init);
+#if defined(_WIN32) || defined(_MSC_VER)
+    LONG64 prev = InterlockedCompareExchange64(&channels_init_state, 1, 0);
+    if (prev == 0) {
+        channels_do_init();
+        InterlockedExchange64(&channels_init_state, 2);
+        return;
+    }
+    while (InterlockedCompareExchange64(&channels_init_state, 2, 2) != 2) {
+        Sleep(0);
+    }
+#else
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, channels_do_init);
+#endif
 }
 
 static int64_t retain_value(int64_t value) {
@@ -197,15 +258,13 @@ int64_t flux_chan_make(int64_t capacity_val) {
         abort();
     }
 
-    int64_t id = atomic_fetch_add_explicit(&next_channel_id, 1, memory_order_relaxed);
+    int64_t id = flux_atomic_fetch_add_i64(&next_channel_id, 1);
     if (id < 1 || id > FLUX_CHANNEL_TABLE_MAX) {
-        pthread_mutex_unlock(&channels_mutex);
         fprintf(stderr, "flux_chan_make: channel table full\n");
         abort();
     }
     FluxChannel *ch = &channels[id - 1];
     if (ch->id != 0) {
-        pthread_mutex_unlock(&channels_mutex);
         fprintf(stderr, "flux_chan_make: channel table full\n");
         abort();
     }
@@ -220,11 +279,9 @@ int64_t flux_chan_make(int64_t capacity_val) {
     ch->buf = capacity > 0 ? (int64_t *)calloc((size_t)capacity, sizeof(int64_t)) : NULL;
     if (capacity > 0 && !ch->buf) {
         ch->id = 0;
-        pthread_mutex_unlock(&channels_mutex);
         fprintf(stderr, "flux_chan_make: out of memory\n");
         abort();
     }
-    pthread_mutex_unlock(&channels_mutex);
     return flux_tag_int(id);
 }
 
@@ -233,25 +290,25 @@ int64_t flux_chan_try_send(int64_t id_val, int64_t value) {
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_try_send", id);
 
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_FALSE;
     }
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
         publish_value(recv_req, flux_wrap_some(retain_value(value)));
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
         buf_push(ch, retain_value(value));
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
     }
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return FLUX_FALSE;
 }
 
@@ -260,22 +317,22 @@ int64_t flux_chan_try_recv(int64_t id_val) {
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_try_recv", id);
 
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->len > 0) {
         int64_t value = buf_pop(ch);
         flush_waiters(ch);
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return flux_wrap_some(value);
     }
     WaitingSend send;
     if (send_pop(ch, &send)) {
         publish_value(send.req, FLUX_NONE);
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return flux_wrap_some(send.value);
     }
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return FLUX_NONE;
 }
 
@@ -288,9 +345,9 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
      * completions publish to a fresh request and suspend so the generated
      * continuation receives Unit through the native async scheduler. */
     uint64_t request_id = flux_async_task_await_request();
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, FLUX_NONE);
             return flux_async_suspend_request(request_id);
@@ -300,8 +357,8 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
         publish_value(recv_req, flux_wrap_some(retain_value(value)));
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, FLUX_NONE);
             return flux_async_suspend_request(request_id);
@@ -310,8 +367,8 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
         buf_push(ch, retain_value(value));
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, FLUX_NONE);
             return flux_async_suspend_request(request_id);
@@ -320,27 +377,27 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     }
     if (request_id == 0) {
         while (!ch->closed) {
-            pthread_cond_wait(&ch->ready, &ch->mutex);
+            FLUX_COND_WAIT(&ch->ready, &ch->mutex);
             if (recv_pop(ch, &recv_req)) {
                 publish_value(recv_req, flux_wrap_some(retain_value(value)));
-                pthread_mutex_unlock(&ch->mutex);
+                FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
             if (ch->capacity > 0 && ch->len < ch->capacity) {
                 buf_push(ch, retain_value(value));
-                pthread_mutex_unlock(&ch->mutex);
+                FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
         }
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_NONE;
     }
     if (!send_push(ch, request_id, retain_value(value))) {
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         fprintf(stderr, "flux_chan_send: too many waiting senders\n");
         abort();
     }
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return flux_async_suspend_request(request_id);
 }
 
@@ -353,12 +410,12 @@ int64_t flux_chan_recv(int64_t id_val) {
      * published before suspension so the generated continuation receives the
      * Option<a> through the same path as genuinely parked receives. */
     uint64_t request_id = flux_async_task_await_request();
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->len > 0) {
         int64_t value = buf_pop(ch);
         flush_waiters(ch);
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, flux_wrap_some(value));
             return flux_async_suspend_request(request_id);
@@ -368,8 +425,8 @@ int64_t flux_chan_recv(int64_t id_val) {
     WaitingSend send;
     if (send_pop(ch, &send)) {
         publish_value(send.req, FLUX_NONE);
-        pthread_cond_broadcast(&ch->ready);
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_COND_BROADCAST(&ch->ready);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, flux_wrap_some(send.value));
             return flux_async_suspend_request(request_id);
@@ -377,7 +434,7 @@ int64_t flux_chan_recv(int64_t id_val) {
         return flux_wrap_some(send.value);
     }
     if (ch->closed) {
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
             publish_value(request_id, FLUX_NONE);
             return flux_async_suspend_request(request_id);
@@ -386,17 +443,17 @@ int64_t flux_chan_recv(int64_t id_val) {
     }
     if (request_id == 0) {
         while (!ch->closed && ch->len == 0 && ch->send_len == 0) {
-            pthread_cond_wait(&ch->ready, &ch->mutex);
+            FLUX_COND_WAIT(&ch->ready, &ch->mutex);
         }
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         return flux_chan_recv(id_val);
     }
     if (!recv_push(ch, request_id)) {
-        pthread_mutex_unlock(&ch->mutex);
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
         fprintf(stderr, "flux_chan_recv: too many waiting receivers\n");
         abort();
     }
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return flux_async_suspend_request(request_id);
 }
 
@@ -405,7 +462,7 @@ int64_t flux_chan_close(int64_t id_val) {
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_close", id);
 
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     if (!ch->closed) {
         ch->closed = 1;
         uint64_t recv_req = 0;
@@ -422,8 +479,8 @@ int64_t flux_chan_close(int64_t id_val) {
             publish_value(send.req, FLUX_NONE);
         }
     }
-    pthread_cond_broadcast(&ch->ready);
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_COND_BROADCAST(&ch->ready);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return FLUX_NONE;
 }
 
@@ -431,9 +488,9 @@ int64_t flux_chan_len(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_len", id);
-    pthread_mutex_lock(&ch->mutex);
+    FLUX_MUTEX_LOCK(&ch->mutex);
     int64_t len = ch->len;
-    pthread_mutex_unlock(&ch->mutex);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
     return flux_tag_int(len);
 }
 
@@ -443,21 +500,3 @@ int64_t flux_chan_cap(int64_t id_val) {
     if (!ch) abort_unknown("flux_chan_cap", id);
     return flux_tag_int(ch->capacity);
 }
-
-#else
-
-static void channel_unimplemented(const char *which) {
-    fprintf(stderr, "%s: Flow.Channel native runtime is not implemented on this platform\n", which);
-    abort();
-}
-
-int64_t flux_chan_make(int64_t capacity) { (void)capacity; channel_unimplemented("flux_chan_make"); }
-int64_t flux_chan_send(int64_t id, int64_t value) { (void)id; (void)value; channel_unimplemented("flux_chan_send"); }
-int64_t flux_chan_recv(int64_t id) { (void)id; channel_unimplemented("flux_chan_recv"); }
-int64_t flux_chan_try_send(int64_t id, int64_t value) { (void)id; (void)value; channel_unimplemented("flux_chan_try_send"); }
-int64_t flux_chan_try_recv(int64_t id) { (void)id; channel_unimplemented("flux_chan_try_recv"); }
-int64_t flux_chan_close(int64_t id) { (void)id; channel_unimplemented("flux_chan_close"); }
-int64_t flux_chan_len(int64_t id) { (void)id; channel_unimplemented("flux_chan_len"); }
-int64_t flux_chan_cap(int64_t id) { (void)id; channel_unimplemented("flux_chan_cap"); }
-
-#endif

@@ -679,6 +679,8 @@ static void flux_async_register_callbacks(void) {
         flux_async_promote,
         flux_async_enter_worker_thread,
         flux_async_make_string,
+        flux_task_spawn,
+        flux_task_cancel,
     };
     if (flux_async_set_callbacks(&callbacks) != 0) {
         fprintf(stderr, "flux_async_set_callbacks failed\n");

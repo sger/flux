@@ -250,6 +250,8 @@ typedef struct FluxAsyncCallbacks {
     void (*promote)(int64_t value);
     void (*enter_worker_thread)(void);
     int64_t (*make_string)(const uint8_t *data, uintptr_t len);
+    int64_t (*task_spawn)(int64_t closure);
+    int64_t (*task_cancel)(int64_t task_id);
 } FluxAsyncCallbacks;
 
 int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
