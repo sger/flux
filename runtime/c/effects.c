@@ -246,6 +246,14 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
 
+    /* Take an RC root on the payload so the invariant described at the top of
+     * this file is self-enforcing: any code between flux_yield_to and the
+     * flux_yield_prompt consume that drops the last caller-side reference
+     * will NOT free the value — the context holds its own owned reference.
+     * The matching flux_drop lives in flux_yield_prompt after the clause
+     * call (see below). */
+    flux_dup(arg);
+
     flux_thread_ctx.yielding    = 1;
     flux_thread_ctx.marker      = m;
     flux_thread_ctx.clause      = clause;
@@ -723,7 +731,11 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * have unwound before the outer prompt decides to resume). */
         flux_thread_ctx.current_evv = yield_evv;
 
-        /* Call the handler clause: clause(resume, [arg], [state]). */
+        /* Call the handler clause: clause(resume, [arg], [state]).
+         * op_arg carries the owned RC reference taken by flux_yield_to.
+         * The clause receives it as a borrowed argument and will flux_dup
+         * it if it needs to store it. We drop our owned reference after
+         * the clause returns (regardless of which branch ran). */
         if (op_state != 0 && op_arity <= 0) {
             int64_t args[2] = { resume_cont, op_state };
             result = flux_call_closure_c(clause, args, 2);
@@ -737,6 +749,8 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int64_t args[2] = { resume_cont, op_arg };
             result = flux_call_closure_c(clause, args, 2);
         }
+        /* Release the RC root taken in flux_yield_to. */
+        flux_drop(op_arg);
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
