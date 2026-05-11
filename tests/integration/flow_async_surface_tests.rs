@@ -79,7 +79,7 @@ fn main() with IO {
 }
 
 #[test]
-fn try_underscore_recovers_async_failures() {
+fn try_recovers_async_failures() {
     let source = r#"
 import Flow.Async exposing (..)
 
@@ -87,7 +87,7 @@ fn body() -> Int with Async { 9 }
 
 fn main() with IO {
     let r = run_async(fn() {
-        match try_(body) {
+        match try(body) {
             Ok(v) -> v,
             Err(_) -> 0
         }
@@ -95,10 +95,10 @@ fn main() with IO {
     print(r)
 }
 "#;
-    let (stdout, stderr, ok) = run_flux_source(source, "try_underscore");
+    let (stdout, stderr, ok) = run_flux_source(source, "try_basic");
     assert!(
         ok,
-        "try_ must still compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "try must compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "9");
 }

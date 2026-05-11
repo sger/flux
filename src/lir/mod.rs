@@ -482,7 +482,7 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Async_timeout",
         "Flow_Async_timeout_result",
         "Flow_Async_fiber_timeout_prim",
-        "Flow_Async_try_",
+        "Flow_Async_try",
         "Flow_Async_fiber_try_prim",
         "Flow_Async_finally",
         "Flow_Async_bracket",

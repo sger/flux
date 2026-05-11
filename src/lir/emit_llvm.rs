@@ -3657,7 +3657,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
         CorePrimOp::Time => "time",
-        CorePrimOp::Try => "try",
+        CorePrimOp::Try => return "flux_try".to_string(),
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
         CorePrimOp::Abs => "abs",
@@ -3855,7 +3855,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
-        "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
+        "flux_try" | "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
         "flux_rt_div_loc" | "flux_rt_mod_loc" => (

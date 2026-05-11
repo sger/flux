@@ -277,22 +277,22 @@ Variant constructors are not all reachable from user code — only those that co
 
 Other variants (`IoError`, `DnsError`, `ConnectionClosed`, ...) are produced by the runtime when I/O fails. Match on them in error handlers; do not construct them.
 
-### 7.2 `fail` / `try_`
+### 7.2 `fail` / `try`
 
 ```flux
 public fn fail<a>(err: AsyncError) -> a with Async
-public fn try_<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e
+public fn try<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e
 ```
 
-`fail` raises an `AsyncError` in the current fiber and propagates outward — siblings under the same scope are cancelled, ownership unwinds to the nearest `try_` (or to the `run_async` boundary, where it surfaces as a panic).
+`fail` raises an `AsyncError` in the current fiber and propagates outward — siblings under the same scope are cancelled, ownership unwinds to the nearest `try` (or to the `run_async` boundary, where it surfaces as a panic).
 
-`try_` is the recovery primitive. The trailing underscore is a deliberate workaround: the bare name `try` is a C/C++ keyword and collides with the native backend's name mangling, so a stray `try` definition silently miscompiles on the LLVM path. Spell it `try_`.
+`try` is the recovery primitive.
 
 ```flux
 fn body() -> Int with Async { fail(canceled_error()) }
 
 fn caught() -> Bool with Async {
-    result_is_ok(try_(body))            // → false
+    result_is_ok(try(body))             // → false
 }
 ```
 
@@ -495,10 +495,10 @@ public fn await<a: Sendable>(t: Task<a>) -> a with Async
 
 The fiber-friendly join. On VM and native, suspends only the current fiber; other fibers on the same worker keep running while the task completes.
 
-Awaiting a cancelled task panics — wrap in `try_` to recover:
+Awaiting a cancelled task panics — wrap in `try` to recover:
 
 ```flux
-let r = try_(fn() -> Int with Async { Task.await(t) })
+let r = try(fn() -> Int with Async { Task.await(t) })
 ```
 
 ### 10.4 `cancel`
@@ -803,7 +803,7 @@ User-facing async functions are thin wrappers over `CorePrimOp` variants. This t
 | `check_cancelled` | `FiberCheckCancelled = 178` | scheduler-flag read |
 | `run_async_with` | `FiberRunAsyncWith = 179` | same as `run_async` + cfg |
 | `first_of` | `FiberFirstOf = 180` | N-way awaiter |
-| `try_` | `FiberTry = 181` | error boundary |
+| `try` | `FiberTry = 181` | error boundary |
 | `current_worker_count` | `FiberCurrentWorkerCount = 201` | active scheduler introspection |
 | `Task.spawn` | `TaskSpawn` | `flux_task_spawn` (native) |
 | `Task.blocking_join` | `TaskBlockingJoin` | `flux_task_blocking_join` |
@@ -979,7 +979,7 @@ fn fastest_mirror() -> String with Async {
 
 ### 16.12 Catching panics in workers
 
-`Async.try_` catches both explicit `fail` and panics, returning a
+`Async.try` catches both explicit `fail` and panics, returning a
 `Result<a, AsyncError>` you can pattern-match or inspect with helper functions:
 
 ```flux
@@ -989,7 +989,7 @@ fn risky() -> Int with Async {
 }
 
 fn safe() -> Int with Async {
-    result_or(try_(risky), -1)               // -1 on panic or fail
+    result_or(try(risky), -1)                // -1 on panic or fail
 }
 ```
 

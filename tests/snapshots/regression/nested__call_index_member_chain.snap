@@ -18,7 +18,7 @@ exit_code: 1
 • 2 errors • tests/fixtures/nested/call_index_member_chain.flx
 error[E430]: Could Not Infer Concrete Type
 
-Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10602 at the backend representation.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10611 at the backend representation.
 
   tests/fixtures/nested/call_index_member_chain.flx:1:1
   |

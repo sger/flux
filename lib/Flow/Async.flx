@@ -322,12 +322,7 @@ module Flow.Async {
     }
 
     /// Catch async fiber failures in `body`.
-    ///
-    /// Spelled `try_` (with trailing underscore) because the bare name
-    /// `try` collides with a C/C++ keyword in the native backend's name
-    /// mangling. The underscore is a deliberate workaround, not a stylistic
-    /// quirk.
-    public fn try_<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
+    public fn try<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
         fiber_try_prim(body)
     }
 

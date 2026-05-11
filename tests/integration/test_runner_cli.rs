@@ -724,18 +724,18 @@ fn test_mode_base_assertions_all_pass() {
         text
     );
     assert!(
-        text.contains("PASS  test_try_ok"),
-        "expected try ok test, output:\n{}",
+        text.contains("PASS  test_try_catch_ok"),
+        "expected try_catch ok test, output:\n{}",
         text
     );
     assert!(
-        text.contains("PASS  test_try_error"),
-        "expected try error test, output:\n{}",
+        text.contains("PASS  test_try_catch_error"),
+        "expected try_catch error test, output:\n{}",
         text
     );
     assert!(
-        text.contains("PASS  test_try_does_not_propagate"),
-        "expected try isolation test, output:\n{}",
+        text.contains("PASS  test_try_catch_does_not_propagate"),
+        "expected try_catch isolation test, output:\n{}",
         text
     );
     assert!(

@@ -36,9 +36,9 @@ fn mirror_2() -> String with Async {
 // the whole race down — a failing mirror returns a placeholder
 // instead and continues to "compete." The real winner is the
 // fastest one whose `try` returns `Ok`.
-fn safe_0() -> String with Async { match try_(mirror_0) { Ok(s) -> s, Err(_) -> "mirror-0 FAILED" } }
-fn safe_1() -> String with Async { match try_(mirror_1) { Ok(s) -> s, Err(_) -> "mirror-1 FAILED" } }
-fn safe_2() -> String with Async { match try_(mirror_2) { Ok(s) -> s, Err(_) -> "mirror-2 FAILED" } }
+fn safe_0() -> String with Async { match try(mirror_0) { Ok(s) -> s, Err(_) -> "mirror-0 FAILED" } }
+fn safe_1() -> String with Async { match try(mirror_1) { Ok(s) -> s, Err(_) -> "mirror-1 FAILED" } }
+fn safe_2() -> String with Async { match try(mirror_2) { Ok(s) -> s, Err(_) -> "mirror-2 FAILED" } }
 
 fn race_mirrors() -> (Int, String) with Async {
     first_of([safe_0, safe_1, safe_2])
