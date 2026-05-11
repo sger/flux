@@ -70,7 +70,7 @@ fn body_bracket() -> Int with Async {
 fn try_inner() -> Int with Async { 42 }
 
 fn body_try() with Async {
-    try_(try_inner)
+    try(try_inner)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

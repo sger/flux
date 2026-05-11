@@ -1,9 +1,9 @@
-// 07 — try_, fail, AsyncError
+// 07 — try, fail, AsyncError
 //
 // `Async.fail(err)` raises an `AsyncError` in the current fiber. The error
 // propagates outward and cancels sibling fibers in the same scope.
 //
-// `Async.try_(body)` catches the failure and returns a `Result<a, AsyncError>`.
+// `Async.try(body)` catches the failure and returns a `Result<a, AsyncError>`.
 // The constructors `Ok` / `Err` aren't brought into scope by `exposing (..)`
 // (they're internal to `Flow.Async`), so use the inspector helpers
 // `result_is_ok`, `result_or`, etc. — and `to_string` works directly on a
@@ -26,17 +26,17 @@ fn good()  -> Int with Async { 1 }                                   // returns
 fn bad()   -> Int with Async { fail(canceled_error()) }              // raises Canceled
 fn proto() -> Int with Async { fail(protocol_error(503, "upstream busy")) }  // raises ProtocolError
 
-// `try_` always succeeds — it converts any AsyncError raised inside the
+// `try` always succeeds — it converts any AsyncError raised inside the
 // body into the `Err` arm of a `Result`. `result_is_ok` is the inspector
 // that doesn't require Result's constructors to be in scope.
-fn run_good_ok() -> Bool with Async { result_is_ok(try_(good)) }
-fn run_bad_ok()  -> Bool with Async { result_is_ok(try_(bad)) }
+fn run_good_ok() -> Bool with Async { result_is_ok(try(good)) }
+fn run_bad_ok()  -> Bool with Async { result_is_ok(try(bad)) }
 
 // `result_or(r, fallback)` returns the success value if `r` is `Ok`,
 // otherwise the fallback. The body of `proto` always raises, so the
 // fallback (-1) is what comes out.
 fn run_with_fallback() -> Int with Async {
-    result_or(try_(proto), -1)
+    result_or(try(proto), -1)
 }
 
 fn main() with IO {

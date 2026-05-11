@@ -12,7 +12,7 @@
 // parity-expected-stdout-end
 
 // `exposing (..)` brings the public names of Flow.Async into scope:
-// `run_async`, `sleep`, `both`, `race`, `try_`, `fail`, ...
+// `run_async`, `sleep`, `both`, `race`, `try`, `fail`, ...
 import Flow.Async exposing (..)
 
 // A function in the async world. The `with Async` annotation declares

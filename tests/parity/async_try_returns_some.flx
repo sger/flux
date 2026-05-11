@@ -1,13 +1,13 @@
 // parity: vm, llvm
 // expect: success
-// bug: try_(body) must return Ok(body()) when no async error is raised.
+// bug: try(body) must return Ok(body()) when no async error is raised.
 
 import Flow.Async exposing (..)
 
 fn inner() -> Int with Async { 42 }
 
 fn body() with Async {
-    try_(inner)
+    try(inner)
 }
 
 fn main() with IO {

@@ -18,7 +18,7 @@ exit_code: 1
 • 2 errors • tests/fixtures/collections/trailing_commas_everywhere.flx
 error[E430]: Could Not Infer Concrete Type
 
-Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10596 at the backend representation.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10605 at the backend representation.
 
   tests/fixtures/collections/trailing_commas_everywhere.flx:2:1
   |

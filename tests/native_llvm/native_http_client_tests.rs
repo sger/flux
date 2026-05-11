@@ -225,7 +225,7 @@ fn native_http_client_malformed_response_fails() {
         fn call_get() -> Response with Async, AsyncFail {{
             get("http://127.0.0.1:{port}/bad")
         }}
-        let result = try_(call_get)
+        let result = try(call_get)
         if result_is_ok(result) {{ "unexpected-ok" }} else {{ "protocol-failed" }}
     }}
 
@@ -250,7 +250,7 @@ fn body() -> String with Async, AsyncFail {
     fn call_get() -> Response with Async, AsyncFail {
         get("https://example.test/")
     }
-    let result = try_(call_get)
+    let result = try(call_get)
     if result_is_ok(result) { "unexpected-ok" } else { "rejected" }
 }
 

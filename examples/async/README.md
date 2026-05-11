@@ -18,7 +18,7 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [04_race.flx](04_race.flx) | `race` — first finisher wins, loser cancelled |
 | [05_first_of.flx](05_first_of.flx) | `first_of` / `first` — N-way race |
 | [06_timeout.flx](06_timeout.flx) | `timeout`, `timeout_result` |
-| [07_try_fail.flx](07_try_fail.flx) | `try_`, `fail`, `AsyncError` variants |
+| [07_try_fail.flx](07_try_fail.flx) | `try`, `fail`, `AsyncError` variants |
 | [08_finally_bracket.flx](08_finally_bracket.flx) | `finally`, `bracket` cleanup arms |
 | [09_scope_fork_cancel.flx](09_scope_fork_cancel.flx) | `scope`, `fork`, `cancel` |
 | [10_check_cancelled.flx](10_check_cancelled.flx) | `check_cancelled`, `bail_if_cancelled` |

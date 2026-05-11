@@ -342,6 +342,10 @@ letrec assert_msg =
         panic(message))
     ()
 
+letrec try_catch =
+λf.
+    Try(f)
+
 letrec debug =
 λx.
     let %t30 = (let %t31 = ToString(x)

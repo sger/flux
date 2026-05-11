@@ -25,11 +25,11 @@ fn timeout_panic_body() -> Int with Async {
 }
 
 fn main() with IO {
-    print(run_async(fn() { try_(ok_body) }))
+    print(run_async(fn() { try(ok_body) }))
 
-    print(run_async(fn() { try_(panic_body) }))
+    print(run_async(fn() { try(panic_body) }))
 
-    print(run_async(fn() { try_(fail_body) }))
+    print(run_async(fn() { try(fail_body) }))
 
     print(run_async(fn() { timeout_result(1, timeout_body) }))
 

@@ -11,11 +11,11 @@ These twelve examples accompany [Chapter 20 of the Flux guide](../../docs/guide/
 | 05 | [`05_race_first_wins.flx`](05_race_first_wins.flx) | `race(f, g)` — first to finish wins; loser is cancelled. |
 | 06 | [`06_first_of_mirrors.flx`](06_first_of_mirrors.flx) | `first_of(fs)` — race over a list of candidates. |
 | 07 | [`07_timeout_deadline.flx`](07_timeout_deadline.flx) | `timeout(ms, f)` — bound wall-clock time. |
-| 08 | [`08_try_catch_failure.flx`](08_try_catch_failure.flx) | `try_` / `fail` — errors as values; `result_is_ok` and `result_or` helpers. |
+| 08 | [`08_try_catch_failure.flx`](08_try_catch_failure.flx) | `try` / `fail` — errors as values; `result_is_ok` and `result_or` helpers. |
 | 09 | [`09_scope_fork_workers.flx`](09_scope_fork_workers.flx) | Structured concurrency with `scope` / `fork` / `cancel`. |
 | 10 | [`10_channel_producer_consumer.flx`](10_channel_producer_consumer.flx) | `Flow.Channel` for passing values between fibers. |
 | 11 | [`11_task_spawn_parallel.flx`](11_task_spawn_parallel.flx) | `Task.spawn` for real OS-thread parallelism on CPU-bound work. |
-| 12 | [`12_real_world_fanout.flx`](12_real_world_fanout.flx) | Putting it together: `try_` + `first_of` + `timeout` for a robust mirrored-fetch pattern. |
+| 12 | [`12_real_world_fanout.flx`](12_real_world_fanout.flx) | Putting it together: `try` + `first_of` + `timeout` for a robust mirrored-fetch pattern. |
 
 ## Running
 

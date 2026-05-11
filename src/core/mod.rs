@@ -1418,7 +1418,7 @@ impl CorePrimOp {
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
             ("trim", 1, CorePrimOp::Trim),
-            ("try", 1, CorePrimOp::Try),
+            ("__try_legacy", 1, CorePrimOp::Try),
             ("type_of", 1, CorePrimOp::TypeOf),
             ("unwrap", 1, CorePrimOp::Unwrap),
             ("upper", 1, CorePrimOp::Upper),
