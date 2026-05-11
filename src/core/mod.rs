@@ -779,7 +779,27 @@ pub enum CorePrimOp {
     /// is called, the task is cancelled automatically alongside any forked
     /// fibers. Requires `with Async` — only valid inside a `run_async` boundary.
     TaskSpawnScoped = 210,
-    // ── Next free ID: 211 ─────────────────────────────────────────────
+    /// True iff a channel has been closed.
+    ChanIsClosed = 211,
+    /// Create an event that receives from a channel.
+    EventRecv = 212,
+    /// Create an event that sends to a channel.
+    EventSend = 213,
+    /// Create a timer event.
+    EventAfter = 214,
+    /// Create an event that is immediately ready with a value.
+    EventAlways = 215,
+    /// Create an event that is never ready.
+    EventNever = 216,
+    /// Create a source-ordered choice event from event IDs.
+    EventChoose = 217,
+    /// Create a mapped event.
+    EventWrap = 218,
+    /// Synchronize on an event.
+    EventSync = 219,
+    /// Poll an event once, committing if ready.
+    EventPoll = 220,
+    // ── Next free ID: 221 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -857,6 +877,16 @@ impl CorePrimOp {
             "ChanClose" => return Some(Self::ChanClose),
             "ChanLen" => return Some(Self::ChanLen),
             "ChanCap" => return Some(Self::ChanCap),
+            "ChanIsClosed" => return Some(Self::ChanIsClosed),
+            "EventRecv" => return Some(Self::EventRecv),
+            "EventSend" => return Some(Self::EventSend),
+            "EventAfter" => return Some(Self::EventAfter),
+            "EventAlways" => return Some(Self::EventAlways),
+            "EventNever" => return Some(Self::EventNever),
+            "EventChoose" => return Some(Self::EventChoose),
+            "EventWrap" => return Some(Self::EventWrap),
+            "EventSync" => return Some(Self::EventSync),
+            "EventPoll" => return Some(Self::EventPoll),
             "TaskSpawnScoped" => return Some(Self::TaskSpawnScoped),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
@@ -987,6 +1017,16 @@ impl CorePrimOp {
             Self::ChanClose => Some("chan_close"),
             Self::ChanLen => Some("chan_len"),
             Self::ChanCap => Some("chan_cap"),
+            Self::ChanIsClosed => Some("chan_is_closed"),
+            Self::EventRecv => Some("event_recv"),
+            Self::EventSend => Some("event_send"),
+            Self::EventAfter => Some("event_after"),
+            Self::EventAlways => Some("event_always"),
+            Self::EventNever => Some("event_never"),
+            Self::EventChoose => Some("event_choose"),
+            Self::EventWrap => Some("event_wrap"),
+            Self::EventSync => Some("event_sync"),
+            Self::EventPoll => Some("event_poll"),
             Self::TaskSpawnScoped => Some("task_spawn_scoped"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
@@ -1212,6 +1252,16 @@ impl CorePrimOp {
             208 => ChanLen,
             209 => ChanCap,
             210 => TaskSpawnScoped,
+            211 => ChanIsClosed,
+            212 => EventRecv,
+            213 => EventSend,
+            214 => EventAfter,
+            215 => EventAlways,
+            216 => EventNever,
+            217 => EventChoose,
+            218 => EventWrap,
+            219 => EventSync,
+            220 => EventPoll,
             _ => return None,
         };
         Some(op)
@@ -1360,12 +1410,22 @@ impl CorePrimOp {
             ),
             ("chan_cap", 1, CorePrimOp::ChanCap),
             ("chan_close", 1, CorePrimOp::ChanClose),
+            ("chan_is_closed", 1, CorePrimOp::ChanIsClosed),
             ("chan_len", 1, CorePrimOp::ChanLen),
             ("chan_make", 1, CorePrimOp::ChanMake),
             ("chan_recv", 1, CorePrimOp::ChanRecv),
             ("chan_send", 2, CorePrimOp::ChanSend),
             ("chan_try_recv", 1, CorePrimOp::ChanTryRecv),
             ("chan_try_send", 2, CorePrimOp::ChanTrySend),
+            ("event_after", 1, CorePrimOp::EventAfter),
+            ("event_always", 1, CorePrimOp::EventAlways),
+            ("event_choose", 1, CorePrimOp::EventChoose),
+            ("event_never", 0, CorePrimOp::EventNever),
+            ("event_recv", 1, CorePrimOp::EventRecv),
+            ("event_send", 2, CorePrimOp::EventSend),
+            ("event_sync", 1, CorePrimOp::EventSync),
+            ("event_poll", 1, CorePrimOp::EventPoll),
+            ("event_wrap", 2, CorePrimOp::EventWrap),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
@@ -1441,7 +1501,8 @@ impl CorePrimOp {
             | FiberYieldNow
             | FiberNewScope
             | FiberCheckCancelled
-            | FiberCurrentWorkerCount => 0,
+            | FiberCurrentWorkerCount
+            | EventNever => 0,
             Abs
             | ArrayLen
             | DebugTrace
@@ -1511,6 +1572,13 @@ impl CorePrimOp {
             | ChanClose
             | ChanLen
             | ChanCap
+            | ChanIsClosed
+            | EventAfter
+            | EventAlways
+            | EventChoose
+            | EventRecv
+            | EventSync
+            | EventPoll
             | HttpShutdown
             | HttpShutdownNow
             | HttpActiveConnectionCount
@@ -1592,6 +1660,8 @@ impl CorePrimOp {
             | TaskSpawnScoped
             | ChanSend
             | ChanTrySend
+            | EventSend
+            | EventWrap
             | HttpWriteResponse
             | HttpRegisterConnection
             | HttpUnregisterConnection

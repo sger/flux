@@ -1,0 +1,29 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "timer: 99"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn body() -> String with Async {
+    let ch = Channel.make(1)
+    Channel.send(ch, 99)
+
+    let first = select {
+        after 0 -> "timer",
+        recv ch as value -> match value {
+            Some(n) -> "recv:" + to_string(n),
+            None -> "closed"
+        }
+    }
+
+    match Channel.recv(ch) {
+        Some(n) -> first + ": " + to_string(n),
+        None -> first + ": empty"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

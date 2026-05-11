@@ -13,6 +13,7 @@ mod channel;
 mod comparison_ops;
 mod core_dispatch;
 mod dispatch;
+mod event;
 mod function_call;
 mod index_ops;
 mod primop;

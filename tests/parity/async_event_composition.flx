@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "value: 5"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Event as Event
+
+fn body() -> String with Async {
+    let base = Event.always(5)
+    let wrapped = Event.wrap(base, fn(n) { "value: " + to_string(n) })
+    Event.sync(Event.choose([Event.guard(fn() { wrapped })]))
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

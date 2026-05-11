@@ -31,6 +31,9 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [17_worker_diagnostic.flx](17_worker_diagnostic.flx) | worker-count diagnostics |
 | [18_task_closure_captures.flx](18_task_closure_captures.flx) | `Task.spawn` with immutable closure captures |
 | [19_task_spawn_scoped.flx](19_task_spawn_scoped.flx) | `Task.spawn_scoped` — structured concurrency for tasks |
+| [22_select_channel_timer.flx](22_select_channel_timer.flx) | `select` over channel receive and timer |
+| [23_select_send_recv.flx](23_select_send_recv.flx) | `select` send arm readiness |
+| [24_event_composition.flx](24_event_composition.flx) | `Event.choose`, `wrap`, `guard`, `with_nack` |
 
 ## Effect surface cheat sheet
 

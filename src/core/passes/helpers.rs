@@ -621,6 +621,16 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ChanClose
         | CorePrimOp::ChanLen
         | CorePrimOp::ChanCap
+        | CorePrimOp::ChanIsClosed
+        | CorePrimOp::EventRecv
+        | CorePrimOp::EventSend
+        | CorePrimOp::EventAfter
+        | CorePrimOp::EventAlways
+        | CorePrimOp::EventNever
+        | CorePrimOp::EventChoose
+        | CorePrimOp::EventWrap
+        | CorePrimOp::EventSync
+        | CorePrimOp::EventPoll
         | CorePrimOp::HttpServeConfig
         | CorePrimOp::HttpShutdown
         | CorePrimOp::HttpShutdownNow

@@ -12,6 +12,7 @@ module Flow.Channel {
     intrinsic fn chan_close_id(id: Int) -> Unit = primop ChanClose
     intrinsic fn chan_len_id(id: Int) -> Int = primop ChanLen
     intrinsic fn chan_cap_id(id: Int) -> Int = primop ChanCap
+    intrinsic fn chan_is_closed_id(id: Int) -> Bool = primop ChanIsClosed
 
     /// Create a bounded channel with the given capacity.
     /// capacity = 0 is a rendezvous channel: send waits for a receiver.
@@ -56,5 +57,10 @@ module Flow.Channel {
     /// Capacity the channel was created with.
     public fn cap<a>(ch: Channel<a>) -> Int {
         match ch { Channel(id) -> chan_cap_id(id) }
+    }
+
+    /// True once the channel has been closed.
+    public fn is_closed<a>(ch: Channel<a>) -> Bool {
+        match ch { Channel(id) -> chan_is_closed_id(id) }
     }
 }
