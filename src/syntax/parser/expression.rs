@@ -206,6 +206,7 @@ impl Parser {
             TokenType::Left => self.parse_left(),
             TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
+            TokenType::Select => self.parse_select_expression(),
             TokenType::Perform => self.parse_perform_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
             TokenType::LBracket => self.parse_list_literal(),
@@ -945,6 +946,40 @@ impl Parser {
             span,
             id: self.next_expr_id(),
         }
+    }
+
+    fn make_member_call(
+        &mut self,
+        object: &str,
+        member: &str,
+        arguments: Vec<Expression>,
+        span: Span,
+    ) -> Expression {
+        let object_expr = self.make_ident(object, span);
+        let member_sym = self.lexer.interner_mut().intern(member);
+        let access = Expression::MemberAccess {
+            object: Box::new(object_expr),
+            member: member_sym,
+            span,
+            id: self.next_expr_id(),
+        };
+        Expression::Call {
+            function: Box::new(access),
+            arguments,
+            span,
+            id: self.next_expr_id(),
+        }
+    }
+
+    fn make_select_arm_event(
+        &mut self,
+        event: Expression,
+        param: crate::syntax::Identifier,
+        body: Expression,
+        span: Span,
+    ) -> Expression {
+        let lambda = self.make_lambda(param, body, span);
+        self.make_member_call("Event", "wrap", vec![event, lambda], span)
     }
 
     pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {
@@ -1941,6 +1976,135 @@ impl Parser {
         }
 
         Some(self.build_match_expression(start, scrutinee, arms))
+    }
+
+    pub(super) fn parse_select_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin `select` arms.".to_string(),
+            "Select expressions use `select { recv ch as value -> body, send ch value -> body, after ms -> body }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let mut events = Vec::new();
+        let ignored_param = self.lexer.interner_mut().intern("__select_ignored");
+
+        while !self.is_peek_token(TokenType::RBrace) && !self.is_peek_token(TokenType::Eof) {
+            self.next_token();
+            let arm_start = self.current_token.position;
+            let arm_word = self.current_token.literal.clone();
+
+            let (event, param) = match arm_word.as_str() {
+                "recv" => {
+                    self.next_token();
+                    let ch = self.parse_expression(Precedence::Lowest)?;
+                    if !self.expect_peek_context(
+                        TokenType::As,
+                        "Expected `as` binding in `recv` select arm.".to_string(),
+                        "Receive arms use `recv ch as value -> body`.".to_string(),
+                    ) {
+                        return None;
+                    }
+                    if !self.expect_peek_context(
+                        TokenType::Ident,
+                        "Expected binding name after `as` in `recv` select arm.".to_string(),
+                        "Receive arms use `recv ch as value -> body`.".to_string(),
+                    ) {
+                        return None;
+                    }
+                    let param = self
+                        .lexer
+                        .interner_mut()
+                        .intern(&self.current_token.literal);
+                    let span = Span::new(arm_start, ch.span().end);
+                    (
+                        self.make_member_call("Event", "recv", vec![ch], span),
+                        param,
+                    )
+                }
+                "send" => {
+                    self.next_token();
+                    // `send ch value` relies on Flux not having juxtaposition
+                    // application: the first expression is the channel, then
+                    // the next token starts the value expression.
+                    let ch = self.parse_expression(Precedence::Lowest)?;
+                    if self.is_peek_token(TokenType::Arrow) {
+                        self.emit_parser_diagnostic(unexpected_token(
+                            self.peek_token.span(),
+                            "Expected value expression in `send` select arm.".to_string(),
+                        ));
+                        return None;
+                    }
+                    self.next_token();
+                    let value = self.parse_expression(Precedence::Lowest)?;
+                    let span = Span::new(arm_start, value.span().end);
+                    (
+                        self.make_member_call("Event", "send", vec![ch, value], span),
+                        ignored_param,
+                    )
+                }
+                "after" => {
+                    self.next_token();
+                    let ms = self.parse_expression(Precedence::Lowest)?;
+                    let span = Span::new(arm_start, ms.span().end);
+                    (
+                        self.make_member_call("Event", "after", vec![ms], span),
+                        ignored_param,
+                    )
+                }
+                _ => {
+                    self.emit_parser_diagnostic(unexpected_token(
+                        self.current_token.span(),
+                        "Expected `recv`, `send`, or `after` in select arm.".to_string(),
+                    ));
+                    return None;
+                }
+            };
+
+            if !self.expect_peek_context(
+                TokenType::Arrow,
+                "Expected `->` in select arm.".to_string(),
+                "Select arms use `recv ch as value -> body`, `send ch value -> body`, or `after ms -> body`.".to_string(),
+            ) {
+                return None;
+            }
+
+            self.next_token();
+            let body = self.parse_expression(Precedence::Lowest)?;
+            let span = Span::new(arm_start, body.span().end);
+            events.push(self.make_select_arm_event(event, param, body, span));
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            }
+        }
+
+        if events.is_empty() {
+            self.emit_parser_diagnostic(unexpected_token(
+                self.current_token.span(),
+                "Select expression must have at least one arm.".to_string(),
+            ));
+            return None;
+        }
+
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close `select` expression.".to_string(),
+            "Select expressions use `select { recv ch as value -> body, ... }`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let end = self.current_token.span().end;
+        let list = Expression::ListLiteral {
+            elements: events,
+            span: Span::new(start, end),
+            id: self.next_expr_id(),
+        };
+        let choose = self.make_member_call("Event", "choose", vec![list], Span::new(start, end));
+        Some(self.make_member_call("Event", "sync", vec![choose], Span::new(start, end)))
     }
 
     /// Parses a single match pattern, including ADT constructors such as

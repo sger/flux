@@ -146,6 +146,16 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ChanClose => "chan_close",
         CorePrimOp::ChanLen => "chan_len",
         CorePrimOp::ChanCap => "chan_cap",
+        CorePrimOp::ChanIsClosed => "chan_is_closed",
+        CorePrimOp::EventRecv => "event_recv",
+        CorePrimOp::EventSend => "event_send",
+        CorePrimOp::EventAfter => "event_after",
+        CorePrimOp::EventAlways => "event_always",
+        CorePrimOp::EventNever => "event_never",
+        CorePrimOp::EventChoose => "event_choose",
+        CorePrimOp::EventWrap => "event_wrap",
+        CorePrimOp::EventSync => "event_sync",
+        CorePrimOp::EventPoll => "event_poll",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -395,6 +405,16 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ChanClose
             | CorePrimOp::ChanLen
             | CorePrimOp::ChanCap
+            | CorePrimOp::ChanIsClosed
+            | CorePrimOp::EventRecv
+            | CorePrimOp::EventSend
+            | CorePrimOp::EventAfter
+            | CorePrimOp::EventAlways
+            | CorePrimOp::EventNever
+            | CorePrimOp::EventChoose
+            | CorePrimOp::EventWrap
+            | CorePrimOp::EventSync
+            | CorePrimOp::EventPoll
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
             | CorePrimOp::HttpShutdownNow

@@ -1161,7 +1161,11 @@ mod vm_fibers {
                             fiber.parked = Some(cont_rc);
                             fiber.state = FiberState::Suspended { request_id: req };
                             let home_worker = fiber.home_worker;
-                            fiber_trace::emit(FiberEvent::Suspend { fid: fid.0, worker: home_worker.0, request_id: req });
+                            fiber_trace::emit(FiberEvent::Suspend {
+                                fid: fid.0,
+                                worker: home_worker.0,
+                                request_id: req,
+                            });
                             SCHED.with(|s| {
                                 s.borrow_mut()
                                     .as_mut()
@@ -1264,7 +1268,11 @@ mod vm_fibers {
                     fiber.parked = Some(cont_rc);
                     fiber.state = FiberState::Suspended { request_id: req };
                     let home_worker = fiber.home_worker;
-                    fiber_trace::emit(FiberEvent::Suspend { fid: fiber_id.0, worker: home_worker.0, request_id: req });
+                    fiber_trace::emit(FiberEvent::Suspend {
+                        fid: fiber_id.0,
+                        worker: home_worker.0,
+                        request_id: req,
+                    });
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -1325,7 +1333,10 @@ mod vm_fibers {
                         if fiber_id == root_id {
                             root_result = Some(v.clone());
                         }
-                        fiber_trace::emit(FiberEvent::Complete { fid: fiber_id.0, worker: fiber_home_worker });
+                        fiber_trace::emit(FiberEvent::Complete {
+                            fid: fiber_id.0,
+                            worker: fiber_home_worker,
+                        });
                         // Synthetic-await coordination: record the result and
                         // wake any parents whose await condition is now met.
                         // Set each resume value *before* calling
@@ -2459,7 +2470,10 @@ pub fn execute_core_primop(
             };
             let child_id = vm_fibers::spawn_child_with_body(args[1].clone());
             vm_fibers::register_fiber_in_scope(scope_id, child_id);
-            fiber_trace::emit(FiberEvent::ScopeCreate { scope_id, fid: child_id.0 });
+            fiber_trace::emit(FiberEvent::ScopeCreate {
+                scope_id,
+                fid: child_id.0,
+            });
             Ok(Value::None)
         }
 
@@ -2603,6 +2617,42 @@ pub fn execute_core_primop(
         ChanCap => match &args[0] {
             Value::Integer(id) => super::channel::cap(*id).map(Value::Integer),
             other => Err(terr("chan_cap", "Int", other)),
+        },
+        ChanIsClosed => match &args[0] {
+            Value::Integer(id) => super::channel::is_closed(*id).map(Value::Boolean),
+            other => Err(terr("chan_is_closed", "Int", other)),
+        },
+        EventRecv => match &args[0] {
+            Value::Integer(id) => Ok(Value::Integer(super::event::recv(*id))),
+            other => Err(terr("event_recv", "Int", other)),
+        },
+        EventSend => match &args[0] {
+            Value::Integer(id) => Ok(Value::Integer(super::event::send(*id, args[1].clone()))),
+            other => Err(terr("event_send", "Int", other)),
+        },
+        EventAfter => match &args[0] {
+            Value::Integer(ms) => super::event::after(*ms).map(Value::Integer),
+            other => Err(terr("event_after", "Int", other)),
+        },
+        EventAlways => Ok(Value::Integer(super::event::always(args[0].clone()))),
+        EventNever => Ok(Value::Integer(super::event::never())),
+        EventChoose => {
+            let ids = super::event::collect_ids(&args[0])?;
+            super::event::choose(ids).map(Value::Integer)
+        }
+        EventWrap => match &args[0] {
+            Value::Integer(id) => Ok(Value::Integer(super::event::wrap(*id, args[1].clone()))),
+            other => Err(terr("event_wrap", "Int", other)),
+        },
+        EventSync => match &args[0] {
+            Value::Integer(_) => Err(
+                "event_sync primop is deprecated; Flow.Event.sync uses event_poll".to_string(),
+            ),
+            other => Err(terr("event_sync", "Int", other)),
+        },
+        EventPoll => match &args[0] {
+            Value::Integer(id) => super::event::poll_value(ctx, *id),
+            other => Err(terr("event_poll", "Int", other)),
         },
 
         // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────

@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "closed"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn body() -> String with Async {
+    let ch = Channel.make(0)
+    Channel.close(ch)
+    select {
+        recv ch as value -> match value {
+            Some(_) -> "value",
+            None -> "closed"
+        },
+        after 100 -> "timeout"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}
