@@ -733,21 +733,21 @@ Only `canceled_error()` and `protocol_error(status, msg)` are exposed as constru
 
 Mitigation: don't write `Sendable` instances by hand. Let the synthesizer derive them.
 
-### 14.8 LLVM compile hangs on many `run_async_with*` call sites + a suspending body
+### 14.8 LLVM compile hang on many `run_async_with*` call sites + a suspending body (historical; fixed upstream)
 
-Investigated 2026-05-08. **Not a runtime bug** — the symptom is the LLVM
+Investigated 2026-05-08. **Not a runtime bug** — the symptom was the LLVM
 compile/link of the user binary hanging at
 `[12 of 13] Linking Flow.Either` (just before the user module would link).
 Earlier writeups described this as a "native sequential deadlock"; that
-characterisation was wrong, the program never reaches runtime.
+characterisation was wrong, the program never reached runtime.
 
-**Reproducer:** in a single function, place **9 sequential
+**Original reproducer:** in a single function, place **9 sequential
 `run_async_with_workers(N, fn)` call sites** where at least one of the
 bodies contains a suspending call (e.g. `sleep`). Eight call sites
-compile fine; nine hangs the LLVM optimizer/linker indefinitely.
+compiled fine; nine hung the LLVM optimizer/linker indefinitely.
 
 ```flux
-// Hangs the build at the user-module link step:
+// Used to hang the build at the user-module link step:
 fn main() with IO {
     print(run_async_with_workers(1, report))
     // ... 7 more identical calls ...
@@ -755,25 +755,35 @@ fn main() with IO {
 }
 ```
 
-**Suspected cause:** an LLVM optimization pass scaling super-linearly
-with the number of `flux_fiber_run_async_with` call sites that share a
-suspending closure body. Specific pass not yet identified; investigation
-parked.
+**Suspected cause:** an LLVM optimization pass scaling super-linearly with the
+number of `flux_fiber_run_async_with` call sites that share a suspending
+closure body. The specific pass was never localized — see the re-verification
+below; it could not be reproduced again, so the bisect was not redone.
 
-**Compiler workaround:** the native LIR→LLVM path now transparently outlines
-excess `run_async_with*` sites into noinline helper functions before LLVM
-optimization. User source does not need to change; the source-level workaround
-remains to keep ≤ 8 sequential `run_async_with*` call sites in any one function
-if testing an older compiler.
+**Re-verification (2026-05-12, LLVM 22 / 23):** the original reproducer —
+*and* a 40-site stress version — compile and run cleanly **even with the
+outline pass disabled** (`RUN_ASYNC_WITH_INLINE_SITE_LIMIT` set to
+`usize::MAX`). The underlying LLVM regression appears fixed upstream. The
+source-level "≤ 8 sequential `run_async_with*` sites per function" guidance is
+**no longer necessary** on current LLVM.
 
-**LLVM-side diagnostics:** any future pass-localization work must run under an
-external timeout. Extract IR with `--emit-llvm`/`--dump-lir-llvm`, then invoke
-`opt` or native compilation diagnostics with a timeout wrapper (for example
-PowerShell `Start-Process` plus `Wait-Process -Timeout`, or Unix `timeout 60`).
-Do not run this reproducer through unbounded `--native`.
+**Compiler safety net:** the native LIR→LLVM path still transparently outlines
+the 9th and later `run_async_with*` sites in a function into noinline helper
+functions before LLVM optimization ([`src/lir/run_async_outline.rs`](../../src/lir/run_async_outline.rs),
+limit `8`). It is cheap (a quick scan, a no-op below the limit) and is kept as
+a defence for older toolchains; it can be removed once the project's CI LLVM
+floor is known to include the fix. User source never needs to change either way.
+
+**LLVM-side diagnostics (if it ever recurs):** run any pass-localization work
+under an external timeout. Extract IR with `--emit-llvm -o file.ll` (or
+`--dump-lir-llvm`), then `timeout 60 opt -passes='default<O2>' -opt-bisect-limit=N file.ll -o /dev/null`
+(binary-search `N`) and/or `-debug-pass-manager` to find the offending pass.
+Note: the *combined* `--emit-llvm` module did not reproduce the hang even on
+the affected toolchain — the trigger lived in the per-module native compile of
+the user module, so reproduce via `--native` (with a timeout), not `--emit-llvm`.
 
 **Reproducer file:** [`examples/async/repro_native_seq.flx`](../../examples/async/repro_native_seq.flx)
-— preserved as the smallest known trigger for future debugging.
+— preserved as the smallest historical trigger.
 
 **Related design implication:** the architecture *was* hypothesised to
 have a runtime sequential-teardown bug. Phase B testing confirmed

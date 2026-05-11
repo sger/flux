@@ -26,6 +26,29 @@ static NEXT_FIBER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 static READY_TIMERS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 static ACTIVE_RUN: OnceLock<Mutex<Option<RunHandle>>> = OnceLock::new();
+/// Process-global pool of fiber-worker OS threads (proposal 0174 C4).
+/// Replaces the per-`run_async` spawn-N / join-N churn: pooled workers are
+/// created lazily, sized to the largest `worker_count` ever requested, and
+/// parked between boundaries. They always serve the current `ACTIVE_RUN`
+/// (the innermost active `run_async`), which keeps them consistent with the
+/// process-global `with_run` / `active_run` routing.
+static FIBER_POOL: OnceLock<FiberWorkerPool> = OnceLock::new();
+
+struct FiberWorkerPool {
+    inner: Mutex<PoolInner>,
+    /// Poked whenever the active run changes or gains work; pooled workers
+    /// also `handle.notify_all()` through `RunHandle::notify_all`.
+    cvar: Condvar,
+}
+
+struct PoolInner {
+    /// Number of pooled worker threads spawned so far. Worker ids are
+    /// `1..=spawned` (id 0 is always the run's root thread).
+    spawned: usize,
+    /// Kept only so the threads aren't detached for no reason; never joined
+    /// per boundary (they outlive every `run_async` and die with the process).
+    handles: Vec<JoinHandle<()>>,
+}
 
 const FLUX_NONE: i64 = 0;
 const DEFAULT_LOGICAL_WORKERS: usize = 2;
@@ -285,24 +308,32 @@ impl NativeRun {
     /// another worker's queue. Victim scan order is deterministic so tests
     /// and diagnostics stay reproducible.
     fn pop_ready_or_steal(&mut self, worker: usize) -> Option<Fiber> {
-        let fiber = self.ready[worker].pop_front().or_else(|| {
-            if !work_stealing_enabled() || self.ready.len() <= 1 {
-                return None;
-            }
-            for offset in 1..self.ready.len() {
-                let victim = (worker + offset) % self.ready.len();
-                let Some(pos) = self.ready[victim]
-                    .iter()
-                    .rposition(|fiber| fiber.id != self.root && fiber.stealable)
-                else {
-                    continue;
-                };
-                if let Some(fiber) = self.ready[victim].remove(pos) {
-                    return Some(fiber);
+        // `worker` may exceed `ready.len()` when a pooled worker (sized by an
+        // earlier, larger `run_async`) serves a later run that asked for fewer
+        // workers — in that case it owns no local queue and only steals.
+        let fiber = self
+            .ready
+            .get_mut(worker)
+            .and_then(VecDeque::pop_front)
+            .or_else(|| {
+                if !work_stealing_enabled() || self.ready.len() <= 1 {
+                    return None;
                 }
-            }
-            None
-        })?;
+                let base = worker % self.ready.len();
+                for offset in 1..self.ready.len() {
+                    let victim = (base + offset) % self.ready.len();
+                    let Some(pos) = self.ready[victim]
+                        .iter()
+                        .rposition(|fiber| fiber.id != self.root && fiber.stealable)
+                    else {
+                        continue;
+                    };
+                    if let Some(fiber) = self.ready[victim].remove(pos) {
+                        return Some(fiber);
+                    }
+                }
+                None
+            })?;
         self.running += 1;
         Some(fiber)
     }
@@ -793,6 +824,85 @@ impl RunHandle {
 
     fn notify_all(&self) {
         self.shared.cvar.notify_all();
+        if let Some(pool) = FIBER_POOL.get() {
+            pool.cvar.notify_all();
+        }
+    }
+}
+
+/// Ensure the global fiber-worker pool exists and has at least
+/// `worker_count - 1` threads (the non-root workers). Idempotent; only ever
+/// grows. Threads are spawned outside the pool lock to avoid holding it
+/// across `thread::spawn`.
+fn pool_ensure(worker_count: usize, cb: FluxAsyncCallbacks) {
+    let pool = FIBER_POOL.get_or_init(|| FiberWorkerPool {
+        inner: Mutex::new(PoolInner {
+            spawned: 0,
+            handles: Vec::new(),
+        }),
+        cvar: Condvar::new(),
+    });
+    let want = worker_count.max(1) - 1;
+    let to_spawn: Vec<usize> = {
+        let mut inner = pool.inner.lock().expect("fiber pool poisoned");
+        if inner.spawned >= want {
+            return;
+        }
+        let ids: Vec<usize> = (inner.spawned + 1..=want).collect();
+        inner.spawned = want;
+        ids
+    };
+    let mut spawned = Vec::with_capacity(to_spawn.len());
+    for id in to_spawn {
+        let handle = std::thread::Builder::new()
+            .name(format!("flux-async-worker-{id}"))
+            .spawn(move || pool_worker_loop(id, cb))
+            .expect("spawn pooled async worker");
+        spawned.push(handle);
+    }
+    pool.inner
+        .lock()
+        .expect("fiber pool poisoned")
+        .handles
+        .extend(spawned);
+}
+
+/// A pooled fiber worker. Lives for the process lifetime: serves the current
+/// `ACTIVE_RUN` when it has ready work for this worker id, parks on the pool
+/// cvar otherwise. Mirrors the old per-run `worker_loop`, minus the per-run
+/// spawn/join.
+fn pool_worker_loop(id: usize, cb: FluxAsyncCallbacks) {
+    unsafe {
+        (cb.enter_worker_thread)();
+    }
+    CURRENT_WORKER.with(|current| current.set(id));
+    let pool = FIBER_POOL.get().expect("pool created before workers");
+    loop {
+        // Pick a fiber from the current active run, if any has work for us.
+        let picked = active_run().and_then(|handle| {
+            let fiber = {
+                let mut state = handle.shared.state.lock().expect("native async state poisoned");
+                if state.shutdown {
+                    None
+                } else {
+                    state.pop_ready_or_steal(id)
+                }
+            };
+            fiber.map(|f| (handle, f))
+        });
+        match picked {
+            Some((handle, fiber)) => execute_fiber(&handle, id, fiber, cb),
+            None => {
+                // Nothing to do right now — park. The short timeout closes the
+                // narrow race where a run becomes active / gains work between
+                // the check above and re-acquiring the pool lock.
+                let inner = pool.inner.lock().expect("fiber pool poisoned");
+                let _ = pool
+                    .cvar
+                    .wait_timeout(inner, Duration::from_millis(5))
+                    .expect("fiber pool poisoned");
+            }
+        }
     }
 }
 
@@ -977,52 +1087,6 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
     drop(state);
     release_finished_fiber(fiber);
     handle.notify_all();
-}
-
-fn worker_loop(handle: RunHandle, worker: usize, cb: FluxAsyncCallbacks) {
-    unsafe {
-        (cb.enter_worker_thread)();
-    }
-    CURRENT_WORKER.with(|current| current.set(worker));
-    loop {
-        let fiber = {
-            let mut state = handle
-                .shared
-                .state
-                .lock()
-                .expect("native async state poisoned");
-            loop {
-                if state.shutdown {
-                    return;
-                }
-                if let Some(fiber) = state.pop_ready_or_steal(worker) {
-                    break fiber;
-                }
-                state = handle
-                    .shared
-                    .cvar
-                    .wait(state)
-                    .expect("native async state poisoned");
-            }
-        };
-        execute_fiber(&handle, worker, fiber, cb);
-    }
-}
-
-fn spawn_workers(
-    handle: &RunHandle,
-    cb: FluxAsyncCallbacks,
-    worker_count: usize,
-) -> Vec<JoinHandle<()>> {
-    (1..worker_count.max(1))
-        .map(|worker| {
-            let handle = handle.clone();
-            std::thread::Builder::new()
-                .name(format!("flux-async-worker-{worker}"))
-                .spawn(move || worker_loop(handle, worker, cb))
-                .expect("spawn native async worker")
-        })
-        .collect()
 }
 
 /// Register C-runtime callbacks used by the Rust async scheduler.
@@ -1215,7 +1279,14 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     let previous_run = active_run();
     let handle = RunHandle::new(root_closure, worker_count);
     set_active_run(Some(handle.clone()));
-    let workers = spawn_workers(&handle, cb, worker_count);
+    // Reuse the process-global worker pool instead of spawning fresh threads
+    // per boundary; pooled workers serve whatever `active_run()` currently is.
+    pool_ensure(worker_count, cb);
+    FIBER_POOL
+        .get()
+        .expect("pool_ensure initializes FIBER_POOL")
+        .cvar
+        .notify_all();
     let mut result = FLUX_NONE;
 
     loop {
@@ -1300,8 +1371,25 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
         state.shutdown = true;
     }
     handle.notify_all();
-    for worker in workers {
-        let _ = worker.join();
+    // Wait for any pooled worker still inside `execute_fiber` for this run to
+    // finish before we hand the `active_run()` slot back. Pooled workers route
+    // suspensions/completions through the process-global `active_run()`, so
+    // they must not be running this run's code once the slot points elsewhere.
+    // Replaces the old per-boundary `for w in workers { w.join() }`.
+    {
+        let mut state = handle
+            .shared
+            .state
+            .lock()
+            .expect("native async state poisoned");
+        while state.running > 0 {
+            state = handle
+                .shared
+                .cvar
+                .wait_timeout(state, Duration::from_millis(1))
+                .expect("native async state poisoned")
+                .0;
+        }
     }
 
     // Drain the root-task safety net: any task spawned via detached
@@ -1322,6 +1410,11 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     }
 
     set_active_run(previous_run);
+    // Redirect pooled workers to the (possibly restored) active run, or let
+    // them park if there is none.
+    if let Some(pool) = FIBER_POOL.get() {
+        pool.cvar.notify_all();
+    }
     result
 }
 
