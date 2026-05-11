@@ -298,6 +298,11 @@ pub(super) fn cap(id: i64) -> Result<i64, String> {
         .capacity as i64)
 }
 
+pub(super) fn is_closed(id: i64) -> Result<bool, String> {
+    let entry = lookup(id)?;
+    Ok(entry.cell.lock().expect("VM channel cell poisoned").closed)
+}
+
 pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
     let queue = completion_queue();
     let rx = queue

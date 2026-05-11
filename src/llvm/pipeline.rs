@@ -706,6 +706,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "array.c",
         "tasks.c",
         "channel.c",
+        "event.c",
         "tcp.c",
         "json.c",
     ];

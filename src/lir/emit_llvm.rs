@@ -1942,6 +1942,38 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        if let CorePrimOp::EventPoll = op {
+            let ready_tag = self
+                .program
+                .constructor_tags
+                .get("Ready")
+                .copied()
+                .unwrap_or(5);
+            let pending_tag = self
+                .program
+                .constructor_tags
+                .get("Pending")
+                .copied()
+                .unwrap_or(6);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_event_poll",
+                vec![
+                    (LlvmType::i32(), self.i32_const(ready_tag)),
+                    (LlvmType::i32(), self.i32_const(pending_tag)),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         if let CorePrimOp::HttpParseRequest = op {
             let tag = |name: &str, fallback: i32| {
                 self.program
@@ -3797,6 +3829,16 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::ChanClose => return "flux_chan_close".to_string(),
         CorePrimOp::ChanLen => return "flux_chan_len".to_string(),
         CorePrimOp::ChanCap => return "flux_chan_cap".to_string(),
+        CorePrimOp::ChanIsClosed => return "flux_chan_is_closed".to_string(),
+        CorePrimOp::EventRecv => return "flux_event_recv".to_string(),
+        CorePrimOp::EventSend => return "flux_event_send".to_string(),
+        CorePrimOp::EventAfter => return "flux_event_after".to_string(),
+        CorePrimOp::EventAlways => return "flux_event_always".to_string(),
+        CorePrimOp::EventNever => return "flux_event_never".to_string(),
+        CorePrimOp::EventChoose => return "flux_event_choose".to_string(),
+        CorePrimOp::EventWrap => return "flux_event_wrap".to_string(),
+        CorePrimOp::EventSync => return "flux_event_sync".to_string(),
+        CorePrimOp::EventPoll => return "flux_event_poll".to_string(),
         // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
         CorePrimOp::HttpServeConfig => return "flux_http_serve_config".to_string(),
         CorePrimOp::HttpShutdown => return "flux_http_shutdown".to_string(),
@@ -3981,6 +4023,19 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_chan_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_len" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_cap" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_is_closed" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_after" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_always" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_never" => (LlvmType::i64(), vec![]),
+        "flux_event_choose" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_wrap" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_sync" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_poll" => (
+            LlvmType::i64(),
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+        ),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),

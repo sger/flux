@@ -502,3 +502,13 @@ int64_t flux_chan_cap(int64_t id_val) {
     if (!ch) abort_unknown("flux_chan_cap", id);
     return flux_tag_int(ch->capacity);
 }
+
+int64_t flux_chan_is_closed(int64_t id_val) {
+    int64_t id = flux_untag_int(id_val);
+    FluxChannel *ch = lookup_channel(id);
+    if (!ch) abort_unknown("flux_chan_is_closed", id);
+    FLUX_MUTEX_LOCK(&ch->mutex);
+    int closed = ch->closed;
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
+    return closed ? FLUX_TRUE : FLUX_FALSE;
+}
