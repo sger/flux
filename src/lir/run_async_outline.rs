@@ -1,9 +1,18 @@
 //! Outline excess `run_async_with*` native call sites before LLVM sees them.
 //!
-//! LLVM can hang optimizing one function that contains many calls into the
-//! `run_async_with*` wrapper chain plus a suspending async body. This pass
-//! preserves the first few call sites and moves later ones into tiny noinline
-//! helpers, keeping each generated LLVM function below the known threshold.
+//! Older LLVM toolchains could hang optimizing one function that contains many
+//! calls into the `run_async_with*` wrapper chain plus a suspending async body
+//! (bisected 2026-05-08: 8 sites compiled, 9 hung — see
+//! `docs/internals/async_syntax.md` §14.8). This pass preserves the first
+//! `RUN_ASYNC_WITH_INLINE_SITE_LIMIT` call sites and moves later ones into tiny
+//! noinline helpers, keeping each generated LLVM function below the threshold.
+//!
+//! Re-verified 2026-05-12 with LLVM 22/23: the original reproducer — and a
+//! 40-site stress version — compile cleanly even with this pass disabled, so
+//! the underlying LLVM regression appears fixed upstream. The pass is retained
+//! as a cheap defensive safety net for older toolchains (it's a quick scan and
+//! a no-op below the limit); it can be removed once the CI LLVM floor is known
+//! to include the fix.
 
 use std::collections::HashSet;
 
