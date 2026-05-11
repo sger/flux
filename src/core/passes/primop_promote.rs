@@ -82,7 +82,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
         ("task_cancel", 1, CorePrimOp::TaskCancel),
         ("now_ms", 0, CorePrimOp::ClockNow),
-        ("__try_legacy", 1, CorePrimOp::Try),
+        ("try_catch_prim", 1, CorePrimOp::Try),
         ("assert_throws", 1, CorePrimOp::AssertThrows),
         ("assert_throws", 2, CorePrimOp::AssertThrows),
         // Math
