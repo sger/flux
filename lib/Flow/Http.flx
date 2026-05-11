@@ -257,7 +257,7 @@ module Flow.Http {
             accept_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
         fn serve_accept_body() with Async, AsyncFail {
-            let ignored_accept_result = try_(accept_loop_body)
+            let ignored_accept_result = try(accept_loop_body)
             http_server_stopped_prim(server_id)
         }
         let ignored_serve_fork = fork(server_scope, serve_accept_body)
@@ -297,7 +297,7 @@ module Flow.Http {
             accept_stream_loop(server_id, listener, server_scope, max_connections, request_timeout_ms, handler)
         }
         fn serve_accept_body() with Async, AsyncFail {
-            let ignored_accept_result = try_(accept_loop_body)
+            let ignored_accept_result = try(accept_loop_body)
             http_server_stopped_prim(server_id)
         }
         let ignored_serve_fork = fork(server_scope, serve_accept_body)
@@ -336,7 +336,7 @@ module Flow.Http {
             fn accept_ok(conn) with Async, AsyncFail {
                 accepted_connection(server_id, listener, server_scope, conn, max_connections, request_timeout_ms, handler)
             }
-            let accept_result = try_(accept_once)
+            let accept_result = try(accept_once)
             result_or_else_async(
                 accept_result,
                 noop(),
@@ -355,7 +355,7 @@ module Flow.Http {
         fn connection_body() with Async, AsyncFail {
             connection_loop(server_id, conn, buffer, request_timeout_ms, handler)
         }
-        let ignored_connection_result = try_(connection_body)
+        let ignored_connection_result = try(connection_body)
         close_connection(server_id, conn)
     }
 
@@ -507,7 +507,7 @@ module Flow.Http {
             fn accept_ok(conn) with Async, AsyncFail {
                 accepted_stream_connection(server_id, listener, server_scope, conn, max_connections, request_timeout_ms, handler)
             }
-            let accept_result = try_(accept_once)
+            let accept_result = try(accept_once)
             result_or_else_async(
                 accept_result,
                 noop(),
@@ -544,7 +544,7 @@ module Flow.Http {
         fn connection_body() with Async, AsyncFail {
             stream_connection_loop(server_id, conn, buffer, request_timeout_ms, handler)
         }
-        let ignored_connection_result = try_(connection_body)
+        let ignored_connection_result = try(connection_body)
         close_connection(server_id, conn)
     }
 

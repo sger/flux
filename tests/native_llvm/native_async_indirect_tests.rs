@@ -167,7 +167,7 @@ fn native_async_try_suspended_body_returns_ok() {
 import Flow.Async exposing (..)
 
 fn body() with Async {
-    try_(fn() {
+    try(fn() {
         sleep(10)
         42
     })
@@ -180,7 +180,7 @@ fn main() with IO {
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_body");
     assert!(
         success,
-        "native async try_ body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "native async try body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "Ok(42)");
 }
@@ -200,14 +200,14 @@ fn ok() -> Int with Async {
 }
 
 fn main() with IO {
-    print(run_async(fn() { try_(boom) }))
-    print(run_async(fn() { try_(ok) }))
+    print(run_async(fn() { try(boom) }))
+    print(run_async(fn() { try(ok) }))
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_panic_reuse");
     assert!(
         success,
-        "native async try_ panic must be caught and worker reused:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "native async try panic must be caught and worker reused:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "Err(Panicked(\"boom\"))\nOk(7)");
 }
@@ -227,7 +227,7 @@ fn slow() -> Int with Async {
 }
 
 fn body() with Async {
-    try_(fn() { both(boom, slow) })
+    try(fn() { both(boom, slow) })
 }
 
 fn main() with IO {
@@ -237,7 +237,7 @@ fn main() with IO {
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_both_panic");
     assert!(
         success,
-        "native async try_ must catch child panic from both:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "native async try must catch child panic from both:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert_eq!(stdout.trim(), "Err(Panicked(\"boom\"))");
 }

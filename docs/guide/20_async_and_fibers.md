@@ -112,7 +112,7 @@ When you read library signatures you'll see `with Async | e`:
 public fn try<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e
 ```
 
-`e` is an **effect row variable**. It means: "whatever extra effects the caller's body has, those flow through." If you call `try_(body)` where `body` is `with Async, IO`, then `e = IO` and the whole thing is `with Async, IO`. If `body` is just `with Async`, then `e = {}`.
+`e` is an **effect row variable**. It means: "whatever extra effects the caller's body has, those flow through." If you call `try(body)` where `body` is `with Async, IO`, then `e = IO` and the whole thing is `with Async, IO`. If `body` is just `with Async`, then `e = {}`.
 
 This is the same row-polymorphism you saw with `map` in Chapter 11 — async isn't a special case, it's the same machinery.
 
@@ -271,14 +271,14 @@ yield_now()     // yield once and resume immediately if nothing else is ready
 
 ---
 
-## 6. Failure: `try_` and `fail`
+## 6. Failure: `try` and `fail`
 
 Async code can fail in two ways:
 
 1. **Explicit failure** — `fail(error)` raises an `AsyncError` that propagates up.
 2. **Panics** — `panic("...")` from inside a fiber.
 
-`try_` catches both:
+`try` catches both:
 
 ```flux
 fn risky() -> Int with Async {
@@ -287,7 +287,7 @@ fn risky() -> Int with Async {
 }
 
 fn safe() -> Int with Async {
-    match try_(risky) {
+    match try(risky) {
         Ok(v)             -> v,
         Err(Canceled)     -> 0,
         Err(TimedOut)     -> -1,
@@ -296,9 +296,7 @@ fn safe() -> Int with Async {
 }
 ```
 
-`try_(body)` returns `Result<a, AsyncError>` — `Ok(value)` if the body completes, `Err(reason)` if it panicked or called `fail`. Pattern-match the `AsyncError` variants for fine-grained recovery, or use a helper like `result_or` for fallback values.
-
-> **Note on naming.** The trailing underscore in `try_` is a deliberate workaround: the bare name `try` is a C/C++ keyword and collides with the native backend's name mangling. Spell it `try_`.
+`try(body)` returns `Result<a, AsyncError>` — `Ok(value)` if the body completes, `Err(reason)` if it panicked or called `fail`. Pattern-match the `AsyncError` variants for fine-grained recovery, or use a helper like `result_or` for fallback values.
 
 ---
 
@@ -418,7 +416,7 @@ import Flow.Async exposing (..)
 import Flow.Http as Http
 
 fn fetch_text(url: String) -> Result<String, AsyncError> with Async {
-    try_(fn() { Http.get(url).body })
+    try(fn() { Http.get(url).body })
 }
 
 fn body() -> String with Async {

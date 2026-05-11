@@ -11,7 +11,7 @@
 // `cancel` is idempotent.
 //
 // Awaiting a cancelled task surfaces as a fiber failure — wrap the await
-// in `Async.try_` and check `result_is_ok` to recover.
+// in `Async.try` and check `result_is_ok` to recover.
 
 // parity-expected-stdout-begin
 // "task ok? false"
@@ -34,15 +34,15 @@ fn await_one() -> Int with Async {
     Task.cancel(t)
 
     // `Task.await` of a cancelled task panics inside the fiber. The
-    // outer `try_` (in `body` below) catches that.
+    // outer `try` (in `body` below) catches that.
     Task.await(t)
 }
 
 fn body() -> Bool with Async {
-    // `try_(await_one)` returns `Result<Int, AsyncError>`. Cancellation
+    // `try(await_one)` returns `Result<Int, AsyncError>`. Cancellation
     // surfaces as an `Err`, so `result_is_ok` is `false` — exactly the
     // signal we want for "the task didn't finish."
-    result_is_ok(try_(await_one))
+    result_is_ok(try(await_one))
 }
 
 fn main() with IO {
