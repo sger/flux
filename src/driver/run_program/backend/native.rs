@@ -456,10 +456,21 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let exec_start = Instant::now();
-        match std::process::Command::new(&out)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
+        let fiber_trace = std::env::var("FLUX_FIBER_TRACE").ok();
+        let mut native_cmd = std::process::Command::new(&out);
+        native_cmd.stdout(std::process::Stdio::inherit());
+        if fiber_trace.as_deref() == Some("1") {
+            // Inherit stderr so trace events written by the child binary appear
+            // directly on the terminal. Error output will also be visible but
+            // cannot be captured for render_runtime_error post-processing.
+            native_cmd.stderr(std::process::Stdio::inherit());
+        } else {
+            native_cmd.stderr(std::process::Stdio::piped());
+        }
+        if let Some(val) = fiber_trace {
+            native_cmd.env("FLUX_FIBER_TRACE", val);
+        }
+        match native_cmd.spawn()
         {
             Ok(child) => {
                 let output = match child.wait_with_output() {

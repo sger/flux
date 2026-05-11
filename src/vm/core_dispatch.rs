@@ -11,6 +11,7 @@ use std::time::{Instant, SystemTime};
 use crate::core::CorePrimOp;
 use crate::runtime::RuntimeContext;
 use crate::runtime::r#async::backend::AsyncBackend;
+use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
@@ -326,6 +327,7 @@ mod vm_fibers {
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
     use crate::runtime::r#async::context::WorkerId;
     use crate::runtime::r#async::fiber::{Fiber, FiberId, FiberState};
+    use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
 
@@ -1018,6 +1020,12 @@ mod vm_fibers {
         CANCELLED_IDS.with(|c| c.borrow().contains(&id))
     }
 
+    /// Return the current fiber id as a raw u64 (0 when outside run_async).
+    /// Used only for fiber-trace event attribution.
+    pub fn current_fiber_id() -> u64 {
+        CURRENT.with(|c| c.get().map(|id| id.0).unwrap_or(0))
+    }
+
     /// Report the worker count of the currently active `FiberScheduler`.
     /// Returns 0 when no scheduler is active (i.e., outside `run_async`).
     /// Exposed to user code via `Async.current_worker_count` and the
@@ -1135,6 +1143,7 @@ mod vm_fibers {
                             fiber.parked = Some(cont_rc);
                             fiber.state = FiberState::Suspended { request_id: req };
                             let home_worker = fiber.home_worker;
+                            fiber_trace::emit(FiberEvent::Suspend { fid: fid.0, worker: home_worker.0, request_id: req });
                             SCHED.with(|s| {
                                 s.borrow_mut()
                                     .as_mut()
@@ -1179,6 +1188,7 @@ mod vm_fibers {
                 }
 
                 let fiber_id = fiber.id;
+                let fiber_home_worker = fiber.home_worker.0;
                 // Resume value: if the wakeup was caused by a synthetic await
                 // (FiberBoth / FiberRace), the dispatch loop stored a value
                 // keyed by the request id when the children finished.
@@ -1236,6 +1246,7 @@ mod vm_fibers {
                     fiber.parked = Some(cont_rc);
                     fiber.state = FiberState::Suspended { request_id: req };
                     let home_worker = fiber.home_worker;
+                    fiber_trace::emit(FiberEvent::Suspend { fid: fiber_id.0, worker: home_worker.0, request_id: req });
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -1267,6 +1278,7 @@ mod vm_fibers {
                         if fiber_id == root_id {
                             root_result = Some(v.clone());
                         }
+                        fiber_trace::emit(FiberEvent::Complete { fid: fiber_id.0, worker: fiber_home_worker });
                         // Synthetic-await coordination: record the result and
                         // wake any parents whose await condition is now met.
                         // Set each resume value *before* calling
@@ -2016,6 +2028,10 @@ pub fn execute_core_primop(
             // user never awaits / joins / cancels, the dispatch-site drain
             // at run_async exit will cancel it. No-op outside run_async.
             vm_fibers::register_root_task(id);
+            fiber_trace::emit(FiberEvent::TaskSpawn {
+                tid: id,
+                parent_fid: vm_fibers::current_fiber_id(),
+            });
             Ok(Value::Integer(id))
         }
         TaskSpawnScoped => {
@@ -2042,6 +2058,7 @@ pub fn execute_core_primop(
             Value::Integer(id) => {
                 vm_fibers::deregister_root_task(*id);
                 ctx.vm_task_cancel(*id)?;
+                fiber_trace::emit(FiberEvent::TaskCancel { tid: *id });
                 Ok(Value::None)
             }
             other => Err(terr("task_cancel", "Int", other)),
@@ -2383,6 +2400,7 @@ pub fn execute_core_primop(
             };
             let child_id = vm_fibers::spawn_child_with_body(args[1].clone());
             vm_fibers::register_fiber_in_scope(scope_id, child_id);
+            fiber_trace::emit(FiberEvent::ScopeCreate { scope_id, fid: child_id.0 });
             Ok(Value::None)
         }
 
@@ -2396,6 +2414,7 @@ pub fn execute_core_primop(
                 },
                 other => return Err(terr("fiber_cancel_scope", "Scope", other)),
             };
+            fiber_trace::emit(FiberEvent::ScopeCancel { scope_id });
             let fiber_ids = vm_fibers::take_scope_fibers(scope_id);
             if !fiber_ids.is_empty() {
                 let backend = vm_async::backend()?;
@@ -2417,6 +2436,10 @@ pub fn execute_core_primop(
             Value::Integer(id) => {
                 // User has taken ownership — drop the root-task safety net.
                 vm_fibers::deregister_root_task(*id);
+                fiber_trace::emit(FiberEvent::TaskAwait {
+                    tid: *id,
+                    fid: vm_fibers::current_fiber_id(),
+                });
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
                     if vm_fibers::is_current_cancelled() {
                         vm_fibers::signal_cancel_error();
@@ -2450,10 +2473,20 @@ pub fn execute_core_primop(
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::channel::start_send(*id, &args[1], req.0)?;
+                    fiber_trace::emit(FiberEvent::ChanSend {
+                        ch: *id,
+                        fid: vm_fibers::current_fiber_id(),
+                        backpressure: true,
+                    });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
                     super::channel::send(*id, &args[1])?;
+                    fiber_trace::emit(FiberEvent::ChanSend {
+                        ch: *id,
+                        fid: vm_fibers::current_fiber_id(),
+                        backpressure: false,
+                    });
                     Ok(Value::None)
                 }
             }
@@ -2469,10 +2502,21 @@ pub fn execute_core_primop(
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::channel::start_recv(*id, req.0)?;
+                    fiber_trace::emit(FiberEvent::ChanRecv {
+                        ch: *id,
+                        fid: vm_fibers::current_fiber_id(),
+                        was_empty: true,
+                    });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
-                    super::channel::recv(*id)
+                    let result = super::channel::recv(*id);
+                    fiber_trace::emit(FiberEvent::ChanRecv {
+                        ch: *id,
+                        fid: vm_fibers::current_fiber_id(),
+                        was_empty: false,
+                    });
+                    result
                 }
             }
             other => Err(terr("chan_recv", "Int", other)),
@@ -2488,6 +2532,7 @@ pub fn execute_core_primop(
         ChanClose => match &args[0] {
             Value::Integer(id) => {
                 super::channel::close(*id)?;
+                fiber_trace::emit(FiberEvent::ChanClose { ch: *id });
                 Ok(Value::None)
             }
             other => Err(terr("chan_close", "Int", other)),
