@@ -344,6 +344,12 @@ mod vm_fibers {
         // the fiber suspended or finished.  Stores (request_id, captured cont
         // as a Value::Continuation).
         static PENDING_PARK: RefCell<Option<(u64, Value)>> = const { RefCell::new(None) };
+        // Cooperative yield signalled by FiberYieldNow (Proposal 0174 slice
+        // 2-vi).  Unlike PENDING_PARK there is no backend request: the
+        // dispatch loop reads-and-clears this, re-enqueues the fiber at the
+        // tail of its run-queue, and resumes it with `Unit`.  Stores the
+        // captured continuation as a Value::Continuation.
+        static PENDING_YIELD: RefCell<Option<Value>> = const { RefCell::new(None) };
         // Root fiber id for the current FiberRunAsync boundary; the dispatch
         // loop uses this to recognise root-fiber completion and propagate the
         // result.  None when no run_async is active.
@@ -711,6 +717,18 @@ mod vm_fibers {
 
     pub fn take_park() -> Option<(u64, Value)> {
         PENDING_PARK.with(|p| p.borrow_mut().take())
+    }
+
+    /// FiberYieldNow signals that the current fiber has captured its
+    /// continuation and wants to be rescheduled behind any other ready
+    /// fibers (Proposal 0174 slice 2-vi).  The caller has already verified
+    /// the fiber is not cancelled (yield_now raises before reaching here).
+    pub fn signal_yield(cont: Value) {
+        PENDING_YIELD.with(|p| *p.borrow_mut() = Some(cont));
+    }
+
+    pub fn take_yield() -> Option<Value> {
+        PENDING_YIELD.with(|p| p.borrow_mut().take())
     }
 
     /// Mark `id` as the root fiber for the current run_async boundary, and
@@ -1268,6 +1286,35 @@ mod vm_fibers {
                     }
                     // The Err that surfaced was the park-unwind signal, not
                     // a real error; ignore it.
+                    let _ = outcome;
+                    continue;
+                }
+
+                // Did the fiber yield during this tick?  FiberYieldNow
+                // captures its continuation, sets PENDING_YIELD, and returns
+                // Err with no backend request.  Re-enqueue at the tail of the
+                // run-queue so any other ready fibers run first, then resume
+                // this one with Unit (last_completion_req stays None →
+                // resume_outcome defaults to Value::None).
+                if let Some(cont_val) = take_yield() {
+                    let cont_rc = match cont_val {
+                        Value::Continuation(rc) => rc,
+                        _ => {
+                            return Err(
+                                "dispatch_loop: PENDING_YIELD contained non-Continuation value"
+                                    .into(),
+                            );
+                        }
+                    };
+                    fiber.parked = Some(cont_rc);
+                    fiber.state = FiberState::Ready;
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .spawn_existing(fiber);
+                    });
+                    // The Err that surfaced was the yield-unwind signal.
                     let _ = outcome;
                     continue;
                 }
@@ -2151,14 +2198,26 @@ pub fn execute_core_primop(
             result
         }
 
-        // yield_now: cooperative yield point — and automatic cancel checkpoint.
-        // On the non-cancelled path this is a no-op (no real park on the VM).
+        // yield_now: cooperative reschedule (proposal 0174 slice 2-vi) — and
+        // automatic cancel checkpoint. If the enclosing scope is cancelled,
+        // raise here (a cancelled fiber never reaches `signal_yield`). Inside
+        // a FiberRunAsync boundary, capture the continuation, hand it to the
+        // dispatch loop via PENDING_YIELD, and bail out with the park signal;
+        // the loop re-enqueues this fiber at the tail of its run-queue and
+        // resumes it with Unit. Outside a boundary (`main() with Async` host
+        // handler) there is nothing to reschedule against — harmless no-op.
         FiberYieldNow => {
             if vm_fibers::is_current_cancelled() {
                 vm_fibers::signal_cancel_error();
                 return Err("__fiber_error__".to_string());
             }
-            Ok(Value::None)
+            if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+                let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                vm_fibers::signal_yield(cont);
+                Err("__fiber_park__".to_string())
+            } else {
+                Ok(Value::None)
+            }
         }
 
         // fiber_check_cancelled: returns true iff the current fiber's

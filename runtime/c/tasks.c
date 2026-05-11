@@ -793,8 +793,17 @@ int64_t flux_fiber_run_async(int64_t closure) {
 }
 
 int64_t flux_fiber_yield_now(void) {
-    /* No-op on the native sequential path. */
-    return FLUX_NONE;
+    /* Cooperative reschedule (proposal 0174 slice 2-vi): mint a synthetic
+     * scheduler request and suspend on it. The Rust scheduler self-wakes the
+     * fiber immediately, re-enqueueing it at the tail of its home worker's
+     * run-queue so other ready fibers make progress first. Outside an active
+     * run_async scheduler there is nothing to reschedule against, so
+     * flux_async_yield_request returns 0 and this is a no-op. */
+    uint64_t request_id = flux_async_yield_request();
+    if (request_id == 0) {
+        return FLUX_NONE;
+    }
+    return flux_async_suspend_request(request_id);
 }
 
 int64_t flux_fiber_sleep(int64_t ms) {

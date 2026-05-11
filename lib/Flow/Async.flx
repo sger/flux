@@ -2,9 +2,10 @@
 //
 // All public functions that carry `with Async` are backed by fiber primops
 // (163–165 in CorePrimOp). On the VM path the primops give sequentially-
-// equivalent semantics: run_async calls the action synchronously, yield_now
-// is a no-op, sleep blocks the OS thread. Real M:N fiber switching on the
-// native backend lands in proposal 0174 Phase 2.
+// equivalent semantics: run_async calls the action synchronously, sleep
+// suspends via the mio reactor. `yield_now` performs a real cooperative
+// reschedule on both backends (proposal 0174 slice 2-vi): the calling fiber
+// moves to the tail of its run-queue so other ready fibers run first.
 //
 // The `Async` effect alias (`<Suspend | Fork | GetContext | AsyncFail>`) is
 // compiler-seeded in `src/compiler/mod.rs` and declared in `lib/Flow/Effects.flx`.
@@ -74,7 +75,9 @@ module Flow.Async {
     /// for that knob".
     intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async | e) -> a = primop FiberRunAsyncWith
 
-    /// Cooperative yield. VM: no-op. Native: reschedules current fiber.
+    /// Cooperative reschedule: move the current fiber to the tail of its
+    /// run-queue. Real on both the VM and native backends; a no-op only
+    /// outside a `run_async` scheduler. Also a cancellation checkpoint.
     intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
 
     /// Phase 2 slice 2-iv: poll whether the current fiber's enclosing
@@ -373,9 +376,11 @@ module Flow.Async {
 
     // ── Scheduling primitives ─────────────────────────────────────────
 
-    /// Yield the current fiber to the scheduler.
-    ///
-    /// VM: no-op.
+    /// Yield the current fiber to the scheduler: it is re-enqueued at the
+    /// tail of its run-queue, so any other ready fibers make progress before
+    /// it resumes. Real on both backends; a no-op only when called outside a
+    /// `run_async` scheduler. A tight `loop { yield_now() }` still spins —
+    /// cooperative scheduling has no preemption.
     public fn yield_now() -> Unit with Async {
         fiber_yield_now_prim()
     }
