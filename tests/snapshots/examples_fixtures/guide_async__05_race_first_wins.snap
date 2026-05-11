@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/guide_async/05_race_first_wins.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>
