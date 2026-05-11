@@ -1,7 +1,8 @@
 // parity: vm, llvm
 // expect: success
-// bug: yield_now must be a no-op on the VM sequential path and must not
-//      interfere with surrounding computation.
+// bug: a lone yield_now() (no other ready fiber) must round-trip through the
+//      scheduler without disturbing the surrounding computation: the fiber is
+//      re-enqueued, immediately re-popped, and resumed with Unit.
 
 import Flow.Async exposing (..)
 

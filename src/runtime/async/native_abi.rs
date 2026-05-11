@@ -167,6 +167,11 @@ struct NativeRun {
     next_child_worker: usize,
     suspended: HashMap<u64, Fiber>,
     pending_wakes: HashMap<u64, FiberOutcome>,
+    /// Request ids minted for `yield_now()` (Proposal 0174 slice 2-vi). A
+    /// yield has no backend completion: `execute_fiber` self-wakes the fiber
+    /// immediately after `park`, re-enqueueing it at the tail of its home
+    /// worker's ready queue so other ready fibers make progress first.
+    yield_requests: HashSet<u64>,
     cancelled_requests: HashSet<u64>,
     fiber_request: HashMap<u64, u64>,
     awaits: AwaitCoordinator<u64, FiberOutcome, TryMeta>,
@@ -221,6 +226,7 @@ impl NativeRun {
             next_child_worker: if worker_count > 1 { 1 } else { 0 },
             suspended: HashMap::new(),
             pending_wakes: HashMap::new(),
+            yield_requests: HashSet::new(),
             cancelled_requests: HashSet::new(),
             fiber_request: HashMap::new(),
             awaits: AwaitCoordinator::new(),
@@ -931,7 +937,19 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
         previous_context.release(&cb);
         EffectSnapshot::reset_thread(&cb);
         let executed_work = fiber.work;
+        let is_yield = state.yield_requests.remove(&request);
         state.park(request, fiber, continuation);
+        if is_yield && state.suspended.contains_key(&request) {
+            // `yield_now()` has no backend completion: re-enqueue the fiber at
+            // the tail of its home worker's ready queue right away. Done while
+            // holding the state lock, before `notify_all()`, so the fiber is
+            // never observably stuck in `suspended` (which would keep
+            // `has_live_work()` true forever). The cancelled / pending-wake
+            // races are already absorbed by `park`, hence the `contains_key`
+            // guard before `wake`.
+            state.wake(request, FiberOutcome::Value(FLUX_NONE));
+            debug_assert!(!state.suspended.contains_key(&request));
+        }
         state.worker_finished();
         drop(state);
         release_executed_work(executed_work);
@@ -1577,6 +1595,21 @@ pub extern "C" fn flux_async_task_await_request() -> u64 {
     } else {
         0
     }
+}
+
+/// Allocate a scheduler request for `Async.yield_now()` (Proposal 0174 slice
+/// 2-vi). The request is registered in `yield_requests` so `execute_fiber`
+/// self-wakes the fiber the moment it parks — re-enqueueing it at the tail of
+/// its home worker's ready queue. Returns 0 outside an active `run_async`
+/// boundary so the C fiber shim treats `yield_now()` as a no-op there.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_yield_request() -> u64 {
+    with_run(|run| {
+        let req = next_request_id();
+        run.yield_requests.insert(req);
+        req
+    })
+    .unwrap_or(0)
 }
 
 /// Publish a native task completion into the currently active fiber scheduler.
