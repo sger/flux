@@ -74,6 +74,6 @@ module Flow.Assert {
 
     // Non-async exception boundary: call f(), return ("ok", value) on success
     // or ("error", message) on panic. Not for async code — use Async.try there.
-    public intrinsic fn try_catch<a>(f: (() -> a with | e)) -> (String, String) = primop __try_legacy
+    public intrinsic fn try_catch<a>(f: (() -> a with | e)) -> (String, String) = primop try_catch_prim
 
 }
