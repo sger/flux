@@ -95,7 +95,9 @@ static flux_atomic_i64 next_channel_id = 1;
 
 /* One-shot table init. POSIX used pthread_once; portable replacement is an
  * Interlocked compare-exchange flag with a ready flag. */
+#if defined(_WIN32) || defined(_MSC_VER)
 static volatile LONG64 channels_init_state = 0; /* 0 = uninit, 1 = initing, 2 = ready */
+#endif
 
 static void channels_do_init(void) {
     for (int i = 0; i < FLUX_CHANNEL_TABLE_MAX; i++) {

@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use super::backend::RequestId;
 use super::context::WorkerId;
 use super::fiber::{Fiber, FiberId, FiberQueue, FiberState};
+use super::fiber_trace::{self, FiberEvent};
 
 // ── WorkerState ───────────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ impl FiberScheduler {
             self.next_ready_worker = worker_idx;
         }
         self.workers[worker_idx].ready.push(fiber);
+        fiber_trace::emit(FiberEvent::Spawn { fid: id.0, worker: home_worker.0 });
         id
     }
 
@@ -143,6 +145,8 @@ impl FiberScheduler {
     /// Moves the fiber into the suspended map keyed by `request_id` so that
     /// when the backend delivers its completion we can route the wakeup.
     pub fn suspend(&mut self, mut fiber: Fiber, request_id: RequestId) {
+        let worker = fiber.home_worker.0;
+        let fid = fiber.id.0;
         fiber.state = FiberState::Suspended {
             request_id: request_id.0,
         };
@@ -150,6 +154,7 @@ impl FiberScheduler {
         self.workers[worker_idx]
             .suspended
             .insert(request_id.0, fiber);
+        fiber_trace::emit(FiberEvent::Suspend { fid, worker, request_id: request_id.0 });
     }
 
     /// Deliver a backend completion: move the matching fiber back to ready.
@@ -159,6 +164,7 @@ impl FiberScheduler {
     pub fn complete(&mut self, worker: WorkerId, request_id: RequestId) -> bool {
         let idx = worker.0 as usize;
         if let Some(mut fiber) = self.workers[idx].suspended.remove(&request_id.0) {
+            let fid = fiber.id.0;
             fiber.state = FiberState::Ready;
             // Record which request woke us so the dispatch loop can look
             // up the synthetic resume value (proposal 0174 Phase 1b-vi-b₂.2).
@@ -167,6 +173,7 @@ impl FiberScheduler {
                 self.next_ready_worker = idx;
             }
             self.workers[idx].ready.push(fiber);
+            fiber_trace::emit(FiberEvent::Resume { fid, worker: idx as u32, request_id: request_id.0 });
             true
         } else {
             false
@@ -213,12 +220,14 @@ impl FiberScheduler {
                 .collect();
             for req in to_cancel {
                 if let Some(mut fiber) = worker.suspended.remove(&req) {
+                    let fid = fiber.id.0;
                     fiber.state = FiberState::Cancelled;
                     if ready_was_empty {
                         self.next_ready_worker = worker_idx;
                         ready_was_empty = false;
                     }
                     worker.ready.push(fiber);
+                    fiber_trace::emit(FiberEvent::Cancel { fid, worker: worker_idx as u32 });
                 }
             }
         }

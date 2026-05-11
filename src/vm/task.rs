@@ -6,6 +6,7 @@ use std::sync::{Mutex, OnceLock, mpsc};
 use crate::bytecode::bytecode::Bytecode;
 use crate::bytecode::debug_info::FunctionDebugInfo;
 use crate::bytecode::op_code::Instructions;
+use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::r#async::task_scheduler::{TaskHandle, TaskJoinError, TaskScheduler};
 use crate::runtime::{
     closure::Closure,
@@ -203,6 +204,7 @@ pub(super) fn start_await(id: i64, request_id: u64) -> Result<(), String> {
                         Ok(result) => result,
                         Err(err) => Err(join_error(err)),
                     };
+                    fiber_trace::emit(FiberEvent::TaskDone { tid: id });
                     let _ = tx.send((request_id, result));
                 })
                 .map_err(|e| format!("failed to spawn VM task await waiter: {e}"))?;

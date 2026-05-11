@@ -17,6 +17,7 @@ use std::time::Duration;
 use super::await_coordinator::{AwaitCoordinator, AwaitEvent};
 use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
 use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
+use super::fiber_trace::{self, FiberEvent};
 
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
 static CALLBACKS: OnceLock<FluxAsyncCallbacks> = OnceLock::new();
@@ -197,6 +198,7 @@ struct RunShared {
 impl NativeRun {
     fn new(root_closure: i64, worker_count: usize) -> Self {
         let root = next_fiber_id();
+        fiber_trace::emit(FiberEvent::Spawn { fid: root, worker: 0 });
         let worker_count = worker_count.max(1);
         let mut ready = (0..worker_count)
             .map(|_| VecDeque::new())
@@ -359,6 +361,7 @@ impl NativeRun {
                 .unwrap_or_else(EffectSnapshot::null),
             stealable,
         });
+        fiber_trace::emit(FiberEvent::Spawn { fid: id, worker: home_worker as u32 });
         id
     }
 
@@ -409,14 +412,16 @@ impl NativeRun {
                     self.push_ready(fiber);
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(fiber.id, FiberOutcome::Error(err));
+                    self.complete_fiber(fiber.id, FiberOutcome::Error(err), fiber.home_worker as u32);
                 }
             }
             return;
         }
         self.fiber_request.insert(fiber.id, req);
         let fiber_id = fiber.id;
+        let home_worker = fiber.home_worker;
         self.suspended.insert(req, fiber);
+        fiber_trace::emit(FiberEvent::Suspend { fid: fiber_id, worker: home_worker as u32, request_id: req });
 
         let ready = self.ready_fiber_ids();
         let events = self
@@ -430,6 +435,7 @@ impl NativeRun {
             self.fiber_request.remove(&fiber.id);
             if self.is_cancelled(fiber.id) {
                 let fiber_id = fiber.id;
+                fiber_trace::emit(FiberEvent::Cancel { fid: fiber_id, worker: fiber.home_worker as u32 });
                 release_cancelled_fiber(fiber);
                 release_outcome(outcome);
                 self.forget_cancelled_fiber(fiber_id);
@@ -437,6 +443,8 @@ impl NativeRun {
             }
             match outcome {
                 FiberOutcome::Value(value) => {
+                    let fid = fiber.id;
+                    let worker = fiber.home_worker as u32;
                     if fiber.home_worker != current_worker() {
                         promote_value(value);
                     }
@@ -447,9 +455,10 @@ impl NativeRun {
                         };
                     }
                     self.push_ready(fiber);
+                    fiber_trace::emit(FiberEvent::Resume { fid, worker, request_id: req });
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(fiber.id, FiberOutcome::Error(err));
+                    self.complete_fiber(fiber.id, FiberOutcome::Error(err), fiber.home_worker as u32);
                 }
             }
         } else if self.cancelled_requests.remove(&req) {
@@ -462,12 +471,14 @@ impl NativeRun {
         }
     }
 
-    fn complete_fiber(&mut self, id: u64, outcome: FiberOutcome) {
+    fn complete_fiber(&mut self, id: u64, outcome: FiberOutcome, home_worker: u32) {
         if self.is_cancelled(id) {
+            fiber_trace::emit(FiberEvent::Cancel { fid: id, worker: home_worker });
             release_outcome(outcome);
             self.forget_cancelled_fiber(id);
             return;
         }
+        fiber_trace::emit(FiberEvent::Complete { fid: id, worker: home_worker });
 
         if id == self.root {
             self.root_result = Some(outcome);
@@ -943,7 +954,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
     if ok && fiber.id != state.root {
         promote_value(result);
     }
-    state.complete_fiber(fiber.id, outcome);
+    state.complete_fiber(fiber.id, outcome, fiber.home_worker as u32);
     state.worker_finished();
     drop(state);
     release_finished_fiber(fiber);
