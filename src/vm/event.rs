@@ -1,18 +1,21 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::runtime::{
-    RuntimeContext,
     value::{AdtFields, AdtValue, Value},
+    RuntimeContext,
 };
+
+use super::task::VmSendValue;
 
 #[derive(Clone)]
 enum VmEvent {
     Recv(i64),
     Send(i64, Value),
+    SendMove(i64, VmSendValue),
     After(Instant),
     Always(Value),
     Never,
@@ -76,6 +79,13 @@ pub(super) fn recv(ch: i64) -> i64 {
 
 pub(super) fn send(ch: i64, value: Value) -> i64 {
     insert(VmEvent::Send(ch, value))
+}
+
+pub(super) fn send_move(ch: i64, value: Value) -> Result<i64, String> {
+    Ok(insert(VmEvent::SendMove(
+        ch,
+        VmSendValue::try_transfer_from_value(value)?,
+    )))
 }
 
 pub(super) fn after(ms: i64) -> Result<i64, String> {
@@ -167,6 +177,8 @@ fn remove_tree(id: i64) {
             }
         }
         Some(VmEvent::Wrap(child, _)) => remove_tree(child),
+        // Leaf events, including SendMove, have no child IDs. Dropping the event
+        // releases any retained VmSendValue payload.
         _ => {}
     }
 }
@@ -174,7 +186,7 @@ fn remove_tree(id: i64) {
 fn is_ready(id: i64) -> Result<bool, String> {
     match get(id)? {
         VmEvent::Recv(ch) => super::channel::can_recv(ch),
-        VmEvent::Send(ch, _) => super::channel::can_send(ch),
+        VmEvent::Send(ch, _) | VmEvent::SendMove(ch, _) => super::channel::can_send(ch),
         VmEvent::After(deadline) => Ok(Instant::now() >= deadline),
         VmEvent::Always(_) => Ok(true),
         VmEvent::Never => Ok(false),
@@ -193,7 +205,9 @@ fn is_ready(id: i64) -> Result<bool, String> {
 fn register_wait(id: i64, request_id: u64) -> Result<(), String> {
     match get(id)? {
         VmEvent::Recv(ch) => super::channel::watch_recv(ch, request_id),
-        VmEvent::Send(ch, _) => super::channel::watch_send(ch, request_id),
+        VmEvent::Send(ch, _) | VmEvent::SendMove(ch, _) => {
+            super::channel::watch_send(ch, request_id)
+        }
         VmEvent::After(deadline) => {
             if Instant::now() >= deadline {
                 complete_wait(request_id);
@@ -234,6 +248,13 @@ fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<Value>, String> 
         }
         VmEvent::Send(ch, value) => {
             if super::channel::try_send(ch, &value)? || super::channel::is_closed(ch)? {
+                Ok(Some(Value::None))
+            } else {
+                Ok(None)
+            }
+        }
+        VmEvent::SendMove(ch, value) => {
+            if super::channel::try_send_value(ch, value)? || super::channel::is_closed(ch)? {
                 Ok(Some(Value::None))
             } else {
                 Ok(None)

@@ -7,6 +7,7 @@ module Flow.Event {
 
     intrinsic fn event_recv_id(id: Int) -> Int = primop EventRecv
     intrinsic fn event_send_id<a>(id: Int, value: a) -> Int = primop EventSend
+    intrinsic fn event_send_move_id<a>(id: Int, value: a) -> Int = primop EventSendMove
     intrinsic fn event_after_id(ms: Int) -> Int = primop EventAfter
     intrinsic fn event_always_id<a>(value: a) -> Int = primop EventAlways
     intrinsic fn event_never_id() -> Int = primop EventNever
@@ -28,6 +29,13 @@ module Flow.Event {
 
     public fn send<a: Sendable>(ch: Channel<a>, value: a) -> Event<Unit> {
         match ch { Channel(id) -> Event(event_send_id(id, value)) }
+    }
+
+    /// Build a send event by ownership transfer. Prefer this when `value` is
+    /// not aliased; the runtime attempts a zero-copy transfer and falls back
+    /// to a deep copy when the value is shared.
+    public fn send_move<a: Sendable>(ch: Channel<a>, value: a) -> Event<Unit> {
+        match ch { Channel(id) -> Event(event_send_move_id(id, value)) }
     }
 
     public fn after(ms: Int) -> Event<Unit> {

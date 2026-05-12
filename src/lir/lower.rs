@@ -4076,6 +4076,7 @@ impl<'a> FnLower<'a> {
             | CorePrimOp::FiberTry
             | CorePrimOp::FiberTimeout
             | CorePrimOp::ChanSend
+            | CorePrimOp::ChanSendMove
             | CorePrimOp::ChanRecv
             | CorePrimOp::EventWait
             | CorePrimOp::TcpConnect

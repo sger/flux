@@ -185,6 +185,7 @@ void flux_rc_promote(int64_t val);
  * using POSIX threads; Phase 1a semantics (thread-per-task, best-effort
  * cancel). Windows implementation is a follow-up. */
 int64_t flux_task_spawn(int64_t closure);
+int64_t flux_task_spawn_move(int64_t closure);
 int64_t flux_task_blocking_join(int64_t task);
 int64_t flux_task_cancel(int64_t task);
 
@@ -223,8 +224,10 @@ int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, in
 /* Flow.Channel<a> (bounded producer/consumer channels). */
 int64_t flux_chan_make(int64_t capacity);
 int64_t flux_chan_send(int64_t id, int64_t value);
+int64_t flux_chan_send_move(int64_t id, int64_t value);
 int64_t flux_chan_recv(int64_t id);
 int64_t flux_chan_try_send(int64_t id, int64_t value);
+int64_t flux_chan_try_send_move(int64_t id, int64_t value);
 int64_t flux_chan_try_recv(int64_t id);
 int64_t flux_chan_close(int64_t id);
 int64_t flux_chan_len(int64_t id);
@@ -236,6 +239,7 @@ void flux_chan_event_watch_recv(int64_t id, uint64_t request_id);
 void flux_chan_event_watch_send(int64_t id, uint64_t request_id);
 int64_t flux_event_recv(int64_t ch);
 int64_t flux_event_send(int64_t ch, int64_t value);
+int64_t flux_event_send_move(int64_t ch, int64_t value);
 int64_t flux_event_after(int64_t ms);
 int64_t flux_event_always(int64_t value);
 int64_t flux_event_never(void);
@@ -297,6 +301,7 @@ uint64_t flux_async_scope_new(void);
 int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
 int32_t  flux_async_cancel_scope(uint64_t scope_id);
 int64_t  flux_async_task_spawn_scoped(uint64_t scope_id, int64_t closure);
+int64_t  flux_async_task_spawn_scoped_move(uint64_t scope_id, int64_t closure);
 void     flux_async_register_root_task(int64_t task_id);
 void     flux_async_deregister_root_task(int64_t task_id);
 int32_t  flux_async_check_cancelled(void);
