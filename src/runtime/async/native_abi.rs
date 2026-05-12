@@ -119,6 +119,7 @@ pub struct FluxAsyncCallbacks {
     enter_worker_thread: unsafe extern "C" fn(),
     make_string: unsafe extern "C" fn(*const u8, usize) -> i64,
     task_spawn: unsafe extern "C" fn(i64) -> i64,
+    task_spawn_move: unsafe extern "C" fn(i64) -> i64,
     task_cancel: unsafe extern "C" fn(i64) -> i64,
     register_root_task: unsafe extern "C" fn(i64),
     deregister_root_task: unsafe extern "C" fn(i64),
@@ -1609,12 +1610,10 @@ pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_task_spawn_scoped_move(scope: u64, closure: i64) -> i64 {
-    let task_id = unsafe {
-        unsafe extern "C" {
-            fn flux_task_spawn_move(closure: i64) -> i64;
-        }
-        flux_task_spawn_move(closure)
+    let Some(cb) = callbacks() else {
+        return -1;
     };
+    let task_id = unsafe { (cb.task_spawn_move)(closure) };
     if task_id <= 0 {
         return task_id;
     }

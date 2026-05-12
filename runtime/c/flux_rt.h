@@ -276,6 +276,7 @@ typedef struct FluxAsyncCallbacks {
     void (*enter_worker_thread)(void);
     int64_t (*make_string)(const uint8_t *data, uintptr_t len);
     int64_t (*task_spawn)(int64_t closure);
+    int64_t (*task_spawn_move)(int64_t closure);
     int64_t (*task_cancel)(int64_t task_id);
     void    (*register_root_task)(int64_t task_id);
     void    (*deregister_root_task)(int64_t task_id);
