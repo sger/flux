@@ -377,6 +377,26 @@ fn body() -> Int with Async {
 
 A channel decouples the producer and consumer fiber — they can run at different rates, and the channel buffers in between. Bounded channels apply backpressure (the sender suspends when the buffer is full), unbounded channels never block on send. Pick bounded for production; unbounded is convenient for tests.
 
+### Selecting across events
+
+`Flow.Event` and `select` let one fiber wait for the first ready channel or timer arm:
+
+```flux
+import Flow.Event as Event
+
+fn wait_one(ch) -> String with Async {
+    select {
+        recv ch as value -> match value {
+            Some(n) -> "received " + to_string(n),
+            None -> "closed"
+        },
+        after 500 -> "timeout"
+    }
+}
+```
+
+`select` parks the fiber on readiness notifications and repolls when it wakes. The notification is only a hint: another fiber may win the race first, so the implementation can wait again. A committed `Event.sync` consumes the whole event tree; build a fresh event before syncing again, and do not share one sub-event across two choices after either choice has committed. `Event.guard` currently evaluates its function while constructing the event, not at sync-time. `Event.with_nack` exists as a placeholder for CML-style negative acknowledgement; loser notification is not implemented yet.
+
 ---
 
 ## 9. Tasks — Real OS Threads

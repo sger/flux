@@ -230,6 +230,10 @@ int64_t flux_chan_close(int64_t id);
 int64_t flux_chan_len(int64_t id);
 int64_t flux_chan_cap(int64_t id);
 int64_t flux_chan_is_closed(int64_t id);
+int32_t flux_chan_event_can_recv(int64_t id);
+int32_t flux_chan_event_can_send(int64_t id);
+void flux_chan_event_watch_recv(int64_t id, uint64_t request_id);
+void flux_chan_event_watch_send(int64_t id, uint64_t request_id);
 int64_t flux_event_recv(int64_t ch);
 int64_t flux_event_send(int64_t ch, int64_t value);
 int64_t flux_event_after(int64_t ms);
@@ -239,6 +243,9 @@ int64_t flux_event_choose(int64_t ids);
 int64_t flux_event_wrap(int64_t id, int64_t closure);
 int64_t flux_event_sync(int64_t id);
 int64_t flux_event_poll(int32_t ready_tag, int32_t pending_tag, int64_t id);
+int64_t flux_event_wait(int64_t id);
+void flux_event_complete_wait(uint64_t request_id);
+int flux_event_wait_is_active(uint64_t request_id);
 
 /* Native async bridge (proposal 0174 Phase 1b-vi-d). */
 typedef struct FluxAsyncCallbacks {

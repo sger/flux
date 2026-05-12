@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "sent"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn body() -> String with Async {
+    let ch = Channel.make(1)
+    select {
+        send ch 7 -> "sent",
+        after 100 -> "timeout"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

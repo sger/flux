@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "timer"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Event as Event
+
+fn body() -> String with Async {
+    select {
+        after 10 -> "timer",
+        after 500 -> "timeout"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

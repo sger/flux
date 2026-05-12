@@ -4202,7 +4202,9 @@ impl Compiler {
         use crate::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
@@ -6497,12 +6499,34 @@ impl Compiler {
         F: FnOnce(&mut Self) -> R,
     {
         self.function_param_counts.push(num_params);
-        self.function_effects.push(
-            effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect(),
-        );
+        let mut normalized_effects = Vec::new();
+        for effect in effects {
+            match effect {
+                EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => {
+                    if let Some(current) = self.current_function_effects() {
+                        normalized_effects.extend(current.iter().copied());
+                    }
+                    normalized_effects.extend(self.handled_effects.iter().copied());
+                }
+                EffectExpr::RowVar { name, .. }
+                    if self.sym(*name)
+                        == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                {
+                    let enclosing = self
+                        .function_effects
+                        .iter()
+                        .rev()
+                        .nth(1)
+                        .or_else(|| self.function_effects.last());
+                    if let Some(effects) = enclosing {
+                        normalized_effects.extend(effects.iter().copied());
+                    }
+                    normalized_effects.extend(self.handled_effects.iter().copied());
+                }
+                _ => normalized_effects.extend(effect.normalized_names()),
+            }
+        }
+        self.function_effects.push(normalized_effects);
         self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
         let result = f(self);
@@ -6511,6 +6535,38 @@ impl Compiler {
         self.function_effects.pop();
         self.function_param_counts.pop();
         result
+    }
+
+    pub(super) fn effect_row_from_function_effects(
+        &self,
+        effects: &[EffectExpr],
+    ) -> effect_rows::EffectRow {
+        let mut row = effect_rows::EffectRow::default();
+        for effect in effects {
+            match effect {
+                EffectExpr::RowVar { name, .. }
+                    if self.sym(*name)
+                        == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                {
+                    let enclosing = self
+                        .function_effects
+                        .iter()
+                        .rev()
+                        .nth(1)
+                        .or_else(|| self.function_effects.last());
+                    if let Some(effects) = enclosing {
+                        row.atoms.extend(effects.iter().copied());
+                    }
+                    row.atoms.extend(self.handled_effects.iter().copied());
+                }
+                _ => {
+                    let piece = effect_rows::EffectRow::from_effect_expr(effect);
+                    row.atoms.extend(piece.atoms);
+                    row.vars.extend(piece.vars);
+                }
+            }
+        }
+        row
     }
 
     pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {

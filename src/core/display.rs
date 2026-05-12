@@ -623,6 +623,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::EventWrap => out.push_str("EventWrap"),
         CorePrimOp::EventSync => out.push_str("EventSync"),
         CorePrimOp::EventPoll => out.push_str("EventPoll"),
+        CorePrimOp::EventWait => out.push_str("EventWait"),
         CorePrimOp::HttpServeConfig => out.push_str("HttpServeConfig"),
         CorePrimOp::HttpShutdown => out.push_str("HttpShutdown"),
         CorePrimOp::HttpShutdownNow => out.push_str("HttpShutdownNow"),

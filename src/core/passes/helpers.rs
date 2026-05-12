@@ -629,8 +629,9 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::EventNever
         | CorePrimOp::EventChoose
         | CorePrimOp::EventWrap
-        | CorePrimOp::EventSync
         | CorePrimOp::EventPoll
+        | CorePrimOp::EventSync
+        | CorePrimOp::EventWait
         | CorePrimOp::HttpServeConfig
         | CorePrimOp::HttpShutdown
         | CorePrimOp::HttpShutdownNow

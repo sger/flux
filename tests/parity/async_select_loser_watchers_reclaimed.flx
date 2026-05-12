@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 100
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn loop(n: Int, ch: Channel<Int>, acc: Int) -> Int with Async {
+    if n == 0 {
+        acc
+    } else {
+        let value = select {
+            recv ch as _ -> 1000000,
+            after 1 -> 1
+        }
+        loop(n - 1, ch, acc + value)
+    }
+}
+
+fn body() -> Int with Async {
+    let ch = Channel.make(0)
+    loop(100, ch, 0)
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}
