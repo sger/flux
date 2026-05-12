@@ -11,6 +11,9 @@
 //!      a `Channel<Int>` without deadlock.
 //!   4. Single-worker parity — `run_async_with_workers(1, ...)` still works
 //!      (exercises the unchanged single-threaded path).
+//!   5. Four-worker race returns the fast branch.
+//!   6. Load-aware spawn placement (least-loaded queue) and the
+//!      `FLUX_WORK_STEALING=0` round-robin fallback both produce correct output.
 
 use std::path::Path;
 use std::process::Command;
@@ -24,6 +27,14 @@ fn workspace_root() -> &'static Path {
 }
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
+    run_source_with_env(source, tag, &[])
+}
+
+fn run_source_with_env(
+    source: &str,
+    tag: &str,
+    env: &[(&str, &str)],
+) -> (String, String, bool, Duration) {
     let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
         "flux-vm-multiworker-{}-{}-{}",
@@ -35,12 +46,14 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     let path = dir.join("vm_fiber_multiworker.flx");
     std::fs::write(&path, source).expect("write multiworker fixture");
 
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
+    cmd.current_dir(workspace_root())
+        .args([path.to_str().unwrap(), "--no-cache"]);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
     let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on multiworker fixture");
+    let output = cmd.output().expect("run flux on multiworker fixture");
     let elapsed = start.elapsed();
 
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
@@ -243,4 +256,84 @@ fn main() with IO {
         elapsed < Duration::from_millis(2200),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
+}
+
+// ── Test 6: load-aware spawn placement + FLUX_WORK_STEALING escape hatch ──
+//
+// The VM child-spawn path places fresh fibers on the least-loaded worker queue
+// by default, and falls back to round-robin when FLUX_WORK_STEALING=0. Placement
+// must never change program results — these run the same multi-worker fixture
+// under both policies and assert identical, correct output.
+
+const PLACEMENT_FIXTURE: &str = r#"
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async { 100 }
+fn right() -> Int with Async { 200 }
+
+fn pair() -> (Int, Int) with Async { both(left, right) }
+
+fn body() -> Int with Async {
+    let p1 = pair()
+    let p2 = pair()
+    let p3 = pair()
+    let p4 = pair()
+    p1.0 + p1.1 + p2.0 + p2.1 + p3.0 + p3.1 + p4.0 + p4.1
+}
+
+fn main() with IO {
+    print(run_async_with_workers(2, body))
+}
+"#;
+
+#[test]
+fn placement_default_least_loaded_is_correct() {
+    let (stdout, stderr, success, _) = run_source(PLACEMENT_FIXTURE, "placement_default");
+    assert!(
+        success,
+        "default least-loaded placement must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "1200");
+}
+
+#[test]
+fn placement_round_robin_fallback_is_correct() {
+    let (stdout, stderr, success, _) = run_source_with_env(
+        PLACEMENT_FIXTURE,
+        "placement_round_robin",
+        &[("FLUX_WORK_STEALING", "0")],
+    );
+    assert!(
+        success,
+        "FLUX_WORK_STEALING=0 round-robin fallback must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "1200");
+}
+
+#[test]
+fn single_worker_placement_round_robin_fallback_is_correct() {
+    // With one logical worker, least-loaded and round-robin coincide (everything
+    // lands on worker 0), so race FIFO tie-break is deterministic either way.
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn first() -> Int with Async { 10 }
+fn second() -> Int with Async { 20 }
+
+fn body() -> Int with Async { race(first, second) }
+
+fn main() with IO {
+    print(run_async_with_workers(1, body))
+}
+"#;
+    let (stdout, stderr, success, _) = run_source_with_env(
+        source,
+        "single_worker_round_robin",
+        &[("FLUX_WORK_STEALING", "0")],
+    );
+    assert!(
+        success,
+        "single-worker race under round-robin fallback must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "10");
 }

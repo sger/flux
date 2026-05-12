@@ -38,7 +38,13 @@ fn flow_prelude_source() -> String {
 fn run_module(module_source: &str, entry_source: &str) -> Value {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp_dir = workspace_root.join(format!("target/tmp/flow_prelude_tests/{id}"));
+    // Include the process id so concurrent `cargo test` invocations don't
+    // clobber each other's fixture files (the per-process counter alone is not
+    // unique across processes).
+    let temp_dir = workspace_root.join(format!(
+        "target/tmp/flow_prelude_tests/{}-{id}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Write module file.

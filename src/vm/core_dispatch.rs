@@ -659,13 +659,13 @@ mod vm_fibers {
     pub fn spawn_child() -> FiberId {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             return shared.sched.lock().unwrap_or_else(|e| e.into_inner())
-                .spawn_child_least_loaded();
+                .spawn_child();
         }
         SCHED.with(|s| {
             s.borrow_mut()
                 .as_mut()
                 .expect("FiberFork outside Async.run_async — scheduler missing")
-                .spawn_child_least_loaded()
+                .spawn_child()
         })
     }
 
@@ -801,13 +801,13 @@ mod vm_fibers {
     pub fn spawn_child_with_body(body: Value) -> FiberId {
         let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             shared.sched.lock().unwrap_or_else(|e| e.into_inner())
-                .spawn_child_least_loaded()
+                .spawn_child()
         } else {
             SCHED.with(|s| {
                 s.borrow_mut()
                     .as_mut()
                     .expect("spawn_child_with_body outside Async.run_async")
-                    .spawn_child_least_loaded()
+                    .spawn_child()
             })
         };
         attach_body_to_ready_fiber(id, body);

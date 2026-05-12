@@ -17,17 +17,38 @@
 //! ## Backend shape
 //!
 //! The scheduler owns logical worker queues on both backends. Native `run_async`
-//! runs those queues on OS worker threads and may allow work stealing. The VM
-//! uses the same logical queue model but drains it on the caller OS thread; VM
-//! fiber OS-worker dispatch is deferred until VM values and continuations have a
-//! thread-safety story.
+//! runs those queues on OS worker threads and may allow cross-worker stealing.
+//! The VM uses the same logical queue model — including load-aware spawn
+//! placement (see [`FiberScheduler::spawn_child`]) — but drains each worker's
+//! queue without stealing, since VM `Value`/continuations are not yet safe to
+//! migrate across worker execution contexts. Both backends honour
+//! `FLUX_WORK_STEALING=0` to fall back to plain round-robin spawn placement
+//! (and, on native, owner-only dispatch).
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use super::backend::RequestId;
 use super::context::WorkerId;
 use super::fiber::{Fiber, FiberId, FiberQueue, FiberState};
 use super::fiber_trace::{self, FiberEvent};
+
+/// Load-aware spawn placement (and, on native, cross-worker work stealing) is
+/// on by default. `FLUX_WORK_STEALING=0` (or `false`/`off`) restores the
+/// original round-robin spawn placement — a diagnostic escape hatch.
+///
+/// Mirrors `work_stealing_enabled` in `runtime/async/native_abi.rs`; kept in
+/// sync deliberately (the native copy lives behind `#[cfg(feature = "llvm")]`).
+/// The value is read from the environment once and cached for the process.
+pub fn work_stealing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("FLUX_WORK_STEALING").ok().as_deref(),
+            Some("0") | Some("false") | Some("FALSE") | Some("off") | Some("OFF")
+        )
+    })
+}
 
 // ── WorkerState ───────────────────────────────────────────────────────────────
 
@@ -105,6 +126,19 @@ impl FiberScheduler {
         let worker = WorkerId(self.next_child_worker as u32);
         self.next_child_worker = (self.next_child_worker + 1) % self.workers.len();
         worker
+    }
+
+    /// Spawn a child fiber, choosing its home worker by the active placement
+    /// policy: least-loaded queue when `FLUX_WORK_STEALING` is enabled (the
+    /// default), plain round-robin otherwise. This is the entry point VM/native
+    /// child-spawn sites should call; the two `spawn_child_*` variants below are
+    /// the explicit primitives (used directly by tests).
+    pub fn spawn_child(&mut self) -> FiberId {
+        if work_stealing_enabled() {
+            self.spawn_child_least_loaded()
+        } else {
+            self.spawn_child_round_robin()
+        }
     }
 
     /// Spawn a child fiber on the next logical worker.
@@ -537,5 +571,41 @@ mod tests {
         assert_eq!(sched.next_ready(w0()).unwrap().id, b);
         assert_eq!(sched.next_ready(w0()).unwrap().id, c);
         assert!(sched.next_ready(w0()).is_none());
+    }
+
+    #[test]
+    fn spawn_child_least_loaded_picks_shortest_queue() {
+        let mut sched = FiberScheduler::new(3);
+        // Worker queues: w0 = 2, w1 = 1, w2 = 0 ready fibers.
+        sched.spawn(WorkerId(0));
+        sched.spawn(WorkerId(0));
+        sched.spawn(WorkerId(1));
+
+        let id = sched.spawn_child_least_loaded();
+        assert_eq!(sched.ready_count(WorkerId(2)), 1);
+
+        let fiber = sched.next_ready(WorkerId(2)).unwrap();
+        assert_eq!(fiber.id, id);
+        assert_eq!(fiber.home_worker, WorkerId(2));
+    }
+
+    #[test]
+    fn spawn_child_least_loaded_breaks_ties_by_lowest_worker_id() {
+        let mut sched = FiberScheduler::new(3);
+        // All queues empty → tie → lowest worker id (0).
+        let id = sched.spawn_child_least_loaded();
+        let fiber = sched.next_ready(w0()).unwrap();
+        assert_eq!(fiber.id, id);
+        assert_eq!(fiber.home_worker, w0());
+    }
+
+    #[test]
+    fn spawn_child_least_loaded_single_worker_uses_worker_zero() {
+        let mut sched = FiberScheduler::new(1);
+        let id = sched.spawn_child_least_loaded();
+        let (worker, fiber) = sched.next_ready_any().unwrap();
+        assert_eq!(worker, w0());
+        assert_eq!(fiber.id, id);
+        assert_eq!(fiber.home_worker, w0());
     }
 }
