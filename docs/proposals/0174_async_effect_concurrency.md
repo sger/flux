@@ -2706,17 +2706,25 @@ Required design before implementation:
 
 - Add a VM value-promotion or ownership-transfer mode so values crossing VM
   fiber worker boundaries become thread-safe without penalizing the
-  single-thread hot path.
+  single-thread hot path. **Landed:** `ArcValue` / `promote_value` /
+  `demote_value` (Rc→Arc tree mirror, copied only at the worker boundary).
 - Make resumable VM fiber state `Send`, including continuations, operand stack
-  snapshots, call frames, and effect context.
+  snapshots, call frames, and effect context. **Landed:** `Fiber::promote` →
+  `ArcFiber` (Arc-backed body + parked `ArcContinuation` + `ArcEffectContext`)
+  and `ArcFiber::demote` back; gated by `FLUX_FIBER_MIGRATION` (default off).
 - Split per-fiber execution state from process/global interpreter state so an
-  OS worker can resume a fiber without sharing one mutable `Vm`.
+  OS worker can resume a fiber without sharing one mutable `Vm`. *(Phase 4's
+  `VM::new_for_worker` + per-worker dispatch loops cover this for the
+  multi-worker path.)*
 - Route backend completions into real VM OS-worker queues, preserving home
-  worker affinity or defining a safe migration policy.
+  worker affinity or defining a safe migration policy. *(Outstanding: backend
+  completions already route by `home_worker`; the remaining work is the
+  cross-worker **steal** path that promotes/demotes a stolen fiber.)*
 
-This is explicitly out of scope for the current async runtime. Until that
-design lands, `worker_count` on the VM means logical scheduler queues, not OS
-worker threads; use `Task.spawn` / `Task.await` for CPU-bound VM parallelism.
+The value/fiber `Send` groundwork is in place; the cross-worker steal wiring is
+the remaining piece. Until it lands, `worker_count` on the VM means logical
+scheduler queues, not OS worker threads, for fibers that carry a continuation;
+use `Task.spawn` / `Task.await` for CPU-bound VM parallelism.
 
 Estimated effort: 3–4 weeks. Does not block Phase 3 (VM is correct today,
 just single-threaded). Target: Phase 3/4 boundary.

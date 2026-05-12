@@ -14,6 +14,10 @@ use super::VM;
 const _OP_PERFORM_SIZE: usize = 3;
 
 impl VM {
+    /// Capture a single frame's continuation piece as a freshly allocated
+    /// `Value::Continuation`. Only the (effectively inert) `OpReturnCheck`
+    /// opcode still uses this; `capture_to_boundary` goes through the pooled,
+    /// `Rc`-free `capture_piece_pooled` instead.
     pub(super) fn capture_continuation_piece(
         &self,
         resume_slot: usize,
@@ -37,17 +41,41 @@ impl VM {
         })))
     }
 
+    /// Capture the current frame's continuation piece into a `Continuation`
+    /// shell pulled from the recycle pool (or a fresh one). No `Rc`/`RefCell`
+    /// allocation — the piece is a transient consumed by `compose_pieces`.
+    fn capture_piece_pooled(&mut self, resume_slot: usize, advance_ip: usize) -> Continuation {
+        let frame_index = self.frame_index;
+        let mut frame = self.frames[frame_index].clone();
+        frame.ip += advance_ip;
+        let entry_sp = frame.base_pointer;
+        let mut shell = self.cont_pool.pop().unwrap_or_default();
+        shell.frames.clear();
+        shell.frames.push(frame);
+        shell.stack.clear();
+        shell
+            .stack
+            .extend(self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref));
+        shell.sp = resume_slot;
+        shell.entry_sp = entry_sp;
+        shell.entry_frame_index = frame_index.saturating_sub(1);
+        shell.inner_handlers.clear();
+        shell.state_marker = None;
+        shell
+    }
+
     /// Capture a delimited continuation from the current frame back to the
     /// boundary defined by `entry_frame_index` / `entry_sp`. Used by both
     /// `OpPerform` (handler boundary) and `FiberSleep`/`FiberSuspend`
     /// (proposal 0174 Phase 1b-vi-b₂.1: `Async.run_async` boundary).
     ///
-    /// Mechanism mirrors the inline loop previously embedded in `OpPerform`:
-    /// snapshot the current frame's post-perform IP via
-    /// `capture_continuation_piece`, then unwind outer frames one-at-a-time,
-    /// capturing one piece per frame, and finally compose them via
-    /// `Continuation::compose`. The VM's stack pointer is reset to
-    /// `entry_sp` on success so the caller can push a fresh result.
+    /// Mechanism: snapshot the current frame's post-perform IP via
+    /// `capture_piece_pooled`, then unwind outer frames one-at-a-time,
+    /// capturing one (pooled, `Rc`-free) piece per frame into `cont_pieces`,
+    /// and finally compose them via `Continuation::compose_pieces` (single
+    /// `Rc::new` for the result, recycling spent shells). The VM's stack
+    /// pointer is reset to `entry_sp` on success so the caller can push a
+    /// fresh result.
     pub(crate) fn capture_to_boundary(
         &mut self,
         entry_frame_index: usize,
@@ -56,27 +84,28 @@ impl VM {
         inner_handlers: Vec<HandlerFrame>,
         state_marker: Option<u32>,
     ) -> Result<Value, String> {
-        self.context.yield_state.conts.clear();
-        self.context
-            .yield_state
-            .extend(self.capture_continuation_piece(self.sp, top_ip_advance));
+        self.cont_pieces.clear();
+        let sp = self.sp;
+        let piece = self.capture_piece_pooled(sp, top_ip_advance);
+        self.cont_pieces.push(piece);
         while self.frame_index > entry_frame_index {
             let return_slot = self.pop_frame_return_slot();
             self.reset_sp(return_slot)?;
             if self.frame_index > entry_frame_index {
-                self.context
-                    .yield_state
-                    .extend(self.capture_continuation_piece(self.sp, 0));
+                let sp = self.sp;
+                let piece = self.capture_piece_pooled(sp, 0);
+                self.cont_pieces.push(piece);
             }
         }
-        let cont_val = Continuation::compose(
-            &self.context.yield_state.conts,
+        let composed = Continuation::compose_pieces(
+            &mut self.cont_pieces,
             inner_handlers,
             state_marker,
+            &mut self.cont_pool,
         )?;
         self.reset_sp(entry_sp)?;
-        self.context.yield_state.conts.clear();
-        Ok(cont_val)
+        self.cont_pieces.clear();
+        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(composed))))
     }
 
     #[inline]
@@ -341,18 +370,21 @@ impl VM {
             _ => unreachable!("execute_resume called with non-Continuation callee"),
         };
 
-        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers, state_marker) = {
-            let cont = cont_rc.borrow();
-            (
-                cont.entry_frame_index,
-                cont.entry_sp,
-                cont.frames.clone(),
-                cont.stack.clone(),
-                cont.sp,
-                cont.inner_handlers.clone(),
-                cont.state_marker,
-            )
+        // Sole-owner fast path: move the `Continuation` out of its `Rc` and
+        // reuse its buffers. Only a multi-shot resume (the captured value is
+        // still aliased elsewhere) needs the deep clone. The emptied shell is
+        // recycled into `cont_pool` below.
+        let mut cont_shell = match Rc::try_unwrap(cont_rc) {
+            Ok(cell) => cell.into_inner(),
+            Err(rc) => rc.borrow().clone(),
         };
+        let entry_frame_index = cont_shell.entry_frame_index;
+        let entry_sp = cont_shell.entry_sp;
+        let captured_sp = cont_shell.sp;
+        let state_marker = cont_shell.state_marker;
+        let mut frames = std::mem::take(&mut cont_shell.frames);
+        let mut stack = std::mem::take(&mut cont_shell.stack);
+        let mut inner_handlers = std::mem::take(&mut cont_shell.inner_handlers);
 
         // Unwind all frames above the handler boundary.
         self.frame_index = entry_frame_index;
@@ -361,7 +393,7 @@ impl VM {
         self.reset_sp(entry_sp)?;
 
         // Restore inner handlers that were nested inside the captured region.
-        for h in inner_handlers {
+        for h in inner_handlers.drain(..) {
             self.handler_stack.push(h);
         }
 
@@ -384,7 +416,7 @@ impl VM {
         // Restore the captured stack slice.
         let stack_len = stack.len();
         self.ensure_stack_capacity(entry_sp + stack_len + 1)?;
-        for (i, v) in stack.into_iter().enumerate() {
+        for (i, v) in stack.drain(..).enumerate() {
             self.stack_set(entry_sp + i, v);
         }
 
@@ -394,8 +426,17 @@ impl VM {
         self.sp = captured_sp + 1;
 
         // Restore captured frames above the handler boundary.
-        for frame in frames {
+        for frame in frames.drain(..) {
             self.push_frame(frame);
+        }
+
+        // Recycle the now-empty continuation shell (capacities retained) for
+        // the next capture, so steady-state park/resume stays allocation-free.
+        cont_shell.frames = frames;
+        cont_shell.stack = stack;
+        cont_shell.inner_handlers = inner_handlers;
+        if self.cont_pool.len() < crate::runtime::continuation::CONT_POOL_CAP {
+            self.cont_pool.push(cont_shell);
         }
 
         if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller

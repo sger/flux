@@ -1,5 +1,11 @@
 use crate::runtime::{frame::Frame, handler_frame::HandlerFrame, value::Value};
 
+/// Upper bound on the per-VM free-list of recycled [`Continuation`] shells
+/// (see `VM::cont_pool`). Steady-state fiber park/resume cycles one shell back
+/// and forth through the pool; the cap stops a pathological burst of abandoned
+/// continuations from pinning unbounded capacity.
+pub const CONT_POOL_CAP: usize = 32;
+
 /// A captured delimited continuation.
 ///
 /// Created by `OpPerform` when a matching handler is found.
@@ -9,7 +15,7 @@ use crate::runtime::{frame::Frame, handler_frame::HandlerFrame, value::Value};
 /// - The call frames that were active between the `handle` entry and the `perform` site.
 /// - The value stack slice between the handler boundary and the `perform` site.
 /// - All nested handlers that were within that region.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Continuation {
     /// Cloned frames from `entry_frame_index + 1` up to (and including) the
     /// frame that executed `OpPerform`. These are restored verbatim on resume.
@@ -54,61 +60,104 @@ impl Continuation {
         if pieces.is_empty() {
             return Ok(Value::None);
         }
-
-        let mut continuations = Vec::new();
-
-        for piece in pieces.iter().rev() {
-            let cont = match piece {
-                Value::Continuation(rc) => rc.borrow().clone(),
+        let mut owned: Vec<Continuation> = Vec::with_capacity(pieces.len());
+        for piece in pieces {
+            match piece {
+                Value::Continuation(rc) => owned.push(rc.borrow().clone()),
                 other => {
                     return Err(format!(
                         "Continuation::compose expected Continuation piece, got {}",
                         other.type_name()
                     ));
                 }
-            };
-            continuations.push(cont);
-        }
-
-        let outermost = continuations
-            .first()
-            .expect("pieces.is_empty handled above");
-        let innermost_sp = continuations
-            .last()
-            .expect("pieces.is_empty handled above")
-            .sp;
-        if innermost_sp < outermost.entry_sp {
-            return Err("Continuation::compose found inverted stack span".to_string());
-        }
-
-        let mut composed_frames = Vec::new();
-        let mut composed_stack = vec![Value::Uninit; innermost_sp - outermost.entry_sp];
-        for cont in &continuations {
-            if cont.entry_sp < outermost.entry_sp {
-                return Err("Continuation::compose found piece before outer boundary".to_string());
-            }
-            let offset = cont.entry_sp - outermost.entry_sp;
-            let end = offset + cont.stack.len();
-            if end > composed_stack.len() || cont.sp > innermost_sp {
-                return Err("Continuation::compose found piece outside stack span".to_string());
-            }
-            composed_frames.extend(cont.frames.clone());
-            for (idx, value) in cont.stack.iter().cloned().enumerate() {
-                composed_stack[offset + idx] = value;
             }
         }
+        let mut scratch_pool = Vec::new();
+        let composed = Continuation::compose_pieces(
+            &mut owned,
+            inner_handlers,
+            state_marker,
+            &mut scratch_pool,
+        )?;
+        Ok(Value::Continuation(std::rc::Rc::new(std::cell::RefCell::new(
+            composed,
+        ))))
+    }
 
-        Ok(Value::Continuation(std::rc::Rc::new(
-            std::cell::RefCell::new(Continuation {
-                frames: composed_frames,
-                stack: composed_stack,
-                sp: innermost_sp,
-                entry_sp: outermost.entry_sp,
-                entry_frame_index: outermost.entry_frame_index,
-                inner_handlers,
-                state_marker,
-            }),
-        )))
+    /// Compose continuation pieces — innermost-first, as accumulated during
+    /// yield unwinding — into a single resumable [`Continuation`], **consuming**
+    /// `pieces` (drained) and recycling spent piece shells into `pool`.
+    ///
+    /// Allocation-light path used by the fiber suspend hook and `OpPerform`:
+    /// a single-piece capture is returned by value with no copying; a
+    /// multi-piece capture splices the pieces' stack slices into one buffer
+    /// (drawn from `pool` when available). `pieces[0]` is the innermost
+    /// (perform/suspend-site) frame; `pieces[len-1]` is the outermost frame,
+    /// just inside the handler/`run_async` boundary.
+    pub fn compose_pieces(
+        pieces: &mut Vec<Continuation>,
+        inner_handlers: Vec<HandlerFrame>,
+        state_marker: Option<u32>,
+        pool: &mut Vec<Continuation>,
+    ) -> Result<Continuation, String> {
+        match pieces.len() {
+            0 => Err("Continuation::compose_pieces called with no pieces".to_string()),
+            1 => {
+                let mut c = pieces.pop().expect("len == 1");
+                c.inner_handlers = inner_handlers;
+                c.state_marker = state_marker;
+                Ok(c)
+            }
+            n => {
+                // pieces[0] = innermost, pieces[n-1] = outermost.
+                let outermost_entry_sp = pieces[n - 1].entry_sp;
+                let outermost_entry_frame_index = pieces[n - 1].entry_frame_index;
+                let innermost_sp = pieces[0].sp;
+                if innermost_sp < outermost_entry_sp {
+                    return Err(
+                        "Continuation::compose_pieces found inverted stack span".to_string()
+                    );
+                }
+                let span = innermost_sp - outermost_entry_sp;
+
+                let mut result = pool.pop().unwrap_or_default();
+                result.frames.clear();
+                result.stack.clear();
+                result.stack.resize(span, Value::Uninit);
+                result.sp = innermost_sp;
+                result.entry_sp = outermost_entry_sp;
+                result.entry_frame_index = outermost_entry_frame_index;
+                result.inner_handlers = inner_handlers;
+                result.state_marker = state_marker;
+
+                // Walk outermost-first so frames land deepest-first in `result.frames`.
+                for mut piece in pieces.drain(..).rev() {
+                    if piece.entry_sp < outermost_entry_sp {
+                        return Err(
+                            "Continuation::compose_pieces found piece before outer boundary"
+                                .to_string(),
+                        );
+                    }
+                    let offset = piece.entry_sp - outermost_entry_sp;
+                    let end = offset + piece.stack.len();
+                    if end > span || piece.sp > innermost_sp {
+                        return Err(
+                            "Continuation::compose_pieces found piece outside stack span"
+                                .to_string(),
+                        );
+                    }
+                    result.frames.append(&mut piece.frames);
+                    for (idx, value) in piece.stack.drain(..).enumerate() {
+                        result.stack[offset + idx] = value;
+                    }
+                    piece.inner_handlers.clear();
+                    if pool.len() < CONT_POOL_CAP {
+                        pool.push(piece);
+                    }
+                }
+                Ok(result)
+            }
+        }
     }
 }
 
@@ -178,5 +227,106 @@ mod tests {
         );
         assert_eq!(cont.stack[10], Value::Integer(1));
         assert_eq!(cont.stack[11], Value::Integer(2));
+    }
+
+    fn piece(
+        base_pointer: usize,
+        return_slot: usize,
+        entry_sp: usize,
+        sp: usize,
+        entry_frame_index: usize,
+        stack: Vec<Value>,
+    ) -> Continuation {
+        Continuation {
+            frames: vec![frame(base_pointer, return_slot)],
+            stack,
+            sp,
+            entry_sp,
+            entry_frame_index,
+            inner_handlers: vec![],
+            state_marker: None,
+        }
+    }
+
+    #[test]
+    fn compose_pieces_single_piece_moves_through_with_handlers_and_marker() {
+        let mut pieces = vec![piece(
+            5,
+            9,
+            5,
+            7,
+            2,
+            vec![Value::Integer(10), Value::Integer(20)],
+        )];
+        let mut pool = Vec::new();
+        let composed = Continuation::compose_pieces(&mut pieces, vec![], Some(7), &mut pool)
+            .expect("single-piece compose succeeds");
+        assert!(pieces.is_empty());
+        assert!(pool.is_empty(), "single-piece path recycles nothing");
+        assert_eq!(composed.entry_sp, 5);
+        assert_eq!(composed.sp, 7);
+        assert_eq!(composed.entry_frame_index, 2);
+        assert_eq!(composed.frames.len(), 1);
+        assert_eq!(composed.stack, vec![Value::Integer(10), Value::Integer(20)]);
+        assert_eq!(composed.state_marker, Some(7));
+    }
+
+    #[test]
+    fn compose_pieces_multi_splices_stack_and_recycles_shells() {
+        // innermost first, matching the order capture_to_boundary pushes.
+        let mut pieces = vec![
+            piece(20, 29, 20, 22, 1, vec![Value::Integer(1), Value::Integer(2)]),
+            piece(10, 19, 10, 19, 0, vec![Value::Integer(3)]),
+        ];
+        let mut pool = Vec::new();
+        let composed = Continuation::compose_pieces(&mut pieces, vec![], None, &mut pool)
+            .expect("multi-piece compose succeeds");
+        assert!(pieces.is_empty());
+        assert_eq!(pool.len(), 2, "both spent piece shells recycled");
+        assert!(
+            pool.iter()
+                .all(|c| c.frames.is_empty() && c.stack.is_empty()),
+            "recycled shells are emptied"
+        );
+        assert_eq!(composed.entry_sp, 10);
+        assert_eq!(composed.entry_frame_index, 0);
+        assert_eq!(composed.sp, 22);
+        assert_eq!(composed.frames.len(), 2);
+        assert_eq!(composed.stack.len(), 12);
+        assert_eq!(composed.stack[0], Value::Integer(3));
+        assert!(
+            composed.stack[1..10]
+                .iter()
+                .all(|v| matches!(v, Value::Uninit))
+        );
+        assert_eq!(composed.stack[10], Value::Integer(1));
+        assert_eq!(composed.stack[11], Value::Integer(2));
+    }
+
+    #[test]
+    fn compose_pieces_reuses_a_pooled_shell_for_the_result() {
+        // a fat shell with spare capacity, as if recycled from a prior resume
+        let mut fat = Continuation::default();
+        fat.stack.reserve(64);
+        fat.frames.reserve(8);
+        let pooled_stack_cap = fat.stack.capacity();
+        let mut pool: Vec<Continuation> = vec![fat];
+        let mut pieces = vec![
+            piece(4, 9, 4, 6, 1, vec![Value::Integer(7)]),
+            piece(0, 3, 0, 3, 0, vec![Value::Integer(8)]),
+        ];
+        let composed = Continuation::compose_pieces(&mut pieces, vec![], None, &mut pool)
+            .expect("compose succeeds");
+        assert!(
+            composed.stack.capacity() >= pooled_stack_cap,
+            "result reused the pooled buffer's capacity"
+        );
+    }
+
+    #[test]
+    fn compose_pieces_rejects_empty() {
+        let mut pieces: Vec<Continuation> = Vec::new();
+        let mut pool = Vec::new();
+        assert!(Continuation::compose_pieces(&mut pieces, vec![], None, &mut pool).is_err());
     }
 }

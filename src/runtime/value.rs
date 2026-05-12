@@ -1236,3 +1236,93 @@ fn demote_hamt_entry(entry: ArcHamtEntry) -> crate::runtime::hamt::HamtEntry {
         }
     }
 }
+
+// ── Arc mirror of the per-fiber EffectContext ─────────────────────────────
+//
+// A parked/yielded fiber carries an `EffectContext` (evidence vector + yield
+// bookkeeping + cancel scope). To hand that fiber to another OS worker the
+// context must become `Send`; `ArcEffectContext` is its `Arc`-backed mirror,
+// built by `promote_effect_context` and rebuilt by `demote_effect_context`
+// (proposal 0174 §"VM cross-worker fiber dispatch"). These live here so the
+// private `promote_*` / `demote_*` helpers above can be reused.
+
+use crate::runtime::r#async::context::{CancelScope, ContinuationToken, EffectContext, WorkerId};
+use crate::runtime::yield_state::{YieldState, Yielding};
+
+/// `Send` mirror of [`YieldState`] — the bits a parked fiber can carry.
+pub struct ArcYieldState {
+    pub yielding: Yielding,
+    pub marker: u32,
+    pub clause: Option<Arc<ArcHandlerArm>>,
+    pub op_arg: Option<ArcValue>,
+    pub conts: Vec<ArcValue>,
+    pub marker_counter: u32,
+}
+
+/// `Send` mirror of [`EffectContext`].
+pub struct ArcEffectContext {
+    pub yield_state: ArcYieldState,
+    pub evidence: Arc<Vec<ArcEvidence>>,
+    pub continuation: Option<ContinuationToken>,
+    pub cancel_scope: CancelScope,
+    pub home_worker: WorkerId,
+}
+
+// SAFETY: every field is `Send` — `Copy` scalars, or `Arc`-backed via
+// `ArcValue` / `ArcHandlerArm` / `ArcEvidence` (all of which use `Arc`, never
+// `Rc`). Mirrors the `unsafe impl Send for ArcValue` rationale above.
+unsafe impl Send for ArcEffectContext {}
+
+/// Promote a per-fiber [`EffectContext`] into its `Send` [`ArcEffectContext`]
+/// mirror. Deep-copies the evidence chain and any in-flight yield payload into
+/// `Arc`-backed structures. Errors only if a contained value fails to promote.
+pub fn promote_effect_context(cx: &EffectContext) -> Result<ArcEffectContext, String> {
+    Ok(ArcEffectContext {
+        yield_state: ArcYieldState {
+            yielding: cx.yield_state.yielding,
+            marker: cx.yield_state.marker,
+            clause: match &cx.yield_state.clause {
+                Some(arm) => Some(Arc::new(promote_handler_arm(arm)?)),
+                None => None,
+            },
+            op_arg: match &cx.yield_state.op_arg {
+                Some(v) => Some(promote_value(v)?),
+                None => None,
+            },
+            conts: cx
+                .yield_state
+                .conts
+                .iter()
+                .map(promote_value)
+                .collect::<Result<Vec<_>, _>>()?,
+            marker_counter: cx.yield_state.marker_counter,
+        },
+        evidence: promote_evv_entries(&cx.evidence)?,
+        continuation: cx.continuation,
+        cancel_scope: cx.cancel_scope,
+        home_worker: cx.home_worker,
+    })
+}
+
+/// Rebuild a thread-local [`EffectContext`] from its `Send` mirror — the
+/// inverse of [`promote_effect_context`], called on the worker that will run
+/// the fiber. Allocates fresh `Rc` wrappers from the `Arc` data.
+pub fn demote_effect_context(cx: ArcEffectContext) -> EffectContext {
+    EffectContext {
+        yield_state: YieldState {
+            yielding: cx.yield_state.yielding,
+            marker: cx.yield_state.marker,
+            clause: cx
+                .yield_state
+                .clause
+                .map(|a| Rc::new(demote_handler_arm((*a).clone()))),
+            op_arg: cx.yield_state.op_arg.map(demote_value),
+            conts: cx.yield_state.conts.into_iter().map(demote_value).collect(),
+            marker_counter: cx.yield_state.marker_counter,
+        },
+        evidence: demote_evv_entries(&cx.evidence),
+        continuation: cx.continuation,
+        cancel_scope: cx.cancel_scope,
+        home_worker: cx.home_worker,
+    }
+}
