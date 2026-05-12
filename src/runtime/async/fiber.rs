@@ -24,7 +24,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::runtime::r#async::context::{CancelScope, EffectContext, WorkerId};
 use crate::runtime::continuation::Continuation;
-use crate::runtime::value::Value;
+use crate::runtime::value::{
+    ArcEffectContext, ArcValue, Value, demote_effect_context, demote_value, promote_effect_context,
+    promote_value,
+};
 
 // ── FiberId ───────────────────────────────────────────────────────────────
 
@@ -101,13 +104,18 @@ pub struct Fiber {
     pub last_completion_req: Option<u64>,
 }
 
-// SAFETY: `Fiber` is moved across OS-thread boundaries only when transferred
-// between the scheduler (protected by `Arc<Mutex<FiberScheduler>>`) and the
-// fiber's home worker thread. The no-migration invariant enforces that
-// `fiber.parked` (an `Rc<RefCell<Continuation>>`) and `fiber.body` (a `Value`)
-// are *never accessed concurrently* — the home worker is the only thread that
-// ever reads or writes these fields. Sending a `Fiber` via the scheduler mutex
-// is not concurrent access; it is a sequential hand-off.
+// SAFETY: `Fiber` contains `Rc`/`RefCell` (in `parked`, `body`, and `context`),
+// so it is not auto-`Send`. It is nonetheless only ever *moved* across an
+// OS-thread boundary as a sequential hand-off between the scheduler (behind
+// `Arc<Mutex<FiberScheduler>>`) and exactly one worker thread at a time — never
+// shared, never accessed concurrently. While `FLUX_FIBER_MIGRATION` is off the
+// receiving worker is always the fiber's `home_worker`, so the inner `Rc`
+// graphs stay thread-local in practice; when migration is on, the cross-worker
+// hand-off goes through [`Fiber::promote`] / [`ArcFiber::demote`] instead, so a
+// `Fiber` value still never has its `Rc`s touched by two threads. (A future
+// refactor may replace this blanket `unsafe impl` with a `FiberCarrier` enum —
+// `Local(Fiber)` / `Migrated(ArcFiber)` — so only the honestly-`Send`
+// `ArcFiber` ever crosses threads; see proposal 0174.)
 unsafe impl Send for Fiber {}
 
 impl std::fmt::Debug for Fiber {
@@ -144,6 +152,101 @@ impl Fiber {
     /// Mark the fiber's cancel scope as cancelled.
     pub fn cancel(&mut self) {
         self.context.cancel_scope = CancelScope::Cancelled;
+    }
+
+    /// Promote this fiber into its `Send` [`ArcFiber`] mirror — used the instant
+    /// a fiber's ownership crosses to another OS worker (cross-worker steal,
+    /// gated by `FLUX_FIBER_MIGRATION`). Deep-copies the body, parked
+    /// continuation, and effect context into `Arc`-backed structures, consuming
+    /// the original. Errors only if a contained value fails to promote, or if
+    /// the legacy (always-unset) `resume` closure is present.
+    ///
+    /// See proposal 0174 §"VM cross-worker fiber dispatch".
+    pub fn promote(self) -> Result<ArcFiber, String> {
+        if self.resume.is_some() {
+            return Err("Fiber::promote: legacy `resume` closure is not migratable".to_string());
+        }
+        Ok(ArcFiber {
+            id: self.id,
+            state: self.state,
+            home_worker: self.home_worker,
+            last_completion_req: self.last_completion_req,
+            body: match &self.body {
+                Some(v) => Some(promote_value(v)?),
+                None => None,
+            },
+            parked: match &self.parked {
+                Some(rc) => Some(promote_value(&Value::Continuation(rc.clone()))?),
+                None => None,
+            },
+            context: promote_effect_context(&self.context)?,
+        })
+    }
+}
+
+// ── ArcFiber ──────────────────────────────────────────────────────────────
+
+/// `Send` mirror of [`Fiber`] for cross-OS-worker hand-off.
+///
+/// Every `Rc` inside a `Fiber` (the parked continuation, the body value, the
+/// effect/evidence context) becomes an `Arc` here, so an `ArcFiber` can be
+/// moved to another worker thread without the `unsafe impl Send` caveat that
+/// `Fiber` carries. The receiving worker calls [`ArcFiber::demote`] to rebuild
+/// a thread-local `Fiber` (fresh `Rc` wrappers) before running it. Built by
+/// [`Fiber::promote`]. Constructed only when `FLUX_FIBER_MIGRATION` is on and a
+/// fiber is actually stolen across workers — never on the single-worker hot
+/// path.
+pub struct ArcFiber {
+    pub id: FiberId,
+    pub state: FiberState,
+    pub home_worker: WorkerId,
+    pub last_completion_req: Option<u64>,
+    /// Body thunk for a not-yet-started fiber. `ArcValue::Closure` in practice.
+    pub body: Option<ArcValue>,
+    /// Parked continuation for a suspended/yielded fiber. Always
+    /// `ArcValue::Continuation(_)` when `Some`.
+    pub parked: Option<ArcValue>,
+    pub context: ArcEffectContext,
+}
+
+// (Auto-`Send`: every field is `Send` — `Copy` scalars or `Arc`-backed via
+// `ArcValue` / `ArcEffectContext`. The compile-time `arc_fiber_is_send` test
+// below pins this.)
+
+impl ArcFiber {
+    /// Rebuild a thread-local [`Fiber`] from this `Send` mirror — the inverse
+    /// of [`Fiber::promote`], called on the worker that will run the fiber.
+    /// Allocates fresh `Rc` wrappers from the `Arc` data.
+    pub fn demote(self) -> Fiber {
+        Fiber {
+            id: self.id,
+            state: self.state,
+            context: demote_effect_context(self.context),
+            home_worker: self.home_worker,
+            resume: None,
+            body: self.body.map(demote_value),
+            parked: match self.parked.map(demote_value) {
+                Some(Value::Continuation(rc)) => Some(rc),
+                None => None,
+                Some(other) => unreachable!(
+                    "ArcFiber::parked must be a continuation, got {}",
+                    other.type_name()
+                ),
+            },
+            last_completion_req: self.last_completion_req,
+        }
+    }
+}
+
+impl std::fmt::Debug for ArcFiber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArcFiber")
+            .field("id", &self.id)
+            .field("state", &self.state)
+            .field("home_worker", &self.home_worker)
+            .field("parked", &self.parked.is_some())
+            .field("body", &self.body.is_some())
+            .finish()
     }
 }
 
@@ -284,5 +387,62 @@ mod tests {
     fn home_worker_is_preserved() {
         let f = Fiber::new(WorkerId(7));
         assert_eq!(f.home_worker, WorkerId(7));
+    }
+
+    #[test]
+    fn arc_fiber_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<ArcFiber>();
+    }
+
+    #[test]
+    fn promote_fails_with_legacy_resume_closure() {
+        let mut f = Fiber::new(WorkerId(0));
+        f.resume = Some(Box::new(|| {}));
+        assert!(f.promote().is_err());
+    }
+
+    #[test]
+    fn promote_demote_round_trips_a_parked_fiber() {
+        use crate::runtime::closure::Closure;
+        use crate::runtime::compiled_function::CompiledFunction;
+        use crate::runtime::frame::Frame;
+        use std::cell::RefCell;
+
+        let func = Rc::new(CompiledFunction::new(vec![], 0, 0, None));
+        let closure = Rc::new(Closure::new(func, vec![Value::Integer(99)]));
+        let frame = Frame::new_with_return_slot(closure, 3, 2);
+        let cont = Continuation {
+            frames: vec![frame],
+            stack: vec![Value::Integer(1), Value::Boolean(true)],
+            sp: 5,
+            entry_sp: 3,
+            entry_frame_index: 0,
+            inner_handlers: vec![],
+            state_marker: Some(7),
+        };
+        let mut f = Fiber::new(WorkerId(2));
+        f.state = FiberState::Suspended { request_id: 42 };
+        f.parked = Some(Rc::new(RefCell::new(cont)));
+        f.last_completion_req = Some(42);
+        let id = f.id;
+
+        let arc: ArcFiber = f.promote().expect("promote");
+        let back = arc.demote();
+
+        assert_eq!(back.id, id);
+        assert_eq!(back.home_worker, WorkerId(2));
+        assert_eq!(back.state, FiberState::Suspended { request_id: 42 });
+        assert_eq!(back.last_completion_req, Some(42));
+        let cont = back.parked.expect("parked round-trips").borrow().clone();
+        assert_eq!(cont.sp, 5);
+        assert_eq!(cont.entry_sp, 3);
+        assert_eq!(cont.entry_frame_index, 0);
+        assert_eq!(cont.state_marker, Some(7));
+        assert_eq!(cont.frames.len(), 1);
+        assert_eq!(cont.frames[0].base_pointer, 3);
+        assert_eq!(cont.frames[0].return_slot, 2);
+        assert_eq!(cont.frames[0].closure.free, vec![Value::Integer(99)]);
+        assert_eq!(cont.stack, vec![Value::Integer(1), Value::Boolean(true)]);
     }
 }

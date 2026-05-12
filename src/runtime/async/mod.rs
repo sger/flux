@@ -12,6 +12,7 @@ pub mod fiber_trace;
 pub mod backend;
 pub mod backends;
 pub mod blocking_pool;
+pub mod config;
 pub mod context;
 pub mod fiber;
 #[cfg(feature = "llvm")]
