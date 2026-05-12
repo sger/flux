@@ -84,6 +84,10 @@ harness = false
 name = "aether_bench"
 harness = false
 
+[[bench]]
+name = "continuation_capture"
+harness = false
+
 [[bin]]
 name = "binarytrees_rust"
 path = "benchmarks/rust/binarytrees.rs"

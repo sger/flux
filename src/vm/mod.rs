@@ -79,6 +79,16 @@ pub struct VM {
     frame_index: usize,
     trace: bool,
     tail_arg_scratch: Vec<Slot>,
+    /// Reused scratch buffer holding the per-frame pieces accumulated while a
+    /// continuation capture unwinds toward its boundary (see
+    /// `capture_to_boundary`). Cleared between captures, never shrunk — keeps
+    /// the capture path off the allocator.
+    cont_pieces: Vec<crate::runtime::continuation::Continuation>,
+    /// Free-list of recycled `Continuation` shells (Vec capacities retained).
+    /// One-shot continuation resume returns its shell here; the next capture
+    /// pulls from it, so steady-state fiber park/resume allocates nothing.
+    /// Bounded by `continuation::CONT_POOL_CAP`.
+    cont_pool: Vec<crate::runtime::continuation::Continuation>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
     /// Scheduler-owned effect/fiber context (proposal 0174 Phase 0).
@@ -107,6 +117,8 @@ impl VM {
             frame_index: 0,
             trace: false,
             tail_arg_scratch: Vec::new(),
+            cont_pieces: Vec::new(),
+            cont_pool: Vec::new(),
             handler_stack: Vec::new(),
             context: EffectContext::new(),
             profiling: false,
@@ -149,6 +161,8 @@ impl VM {
             frame_index: 0,
             trace: parent.trace,
             tail_arg_scratch: Vec::new(),
+            cont_pieces: Vec::new(),
+            cont_pool: Vec::new(),
             handler_stack: Vec::new(),
             context: EffectContext::new(),
             profiling: false,
