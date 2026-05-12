@@ -190,19 +190,27 @@ static void *flux_task_worker(void *arg) {
     return NULL;
 }
 
-int64_t flux_task_spawn(int64_t closure) {
+static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char *which) {
     task_table_init_once();
 
-    /* Promote to MT refcount mode then take an ownership reference. */
-    flux_rc_promote(closure);
-    flux_dup(closure);
+    if (move_owned) {
+        if (!flux_rc_is_unique(closure)) {
+            flux_rc_promote(closure);
+            flux_dup(closure);
+        }
+    } else {
+        /* Promote to MT refcount mode then take an ownership reference. */
+        flux_rc_promote(closure);
+        flux_dup(closure);
+    }
 
     FluxTaskEntry *e = flux_task_entry_new();
     if (!e) {
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: failed to allocate task entry "
+            "flux: %s: failed to allocate task entry "
             "(live=%zu high_water=%zu)\n",
+            which,
             atomic_load_explicit(&task_live_count, memory_order_relaxed),
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
@@ -223,8 +231,9 @@ int64_t flux_task_spawn(int64_t closure) {
         flux_task_free_slot(e);
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: pthread_create failed (errno=%d, "
+            "flux: %s: pthread_create failed (errno=%d, "
             "live=%zu high_water=%zu)\n",
+            which,
             err,
             atomic_load_explicit(&task_live_count, memory_order_relaxed),
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
@@ -237,6 +246,14 @@ int64_t flux_task_spawn(int64_t closure) {
     flux_async_register_root_task(id);
 
     return flux_tag_int(id);
+}
+
+int64_t flux_task_spawn(int64_t closure) {
+    return flux_task_spawn_inner(closure, 0, "flux_task_spawn");
+}
+
+int64_t flux_task_spawn_move(int64_t closure) {
+    return flux_task_spawn_inner(closure, 1, "flux_task_spawn_move");
 }
 
 int64_t flux_task_blocking_join(int64_t task) {
@@ -531,18 +548,26 @@ static unsigned __stdcall flux_task_worker(void *arg) {
     return 0;
 }
 
-int64_t flux_task_spawn(int64_t closure) {
+static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char *which) {
     task_table_init_once();
 
-    flux_rc_promote(closure);
-    flux_dup(closure);
+    if (move_owned) {
+        if (!flux_rc_is_unique(closure)) {
+            flux_rc_promote(closure);
+            flux_dup(closure);
+        }
+    } else {
+        flux_rc_promote(closure);
+        flux_dup(closure);
+    }
 
     FluxTaskEntry *e = flux_task_entry_new();
     if (!e) {
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: failed to allocate task entry "
+            "flux: %s: failed to allocate task entry "
             "(live=%zu high_water=%zu)\n",
+            which,
             atomic_load_explicit(&task_live_count, memory_order_relaxed),
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
@@ -567,8 +592,9 @@ int64_t flux_task_spawn(int64_t closure) {
         flux_task_free_slot(e);
         flux_drop(closure);
         fprintf(stderr,
-            "flux: flux_task_spawn: _beginthreadex failed (errno=%d, "
+            "flux: %s: _beginthreadex failed (errno=%d, "
             "live=%zu high_water=%zu)\n",
+            which,
             errno,
             atomic_load_explicit(&task_live_count, memory_order_relaxed),
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
@@ -581,6 +607,14 @@ int64_t flux_task_spawn(int64_t closure) {
     flux_async_register_root_task(id);
 
     return flux_tag_int(id);
+}
+
+int64_t flux_task_spawn(int64_t closure) {
+    return flux_task_spawn_inner(closure, 0, "flux_task_spawn");
+}
+
+int64_t flux_task_spawn_move(int64_t closure) {
+    return flux_task_spawn_inner(closure, 1, "flux_task_spawn_move");
 }
 
 int64_t flux_task_blocking_join(int64_t task) {

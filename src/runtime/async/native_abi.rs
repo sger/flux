@@ -226,7 +226,10 @@ struct RunShared {
 impl NativeRun {
     fn new(root_closure: i64, worker_count: usize) -> Self {
         let root = next_fiber_id();
-        fiber_trace::emit(FiberEvent::Spawn { fid: root, worker: 0 });
+        fiber_trace::emit(FiberEvent::Spawn {
+            fid: root,
+            worker: 0,
+        });
         let worker_count = worker_count.max(1);
         let mut ready = (0..worker_count)
             .map(|_| VecDeque::new())
@@ -398,7 +401,10 @@ impl NativeRun {
                 .unwrap_or_else(EffectSnapshot::null),
             stealable,
         });
-        fiber_trace::emit(FiberEvent::Spawn { fid: id, worker: home_worker as u32 });
+        fiber_trace::emit(FiberEvent::Spawn {
+            fid: id,
+            worker: home_worker as u32,
+        });
         id
     }
 
@@ -449,7 +455,11 @@ impl NativeRun {
                     self.push_ready(fiber);
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(fiber.id, FiberOutcome::Error(err), fiber.home_worker as u32);
+                    self.complete_fiber(
+                        fiber.id,
+                        FiberOutcome::Error(err),
+                        fiber.home_worker as u32,
+                    );
                 }
             }
             return;
@@ -458,7 +468,11 @@ impl NativeRun {
         let fiber_id = fiber.id;
         let home_worker = fiber.home_worker;
         self.suspended.insert(req, fiber);
-        fiber_trace::emit(FiberEvent::Suspend { fid: fiber_id, worker: home_worker as u32, request_id: req });
+        fiber_trace::emit(FiberEvent::Suspend {
+            fid: fiber_id,
+            worker: home_worker as u32,
+            request_id: req,
+        });
 
         let ready = self.ready_fiber_ids();
         let events = self
@@ -472,7 +486,10 @@ impl NativeRun {
             self.fiber_request.remove(&fiber.id);
             if self.is_cancelled(fiber.id) {
                 let fiber_id = fiber.id;
-                fiber_trace::emit(FiberEvent::Cancel { fid: fiber_id, worker: fiber.home_worker as u32 });
+                fiber_trace::emit(FiberEvent::Cancel {
+                    fid: fiber_id,
+                    worker: fiber.home_worker as u32,
+                });
                 release_cancelled_fiber(fiber);
                 release_outcome(outcome);
                 self.forget_cancelled_fiber(fiber_id);
@@ -492,10 +509,18 @@ impl NativeRun {
                         };
                     }
                     self.push_ready(fiber);
-                    fiber_trace::emit(FiberEvent::Resume { fid, worker, request_id: req });
+                    fiber_trace::emit(FiberEvent::Resume {
+                        fid,
+                        worker,
+                        request_id: req,
+                    });
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(fiber.id, FiberOutcome::Error(err), fiber.home_worker as u32);
+                    self.complete_fiber(
+                        fiber.id,
+                        FiberOutcome::Error(err),
+                        fiber.home_worker as u32,
+                    );
                 }
             }
         } else if self.cancelled_requests.remove(&req) {
@@ -510,12 +535,18 @@ impl NativeRun {
 
     fn complete_fiber(&mut self, id: u64, outcome: FiberOutcome, home_worker: u32) {
         if self.is_cancelled(id) {
-            fiber_trace::emit(FiberEvent::Cancel { fid: id, worker: home_worker });
+            fiber_trace::emit(FiberEvent::Cancel {
+                fid: id,
+                worker: home_worker,
+            });
             release_outcome(outcome);
             self.forget_cancelled_fiber(id);
             return;
         }
-        fiber_trace::emit(FiberEvent::Complete { fid: id, worker: home_worker });
+        fiber_trace::emit(FiberEvent::Complete {
+            fid: id,
+            worker: home_worker,
+        });
 
         if id == self.root {
             self.root_result = Some(outcome);
@@ -881,7 +912,11 @@ fn pool_worker_loop(id: usize, cb: FluxAsyncCallbacks) {
         // Pick a fiber from the current active run, if any has work for us.
         let picked = active_run().and_then(|handle| {
             let fiber = {
-                let mut state = handle.shared.state.lock().expect("native async state poisoned");
+                let mut state = handle
+                    .shared
+                    .state
+                    .lock()
+                    .expect("native async state poisoned");
                 if state.shutdown {
                     None
                 } else {
@@ -1565,6 +1600,24 @@ pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 
     // The C `flux_task_spawn` adds the id to `root_tasks` as a safety net.
     // A scoped task already has an explicit owner, so move it from
     // root_tasks → scope_tasks to avoid double-cancel-on-teardown.
+    with_run(|run| {
+        run.root_tasks.remove(&task_id);
+        run.register_task_in_scope(scope, task_id);
+    });
+    task_id
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_task_spawn_scoped_move(scope: u64, closure: i64) -> i64 {
+    let task_id = unsafe {
+        unsafe extern "C" {
+            fn flux_task_spawn_move(closure: i64) -> i64;
+        }
+        flux_task_spawn_move(closure)
+    };
+    if task_id <= 0 {
+        return task_id;
+    }
     with_run(|run| {
         run.root_tasks.remove(&task_id);
         run.register_task_in_scope(scope, task_id);

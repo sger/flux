@@ -28,6 +28,7 @@ module Flow.Task {
     /// action's return type stays polymorphic so the VM dispatch can return
     /// `Value::Integer(task_id)` to user code that wraps it in `Task(...)`.
     intrinsic fn task_spawn_id<a>(action: () -> a) -> Int = primop TaskSpawn
+    intrinsic fn task_spawn_move_id<a>(action: () -> a) -> Int = primop TaskSpawnMove
 
     /// Compiler intrinsic — `CorePrimOp::TaskBlockingJoin`. The result type
     /// is polymorphic; the runtime returns whatever value was stashed by
@@ -42,6 +43,13 @@ module Flow.Task {
     /// hand the produced value back to the joiner across threads.
     public fn spawn<a: Sendable>(action: () -> a) -> Task<a> {
         Task(task_spawn_id(action))
+    }
+
+    /// Schedule `action` by ownership transfer. Prefer this when captured
+    /// values are not aliased; the runtime attempts a zero-copy closure
+    /// transfer and falls back to a deep copy when the closure is shared.
+    public fn spawn_move<a: Sendable>(action: () -> a) -> Task<a> {
+        Task(task_spawn_move_id(action))
     }
 
     /// Block the calling thread until the task finishes, then return its
@@ -81,6 +89,7 @@ module Flow.Task {
     /// Compiler intrinsic — `CorePrimOp::TaskSpawnScoped`. Takes a `Scope` and
     /// the action, returns the task id.
     intrinsic fn task_spawn_scoped_id<a>(s: Scope, action: () -> a) -> Int = primop TaskSpawnScoped
+    intrinsic fn task_spawn_scoped_move_id<a>(s: Scope, action: () -> a) -> Int = primop TaskSpawnScopedMove
 
     /// Spawn a task and register it under `s`. When `cancel(s)` is called,
     /// this task is cancelled automatically alongside any forked fibers.
@@ -91,5 +100,11 @@ module Flow.Task {
     /// lifetime regardless.
     public fn spawn_scoped<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async {
         Task(task_spawn_scoped_id(s, action))
+    }
+
+    /// Scoped ownership-transfer task spawn. Attempts zero-copy closure
+    /// transfer and falls back to a deep copy when the closure is shared.
+    public fn spawn_scoped_move<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async {
+        Task(task_spawn_scoped_move_id(s, action))
     }
 }

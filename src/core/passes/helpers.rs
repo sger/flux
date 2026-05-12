@@ -584,7 +584,9 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Try
         | CorePrimOp::AssertThrows
         | CorePrimOp::TaskSpawn
+        | CorePrimOp::TaskSpawnMove
         | CorePrimOp::TaskSpawnScoped
+        | CorePrimOp::TaskSpawnScopedMove
         | CorePrimOp::TaskBlockingJoin
         | CorePrimOp::TaskCancel
         // Fiber primops (proposal 0174 Phase 1b) — not higher-order promoted
@@ -615,8 +617,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FiberTry
         | CorePrimOp::ChanMake
         | CorePrimOp::ChanSend
+        | CorePrimOp::ChanSendMove
         | CorePrimOp::ChanRecv
         | CorePrimOp::ChanTrySend
+        | CorePrimOp::ChanTrySendMove
         | CorePrimOp::ChanTryRecv
         | CorePrimOp::ChanClose
         | CorePrimOp::ChanLen
@@ -624,6 +628,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::ChanIsClosed
         | CorePrimOp::EventRecv
         | CorePrimOp::EventSend
+        | CorePrimOp::EventSendMove
         | CorePrimOp::EventAfter
         | CorePrimOp::EventAlways
         | CorePrimOp::EventNever

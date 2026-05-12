@@ -1,0 +1,11 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "task: 42"
+// parity-expected-stdout-end
+import Flow.Task as Task
+
+fn main() with IO {
+    let t = Task.spawn_move(fn() { 42 })
+    let v = Task.blocking_join(t)
+    print("task: " + to_string(v))
+}

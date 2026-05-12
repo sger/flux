@@ -30,6 +30,7 @@ typedef enum {
     EV_FREE,
     EV_RECV,
     EV_SEND,
+    EV_SEND_MOVE,
     EV_AFTER,
     EV_ALWAYS,
     EV_NEVER,
@@ -254,6 +255,20 @@ static int poll_event(int64_t id, int64_t *out) {
             return 1;
         }
         return 0;
+    case EV_SEND_MOVE:
+        if (flux_chan_is_closed(flux_tag_int(ev->a)) == FLUX_TRUE) {
+            flux_drop(ev->b);
+            ev->b = FLUX_NONE;
+            *out = FLUX_NONE;
+            return 1;
+        }
+        if (flux_chan_event_can_send(ev->a) != 0 &&
+            flux_chan_try_send_move(flux_tag_int(ev->a), ev->b) == FLUX_TRUE) {
+            ev->b = FLUX_NONE;
+            *out = FLUX_NONE;
+            return 1;
+        }
+        return 0;
     case EV_AFTER:
         if (now_ms() >= (uint64_t)ev->a) {
             *out = FLUX_NONE;
@@ -293,6 +308,7 @@ static int event_ready(int64_t id) {
     case EV_RECV:
         return flux_chan_event_can_recv(ev->a) != 0;
     case EV_SEND:
+    case EV_SEND_MOVE:
         return flux_chan_event_can_send(ev->a) != 0;
     case EV_AFTER:
         return now_ms() >= (uint64_t)ev->a;
@@ -393,6 +409,7 @@ static void register_event_wait(int64_t id, uint64_t request_id) {
         flux_chan_event_watch_recv(ev->a, request_id);
         break;
     case EV_SEND:
+    case EV_SEND_MOVE:
         flux_chan_event_watch_send(ev->a, request_id);
         break;
     case EV_AFTER:
@@ -432,6 +449,7 @@ static void free_event_tree(int64_t id) {
 
     switch (old.kind) {
     case EV_SEND:
+    case EV_SEND_MOVE:
     case EV_WRAP:
         flux_drop(old.b);
         if (old.kind == EV_WRAP) free_event_tree(old.a);
@@ -458,6 +476,17 @@ int64_t flux_event_recv(int64_t ch) {
 
 int64_t flux_event_send(int64_t ch, int64_t value) {
     FluxEvent ev = { EV_SEND, flux_untag_int(ch), retain_value(value), NULL, 0 };
+    return insert_event(ev);
+}
+
+int64_t flux_event_send_move(int64_t ch, int64_t value) {
+    FluxEvent ev = {
+        EV_SEND_MOVE,
+        flux_untag_int(ch),
+        flux_rc_is_unique(value) ? value : retain_value(value),
+        NULL,
+        0
+    };
     return insert_event(ev);
 }
 

@@ -6,8 +6,10 @@ module Flow.Channel {
 
     intrinsic fn chan_make(capacity: Int) -> Int = primop ChanMake
     intrinsic fn chan_send_id<a>(id: Int, value: a) -> Unit = primop ChanSend
+    intrinsic fn chan_send_move_id<a>(id: Int, value: a) -> Unit = primop ChanSendMove
     intrinsic fn chan_recv_id<a>(id: Int) -> Option<a> = primop ChanRecv
     intrinsic fn chan_try_send_id<a>(id: Int, value: a) -> Bool = primop ChanTrySend
+    intrinsic fn chan_try_send_move_id<a>(id: Int, value: a) -> Bool = primop ChanTrySendMove
     intrinsic fn chan_try_recv_id<a>(id: Int) -> Option<a> = primop ChanTryRecv
     intrinsic fn chan_close_id(id: Int) -> Unit = primop ChanClose
     intrinsic fn chan_len_id(id: Int) -> Int = primop ChanLen
@@ -26,6 +28,13 @@ module Flow.Channel {
         match ch { Channel(id) -> chan_send_id(id, value) }
     }
 
+    /// Send by ownership transfer. Prefer this over send when `value` is not
+    /// aliased; the runtime attempts a zero-copy transfer and falls back to a
+    /// deep copy when the value is shared.
+    public fn send_move<a: Sendable>(ch: Channel<a>, value: a) -> Unit with Async {
+        match ch { Channel(id) -> chan_send_move_id(id, value) }
+    }
+
     /// Receive a value, suspending the calling fiber if the channel is empty.
     /// Returns None when the channel is closed and drained.
     public fn recv<a: Sendable>(ch: Channel<a>) -> Option<a> with Async {
@@ -36,6 +45,13 @@ module Flow.Channel {
     /// Returns false when the channel is full or closed.
     public fn try_send<a: Sendable>(ch: Channel<a>, value: a) -> Bool {
         match ch { Channel(id) -> chan_try_send_id(id, value) }
+    }
+
+    /// Non-blocking ownership-transfer send. Returns false when the channel is
+    /// full or closed; otherwise the runtime attempts a zero-copy transfer and
+    /// falls back to a deep copy when `value` is shared.
+    public fn try_send_move<a: Sendable>(ch: Channel<a>, value: a) -> Bool {
+        match ch { Channel(id) -> chan_try_send_move_id(id, value) }
     }
 
     /// Non-blocking receive. Returns Some(value) if one was available.

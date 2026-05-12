@@ -583,6 +583,10 @@ impl RuntimeContext for VM {
         self.spawn_vm_task(action)
     }
 
+    fn vm_task_spawn_move(&mut self, action: Value) -> Result<i64, String> {
+        self.spawn_vm_task_move(action)
+    }
+
     fn vm_task_blocking_join(&mut self, id: i64) -> Result<Value, String> {
         super::task::blocking_join(id)
     }

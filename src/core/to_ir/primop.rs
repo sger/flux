@@ -90,7 +90,9 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
         CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskSpawnMove => "task_spawn_move",
         CorePrimOp::TaskSpawnScoped => "task_spawn_scoped",
+        CorePrimOp::TaskSpawnScopedMove => "task_spawn_scoped_move",
         CorePrimOp::TaskBlockingJoin => "task_blocking_join",
         CorePrimOp::TaskCancel => "task_cancel",
         // Fiber primops (proposal 0174 Phase 1b)
@@ -140,8 +142,10 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::HttpWriteChunkedEnd => "http_write_chunked_end",
         CorePrimOp::ChanMake => "chan_make",
         CorePrimOp::ChanSend => "chan_send",
+        CorePrimOp::ChanSendMove => "chan_send_move",
         CorePrimOp::ChanRecv => "chan_recv",
         CorePrimOp::ChanTrySend => "chan_try_send",
+        CorePrimOp::ChanTrySendMove => "chan_try_send_move",
         CorePrimOp::ChanTryRecv => "chan_try_recv",
         CorePrimOp::ChanClose => "chan_close",
         CorePrimOp::ChanLen => "chan_len",
@@ -149,6 +153,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::ChanIsClosed => "chan_is_closed",
         CorePrimOp::EventRecv => "event_recv",
         CorePrimOp::EventSend => "event_send",
+        CorePrimOp::EventSendMove => "event_send_move",
         CorePrimOp::EventAfter => "event_after",
         CorePrimOp::EventAlways => "event_always",
         CorePrimOp::EventNever => "event_never",
@@ -368,7 +373,9 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
             | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskSpawnMove
             | CorePrimOp::TaskSpawnScoped
+            | CorePrimOp::TaskSpawnScopedMove
             | CorePrimOp::TaskBlockingJoin
             | CorePrimOp::TaskCancel
             // Fiber primops (proposal 0174 Phase 1b)
@@ -400,8 +407,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FiberCurrentWorkerCount
             | CorePrimOp::ChanMake
             | CorePrimOp::ChanSend
+            | CorePrimOp::ChanSendMove
             | CorePrimOp::ChanRecv
             | CorePrimOp::ChanTrySend
+            | CorePrimOp::ChanTrySendMove
             | CorePrimOp::ChanTryRecv
             | CorePrimOp::ChanClose
             | CorePrimOp::ChanLen
@@ -409,6 +418,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::ChanIsClosed
             | CorePrimOp::EventRecv
             | CorePrimOp::EventSend
+            | CorePrimOp::EventSendMove
             | CorePrimOp::EventAfter
             | CorePrimOp::EventAlways
             | CorePrimOp::EventNever

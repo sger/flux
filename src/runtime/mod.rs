@@ -73,6 +73,10 @@ pub trait RuntimeContext {
         Err("Task.spawn is not implemented for this runtime context".to_string())
     }
 
+    fn vm_task_spawn_move(&mut self, _action: Value) -> Result<i64, String> {
+        Err("Task.spawn_move is not implemented for this runtime context".to_string())
+    }
+
     fn vm_task_blocking_join(&mut self, _id: i64) -> Result<Value, String> {
         Err("Task.blocking_join is not implemented for this runtime context".to_string())
     }

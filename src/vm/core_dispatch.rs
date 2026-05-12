@@ -2090,8 +2090,14 @@ pub fn execute_core_primop(
         // and rehydrates the result back into the caller's normal Rc-backed
         // value graph. The main VM stack, continuations, and handler state do
         // not cross OS-thread boundaries.
-        TaskSpawn => {
-            let id = ctx.vm_task_spawn(args[0].clone())?;
+        TaskSpawn | TaskSpawnMove => {
+            let mut args = args;
+            let action = args.swap_remove(0);
+            let id = if op == TaskSpawnMove {
+                ctx.vm_task_spawn_move(action)?
+            } else {
+                ctx.vm_task_spawn(action)?
+            };
             // Bound the task's lifetime to the enclosing run_async: if the
             // user never awaits / joins / cancels, the dispatch-site drain
             // at run_async exit will cancel it. No-op outside run_async.
@@ -2102,7 +2108,7 @@ pub fn execute_core_primop(
             });
             Ok(Value::Integer(id))
         }
-        TaskSpawnScoped => {
+        TaskSpawnScoped | TaskSpawnScopedMove => {
             let scope_id = match &args[0] {
                 Value::Adt(a) if a.constructor.as_ref() == "Scope" => match &a.fields {
                     crate::runtime::value::AdtFields::One(Value::Integer(n)) => *n as u64,
@@ -2110,7 +2116,13 @@ pub fn execute_core_primop(
                 },
                 other => return Err(terr("task_spawn_scoped", "Scope", other)),
             };
-            let id = ctx.vm_task_spawn(args[1].clone())?;
+            let mut args = args;
+            let action = args.swap_remove(1);
+            let id = if op == TaskSpawnScopedMove {
+                ctx.vm_task_spawn_move(action)?
+            } else {
+                ctx.vm_task_spawn(action)?
+            };
             vm_fibers::register_task_in_scope(scope_id, id);
             Ok(Value::Integer(id))
         }
@@ -2546,8 +2558,10 @@ pub fn execute_core_primop(
             Value::Integer(capacity) => super::channel::make(*capacity).map(Value::Integer),
             other => Err(terr("chan_make", "Int", other)),
         },
-        ChanSend => match &args[0] {
+        ChanSend | ChanSendMove => match &args[0] {
             Value::Integer(id) => {
+                let id = *id;
+                let move_send = op == ChanSendMove;
                 if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
                     if vm_fibers::is_current_cancelled() {
                         vm_fibers::signal_cancel_error();
@@ -2555,18 +2569,28 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    super::channel::start_send(*id, &args[1], req.0)?;
+                    if move_send {
+                        let mut args = args;
+                        super::channel::start_send_move(id, args.swap_remove(1), req.0)?;
+                    } else {
+                        super::channel::start_send(id, &args[1], req.0)?;
+                    }
                     fiber_trace::emit(FiberEvent::ChanSend {
-                        ch: *id,
+                        ch: id,
                         fid: vm_fibers::current_fiber_id(),
                         backpressure: true,
                     });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
-                    super::channel::send(*id, &args[1])?;
+                    if move_send {
+                        let mut args = args;
+                        super::channel::send_move(id, args.swap_remove(1))?;
+                    } else {
+                        super::channel::send(id, &args[1])?;
+                    }
                     fiber_trace::emit(FiberEvent::ChanSend {
-                        ch: *id,
+                        ch: id,
                         fid: vm_fibers::current_fiber_id(),
                         backpressure: false,
                     });
@@ -2604,8 +2628,16 @@ pub fn execute_core_primop(
             }
             other => Err(terr("chan_recv", "Int", other)),
         },
-        ChanTrySend => match &args[0] {
-            Value::Integer(id) => super::channel::try_send(*id, &args[1]).map(Value::Boolean),
+        ChanTrySend | ChanTrySendMove => match &args[0] {
+            Value::Integer(id) => {
+                let id = *id;
+                if op == ChanTrySendMove {
+                    let mut args = args;
+                    super::channel::try_send_move(id, args.swap_remove(1)).map(Value::Boolean)
+                } else {
+                    super::channel::try_send(id, &args[1]).map(Value::Boolean)
+                }
+            }
             other => Err(terr("chan_try_send", "Int", other)),
         },
         ChanTryRecv => match &args[0] {
@@ -2636,8 +2668,16 @@ pub fn execute_core_primop(
             Value::Integer(id) => Ok(Value::Integer(super::event::recv(*id))),
             other => Err(terr("event_recv", "Int", other)),
         },
-        EventSend => match &args[0] {
-            Value::Integer(id) => Ok(Value::Integer(super::event::send(*id, args[1].clone()))),
+        EventSend | EventSendMove => match &args[0] {
+            Value::Integer(id) => {
+                let id = *id;
+                if op == EventSendMove {
+                    let mut args = args;
+                    super::event::send_move(id, args.swap_remove(1)).map(Value::Integer)
+                } else {
+                    Ok(Value::Integer(super::event::send(id, args[1].clone())))
+                }
+            }
             other => Err(terr("event_send", "Int", other)),
         },
         EventAfter => match &args[0] {
