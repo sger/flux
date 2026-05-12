@@ -115,6 +115,48 @@ impl VM {
         }
     }
 
+    /// Create a worker VM that shares the calling VM's constants and globals.
+    ///
+    /// Used by Phase 4 OS-worker threads to get an execution context without
+    /// repeating full bytecode compilation. Constants are cloned by reference-count
+    /// bump (O(n) Rc bumps, zero deep copies). Globals are cloned the same way.
+    ///
+    /// The worker VM starts with an empty frame stack — the caller must push a
+    /// closure via `invoke_value` or `resume_from_dispatch` before running.
+    ///
+    /// # Safety contract
+    ///
+    /// Constants and globals must be read-only when this is called (i.e., after
+    /// program initialisation, inside `enter_run_async`). Writing to globals
+    /// from a worker VM after this point is unsound for multi-threaded use.
+    pub fn new_for_worker(parent: &VM) -> Self {
+        let dummy_fn = crate::runtime::compiled_function::CompiledFunction::new(
+            vec![],
+            0,
+            0,
+            None,
+        );
+        let dummy_closure = crate::runtime::closure::Closure::new(Rc::new(dummy_fn), vec![]);
+        let dummy_frame = Frame::new(Rc::new(dummy_closure), 0);
+
+        Self {
+            constants: parent.constants.clone(),
+            stack: vec![slot::uninit(); INITIAL_STACK_SIZE],
+            sp: 0,
+            last_popped: slot::to_slot(Value::None),
+            globals: parent.globals.clone(),
+            frames: vec![dummy_frame],
+            frame_index: 0,
+            trace: parent.trace,
+            tail_arg_scratch: Vec::new(),
+            handler_stack: Vec::new(),
+            context: EffectContext::new(),
+            profiling: false,
+            cost_centres: Vec::new(),
+            cc_stack: Vec::new(),
+        }
+    }
+
     pub fn set_trace(&mut self, enabled: bool) {
         self.trace = enabled;
     }

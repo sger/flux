@@ -2075,9 +2075,9 @@ These are deferred past Phase 2 / past Phase 3 and tracked separately:
 - **VM cross-worker fiber dispatch.** The VM `FiberScheduler` remains
   logical-only on the `run_async` OS thread because VM `Value` carries
   `Rc<Value>` and a thread-safety design has not been done. Phase 3's
-  HTTP server is therefore documented as multi-worker on native and
-  single-worker on VM. Lifting this restriction needs its own design
-  slice and is not bundled here.
+  HTTP server is therefore documented as multi-OS-worker on native and
+  cooperative single-OS-threaded on VM. Lifting this restriction needs its
+  own design slice and is not bundled here.
 - **10k-connection scale demo.** Originally a Phase 1b acceptance
   bullet, deferred to Phase 3's HTTP server acceptance — the load test
   is HTTP-shaped, not runtime-shaped.
@@ -2683,17 +2683,40 @@ public fn bracket<r, a, e>(acquire, release, body) -> a with <Async | e> {
 Same fix for `finally`. **This must land before any Phase 3 production HTTP
 work that relies on connection lifecycle guarantees.**
 
-#### A-5 — VM `Value: !Send` caps VM concurrency (medium-term, before Phase 4)
+#### A-5 — VM fiber OS-worker dispatch design (medium-term, before Phase 4)
 
-VM `Value` is `Rc<...>` — not `Send`. The VM dispatch loop therefore runs all
-fibers on a single OS thread (logical-only scheduling). The VM will never use
-real multi-worker scheduling until `Value` can cross thread boundaries.
+VM `Task.spawn` already runs in parallel by transferring sendable values into
+isolated worker VMs. VM fibers are different: fibers inside one `run_async`
+boundary share the normal interpreter state and `Rc<Value>` graph, so the VM
+dispatch loop intentionally runs them on a single OS thread with logical worker
+queues. CPU-bound VM fibers can starve siblings until they suspend or call
+`Async.yield_now`.
 
-Path forward: apply the same hybrid RC scheme that already exists on the C side
-(`flux_rc_promote`, sign-bit encoding) to Rust `Value`. Once `Value: Send`,
-the VM dispatch loop can route ready fibers to real worker threads using the
-same `TaskManager` that the native path already uses. The `vm_bridge` from A-1
-then becomes a full peer of the native bridge.
+Blockers:
+
+- VM `Value` uses `Rc` containers and is not `Send`.
+- VM continuations store `Rc<RefCell<Continuation>>`, so parked fibers cannot
+  safely move to another OS thread.
+- Effect/evidence state is owned by the VM/fiber context and must be captured,
+  moved, and restored with the fiber.
+- The interpreter frame stack and operand stack are mutable VM state, not an
+  independently movable per-fiber execution object.
+
+Required design before implementation:
+
+- Add a VM value-promotion or ownership-transfer mode so values crossing VM
+  fiber worker boundaries become thread-safe without penalizing the
+  single-thread hot path.
+- Make resumable VM fiber state `Send`, including continuations, operand stack
+  snapshots, call frames, and effect context.
+- Split per-fiber execution state from process/global interpreter state so an
+  OS worker can resume a fiber without sharing one mutable `Vm`.
+- Route backend completions into real VM OS-worker queues, preserving home
+  worker affinity or defining a safe migration policy.
+
+This is explicitly out of scope for the current async runtime. Until that
+design lands, `worker_count` on the VM means logical scheduler queues, not OS
+worker threads; use `Task.spawn` / `Task.await` for CPU-bound VM parallelism.
 
 Estimated effort: 3–4 weeks. Does not block Phase 3 (VM is correct today,
 just single-threaded). Target: Phase 3/4 boundary.
@@ -3341,13 +3364,12 @@ now run for real on the VM backend. Implementation:
   three private `intrinsic fn ... = primop ...` declarations and three
   thin public wrappers that wrap the `Int` task id in `Task<a>` and
   pattern-match it back out. Public `Sendable<a>` bound is preserved.
-- VM dispatch in [`vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs):
-  thread-local `RefCell<HashMap<i64, Value>>` stores results keyed by a
-  fresh task id; thread-local `HashSet` tracks cancellations.
-  `TaskSpawn` invokes the closure via `RuntimeContext::invoke_value`,
-  stashes the result, returns the id; `TaskBlockingJoin` consumes the
-  entry; `TaskCancel` flips the cancel flag (a subsequent join surfaces
-  an error). Sequentially equivalent to the eventual parallel semantics.
+- VM dispatch in [`vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs)
+  snapshots the task closure across a `Sendable` transfer boundary and
+  runs it on a Rust worker thread inside an isolated worker VM. The result
+  is rehydrated back into the awaiting or joining VM. This gives real
+  parallelism for `Task.spawn` without making ordinary VM fiber values
+  thread-safe.
 - Native (LLVM) dispatch lowers to `flux_task_spawn` /
   `flux_task_blocking_join` / `flux_task_cancel` calls; those symbols are
   implemented by the D5-c native C runtime path below.
@@ -3358,12 +3380,12 @@ now run for real on the VM backend. Implementation:
   / two-independent-spawns. Driven through `flux --test` from
   [`tests/integration/flow_task_tests.rs`](../../tests/integration/flow_task_tests.rs).
 
-**Why VM is sequential.** VM `Value` carries `Rc<...>` (`!Send`), so genuine
-parallel execution on the VM path needs a separate value-promotion story
-(reuse of the C-side hybrid atomic-on-share scheme from 1a-iv, mirrored
-into the VM's `Value` representation). That's deliberately deferred: the
-sequential VM dispatch is correct for every Phase-1a use case that doesn't
-race against itself.
+**Why VM fibers are still single-threaded.** The task path above is parallel
+because it crosses into an isolated worker VM. Fibers inside one `run_async`
+boundary still run cooperatively on the caller OS thread: VM `Value` carries
+`Rc<...>` (`!Send`), continuations and effect state are VM-local, and the
+interpreter owns mutable frame/stack state. Real VM fiber OS-worker dispatch is
+therefore deferred to the VM value-promotion/thread-safety design.
 
 #### D5-b — Staticlib infrastructure ⏳
 

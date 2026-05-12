@@ -117,4 +117,17 @@ pub trait RuntimeContext {
     fn resume_from_dispatch(&mut self, _cont: Value, _resume_val: Value) -> Result<Value, String> {
         unimplemented!("resume_from_dispatch not implemented for this RuntimeContext")
     }
+
+    /// Produce a snapshot of this VM's constants and globals for use by
+    /// Phase 4 OS worker threads.
+    ///
+    /// The default implementation returns `None` (no snapshot available),
+    /// which causes the multi-worker path to skip the snapshot for that
+    /// context. Only `VM` provides a real implementation.
+    ///
+    /// The returned box contains a `crate::vm::task::WorkerVmSnapshot`.
+    /// Callers in the `vm` module can downcast it.
+    fn vm_worker_snapshot(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        None
+    }
 }

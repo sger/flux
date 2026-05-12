@@ -101,6 +101,15 @@ pub struct Fiber {
     pub last_completion_req: Option<u64>,
 }
 
+// SAFETY: `Fiber` is moved across OS-thread boundaries only when transferred
+// between the scheduler (protected by `Arc<Mutex<FiberScheduler>>`) and the
+// fiber's home worker thread. The no-migration invariant enforces that
+// `fiber.parked` (an `Rc<RefCell<Continuation>>`) and `fiber.body` (a `Value`)
+// are *never accessed concurrently* — the home worker is the only thread that
+// ever reads or writes these fields. Sending a `Fiber` via the scheduler mutex
+// is not concurrent access; it is a sequential hand-off.
+unsafe impl Send for Fiber {}
+
 impl std::fmt::Debug for Fiber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Fiber")
@@ -135,6 +144,37 @@ impl Fiber {
     /// Mark the fiber's cancel scope as cancelled.
     pub fn cancel(&mut self) {
         self.context.cancel_scope = CancelScope::Cancelled;
+    }
+}
+
+// ── FiberExecState ────────────────────────────────────────────────────────
+//
+// Captures the per-fiber VM execution state at park time so that a worker VM
+// on a (possibly different) OS thread can restore exactly the right context
+// when resuming. On the VM backend the stack/frame state is encoded inside the
+// `Continuation` value stored in `Fiber::parked`; `FiberExecState` carries the
+// scheduler-level fields that are *not* part of the continuation (worker
+// context, completion-request id).
+//
+// Phase 3 defines the type. Phase 4 uses it to hand fibers across OS worker
+// threads together with a freshly-created `VM::new_for_worker` instance.
+
+/// Scheduler-level execution context for a parked fiber.
+///
+/// Contains only the fields that the fiber scheduler needs to route the fiber
+/// to its home worker on resume. The VM-level stack/frame state is captured in
+/// `Fiber::parked` as a `Value::Continuation`.
+#[derive(Debug)]
+pub struct FiberExecState {
+    /// Worker this fiber must resume on (no-migration invariant).
+    pub home_worker: WorkerId,
+    /// Request id the fiber is waiting on, if suspended.
+    pub suspended_on: Option<u64>,
+}
+
+impl FiberExecState {
+    pub fn new(home_worker: WorkerId) -> Self {
+        FiberExecState { home_worker, suspended_on: None }
     }
 }
 

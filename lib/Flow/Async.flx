@@ -1,11 +1,12 @@
 // Flow.Async — structured concurrency primitives (proposal 0174 Phase 1b).
 //
 // All public functions that carry `with Async` are backed by fiber primops
-// (163–165 in CorePrimOp). On the VM path the primops give sequentially-
-// equivalent semantics: run_async calls the action synchronously, sleep
-// suspends via the mio reactor. `yield_now` performs a real cooperative
-// reschedule on both backends (proposal 0174 slice 2-vi): the calling fiber
-// moves to the tail of its run-queue so other ready fibers run first.
+// (163–165 in CorePrimOp). VM fibers are cooperative and single-OS-threaded
+// inside each run_async boundary: worker_count creates logical queues, not OS
+// workers. Native fibers run on real OS workers. `yield_now` performs a real
+// cooperative reschedule on both backends (proposal 0174 slice 2-vi): the
+// calling fiber moves to the tail of its run-queue so other ready fibers run
+// first.
 //
 // The `Async` effect alias (`<Suspend | Fork | GetContext | AsyncFail>`) is
 // compiler-seeded in `src/compiler/mod.rs` and declared in `lib/Flow/Effects.flx`.
@@ -89,8 +90,8 @@ module Flow.Async {
     /// active `run_async` scheduler. Returns 0 outside `run_async`.
     intrinsic fn fiber_current_worker_count_prim() -> Int = primop FiberCurrentWorkerCount
 
-    /// Wall-clock sleep for `ms` milliseconds.
-    /// VM: blocks OS thread. Native: suspends fiber, wakes on timer.
+    /// Wall-clock sleep for `ms` milliseconds. VM and native both suspend the
+    /// current fiber; only native can run other fibers on another OS worker.
     intrinsic fn fiber_sleep_prim(ms: Int) -> Unit = primop FiberSleep
 
     /// Raise an `AsyncError` in the current fiber.
@@ -99,13 +100,14 @@ module Flow.Async {
     /// Run `body` under an async error boundary.
     intrinsic fn fiber_try_prim<a>(body: () -> a with Async | e) -> Result<a, AsyncError> = primop FiberTry
 
-    /// Run two fibers concurrently, returning both results as a pair
-    /// (proposal 0174 Phase 1b-vi-b₂.2). VM: real overlap via the fiber
-    /// scheduler. Native: 1b-vi-d.
+    /// Run two fibers concurrently, returning both results as a pair. VM:
+    /// cooperative overlap on one OS thread. Native: fiber overlap on OS
+    /// workers.
     intrinsic fn fiber_both_prim<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) = primop FiberBoth
 
     /// Run two fibers concurrently, returning the first result that arrives.
-    /// VM: real overlap; loser cancelled immediately on winner resolution (1b-vi-c).
+    /// VM: cooperative overlap on one OS thread; loser cancelled immediately
+    /// on winner resolution.
     intrinsic fn fiber_race_prim<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a = primop FiberRace
 
     /// Phase 2 slice 2-ii: run N fibers concurrently and return the
@@ -113,8 +115,9 @@ module Flow.Async {
     intrinsic fn fiber_first_of_prim<a>(fs: List<() -> a with Async>) -> (Int, a) = primop FiberFirstOf
 
     /// Bound `f` by `ms` milliseconds: returns `Some(f())` if `f` completes
-    /// in time, `None` if the timer fires first (proposal 0174 Phase 1b-vi
-    /// follow-up). VM: real overlap via fiber scheduler. Native: 1b-vi-d.
+    /// in time, `None` if the timer fires first. VM: cooperative overlap via
+    /// the single-threaded fiber scheduler. Native: fiber overlap on OS
+    /// workers.
     intrinsic fn fiber_timeout_prim<a>(ms: Int, f: () -> a with Async | e) -> Option<a> = primop FiberTimeout
 
     /// Allocate a new cancellation scope (proposal 0174 1b-vi-c).
@@ -133,7 +136,9 @@ module Flow.Async {
     ///
     /// Field semantics:
     ///
-    /// - `worker_count`: `Some(n)` requests `n` worker workers (>= 1).
+    /// - `worker_count`: `Some(n)` requests `n` scheduler workers (>= 1).
+    ///   On the VM these are logical fiber queues drained on the caller OS
+    ///   thread; on native they are real OS worker slots.
     ///   `None` means "use the runtime default" — `available_parallelism()`
     ///   on platforms that report it, falling back to 2 logical workers.
     /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
@@ -253,8 +258,8 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return both results.
     ///
-    /// VM: real concurrent execution via the fiber scheduler — `f` and `g`
-    /// run interleaved on a single OS thread. Native: 1b-vi-d.
+    /// VM: cooperative interleaving on the caller OS thread. Native:
+    /// cooperative fibers scheduled over OS workers.
     ///
     public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
         fiber_both_prim(f, g)
@@ -262,8 +267,9 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return whichever finishes first.
     ///
-    /// VM/native: real first-wins via the fiber scheduler. Losers are
-    /// cancelled when the winner resolves.
+    /// VM/native: real first-wins via the fiber scheduler. On the VM this is
+    /// single-threaded cooperative interleaving; losers are cancelled when the
+    /// winner resolves.
     ///
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
         fiber_race_prim(f, g)
@@ -287,14 +293,16 @@ module Flow.Async {
     /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.
     ///
     /// VM/native: returns `Some(f())` if the body wins, `None` if the timer
-    /// wins.
+    /// wins. CPU-bound VM bodies must suspend or yield for the timer fiber to
+    /// make progress.
     public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e {
         fiber_timeout_prim(ms, f)
     }
 
     /// Like `timeout` but preserves the error channel.
     ///
-    /// VM: real overlap via fiber scheduler — same shape as `timeout`.
+    /// VM: cooperative interleaving via fiber scheduler — same shape as
+    /// `timeout`.
     public fn timeout_result<a>(ms: Int, f: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
         match fiber_try_prim(fn() { fiber_timeout_prim(ms, f) }) {
             Ok(Some(v)) -> Ok(v),
@@ -410,14 +418,15 @@ module Flow.Async {
     /// the scheduler (one is the main thread, others are
     /// `flux-async-worker-{n}` threads visible in `ps -T` / Process
     /// Explorer). On the VM, it's the logical-worker count of the
-    /// `FiberScheduler` (single OS thread, multiple logical workers).
+    /// `FiberScheduler` (single OS thread, multiple logical queues).
     public fn current_worker_count() -> Int with Async {
         fiber_current_worker_count_prim()
     }
 
-    /// Suspend the current fiber for at least `ms` milliseconds.
-    ///
-    /// VM: blocks the calling OS thread.
+    /// Suspend the current fiber for at least `ms` milliseconds. On the VM the
+    /// fiber parks through the VM async backend while other ready fibers may
+    /// run on the same OS thread; on native the fiber parks and an OS worker
+    /// can run other work.
     public fn sleep(ms: Int) -> Unit with Async {
         fiber_sleep_prim(ms)
     }
