@@ -318,6 +318,7 @@ mod vm_fibers {
     use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
+    use std::sync::{Arc, Condvar, Mutex};
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -390,6 +391,14 @@ mod vm_fibers {
         // run_async exit so unawaited tasks cannot leak past the run.
         static RUN_ROOT_TASKS: RefCell<Option<HashSet<i64>>> =
             const { RefCell::new(None) };
+        // Set to Some(...) by every OS worker (both worker 0 and background
+        // workers) while a multi-worker run_async is executing.  All fiber
+        // primop helpers (spawn_child_with_body, register_*_await, etc.) check
+        // this first; if set they route through the shared state instead of
+        // their per-thread TLS equivalents.  Cleared when the worker's dispatch
+        // loop exits.
+        static ACTIVE_SHARED: RefCell<Option<Arc<SharedDispatchState>>> =
+            const { RefCell::new(None) };
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -437,7 +446,11 @@ mod vm_fibers {
     /// Remove an orphaned await registration when a parent fiber aborts
     /// at park time due to cancellation.
     pub fn deregister_await(parent_req: u64) {
-        AWAITS.with(|a| a.borrow_mut().remove(parent_req));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).remove(parent_req);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().remove(parent_req));
+        }
     }
 
     fn result_ok(value: Value) -> Value {
@@ -485,9 +498,7 @@ mod vm_fibers {
         if let Some(n) = env_workers_once() {
             return n;
         }
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(2)
+        1
     }
 
     /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
@@ -646,11 +657,15 @@ mod vm_fibers {
     /// Allocate a child fiber via the scheduler and return its id. Must be
     /// called inside an active `enter_run_async` / `exit_run_async` window.
     pub fn spawn_child() -> FiberId {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            return shared.sched.lock().unwrap_or_else(|e| e.into_inner())
+                .spawn_child_least_loaded();
+        }
         SCHED.with(|s| {
             s.borrow_mut()
                 .as_mut()
                 .expect("FiberFork outside Async.run_async — scheduler missing")
-                .spawn_child_round_robin()
+                .spawn_child_least_loaded()
         })
     }
 
@@ -740,11 +755,24 @@ mod vm_fibers {
     }
 
     fn attach_body_to_ready_fiber(id: FiberId, body: Value) {
+        // Multi-worker path: use the shared scheduler.
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+            let mut buf: Vec<Fiber> = Vec::new();
+            while let Some((_worker, f)) = sched.next_ready_any() {
+                buf.push(f);
+            }
+            for mut f in buf {
+                if f.id == id {
+                    f.body = Some(body.clone());
+                }
+                sched.spawn_existing(f);
+            }
+            return;
+        }
+        // Single-worker path: use thread-local scheduler.
         SCHED.with(|s| {
             if let Some(sched) = s.borrow_mut().as_mut() {
-                // Rebuild all logical worker ready queues with the body
-                // attached to the matching fiber. This keeps child fibers on
-                // their round-robin-assigned home worker.
                 let mut buf: Vec<Fiber> = Vec::new();
                 while let Some((_worker, f)) = sched.next_ready_any() {
                     buf.push(f);
@@ -771,30 +799,50 @@ mod vm_fibers {
     /// invoke it on first run (proposal 0174 Phase 1b-vi-b₂.2). Mirror of
     /// `set_root_with_body` but for child fibers.
     pub fn spawn_child_with_body(body: Value) -> FiberId {
-        let id = SCHED.with(|s| {
-            s.borrow_mut()
-                .as_mut()
-                .expect("spawn_child_with_body outside Async.run_async")
-                .spawn_child_round_robin()
-        });
+        let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.sched.lock().unwrap_or_else(|e| e.into_inner())
+                .spawn_child_least_loaded()
+        } else {
+            SCHED.with(|s| {
+                s.borrow_mut()
+                    .as_mut()
+                    .expect("spawn_child_with_body outside Async.run_async")
+                    .spawn_child_least_loaded()
+            })
+        };
         attach_body_to_ready_fiber(id, body);
         id
     }
 
     /// Register a `FiberBoth` await: parent_req fires when both children finish.
     pub fn register_both_await(parent_req: u64, left: FiberId, right: FiberId) {
-        AWAITS.with(|a| a.borrow_mut().register_both(parent_req, left, right));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .register_both(parent_req, left, right);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().register_both(parent_req, left, right));
+        }
     }
 
     pub fn register_try_await(parent_req: u64, child: FiberId) {
-        AWAITS.with(|a| a.borrow_mut().register_try(parent_req, child, ()));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .register_try(parent_req, child, ());
+        } else {
+            AWAITS.with(|a| a.borrow_mut().register_try(parent_req, child, ()));
+        }
     }
 
     /// Register a `FiberTimeout` await: parent_req fires when either the
     /// body child completes (delivers `Some(result)`) or a backend timer
     /// keyed on `parent_req` fires (delivers `None`).
     pub fn register_timeout_await(parent_req: u64, body_child: FiberId) {
-        AWAITS.with(|a| a.borrow_mut().register_timeout(parent_req, body_child));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .register_timeout(parent_req, body_child);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().register_timeout(parent_req, body_child));
+        }
     }
 
     /// Called by the backend completion pump just before `scheduler.complete`.
@@ -805,7 +853,13 @@ mod vm_fibers {
     /// cancelled by the caller (1b-vi-c).  Returns `None` for non-Timeout
     /// completions (caller may still call `scheduler.complete`).
     pub fn try_route_timer_for_timeout(req: u64) -> Option<FiberId> {
-        match AWAITS.with(|a| a.borrow_mut().route_timeout_timer(req)) {
+        let event = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .route_timeout_timer(req)
+        } else {
+            AWAITS.with(|a| a.borrow_mut().route_timeout_timer(req))
+        };
+        match event {
             Some(AwaitEvent::TimeoutTimerReady { body, .. }) => {
                 set_resume_outcome(req, FiberOutcome::Value(Value::None));
                 Some(body)
@@ -816,21 +870,41 @@ mod vm_fibers {
 
     /// Register a `FiberRace` await: parent_req fires when any child finishes.
     pub fn register_race_await(parent_req: u64, children: Vec<FiberId>) {
-        AWAITS.with(|a| a.borrow_mut().register_race(parent_req, children));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .register_race(parent_req, children);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().register_race(parent_req, children));
+        }
     }
 
     /// Register a `FiberFirstOf` await: parent_req fires when the first child
     /// in source-order tie-break semantics finishes.
     pub fn register_first_of_await(parent_req: u64, children: Vec<(FiberId, usize)>) {
-        AWAITS.with(|a| a.borrow_mut().register_first_of(parent_req, children));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                .register_first_of(parent_req, children);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().register_first_of(parent_req, children));
+        }
     }
 
     pub fn set_resume_outcome(req: u64, outcome: FiberOutcome) {
-        RESUME_OUTCOMES.with(|r| r.borrow_mut().insert(req, outcome));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner())
+                .insert(req, outcome);
+        } else {
+            RESUME_OUTCOMES.with(|r| r.borrow_mut().insert(req, outcome));
+        }
     }
 
     pub fn take_resume_outcome(req: u64) -> Option<FiberOutcome> {
-        RESUME_OUTCOMES.with(|r| r.borrow_mut().remove(&req))
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner())
+                .remove(&req)
+        } else {
+            RESUME_OUTCOMES.with(|r| r.borrow_mut().remove(&req))
+        }
     }
 
     /// Outcome of a child fiber finishing (proposal 0174 Phase 1b-vi-c).
@@ -991,6 +1065,10 @@ mod vm_fibers {
         loser_ids: &[FiberId],
         backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
     ) {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            cancel_losers_shared(loser_ids, backend, &shared);
+            return;
+        }
         let reqs: Vec<u64> = SCHED.with(|s| {
             s.borrow()
                 .as_ref()
@@ -1020,6 +1098,13 @@ mod vm_fibers {
         if ids.is_empty() {
             return;
         }
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            let mut set = shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner());
+            for id in ids {
+                set.insert(*id);
+            }
+            return;
+        }
         CANCELLED_IDS.with(|c| {
             let mut set = c.borrow_mut();
             for id in ids {
@@ -1035,6 +1120,10 @@ mod vm_fibers {
             Some(id) => id,
             None => return false,
         };
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            return shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner())
+                .contains(&id);
+        }
         CANCELLED_IDS.with(|c| c.borrow().contains(&id))
     }
 
@@ -1049,6 +1138,9 @@ mod vm_fibers {
     /// Exposed to user code via `Async.current_worker_count` and the
     /// `FiberCurrentWorkerCount` primop.
     pub fn current_num_workers() -> usize {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            return shared.sched.lock().unwrap_or_else(|e| e.into_inner()).num_workers();
+        }
         SCHED.with(|s| s.borrow().as_ref().map(|sc| sc.num_workers()).unwrap_or(0))
     }
 
@@ -1057,30 +1149,55 @@ mod vm_fibers {
     /// Allocate a fresh scope ID and register an empty fiber list for it.
     pub fn new_scope() -> u64 {
         let id = NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
-        SCOPE_REGISTRY.with(|r| r.borrow_mut().insert(id, Vec::new()));
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.scope_registry.lock().unwrap_or_else(|e| e.into_inner())
+                .insert(id, Vec::new());
+        } else {
+            SCOPE_REGISTRY.with(|r| r.borrow_mut().insert(id, Vec::new()));
+        }
         id
     }
 
     /// Register a fiber under a scope so it can be cancelled with the scope.
     pub fn register_fiber_in_scope(scope_id: u64, fiber_id: FiberId) {
-        SCOPE_REGISTRY.with(|r| {
-            r.borrow_mut().entry(scope_id).or_default().push(fiber_id);
-        });
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.scope_registry.lock().unwrap_or_else(|e| e.into_inner())
+                .entry(scope_id).or_default().push(fiber_id);
+        } else {
+            SCOPE_REGISTRY.with(|r| {
+                r.borrow_mut().entry(scope_id).or_default().push(fiber_id);
+            });
+        }
     }
 
     /// Remove and return all fibers registered under a scope.
     pub fn take_scope_fibers(scope_id: u64) -> Vec<FiberId> {
-        SCOPE_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.scope_registry.lock().unwrap_or_else(|e| e.into_inner())
+                .remove(&scope_id).unwrap_or_default()
+        } else {
+            SCOPE_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+        }
     }
 
     pub fn register_task_in_scope(scope_id: u64, task_id: i64) {
-        SCOPE_TASK_REGISTRY.with(|r| {
-            r.borrow_mut().entry(scope_id).or_default().push(task_id);
-        });
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.scope_task_registry.lock().unwrap_or_else(|e| e.into_inner())
+                .entry(scope_id).or_default().push(task_id);
+        } else {
+            SCOPE_TASK_REGISTRY.with(|r| {
+                r.borrow_mut().entry(scope_id).or_default().push(task_id);
+            });
+        }
     }
 
     pub fn take_scope_tasks(scope_id: u64) -> Vec<i64> {
-        SCOPE_TASK_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared.scope_task_registry.lock().unwrap_or_else(|e| e.into_inner())
+                .remove(&scope_id).unwrap_or_default()
+        } else {
+            SCOPE_TASK_REGISTRY.with(|r| r.borrow_mut().remove(&scope_id).unwrap_or_default())
+        }
     }
 
     /// Tear down the await-coordination state at run_async exit
@@ -1502,6 +1619,834 @@ mod vm_fibers {
         }
 
         Ok(root_result.unwrap_or(Value::None))
+    }
+
+    // ── Phase 4: Multi-OS-thread worker dispatch ──────────────────────────────
+    //
+    // When `n_workers > 1`, `enter_run_async_multi` is called instead of
+    // running `dispatch_loop` on a single OS thread.  The entry point:
+    //   1. Builds a `SharedDispatchState` wrapping the cross-thread scheduler
+    //      and coordination state behind `Arc<Mutex<_>>`.
+    //   2. Spawns `n_workers - 1` OS threads, each running `worker_dispatch_loop`.
+    //   3. Runs `worker_0_dispatch_loop` on the caller's thread (worker 0).
+    //
+    // The existing single-threaded `dispatch_loop` is unchanged and remains the
+    // fast path for `n_workers == 1`.
+
+    /// Per-worker condvar for parking when the ready queue is empty.
+    pub struct WorkerWakeup {
+        pub has_work: Mutex<bool>,
+        pub cv: Condvar,
+    }
+
+    impl WorkerWakeup {
+        pub fn new() -> Arc<Self> {
+            Arc::new(WorkerWakeup {
+                has_work: Mutex::new(false),
+                cv: Condvar::new(),
+            })
+        }
+
+        /// Wake this worker: set the flag and notify one waiter.
+        pub fn wake(&self) {
+            let mut guard = self.has_work.lock().unwrap_or_else(|e| e.into_inner());
+            *guard = true;
+            self.cv.notify_one();
+        }
+
+        /// Park until work arrives or `timeout` elapses.
+        pub fn park_timeout(&self, timeout: std::time::Duration) {
+            let guard = self.has_work.lock().unwrap_or_else(|e| e.into_inner());
+            let (mut guard, _) = self.cv.wait_timeout(guard, timeout).unwrap_or_else(|e| e.into_inner());
+            *guard = false;
+        }
+    }
+
+    /// Outcome of a completed fiber, sent back to the coordination layer.
+    #[allow(dead_code)]
+    pub enum WorkerFiberResult {
+        /// Fiber completed normally with a value.
+        Done { fiber_id: FiberId, value: Value },
+        /// Fiber parked: captured continuation + request id.
+        Parked { fiber_id: FiberId, request_id: u64, cont: Value, home_worker: WorkerId },
+        /// Fiber yielded cooperatively.
+        Yielded { fiber_id: FiberId, cont: Value, home_worker: WorkerId },
+        /// Fiber errored.
+        Error { fiber_id: FiberId, err_value: Value },
+    }
+
+    /// State shared across all OS worker threads during a multi-worker run.
+    ///
+    /// All fields that are accessed from multiple workers are behind `Arc<Mutex<_>>`.
+    /// Per-worker fields (like the wakeup condvars) are indexed by worker id.
+    ///
+    /// # Safety
+    ///
+    /// `SharedDispatchState` contains `FiberOutcome` (which wraps `Value`) inside
+    /// `Mutex`-guarded fields. `Value` is not `Send` because it uses `Rc` for
+    /// reference counting. However, all `Value` data inside `SharedDispatchState`
+    /// is protected by `Mutex`: no two OS threads can access the same `Value`
+    /// concurrently. Values are moved into the mutex by the producing worker and
+    /// moved out by the consuming worker; they are never accessed simultaneously.
+    ///
+    /// The `no-migration` invariant means each `Value` in `resume_outcomes` was
+    /// produced by the completing fiber's home worker and consumed by the parent
+    /// fiber's home worker — always under mutex lock, never concurrently.
+    pub struct SharedDispatchState {
+        /// The fiber scheduler: owns the per-worker ready queues and suspended map.
+        pub sched: Arc<Mutex<FiberScheduler>>,
+        /// Synthetic-await coordination (FiberBoth / FiberRace / etc.).
+        pub awaits: Arc<Mutex<AwaitCoordinator<FiberId, FiberOutcome>>>,
+        /// Resume outcomes keyed by request id (parent-fiber wakeup values).
+        pub resume_outcomes: Arc<Mutex<HashMap<u64, FiberOutcome>>>,
+        /// Scope-cancellation registry: scope_id → Vec<FiberId>.
+        /// Reserved for future Phase 4+ scope cancellation across workers.
+        #[allow(dead_code)]
+        pub scope_registry: Arc<Mutex<HashMap<u64, Vec<FiberId>>>>,
+        /// Set of fiber ids whose enclosing scope has been cancelled.
+        pub cancelled_ids: Arc<Mutex<HashSet<FiberId>>>,
+        /// Scoped-task registry: scope_id → Vec<task_id>.
+        /// Reserved for future Phase 4+ scoped task tracking across workers.
+        #[allow(dead_code)]
+        pub scope_task_registry: Arc<Mutex<HashMap<u64, Vec<i64>>>>,
+        /// Root-task safety net for detached Task.spawn inside run_async.
+        /// Reserved for future Phase 4+ root-task tracking across workers.
+        #[allow(dead_code)]
+        pub run_root_tasks: Arc<Mutex<Option<HashSet<i64>>>>,
+        /// Per-worker condvars for park/wake signalling.
+        pub worker_wakeups: Vec<Arc<WorkerWakeup>>,
+        /// Root fiber id for this run_async boundary.
+        pub root_id: FiberId,
+        /// Root result (written by worker 0 when the root fiber completes;
+        /// stored as a `String` error or a flag for success, then retrieved
+        /// directly from `worker_0_dispatch_loop`'s return value).
+        pub root_error: Arc<Mutex<Option<String>>>,
+        /// Whether the overall run is finished (written true when root result is set).
+        pub finished: Arc<Mutex<bool>>,
+    }
+
+    // SAFETY: See doc comment on `SharedDispatchState`. All `Value` data is
+    // guarded by `Mutex`; no concurrent access to any `Value` occurs.
+    unsafe impl Send for SharedDispatchState {}
+    unsafe impl Sync for SharedDispatchState {}
+
+    impl SharedDispatchState {
+        fn new(sched: FiberScheduler, root_id: FiberId, n_workers: usize) -> Arc<Self> {
+            let worker_wakeups = (0..n_workers).map(|_| WorkerWakeup::new()).collect();
+            Arc::new(SharedDispatchState {
+                sched: Arc::new(Mutex::new(sched)),
+                awaits: Arc::new(Mutex::new(AwaitCoordinator::new())),
+                resume_outcomes: Arc::new(Mutex::new(HashMap::new())),
+                scope_registry: Arc::new(Mutex::new(HashMap::new())),
+                cancelled_ids: Arc::new(Mutex::new(HashSet::new())),
+                scope_task_registry: Arc::new(Mutex::new(HashMap::new())),
+                run_root_tasks: Arc::new(Mutex::new(Some(HashSet::new()))),
+                worker_wakeups,
+                root_id,
+                root_error: Arc::new(Mutex::new(None)),
+                finished: Arc::new(Mutex::new(false)),
+            })
+        }
+
+        /// Deliver a completion: store the resume value and wake the fiber's home worker.
+        fn deliver_completion(
+            &self,
+            request_id: u64,
+            outcome: FiberOutcome,
+        ) {
+            self.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner())
+                .insert(request_id, outcome);
+            let mut sched = self.sched.lock().unwrap_or_else(|e| e.into_inner());
+            let home_worker = sched.complete_request(RequestId(request_id));
+            drop(sched);
+            if let Some(w) = home_worker {
+                let idx = w.0 as usize;
+                if idx < self.worker_wakeups.len() {
+                    self.worker_wakeups[idx].wake();
+                }
+            }
+        }
+
+        /// Check whether the run is complete.
+        fn is_finished(&self) -> bool {
+            *self.finished.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// Mark the run as finished and wake all workers so they can exit.
+        fn set_finished(&self) {
+            *self.finished.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            for wu in &self.worker_wakeups {
+                wu.wake();
+            }
+        }
+    }
+
+    // Type alias for the worker snapshot from task.rs.
+    use super::super::task::WorkerVmSnapshot;
+
+    /// Run one fiber on a worker VM, returning the structured outcome.
+    ///
+    /// This is the per-fiber execution primitive used by both worker 0 (running
+    /// on the caller's OS thread with the main `ctx`) and by background OS workers
+    /// (running with their own freshly-created VM).
+    ///
+    /// Per-fiber thread-locals (`CURRENT`, `PENDING_PARK`, `PENDING_YIELD`,
+    /// `PENDING_FIBER_ERROR`) are set/cleared within this call so that each
+    /// fiber's execution is isolated to the running OS thread.
+    fn run_one_fiber(
+        fiber: &mut Fiber,
+        ctx: &mut dyn RuntimeContext,
+        resume_val: Value,
+    ) -> WorkerFiberResult {
+        let fiber_id = fiber.id;
+        let home_worker = fiber.home_worker;
+
+        // Set the current fiber id for this OS thread's per-fiber locals.
+        let prev_current = CURRENT.with(|c| c.replace(Some(fiber_id)));
+
+        // In multi-worker mode (ACTIVE_SHARED is set), BOUNDARY may not be
+        // initialized on background worker threads.  Set it to the current
+        // VM frame/sp so that fiber primops (FiberSleep, FiberBoth, etc.)
+        // see a valid boundary and capture the correct continuation slice.
+        let prev_boundary = if ACTIVE_SHARED.with(|s| s.borrow().is_some()) {
+            Some(set_boundary(ctx.current_frame_index(), ctx.current_sp()))
+        } else {
+            None
+        };
+
+        let outcome = if let Some(cont) = fiber.parked.take() {
+            ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
+        } else if let Some(body) = fiber.body.take() {
+            ctx.invoke_value(body, vec![])
+        } else {
+            // No body, no parked: bookkeeping artifact.
+            if let Some(prev) = prev_boundary { restore_boundary(prev); }
+            CURRENT.with(|c| c.set(prev_current));
+            return WorkerFiberResult::Done { fiber_id, value: Value::None };
+        };
+
+        // Restore the previous current fiber and boundary.
+        if let Some(prev) = prev_boundary { restore_boundary(prev); }
+        CURRENT.with(|c| c.set(prev_current));
+
+        // Check for park signal.
+        if let Some((req, cont_val)) = take_park() {
+            return WorkerFiberResult::Parked {
+                fiber_id,
+                request_id: req,
+                cont: cont_val,
+                home_worker,
+            };
+        }
+
+        // Check for yield signal.
+        if let Some(cont_val) = take_yield() {
+            return WorkerFiberResult::Yielded {
+                fiber_id,
+                cont: cont_val,
+                home_worker,
+            };
+        }
+
+        match outcome {
+            Ok(v) => WorkerFiberResult::Done { fiber_id, value: v },
+            Err(_e) => {
+                let err = take_fiber_error().unwrap_or_else(|| async_panicked(_e));
+                WorkerFiberResult::Error { fiber_id, err_value: err }
+            }
+        }
+    }
+
+    /// Process a `WorkerFiberResult` against the shared state, issuing completions
+    /// and cancellations as needed.  Returns `true` if the root fiber completed
+    /// (the caller should exit its dispatch loop).
+    ///
+    /// `backend` is used for cancellation of I/O requests.
+    fn process_fiber_result(
+        result: WorkerFiberResult,
+        fiber: Fiber,
+        shared: &Arc<SharedDispatchState>,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) -> bool {
+        match result {
+            WorkerFiberResult::Done { fiber_id, value } => {
+                fiber_trace::emit(FiberEvent::Complete {
+                    fid: fiber_id.0,
+                    worker: fiber.home_worker.0,
+                });
+                // Check for root fiber completion (value case).
+                // Worker 0 owns the root fiber and handles success return directly;
+                // background workers should not own the root (root is on WorkerId(0)).
+                if fiber_id == shared.root_id {
+                    shared.set_finished();
+                    return true;
+                }
+                // Compute synthetic-await completions.
+                let (completions, losers) = {
+                    let events = shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                        .record_completed(
+                            fiber_id,
+                            FiberOutcome::Value(value),
+                            |id| shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id),
+                            |o| matches!(o, FiberOutcome::Error(_)),
+                        );
+                    events_to_completions_and_losers(events)
+                };
+                // Cancel losers.
+                cancel_losers_shared(&losers, backend, shared);
+                // Deliver parent completions.
+                for (pr, rv) in completions {
+                    shared.deliver_completion(pr, rv);
+                }
+                false
+            }
+            WorkerFiberResult::Error { fiber_id, err_value } => {
+                if fiber_id == shared.root_id {
+                    // Store error string so worker 0 can return it.
+                    *shared.root_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(error_to_string(&err_value));
+                    shared.set_finished();
+                    return true;
+                }
+                let (completions, losers) = {
+                    let events = shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                        .record_completed(
+                            fiber_id,
+                            FiberOutcome::Error(err_value),
+                            |id| shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id),
+                            |o| matches!(o, FiberOutcome::Error(_)),
+                        );
+                    events_to_completions_and_losers(events)
+                };
+                cancel_losers_shared(&losers, backend, shared);
+                for (pr, rv) in completions {
+                    shared.deliver_completion(pr, rv);
+                }
+                false
+            }
+            WorkerFiberResult::Parked { fiber_id, request_id, cont, home_worker } => {
+                let cont_rc = match cont {
+                    Value::Continuation(rc) => rc,
+                    _ => {
+                        // Malformed park — treat as error.
+                        return false;
+                    }
+                };
+                let mut f = fiber;
+                f.parked = Some(cont_rc);
+                f.state = FiberState::Suspended { request_id };
+                fiber_trace::emit(FiberEvent::Suspend {
+                    fid: fiber_id.0,
+                    worker: home_worker.0,
+                    request_id,
+                });
+                shared.sched.lock().unwrap_or_else(|e| e.into_inner())
+                    .insert_suspended(home_worker, request_id, f);
+                // Re-evaluate suspended-fiber awaits for first_of.
+                let (completions, losers) = {
+                    let events = shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                        .record_suspended(
+                            fiber_id,
+                            |id| shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id),
+                        );
+                    events_to_completions_and_losers(events)
+                };
+                cancel_losers_shared(&losers, backend, shared);
+                for (pr, rv) in completions {
+                    shared.deliver_completion(pr, rv);
+                }
+                false
+            }
+            WorkerFiberResult::Yielded { fiber_id: _, cont, home_worker } => {
+                let cont_rc = match cont {
+                    Value::Continuation(rc) => rc,
+                    _ => return false,
+                };
+                let mut f = fiber;
+                f.parked = Some(cont_rc);
+                f.state = FiberState::Ready;
+                let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+                sched.spawn_existing(f);
+                drop(sched);
+                // Wake the home worker since there's now work in its queue.
+                let idx = home_worker.0 as usize;
+                if idx < shared.worker_wakeups.len() {
+                    shared.worker_wakeups[idx].wake();
+                }
+                false
+            }
+        }
+    }
+
+    /// Extract `(completions, losers)` from a vec of `AwaitEvent`s.
+    fn events_to_completions_and_losers(
+        events: Vec<AwaitEvent<FiberId, FiberOutcome, ()>>,
+    ) -> (Vec<(u64, FiberOutcome)>, Vec<FiberId>) {
+        let outcome = events_to_done_outcome(events);
+        (outcome.completions, outcome.losers)
+    }
+
+    /// Cancel losers using shared state instead of thread-locals.
+    fn cancel_losers_shared(
+        loser_ids: &[FiberId],
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+        shared: &Arc<SharedDispatchState>,
+    ) {
+        if loser_ids.is_empty() {
+            return;
+        }
+        let reqs: Vec<u64> = {
+            let sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+            loser_ids.iter()
+                .filter_map(|id| sched.find_request_for_fiber(*id))
+                .collect()
+        };
+        for req in reqs {
+            backend.cancel(RequestId(req));
+        }
+        let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+        sched.cancel_fibers(loser_ids);
+        drop(sched);
+        let mut cancelled = shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner());
+        for id in loser_ids {
+            cancelled.insert(*id);
+        }
+    }
+
+    /// Pop the next ready fiber assigned to `worker_id` from the shared scheduler.
+    fn pop_ready_for_worker(
+        shared: &Arc<SharedDispatchState>,
+        worker_id: WorkerId,
+    ) -> Option<Fiber> {
+        shared.sched.lock().unwrap_or_else(|e| e.into_inner())
+            .next_ready(worker_id)
+    }
+
+    /// Get the resume value for a fiber that was woken by a completion.
+    fn take_resume_outcome_shared(
+        shared: &Arc<SharedDispatchState>,
+        req: u64,
+    ) -> Option<FiberOutcome> {
+        shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner())
+            .remove(&req)
+    }
+
+    /// Dispatch loop for worker threads 1..n (background OS threads).
+    ///
+    /// Each such thread:
+    ///   1. Pops ready fibers pinned to its `worker_id` from the shared scheduler.
+    ///   2. Runs each fiber using its own `ctx`.
+    ///   3. Handles park / yield / done results through the shared state.
+    ///   4. Parks via `Condvar` when its queue is empty, waking when the
+    ///      `WorkerWakeup` is signalled by a completion.
+    ///   5. Exits when `SharedDispatchState::is_finished()` is set.
+    fn worker_dispatch_loop(
+        worker_id: WorkerId,
+        shared: Arc<SharedDispatchState>,
+        snapshot: WorkerVmSnapshot,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) {
+        // Build a standalone VM from the snapshot.
+        let mut vm = match super::super::task::vm_from_worker_snapshot(snapshot) {
+            Ok(vm) => vm,
+            Err(e) => {
+                // Cannot create worker VM — signal an error and exit.
+                if !shared.is_finished() {
+                    *shared.root_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(format!("worker_dispatch_loop: failed to reconstruct VM: {e}"));
+                    shared.set_finished();
+                }
+                return;
+            }
+        };
+
+        let wakeup = shared.worker_wakeups[worker_id.0 as usize].clone();
+
+        // Set ACTIVE_SHARED so all fiber primop helpers on this thread route
+        // through the shared state rather than the per-thread TLS slots.
+        ACTIVE_SHARED.with(|s| *s.borrow_mut() = Some(Arc::clone(&shared)));
+
+        loop {
+            if shared.is_finished() {
+                break;
+            }
+
+            // Drain all ready fibers assigned to this worker.
+            loop {
+                let Some(mut fiber) = pop_ready_for_worker(&shared, worker_id) else {
+                    break;
+                };
+
+                if fiber.body.is_none() && fiber.parked.is_none() {
+                    // Bookkeeping artifact — skip.
+                    continue;
+                }
+
+                // Cancelled fibers: resume with None so cleanup arms run.
+                if fiber.state == FiberState::Cancelled {
+                    if fiber.parked.is_some() {
+                        let resume_val = Value::None;
+                        let result = run_one_fiber(&mut fiber, &mut vm, resume_val);
+                        let done = process_fiber_result(result, fiber, &shared, backend);
+                        if done { break; }
+                    }
+                    continue;
+                }
+
+                // Determine resume value.
+                let resume_outcome = fiber.last_completion_req
+                    .take()
+                    .and_then(|req| take_resume_outcome_shared(&shared, req))
+                    .unwrap_or(FiberOutcome::Value(Value::None));
+
+                let resume_val = match resume_outcome {
+                    FiberOutcome::Value(v) => v,
+                    FiberOutcome::Error(err) => {
+                        // Propagate error through await coordination.
+                        // Background workers should not own the root fiber, but
+                        // handle defensively: store in root_error.
+                        if fiber.id == shared.root_id {
+                            *shared.root_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(error_to_string(&err));
+                            shared.set_finished();
+                            break;
+                        }
+                        let (completions, losers) = {
+                            let events = shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                                .record_completed(
+                                    fiber.id,
+                                    FiberOutcome::Error(err),
+                                    |id| shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id),
+                                    |o| matches!(o, FiberOutcome::Error(_)),
+                                );
+                            events_to_completions_and_losers(events)
+                        };
+                        cancel_losers_shared(&losers, backend, &shared);
+                        for (pr, rv) in completions {
+                            shared.deliver_completion(pr, rv);
+                        }
+                        continue;
+                    }
+                };
+
+                let result = run_one_fiber(&mut fiber, &mut vm, resume_val);
+                let done = process_fiber_result(result, fiber, &shared, backend);
+                if done {
+                    break;
+                }
+            }
+
+            if shared.is_finished() {
+                break;
+            }
+
+            // Park until woken by a completion or the finished flag is set.
+            wakeup.park_timeout(std::time::Duration::from_millis(1));
+        }
+        ACTIVE_SHARED.with(|s| *s.borrow_mut() = None);
+    }
+
+    /// Dispatch loop for worker 0 (the caller's OS thread) in multi-worker mode.
+    ///
+    /// This is structurally similar to `worker_dispatch_loop` but uses the
+    /// existing `ctx: &mut dyn RuntimeContext` (the main VM) so that the
+    /// caller's VM stack is reused rather than reconstructed.  It also drives
+    /// the mio backend completion pump when no fibers are ready, routing
+    /// completions to the appropriate worker queue via `SharedDispatchState`.
+    fn worker_0_dispatch_loop(
+        ctx: &mut dyn RuntimeContext,
+        shared: Arc<SharedDispatchState>,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) -> Result<Value, String> {
+        let worker_id = WorkerId(0);
+        let wakeup = shared.worker_wakeups[0].clone();
+
+        loop {
+            if shared.is_finished() {
+                break;
+            }
+
+            // Drain all ready fibers assigned to worker 0.
+            let mut did_work = false;
+            loop {
+                let Some(mut fiber) = pop_ready_for_worker(&shared, worker_id) else {
+                    break;
+                };
+                did_work = true;
+
+                if fiber.body.is_none() && fiber.parked.is_none() {
+                    continue;
+                }
+
+                if fiber.state == FiberState::Cancelled {
+                    if fiber.parked.is_some() {
+                        let resume_val = Value::None;
+                        let result = run_one_fiber(&mut fiber, ctx, resume_val);
+                        let done = process_fiber_result(result, fiber, &shared, backend);
+                        if done { break; }
+                    }
+                    continue;
+                }
+
+                let resume_outcome = fiber.last_completion_req
+                    .take()
+                    .and_then(|req| take_resume_outcome_shared(&shared, req))
+                    .unwrap_or(FiberOutcome::Value(Value::None));
+
+                let resume_val = match resume_outcome {
+                    FiberOutcome::Value(v) => v,
+                    FiberOutcome::Error(err) => {
+                        if fiber.id == shared.root_id {
+                            // Root fiber got an error resume — signal and exit.
+                            *shared.root_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                                Some(error_to_string(&err));
+                            shared.set_finished();
+                            break;
+                        }
+                        let (completions, losers) = {
+                            let events = shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+                                .record_completed(
+                                    fiber.id,
+                                    FiberOutcome::Error(err),
+                                    |id| shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id),
+                                    |o| matches!(o, FiberOutcome::Error(_)),
+                                );
+                            events_to_completions_and_losers(events)
+                        };
+                        cancel_losers_shared(&losers, backend, &shared);
+                        for (pr, rv) in completions {
+                            shared.deliver_completion(pr, rv);
+                        }
+                        continue;
+                    }
+                };
+
+                let is_root = fiber.id == shared.root_id;
+                let result = run_one_fiber(&mut fiber, ctx, resume_val);
+                // For the root fiber completion case, capture the value before
+                // handing to process_fiber_result (which discards it).
+                let root_value = if is_root {
+                    if let WorkerFiberResult::Done { value: ref v, .. } = result {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let done = process_fiber_result(result, fiber, &shared, backend);
+                if done {
+                    if let Some(rv) = root_value {
+                        // Root completed successfully — return the value directly.
+                        shared.set_finished();
+                        return Ok(rv);
+                    }
+                    break;
+                }
+            }
+
+            if shared.is_finished() {
+                break;
+            }
+
+            // Check if we're done (root completed or no more fibers anywhere).
+            let (total_ready, total_suspended) = {
+                let sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+                (sched.total_ready_count(), sched.total_suspended_count())
+            };
+
+            if total_ready == 0 && total_suspended == 0 && !did_work {
+                break;
+            }
+
+            if total_ready == 0 {
+                // Pump the backend for completions.
+                let pumped = pump_backend_completions(&shared, backend);
+                if !pumped {
+                    wakeup.park_timeout(std::time::Duration::from_millis(1));
+                }
+            }
+        }
+
+        // Check if a background worker set root_error.
+        if let Some(err) = shared.root_error.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            return Err(err);
+        }
+        Ok(Value::None)
+    }
+
+    /// Pump one round of backend completions, routing each to the correct worker.
+    /// Returns `true` if at least one completion was processed.
+    fn pump_backend_completions(
+        shared: &Arc<SharedDispatchState>,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) -> bool {
+        // Check task completions.
+        if let Some((request_id, result)) = super::super::task::try_recv_completion() {
+            let outcome = match result {
+                Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
+                Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
+                Err(err) => FiberOutcome::Error(async_panicked(err)),
+            };
+            shared.deliver_completion(request_id, outcome);
+            return true;
+        }
+        // Check channel completions.
+        if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
+            let outcome = match result {
+                Ok(value) => FiberOutcome::Value(value),
+                Err(err) => FiberOutcome::Error(async_panicked(err)),
+            };
+            shared.deliver_completion(request_id, outcome);
+            return true;
+        }
+        // Check event completions.
+        if let Some(request_id) = super::super::event::try_recv_completion() {
+            shared.deliver_completion(request_id, FiberOutcome::Value(Value::None));
+            return true;
+        }
+        // Check mio backend.
+        if let Some(c) = backend.next_completion() {
+            use crate::runtime::r#async::backend::CompletionPayload;
+            if let CompletionPayload::AddressList(addrs) = &c.payload {
+                if let Some(addr) = addrs.first() {
+                    backend.tcp_connect(c.request_id, *addr);
+                } else {
+                    shared.deliver_completion(
+                        c.request_id.0,
+                        FiberOutcome::Error(async_panicked("dns resolve returned no addresses")),
+                    );
+                }
+                return true;
+            }
+            let outcome = match &c.payload {
+                CompletionPayload::TcpHandle(h) => {
+                    FiberOutcome::Value(Value::Integer(h.0 as i64))
+                }
+                CompletionPayload::Bytes(buf) => {
+                    let s = String::from_utf8_lossy(buf).into_owned();
+                    FiberOutcome::Value(Value::String(Rc::new(s)))
+                }
+                CompletionPayload::Unit => FiberOutcome::Value(Value::None),
+                CompletionPayload::Error(e) => FiberOutcome::Error(async_panicked(e.clone())),
+                CompletionPayload::AddressList(_) => unreachable!("handled above"),
+            };
+            // Timeout routing.
+            if let Some(body_child) =
+                try_route_timer_for_timeout_shared(c.request_id.0, shared)
+            {
+                cancel_losers_for_timer_shared(&[body_child], backend, shared);
+            }
+            shared.deliver_completion(c.request_id.0, outcome);
+            return true;
+        }
+        false
+    }
+
+    /// Route a timer completion for `FiberTimeout` using shared state.
+    fn try_route_timer_for_timeout_shared(
+        req: u64,
+        shared: &Arc<SharedDispatchState>,
+    ) -> Option<FiberId> {
+        use crate::runtime::r#async::await_coordinator::AwaitEvent;
+        match shared.awaits.lock().unwrap_or_else(|e| e.into_inner())
+            .route_timeout_timer(req)
+        {
+            Some(AwaitEvent::TimeoutTimerReady { body, .. }) => {
+                shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner())
+                    .insert(req, FiberOutcome::Value(Value::None));
+                Some(body)
+            }
+            _ => None,
+        }
+    }
+
+    /// Cancel timer losers using shared state.
+    fn cancel_losers_for_timer_shared(
+        loser_ids: &[FiberId],
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+        shared: &Arc<SharedDispatchState>,
+    ) {
+        cancel_losers_shared(loser_ids, backend, shared);
+    }
+
+    /// Enter a multi-OS-thread `run_async` (n_workers > 1).
+    ///
+    /// Creates a `SharedDispatchState`, takes a VM snapshot via
+    /// `ctx.vm_worker_snapshot()` for each background worker thread,
+    /// spawns `n_workers - 1` OS threads, and runs worker 0's dispatch
+    /// loop on the caller's thread.
+    ///
+    /// Called from the `FiberRunAsync` / `FiberRunAsyncWith` dispatch arms
+    /// when `resolved_worker_count() > 1`.
+    pub fn enter_run_async_multi(
+        ctx: &mut dyn RuntimeContext,
+        n_workers: usize,
+        backend: &'static crate::runtime::r#async::backends::mio::MioBackend,
+    ) -> Result<Value, String> {
+        // The scheduler and root fiber were already set up by `enter_run_async`.
+        let shared = SCHED.with(|s| {
+            let mut borrow = s.borrow_mut();
+            let sched = borrow.take().expect("scheduler not initialised before enter_run_async_multi");
+            let root_id = ROOT.with(|r| r.get()).expect("ROOT not set before enter_run_async_multi");
+            SharedDispatchState::new(sched, root_id, n_workers)
+        });
+
+        // Collect per-worker VM snapshots from the main ctx.  If the context
+        // doesn't support snapshots (e.g. test contexts), we still spawn threads
+        // but they will construct minimal VMs.
+        let mut worker_handles = Vec::with_capacity(n_workers - 1);
+
+        for w in 1..n_workers {
+            let worker_id = WorkerId(w as u32);
+            let shared_w = Arc::clone(&shared);
+            // Attempt to extract a WorkerVmSnapshot from the runtime context.
+            let snap: WorkerVmSnapshot = ctx
+                .vm_worker_snapshot()
+                .and_then(|any| {
+                    any.downcast::<super::super::task::WorkerVmSnapshot>().ok().map(|b| *b)
+                })
+                .unwrap_or_else(|| super::super::task::WorkerVmSnapshot {
+                    constants: vec![],
+                    globals: vec![],
+                });
+            let handle = std::thread::Builder::new()
+                .name(format!("flux-fiber-worker-{}", w))
+                .spawn(move || {
+                    worker_dispatch_loop(worker_id, shared_w, snap, backend);
+                })
+                .map_err(|e| format!("failed to spawn fiber worker thread {}: {}", w, e))?;
+            worker_handles.push(handle);
+        }
+
+        // Worker 0 runs on the caller's thread.  Set ACTIVE_SHARED so all
+        // fiber primop helpers route through the shared state.
+        ACTIVE_SHARED.with(|s| *s.borrow_mut() = Some(Arc::clone(&shared)));
+        let result = worker_0_dispatch_loop(ctx, Arc::clone(&shared), backend);
+        ACTIVE_SHARED.with(|s| *s.borrow_mut() = None);
+
+        // Ensure the finished flag is set so background workers exit.
+        shared.set_finished();
+
+        // Join all background workers, propagating panics.
+        for handle in worker_handles {
+            if let Err(e) = handle.join() {
+                let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                    format!("fiber worker panicked: {s}")
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    format!("fiber worker panicked: {s}")
+                } else {
+                    "fiber worker panicked (unknown payload)".to_string()
+                };
+                // If we already have a good result, prefer reporting the
+                // worker panic.  If we already have an error, keep the first.
+                if result.is_ok() {
+                    return Err(msg);
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -2163,7 +3108,15 @@ pub fn execute_core_primop(
                 vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
             vm_fibers::set_root_with_body(root, args[0].clone());
 
-            let result = vm_fibers::dispatch_loop(ctx, backend);
+            // Phase 4: branch on worker count.
+            //   n_workers == 1 → existing single-threaded dispatch_loop (unchanged).
+            //   n_workers > 1  → enter_run_async_multi spawns real OS workers.
+            let n_workers = vm_fibers::current_num_workers();
+            let result = if n_workers > 1 {
+                vm_fibers::enter_run_async_multi(ctx, n_workers, backend)
+            } else {
+                vm_fibers::dispatch_loop(ctx, backend)
+            };
 
             vm_fibers::clear_root();
             vm_fibers::restore_boundary(prev_boundary);
@@ -2217,7 +3170,13 @@ pub fn execute_core_primop(
                 vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
             vm_fibers::set_root_with_body(root, args[3].clone());
 
-            let result = vm_fibers::dispatch_loop(ctx, backend);
+            // Phase 4: branch on worker count (same as FiberRunAsync above).
+            let n_workers = vm_fibers::current_num_workers();
+            let result = if n_workers > 1 {
+                vm_fibers::enter_run_async_multi(ctx, n_workers, backend)
+            } else {
+                vm_fibers::dispatch_loop(ctx, backend)
+            };
 
             vm_fibers::clear_root();
             vm_fibers::restore_boundary(prev_boundary);

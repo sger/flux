@@ -660,6 +660,10 @@ impl RuntimeContext for VM {
         self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
     }
 
+    fn vm_worker_snapshot(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        Some(Box::new(self.worker_vm_snapshot()))
+    }
+
     fn resume_from_dispatch(&mut self, cont: Value, resume_val: Value) -> Result<Value, String> {
         let entry_frame_index = self.frame_index;
         // execute_resume pops [cont, resume_val] off the stack and splices

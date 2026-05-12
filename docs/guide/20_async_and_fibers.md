@@ -126,9 +126,30 @@ A **fiber** is a unit of cooperative concurrency. Think of it as a lightweight t
 
 - A fiber is much cheaper than an OS thread. You can have thousands of them.
 - A fiber **only suspends at well-defined points**: `sleep`, `yield_now`, I/O, `both` / `race`, anywhere a `with Async` operation might wait. Between those points, your code runs uninterrupted.
-- All fibers in a `run_async` block share a small pool of OS workers (default: number of CPU cores). The runtime moves runnable fibers onto idle workers.
+- All fibers in a `run_async` block share the runtime's worker pool.
+  On the **native backend** (compiled with `--native`) this is a pool of real
+  OS threads (default: `available_parallelism()`, overridable via `FLUX_WORKERS`
+  or `run_async_with_workers`). On the **VM** (the default interpreter) there
+  is exactly **one OS thread** — the caller's — and `worker_count` creates
+  logical FIFO queues drained on that thread. VM fibers overlap on I/O and
+  sleeps but never run in parallel.
 
 This is **cooperative** scheduling: a fiber has to *choose* to yield. Compare this to OS threads, which the kernel can preempt at any instruction boundary. Cooperation is simpler to reason about — you know exactly where another fiber might run — but it means a CPU-bound fiber that never yields will hog its worker.
+
+> **VM vs native — concurrency model**
+>
+> |  | VM (default interpreter) | Native (`--native`) |
+> |---|---|---|
+> | Fiber OS threads | 1 (caller's thread) | `worker_count` real OS threads |
+> | `worker_count` effect | Logical FIFO queues | Real worker thread pool |
+> | CPU-bound fiber starvation | Yes — one fiber pegs the one core | Reduced — idle workers pick up ready fibers |
+> | Fiber-level parallelism | No | Yes |
+> | Parallelism path | `Task.spawn` / `Task.await` | `Task.spawn` or fibers across workers |
+>
+> Most async programs — I/O-bound servers, concurrent HTTP clients, select loops —
+> work correctly on both backends. The difference only matters when you have
+> CPU-bound work: on the VM, use `Task.spawn`; on native, fibers across workers
+> are also an option.
 
 If you're CPU-bound (no I/O, no sleeps), insert a `yield_now()` periodically:
 
@@ -403,6 +424,11 @@ fn wait_one(ch) -> String with Async {
 
 Fibers share OS threads. If you have CPU-bound work that should run *in parallel* on multiple cores, use `Task.spawn`:
 
+> **On the VM**, `Task.spawn` is the *only* way to achieve CPU parallelism.
+> VM fibers run cooperatively on one OS thread; spawning more fibers does not
+> use more cores. `Task.spawn` crosses a `Sendable` deep-copy boundary into
+> an isolated worker VM on a real OS thread, so the two sides run in parallel.
+
 ```flux
 import Flow.Task as Task
 
@@ -468,6 +494,7 @@ Read it top to bottom. Each `with Async` call is a potential suspension point; t
 - **Spawning a task and never awaiting it.** Safe (the scope reaper cancels it), but you don't see the result. Prefer `Task.await(t)` or use a fork-style scope.
 - **Pattern-matching `AsyncError` variants without `import Flow.Async exposing (..)`.** Without the import, `Canceled` / `TimedOut` aren't in scope.
 - **Sharing mutable state between fibers.** Don't. Use channels or `Task.spawn` + return values.
+- **Benchmarking fiber concurrency on the VM and expecting multi-core speedup.** VM fibers run on one OS thread. A benchmark of `both(cpu_task, cpu_task)` on the VM will show no parallel speedup — and shouldn't. Run with `--native` for multi-core fiber scheduling, or use `Task.spawn` on either backend.
 
 ---
 
@@ -482,7 +509,7 @@ Read it top to bottom. Each `with Async` call is a potential suspension point; t
 
 - Async is a way to express "I'm waiting on something — don't block the OS thread, let other work run."
 - Flux uses an **effect** (`with Async`) instead of `async`/`await` keywords. The effect is the keyword.
-- A **fiber** is a cooperatively-scheduled lightweight thread; many fibers share a small pool of OS workers.
+- A **fiber** is a cooperatively-scheduled lightweight thread. On native, many fibers share a pool of real OS workers. On the VM, all fibers share one OS thread — concurrency without parallelism.
 - `run_async(action)` is the boundary that enters async-land. Outside it, you can't call `with Async` functions.
 - `both` / `race` / `first_of` / `timeout` are the main combinators. They preserve structured concurrency: children can't outlive their parent.
 - `try` / `fail` handle failure as values; `scope` / `fork` / `cancel` give you ad-hoc structured concurrency.

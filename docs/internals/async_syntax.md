@@ -19,8 +19,8 @@ Flux async is an **effect-row + handler** system, not `async fn` / `await`. Thre
 
 There are two cooperating layers:
 
-- **Fibers** — lightweight cooperative tasks scheduled inside `run_async`. M:N over OS workers on native; logical-only on the VM today.
-- **Tasks** — OS-thread-backed work spawned via `Flow.Task`. Tasks may run in true parallel on native; `Sendable<T>` gates which values can cross the worker boundary.
+- **Fibers** — lightweight cooperative tasks scheduled inside `run_async`. On the VM they are single-OS-threaded logical queues; on native they are scheduled over OS workers.
+- **Tasks** — OS-thread-backed work spawned via `Flow.Task`. VM tasks run in isolated worker VMs; native tasks run on native worker threads. `Sendable<T>` gates which values can cross the worker boundary.
 
 ---
 
@@ -124,6 +124,11 @@ of OS worker threads on native (one main thread + `flux-async-worker-{N}`
 threads visible in `ps -T` / Process Explorer); on the VM, the
 logical-worker count of the active `FiberScheduler`.
 
+On the VM this is not a CPU parallelism signal. `run_async_with_workers(8, ...)`
+creates eight logical ready queues, but the fiber dispatch loop still runs on
+the caller OS thread. Use `Task.spawn` / `Task.await` for CPU-bound parallel
+work on the VM today.
+
 ```flux
 fn body() -> Int with Async {
     current_worker_count()
@@ -151,7 +156,8 @@ public fn sleep(ms: Int) -> Unit with Async
 Suspends the current fiber for at least `ms` milliseconds.
 
 - **Native:** parks the fiber, frees the OS thread for other fibers.
-- **VM:** blocks the OS thread (semantically equivalent for single-fiber programs).
+- **VM:** parks the fiber through the VM async backend; other ready VM fibers
+  can run on the same OS thread while the timer is pending.
 
 ### 4.2 `yield_now`
 
@@ -162,7 +168,8 @@ public fn yield_now() -> Unit with Async
 Cooperative reschedule hint. The fiber gives up its slice; another runnable fiber gets to run.
 
 - **Native:** returns the fiber to the back of its worker queue.
-- **VM:** no-op today.
+- **VM:** returns the fiber to the back of its logical worker queue. This is a
+  real cooperative reschedule, but still single-OS-threaded.
 
 See [`02_sleep_yield.flx`](../../examples/async/02_sleep_yield.flx).
 
@@ -406,7 +413,10 @@ The user-facing surface above is built on a fiber model that's worth understandi
 
 ### 9.5.1 What a fiber is
 
-A `Fiber` is the unit of cooperative concurrency inside `run_async`. Data-structurally it owns ([src/runtime/async/fiber.rs](../../src/runtime/async/fiber.rs)):
+A `Fiber` is the unit of cooperative concurrency inside `run_async`. A VM fiber
+does not imply an OS thread; VM fibers time-share the caller thread until they
+suspend or call `Async.yield_now`. Data-structurally a fiber owns
+([src/runtime/async/fiber.rs](../../src/runtime/async/fiber.rs)):
 
 - A monotonic `FiberId` allocated from `NEXT_FIBER_ID: AtomicU64` — unique per scheduler lifetime.
 - A `home_worker` assignment. On the VM this remains a logical no-migration invariant. On native, the fiber is initially queued there and backend completions return it there, but the scheduler may let an idle worker steal ready work. Native fibers carry a C effect-context snapshot so handler/evidence state is restored before execution on whichever OS thread runs them.
@@ -442,7 +452,15 @@ The same machinery is reused for `both` / `race` / `timeout` / `first_of` / `Tas
 
 ### 9.5.3 Worker assignment
 
-Root fibers (the body of `run_async`) live on worker 0. On the VM, workers are logical and fibers keep their home-worker affinity for their whole lifetime. On native, child fibers spawned by `fork` / `both` / `timeout` are placed on the least-loaded ready queue by default; `race` / `first_of` still enqueue immediate candidates on the caller's worker to preserve source-order tie behavior. With native work stealing enabled, idle OS workers may steal ready fibers from other workers. `FLUX_WORK_STEALING=0` restores the original owner-only FIFO plus round-robin placement fallback for debugging.
+Root fibers (the body of `run_async`) live on worker 0. On the VM, workers are
+logical ready queues and fibers keep their home-worker affinity for their whole
+lifetime; the dispatch loop drains those queues on the caller OS thread. On
+native, child fibers spawned by `fork` / `both` / `timeout` are placed on the
+least-loaded ready queue by default; `race` / `first_of` still enqueue immediate
+candidates on the caller's worker to preserve source-order tie behavior. With
+native work stealing enabled, idle OS workers may steal ready fibers from other
+workers. `FLUX_WORK_STEALING=0` restores the original owner-only FIFO plus
+round-robin placement fallback for debugging.
 
 ### 9.5.4 Cancellation propagation
 
@@ -459,17 +477,25 @@ For *currently executing* fibers, `vm_fibers` mirrors the cancel set in a per-th
 | Aspect | VM | Native |
 |---|---|---|
 | Continuation type | `Rc<RefCell<Continuation>>` (`!Send`) | LLVM-generated stack frames + `flux_rt` C ABI |
-| Worker count | Logical workers; only worker 0 actually runs code | Real OS-thread workers, default 2 |
+| Worker count | Logical ready queues drained by the caller OS thread | Real OS-thread workers, default 2 |
 | Fiber state | `Vm` instance state | C effect-context TLS + scheduler state in Rust |
 | Cross-worker fiber dispatch | **Disabled**: VM stays single-OS-thread because `Rc<Value>` is non-Send | Enabled |
 
-The VM logical-only constraint applies to fibers, not tasks. VM `Task.spawn` crosses a sendable deep-copy boundary into an isolated worker VM, so task bodies can run in parallel without making the normal `Rc<Value>` graph thread-safe.
+The VM logical-only constraint applies to fibers, not tasks. VM `Task.spawn`
+crosses a sendable transfer boundary into an isolated worker VM, so task bodies
+can run in parallel without making the normal `Rc<Value>` graph thread-safe.
+CPU-bound code inside a VM fiber can starve sibling fibers until it suspends or
+calls `Async.yield_now`; CPU-bound parallelism should use `Task.spawn` /
+`Task.await` today.
 
 ---
 
 ## 10. Tasks
 
-`Flow.Task` is the OS-thread surface. Tasks are **not** fibers; they live on the worker pool and can run in true parallel on native.
+`Flow.Task` is the OS-thread surface. Tasks are **not** fibers; they live on a
+worker pool and can run in true parallel. On the VM, each task runs inside an
+isolated worker VM after crossing the `Sendable` transfer boundary. On native,
+the task body runs through the C runtime task path.
 
 ### 10.1 `spawn`
 
@@ -653,9 +679,9 @@ The solver ([src/types/class_solver.rs](../../src/types/class_solver.rs) `has_st
 | Surface | VM | LLVM/native |
 |---|---|---|
 | `run_async` | Single-OS-thread logical scheduler | Multi-OS-thread M:N scheduler |
-| `sleep(ms)` | Blocks OS thread (mio-backed timer; one fiber per worker) | Suspends fiber, frees OS thread |
-| `yield_now()` | No-op | Real reschedule |
-| `both` / `race` | Real fiber overlap on a single OS thread | Real fiber overlap across OS threads |
+| `sleep(ms)` | Suspends the current fiber through the VM async backend; other ready VM fibers may run on the caller OS thread | Suspends fiber; an OS worker can run other work |
+| `yield_now()` | Real cooperative reschedule within the single-threaded VM scheduler | Real cooperative reschedule across native ready queues |
+| `both` / `race` | Cooperative fiber overlap on a single OS thread | Fiber overlap across OS workers |
 | `Task.spawn` | Body runs in an isolated worker VM on a real OS thread | Body runs on a real OS worker thread |
 | `Task.blocking_join` | Waits for worker completion | Condvar wait |
 | `Task.await` | Suspends current fiber, resumes when task completes | Suspends current fiber, resumes when task completes |
@@ -679,7 +705,7 @@ public data RuntimeConfig {
 
 | Field | Default | Native today |
 |---|---|---|
-| `worker_count` | `None` → `FLUX_WORKERS` env → `available_parallelism()` → `2` | Honoured per call. `NativeRun` sizes ready queues and the worker thread pool to the requested count. |
+| `worker_count` | `None` → `FLUX_WORKERS` env → `available_parallelism()` → `2` | Honoured per call. VM uses logical queues on one OS thread; native sizes ready queues and the worker thread pool to the requested count. |
 | `fs_pool_size` | `0` → reserved | Plumbed but unused |
 | `dns_pool_size` | `0` → `FLUX_DNS_THREADS` env, fallback 4 | Honoured |
 

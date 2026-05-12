@@ -1,4 +1,4 @@
-//! Fiber scheduler for Phase 1b M:N cooperative concurrency (proposal 0174).
+//! Fiber scheduler for Phase 1b cooperative concurrency (proposal 0174).
 //!
 //! The [`FiberScheduler`] owns per-worker ready queues and the suspension
 //! registry. It drives the fiber lifecycle:
@@ -14,19 +14,13 @@
 //! 5. **Cancel** — mark a fiber's cancel scope; at the next yield point the
 //!    fiber observes `is_cancelled()` and unwinds.
 //!
-//! ## Phase status
+//! ## Backend shape
 //!
-//! Slice 1b-iv provides the data structure skeleton and the public API.  The
-//! actual fiber-switching (stack-switching or green-thread trampoline) was
-//! deferred to Slice 1b-v/vi when the `FiberSuspend` / `FiberFork` primops
-//! were wired into the VM and C runtime. Early skeleton tests used inline
-//! fiber-body execution before the dispatch loop landed.
-//!
-//! ## No-fiber-migration invariant
-//!
-//! Following Eio's model, a fiber always resumes on the same worker it started
-//! on (`home_worker`).  Cross-worker parallelism comes from the HTTP listener
-//! distributing accepted connections across workers, not from fiber migration.
+//! The scheduler owns logical worker queues on both backends. Native `run_async`
+//! runs those queues on OS worker threads and may allow work stealing. The VM
+//! uses the same logical queue model but drains it on the caller OS thread; VM
+//! fiber OS-worker dispatch is deferred until VM values and continuations have a
+//! thread-safety story.
 
 use std::collections::HashMap;
 
@@ -56,7 +50,7 @@ impl WorkerState {
 
 // ── FiberScheduler ────────────────────────────────────────────────────────────
 
-/// M:N fiber scheduler.
+/// Cooperative fiber scheduler.
 ///
 /// One instance is created per `Async.run_async` boundary (Phase 1b-vi).
 /// Phase 1b-iv provides the data-structure skeleton; the actual fiber
@@ -70,9 +64,9 @@ pub struct FiberScheduler {
 impl FiberScheduler {
     /// Create a scheduler with `num_workers` logical worker slots.
     ///
-    /// In Phase 1b the workers are virtual — no OS threads are created here.
-    /// Phase 1b-vi may add real thread spawning; for now all dispatch runs
-    /// on the calling OS thread.
+    /// This constructor only creates logical queues. Native runtime code binds
+    /// those queues to OS workers; VM dispatch drains them on the caller OS
+    /// thread.
     pub fn new(num_workers: usize) -> Self {
         assert!(num_workers >= 1, "need at least one worker");
         let workers = (0..num_workers).map(|_| WorkerState::new()).collect();
@@ -116,6 +110,21 @@ impl FiberScheduler {
     /// Spawn a child fiber on the next logical worker.
     pub fn spawn_child_round_robin(&mut self) -> FiberId {
         let worker = self.next_child_worker();
+        self.spawn(worker)
+    }
+
+    /// Spawn a child fiber on the least-loaded logical worker.
+    ///
+    /// Picks the worker with the shortest ready queue; breaks ties by lowest
+    /// worker ID for determinism. Mirrors `pick_next_worker` in native_abi.rs.
+    pub fn spawn_child_least_loaded(&mut self) -> FiberId {
+        let worker = self
+            .workers
+            .iter()
+            .enumerate()
+            .min_by_key(|(idx, w)| (w.ready.len(), *idx))
+            .map(|(idx, _)| WorkerId(idx as u32))
+            .unwrap_or(WorkerId(0));
         self.spawn(worker)
     }
 

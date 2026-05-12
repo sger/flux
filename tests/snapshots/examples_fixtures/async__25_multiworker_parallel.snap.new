@@ -1,0 +1,11 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 33
+---
+Fixture: examples/async/25_multiworker_parallel.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>
