@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::runtime::{
@@ -22,6 +23,28 @@ enum VmEvent {
 thread_local! {
     static NEXT_EVENT_ID: RefCell<i64> = const { RefCell::new(1) };
     static EVENTS: RefCell<HashMap<i64, VmEvent>> = RefCell::new(HashMap::new());
+}
+
+struct WaitQueue {
+    tx: mpsc::Sender<u64>,
+    rx: Mutex<mpsc::Receiver<u64>>,
+}
+
+static WAIT_COMPLETIONS: OnceLock<WaitQueue> = OnceLock::new();
+static ACTIVE_WAITS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
+
+fn wait_queue() -> &'static WaitQueue {
+    WAIT_COMPLETIONS.get_or_init(|| {
+        let (tx, rx) = mpsc::channel();
+        WaitQueue {
+            tx,
+            rx: Mutex::new(rx),
+        }
+    })
+}
+
+fn active_waits() -> &'static Mutex<HashSet<u64>> {
+    ACTIVE_WAITS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 fn insert(event: VmEvent) -> i64 {
@@ -95,6 +118,46 @@ pub(super) fn poll_value(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Value,
     }
 }
 
+pub(super) fn wait(id: i64, request_id: u64) -> Result<(), String> {
+    active_waits()
+        .lock()
+        .expect("VM event active wait set poisoned")
+        .insert(request_id);
+    if is_ready(id)? {
+        complete_wait(request_id);
+        return Ok(());
+    }
+    register_wait(id, request_id)
+}
+
+pub(super) fn complete_wait(request_id: u64) {
+    if active_waits()
+        .lock()
+        .expect("VM event active wait set poisoned")
+        .remove(&request_id)
+    {
+        let _ = wait_queue().tx.send(request_id);
+    }
+}
+
+pub(super) fn is_wait_active(request_id: u64) -> bool {
+    active_waits()
+        .lock()
+        .expect("VM event active wait set poisoned")
+        .contains(&request_id)
+}
+
+pub(super) fn try_recv_completion() -> Option<u64> {
+    let rx = wait_queue()
+        .rx
+        .lock()
+        .expect("VM event wait completion queue poisoned");
+    match rx.try_recv() {
+        Ok(request_id) => Some(request_id),
+        Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
+    }
+}
+
 fn remove_tree(id: i64) {
     let event = EVENTS.with(|events| events.borrow_mut().remove(&id));
     match event {
@@ -105,6 +168,55 @@ fn remove_tree(id: i64) {
         }
         Some(VmEvent::Wrap(child, _)) => remove_tree(child),
         _ => {}
+    }
+}
+
+fn is_ready(id: i64) -> Result<bool, String> {
+    match get(id)? {
+        VmEvent::Recv(ch) => super::channel::can_recv(ch),
+        VmEvent::Send(ch, _) => super::channel::can_send(ch),
+        VmEvent::After(deadline) => Ok(Instant::now() >= deadline),
+        VmEvent::Always(_) => Ok(true),
+        VmEvent::Never => Ok(false),
+        VmEvent::Choose(ids) => {
+            for child in ids {
+                if is_ready(child)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        VmEvent::Wrap(child, _) => is_ready(child),
+    }
+}
+
+fn register_wait(id: i64, request_id: u64) -> Result<(), String> {
+    match get(id)? {
+        VmEvent::Recv(ch) => super::channel::watch_recv(ch, request_id),
+        VmEvent::Send(ch, _) => super::channel::watch_send(ch, request_id),
+        VmEvent::After(deadline) => {
+            if Instant::now() >= deadline {
+                complete_wait(request_id);
+            } else {
+                std::thread::spawn(move || {
+                    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    complete_wait(request_id);
+                });
+            }
+            Ok(())
+        }
+        VmEvent::Always(_) => {
+            complete_wait(request_id);
+            Ok(())
+        }
+        VmEvent::Never => Ok(()),
+        VmEvent::Choose(ids) => {
+            for child in ids {
+                register_wait(child, request_id)?;
+            }
+            Ok(())
+        }
+        VmEvent::Wrap(child, _) => register_wait(child, request_id),
     }
 }
 

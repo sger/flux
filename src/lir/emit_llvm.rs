@@ -3839,6 +3839,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::EventWrap => return "flux_event_wrap".to_string(),
         CorePrimOp::EventSync => return "flux_event_sync".to_string(),
         CorePrimOp::EventPoll => return "flux_event_poll".to_string(),
+        CorePrimOp::EventWait => return "flux_event_wait".to_string(),
         // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
         CorePrimOp::HttpServeConfig => return "flux_http_serve_config".to_string(),
         CorePrimOp::HttpShutdown => return "flux_http_shutdown".to_string(),
@@ -4036,6 +4037,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             LlvmType::i64(),
             vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
         ),
+        "flux_event_wait" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),

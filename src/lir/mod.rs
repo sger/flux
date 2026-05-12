@@ -496,6 +496,10 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Async_fiber_fail_prim",
         "Flow_Task_await",
         "Flow_Task_task_await_id",
+        "Flow_Event_event_wait_id",
+        "Flow_Event_run_selected",
+        "Flow_Event_sync",
+        "Flow_Event_sync_id",
         "Flow_Http_get",
         "Flow_Http_post",
         "Flow_Http_request",
@@ -515,9 +519,18 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Tcp_tcp_accept_prim",
     ];
 
-    ASYNC_SYMBOLS
-        .iter()
-        .any(|needle| normalized.contains(needle))
+    ASYNC_SYMBOLS.iter().any(|needle| {
+        if *needle == "Flow_Event_sync" {
+            // `sync` must not match `sync_id`; the latter has its own entry.
+            // Still allow mangled symbols that end in `_Flow_Event_sync`.
+            normalized == *needle
+                || normalized
+                    .strip_suffix(needle)
+                    .is_some_and(|prefix| prefix.ends_with('_'))
+        } else {
+            normalized.contains(needle)
+        }
+    })
 }
 
 pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncId>) -> bool {

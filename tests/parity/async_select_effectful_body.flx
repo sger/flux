@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "effectful"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Event as Event
+
+fn body() -> Unit with Async, Console {
+    select {
+        after 0 -> print("effectful"),
+        after 100 -> print("timeout")
+    }
+}
+
+fn main() with Console {
+    Async.run_async(body)
+}

@@ -799,7 +799,9 @@ pub enum CorePrimOp {
     EventSync = 219,
     /// Poll an event once, committing if ready.
     EventPoll = 220,
-    // ── Next free ID: 221 ─────────────────────────────────────────────
+    /// Suspend until an event may be ready. Readiness is a hint; poll commits.
+    EventWait = 221,
+    // ── Next free ID: 222 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -887,6 +889,7 @@ impl CorePrimOp {
             "EventWrap" => return Some(Self::EventWrap),
             "EventSync" => return Some(Self::EventSync),
             "EventPoll" => return Some(Self::EventPoll),
+            "EventWait" => return Some(Self::EventWait),
             "TaskSpawnScoped" => return Some(Self::TaskSpawnScoped),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
@@ -1027,6 +1030,7 @@ impl CorePrimOp {
             Self::EventWrap => Some("event_wrap"),
             Self::EventSync => Some("event_sync"),
             Self::EventPoll => Some("event_poll"),
+            Self::EventWait => Some("event_wait"),
             Self::TaskSpawnScoped => Some("task_spawn_scoped"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
@@ -1262,6 +1266,7 @@ impl CorePrimOp {
             218 => EventWrap,
             219 => EventSync,
             220 => EventPoll,
+            221 => EventWait,
             _ => return None,
         };
         Some(op)
@@ -1425,6 +1430,7 @@ impl CorePrimOp {
             ("event_send", 2, CorePrimOp::EventSend),
             ("event_sync", 1, CorePrimOp::EventSync),
             ("event_poll", 1, CorePrimOp::EventPoll),
+            ("event_wait", 1, CorePrimOp::EventWait),
             ("event_wrap", 2, CorePrimOp::EventWrap),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
@@ -1579,6 +1585,7 @@ impl CorePrimOp {
             | EventRecv
             | EventSync
             | EventPoll
+            | EventWait
             | HttpShutdown
             | HttpShutdownNow
             | HttpActiveConnectionCount

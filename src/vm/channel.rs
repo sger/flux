@@ -14,6 +14,8 @@ pub struct ChannelCell {
     pub closed: bool,
     pub waiting_recv: VecDeque<u64>,
     pub waiting_send: VecDeque<(u64, VmSendValue)>,
+    pub event_recv_watchers: VecDeque<u64>,
+    pub event_send_watchers: VecDeque<u64>,
 }
 
 struct ChannelEntry {
@@ -67,6 +69,44 @@ fn some(value: VmSendValue) -> VmSendValue {
     VmSendValue::Some(Box::new(value))
 }
 
+fn recv_ready(cell: &ChannelCell) -> bool {
+    cell.closed || !cell.buf.is_empty() || !cell.waiting_send.is_empty()
+}
+
+fn send_ready(cell: &ChannelCell) -> bool {
+    cell.closed
+        || !cell.waiting_recv.is_empty()
+        || (cell.capacity > 0 && cell.buf.len() < cell.capacity)
+}
+
+fn notify_event_watchers(cell: &mut ChannelCell) {
+    let mut ready = Vec::new();
+    if recv_ready(cell) {
+        compact_event_watchers(&mut cell.event_recv_watchers);
+        ready.extend(cell.event_recv_watchers.drain(..));
+    }
+    if send_ready(cell) {
+        compact_event_watchers(&mut cell.event_send_watchers);
+        ready.extend(cell.event_send_watchers.drain(..));
+    }
+    for request_id in ready {
+        super::event::complete_wait(request_id);
+    }
+}
+
+fn compact_event_watchers(watchers: &mut VecDeque<u64>) {
+    // Called while holding a channel cell lock; `is_wait_active` takes the
+    // event wait lock. Keep that channel -> event lock order if refactored.
+    watchers.retain(|request_id| super::event::is_wait_active(*request_id));
+}
+
+fn push_event_watcher(watchers: &mut VecDeque<u64>, request_id: u64) {
+    compact_event_watchers(watchers);
+    if !watchers.contains(&request_id) {
+        watchers.push_back(request_id);
+    }
+}
+
 fn flush_waiters(cell: &mut ChannelCell) {
     while let Some(req) = cell.waiting_recv.pop_front() {
         if let Some(value) = cell.buf.pop_front() {
@@ -106,6 +146,7 @@ fn flush_waiters(cell: &mut ChannelCell) {
             publish(send_req, Ok(unit()));
         }
     }
+    notify_event_watchers(cell);
 }
 
 pub(super) fn make(capacity: i64) -> Result<i64, String> {
@@ -120,6 +161,8 @@ pub(super) fn make(capacity: i64) -> Result<i64, String> {
             closed: false,
             waiting_recv: VecDeque::new(),
             waiting_send: VecDeque::new(),
+            event_recv_watchers: VecDeque::new(),
+            event_send_watchers: VecDeque::new(),
         }),
         ready: Condvar::new(),
     });
@@ -139,11 +182,13 @@ pub(super) fn send(id: i64, value: &Value) -> Result<(), String> {
     }
     if let Some(req) = cell.waiting_recv.pop_front() {
         publish(req, Ok(some(value)));
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return Ok(());
     }
     if cell.capacity > 0 && cell.buf.len() < cell.capacity {
         cell.buf.push_back(value);
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return Ok(());
     }
@@ -151,11 +196,13 @@ pub(super) fn send(id: i64, value: &Value) -> Result<(), String> {
         cell = entry.ready.wait(cell).expect("VM channel cell poisoned");
         if let Some(req) = cell.waiting_recv.pop_front() {
             publish(req, Ok(some(value)));
+            notify_event_watchers(&mut cell);
             entry.ready.notify_all();
             return Ok(());
         }
         if cell.capacity > 0 && cell.buf.len() < cell.capacity {
             cell.buf.push_back(value);
+            notify_event_watchers(&mut cell);
             entry.ready.notify_all();
             return Ok(());
         }
@@ -179,6 +226,7 @@ pub(super) fn start_send(id: i64, value: &Value, request_id: u64) -> Result<(), 
         cell.waiting_send.push_back((request_id, value));
     }
     flush_waiters(&mut cell);
+    notify_event_watchers(&mut cell);
     entry.ready.notify_all();
     Ok(())
 }
@@ -189,11 +237,13 @@ pub(super) fn recv(id: i64) -> Result<Value, String> {
     loop {
         if let Some(value) = cell.buf.pop_front() {
             flush_waiters(&mut cell);
+            notify_event_watchers(&mut cell);
             entry.ready.notify_all();
             return some(value).to_value();
         }
         if let Some((send_req, value)) = cell.waiting_send.pop_front() {
             publish(send_req, Ok(unit()));
+            notify_event_watchers(&mut cell);
             entry.ready.notify_all();
             return some(value).to_value();
         }
@@ -218,6 +268,7 @@ pub(super) fn start_recv(id: i64, request_id: u64) -> Result<(), String> {
         cell.waiting_recv.push_back(request_id);
     }
     flush_waiters(&mut cell);
+    notify_event_watchers(&mut cell);
     entry.ready.notify_all();
     Ok(())
 }
@@ -231,11 +282,13 @@ pub(super) fn try_send(id: i64, value: &Value) -> Result<bool, String> {
     }
     if let Some(req) = cell.waiting_recv.pop_front() {
         publish(req, Ok(some(value)));
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return Ok(true);
     }
     if cell.capacity > 0 && cell.buf.len() < cell.capacity {
         cell.buf.push_back(value);
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return Ok(true);
     }
@@ -247,11 +300,13 @@ pub(super) fn try_recv(id: i64) -> Result<Value, String> {
     let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
     if let Some(value) = cell.buf.pop_front() {
         flush_waiters(&mut cell);
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return some(value).to_value();
     }
     if let Some((send_req, value)) = cell.waiting_send.pop_front() {
         publish(send_req, Ok(unit()));
+        notify_event_watchers(&mut cell);
         entry.ready.notify_all();
         return some(value).to_value();
     }
@@ -275,6 +330,7 @@ pub(super) fn close(id: i64) -> Result<(), String> {
     while let Some((req, _)) = cell.waiting_send.pop_front() {
         publish(req, Ok(unit()));
     }
+    notify_event_watchers(&mut cell);
     entry.ready.notify_all();
     Ok(())
 }
@@ -301,6 +357,40 @@ pub(super) fn cap(id: i64) -> Result<i64, String> {
 pub(super) fn is_closed(id: i64) -> Result<bool, String> {
     let entry = lookup(id)?;
     Ok(entry.cell.lock().expect("VM channel cell poisoned").closed)
+}
+
+pub(super) fn can_recv(id: i64) -> Result<bool, String> {
+    let entry = lookup(id)?;
+    let cell = entry.cell.lock().expect("VM channel cell poisoned");
+    Ok(recv_ready(&cell))
+}
+
+pub(super) fn can_send(id: i64) -> Result<bool, String> {
+    let entry = lookup(id)?;
+    let cell = entry.cell.lock().expect("VM channel cell poisoned");
+    Ok(send_ready(&cell))
+}
+
+pub(super) fn watch_recv(id: i64, request_id: u64) -> Result<(), String> {
+    let entry = lookup(id)?;
+    let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
+    if recv_ready(&cell) {
+        super::event::complete_wait(request_id);
+    } else {
+        push_event_watcher(&mut cell.event_recv_watchers, request_id);
+    }
+    Ok(())
+}
+
+pub(super) fn watch_send(id: i64, request_id: u64) -> Result<(), String> {
+    let entry = lookup(id)?;
+    let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
+    if send_ready(&cell) {
+        super::event::complete_wait(request_id);
+    } else {
+        push_event_watcher(&mut cell.event_send_watchers, request_id);
+    }
+    Ok(())
 }
 
 pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {

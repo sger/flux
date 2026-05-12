@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 9000
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Event as Event
+
+fn loop_select(n: Int, acc: Int) -> Int with Async {
+    if n <= 0 { acc } else {
+        let value = select {
+            after 0 -> 1
+        }
+        loop_select(n - 1, acc + value)
+    }
+}
+
+fn body() -> Int with Async {
+    loop_select(9000, 0)
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

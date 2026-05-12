@@ -938,6 +938,33 @@ impl Parser {
         }
     }
 
+    /// Build a zero-parameter lambda: `\() -> body`.
+    fn make_lambda0(&mut self, body: Expression, span: Span) -> Expression {
+        let body_span = body.span();
+        Expression::Function {
+            parameters: vec![],
+            parameter_types: vec![],
+            return_type: None,
+            effects: vec![EffectExpr::RowVar {
+                name: self
+                    .lexer
+                    .interner_mut()
+                    .intern(crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR),
+                span,
+            }],
+            body: Block {
+                statements: vec![Statement::Expression {
+                    expression: body,
+                    has_semicolon: false,
+                    span: body_span,
+                }],
+                span: body_span,
+            },
+            span,
+            id: self.next_expr_id(),
+        }
+    }
+
     /// Build a function call: `name(args...)`
     fn make_call(&mut self, name: &str, arguments: Vec<Expression>, span: Span) -> Expression {
         Expression::Call {
@@ -978,7 +1005,8 @@ impl Parser {
         body: Expression,
         span: Span,
     ) -> Expression {
-        let lambda = self.make_lambda(param, body, span);
+        let thunk = self.make_lambda0(body, span);
+        let lambda = self.make_lambda(param, thunk, span);
         self.make_member_call("Event", "wrap", vec![event, lambda], span)
     }
 
@@ -2104,7 +2132,13 @@ impl Parser {
             id: self.next_expr_id(),
         };
         let choose = self.make_member_call("Event", "choose", vec![list], Span::new(start, end));
-        Some(self.make_member_call("Event", "sync", vec![choose], Span::new(start, end)))
+        let selected = self.make_member_call("Event", "sync", vec![choose], Span::new(start, end));
+        Some(self.make_member_call(
+            "Event",
+            crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN,
+            vec![selected],
+            Span::new(start, end),
+        ))
     }
 
     /// Parses a single match pattern, including ADT constructors such as

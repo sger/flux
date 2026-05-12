@@ -18,6 +18,7 @@ pub mod parser;
 pub mod pattern_validate;
 pub mod precedence;
 pub mod program;
+pub mod select_desugar;
 pub mod statement;
 pub mod symbol;
 pub mod token;
