@@ -70,6 +70,15 @@ struct VmTaskSnapshot {
     globals: Vec<(usize, VmSendValue)>,
 }
 
+/// Snapshot of a VM's constants and globals for use by Phase 4 OS worker threads.
+///
+/// Built by [`VM::worker_vm_snapshot`] before spawning OS worker threads.
+/// Each worker thread reconstructs a standalone VM from this snapshot.
+pub(super) struct WorkerVmSnapshot {
+    pub constants: Vec<VmSendValue>,
+    pub globals: Vec<(usize, VmSendValue)>,
+}
+
 struct VmTaskEntry {
     handle: Option<TaskHandle<TaskResult>>,
 }
@@ -139,6 +148,34 @@ impl VM {
             },
         );
         Ok(id)
+    }
+
+    /// Build a `WorkerVmSnapshot` for Phase 4 OS worker threads.
+    ///
+    /// Snapshots the constants pool (fully) and the non-trivial globals so that
+    /// each background worker thread can reconstruct a standalone `VM` with the
+    /// same closures and pre-initialised globals as the main VM at the point
+    /// `enter_run_async` is entered.
+    pub(super) fn worker_vm_snapshot(&self) -> WorkerVmSnapshot {
+        let constants = self
+            .constants
+            .iter()
+            .map(|slot| VmSendValue::from_constant(&slot::from_slot_ref(slot)))
+            .collect();
+        let globals = self
+            .globals
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, slot)| {
+                let value = slot::from_slot_ref(slot);
+                if matches!(value, Value::None | Value::Uninit) {
+                    None
+                } else {
+                    VmSendValue::try_from_value(&value).ok().map(|v| (idx, v))
+                }
+            })
+            .collect();
+        WorkerVmSnapshot { constants, globals }
     }
 
     fn task_snapshot(&self, action: Value, move_action: bool) -> Result<VmTaskSnapshot, String> {
@@ -258,6 +295,31 @@ fn take_handle(id: i64) -> Result<JoinTarget, String> {
 fn join_handle(handle: TaskHandle<TaskResult>) -> Result<Value, String> {
     let result = scheduler().blocking_join(handle).map_err(join_error)??;
     result.to_value()
+}
+
+/// Reconstruct a `VM` from a `WorkerVmSnapshot`.
+///
+/// Used by Phase 4 worker threads to obtain an execution context that shares
+/// the same constants and initialised globals as the parent VM.
+pub(super) fn vm_from_worker_snapshot(snapshot: WorkerVmSnapshot) -> Result<VM, String> {
+    let constants = snapshot
+        .constants
+        .into_iter()
+        .map(VmSendValue::to_constant_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut vm = VM::new(crate::bytecode::bytecode::Bytecode {
+        instructions: vec![],
+        constants,
+        debug_info: None,
+    });
+    for (idx, v) in snapshot.globals {
+        if idx < vm.globals.len() {
+            if let Ok(val) = v.to_value() {
+                vm.globals[idx] = slot::to_slot(val);
+            }
+        }
+    }
+    Ok(vm)
 }
 
 fn join_error(err: TaskJoinError) -> String {

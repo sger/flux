@@ -1,0 +1,58 @@
+// 25 — CPU parallelism with run_async_with_workers
+//
+// `run_async` schedules fibers cooperatively on ONE OS thread.
+// I/O-bound fibers overlap (both sleep at the same time) but
+// CPU-bound fibers still run one at a time — a tight loop on
+// fiber A starves fiber B until A yields or suspends.
+//
+// `run_async_with_workers(N, body)` spawns N-1 extra OS threads.
+// Child fibers created by `both`, `race`, `scope`+`fork` are
+// distributed across workers round-robin, so CPU-bound work
+// runs on separate cores simultaneously.
+//
+// This example runs fib(32) twice:
+//   sequential  — two separate run_async calls, one after the other
+//   parallel    — both(left, right) inside run_async_with_workers(2, ...)
+//
+// On a multi-core machine the parallel run should be ~2x faster.
+//
+// NOTE: fibers are cooperative and pin to their home worker (no
+// work-stealing). Parallelism requires explicit both/race/fork —
+// a single linear fiber on N workers still uses one core.
+
+// parity-expected-stdout-begin
+// "parallel < sequential = true"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+
+fn left() -> Int with Async { fib(32) }
+fn right() -> Int with Async { fib(32) }
+
+fn body() -> (Int, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO, Time {
+    // Sequential baseline: two run_async calls back-to-back.
+    let t0 = now_ms()
+    let _a = run_async(left)
+    let _b = run_async(right)
+    let t1 = now_ms()
+
+    // Parallel: both fibers on separate OS workers.
+    let pair = run_async_with_workers(2, body)
+    let t2 = now_ms()
+
+    let sequential_ms = t1 - t0
+    let parallel_ms   = t2 - t1
+
+    print("sequential = " + to_string(sequential_ms) + "ms")
+    print("parallel   = " + to_string(parallel_ms)   + "ms")
+    print("parallel < sequential = " + to_string(parallel_ms < sequential_ms))
+    print("result = (" + to_string(pair.0) + ", " + to_string(pair.1) + ")")
+}

@@ -431,6 +431,10 @@ name = "vm_fiber_cancel_timeout"
 path = "tests/integration/vm_fiber_cancel_timeout.rs"
 
 [[test]]
+name = "vm_fiber_multiworker"
+path = "tests/integration/vm_fiber_multiworker.rs"
+
+[[test]]
 name = "vm_fiber_bracket_cancel"
 path = "tests/integration/vm_fiber_bracket_cancel.rs"
 
