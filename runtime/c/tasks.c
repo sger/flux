@@ -807,6 +807,7 @@ static void flux_async_register_callbacks(void) {
         flux_async_enter_worker_thread,
         flux_async_make_string,
         flux_task_spawn,
+        flux_task_spawn_move,
         flux_task_cancel,
         flux_async_register_root_task,
         flux_async_deregister_root_task,
