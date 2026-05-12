@@ -13,6 +13,7 @@ module Flow.Event {
     intrinsic fn event_choose_ids(ids: List<Int>) -> Int = primop EventChoose
     intrinsic fn event_wrap_id<a, b>(id: Int, f: (a) -> b) -> Int = primop EventWrap
     intrinsic fn event_poll_id<a>(id: Int) -> Poll<a> = primop EventPoll
+    intrinsic fn event_wait_id(id: Int) -> Unit with Async = primop EventWait
 
     fn ids<a>(events: List<Event<a>>) -> List<Int> {
         match events {
@@ -52,6 +53,8 @@ module Flow.Event {
         match event { Event(id) -> Event(event_wrap_id(id, f)) }
     }
 
+    /// Placeholder for CML-style guard. This currently evaluates `f`
+    /// immediately while building the event; it does not delay until sync-time.
     public fn guard<a>(f: () -> Event<a>) -> Event<a> {
         f()
     }
@@ -63,19 +66,26 @@ module Flow.Event {
         f(never())
     }
 
-    /// Synchronize on an event. The current implementation consumes the event
-    /// tree when it commits a result; build a fresh event before syncing again.
+    /// Synchronize on an event. Sync consumes the whole event tree when it
+    /// commits a result; build a fresh event before syncing again. Sharing a
+    /// sub-event between two choices is invalid after either choice commits.
+    /// Wait notifications are readiness hints, so sync may repoll and wait
+    /// again if another fiber wins the readiness race first.
     public fn sync<a>(event: Event<a>) -> a with Async {
         match event {
             Event(id) -> sync_id(id)
         }
     }
 
+    public fn run_selected<a, e>(f: (() -> a with Async | e)) -> a with Async | e {
+        f()
+    }
+
     fn sync_id<a>(id: Int) -> a with Async {
         match event_poll_id(id) {
             Ready(value) -> value,
             Pending -> do {
-                Async.sleep(1)
+                event_wait_id(id)
                 sync_id(id)
             }
         }

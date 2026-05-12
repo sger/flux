@@ -156,6 +156,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::EventWrap => "event_wrap",
         CorePrimOp::EventSync => "event_sync",
         CorePrimOp::EventPoll => "event_poll",
+        CorePrimOp::EventWait => "event_wait",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -415,6 +416,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::EventWrap
             | CorePrimOp::EventSync
             | CorePrimOp::EventPoll
+            | CorePrimOp::EventWait
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
             | CorePrimOp::HttpShutdownNow

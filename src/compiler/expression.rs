@@ -1226,7 +1226,10 @@ impl Compiler {
                 .filter(|effect_var| !self.is_effect_available(*effect_var))
                 .collect();
 
-            if !unresolved.is_empty() {
+            let function_name = self.call_function_name(function);
+            if !unresolved.is_empty()
+                && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
+            {
                 let origin = self.effect_constraint_origin(function, None);
                 return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
                     &unresolved,
@@ -1243,7 +1246,6 @@ impl Compiler {
 
             for required_name in required_effects {
                 if !self.is_effect_available(required_name) {
-                    let function_name = self.call_function_name(function);
                     let missing = self.sym(required_name).to_string();
                     return Err(Self::boxed(
                         Diagnostic::make_error_dynamic(
@@ -1877,7 +1879,9 @@ impl Compiler {
         expected_arity: usize,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
@@ -1948,7 +1952,9 @@ impl Compiler {
         param_effect_rows: &HashMap<Symbol, EffectRow>,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = param_effect_rows.get(name).cloned() {
                     return Some(local);

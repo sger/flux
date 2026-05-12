@@ -71,6 +71,12 @@ typedef struct {
 } WaitingSend;
 
 typedef struct {
+    uint64_t *reqs;
+    int len;
+    int cap;
+} EventWatcherList;
+
+typedef struct {
     int64_t id;
     int64_t capacity;
     int64_t len;
@@ -85,6 +91,9 @@ typedef struct {
     WaitingSend send_reqs[FLUX_CHANNEL_TABLE_MAX];
     int send_head;
     int send_len;
+
+    EventWatcherList event_recv_watchers;
+    EventWatcherList event_send_watchers;
 
     flux_mutex_t mutex;
     flux_cond_t  ready;
@@ -133,6 +142,62 @@ static int64_t retain_value(int64_t value) {
 static void publish_value(uint64_t req, int64_t option_value) {
     if (req != 0) {
         flux_async_task_complete(req, option_value);
+    }
+}
+
+static int channel_recv_ready(FluxChannel *ch) {
+    return ch->closed || ch->len > 0 || ch->send_len > 0;
+}
+
+static int channel_send_ready(FluxChannel *ch) {
+    return ch->closed || ch->recv_len > 0 || (ch->capacity > 0 && ch->len < ch->capacity);
+}
+
+static void event_watch_compact(EventWatcherList *watchers) {
+    int write = 0;
+    for (int read = 0; read < watchers->len; read++) {
+        uint64_t req = watchers->reqs[read];
+        if (flux_event_wait_is_active(req)) {
+            watchers->reqs[write++] = req;
+        }
+    }
+    watchers->len = write;
+}
+
+static void event_watch_push(EventWatcherList *watchers, uint64_t req) {
+    event_watch_compact(watchers);
+    for (int i = 0; i < watchers->len; i++) {
+        if (watchers->reqs[i] == req) return;
+    }
+    if (watchers->len == watchers->cap) {
+        int next = watchers->cap == 0 ? 8 : watchers->cap * 2;
+        uint64_t *grown = (uint64_t *)realloc(watchers->reqs, (size_t)next * sizeof(uint64_t));
+        if (!grown) {
+            fprintf(stderr, "flux_channel: out of memory growing event waiter list\n");
+            abort();
+        }
+        watchers->reqs = grown;
+        watchers->cap = next;
+    }
+    watchers->reqs[watchers->len++] = req;
+}
+
+static void notify_event_watcher_list(EventWatcherList *watchers) {
+    event_watch_compact(watchers);
+    for (int i = 0; i < watchers->len; i++) {
+        // Acquires the event wait mutex while the channel mutex is held.
+        // Keep the lock order channel -> event wait if this path is refactored.
+        flux_event_complete_wait(watchers->reqs[i]);
+    }
+    watchers->len = 0;
+}
+
+static void notify_event_watchers(FluxChannel *ch) {
+    if (channel_recv_ready(ch)) {
+        notify_event_watcher_list(&ch->event_recv_watchers);
+    }
+    if (channel_send_ready(ch)) {
+        notify_event_watcher_list(&ch->event_send_watchers);
     }
 }
 
@@ -250,6 +315,7 @@ static void flush_waiters(FluxChannel *ch) {
             publish_value(send.req, FLUX_NONE);
         }
     }
+    notify_event_watchers(ch);
 }
 
 int64_t flux_chan_make(int64_t capacity_val) {
@@ -278,6 +344,8 @@ int64_t flux_chan_make(int64_t capacity_val) {
     ch->closed = 0;
     ch->recv_head = ch->recv_len = 0;
     ch->send_head = ch->send_len = 0;
+    ch->event_recv_watchers = (EventWatcherList){0};
+    ch->event_send_watchers = (EventWatcherList){0};
     ch->buf = capacity > 0 ? (int64_t *)calloc((size_t)capacity, sizeof(int64_t)) : NULL;
     if (capacity > 0 && !ch->buf) {
         ch->id = 0;
@@ -300,12 +368,14 @@ int64_t flux_chan_try_send(int64_t id_val, int64_t value) {
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
         publish_value(recv_req, flux_wrap_some(retain_value(value)));
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
         buf_push(ch, retain_value(value));
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
@@ -323,6 +393,7 @@ int64_t flux_chan_try_recv(int64_t id_val) {
     if (ch->len > 0) {
         int64_t value = buf_pop(ch);
         flush_waiters(ch);
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return flux_wrap_some(value);
@@ -330,6 +401,7 @@ int64_t flux_chan_try_recv(int64_t id_val) {
     WaitingSend send;
     if (send_pop(ch, &send)) {
         publish_value(send.req, FLUX_NONE);
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return flux_wrap_some(send.value);
@@ -359,6 +431,7 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
         publish_value(recv_req, flux_wrap_some(retain_value(value)));
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
@@ -369,6 +442,7 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
         buf_push(ch, retain_value(value));
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
@@ -382,11 +456,13 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
             FLUX_COND_WAIT(&ch->ready, &ch->mutex);
             if (recv_pop(ch, &recv_req)) {
                 publish_value(recv_req, flux_wrap_some(retain_value(value)));
+                notify_event_watchers(ch);
                 FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
             if (ch->capacity > 0 && ch->len < ch->capacity) {
                 buf_push(ch, retain_value(value));
+                notify_event_watchers(ch);
                 FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
@@ -416,6 +492,7 @@ int64_t flux_chan_recv(int64_t id_val) {
     if (ch->len > 0) {
         int64_t value = buf_pop(ch);
         flush_waiters(ch);
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
@@ -427,6 +504,7 @@ int64_t flux_chan_recv(int64_t id_val) {
     WaitingSend send;
     if (send_pop(ch, &send)) {
         publish_value(send.req, FLUX_NONE);
+        notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         if (request_id != 0) {
@@ -480,6 +558,7 @@ int64_t flux_chan_close(int64_t id_val) {
             flux_drop(send.value);
             publish_value(send.req, FLUX_NONE);
         }
+        notify_event_watchers(ch);
     }
     FLUX_COND_BROADCAST(&ch->ready);
     FLUX_MUTEX_UNLOCK(&ch->mutex);
@@ -511,4 +590,48 @@ int64_t flux_chan_is_closed(int64_t id_val) {
     int closed = ch->closed;
     FLUX_MUTEX_UNLOCK(&ch->mutex);
     return closed ? FLUX_TRUE : FLUX_FALSE;
+}
+
+int32_t flux_chan_event_can_recv(int64_t id) {
+    FluxChannel *ch = lookup_channel(id);
+    if (!ch) abort_unknown("flux_chan_event_can_recv", id);
+    FLUX_MUTEX_LOCK(&ch->mutex);
+    int ready = channel_recv_ready(ch);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
+    return ready;
+}
+
+int32_t flux_chan_event_can_send(int64_t id) {
+    FluxChannel *ch = lookup_channel(id);
+    if (!ch) abort_unknown("flux_chan_event_can_send", id);
+    FLUX_MUTEX_LOCK(&ch->mutex);
+    int ready = channel_send_ready(ch);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
+    return ready;
+}
+
+void flux_chan_event_watch_recv(int64_t id, uint64_t request_id) {
+    FluxChannel *ch = lookup_channel(id);
+    if (!ch) abort_unknown("flux_chan_event_watch_recv", id);
+    FLUX_MUTEX_LOCK(&ch->mutex);
+    if (channel_recv_ready(ch)) {
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_event_complete_wait(request_id);
+        return;
+    }
+    event_watch_push(&ch->event_recv_watchers, request_id);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
+}
+
+void flux_chan_event_watch_send(int64_t id, uint64_t request_id) {
+    FluxChannel *ch = lookup_channel(id);
+    if (!ch) abort_unknown("flux_chan_event_watch_send", id);
+    FLUX_MUTEX_LOCK(&ch->mutex);
+    if (channel_send_ready(ch)) {
+        FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_event_complete_wait(request_id);
+        return;
+    }
+    event_watch_push(&ch->event_send_watchers, request_id);
+    FLUX_MUTEX_UNLOCK(&ch->mutex);
 }

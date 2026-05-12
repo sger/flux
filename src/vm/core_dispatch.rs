@@ -1427,6 +1427,16 @@ mod vm_fibers {
                     });
                     break;
                 }
+                if let Some(request_id) = super::super::event::try_recv_completion() {
+                    set_resume_outcome(request_id, FiberOutcome::Value(Value::None));
+                    SCHED.with(|s| {
+                        s.borrow_mut()
+                            .as_mut()
+                            .expect("scheduler missing")
+                            .complete_request(RequestId(request_id));
+                    });
+                    break;
+                }
                 if let Some(c) = backend.next_completion() {
                     // Route TCP payloads as resume values before waking the fiber.
                     use crate::runtime::r#async::backend::CompletionPayload;
@@ -2645,14 +2655,31 @@ pub fn execute_core_primop(
             other => Err(terr("event_wrap", "Int", other)),
         },
         EventSync => match &args[0] {
-            Value::Integer(_) => Err(
-                "event_sync primop is deprecated; Flow.Event.sync uses event_poll".to_string(),
-            ),
+            Value::Integer(_) => {
+                Err("event_sync primop is deprecated; Flow.Event.sync uses event_poll".to_string())
+            }
             other => Err(terr("event_sync", "Int", other)),
         },
         EventPoll => match &args[0] {
             Value::Integer(id) => super::event::poll_value(ctx, *id),
             other => Err(terr("event_poll", "Int", other)),
+        },
+        EventWait => match &args[0] {
+            Value::Integer(id) => {
+                let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() else {
+                    return Err("event_wait: requires Async.run_async boundary".to_string());
+                };
+                if vm_fibers::is_current_cancelled() {
+                    vm_fibers::signal_cancel_error();
+                    return Err("__fiber_error__".to_string());
+                }
+                let req = vm_async::alloc_request_id();
+                let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                super::event::wait(*id, req.0)?;
+                vm_fibers::signal_park(req, cont);
+                Err("__flux_fiber_park__".to_string())
+            }
+            other => Err(terr("event_wait", "Int", other)),
         },
 
         // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────
