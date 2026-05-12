@@ -3781,7 +3781,11 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         // abort at runtime. The full FFI bridge to the Rust scheduler
         // lands in D5-b/c.
         CorePrimOp::TaskSpawn => return "flux_task_spawn".to_string(),
+        CorePrimOp::TaskSpawnMove => return "flux_task_spawn_move".to_string(),
         CorePrimOp::TaskSpawnScoped => return "flux_async_task_spawn_scoped".to_string(),
+        CorePrimOp::TaskSpawnScopedMove => {
+            return "flux_async_task_spawn_scoped_move".to_string();
+        }
         CorePrimOp::TaskBlockingJoin => return "flux_task_blocking_join".to_string(),
         CorePrimOp::TaskCancel => return "flux_task_cancel".to_string(),
         // Fiber primops (proposal 0174 Phase 1b).
@@ -3823,8 +3827,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FiberRunAsyncWith => return "flux_fiber_run_async_with".to_string(),
         CorePrimOp::ChanMake => return "flux_chan_make".to_string(),
         CorePrimOp::ChanSend => return "flux_chan_send".to_string(),
+        CorePrimOp::ChanSendMove => return "flux_chan_send_move".to_string(),
         CorePrimOp::ChanRecv => return "flux_chan_recv".to_string(),
         CorePrimOp::ChanTrySend => return "flux_chan_try_send".to_string(),
+        CorePrimOp::ChanTrySendMove => return "flux_chan_try_send_move".to_string(),
         CorePrimOp::ChanTryRecv => return "flux_chan_try_recv".to_string(),
         CorePrimOp::ChanClose => return "flux_chan_close".to_string(),
         CorePrimOp::ChanLen => return "flux_chan_len".to_string(),
@@ -3832,6 +3838,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::ChanIsClosed => return "flux_chan_is_closed".to_string(),
         CorePrimOp::EventRecv => return "flux_event_recv".to_string(),
         CorePrimOp::EventSend => return "flux_event_send".to_string(),
+        CorePrimOp::EventSendMove => return "flux_event_send_move".to_string(),
         CorePrimOp::EventAfter => return "flux_event_after".to_string(),
         CorePrimOp::EventAlways => return "flux_event_always".to_string(),
         CorePrimOp::EventNever => return "flux_event_never".to_string(),
@@ -3972,7 +3979,11 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Concurrency (proposal 0174 D5-a). C stubs in `runtime/c/tasks.c`
         // abort at runtime; the full Rust-scheduler bridge lands in D5-b/c.
         "flux_task_spawn" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_spawn_move" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_async_task_spawn_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_async_task_spawn_scoped_move" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
         "flux_task_blocking_join" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_task_cancel" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // Fiber primops (proposal 0174 Phase 1b).
@@ -4018,8 +4029,10 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         "flux_chan_make" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_chan_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_try_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_try_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_chan_try_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_len" => (LlvmType::i64(), vec![LlvmType::i64()]),
@@ -4027,6 +4040,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_chan_is_closed" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_event_after" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_always" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_never" => (LlvmType::i64(), vec![]),

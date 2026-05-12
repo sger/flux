@@ -139,6 +139,16 @@ static int64_t retain_value(int64_t value) {
     return value;
 }
 
+static int64_t flux_chan_try_send_owned(int64_t id_val, int64_t value, const char *which);
+static int64_t flux_chan_send_owned(int64_t id_val, int64_t value, const char *which);
+
+static int64_t transfer_value(int64_t value) {
+    if (!flux_rc_is_unique(value)) {
+        return retain_value(value);
+    }
+    return value;
+}
+
 static void publish_value(uint64_t req, int64_t option_value) {
     if (req != 0) {
         flux_async_task_complete(req, option_value);
@@ -356,31 +366,41 @@ int64_t flux_chan_make(int64_t capacity_val) {
 }
 
 int64_t flux_chan_try_send(int64_t id_val, int64_t value) {
+    return flux_chan_try_send_owned(id_val, retain_value(value), "flux_chan_try_send");
+}
+
+int64_t flux_chan_try_send_move(int64_t id_val, int64_t value) {
+    return flux_chan_try_send_owned(id_val, transfer_value(value), "flux_chan_try_send_move");
+}
+
+static int64_t flux_chan_try_send_owned(int64_t id_val, int64_t value, const char *which) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
-    if (!ch) abort_unknown("flux_chan_try_send", id);
+    if (!ch) abort_unknown(which, id);
 
     FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->closed) {
         FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_drop(value);
         return FLUX_FALSE;
     }
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
-        publish_value(recv_req, flux_wrap_some(retain_value(value)));
+        publish_value(recv_req, flux_wrap_some(value));
         notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
-        buf_push(ch, retain_value(value));
+        buf_push(ch, value);
         notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
         return FLUX_TRUE;
     }
     FLUX_MUTEX_UNLOCK(&ch->mutex);
+    flux_drop(value);
     return FLUX_FALSE;
 }
 
@@ -411,9 +431,17 @@ int64_t flux_chan_try_recv(int64_t id_val) {
 }
 
 int64_t flux_chan_send(int64_t id_val, int64_t value) {
+    return flux_chan_send_owned(id_val, retain_value(value), "flux_chan_send");
+}
+
+int64_t flux_chan_send_move(int64_t id_val, int64_t value) {
+    return flux_chan_send_owned(id_val, transfer_value(value), "flux_chan_send_move");
+}
+
+static int64_t flux_chan_send_owned(int64_t id_val, int64_t value, const char *which) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
-    if (!ch) abort_unknown("flux_chan_send", id);
+    if (!ch) abort_unknown(which, id);
 
     /* LLVM lowers ChanSend as an always-yielding primop. Even immediate
      * completions publish to a fresh request and suspend so the generated
@@ -422,6 +450,7 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     FLUX_MUTEX_LOCK(&ch->mutex);
     if (ch->closed) {
         FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_drop(value);
         if (request_id != 0) {
             publish_value(request_id, FLUX_NONE);
             return flux_async_suspend_request(request_id);
@@ -430,7 +459,7 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
     }
     uint64_t recv_req = 0;
     if (recv_pop(ch, &recv_req)) {
-        publish_value(recv_req, flux_wrap_some(retain_value(value)));
+        publish_value(recv_req, flux_wrap_some(value));
         notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
@@ -441,7 +470,7 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
         return FLUX_NONE;
     }
     if (ch->capacity > 0 && ch->len < ch->capacity) {
-        buf_push(ch, retain_value(value));
+        buf_push(ch, value);
         notify_event_watchers(ch);
         FLUX_COND_BROADCAST(&ch->ready);
         FLUX_MUTEX_UNLOCK(&ch->mutex);
@@ -455,23 +484,25 @@ int64_t flux_chan_send(int64_t id_val, int64_t value) {
         while (!ch->closed) {
             FLUX_COND_WAIT(&ch->ready, &ch->mutex);
             if (recv_pop(ch, &recv_req)) {
-                publish_value(recv_req, flux_wrap_some(retain_value(value)));
+                publish_value(recv_req, flux_wrap_some(value));
                 notify_event_watchers(ch);
                 FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
             if (ch->capacity > 0 && ch->len < ch->capacity) {
-                buf_push(ch, retain_value(value));
+                buf_push(ch, value);
                 notify_event_watchers(ch);
                 FLUX_MUTEX_UNLOCK(&ch->mutex);
                 return FLUX_NONE;
             }
         }
         FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_drop(value);
         return FLUX_NONE;
     }
-    if (!send_push(ch, request_id, retain_value(value))) {
+    if (!send_push(ch, request_id, value)) {
         FLUX_MUTEX_UNLOCK(&ch->mutex);
+        flux_drop(value);
         fprintf(stderr, "flux_chan_send: too many waiting senders\n");
         abort();
     }

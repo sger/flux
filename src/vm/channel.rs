@@ -175,6 +175,15 @@ pub(super) fn make(capacity: i64) -> Result<i64, String> {
 
 pub(super) fn send(id: i64, value: &Value) -> Result<(), String> {
     let value = VmSendValue::try_from_value(value)?;
+    send_value(id, value)
+}
+
+pub(super) fn send_move(id: i64, value: Value) -> Result<(), String> {
+    let value = VmSendValue::try_transfer_from_value(value)?;
+    send_value(id, value)
+}
+
+fn send_value(id: i64, value: VmSendValue) -> Result<(), String> {
     let entry = lookup(id)?;
     let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
     if cell.closed {
@@ -212,6 +221,15 @@ pub(super) fn send(id: i64, value: &Value) -> Result<(), String> {
 
 pub(super) fn start_send(id: i64, value: &Value, request_id: u64) -> Result<(), String> {
     let value = VmSendValue::try_from_value(value)?;
+    start_send_value(id, value, request_id)
+}
+
+pub(super) fn start_send_move(id: i64, value: Value, request_id: u64) -> Result<(), String> {
+    let value = VmSendValue::try_transfer_from_value(value)?;
+    start_send_value(id, value, request_id)
+}
+
+fn start_send_value(id: i64, value: VmSendValue, request_id: u64) -> Result<(), String> {
     let entry = lookup(id)?;
     let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
     if cell.closed {
@@ -275,6 +293,15 @@ pub(super) fn start_recv(id: i64, request_id: u64) -> Result<(), String> {
 
 pub(super) fn try_send(id: i64, value: &Value) -> Result<bool, String> {
     let value = VmSendValue::try_from_value(value)?;
+    try_send_value(id, value)
+}
+
+pub(super) fn try_send_move(id: i64, value: Value) -> Result<bool, String> {
+    let value = VmSendValue::try_transfer_from_value(value)?;
+    try_send_value(id, value)
+}
+
+pub(super) fn try_send_value(id: i64, value: VmSendValue) -> Result<bool, String> {
     let entry = lookup(id)?;
     let mut cell = entry.cell.lock().expect("VM channel cell poisoned");
     if cell.closed {

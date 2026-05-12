@@ -801,7 +801,17 @@ pub enum CorePrimOp {
     EventPoll = 220,
     /// Suspend until an event may be ready. Readiness is a hint; poll commits.
     EventWait = 221,
-    // ── Next free ID: 222 ─────────────────────────────────────────────
+    /// Spawn a task by ownership transfer.
+    TaskSpawnMove = 222,
+    /// Spawn a scoped task by ownership transfer.
+    TaskSpawnScopedMove = 223,
+    /// Send on a channel by ownership transfer.
+    ChanSendMove = 224,
+    /// Non-blocking ownership-transfer send.
+    ChanTrySendMove = 225,
+    /// Create a channel-send event by ownership transfer.
+    EventSendMove = 226,
+    // ── Next free ID: 227 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -890,6 +900,11 @@ impl CorePrimOp {
             "EventSync" => return Some(Self::EventSync),
             "EventPoll" => return Some(Self::EventPoll),
             "EventWait" => return Some(Self::EventWait),
+            "TaskSpawnMove" => return Some(Self::TaskSpawnMove),
+            "TaskSpawnScopedMove" => return Some(Self::TaskSpawnScopedMove),
+            "ChanSendMove" => return Some(Self::ChanSendMove),
+            "ChanTrySendMove" => return Some(Self::ChanTrySendMove),
+            "EventSendMove" => return Some(Self::EventSendMove),
             "TaskSpawnScoped" => return Some(Self::TaskSpawnScoped),
             "HttpServeConfig" => return Some(Self::HttpServeConfig),
             "HttpShutdown" => return Some(Self::HttpShutdown),
@@ -985,6 +1000,7 @@ impl CorePrimOp {
             Self::FTanh => Some("ftanh"),
             Self::FTruncate => Some("ftruncate"),
             Self::TaskSpawn => Some("task_spawn"),
+            Self::TaskSpawnMove => Some("task_spawn_move"),
             Self::TaskBlockingJoin => Some("task_blocking_join"),
             Self::TaskCancel => Some("task_cancel"),
             Self::FiberSuspend => Some("fiber_suspend"),
@@ -1014,8 +1030,10 @@ impl CorePrimOp {
             Self::FiberCurrentWorkerCount => Some("fiber_current_worker_count"),
             Self::ChanMake => Some("chan_make"),
             Self::ChanSend => Some("chan_send"),
+            Self::ChanSendMove => Some("chan_send_move"),
             Self::ChanRecv => Some("chan_recv"),
             Self::ChanTrySend => Some("chan_try_send"),
+            Self::ChanTrySendMove => Some("chan_try_send_move"),
             Self::ChanTryRecv => Some("chan_try_recv"),
             Self::ChanClose => Some("chan_close"),
             Self::ChanLen => Some("chan_len"),
@@ -1023,6 +1041,7 @@ impl CorePrimOp {
             Self::ChanIsClosed => Some("chan_is_closed"),
             Self::EventRecv => Some("event_recv"),
             Self::EventSend => Some("event_send"),
+            Self::EventSendMove => Some("event_send_move"),
             Self::EventAfter => Some("event_after"),
             Self::EventAlways => Some("event_always"),
             Self::EventNever => Some("event_never"),
@@ -1032,6 +1051,7 @@ impl CorePrimOp {
             Self::EventPoll => Some("event_poll"),
             Self::EventWait => Some("event_wait"),
             Self::TaskSpawnScoped => Some("task_spawn_scoped"),
+            Self::TaskSpawnScopedMove => Some("task_spawn_scoped_move"),
             Self::HttpServeConfig => Some("http_serve_config"),
             Self::HttpShutdown => Some("http_shutdown"),
             Self::HttpShutdownNow => Some("http_shutdown_now"),
@@ -1267,6 +1287,11 @@ impl CorePrimOp {
             219 => EventSync,
             220 => EventPoll,
             221 => EventWait,
+            222 => TaskSpawnMove,
+            223 => TaskSpawnScopedMove,
+            224 => ChanSendMove,
+            225 => ChanTrySendMove,
+            226 => EventSendMove,
             _ => return None,
         };
         Some(op)
@@ -1420,14 +1445,17 @@ impl CorePrimOp {
             ("chan_make", 1, CorePrimOp::ChanMake),
             ("chan_recv", 1, CorePrimOp::ChanRecv),
             ("chan_send", 2, CorePrimOp::ChanSend),
+            ("chan_send_move", 2, CorePrimOp::ChanSendMove),
             ("chan_try_recv", 1, CorePrimOp::ChanTryRecv),
             ("chan_try_send", 2, CorePrimOp::ChanTrySend),
+            ("chan_try_send_move", 2, CorePrimOp::ChanTrySendMove),
             ("event_after", 1, CorePrimOp::EventAfter),
             ("event_always", 1, CorePrimOp::EventAlways),
             ("event_choose", 1, CorePrimOp::EventChoose),
             ("event_never", 0, CorePrimOp::EventNever),
             ("event_recv", 1, CorePrimOp::EventRecv),
             ("event_send", 2, CorePrimOp::EventSend),
+            ("event_send_move", 2, CorePrimOp::EventSendMove),
             ("event_sync", 1, CorePrimOp::EventSync),
             ("event_poll", 1, CorePrimOp::EventPoll),
             ("event_wait", 1, CorePrimOp::EventWait),
@@ -1474,7 +1502,9 @@ impl CorePrimOp {
             ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
             ("task_cancel", 1, CorePrimOp::TaskCancel),
             ("task_spawn", 1, CorePrimOp::TaskSpawn),
+            ("task_spawn_move", 1, CorePrimOp::TaskSpawnMove),
             ("task_spawn_scoped", 2, CorePrimOp::TaskSpawnScoped),
+            ("task_spawn_scoped_move", 2, CorePrimOp::TaskSpawnScopedMove),
             ("tcp_accept", 1, CorePrimOp::TcpAccept),
             ("tcp_close", 1, CorePrimOp::TcpClose),
             ("tcp_connect", 2, CorePrimOp::TcpConnect),
@@ -1559,6 +1589,7 @@ impl CorePrimOp {
             | FTanh
             | FTruncate
             | TaskSpawn
+            | TaskSpawnMove
             | TaskBlockingJoin
             | TaskCancel
             | FiberSuspend
@@ -1665,9 +1696,13 @@ impl CorePrimOp {
             | FiberTimeout
             | FiberForkScoped
             | TaskSpawnScoped
+            | TaskSpawnScopedMove
             | ChanSend
+            | ChanSendMove
             | ChanTrySend
+            | ChanTrySendMove
             | EventSend
+            | EventSendMove
             | EventWrap
             | HttpWriteResponse
             | HttpRegisterConnection

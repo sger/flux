@@ -13,6 +13,7 @@ use crate::runtime::{
     compiled_function::CompiledFunction,
     cons_cell::ConsCell,
     hamt,
+    hamt::{HamtCollision, HamtEntry, HamtNode},
     hash_key::HashKey,
     value::{AdtFields, AdtValue, Value},
 };
@@ -119,7 +120,16 @@ fn default_worker_count() -> usize {
 
 impl VM {
     pub(super) fn spawn_vm_task(&mut self, action: Value) -> Result<i64, String> {
-        let snapshot = self.task_snapshot(action)?;
+        let snapshot = self.task_snapshot(action, false)?;
+        self.spawn_task_snapshot(snapshot)
+    }
+
+    pub(super) fn spawn_vm_task_move(&mut self, action: Value) -> Result<i64, String> {
+        let snapshot = self.task_snapshot(action, true)?;
+        self.spawn_task_snapshot(snapshot)
+    }
+
+    fn spawn_task_snapshot(&mut self, snapshot: VmTaskSnapshot) -> Result<i64, String> {
         let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
         let handle = scheduler().spawn(move || run_task_snapshot(snapshot));
         tasks().lock().expect("VM task table poisoned").insert(
@@ -131,9 +141,13 @@ impl VM {
         Ok(id)
     }
 
-    fn task_snapshot(&self, action: Value) -> Result<VmTaskSnapshot, String> {
+    fn task_snapshot(&self, action: Value, move_action: bool) -> Result<VmTaskSnapshot, String> {
         Ok(VmTaskSnapshot {
-            action: VmSendValue::try_from_value(&action)?,
+            action: if move_action {
+                VmSendValue::try_transfer_from_value(action)?
+            } else {
+                VmSendValue::try_from_value(&action)?
+            },
             constants: self
                 .constants
                 .iter()
@@ -334,6 +348,110 @@ impl VmSendValue {
         })
     }
 
+    pub(super) fn try_transfer_from_value(value: Value) -> Result<Self, String> {
+        match Self::try_move_owned(value) {
+            Ok(value) => Ok(value),
+            Err(MoveValueError::Shared(value)) => Self::try_from_value(&value),
+            Err(MoveValueError::Unsupported(err)) => Err(err),
+        }
+    }
+
+    fn try_move_owned(value: Value) -> Result<Self, MoveValueError> {
+        Ok(match value {
+            Value::Uninit => Self::Uninit,
+            Value::Integer(v) => Self::Integer(v),
+            Value::Float(v) => Self::Float(v),
+            Value::Boolean(v) => Self::Boolean(v),
+            Value::String(v) => match Rc::try_unwrap(v) {
+                Ok(s) => Self::String(s),
+                Err(v) => return Err(MoveValueError::Shared(Value::String(v))),
+            },
+            Value::None => Self::None,
+            Value::EmptyList => Self::EmptyList,
+            Value::Some(v) => match Rc::try_unwrap(v) {
+                Ok(v) => Self::Some(Box::new(Self::try_move_owned(v)?)),
+                Err(v) => return Err(MoveValueError::Shared(Value::Some(v))),
+            },
+            Value::Left(v) => match Rc::try_unwrap(v) {
+                Ok(v) => Self::Left(Box::new(Self::try_move_owned(v)?)),
+                Err(v) => return Err(MoveValueError::Shared(Value::Left(v))),
+            },
+            Value::Right(v) => match Rc::try_unwrap(v) {
+                Ok(v) => Self::Right(Box::new(Self::try_move_owned(v)?)),
+                Err(v) => return Err(MoveValueError::Shared(Value::Right(v))),
+            },
+            Value::ReturnValue(_) => {
+                return Err(MoveValueError::Unsupported(
+                    "Task.spawn cannot transfer internal return values".to_string(),
+                ));
+            }
+            Value::Function(f) => match Rc::try_unwrap(f) {
+                Ok(f) => Self::Function(Box::new(VmSendFunction::from_owned_function(f))),
+                Err(f) => Self::Function(Box::new(VmSendFunction::from_function(&f))),
+            },
+            Value::Closure(c) => match Rc::try_unwrap(c) {
+                Ok(c) => Self::Closure(Box::new(VmSendClosure::try_move_from_closure(c)?)),
+                Err(c) => return Err(MoveValueError::Shared(Value::Closure(c))),
+            },
+            Value::Array(v) => match Rc::try_unwrap(v) {
+                Ok(v) => Self::Array(
+                    v.into_iter()
+                        .map(Self::try_move_owned)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                Err(v) => return Err(MoveValueError::Shared(Value::Array(v))),
+            },
+            Value::Tuple(v) => match Rc::try_unwrap(v) {
+                Ok(v) => Self::Tuple(
+                    v.into_iter()
+                        .map(Self::try_move_owned)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                Err(v) => return Err(MoveValueError::Shared(Value::Tuple(v))),
+            },
+            Value::Adt(adt) => match Rc::try_unwrap(adt) {
+                Ok(adt) => Self::Adt {
+                    constructor: match Rc::try_unwrap(adt.constructor) {
+                        Ok(name) => name,
+                        Err(name) => (*name).clone(),
+                    },
+                    fields: adt
+                        .fields
+                        .into_iter()
+                        .map(Self::try_move_owned)
+                        .collect::<Result<Vec<_>, _>>()?,
+                },
+                Err(adt) => return Err(MoveValueError::Shared(Value::Adt(adt))),
+            },
+            Value::AdtUnit(name) => match Rc::try_unwrap(name) {
+                Ok(name) => Self::AdtUnit(name),
+                Err(name) => Self::AdtUnit((*name).clone()),
+            },
+            Value::Continuation(_) => {
+                return Err(MoveValueError::Unsupported(
+                    "Task.spawn cannot transfer VM continuations".to_string(),
+                ));
+            }
+            Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {
+                return Err(MoveValueError::Unsupported(
+                    "Task.spawn cannot transfer VM effect descriptors".to_string(),
+                ));
+            }
+            Value::Cons(cell) => match Rc::try_unwrap(cell) {
+                Ok(mut cell) => {
+                    let head = std::mem::replace(&mut cell.head, Value::None);
+                    let tail = std::mem::replace(&mut cell.tail, Value::EmptyList);
+                    Self::Cons(
+                        Box::new(Self::try_move_owned(head)?),
+                        Box::new(Self::try_move_owned(tail)?),
+                    )
+                }
+                Err(cell) => return Err(MoveValueError::Shared(Value::Cons(cell))),
+            },
+            Value::HashMap(root) => Self::HashMap(move_hamt_entries(root)?),
+        })
+    }
+
     pub(super) fn to_value(self) -> Result<Value, String> {
         Ok(match self {
             Self::Uninit => Value::Uninit,
@@ -397,13 +515,17 @@ impl VmSendValue {
 
 impl VmSendFunction {
     fn from_function(function: &CompiledFunction) -> Self {
+        Self::from_owned_function(function.clone())
+    }
+
+    fn from_owned_function(function: CompiledFunction) -> Self {
         Self {
-            instructions: function.instructions.clone(),
+            instructions: function.instructions,
             num_locals: function.num_locals,
             num_parameters: function.num_parameters,
             max_stack: function.max_stack,
-            debug_info: function.debug_info.clone(),
-            contract: function.contract.clone(),
+            debug_info: function.debug_info,
+            contract: function.contract,
         }
     }
 
@@ -431,6 +553,20 @@ impl VmSendClosure {
         })
     }
 
+    fn try_move_from_closure(closure: Closure) -> Result<Self, MoveValueError> {
+        Ok(Self {
+            function: match Rc::try_unwrap(closure.function) {
+                Ok(function) => VmSendFunction::from_owned_function(function),
+                Err(function) => VmSendFunction::from_function(&function),
+            },
+            free: closure
+                .free
+                .into_iter()
+                .map(VmSendValue::try_move_owned)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+
     fn to_closure(self) -> Result<Closure, String> {
         Ok(Closure::new(
             Rc::new(self.function.to_function()),
@@ -439,6 +575,85 @@ impl VmSendClosure {
                 .map(VmSendValue::to_value)
                 .collect::<Result<Vec<_>, _>>()?,
         ))
+    }
+}
+
+enum MoveValueError {
+    Shared(Value),
+    Unsupported(String),
+}
+
+fn move_hamt_entries(root: Rc<HamtNode>) -> Result<Vec<(HashKey, VmSendValue)>, MoveValueError> {
+    if !hamt_tree_is_unique(&root) {
+        return Err(MoveValueError::Shared(Value::HashMap(root)));
+    }
+    let root = match Rc::try_unwrap(root) {
+        Ok(root) => root,
+        Err(root) => return Err(MoveValueError::Shared(Value::HashMap(root))),
+    };
+    let mut out = Vec::new();
+    move_hamt_node(root, &mut out)?;
+    Ok(out)
+}
+
+fn move_hamt_node(
+    node: HamtNode,
+    out: &mut Vec<(HashKey, VmSendValue)>,
+) -> Result<(), MoveValueError> {
+    for entry in node.children {
+        match entry {
+            HamtEntry::Leaf(key, value) => out.push((key, transfer_hamt_value(value)?)),
+            HamtEntry::Node(child) => match Rc::try_unwrap(child) {
+                Ok(child) => move_hamt_node(child, out)?,
+                Err(_) => {
+                    return Err(MoveValueError::Unsupported(
+                        "ownership-transfer send HAMT preflight missed a shared node".to_string(),
+                    ));
+                }
+            },
+            HamtEntry::Collision(collision) => {
+                let collision = match Rc::try_unwrap(collision) {
+                    Ok(collision) => collision,
+                    Err(_) => {
+                        return Err(MoveValueError::Unsupported(
+                            "ownership-transfer send HAMT preflight missed a shared collision"
+                                .to_string(),
+                        ));
+                    }
+                };
+                move_hamt_collision(collision, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn move_hamt_collision(
+    collision: HamtCollision,
+    out: &mut Vec<(HashKey, VmSendValue)>,
+) -> Result<(), MoveValueError> {
+    for (key, value) in collision.entries {
+        out.push((key, transfer_hamt_value(value)?));
+    }
+    Ok(())
+}
+
+fn hamt_tree_is_unique(root: &Rc<HamtNode>) -> bool {
+    Rc::strong_count(root) == 1
+        && root.children.iter().all(|entry| match entry {
+            HamtEntry::Leaf(_, _) => true,
+            HamtEntry::Node(child) => hamt_tree_is_unique(child),
+            HamtEntry::Collision(collision) => Rc::strong_count(collision) == 1,
+        })
+}
+
+fn transfer_hamt_value(value: Value) -> Result<VmSendValue, MoveValueError> {
+    match VmSendValue::try_move_owned(value) {
+        Ok(value) => Ok(value),
+        Err(MoveValueError::Shared(value)) => {
+            VmSendValue::try_from_value(&value).map_err(MoveValueError::Unsupported)
+        }
+        Err(err) => Err(err),
     }
 }
 

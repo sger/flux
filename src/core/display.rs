@@ -576,7 +576,9 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::SafeMod => out.push_str("SafeMod"),
         // Concurrency (proposal 0174 D5-a)
         CorePrimOp::TaskSpawn => out.push_str("TaskSpawn"),
+        CorePrimOp::TaskSpawnMove => out.push_str("TaskSpawnMove"),
         CorePrimOp::TaskSpawnScoped => out.push_str("TaskSpawnScoped"),
+        CorePrimOp::TaskSpawnScopedMove => out.push_str("TaskSpawnScopedMove"),
         CorePrimOp::TaskBlockingJoin => out.push_str("TaskBlockingJoin"),
         CorePrimOp::TaskCancel => out.push_str("TaskCancel"),
         // Fiber primops (proposal 0174 Phase 1b)
@@ -607,8 +609,10 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FiberCurrentWorkerCount => out.push_str("FiberCurrentWorkerCount"),
         CorePrimOp::ChanMake => out.push_str("ChanMake"),
         CorePrimOp::ChanSend => out.push_str("ChanSend"),
+        CorePrimOp::ChanSendMove => out.push_str("ChanSendMove"),
         CorePrimOp::ChanRecv => out.push_str("ChanRecv"),
         CorePrimOp::ChanTrySend => out.push_str("ChanTrySend"),
+        CorePrimOp::ChanTrySendMove => out.push_str("ChanTrySendMove"),
         CorePrimOp::ChanTryRecv => out.push_str("ChanTryRecv"),
         CorePrimOp::ChanClose => out.push_str("ChanClose"),
         CorePrimOp::ChanLen => out.push_str("ChanLen"),
@@ -616,6 +620,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::ChanIsClosed => out.push_str("ChanIsClosed"),
         CorePrimOp::EventRecv => out.push_str("EventRecv"),
         CorePrimOp::EventSend => out.push_str("EventSend"),
+        CorePrimOp::EventSendMove => out.push_str("EventSendMove"),
         CorePrimOp::EventAfter => out.push_str("EventAfter"),
         CorePrimOp::EventAlways => out.push_str("EventAlways"),
         CorePrimOp::EventNever => out.push_str("EventNever"),
