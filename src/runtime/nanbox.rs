@@ -396,10 +396,10 @@ mod inner {
             if self.is_heap_pointer() {
                 unsafe {
                     let rc = Rc::from_raw(self.as_raw_ptr());
-                    if Rc::strong_count(&rc) == 1 {
-                        if let Ok(value) = Rc::try_unwrap(rc) {
-                            drop_value_stackless(value);
-                        }
+                    if Rc::strong_count(&rc) == 1
+                        && let Ok(value) = Rc::try_unwrap(rc)
+                    {
+                        drop_value_stackless(value);
                     }
                 }
             }

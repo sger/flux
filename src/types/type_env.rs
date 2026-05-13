@@ -249,7 +249,7 @@ impl TypeEnv {
                 && *name == async_id
             {
                 for label in seam_labels {
-                    let id = interner.lookup(label).unwrap_or_else(|| {
+                    let id = interner.lookup(label).unwrap_or({
                         // In tests the labels may not be interned yet; fall back to
                         // the Async name so we don't panic (the row will be closed).
                         async_id

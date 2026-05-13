@@ -229,10 +229,9 @@ impl<'a> AstLowerer<'a> {
         let Some(current) = self.current_function_name else {
             return true;
         };
-        !self
-            .type_env
+        self.type_env
             .and_then(|type_env| type_env.lookup(current))
-            .is_some_and(|scheme| !scheme.constraints.is_empty())
+            .is_none_or(|scheme| scheme.constraints.is_empty())
     }
 
     fn lower_function_body_for_name(

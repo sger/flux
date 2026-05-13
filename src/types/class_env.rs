@@ -491,6 +491,7 @@ impl ClassEnv {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn try_synthesize_sendable_for_adt(
         env: &mut ClassEnv,
         interner: &Interner,

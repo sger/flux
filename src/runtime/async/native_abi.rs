@@ -79,12 +79,12 @@ fn resolve_default_worker_count() -> usize {
 /// owner-only debugging or as a regression escape hatch.
 fn work_stealing_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(
-        || match std::env::var("FLUX_WORK_STEALING").ok().as_deref() {
-            Some("0") | Some("false") | Some("FALSE") | Some("off") | Some("OFF") => false,
-            _ => true,
-        },
-    )
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("FLUX_WORK_STEALING").ok().as_deref(),
+            Some("0") | Some("false") | Some("FALSE") | Some("off") | Some("OFF")
+        )
+    })
 }
 
 thread_local! {
@@ -416,9 +416,7 @@ impl NativeRun {
     }
 
     fn spawn_scoped_child(&mut self, scope: u64, closure: i64) {
-        if !self.scopes.contains_key(&scope) {
-            self.scopes.insert(scope, HashSet::new());
-        }
+        self.scopes.entry(scope).or_default();
         let id = self.spawn_child(closure);
         self.scopes.entry(scope).or_default().insert(id);
         self.fiber_scope.insert(id, scope);
@@ -1133,6 +1131,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
 /// native executable path, where `runtime/c/tasks.c` registers the real
 /// callback set before entering `flux_async_run_root`.
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn flux_async_set_callbacks(callbacks: *const FluxAsyncCallbacks) -> i32 {
     if callbacks.is_null() {
         return -1;
@@ -1495,6 +1494,7 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) -> u64 {
     if children.is_null() || len == 0 {
         return 0;
@@ -1693,6 +1693,7 @@ pub extern "C" fn flux_async_current_worker_count() -> i32 {
     with_run(|run| run.ready.len() as i32).unwrap_or(0)
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
