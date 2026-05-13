@@ -1,0 +1,53 @@
+// 20 — Task.spawn lifetime is bounded by run_async
+//
+// `Task.spawn(action)` returns a handle. If the user never `await`s,
+// `blocking_join`s, or `cancel`s that handle, the task is silently
+// registered as a child of the enclosing `run_async`. When `run_async`
+// exits — for any reason — the runtime cancels every leftover root task
+// so they cannot leak past the run.
+//
+// This complements `Task.spawn_scoped` (example 19): scoped tasks have an
+// explicit owner; detached tasks fall back to the run as their owner.
+//
+// Either way, no task can outlive its `run_async`.
+
+// parity-expected-stdout-begin
+// "fire_and_forget = 7"
+// "joined = 21"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+// ── Example 1: detached task, never awaited ─────────────────────────────────
+
+fn quick() -> Int { 42 }
+
+// Two tasks are spawned and the handles are immediately discarded. When
+// `body` returns, `run_async` tears down — and the safety net cancels any
+// tasks still tracked under the run. Without that net, the OS threads
+// would leak until process exit.
+fn body_fire_and_forget() -> Int with Async {
+    let _t1 = Task.spawn(quick)
+    let _t2 = Task.spawn(quick)
+    7
+}
+
+// ── Example 2: ordinary `await` is unaffected ───────────────────────────────
+
+fn doubled() -> Int { 21 }
+
+// Sanity check that the safety net does not interfere with the normal
+// path: the user takes ownership via `Task.await`, the task completes,
+// and nothing is left to reap.
+fn body_joined() -> Int with Async {
+    let t = Task.spawn(doubled)
+    Task.await(t)
+}
+
+// ── main ────────────────────────────────────────────────────────────────────
+
+fn main() with IO {
+    print("fire_and_forget = " + to_string(run_async(body_fire_and_forget)))
+    print("joined = " + to_string(run_async(body_joined)))
+}

@@ -1,0 +1,66 @@
+// Phase 3 web example: decode request JSON and encode a typed response.
+
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+import Flow.Json as Json
+
+data EchoRequest {
+    EchoRequest { message: String, times: Int }
+} deriving (Json.Encode, Json.Decode)
+
+data EchoResponse {
+    EchoResponse { echoed: String, count: Int }
+} deriving (Json.Encode, Json.Decode)
+
+fn repeat_text(text: String, n: Int) -> String {
+    if n <= 0 { "" } else { text + repeat_text(text, n - 1) }
+}
+
+fn decode_echo_request(body: String) -> EchoRequest {
+    let parsed = Json.parse(body)
+    let fields = Json.result_or(Json.as_object(parsed, "$"), {})
+    let message_json = Json.result_or(Json.object_get(fields, "message", "$.message"), Json.string(""))
+    let times_json = Json.result_or(Json.object_get(fields, "times", "$.times"), Json.number(0.0))
+    EchoRequest {
+        message: Json.result_or(Json.as_string(message_json, "$.message"), ""),
+        times:   Json.result_or(Json.as_int(times_json, "$.times"), 0),
+    }
+}
+
+fn handler(req) with Async {
+    let value = decode_echo_request(req.body)
+    match value {
+        EchoRequest { message, times } -> do {
+            let output: EchoResponse = EchoResponse { echoed: repeat_text(message, times), count: times }
+            ok(Json.encode_json(encode(output)))
+        }
+    }
+}
+
+fn server() -> Unit with Async, AsyncFail {
+    let h = serve("127.0.0.1", 24902, handler)
+    let _wait = sleep(250)
+    shutdown(h)
+}
+
+fn client() -> String with Async, AsyncFail {
+    let _wait = sleep(50)
+    let payload = Json.encode_json(Json.object(
+        Json.set_field(
+            Json.set_field(Json.empty_fields(), "message", Json.string("ha")),
+            "times",
+            Json.number(3.0)
+        )
+    ))
+    let resp = post("http://127.0.0.1:24902/echo", payload)
+    resp.body
+}
+
+fn body() -> String with Async, AsyncFail {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

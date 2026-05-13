@@ -19,6 +19,11 @@ A practical manual for learning Flux, organized from basics to advanced topics. 
 13. [Match Exhaustiveness and ADTs](13_match_exhaustiveness_and_adts.md) — `type ... = ... | ...` sugar, `E015`/`E083`
 14. [Real-World Pipeline Walkthrough](14_real_world_pipeline_walkthrough.md) — End-to-end modules + effects + typed flow
 15. [Parity Validation](15_parity_validation.md) — VM vs LLVM backend validation, ways, debugging workflow
+16. [Named Fields for Data Types](16_named_fields.md) — Named-field ADTs, field punning, dot access, spread update
+17. [HTTP Services](17_http_services.md) — HTTP/1.1 servers, clients, config, shutdown, streaming responses
+18. [JSON Codecs](18_json_codecs.md) — Json values, parser/stringifier, manual and derived codecs
+19. [Streams and SSE](19_streams_and_sse.md) — Pure pull streams, stream adapters, chunked responses, SSE helpers
+20. [Async and Fibers](20_async_and_fibers.md) — `with Async`, `run_async`, fibers vs OS threads, `both` / `race` / `timeout`, `try` / `fail`, `scope` / `fork` / `cancel`, `Task.spawn`, `Channel`
 
 ## Type System + Effects Track (09-14)
 

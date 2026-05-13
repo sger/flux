@@ -1,0 +1,36 @@
+// 08 — `try` / `fail`: errors as values
+//
+// Goal: recover from failures inside an async body.
+//
+// `fail(error)` raises an `AsyncError` in the current fiber and
+// propagates outward — siblings under the same scope are cancelled.
+//
+// `try(body)` catches both explicit `fail`s and panics, and returns
+// `Result<a, AsyncError>` — `Ok(value)` if the body completed,
+// `Err(reason)` if it didn't.
+//
+// `result_is_ok(r)` and `result_or(r, fallback)` inspect a Result
+// without needing pattern-match boilerplate.
+
+// parity-expected-stdout-begin
+// "good ok? true"
+// "bad  ok? false"
+// "with fallback = -1"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn good() -> Int with Async { 42 }
+fn bad()  -> Int with Async { fail(canceled_error()) }
+
+fn run_good() -> Bool with Async { result_is_ok(try(good)) }
+fn run_bad()  -> Bool with Async { result_is_ok(try(bad)) }
+
+// `result_or` returns the success value if Ok, else the fallback.
+fn run_fallback() -> Int with Async { result_or(try(bad), -1) }
+
+fn main() with IO {
+    print("good ok? "        + to_string(run_async(run_good)))      // true
+    print("bad  ok? "        + to_string(run_async(run_bad)))       // false
+    print("with fallback = " + to_string(run_async(run_fallback)))  // -1
+}

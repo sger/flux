@@ -286,7 +286,11 @@ impl RuntimeType {
                     return false;
                 }
                 let Some(contract) = ctx.callable_contract(value) else {
-                    return false;
+                    return matches!(
+                        value,
+                        Value::Closure(closure)
+                            if params.is_empty() && closure.function.num_parameters == 0
+                    );
                 };
                 if contract.params.len() != params.len() {
                     return false;
@@ -420,7 +424,7 @@ mod tests {
         RuntimeContext, closure::Closure, compiled_function::CompiledFunction, cons_cell::ConsCell,
         function_contract::FunctionContract, value::Value,
     };
-    use std::rc::Rc;
+    use std::{rc::Rc, sync::Arc};
 
     struct TestCtx;
 
@@ -520,7 +524,7 @@ mod tests {
             effects: vec![],
         };
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
@@ -533,7 +537,7 @@ mod tests {
     fn function_runtime_type_rejects_closure_missing_contract() {
         let ctx = TestCtx::new();
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(None);
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
@@ -594,7 +598,7 @@ mod tests {
             effects: vec![io, time],
         };
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
@@ -612,7 +616,7 @@ mod tests {
             effects: vec![],
         };
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
@@ -630,7 +634,7 @@ mod tests {
             effects: vec![],
         };
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),
@@ -651,7 +655,7 @@ mod tests {
             effects: vec![io],
         };
         let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
-        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let closure = Value::Closure(Rc::new(Closure::new(Arc::new(compiled), vec![])));
         let expected = RuntimeType::Function {
             params: vec![RuntimeType::Int],
             ret: Box::new(RuntimeType::Bool),

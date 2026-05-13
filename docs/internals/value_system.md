@@ -31,7 +31,7 @@ enum Value {
     Gc(GcHandle),            // GC-managed: cons cells and HAMT maps
 
     // Functions
-    Function(Rc<CompiledFunction>),  // Named function (bytecode)
+    Function(Arc<CompiledFunction>), // Named function (bytecode)
     Closure(Rc<Closure>),            // Function + captured free variables
     BaseFunction(u8),                // Index into BASE_FUNCTIONS array
     JitClosure(Rc<JitClosure>),      // JIT-compiled function (feature-gated)
@@ -42,7 +42,7 @@ enum Value {
 
 ### Rc for Sharing
 
-Most heap values use `Rc` for cheap cloning — cloning a `Value` is O(1) regardless of size. This works safely because of the **no-cycle invariant**.
+Most heap values use `Rc` for cheap cloning — cloning a `Value` is O(1) regardless of size. Compiled function bytecode is immutable and uses `Arc` so VM worker state can share it safely. This works safely because of the **no-cycle invariant**.
 
 ### No-Cycle Invariant
 

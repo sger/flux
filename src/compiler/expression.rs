@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
+    sync::Arc,
 };
 
 use super::suggestions::suggest_effect_name;
@@ -37,19 +38,23 @@ use crate::{
         types::ErrorType,
     },
     runtime::{
-        compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
-        perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
+        compiled_function::CompiledFunction, function_contract::FunctionContract,
+        handler_descriptor::HandlerDescriptor, perform_descriptor::PerformDescriptor,
+        runtime_type::RuntimeType, value::Value,
     },
     syntax::{
         block::Block,
         effect_expr::EffectExpr,
-        expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
+        expression::{ExprId, Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
+    types::{
+        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
+        type_subst::TypeSubst, unify::unify,
+    },
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -134,7 +139,7 @@ impl Compiler {
     ) -> CompileResult<ConditionalJump> {
         // Validate constructor exists and arity matches (same as compile_pattern_check).
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+        if let Some(info) = self.lookup_constructor_resolved(*name)
             && fields.len() != info.arity
         {
             return Err(Self::boxed(
@@ -241,7 +246,7 @@ impl Compiler {
         local_idx: usize,
     ) -> CompileResult<ConditionalJump> {
         let constructor_name = self.interner.resolve(*name).to_string();
-        if let Some(info) = self.adt_registry.lookup_constructor(*name)
+        if let Some(info) = self.lookup_constructor_resolved(*name)
             && fields.len() != info.arity
         {
             return Err(Self::boxed(
@@ -533,6 +538,26 @@ impl Compiler {
                     // Unqualified access to an exposed module member.
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
+                    } else if let Some(info) = self.lookup_constructor_resolved(name) {
+                        // Zero-arg ADT constructor exposed via `import M exposing (..)`
+                        // (e.g. `Canceled`, `TimedOut`). Non-zero-arg constructors used as
+                        // values flow through Application/Constructor expression compile.
+                        if info.arity == 0 {
+                            let constructor_name = self.interner.resolve(name).to_string();
+                            let const_idx =
+                                self.add_constant(Value::String(Rc::new(constructor_name.clone())));
+                            self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
+                        } else {
+                            let name_str = self.interner.resolve(name).to_string();
+                            return Err(Self::boxed(
+                                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Constructor `{}` expects {} argument(s) but got 0.",
+                                        name_str, info.arity
+                                    )),
+                            ));
+                        }
                     } else {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
@@ -548,7 +573,7 @@ impl Compiler {
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
-                    } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                    } else if let Some(info) = self.lookup_constructor_resolved(name) {
                         // Zero-arg ADT constructor used inside a module (e.g. `Dot`, `Leaf`)
                         if info.arity != 0 {
                             let name_str = self.interner.resolve(name).to_string();
@@ -594,7 +619,7 @@ impl Compiler {
                             self.make_undefined_variable_error(name_str, *span),
                         ));
                     }
-                } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                } else if let Some(info) = self.lookup_constructor_resolved(name) {
                     // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
                     if info.arity != 0 {
                         let name_str = self.interner.resolve(name).to_string();
@@ -745,9 +770,11 @@ impl Compiler {
                 return_type,
                 effects,
                 body,
+                id,
                 ..
             } => {
                 self.compile_function_literal(
+                    *id,
                     parameters,
                     parameter_types,
                     return_type,
@@ -811,6 +838,7 @@ impl Compiler {
             Expression::Call {
                 function,
                 arguments,
+                id,
                 ..
             } => {
                 self.check_known_call_arity(expression.span(), function, arguments)?;
@@ -830,11 +858,12 @@ impl Compiler {
                 // If the callee is a class method with a known argument type,
                 // compile a call to the mangled instance function directly.
                 if let Expression::Identifier { name, .. } = function.as_ref()
-                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments)
+                    && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments, *id)
                 {
                     let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
                         *name,
                         arguments,
+                        *id,
                         function.span(),
                     );
                     resolved_args.extend(arguments.clone());
@@ -862,11 +891,13 @@ impl Compiler {
                 // we only need the method name to find the mangled function.
                 if let Expression::MemberAccess { object, member, .. } = function.as_ref()
                     && self.resolve_module_name_from_expr(object).is_some()
-                    && let Some(mangled) = self.try_resolve_class_method_call(*member, arguments)
+                    && let Some(mangled) =
+                        self.try_resolve_class_method_call(*member, arguments, *id)
                 {
                     let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
                         *member,
                         arguments,
+                        *id,
                         function.span(),
                     );
                     resolved_args.extend(arguments.clone());
@@ -895,26 +926,6 @@ impl Compiler {
                     )
                 {
                     self.compile_non_tail_expression(&dict_call)?;
-                    self.current_span = previous_span;
-                    return Ok(());
-                }
-
-                // Proposal 0168: when the AST path compiles a call to a
-                // user-defined function that has class constraints in its
-                // scheme, prepend the resolved `__dict_{Class}_{Type}` args
-                // so the callee's Core-elaborated dictionary parameters are
-                // filled in. Without this, a CFG→AST fallback (e.g. due to a
-                // closure-lowering hiccup in the argument position) drops the
-                // dict args and the callee crashes with an arity error.
-                if let Expression::Identifier { name, .. } = function.as_ref()
-                    && let Some(constrained_call) = self.try_build_constrained_user_fn_call_ast(
-                        *name,
-                        function.span(),
-                        arguments,
-                        expression.span(),
-                    )
-                {
-                    self.compile_non_tail_expression(&constrained_call)?;
                     self.current_span = previous_span;
                     return Ok(());
                 }
@@ -949,12 +960,38 @@ impl Compiler {
                     }
                 }
 
-                for argument in arguments {
-                    if is_self_tail_call {
-                        self.compile_tail_call_argument(argument, &consumable_counts)?;
+                let contextual_contracts =
+                    self.contextual_function_contracts_for_call(function, arguments);
+
+                for (index, argument) in arguments.iter().enumerate() {
+                    let previous_context = if let Some(contract) = contextual_contracts
+                        .get(index)
+                        .and_then(|contract| contract.as_ref())
+                        && let Expression::Function { id, .. } = argument
+                    {
+                        Some((
+                            *id,
+                            self.contextual_function_contracts
+                                .insert(*id, contract.clone()),
+                        ))
                     } else {
-                        self.compile_non_tail_expression(argument)?;
+                        None
+                    };
+                    let compile_result = if is_self_tail_call {
+                        self.compile_tail_call_argument(argument, &consumable_counts)
+                    } else {
+                        self.compile_non_tail_expression(argument)
+                    };
+                    if let Expression::Function { id, .. } = argument
+                        && contextual_contracts.get(index).is_some_and(Option::is_some)
+                    {
+                        if let Some((_, Some(previous))) = previous_context {
+                            self.contextual_function_contracts.insert(*id, previous);
+                        } else {
+                            self.contextual_function_contracts.remove(id);
+                        }
                     }
+                    compile_result?;
                 }
 
                 // Emit OpTailCall for tail-position calls (self or sibling),
@@ -1196,6 +1233,57 @@ impl Compiler {
         self.check_imported_runtime_contract_call(function, arguments, &contract)
     }
 
+    fn contextual_function_contracts_for_call(
+        &self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> Vec<Option<FunctionContract>> {
+        let mut contracts = vec![None; arguments.len()];
+        if let Some(contract) = self.resolve_call_contract(function, arguments.len()) {
+            for (index, param) in contract.params.iter().enumerate().take(arguments.len()) {
+                let Some(param_ty) = param.as_ref() else {
+                    continue;
+                };
+                let Ok(runtime_ty) = convert_type_expr_checked(
+                    param_ty,
+                    &self.interner,
+                    &contract.type_params,
+                    &self.adt_contract_specs,
+                ) else {
+                    continue;
+                };
+                contracts[index] = Self::function_contract_from_runtime_type(&runtime_ty);
+            }
+            return contracts;
+        }
+
+        let Some(contract) = self.resolve_call_runtime_contract(function) else {
+            return contracts;
+        };
+        for (index, param) in contract.params.iter().enumerate().take(arguments.len()) {
+            let Some(runtime_ty) = param.as_ref() else {
+                continue;
+            };
+            contracts[index] = Self::function_contract_from_runtime_type(runtime_ty);
+        }
+        contracts
+    }
+
+    fn function_contract_from_runtime_type(runtime_ty: &RuntimeType) -> Option<FunctionContract> {
+        match runtime_ty {
+            RuntimeType::Function {
+                params,
+                ret,
+                effects,
+            } => Some(FunctionContract {
+                params: params.iter().cloned().map(Some).collect(),
+                ret: Some((**ret).clone()),
+                effects: effects.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     fn check_source_contract_call(
         &mut self,
         function: &Expression,
@@ -1219,7 +1307,10 @@ impl Compiler {
                 .filter(|effect_var| !self.is_effect_available(*effect_var))
                 .collect();
 
-            if !unresolved.is_empty() {
+            let function_name = self.call_function_name(function);
+            if !unresolved.is_empty()
+                && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
+            {
                 let origin = self.effect_constraint_origin(function, None);
                 return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
                     &unresolved,
@@ -1236,7 +1327,6 @@ impl Compiler {
 
             for required_name in required_effects {
                 if !self.is_effect_available(required_name) {
-                    let function_name = self.call_function_name(function);
                     let missing = self.sym(required_name).to_string();
                     return Err(Self::boxed(
                         Diagnostic::make_error_dynamic(
@@ -1275,12 +1365,12 @@ impl Compiler {
             ) {
                 Ok(runtime) => runtime,
                 Err(err) => {
-                    let static_argument_matches = if let HmExprTypeResult::Known(actual) =
-                        self.hm_expr_type_strict_path(argument)
-                        && let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
-                            self.hm_expr_type_strict_path(function)
+                    let static_argument_matches = if let Some(actual) =
+                        self.hm_expr_types.get(&argument.expr_id())
+                        && let Some(InferType::Fun(hm_params, _, _)) =
+                            self.hm_expr_types.get(&function.expr_id())
                         && let Some(hm_expected) = hm_params.get(index)
-                        && let Ok(subst) = unify(hm_expected, &actual)
+                        && let Ok(subst) = unify(hm_expected, actual)
                     {
                         hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
                     } else {
@@ -1474,9 +1564,12 @@ impl Compiler {
             return Ok(());
         };
 
-        let expected = params.len();
+        let raw_expected = params.len();
+        let hidden_dicts = self.hidden_dict_count_ast(function);
+        let visible_expected = raw_expected.saturating_sub(hidden_dicts);
+        let elaborated_expected = raw_expected + hidden_dicts;
         let actual = arguments.len();
-        if expected == actual {
+        if actual == raw_expected || actual == visible_expected || actual == elaborated_expected {
             return Ok(());
         }
 
@@ -1486,10 +1579,26 @@ impl Compiler {
             self.file_path.clone(),
             call_span,
             &function_name,
-            expected,
+            visible_expected,
             actual,
             def_span,
         )))
+    }
+
+    fn hidden_dict_count_ast(&self, function: &Expression) -> usize {
+        match function {
+            Expression::Identifier { name, .. } => self
+                .type_env
+                .lookup(*name)
+                .map(|scheme| scheme.constraints.len())
+                .unwrap_or(0),
+            Expression::MemberAccess { object, member, .. } => self
+                .resolve_module_name_from_expr(object)
+                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member)))
+                .map(|scheme| scheme.constraints.len())
+                .unwrap_or(0),
+            _ => 0,
+        }
     }
 
     fn module_constructor_boundary_from_qualified_identifier(
@@ -1851,7 +1960,9 @@ impl Compiler {
         expected_arity: usize,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
@@ -1922,7 +2033,9 @@ impl Compiler {
         param_effect_rows: &HashMap<Symbol, EffectRow>,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = param_effect_rows.get(name).cloned() {
                     return Some(local);
@@ -2197,6 +2310,7 @@ impl Compiler {
 
     pub(super) fn compile_function_literal(
         &mut self,
+        expr_id: ExprId,
         parameters: &[Symbol],
         parameters_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
@@ -2296,10 +2410,13 @@ impl Compiler {
                 ret: return_type.clone(),
                 effects: effects.to_vec(),
             };
-            self.to_runtime_contract(&contract)
+            self.contextual_function_contracts
+                .get(&expr_id)
+                .cloned()
+                .or_else(|| self.to_runtime_contract(&contract))
         };
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(
+        let fn_idx = self.add_constant(Value::Function(Arc::new(
             CompiledFunction::new(
                 instructions,
                 num_locals,
@@ -2894,7 +3011,7 @@ impl Compiler {
             }
             Pattern::Constructor { name, fields, span } => {
                 // 1. Check if this is a known constructor
-                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                let Some(constructor_info) = self.lookup_constructor_resolved(*name) else {
                     // Before reporting unknown constructor, check for cross-module access
                     // via a qualified name (e.g. Module.Ctor used in a pattern).
                     if let Some((member_name, qualifier)) =
@@ -3165,7 +3282,7 @@ impl Compiler {
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
             Pattern::Constructor { name, fields, span } => {
-                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                let Some(constructor_info) = self.lookup_constructor_resolved(*name) else {
                     // Before reporting unknown constructor, check for cross-module access
                     // via a qualified name (e.g. Module.Ctor used in a pattern).
                     if let Some((member_name, qualifier)) =
@@ -3777,7 +3894,14 @@ impl Compiler {
             };
 
             // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
+            self.compile_function_literal(
+                ExprId::UNSET,
+                &params,
+                &parameter_types,
+                &None,
+                &[],
+                &arm_block,
+            )?;
         }
 
         if let Some(parameter) = parameter {
@@ -3968,6 +4092,7 @@ impl Compiler {
             Statement::Data { .. } => {}
             Statement::EffectDecl { .. } => {}
             Statement::EffectAlias { .. } => {}
+            Statement::TypeAlias(_) => {}
             Statement::Class { .. } => {}
             Statement::Instance { .. } => {}
         }
@@ -4177,7 +4302,10 @@ impl Compiler {
         };
 
         // Only intercept if the constructor is known.
-        let Some(info) = self.adt_registry.lookup_constructor(name) else {
+        let info_arity = self
+            .lookup_constructor_resolved(name)
+            .map(|info| info.arity);
+        let Some(expected_arity) = info_arity else {
             if let Some((member_name, qualifier)) =
                 self.module_constructor_boundary_from_qualified_identifier(name)
             {
@@ -4234,7 +4362,6 @@ impl Compiler {
             );
         }
 
-        let expected_arity = info.arity;
         let actual_arity = arguments.len();
 
         if actual_arity != expected_arity {
@@ -4269,11 +4396,37 @@ impl Compiler {
         &self,
         name: crate::syntax::Identifier,
         arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
     ) -> Option<crate::syntax::Identifier> {
         if self.class_env.classes.is_empty() {
             return None;
         }
         let (class_name, _) = self.class_env.method_to_class(name)?;
+
+        if self.interner.resolve(name) == "decode"
+            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            return self
+                .hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
+                .and_then(|decoded_type| {
+                    self.class_env
+                        .resolve_instance_with_subst(class_name, &[decoded_type], &self.interner)
+                        .and_then(|(instance, _subst)| {
+                            let type_key = instance
+                                .type_args
+                                .iter()
+                                .map(|a| a.display_with(&self.interner))
+                                .collect::<Vec<_>>()
+                                .join("_");
+                            let class_str = self.interner.resolve(class_name);
+                            let method_str = self.interner.resolve(name);
+                            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+                            self.interner.lookup(&mangled)
+                        })
+                });
+        }
 
         // Try compile-time resolution: if the first argument's type is concrete,
         // resolve directly to the mangled instance function.
@@ -4341,9 +4494,10 @@ impl Compiler {
     }
 
     fn resolve_direct_class_call_dict_args_ast(
-        &self,
+        &mut self,
         method_name: crate::syntax::Identifier,
         arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
         span: Span,
     ) -> Vec<Expression> {
         let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
@@ -4356,15 +4510,20 @@ impl Compiler {
             return Vec::new();
         };
 
+        let actual_type_args = if self.interner.resolve(method_name) == "decode"
+            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
+        {
+            self.hm_expr_types
+                .get(&call_id)
+                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
+                .map(|ty| vec![ty])
+                .unwrap_or_else(|| vec![first_arg_ty.clone()])
+        } else {
+            vec![first_arg_ty.clone()]
+        };
+
         self.class_env
-            .resolve_method_call_instance_from_first_arg(class_name, first_arg_ty, &self.interner)
-            .and_then(|(_instance, concrete_type_args)| {
-                self.class_env.resolve_instance_context_dictionaries(
-                    class_name,
-                    &concrete_type_args,
-                    &self.interner,
-                )
-            })
+            .resolve_instance_context_dictionaries(class_name, &actual_type_args, &self.interner)
             .map(|dicts| {
                 dicts
                     .iter()
@@ -4374,151 +4533,33 @@ impl Compiler {
             .unwrap_or_default()
     }
 
-    /// AST-path analogue of `core/lower_ast::resolve_dict_args_for_call`.
-    ///
-    /// When a user-defined function has class constraints in its scheme,
-    /// Core/dict_elaborate rewrites its body to accept a `__dict_*` parameter
-    /// per constraint. Call sites must supply matching dictionary arguments.
-    /// The Core lowering path does this; when that path fails and we fall
-    /// back to compiling from the AST, this helper recovers the same
-    /// insertion so polymorphic dispatch keeps working.
-    fn try_build_constrained_user_fn_call_ast(
-        &self,
-        callee_name: crate::syntax::Identifier,
-        function_span: Span,
-        arguments: &[Expression],
-        call_span: Span,
-    ) -> Option<Expression> {
-        if self.class_env.classes.is_empty() {
-            return None;
-        }
-        let scheme = self.type_env.lookup(callee_name)?;
-        if scheme.constraints.is_empty() {
-            return None;
-        }
-        // Skip if this is a class method — those are already handled by
-        // `try_resolve_class_method_call` / `try_build_dict_class_method_call`.
-        if self.class_env.method_to_class(callee_name).is_some() {
-            return None;
-        }
-
-        let mut dict_args = Vec::with_capacity(scheme.constraints.len());
-        for constraint in &scheme.constraints {
-            let actual =
-                self.resolve_scheme_constraint_type_args_ast(constraint, scheme, arguments)?;
-            let dict_ref = self.class_env.resolve_dictionary_ref(
-                constraint.class_name,
-                &actual,
-                &self.interner,
-            )?;
-            dict_args.push(self.lower_dictionary_ref_ast(&dict_ref, function_span));
-        }
-
-        let mut all_args = dict_args;
-        all_args.extend(arguments.iter().cloned());
-        Some(Expression::Call {
-            function: Box::new(Expression::Identifier {
-                name: callee_name,
-                span: function_span,
-                id: crate::syntax::expression::ExprId::UNSET,
-            }),
-            arguments: all_args,
-            span: call_span,
-            id: crate::syntax::expression::ExprId::UNSET,
-        })
-    }
-
-    fn resolve_scheme_constraint_type_args_ast(
-        &self,
-        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
-        scheme: &crate::types::scheme::Scheme,
-        arguments: &[Expression],
-    ) -> Option<Vec<InferType>> {
-        let InferType::Fun(param_tys, _ret_ty, _) = &scheme.infer_type else {
-            return None;
-        };
-        let param_offset = param_tys.len().saturating_sub(arguments.len());
-        let mut resolved = Vec::with_capacity(constraint.type_vars.len());
-        for type_var in &constraint.type_vars {
-            let mut found = None;
-            for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
-                let arg = arguments.get(i - param_offset)?;
-                let arg_ty = self.hm_expr_types.get(&arg.expr_id())?;
-                if let Some(actual) =
-                    Self::match_scheme_constraint_type_var_ast(param_ty, arg_ty, *type_var)
-                {
-                    found = Some(actual);
-                    break;
-                }
-            }
-            resolved.push(found?);
-        }
-        Some(resolved)
-    }
-
-    fn match_scheme_constraint_type_var_ast(
-        pattern: &InferType,
-        actual: &InferType,
-        target: crate::types::TypeVarId,
-    ) -> Option<InferType> {
-        match pattern {
-            InferType::Var(var) if *var == target => Some(actual.clone()),
-            InferType::App(pattern_ctor, pattern_args) => {
-                let InferType::App(actual_ctor, actual_args) = actual else {
-                    return None;
-                };
-                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
-            }
-            InferType::Tuple(pattern_elems) => {
-                let InferType::Tuple(actual_elems) = actual else {
-                    return None;
-                };
-                if pattern_elems.len() != actual_elems.len() {
-                    return None;
-                }
-                pattern_elems
-                    .iter()
-                    .zip(actual_elems.iter())
-                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
-            }
-            InferType::HktApp(pattern_head, pattern_args) => {
-                let actual_args = match actual {
-                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
-                    _ => return None,
-                };
-                if pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                if let InferType::Var(var) = pattern_head.as_ref()
-                    && *var == target
-                {
-                    return Some(match actual {
-                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
-                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
-                        _ => return None,
-                    });
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(p, a)| Self::match_scheme_constraint_type_var_ast(p, a, target))
-            }
-            _ => None,
-        }
-    }
-
     fn lower_dictionary_ref_ast(
-        &self,
+        &mut self,
         dict_ref: &crate::types::class_env::ResolvedDictionaryRef,
         span: Span,
     ) -> Expression {
         if dict_ref.context_args.is_empty() {
+            if let Some(method_names) = self.dictionary_method_symbol_names_ast(dict_ref.dict_name)
+            {
+                return Expression::TupleLiteral {
+                    elements: method_names
+                        .into_iter()
+                        .map(|name| {
+                            let name = self.interner.intern(&name);
+                            if !self.symbol_table.exists_in_current_scope(name) {
+                                self.symbol_table.define(name, Span::default());
+                            }
+                            Expression::Identifier {
+                                name,
+                                span,
+                                id: crate::syntax::expression::ExprId::UNSET,
+                            }
+                        })
+                        .collect(),
+                    span,
+                    id: crate::syntax::expression::ExprId::UNSET,
+                };
+            }
             if let Some(methods) = self
                 .class_env
                 .dictionary_method_symbols(dict_ref.dict_name, &self.interner)
@@ -4558,4 +4599,48 @@ impl Compiler {
             id: crate::syntax::expression::ExprId::UNSET,
         }
     }
+
+    fn dictionary_method_symbol_names_ast(
+        &self,
+        dict_name: crate::syntax::Identifier,
+    ) -> Option<Vec<String>> {
+        let dict_name_str = self.interner.resolve(dict_name);
+        self.class_env.instances.iter().find_map(|instance| {
+            let class_def = self.class_env.lookup_class(instance.class_name)?;
+            let class_str = self.interner.resolve(instance.class_name);
+            let type_name = instance
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            if dict_name_str != format!("__dict_{class_str}_{type_name}") {
+                return None;
+            }
+            Some(
+                class_def
+                    .methods
+                    .iter()
+                    .map(|method_sig| {
+                        let method_str = self.interner.resolve(method_sig.name);
+                        format!("__tc_{class_str}_{type_name}_{method_str}")
+                    })
+                    .collect(),
+            )
+        })
+    }
+}
+
+fn json_result_payload_type_ast(
+    ty: &InferType,
+    interner: &crate::syntax::interner::Interner,
+) -> Option<InferType> {
+    let InferType::App(TypeConstructor::Adt(sym), args) = ty else {
+        return None;
+    };
+    if args.len() != 1 {
+        return None;
+    }
+    let name = interner.resolve(*sym);
+    (name.rsplit('.').next() == Some("JsonResult")).then(|| args[0].clone())
 }

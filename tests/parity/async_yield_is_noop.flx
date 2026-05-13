@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// expect: success
+// bug: a lone yield_now() (no other ready fiber) must round-trip through the
+//      scheduler without disturbing the surrounding computation: the fiber is
+//      re-enqueued, immediately re-popped, and resumed with Unit.
+
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    yield_now()
+    7
+}
+
+fn main() with IO {
+    let v = run_async(body)
+    print(v)
+}

@@ -25,26 +25,24 @@
 #include <string.h>
 
 /*
- * Yield state (global, single-threaded).
+ * Effect/yield context (proposal 0174 Phase 0d).
  *
- * Concurrency: this runtime is not concurrency-ready. Yield state, evidence
- * state (current_evv, marker_counter — see below), and the legacy
- * direct-resume counters (flux_resume_called, flux_direct_resume_marker) are
- * all process globals. Any future actor / thread / fiber runtime must make
- * these state-local, either by moving them into an explicit scheduler
- * context or by switching to thread-local storage with appropriate
- * scheduling-point save/restore. This is tracked under proposal 0171
- * Track 5b as a known limitation, not a bug.
+ * Yield state, evidence vector, and the legacy direct-resume counters live
+ * in a per-thread `FluxEffectContext`. Phase 0d migrated these off process
+ * globals so the upcoming worker pool (Phase 1a) can run unrelated fibers
+ * on different OS threads without their effect state colliding. Phase 1a/1b
+ * will save/restore this struct at fiber suspension points so multiple
+ * fibers on the same worker also get independent state.
  *
  * Yield-payload borrowing invariant (proposal 0171 Track 5b, item 3):
  *
- *   - Producer: the LIR continuation lowering writes into these globals via
- *     flux_yield_to / OpYield-equivalent paths just before unwinding to the
- *     prompt. The values written are tagged Flux values borrowed from the
- *     producing frame's locals.
- *   - Consumer: flux_yield_prompt reads each global into a local and clears
- *     the slot before invoking the handler clause or rethreading the
- *     continuation. After clearing, the global no longer aliases the
+ *   - Producer: the LIR continuation lowering writes into the context's
+ *     yield slots via flux_yield_to / OpYield-equivalent paths just before
+ *     unwinding to the prompt. The values written are tagged Flux values
+ *     borrowed from the producing frame's locals.
+ *   - Consumer: flux_yield_prompt reads each slot into a local and clears
+ *     it before invoking the handler clause or rethreading the
+ *     continuation. After clearing, the slot no longer aliases the
  *     borrowed value.
  *   - Lifetime: the LIR lowering must keep the source value alive across
  *     the unwind window (no flux_drop between the write and the prompt
@@ -55,15 +53,123 @@
  *     concurrency lands).
  */
 
-int32_t  flux_yield_yielding    = 0;   /* 0=no, 1=yielding, 2=final */
-int32_t  flux_yield_marker      = 0;   /* target handler's marker */
-int64_t  flux_yield_clause      = 0;   /* operation clause closure */
-int64_t  flux_yield_op_arg      = 0;   /* performed argument (unused for 0-arity) */
-int64_t  flux_yield_op_state    = 0;   /* current handler parameter, or 0 when absent */
-int32_t  flux_yield_op_arity    = 0;   /* user-visible arity of the op (0 or 1) */
-int64_t  flux_yield_conts[8];          /* accumulated continuation closures */
-int32_t  flux_yield_conts_count = 0;
-int64_t  flux_yield_evv         = 0;   /* current_evv at yield time (slice 5-tr-fix) */
+#if defined(_MSC_VER)
+#  define FLUX_TLS __declspec(thread)
+#else
+#  define FLUX_TLS _Thread_local
+#endif
+
+#define FLUX_EFFECT_CONTS_MAX 8
+
+typedef struct FluxEffectContext {
+    /* Yield payload. */
+    int32_t  yielding;             /* 0=no, 1=yielding, 2=final */
+    int32_t  marker;               /* target handler's marker */
+    int64_t  clause;               /* operation clause closure */
+    int64_t  op_arg;               /* performed argument (unused for 0-arity) */
+    int64_t  op_state;             /* current handler parameter, or 0 when absent */
+    int32_t  op_arity;             /* user-visible arity of the op (0 or 1) */
+    int64_t  conts[FLUX_EFFECT_CONTS_MAX]; /* accumulated continuation closures */
+    int32_t  conts_count;
+    int64_t  yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
+    /* Evidence vector. */
+    int64_t  current_evv;          /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
+    int32_t  marker_counter;
+    /* Legacy direct-perform short-circuit detector. */
+    int32_t  resume_called;
+    int32_t  direct_resume_marker;
+} FluxEffectContext;
+
+static FLUX_TLS FluxEffectContext flux_thread_ctx;
+#ifdef FLUX_DEBUG
+static FLUX_TLS int flux_thread_ctx_capture_transferred;
+#endif
+
+typedef struct FluxEffectContextSnapshot {
+    FluxEffectContext ctx;
+} FluxEffectContextSnapshot;
+
+void flux_effect_context_reset(void);
+
+static void flux_effect_context_dup_fields(const FluxEffectContext *ctx) {
+    flux_dup(ctx->clause);
+    flux_dup(ctx->op_arg);
+    flux_dup(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_dup(ctx->conts[i]);
+    }
+    flux_dup(ctx->yield_evv);
+    flux_dup(ctx->current_evv);
+}
+
+static void flux_effect_context_drop_fields(const FluxEffectContext *ctx) {
+    flux_drop(ctx->clause);
+    flux_drop(ctx->op_arg);
+    flux_drop(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_drop(ctx->conts[i]);
+    }
+    flux_drop(ctx->yield_evv);
+    flux_drop(ctx->current_evv);
+}
+
+#ifdef FLUX_DEBUG
+static int flux_effect_context_has_tagged_fields(const FluxEffectContext *ctx) {
+    if (ctx->clause != 0 || ctx->op_arg != 0 || ctx->op_state != 0 ||
+        ctx->yield_evv != 0 || ctx->current_evv != 0) {
+        return 1;
+    }
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        if (ctx->conts[i] != 0) return 1;
+    }
+    return 0;
+}
+#endif
+
+void *flux_effect_context_capture(void) {
+    FluxEffectContextSnapshot *snapshot =
+        (FluxEffectContextSnapshot *)malloc(sizeof(FluxEffectContextSnapshot));
+    if (!snapshot) return NULL;
+    snapshot->ctx = flux_thread_ctx;
+    flux_effect_context_dup_fields(&snapshot->ctx);
+#ifdef FLUX_DEBUG
+    flux_thread_ctx_capture_transferred = 1;
+#endif
+    return snapshot;
+}
+
+void flux_effect_context_restore(void *snapshot_raw) {
+    flux_effect_context_reset();
+    if (!snapshot_raw) return;
+    FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+    flux_thread_ctx = snapshot->ctx;
+}
+
+/* Reset only clears TLS bookkeeping. It does not drop fields: while a fiber is
+ * running, TLS borrows references owned by that fiber's snapshot or by the
+ * executing stack. Callers must capture/transfer any state that should survive
+ * before calling this helper.
+ */
+void flux_effect_context_reset(void) {
+#ifdef FLUX_DEBUG
+    if (flux_effect_context_has_tagged_fields(&flux_thread_ctx) &&
+        !flux_thread_ctx_capture_transferred) {
+        fprintf(stderr,
+                "flux_effect_context_reset: non-empty TLS effect context "
+                "without prior capture\n");
+        abort();
+    }
+    flux_thread_ctx_capture_transferred = 0;
+#endif
+    memset(&flux_thread_ctx, 0, sizeof(flux_thread_ctx));
+}
+
+void flux_effect_context_release(void *snapshot_raw) {
+    if (!snapshot_raw) return;
+    FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+    flux_effect_context_drop_fields(&snapshot->ctx);
+    free(snapshot);
+}
 
 /* ── Evidence vector ───────────────────────────────────────────────── */
 
@@ -92,9 +198,6 @@ typedef struct {
     int32_t count;  /* number of evidence entries */
     int64_t data[]; /* count * EVV_ENTRY_WORDS words */
 } EvvArray;
-
-static int64_t current_evv = 0;  /* tagged ptr to EvvArray (0 = empty/FLUX_NONE) */
-static int32_t marker_counter = 0;
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
@@ -127,16 +230,16 @@ static void evv_dup_owned_fields(const int64_t *entry) {
 /* ── Public API ────────────────────────────────────────────────────── */
 
 int64_t flux_evv_get(void) {
-    return current_evv;
+    return flux_thread_ctx.current_evv;
 }
 
 void flux_evv_set(int64_t evv) {
-    current_evv = evv;
+    flux_thread_ctx.current_evv = evv;
 }
 
 int64_t flux_fresh_marker(void) {
-    marker_counter++;
-    return flux_tag_int((int64_t)marker_counter);
+    flux_thread_ctx.marker_counter++;
+    return flux_tag_int((int64_t)flux_thread_ctx.marker_counter);
 }
 
 /*
@@ -215,13 +318,13 @@ static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
  *        number of args: `(resume)` when arity=0 (no user arg) or
  *        `(resume, arg)` when arity=1.
  *
- * The caller must check flux_yield_yielding after every call and propagate
+ * The caller must check flux_thread_ctx.yielding after every call and propagate
  * the sentinel + extend continuations as needed.
  */
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
-    EvvArray *arr = evv_unbox(current_evv);
+    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
@@ -234,19 +337,27 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
 
-    flux_yield_yielding    = 1;
-    flux_yield_marker      = m;
-    flux_yield_clause      = clause;
-    flux_yield_op_arg      = arg;
-    flux_yield_op_state    = entry[EVV_STATE_OFF];
-    flux_yield_op_arity    = (int32_t)flux_untag_int(arity);
-    flux_yield_conts_count = 0;
+    /* Take an RC root on the payload so the invariant described at the top of
+     * this file is self-enforcing: any code between flux_yield_to and the
+     * flux_yield_prompt consume that drops the last caller-side reference
+     * will NOT free the value — the context holds its own owned reference.
+     * The matching flux_drop lives in flux_yield_prompt after the clause
+     * call (see below). */
+    flux_dup(arg);
+
+    flux_thread_ctx.yielding    = 1;
+    flux_thread_ctx.marker      = m;
+    flux_thread_ctx.clause      = clause;
+    flux_thread_ctx.op_arg      = arg;
+    flux_thread_ctx.op_state    = entry[EVV_STATE_OFF];
+    flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
+    flux_thread_ctx.conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
      * this because an inner handle may unwind (restoring its parent evv)
      * before the outer handle's clause decides to resume into the inner
      * scope. */
-    flux_yield_evv         = current_evv;
+    flux_thread_ctx.yield_evv         = flux_thread_ctx.current_evv;
 
     return FLUX_YIELD_SENTINEL;
 }
@@ -268,7 +379,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  * value back as the perform's result.
  *
  * Detecting the short-circuit requires the caller to set
- * `flux_resume_called = 0` before calling flux_perform_direct, then check it
+ * `flux_thread_ctx.resume_called = 0` before calling flux_perform_direct, then check it
  * after. The `resume` closure passed in is synthesized by the compiler; when
  * it is the identity closure, we cannot observe whether it ran. To make the
  * observation possible without rewriting the compiler's closure synthesis,
@@ -293,9 +404,6 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  * This is a concurrency blocker until resume/effect state becomes fiber-local
  * or is threaded through an explicit runtime context.
  */
-int32_t flux_resume_called = 0;
-int32_t flux_direct_resume_marker = 0;
-
 /*
  * Replace the parameterized handler state stored against `marker` in the
  * current evidence vector. Both the previous state and the new state are
@@ -308,7 +416,7 @@ int32_t flux_direct_resume_marker = 0;
  * caller happened to pass the same tagged pointer.
  */
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
-    EvvArray *arr = evv_unbox(current_evv);
+    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
     if (idx >= 0) {
         int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
@@ -328,7 +436,7 @@ static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
  * unwinding and native multi-shot composition.
  */
 int64_t flux_resume_mark_called(int64_t value) {
-    flux_resume_called += 1;
+    flux_thread_ctx.resume_called += 1;
     return value;
 }
 
@@ -358,8 +466,8 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 
 int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
     (void)closure_raw;
-    if (nargs >= 2 && flux_direct_resume_marker != 0) {
-        flux_update_state_for_marker(flux_direct_resume_marker, args_ptr[1]);
+    if (nargs >= 2 && flux_thread_ctx.direct_resume_marker != 0) {
+        flux_update_state_for_marker(flux_thread_ctx.direct_resume_marker, args_ptr[1]);
     }
     return flux_resume_mark_called(args_ptr[0]);
 }
@@ -367,7 +475,7 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity) {
     (void)optag;  /* reserved for multi-op dispatch */
 
-    EvvArray *arr = evv_unbox(current_evv);
+    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
@@ -382,10 +490,10 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int64_t state = entry[EVV_STATE_OFF];
 
     /* Save & reset the counter so nested performs don't confuse the detector. */
-    int32_t saved_count = flux_resume_called;
-    int32_t saved_direct_marker = flux_direct_resume_marker;
-    flux_resume_called = 0;
-    flux_direct_resume_marker = marker;
+    int32_t saved_count = flux_thread_ctx.resume_called;
+    int32_t saved_direct_marker = flux_thread_ctx.direct_resume_marker;
+    flux_thread_ctx.resume_called = 0;
+    flux_thread_ctx.direct_resume_marker = marker;
 
     /*
      * Direct call: clause(resume, arg0, ..., argN).
@@ -422,7 +530,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
      * Both error bands require Phase 3 proper (yield-based unwinding
      * + multi-shot continuation composition) to lift the restriction.
      */
-    if (flux_resume_called == 0) {
+    if (flux_thread_ctx.resume_called == 0) {
         fprintf(stderr,
             "error[E1200]: Non-Tail-Resumptive Handler On Native\n"
             "\n"
@@ -436,7 +544,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "(the default) until Phase 3 lands.\n");
         abort();
     }
-    if (flux_resume_called >= 2) {
+    if (flux_thread_ctx.resume_called >= 2) {
         fprintf(stderr,
             "error[E1201]: Multi-Shot Handler On Native\n"
             "\n"
@@ -451,13 +559,13 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "backend also does not support multi-shot (it enforces\n"
             "one-shot continuations), so this program has no valid\n"
             "execution path — the handler needs to be rewritten.\n",
-            (int)flux_resume_called);
+            (int)flux_thread_ctx.resume_called);
         abort();
     }
 
     /* Restore the outer counter; we're now unwinding past this perform. */
-    flux_resume_called = saved_count;
-    flux_direct_resume_marker = saved_direct_marker;
+    flux_thread_ctx.resume_called = saved_count;
+    flux_thread_ctx.direct_resume_marker = saved_direct_marker;
 
     return result;
 }
@@ -469,13 +577,13 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
  * cont: a closure representing "the rest of this function's computation"
  */
 int64_t flux_yield_extend(int64_t cont) {
-    if (flux_yield_conts_count >= 8) {
+    if (flux_thread_ctx.conts_count >= FLUX_EFFECT_CONTS_MAX) {
         /* Overflow: compose existing conts into one, then add the new one. */
         int64_t composed = flux_compose_conts();
-        flux_yield_conts[0] = composed;
-        flux_yield_conts_count = 1;
+        flux_thread_ctx.conts[0] = composed;
+        flux_thread_ctx.conts_count = 1;
     }
-    flux_yield_conts[flux_yield_conts_count++] = cont;
+    flux_thread_ctx.conts[flux_thread_ctx.conts_count++] = cont;
     return FLUX_YIELD_SENTINEL;
 }
 
@@ -529,6 +637,13 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         int64_t cont = flux_array_get(conts_arr, flux_tag_int(i));
         int64_t arg_slot[1] = { result };
         result = flux_call_closure_c(cont, arg_slot, 1);
+        if (flux_thread_ctx.yielding != 0) {
+            for (int64_t j = i + 1; j < count; j++) {
+                int64_t outer = flux_array_get(conts_arr, flux_tag_int(j));
+                (void)flux_yield_extend(outer);
+            }
+            return FLUX_YIELD_SENTINEL;
+        }
     }
     return result;
 }
@@ -546,20 +661,20 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
  * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
 int64_t flux_compose_conts(void) {
-    if (flux_yield_conts_count == 0) {
+    if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
     }
-    if (flux_yield_conts_count == 1 && flux_yield_op_state == 0) {
-        int64_t result = flux_yield_conts[0];
-        flux_yield_conts_count = 0;
+    if (flux_thread_ctx.conts_count == 1 && flux_thread_ctx.op_state == 0) {
+        int64_t result = flux_thread_ctx.conts[0];
+        flux_thread_ctx.conts_count = 0;
         return result;
     }
 
     /* Package continuations into an array. */
-    int64_t *elems = flux_yield_conts;
-    int32_t count = flux_yield_conts_count;
+    int64_t *elems = flux_thread_ctx.conts;
+    int32_t count = flux_thread_ctx.conts_count;
     int64_t arr = flux_array_new(elems, count);
-    flux_yield_conts_count = 0;
+    flux_thread_ctx.conts_count = 0;
 
     /* Build a trampoline closure by hand. The FluxClosure layout
      * (runtime/c/flux_rt.c lines 1025-1032):
@@ -567,7 +682,7 @@ int64_t flux_compose_conts(void) {
      *     int32_t applied_count; int32_t _pad; int64_t payload[]; }
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
-    int64_t marker = flux_tag_int((int64_t)flux_yield_marker);
+    int64_t marker = flux_tag_int((int64_t)flux_thread_ctx.marker);
     uint32_t payload_bytes = (uint32_t)(2 * sizeof(int64_t)); /* conts + marker */
     uint32_t size = 24 + payload_bytes;
     void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
@@ -582,7 +697,7 @@ int64_t flux_compose_conts(void) {
     };
     struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
     clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
-    clo->remaining_arity = (flux_yield_op_state != 0) ? 2 : 1;
+    clo->remaining_arity = (flux_thread_ctx.op_state != 0) ? 2 : 1;
     clo->capture_count   = 2;
     clo->applied_count   = 0;
     clo->_pad            = 0;
@@ -597,7 +712,48 @@ int64_t flux_compose_conts(void) {
  * Returns the yielding flag (0, 1, or 2) for LLVM to branch on.
  */
 int32_t flux_is_yielding(void) {
-    return flux_yield_yielding;
+    return flux_thread_ctx.yielding;
+}
+
+/* ── Native async suspend bridge (proposal 0174 Phase 1b-vi-d) ─────── */
+
+#define FLUX_ASYNC_MARKER (-174)
+
+int64_t flux_async_suspend(int64_t request_id, int64_t resume_value) {
+    flux_thread_ctx.yielding    = 1;
+    flux_thread_ctx.marker      = FLUX_ASYNC_MARKER;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = request_id;
+    flux_thread_ctx.op_state    = resume_value;
+    flux_thread_ctx.op_arity    = 1;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = flux_thread_ctx.current_evv;
+    return FLUX_YIELD_SENTINEL;
+}
+
+int32_t flux_async_is_suspended(void) {
+    return flux_thread_ctx.yielding != 0 && flux_thread_ctx.marker == FLUX_ASYNC_MARKER;
+}
+
+int64_t flux_async_current_request(void) {
+    return flux_thread_ctx.op_arg;
+}
+
+void flux_async_clear_suspend(void) {
+    /* The async marker may have propagated through user effect prompts before
+     * the scheduler observes it. In that case current_evv has been restored
+     * to an outer handler, while yield_evv still records the handler chain at
+     * the actual suspension site. Preserve that chain as the fiber's resume
+     * context before clearing the transient yield payload. */
+    flux_thread_ctx.current_evv = flux_thread_ctx.yield_evv;
+    flux_thread_ctx.yielding    = 0;
+    flux_thread_ctx.marker      = 0;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = 0;
+    flux_thread_ctx.op_state    = 0;
+    flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = 0;
 }
 
 /*
@@ -620,9 +776,9 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
      * A clause that calls `resume(v)` may trigger a nested perform inside
      * the composed continuation, which re-sets yielding=1. We catch the
      * re-yield here and run another iteration. */
-    while (flux_yield_yielding != 0) {
-        int is_ours = (flux_yield_marker == m);
-        int64_t yield_evv_local = flux_yield_evv;
+    while (flux_thread_ctx.yielding != 0) {
+        int is_ours = (flux_thread_ctx.marker == m);
+        int64_t yield_evv_local = flux_thread_ctx.yield_evv;
 
         if (!is_ours) {
             /* Slice 5-tr-nested: the re-yield targets a different handler.
@@ -631,13 +787,13 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
              * the yield-site evv: if found, service it inline using its
              * recorded clause and evv. Otherwise propagate. */
             EvvArray *arr = evv_unbox(yield_evv_local);
-            int idx = evv_lookup_by_marker(arr, flux_yield_marker);
+            int idx = evv_lookup_by_marker(arr, flux_thread_ctx.marker);
             if (idx < 0) {
-                current_evv = saved_evv;
+                flux_thread_ctx.current_evv = saved_evv;
                 return FLUX_YIELD_SENTINEL;
             }
             /* Service inline. The clause + evv come from the yield state
-             * itself — flux_yield_clause was set by flux_yield_to based on
+             * itself — flux_thread_ctx.clause was set by flux_yield_to based on
              * evv_lookup(htag) at the yield site, so it's the correct
              * foreign handler's clause. */
         }
@@ -646,33 +802,37 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * call so that any resume → composed-continuation → nested perform
          * finds the full installed handler chain (slice 5-tr-fix). */
 
-        int64_t clause   = flux_yield_clause;
-        int64_t op_arg   = flux_yield_op_arg;
-        int64_t op_state = flux_yield_op_state;
-        int32_t op_arity = flux_yield_op_arity;
+        int64_t clause   = flux_thread_ctx.clause;
+        int64_t op_arg   = flux_thread_ctx.op_arg;
+        int64_t op_state = flux_thread_ctx.op_state;
+        int32_t op_arity = flux_thread_ctx.op_arity;
         int64_t yield_evv = yield_evv_local;
 
         /* Build the resume closure from accumulated continuations. */
         int64_t resume_cont = flux_compose_conts();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
-        flux_yield_yielding    = 0;
-        flux_yield_marker      = 0;
-        flux_yield_clause      = 0;
-        flux_yield_op_arg      = 0;
-        flux_yield_op_state    = 0;
-        flux_yield_op_arity    = 0;
-        flux_yield_conts_count = 0;
-        flux_yield_evv         = 0;
+        flux_thread_ctx.yielding    = 0;
+        flux_thread_ctx.marker      = 0;
+        flux_thread_ctx.clause      = 0;
+        flux_thread_ctx.op_arg      = 0;
+        flux_thread_ctx.op_state    = 0;
+        flux_thread_ctx.op_arity    = 0;
+        flux_thread_ctx.conts_count = 0;
+        flux_thread_ctx.yield_evv         = 0;
 
         /* Re-install the evv that was active at the yield site so the clause
          * — including any resume it calls into the composed continuation —
          * sees the full handler chain the yield was performed under (slice
          * 5-tr-fix: matters for nested handlers where an inner handle may
          * have unwound before the outer prompt decides to resume). */
-        current_evv = yield_evv;
+        flux_thread_ctx.current_evv = yield_evv;
 
-        /* Call the handler clause: clause(resume, [arg], [state]). */
+        /* Call the handler clause: clause(resume, [arg], [state]).
+         * op_arg carries the owned RC reference taken by flux_yield_to.
+         * The clause receives it as a borrowed argument and will flux_dup
+         * it if it needs to store it. We drop our owned reference after
+         * the clause returns (regardless of which branch ran). */
         if (op_state != 0 && op_arity <= 0) {
             int64_t args[2] = { resume_cont, op_state };
             result = flux_call_closure_c(clause, args, 2);
@@ -686,11 +846,13 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int64_t args[2] = { resume_cont, op_arg };
             result = flux_call_closure_c(clause, args, 2);
         }
+        /* Release the RC root taken in flux_yield_to. */
+        flux_drop(op_arg);
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
 
     /* No more yields — restore parent evv and return the final value. */
-    current_evv = saved_evv;
+    flux_thread_ctx.current_evv = saved_evv;
     return result;
 }

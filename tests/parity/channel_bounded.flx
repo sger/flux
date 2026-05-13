@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "total: 15"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+
+fn channel_main() -> String with Async {
+    let ch = Channel.make(5)
+    Channel.send(ch, 5)
+    Channel.send(ch, 10)
+    let a = Channel.recv(ch)
+    let b = Channel.recv(ch)
+    match (a, b) {
+        (Some(x), Some(y)) -> "total: " + to_string(x + y),
+        _ -> "closed"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(channel_main))
+}

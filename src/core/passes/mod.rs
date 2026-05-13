@@ -30,7 +30,7 @@ pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use const_fold::constant_fold;
 pub use dead_let::elim_dead_let;
-pub use dict_elaborate::elaborate_dictionaries;
+pub use dict_elaborate::{elaborate_dictionaries, elaborate_dictionaries_with_def_schemes};
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
@@ -198,6 +198,8 @@ fn run_semantic_core_passes_with_optional_interner(
             def.expr = e;
         }
 
+        normalize_lam_param_type_lengths(program, interner);
+
         // Verify Core invariants after each simplification round.
         core_lint_stage(program, "simplification", interner)?;
 
@@ -254,6 +256,88 @@ fn run_semantic_core_passes_with_optional_interner(
     core_lint_stage(program, "normalization", interner)?;
 
     Ok(warnings)
+}
+
+fn normalize_lam_param_type_lengths(program: &mut CoreProgram, _interner: Option<&Interner>) {
+    for def in &mut program.defs {
+        normalize_lam_param_type_lengths_expr(&mut def.expr);
+    }
+}
+
+fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
+    match expr {
+        CoreExpr::Lam {
+            params,
+            param_types,
+            body,
+            ..
+        } => {
+            if !param_types.is_empty() && param_types.len() < params.len() {
+                let missing = params.len() - param_types.len();
+                let mut normalized = vec![None; missing];
+                normalized.append(param_types);
+                *param_types = normalized;
+            }
+            normalize_lam_param_type_lengths_expr(body);
+        }
+        CoreExpr::App { func, args, .. } => {
+            normalize_lam_param_type_lengths_expr(func);
+            for arg in args {
+                normalize_lam_param_type_lengths_expr(arg);
+            }
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            normalize_lam_param_type_lengths_expr(rhs);
+            normalize_lam_param_type_lengths_expr(body);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                normalize_lam_param_type_lengths_expr(rhs);
+            }
+            normalize_lam_param_type_lengths_expr(body);
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            normalize_lam_param_type_lengths_expr(scrutinee);
+            for alt in alts {
+                if let Some(guard) = &mut alt.guard {
+                    normalize_lam_param_type_lengths_expr(guard);
+                }
+                normalize_lam_param_type_lengths_expr(&mut alt.rhs);
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                normalize_lam_param_type_lengths_expr(field);
+            }
+        }
+        CoreExpr::Return { value, .. }
+        | CoreExpr::MemberAccess { object: value, .. }
+        | CoreExpr::TupleField { object: value, .. } => {
+            normalize_lam_param_type_lengths_expr(value);
+        }
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                normalize_lam_param_type_lengths_expr(arg);
+            }
+        }
+        CoreExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            normalize_lam_param_type_lengths_expr(body);
+            if let Some(parameter) = parameter {
+                normalize_lam_param_type_lengths_expr(parameter);
+            }
+            for handler in handlers {
+                normalize_lam_param_type_lengths_expr(&mut handler.body);
+            }
+        }
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+    }
 }
 
 #[allow(clippy::result_large_err)]

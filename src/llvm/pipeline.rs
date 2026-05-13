@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
+static RUST_STATICLIB: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -225,8 +226,11 @@ fn cleanup_native_work_dir(work_dir: &Path, staged_files: &[&Path]) {
 
 /// Check if `lld` is available for the current toolchain.
 fn has_lld() -> bool {
-    // On Unix: check for ld.lld (used via -fuse-ld=lld)
-    // On Windows: check for lld-link
+    // ld64.lld (Homebrew lld on macOS) is experimental: it rejects -stack_size
+    // and misresolves Rust staticlib symbols. Use the system linker on macOS.
+    if cfg!(target_os = "macos") {
+        return false;
+    }
     if cfg!(windows) {
         which("lld-link").is_some()
     } else {
@@ -264,6 +268,11 @@ fn run_linker(
                 .args(obj_paths);
             // Set large stack size for deeply recursive programs.
             cmd.arg("/STACK:67108864"); // 64 MB stack
+            // Rust staticlib (defines flux_async_*) must precede flux_rt.lib
+            // (which references those symbols) — MSVC linker is also order-sensitive.
+            if let Some(path) = rust_staticlib_path() {
+                cmd.arg(path);
+            }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("/LIBPATH:{}", dir.display()));
                 cmd.arg("flux_rt.lib");
@@ -289,9 +298,18 @@ fn run_linker(
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
             }
+            // libflux.a defines the Rust async bridge symbols referenced by
+            // libflux_rt.a. Unix archive linkers extract members left-to-right,
+            // so the provider archive must follow the C runtime archive.
+            if let Some(path) = rust_staticlib_path() {
+                cmd.arg(path);
+            }
             if cfg!(windows) {
                 // Windows: set subsystem and stack size via lld-link.
                 cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
+                // The Rust staticlib linked for native async pulls in small
+                // portions of `std` that reference these Windows system libs.
+                cmd.args(["-luserenv", "-lntdll"]);
             }
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
@@ -299,10 +317,91 @@ fn run_linker(
             // Link math library on Linux.
             #[cfg(target_os = "linux")]
             cmd.arg("-lm");
+            // Link pthreads on Linux (Task.spawn worker threads).
+            #[cfg(target_os = "linux")]
+            cmd.arg("-lpthread");
             let output = cmd.output()?;
             check_output("cc", &output)
         }
     }
+}
+
+fn rust_staticlib_path() -> Option<PathBuf> {
+    RUST_STATICLIB.get_or_init(discover_rust_staticlib).clone()
+}
+
+fn discover_rust_staticlib() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+
+    // Test binaries land in target/<profile>/deps/ while the main `flux`
+    // binary lands in target/<profile>/. Normalise so `profile_dir` always
+    // points at target/<profile>/ and `deps_dir` at target/<profile>/deps/.
+    let (profile_dir, deps_dir) = if exe_dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
+        let profile = exe_dir.parent()?;
+        (profile.to_path_buf(), exe_dir.to_path_buf())
+    } else {
+        (exe_dir.to_path_buf(), exe_dir.join("deps"))
+    };
+
+    // The archive must export the sentinel proving it was built with
+    // --features llvm (a feature-less build lacks flux_async_* symbols).
+    let has_sentinel = |path: &Path| archive_exports_symbol(path, "flux_async_run_root");
+
+    // Fast path: sidecar written by a previous successful link.
+    // The archive filename embeds a cargo content hash — if native_abi.rs
+    // changed, cargo produces a new hash and the old sidecar path no longer
+    // exists on disk, causing an automatic fallthrough to the slow scan.
+    let sidecar = profile_dir.join("flux-staticlib.path");
+    if let Ok(raw) = fs::read_to_string(&sidecar) {
+        let path = PathBuf::from(raw.trim());
+        if path.exists() && has_sentinel(&path) {
+            return Some(path);
+        }
+    }
+
+    // Slow fallback: scan deps/ newest-first.
+    let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            (name.starts_with("libflux-") && name.ends_with(".a"))
+                || (name.starts_with("flux-") && name.ends_with(".lib"))
+        })
+        .collect();
+    candidates.sort_by_key(|p| {
+        fs::metadata(p)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    candidates.reverse(); // newest first
+    let found = candidates.into_iter().find(|p| has_sentinel(p))?;
+
+    // Cache result. Next run uses the fast path unless the file disappears
+    // (which happens automatically when cargo rebuilds with a new content hash).
+    let _ = fs::write(&sidecar, found.to_string_lossy().as_bytes());
+    Some(found)
+}
+
+fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
+    // Prefer llvm-nm: Xcode's nm emits "Unknown attribute kind" errors on
+    // Rust-produced LLVM bitcode (LLVM version mismatch) and may return false
+    // negatives. Both tools exit non-zero when any object file errors, even if
+    // the target symbol was found in other objects — so we check stdout
+    // regardless of exit code, as long as the process ran at all.
+    for tool in ["llvm-nm", "nm"] {
+        let Ok(output) = Command::new(tool).arg("-g").arg(path).output() else {
+            continue;
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains(symbol) {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn link_objects(
@@ -353,7 +452,30 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
         Ok(t) => t,
         Err(_) => return false,
     };
+    // Verify every object is present in the archive by name — a new stdlib module
+    // (e.g. Flow.Channel added after the archive was built) would pass the mtime
+    // check if its .o happens to share a timestamp with the archive, but would
+    // silently be missing from the archive, causing undefined symbol errors.
+    let archive_members: std::collections::HashSet<String> = match std::process::Command::new("ar")
+        .arg("t")
+        .arg(archive_path)
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_owned())
+            .collect(),
+        Err(_) => return false,
+    };
     obj_paths.iter().all(|obj| {
+        let name = obj
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("")
+            .to_owned();
+        if !archive_members.contains(&name) {
+            return false;
+        }
         fs::metadata(obj)
             .and_then(|m| m.modified())
             .is_ok_and(|t| t <= archive_mtime)
@@ -574,8 +696,6 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         }
     }
 
-    eprintln!("[c2l] Building C runtime ({lib_name})...");
-
     let c_files = [
         "rc.c",
         "flux_rt.c",
@@ -583,6 +703,11 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "hamt.c",
         "effects.c",
         "array.c",
+        "tasks.c",
+        "channel.c",
+        "event.c",
+        "tcp.c",
+        "json.c",
     ];
     let mut obj_files = Vec::new();
 
@@ -621,13 +746,23 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                     continue;
                 }
                 let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
-                let output = Command::new(cc)
+                let mut command = Command::new(cc);
+                command
                     .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
                     .arg("-o")
                     .arg(&obj)
                     .arg(&src)
-                    .arg(format!("-I{}", runtime_c_dir.display()))
-                    .output()?;
+                    .arg(format!("-I{}", runtime_c_dir.display()));
+                // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
+                // `RaiseException`) to unwind across LLVM-emitted Flux frames
+                // — Windows `longjmp` walks the SEH chain and trips on
+                // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
+                // Strict `-std=c11` disables MS extensions; re-enable them so
+                // clang actually generates SEH unwind info for `__try`.
+                if cfg!(windows) {
+                    command.args(["-fms-extensions", "-fms-compatibility"]);
+                }
+                let output = command.output()?;
                 check_output("cc (runtime)", &output)?;
                 obj_files.push(obj);
             }
@@ -647,7 +782,6 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         let _ = std::fs::remove_file(obj);
     }
 
-    eprintln!("[c2l] Built {}", lib_path.display());
     Ok(())
 }
 

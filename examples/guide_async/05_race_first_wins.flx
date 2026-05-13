@@ -1,0 +1,34 @@
+// 05 — `race`: take whichever finishes first
+//
+// Goal: pick the fastest of N alternatives, drop the rest.
+//
+// `race(f, g)` schedules both as siblings and returns whichever
+// finishes first. The loser is CANCELLED — its in-flight I/O is
+// aborted, and any `bracket` / `finally` cleanup runs.
+//
+// Source order breaks immediate ties. If both fibers complete
+// without suspending (purely synchronous), the left one wins.
+
+// parity-expected-stdout-begin
+// "winner = 99"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(80)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(10)              // finishes first; wins the race
+    99
+}
+
+fn body() -> Int with Async {
+    race(slow, fast)       // returns whichever returned first
+}
+
+fn main() with IO {
+    print("winner = " + to_string(run_async(body)))
+}

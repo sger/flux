@@ -1,0 +1,20 @@
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn wait_for_value() -> String with Async {
+    let ch = Channel.make(1)
+    Channel.send(ch, 42)
+
+    select {
+        recv ch as value -> match value {
+            Some(n) -> "received: " + to_string(n),
+            None -> "closed"
+        },
+        after 100 -> "timeout"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(wait_for_value))
+}

@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
+use crate::runtime::handler_frame::HandlerFrame;
 use crate::runtime::value::format_value;
 use crate::runtime::{closure::Closure, continuation::Continuation, frame::Frame, value::Value};
 
@@ -13,6 +14,10 @@ use super::VM;
 const _OP_PERFORM_SIZE: usize = 3;
 
 impl VM {
+    /// Capture a single frame's continuation piece as a freshly allocated
+    /// `Value::Continuation`. Only the (effectively inert) `OpReturnCheck`
+    /// opcode still uses this; `capture_to_boundary` goes through the pooled,
+    /// `Rc`-free `capture_piece_pooled` instead.
     pub(super) fn capture_continuation_piece(
         &self,
         resume_slot: usize,
@@ -34,6 +39,77 @@ impl VM {
             inner_handlers: vec![],
             state_marker: None,
         })))
+    }
+
+    /// Capture the current frame's continuation piece into a `Continuation`
+    /// shell pulled from the recycle pool (or a fresh one). No `Rc`/`RefCell`
+    /// allocation — the piece is a transient consumed by `compose_pieces`.
+    fn capture_piece_pooled(&mut self, resume_slot: usize, advance_ip: usize) -> Continuation {
+        let frame_index = self.frame_index;
+        let mut frame = self.frames[frame_index].clone();
+        frame.ip += advance_ip;
+        let entry_sp = frame.base_pointer;
+        let mut shell = self.cont_pool.pop().unwrap_or_default();
+        shell.frames.clear();
+        shell.frames.push(frame);
+        shell.stack.clear();
+        shell.stack.extend(
+            self.stack[entry_sp..resume_slot]
+                .iter()
+                .map(super::slot::from_slot_ref),
+        );
+        shell.sp = resume_slot;
+        shell.entry_sp = entry_sp;
+        shell.entry_frame_index = frame_index.saturating_sub(1);
+        shell.inner_handlers.clear();
+        shell.state_marker = None;
+        shell
+    }
+
+    /// Capture a delimited continuation from the current frame back to the
+    /// boundary defined by `entry_frame_index` / `entry_sp`. Used by both
+    /// `OpPerform` (handler boundary) and `FiberSleep`/`FiberSuspend`
+    /// (proposal 0174 Phase 1b-vi-b₂.1: `Async.run_async` boundary).
+    ///
+    /// Mechanism: snapshot the current frame's post-perform IP via
+    /// `capture_piece_pooled`, then unwind outer frames one-at-a-time,
+    /// capturing one (pooled, `Rc`-free) piece per frame into `cont_pieces`,
+    /// and finally compose them via `Continuation::compose_pieces` (single
+    /// `Rc::new` for the result, recycling spent shells). The VM's stack
+    /// pointer is reset to `entry_sp` on success so the caller can push a
+    /// fresh result.
+    pub(crate) fn capture_to_boundary(
+        &mut self,
+        entry_frame_index: usize,
+        entry_sp: usize,
+        top_ip_advance: usize,
+        inner_handlers: Vec<HandlerFrame>,
+        state_marker: Option<u32>,
+    ) -> Result<Value, String> {
+        self.cont_pieces.clear();
+        let sp = self.sp;
+        let piece = self.capture_piece_pooled(sp, top_ip_advance);
+        self.cont_pieces.push(piece);
+        while self.frame_index > entry_frame_index {
+            let return_slot = self.pop_frame_return_slot();
+            self.reset_sp(return_slot)?;
+            if self.frame_index > entry_frame_index {
+                let sp = self.sp;
+                let piece = self.capture_piece_pooled(sp, 0);
+                self.cont_pieces.push(piece);
+            }
+        }
+        let composed = Continuation::compose_pieces(
+            &mut self.cont_pieces,
+            inner_handlers,
+            state_marker,
+            &mut self.cont_pool,
+        )?;
+        self.reset_sp(entry_sp)?;
+        self.cont_pieces.clear();
+        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(
+            composed,
+        ))))
     }
 
     #[inline]
@@ -298,27 +374,40 @@ impl VM {
             _ => unreachable!("execute_resume called with non-Continuation callee"),
         };
 
-        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers, state_marker) = {
-            let cont = cont_rc.borrow();
-            (
-                cont.entry_frame_index,
-                cont.entry_sp,
-                cont.frames.clone(),
-                cont.stack.clone(),
-                cont.sp,
-                cont.inner_handlers.clone(),
-                cont.state_marker,
-            )
+        // Sole-owner fast path: move the `Continuation` out of its `Rc` and
+        // reuse its buffers. Only a multi-shot resume (the captured value is
+        // still aliased elsewhere) needs the deep clone. The emptied shell is
+        // recycled into `cont_pool` below.
+        let mut cont_shell = match Rc::try_unwrap(cont_rc) {
+            Ok(cell) => cell.into_inner(),
+            Err(rc) => rc.borrow().clone(),
         };
+        let entry_frame_index = cont_shell.entry_frame_index;
+        let entry_sp = cont_shell.entry_sp;
+        let captured_sp = cont_shell.sp;
+        let state_marker = cont_shell.state_marker;
+        let mut frames = std::mem::take(&mut cont_shell.frames);
+        let mut stack = std::mem::take(&mut cont_shell.stack);
+        let mut inner_handlers = std::mem::take(&mut cont_shell.inner_handlers);
 
         // Unwind all frames above the handler boundary.
+        // On background worker VMs the `frames` vec starts with a single
+        // placeholder entry (index 0).  If the continuation was captured on a
+        // different thread whose call stack was deeper, `entry_frame_index`
+        // may exceed `frames.len() - 1`.  Pad with clones of the root frame
+        // so that `self.frames[entry_frame_index]` is a valid slot before the
+        // `push_frame` loop below increments past it.
+        while self.frames.len() <= entry_frame_index {
+            let pad = self.frames[0].clone();
+            self.frames.push(pad);
+        }
         self.frame_index = entry_frame_index;
 
         // Reset stack to handler boundary.
         self.reset_sp(entry_sp)?;
 
         // Restore inner handlers that were nested inside the captured region.
-        for h in inner_handlers {
+        for h in inner_handlers.drain(..) {
             self.handler_stack.push(h);
         }
 
@@ -341,7 +430,7 @@ impl VM {
         // Restore the captured stack slice.
         let stack_len = stack.len();
         self.ensure_stack_capacity(entry_sp + stack_len + 1)?;
-        for (i, v) in stack.into_iter().enumerate() {
+        for (i, v) in stack.drain(..).enumerate() {
             self.stack_set(entry_sp + i, v);
         }
 
@@ -351,8 +440,17 @@ impl VM {
         self.sp = captured_sp + 1;
 
         // Restore captured frames above the handler boundary.
-        for frame in frames {
+        for frame in frames.drain(..) {
             self.push_frame(frame);
+        }
+
+        // Recycle the now-empty continuation shell (capacities retained) for
+        // the next capture, so steady-state park/resume stays allocation-free.
+        cont_shell.frames = frames;
+        cont_shell.stack = stack;
+        cont_shell.inner_handlers = inner_handlers;
+        if self.cont_pool.len() < crate::runtime::continuation::CONT_POOL_CAP {
+            self.cont_pool.push(cont_shell);
         }
 
         if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller
@@ -536,6 +634,22 @@ impl RuntimeContext for VM {
         VM::invoke_value(self, callee, args)
     }
 
+    fn vm_task_spawn(&mut self, action: Value) -> Result<i64, String> {
+        self.spawn_vm_task(action)
+    }
+
+    fn vm_task_spawn_move(&mut self, action: Value) -> Result<i64, String> {
+        self.spawn_vm_task_move(action)
+    }
+
+    fn vm_task_blocking_join(&mut self, id: i64) -> Result<Value, String> {
+        super::task::blocking_join(id)
+    }
+
+    fn vm_task_cancel(&mut self, id: i64) -> Result<(), String> {
+        super::task::cancel(id)
+    }
+
     fn invoke_base_function_borrowed(
         &mut self,
         _base_fn_index: usize,
@@ -573,5 +687,56 @@ impl RuntimeContext for VM {
             Value::Closure(closure) => closure.function.contract.as_ref(),
             _ => None,
         }
+    }
+
+    // ── Fiber-suspend hooks (proposal 0174 Phase 1b-vi-b₂.1) ────────────
+
+    fn current_frame_index(&self) -> usize {
+        self.frame_index
+    }
+
+    fn current_sp(&self) -> usize {
+        self.sp
+    }
+
+    fn capture_to_fiber_boundary(
+        &mut self,
+        entry_frame_index: usize,
+        entry_sp: usize,
+    ) -> Result<Value, String> {
+        // No inner handlers between the FiberSleep site and the
+        // FiberRunAsync boundary — we don't track them on the fiber path.
+        // No state marker — fibers don't run a parameterized handler.
+        // top_ip_advance = 3: skip past the `OpPrimOp` instruction (opcode
+        // + primop_id + arity = 3 bytes). The arm is called from inside
+        // `execute_primop_opcode` which has not yet returned, so the
+        // frame's IP still points at the OpPrimOp; on resume we want to
+        // continue at the next instruction, not re-execute the primop.
+        self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
+    }
+
+    fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        self.worker_shared_state()
+            .ok()
+            .map(|shared| Box::new(shared) as Box<dyn std::any::Any + Send>)
+    }
+
+    fn resume_from_dispatch(&mut self, cont: Value, resume_val: Value) -> Result<Value, String> {
+        let entry_frame_index = self.frame_index;
+        // execute_resume pops [cont, resume_val] off the stack and splices
+        // the captured frames back on top.
+        self.push(cont)?;
+        self.push(resume_val)?;
+        self.execute_resume(1, None)?;
+        // Drive the interpreter loop until the captured frames return.
+        // Mirrors invoke_value's tail (lines 564–571) so we get a final
+        // result on the stack top.
+        while self.frame_index > entry_frame_index {
+            if self.current_frame().ip >= self.current_frame().instructions().len() {
+                return Err("resumed continuation exited without return".to_string());
+            }
+            self.execute_current_instruction(Some(entry_frame_index + 1))?;
+        }
+        self.pop()
     }
 }

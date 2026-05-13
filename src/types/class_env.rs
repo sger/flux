@@ -24,7 +24,7 @@ use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
-    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
+    PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -262,6 +262,12 @@ impl ClassEnv {
         self.enforce_instance_visibility(&data_info, &mut diagnostics, interner);
         self.enforce_class_signature_visibility(&data_info, &mut diagnostics, interner);
 
+        // Proposal 0174 D4: synthesize `Sendable<Foo>` for user-declared ADTs.
+        // Positive-only — we only synthesize when no field type contains a
+        // function type. User-written Sendable instances are rejected because
+        // Sendable is compiler-owned and authorizes worker-boundary transfer.
+        Self::synthesize_sendable_instances(statements, ModulePath::EMPTY, self, interner);
+
         diagnostics
     }
 
@@ -420,6 +426,150 @@ impl ClassEnv {
                 Self::collect_named_types(ret, out);
             }
         }
+    }
+
+    /// Proposal 0174 D4 — synthesize `Sendable<Foo>` instances for user-
+    /// declared ADTs. Positive-only: we synthesize an instance only when
+    /// no field type anywhere in the ADT contains a function type, since
+    /// closures are the canonical non-`Sendable` shape and Phase 1 does
+    /// not promote them across worker boundaries.
+    ///
+    /// For a parameterized ADT `data Foo<a, b> { ... }`, the synthesized
+    /// instance is `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>`.
+    /// The existing contextual-instance solver then enforces the bound
+    /// recursively at every use site.
+    ///
+    /// User-written `instance Sendable<Foo>` declarations are rejected before
+    /// synthesis; this pass is the only ADT path that may create Sendable
+    /// evidence.
+    fn synthesize_sendable_instances(
+        statements: &[Statement],
+        current_module: ModulePath,
+        env: &mut ClassEnv,
+        interner: &Interner,
+    ) {
+        let Some(sendable_id) = interner.lookup("Sendable") else {
+            // Sendable wasn't registered (e.g. a test that built a bare
+            // ClassEnv without `register_builtins`). Nothing to do.
+            return;
+        };
+        for stmt in statements {
+            match stmt {
+                Statement::Data {
+                    name,
+                    type_params,
+                    variants,
+                    span,
+                    ..
+                } => {
+                    Self::try_synthesize_sendable_for_adt(
+                        env,
+                        interner,
+                        sendable_id,
+                        *name,
+                        type_params,
+                        variants,
+                        current_module,
+                        *span,
+                    );
+                }
+                Statement::Module {
+                    name: module_name,
+                    body,
+                    ..
+                } => {
+                    let module_path = ModulePath::from_identifier(*module_name);
+                    Self::synthesize_sendable_instances(
+                        &body.statements,
+                        module_path,
+                        env,
+                        interner,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_synthesize_sendable_for_adt(
+        env: &mut ClassEnv,
+        interner: &Interner,
+        sendable_id: Identifier,
+        adt_name: Identifier,
+        type_params: &[Identifier],
+        variants: &[crate::syntax::data_variant::DataVariant],
+        instance_module: ModulePath,
+        span: Span,
+    ) {
+        if is_opaque_non_sendable_adt(instance_module, adt_name, interner) {
+            return;
+        }
+
+        // Skip if any field anywhere contains a function type — the
+        // positive-only rule. Closures and function values aren't sendable
+        // and we have no way to make them so without copying.
+        for variant in variants {
+            for field in &variant.fields {
+                if type_expr_contains_function(field) {
+                    return;
+                }
+            }
+        }
+
+        let head_args: Vec<TypeExpr> = if type_params.is_empty() {
+            vec![TypeExpr::Named {
+                name: adt_name,
+                args: Vec::new(),
+                span: Span::default(),
+            }]
+        } else {
+            vec![TypeExpr::Named {
+                name: adt_name,
+                args: type_params
+                    .iter()
+                    .map(|p| TypeExpr::Named {
+                        name: *p,
+                        args: Vec::new(),
+                        span: Span::default(),
+                    })
+                    .collect(),
+                span: Span::default(),
+            }]
+        };
+
+        // Bound every type parameter with `Sendable<a>`.
+        let context: Vec<ClassConstraint> = type_params
+            .iter()
+            .map(|p| ClassConstraint {
+                class_name: sendable_id,
+                type_args: vec![TypeExpr::Named {
+                    name: *p,
+                    args: Vec::new(),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            })
+            .collect();
+
+        env.instances.push(InstanceDef {
+            class_name: sendable_id,
+            class_id: ClassId::from_local_name(sendable_id),
+            instance_module,
+            // Synthesized instances follow the same visibility rule as the
+            // owning ADT — they're effectively part of its public surface.
+            // Phase 1 doesn't enforce this distinction since `Sendable` has
+            // no methods.
+            is_public: false,
+            type_args: head_args,
+            context,
+            method_names: Vec::new(),
+            method_effects: Vec::new(),
+            span,
+        });
+        // Suppress unused warning: adt_name is captured in head_args via a
+        // closure path that the borrow checker can't trace through.
+        let _ = adt_name;
     }
 
     /// Walk a statement tree and record the owning module and visibility
@@ -690,6 +840,11 @@ impl ClassEnv {
                         }
                     };
 
+                    if Self::is_builtin_sendable_class(&class_def, interner) {
+                        diagnostics.push(Self::sealed_sendable_diagnostic(*span));
+                        continue;
+                    }
+
                     if type_args.len() != class_def.type_params.len() {
                         let display_class = interner.resolve(*class_name);
                         diagnostics.push(
@@ -929,6 +1084,24 @@ impl ClassEnv {
         }
     }
 
+    /// Return whether `class_def` is the compiler-owned built-in `Sendable`.
+    fn is_builtin_sendable_class(class_def: &ClassDef, interner: &Interner) -> bool {
+        class_def.module.is_empty() && interner.resolve(class_def.name) == "Sendable"
+    }
+
+    /// Build the diagnostic used when user code tries to implement `Sendable`.
+    fn sealed_sendable_diagnostic(span: Span) -> Diagnostic {
+        diagnostic_for(&SEALED_CLASS_INSTANCE)
+            .with_span(span)
+            .with_message(
+                "Sendable is compiler-derived and cannot be implemented manually.".to_string(),
+            )
+            .with_hint_text(
+                "Remove the instance; data types become Sendable automatically when all fields are Sendable."
+                    .to_string(),
+            )
+    }
+
     /// Collect derived instances from `deriving` clauses on data declarations.
     ///
     /// `current_module` is the dotted path of the enclosing `module` block,
@@ -947,7 +1120,9 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Data {
+                    is_public,
                     name,
+                    type_params,
                     deriving,
                     span,
                     ..
@@ -957,10 +1132,19 @@ impl ClassEnv {
                         // a class in the same module as the data declaration,
                         // falling back to the bare-name shim. Mirrors the
                         // disambiguation rule used by `collect_instances`.
-                        let class_id = match env
+                        let class_def = env
                             .lookup_class_in_module_or_global(current_module, *class_name)
-                        {
-                            Some(def) => def.class_id(),
+                            .or_else(|| {
+                                interner
+                                    .try_resolve(*class_name)
+                                    .and_then(|name| name.rsplit('.').next())
+                                    .and_then(|short| interner.lookup(short))
+                                    .and_then(|short| {
+                                        env.lookup_class_in_module_or_global(current_module, short)
+                                    })
+                            });
+                        let (class_id, resolved_class_name) = match class_def {
+                            Some(def) => (def.class_id(), def.name),
                             None => {
                                 let class_display = interner.resolve(*class_name);
                                 let type_display = interner.resolve(*name);
@@ -975,25 +1159,40 @@ impl ClassEnv {
                                 continue;
                             }
                         };
+                        if let Some(def) =
+                            env.lookup_class_in_module_or_global(current_module, *class_name)
+                            && Self::is_builtin_sendable_class(def, interner)
+                        {
+                            diagnostics.push(Self::sealed_sendable_diagnostic(*span));
+                            continue;
+                        }
 
-                        // Register a derived instance (no method bodies —
-                        // the constraint solver just needs to know it exists).
-                        let type_arg = builtin_type(*name);
+                        let type_arg = TypeExpr::Named {
+                            name: *name,
+                            args: type_params
+                                .iter()
+                                .map(|param| builtin_type(*param))
+                                .collect(),
+                            span: Span::default(),
+                        };
+                        let context = type_params
+                            .iter()
+                            .map(|param| ClassConstraint {
+                                class_name: resolved_class_name,
+                                type_args: vec![builtin_type(*param)],
+                                span: *span,
+                            })
+                            .collect();
                         env.instances.push(InstanceDef {
-                            class_name: *class_name,
+                            class_name: resolved_class_name,
                             class_id,
                             instance_module: current_module,
-                            // Derived instances inherit the data
-                            // declaration's visibility. ADTs don't yet
-                            // carry an `is_public` flag, so we default
-                            // to private for now; this is tightened
-                            // when ADT visibility lands later in Phase 2.
-                            is_public: false,
+                            is_public: *is_public,
                             type_args: vec![type_arg],
-                            context: vec![],
+                            context,
                             method_names: vec![],
                             method_effects: vec![],
-                            span: *span,
+                            span: Span::default(),
                         });
                     }
                 }
@@ -1370,6 +1569,7 @@ impl ClassEnv {
         let num = interner.intern("Num");
         let show = interner.intern("Show");
         let semigroup = interner.intern("Semigroup");
+        let sendable = interner.intern("Sendable");
 
         let eq_method = interner.intern("eq");
         let neq_method = interner.intern("neq");
@@ -1589,6 +1789,24 @@ impl ClassEnv {
 
         // Semigroup instances: String
         self.register_builtin_instance(semigroup, string_name);
+
+        // Sendable: marker class, no methods (proposal 0174 Phase 1a-v).
+        // Authorizes a value to cross a worker-thread boundary
+        // (`Channel.send`, `Task.spawn`). Positive-only auto-derivation:
+        // primitives have explicit instances below; the constraint solver
+        // synthesises structural instances for tuples and persistent
+        // collections (`Option`, `List`, `Array`, `Map`, `Either`) whose
+        // element types are themselves `Sendable`. User ADTs get synthesized
+        // instances during collection when their fields are sendable; closures
+        // and explicit opaque runtime handles remain non-sendable. There are
+        // no negative instances; absence of an instance means "not sendable."
+        self.register_builtin_class(sendable, vec![a_param], vec![]);
+
+        // Sendable instances: Int, Float, String, Bool, Unit.
+        let unit_name = interner.intern("Unit");
+        for ty in [int_name, float_name, string_name, bool_name, unit_name] {
+            self.register_builtin_instance(sendable, ty);
+        }
     }
 
     /// Register a single built-in class definition.
@@ -1832,6 +2050,29 @@ fn builtin_type(name: Identifier) -> TypeExpr {
         args: vec![],
         span: Span::default(),
     }
+}
+
+/// True if `expr` syntactically contains any function-type subterm.
+/// Used by the Sendable ADT auto-derivation (proposal 0174 D4) to apply
+/// the positive-only rule: data declarations whose fields can hold a
+/// closure are not auto-derived.
+fn type_expr_contains_function(expr: &TypeExpr) -> bool {
+    match expr {
+        TypeExpr::Function { .. } => true,
+        TypeExpr::Tuple { elements, .. } => elements.iter().any(type_expr_contains_function),
+        TypeExpr::Named { args, .. } => args.iter().any(type_expr_contains_function),
+    }
+}
+
+fn is_opaque_non_sendable_adt(
+    module: ModulePath,
+    adt_name: Identifier,
+    interner: &Interner,
+) -> bool {
+    let Some(module_name) = module.as_identifier().map(|id| interner.resolve(id)) else {
+        return false;
+    };
+    module_name == "Flow.Tcp" && matches!(interner.resolve(adt_name), "Connection" | "Listener")
 }
 
 #[cfg(test)]

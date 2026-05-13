@@ -4,9 +4,7 @@
 //! - Phase 2: literals, variables, let/letrec bindings, primop calls, top-level functions.
 //! - Phase 3: pattern matching (Case), ADT/cons/tuple construction (Con), tuple field access.
 
-use std::collections::HashMap;
-
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
@@ -197,6 +195,52 @@ fn native_builtin_effect_uses_direct_path(
             | crate::syntax::builtin_effects::STDIN
             | crate::syntax::builtin_effects::CLOCK
     )
+}
+
+fn effect_expr_contains_async(
+    effect: &crate::syntax::effect_expr::EffectExpr,
+    interner: Option<&Interner>,
+) -> bool {
+    effect.normalized_concrete_names().into_iter().any(|name| {
+        interner
+            .and_then(|i| i.try_resolve(name))
+            .is_some_and(|resolved| resolved == crate::syntax::builtin_effects::ASYNC)
+    })
+}
+
+fn collect_async_effect_function_names(
+    items: &[CoreTopLevelItem],
+    interner: Option<&Interner>,
+    out: &mut HashSet<Identifier>,
+) {
+    for item in items {
+        match item {
+            CoreTopLevelItem::Function { name, effects, .. }
+                if effects
+                    .iter()
+                    .any(|effect| effect_expr_contains_async(effect, interner)) =>
+            {
+                out.insert(*name);
+            }
+            CoreTopLevelItem::Module { body, .. } => {
+                collect_async_effect_function_names(body, interner, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_async_effect_binders(
+    defs: &[CoreDef],
+    items: &[CoreTopLevelItem],
+    interner: Option<&Interner>,
+) -> HashSet<CoreBinderId> {
+    let mut names = HashSet::new();
+    collect_async_effect_function_names(items, interner, &mut names);
+    defs.iter()
+        .filter(|def| names.contains(&def.name))
+        .map(|def| def.binder.id)
+        .collect()
 }
 
 // ── Qualified name resolution ────────────────────────────────────────────────
@@ -528,6 +572,8 @@ pub fn lower_program_with_interner_and_externs(
         .map(|def| def.binder.id)
         .collect();
     let parameterized_effects_in_program = collect_parameterized_effects(program);
+    let async_effect_binders =
+        collect_async_effect_binders(&program.defs, &program.top_level_items, interner);
 
     // Phase 1: Lower all non-main defs.
     for (i, def) in program.defs.iter().enumerate() {
@@ -545,6 +591,7 @@ pub fn lower_program_with_interner_and_externs(
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
             parameterized_effects_in_program: &parameterized_effects_in_program,
+            async_effect_binders: &async_effect_binders,
         };
         let func = lower_def(def, ctx);
         lir.push_function(func);
@@ -565,6 +612,7 @@ pub fn lower_program_with_interner_and_externs(
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
             parameterized_effects_in_program: &parameterized_effects_in_program,
+            async_effect_binders: &async_effect_binders,
         };
         let func = lower_def(main_def, ctx);
         lir.push_function(func);
@@ -661,6 +709,8 @@ pub fn lower_aether_program_with_interner_and_externs(
         .map(|def| def.binder.id)
         .collect();
     let parameterized_effects_in_program = collect_parameterized_effects_aether(program);
+    let async_effect_binders =
+        collect_async_effect_binders(&program.core.defs, &program.top_level_items, interner);
 
     for (i, def) in program.defs().iter().enumerate() {
         if main_idx.is_some_and(|idx| i == idx) {
@@ -677,6 +727,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
             parameterized_effects_in_program: &parameterized_effects_in_program,
+            async_effect_binders: &async_effect_binders,
         };
         let func = lower_aether_def(def, ctx);
         lir.push_function(func);
@@ -695,6 +746,7 @@ pub fn lower_aether_program_with_interner_and_externs(
             top_level_value_map: &top_level_value_map,
             int_return_binders: &int_return_binders,
             parameterized_effects_in_program: &parameterized_effects_in_program,
+            async_effect_binders: &async_effect_binders,
         };
         let func = lower_aether_def(main_def, ctx);
         lir.push_function(func);
@@ -727,6 +779,8 @@ pub fn lower_aether_program_with_interner_and_externs(
 /// `flux_call_closure` have a different prototype and must not be marked as
 /// tail calls (causes Bus errors on Apple clang).
 fn promote_tail_calls(program: &mut LirProgram) {
+    let async_funcs = direct_async_func_ids(program);
+
     for func in &mut program.functions {
         let num_blocks = func.blocks.len();
         if num_blocks == 0 {
@@ -836,6 +890,7 @@ fn promote_tail_calls(program: &mut LirProgram) {
                             | CallKind::DirectClosure { .. }
                             | CallKind::DirectExtern { .. }
                     )
+                    && !call_kind_is_direct_async(kind, &async_funcs)
             } else {
                 false
             };
@@ -921,6 +976,8 @@ struct FnLower<'a> {
     /// Helper functions called from those handlers are lowered outside the
     /// handler's lexical body, so they need this broader guard too.
     parameterized_effects_in_program: &'a HashSet<Identifier>,
+    /// True when this lowered function's source effect row includes Async.
+    async_indirect_calls: bool,
 }
 
 struct FnLowerCtx<'a> {
@@ -935,6 +992,7 @@ struct FnLowerCtx<'a> {
     /// Function binders known to return Int (from `CoreDef::result_ty`).
     int_return_binders: &'a HashSet<CoreBinderId>,
     parameterized_effects_in_program: &'a HashSet<Identifier>,
+    async_indirect_calls: bool,
 }
 
 impl<'a> FnLower<'a> {
@@ -951,6 +1009,7 @@ impl<'a> FnLower<'a> {
                 name,
                 id,
                 qualified_name,
+                is_dict_def: false,
                 params: Vec::new(),
                 blocks: vec![entry_block],
                 next_var: 0,
@@ -975,6 +1034,7 @@ impl<'a> FnLower<'a> {
             bool_raw_source: HashMap::new(),
             active_parameterized_effects: HashSet::new(),
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
+            async_indirect_calls: ctx.async_indirect_calls,
         }
     }
 
@@ -1029,22 +1089,15 @@ impl<'a> FnLower<'a> {
         binder: CoreBinderId,
         name: crate::syntax::Identifier,
     ) -> CoreBinderId {
-        if self.globals_map.is_some() {
-            return binder;
-        }
         let Some(candidates) = self.name_binder_map.get(&name) else {
             return binder;
         };
         if candidates.len() <= 1 {
             return binder;
         }
-        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
-            return binder;
-        };
-        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
         candidates
             .iter()
-            .find(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+            .find(|bid| self.is_same_module_candidate(**bid, name))
             .copied()
             .unwrap_or(binder)
     }
@@ -1053,22 +1106,49 @@ impl<'a> FnLower<'a> {
         let Some(candidates) = self.name_binder_map.get(&name) else {
             return Vec::new();
         };
-        if self.globals_map.is_none() || candidates.len() <= 1 {
+        if candidates.len() <= 1 {
             return candidates.clone();
         }
-        let Some((module_prefix, _)) = self.func.qualified_name.rsplit_once('_') else {
-            return candidates.clone();
-        };
-        let target = format!("{}_{}", module_prefix, self.resolve_name(name));
         let mut ordered = candidates.clone();
         if let Some(pos) = ordered
             .iter()
-            .position(|bid| self.qualified_names.get(bid).is_some_and(|q| q == &target))
+            .position(|bid| self.is_same_module_candidate(*bid, name))
         {
             let preferred = ordered.remove(pos);
             ordered.insert(0, preferred);
         }
         ordered
+    }
+
+    fn direct_same_module_func_for_name(
+        &self,
+        name: crate::syntax::Identifier,
+    ) -> Option<(LirFuncId, CoreBinderId)> {
+        if self.globals_map.is_some() {
+            return None;
+        }
+        for binder in self.preferred_top_level_binders(name) {
+            if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
+                return Some((func_id, binder));
+            }
+        }
+        None
+    }
+
+    fn is_same_module_candidate(
+        &self,
+        binder: CoreBinderId,
+        name: crate::syntax::Identifier,
+    ) -> bool {
+        let Some(candidate_qname) = self.qualified_names.get(&binder) else {
+            return false;
+        };
+        let expected_name = self.resolve_name(name);
+        let expected_suffix = format!("_{expected_name}");
+        let Some(candidate_module) = candidate_qname.strip_suffix(&expected_suffix) else {
+            return false;
+        };
+        self.func.qualified_name.starts_with(candidate_module)
     }
 
     /// Allocate a fresh LIR variable.
@@ -1360,6 +1440,7 @@ impl<'a> FnLower<'a> {
                             "{}_letrec_group_{}",
                             self.func.qualified_name, synthetic_id.0
                         ),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -1414,6 +1495,7 @@ impl<'a> FnLower<'a> {
                                 int_return_binders: self.int_return_binders,
                                 parameterized_effects_in_program: self
                                     .parameterized_effects_in_program,
+                                async_indirect_calls: self.async_indirect_calls,
                             },
                         );
 
@@ -1568,6 +1650,7 @@ impl<'a> FnLower<'a> {
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -1593,6 +1676,7 @@ impl<'a> FnLower<'a> {
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
+                            async_indirect_calls: self.async_indirect_calls,
                         },
                     );
 
@@ -1733,6 +1817,7 @@ impl<'a> FnLower<'a> {
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
+                            async_indirect_calls: self.async_indirect_calls,
                         },
                     );
 
@@ -2014,6 +2099,7 @@ impl<'a> FnLower<'a> {
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
+                            async_indirect_calls: self.async_indirect_calls,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -2099,6 +2185,7 @@ impl<'a> FnLower<'a> {
                             "{}_letrec_group_{}",
                             self.func.qualified_name, synthetic_id.0
                         ),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -2150,6 +2237,7 @@ impl<'a> FnLower<'a> {
                                 int_return_binders: self.int_return_binders,
                                 parameterized_effects_in_program: self
                                     .parameterized_effects_in_program,
+                                async_indirect_calls: self.async_indirect_calls,
                             },
                         );
                         for &(binder_id, _) in &entry.outer_captures {
@@ -2273,6 +2361,7 @@ impl<'a> FnLower<'a> {
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
+                        is_dict_def: false,
                         params: Vec::new(),
                         blocks: Vec::new(),
                         next_var: 0,
@@ -2297,6 +2386,7 @@ impl<'a> FnLower<'a> {
                             top_level_value_map: self.top_level_value_map,
                             int_return_binders: self.int_return_binders,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
+                            async_indirect_calls: self.async_indirect_calls,
                         },
                     );
                     for &(binder_id, _) in &outer_captures {
@@ -2968,6 +3058,11 @@ impl<'a> FnLower<'a> {
                     Some(preferred),
                 )
             }
+            CoreExpr::Var { var, .. } if var.binder.is_none() => self
+                .direct_same_module_func_for_name(var.name)
+                .map_or((None, None), |(func_id, binder)| {
+                    (Some(func_id), Some(binder))
+                }),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -3134,7 +3229,9 @@ impl<'a> FnLower<'a> {
             func: func_var,
             args: arg_vars,
             cont: cont_id,
-            kind: CallKind::Indirect,
+            kind: CallKind::Indirect {
+                async_capable: self.async_indirect_calls,
+            },
             suppress_yield_check: false,
             yield_cont: None,
         });
@@ -3196,6 +3293,11 @@ impl<'a> FnLower<'a> {
                     Some(preferred),
                 )
             }
+            AetherExpr::Var { var, .. } if var.binder.is_none() => self
+                .direct_same_module_func_for_name(var.name)
+                .map_or((None, None), |(func_id, binder)| {
+                    (Some(func_id), Some(binder))
+                }),
             _ => (None, None),
         };
         let direct_external_symbol = if direct_func_id.is_none() {
@@ -3347,7 +3449,9 @@ impl<'a> FnLower<'a> {
             func: func_var,
             args: arg_vars,
             cont: cont_id,
-            kind: CallKind::Indirect,
+            kind: CallKind::Indirect {
+                async_capable: self.async_indirect_calls,
+            },
             suppress_yield_check: false,
             yield_cont: None,
         });
@@ -3423,6 +3527,7 @@ impl<'a> FnLower<'a> {
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
                 parameterized_effects_in_program: self.parameterized_effects_in_program,
+                async_indirect_calls: self.async_indirect_calls,
             },
         );
 
@@ -3525,6 +3630,7 @@ impl<'a> FnLower<'a> {
                 top_level_value_map: self.top_level_value_map,
                 int_return_binders: self.int_return_binders,
                 parameterized_effects_in_program: self.parameterized_effects_in_program,
+                async_indirect_calls: self.async_indirect_calls,
             },
         );
 
@@ -3959,6 +4065,52 @@ impl<'a> FnLower<'a> {
                     parts: arg_vars,
                 });
                 dst
+            }
+
+            CorePrimOp::FiberSleep
+            | CorePrimOp::TaskAwait
+            | CorePrimOp::FiberBoth
+            | CorePrimOp::FiberRace
+            | CorePrimOp::FiberFirstOf
+            | CorePrimOp::FiberTry
+            | CorePrimOp::FiberTimeout
+            | CorePrimOp::ChanSend
+            | CorePrimOp::ChanSendMove
+            | CorePrimOp::ChanRecv
+            | CorePrimOp::EventWait
+            | CorePrimOp::TcpConnect
+            | CorePrimOp::TcpRead
+            | CorePrimOp::TcpWriteAll
+            | CorePrimOp::TcpListen
+            | CorePrimOp::TcpAccept => {
+                let result = self.fresh_var();
+                let sink = self.fresh_var();
+                self.emit(LirInstr::PrimCall {
+                    dst: Some(sink),
+                    op,
+                    args: arg_vars,
+                });
+
+                let cont_idx = self.new_block();
+                let cont_id = BlockId(cont_idx as u32);
+                self.func.blocks[cont_idx].params.push(result);
+
+                let dummy_func = self.fresh_var();
+                self.emit(LirInstr::Const {
+                    dst: dummy_func,
+                    value: LirConst::None,
+                });
+                self.set_terminator(LirTerminator::Call {
+                    dst: result,
+                    func: dummy_func,
+                    args: Vec::new(),
+                    cont: cont_id,
+                    kind: CallKind::YieldTo,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                });
+                self.switch_to_block(cont_idx);
+                result
             }
 
             // Generic arithmetic → specialize to inline integer ops when both
@@ -5023,6 +5175,7 @@ struct LowerDefCtx<'a> {
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
     int_return_binders: &'a HashSet<CoreBinderId>,
     parameterized_effects_in_program: &'a HashSet<Identifier>,
+    async_effect_binders: &'a HashSet<CoreBinderId>,
 }
 
 fn lir_symbol_name_for_def(
@@ -5064,8 +5217,10 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
+            async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
     );
+    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -5130,8 +5285,10 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             top_level_value_map: ctx.top_level_value_map,
             int_return_binders: ctx.int_return_binders,
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
+            async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
     );
+    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
 
     ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
@@ -5200,6 +5357,7 @@ fn lower_synthetic_main_core(
             top_level_value_map: &empty_values,
             int_return_binders,
             parameterized_effects_in_program,
+            async_indirect_calls: false,
         },
     );
 
@@ -5265,6 +5423,7 @@ fn lower_synthetic_main_aether(
             top_level_value_map: &empty_values,
             int_return_binders,
             parameterized_effects_in_program,
+            async_indirect_calls: false,
         },
     );
 
@@ -5480,7 +5639,7 @@ fn display_terminator(term: &LirTerminator) -> String {
                     format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
-                CallKind::Indirect => String::new(),
+                CallKind::Indirect { .. } => String::new(),
                 CallKind::YieldTo => " [yield-to]".to_string(),
             };
             format!("tailcall {func}({}){kind_str}", args_str.join(", "))
@@ -5502,7 +5661,7 @@ fn display_terminator(term: &LirTerminator) -> String {
                     format!(" [direct-closure {} [{}]]", func_id, caps.join(", "))
                 }
                 CallKind::DirectExtern { symbol } => format!(" [extern {}]", symbol),
-                CallKind::Indirect => String::new(),
+                CallKind::Indirect { .. } => String::new(),
                 CallKind::YieldTo => " [yield-to]".to_string(),
             };
             let suppress_str = if *suppress_yield_check {
@@ -5939,6 +6098,7 @@ mod tests {
                     name: add,
                     binder: mk_binder(1, add),
                     expr: CoreExpr::lambda(vec![], CoreExpr::Lit(CoreLit::Int(0), span), span),
+                    is_dict_def: false,
                     borrow_signature: None,
                     result_ty: None,
                     is_anonymous: false,
@@ -5950,6 +6110,7 @@ mod tests {
                     name: add,
                     binder: mk_binder(2, add),
                     expr: CoreExpr::Lit(CoreLit::Int(42), span),
+                    is_dict_def: false,
                     borrow_signature: None,
                     result_ty: None,
                     is_anonymous: true,
@@ -6050,7 +6211,9 @@ mod tests {
                     func: LirVar(0),
                     args: Vec::new(),
                     cont: BlockId(2),
-                    kind: CallKind::Indirect,
+                    kind: CallKind::Indirect {
+                        async_capable: false,
+                    },
                     suppress_yield_check: false,
                     yield_cont: None,
                 },
@@ -6064,7 +6227,9 @@ mod tests {
                     func: LirVar(0),
                     args: Vec::new(),
                     cont: BlockId(3),
-                    kind: CallKind::Indirect,
+                    kind: CallKind::Indirect {
+                        async_capable: false,
+                    },
                     suppress_yield_check: false,
                     yield_cont: None,
                 },

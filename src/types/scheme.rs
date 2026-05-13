@@ -55,13 +55,26 @@ impl Scheme {
     /// Collect all `Symbol`s referenced by this scheme's type body.
     pub fn collect_symbols(&self, out: &mut HashSet<Symbol>) {
         self.infer_type.collect_symbols(out);
+        for constraint in &self.constraints {
+            out.insert(constraint.class_name);
+        }
     }
 
     /// Replace Symbol IDs according to `remap`. Returns a new scheme.
     pub fn remap_symbols(&self, remap: &HashMap<Symbol, Symbol>) -> Self {
         Scheme {
             forall: self.forall.clone(),
-            constraints: self.constraints.clone(),
+            constraints: self
+                .constraints
+                .iter()
+                .map(|constraint| SchemeConstraint {
+                    class_name: remap
+                        .get(&constraint.class_name)
+                        .copied()
+                        .unwrap_or(constraint.class_name),
+                    type_vars: constraint.type_vars.clone(),
+                })
+                .collect(),
             infer_type: self.infer_type.remap_symbols(remap),
         }
     }

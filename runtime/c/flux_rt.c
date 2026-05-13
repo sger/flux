@@ -972,7 +972,49 @@ static void flux_trace_print(void) {
 
 /* ── Control ────────────────────────────────────────────────────────── */
 
-/* Try/catch infrastructure: flux_try uses setjmp to catch flux_panic. */
+/* Try/catch infrastructure.
+ *
+ * POSIX: `flux_try` and `flux_assert_throws` install a setjmp boundary;
+ * `flux_panic` longjmps to it.  This works on macOS / Linux because
+ * longjmp on those platforms simply restores the saved program state
+ * without unwinding any frames.
+ *
+ * Windows: Microsoft's `longjmp` walks the SEH chain via RtlUnwindEx.
+ * LLVM-emitted Flux code on Windows does not always emit complete SEH
+ * unwind tables for every frame, so longjmping through an LLVM-emitted
+ * frame can fail with STATUS_BAD_FUNCTION_TABLE (0xC00000FF).  Use SEH
+ * (RaiseException + __try/__except) instead — that is the unwind
+ * mechanism Windows is built around and it walks the same frames
+ * correctly whether or not their .pdata is exhaustive. */
+#if defined(_MSC_VER) || defined(_WIN32)
+
+#define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
+
+static __thread int     flux_try_depth     = 0;
+static __thread int64_t flux_try_error_msg = 0;
+
+void flux_panic(int64_t msg) {
+    if (flux_try_depth > 0) {
+        flux_try_error_msg = msg;
+        ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
+        RaiseException(FLUX_PANIC_EXCEPTION, 0, 1, args);
+        /* unreachable — RaiseException unwinds via SEH */
+    }
+    if (flux_is_ptr(msg)) {
+        uint32_t len = flux_string_len(msg);
+        const char *data = flux_string_data(msg);
+        fprintf(stderr, "panic: %.*s\n", (int)len, data);
+    } else {
+        fprintf(stderr, "panic: ");
+        flux_print(msg);
+        fprintf(stderr, "\n");
+    }
+    flux_trace_print();
+    exit(1);
+}
+
+#else  /* POSIX */
+
 static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
@@ -995,6 +1037,8 @@ void flux_panic(int64_t msg) {
     exit(1);
 }
 
+#endif
+
 /* Allocate a tuple: { u8 obj_tag=0xF3, u8[3] pad, u32 arity, i64 elements[] }. */
 static int64_t make_tuple(int64_t *fields, uint32_t arity) {
     uint32_t payload = 4 + 4 + arity * 8; /* pad+arity header + elements */
@@ -1008,6 +1052,104 @@ static int64_t make_tuple(int64_t *fields, uint32_t arity) {
 }
 
 /* flux_try(thunk): call thunk(), return ("ok", result) or ("error", message). */
+#if defined(_MSC_VER) || defined(_WIN32)
+int64_t flux_try(int64_t thunk) {
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    int64_t result = FLUX_NONE;
+    __try {
+        result = flux_call_closure_c(thunk, NULL, 0);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+
+    if (!caught) {
+        int64_t ok_str = flux_string_new("ok", 2);
+        int64_t fields[2];
+        fields[0] = ok_str;
+        fields[1] = result;
+        flux_try_error_msg = saved_msg;
+        return make_tuple(fields, 2);
+    }
+    int64_t err_str = flux_string_new("error", 5);
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    } else if (!flux_is_ptr(msg)) {
+        msg = flux_string_new("runtime error", 13);
+    }
+    int64_t fields[2];
+    fields[0] = err_str;
+    fields[1] = msg;
+    flux_try_error_msg = saved_msg;
+    return make_tuple(fields, 2);
+}
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    int64_t result = FLUX_NONE;
+    __try {
+        result = flux_call_closure_c(closure, NULL, 0);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+    if (!caught) {
+        *out = result;
+        flux_try_error_msg = saved_msg;
+        return 1;
+    }
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    flux_try_error_msg = saved_msg;
+    return 0;
+}
+
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
+    int64_t args[1] = { value };
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    int64_t result = FLUX_NONE;
+    __try {
+        result = flux_call_closure_c(continuation, args, 1);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+    if (!caught) {
+        *out = result;
+        flux_try_error_msg = saved_msg;
+        return 1;
+    }
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    flux_try_error_msg = saved_msg;
+    return 0;
+}
+#else
 int64_t flux_try(int64_t thunk) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
@@ -1042,6 +1184,50 @@ int64_t flux_try(int64_t thunk) {
         return make_tuple(fields, 2);
     }
 }
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    if (setjmp(buf) == 0) {
+        *out = flux_call_closure_c(closure, NULL, 0);
+        flux_try_jmp = prev;
+        return 1;
+    }
+
+    flux_try_jmp = prev;
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    return 0;
+}
+
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
+    int64_t args[1] = { value };
+    jmp_buf buf;
+    jmp_buf *prev = flux_try_jmp;
+    flux_try_jmp = &buf;
+    flux_try_error_msg = 0;
+
+    if (setjmp(buf) == 0) {
+        *out = flux_call_closure_c(continuation, args, 1);
+        flux_try_jmp = prev;
+        return 1;
+    }
+
+    flux_try_jmp = prev;
+    int64_t msg = flux_try_error_msg;
+    if (msg == 0) {
+        msg = flux_string_new("unknown error", 13);
+    }
+    *out = msg;
+    return 0;
+}
+#endif
 
 typedef struct {
     void    *fn_ptr;
@@ -1092,6 +1278,53 @@ int64_t flux_call_closure_exact(int64_t closure, int64_t *args, int32_t nargs) {
 }
 
 /* flux_assert_throws(thunk, expected_msg): assert that thunk() panics. */
+#if defined(_MSC_VER) || defined(_WIN32)
+int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
+    flux_try_depth++;
+    int64_t saved_msg = flux_try_error_msg;
+    flux_try_error_msg = 0;
+
+    int caught = 0;
+    __try {
+        flux_call_closure_c(thunk, NULL, 0);
+    } __except (GetExceptionCode() == FLUX_PANIC_EXCEPTION
+                ? EXCEPTION_EXECUTE_HANDLER
+                : EXCEPTION_CONTINUE_SEARCH) {
+        caught = 1;
+    }
+    flux_try_depth--;
+
+    if (!caught) {
+        flux_try_error_msg = saved_msg;
+        flux_panic(flux_string_new("assert_throws failed: function completed without error", 54));
+        return 0; /* unreachable */
+    }
+    if (expected_msg != 0 && flux_is_ptr(expected_msg)) {
+        int64_t actual = flux_try_error_msg;
+        if (actual != 0 && flux_is_ptr(actual)) {
+            const char *exp_data = flux_string_data(expected_msg);
+            uint32_t exp_len = flux_string_len(expected_msg);
+            const char *act_data = flux_string_data(actual);
+            uint32_t act_len = flux_string_len(actual);
+            int found = 0;
+            if (act_len >= exp_len) {
+                for (uint32_t i = 0; i <= act_len - exp_len; i++) {
+                    if (memcmp(act_data + i, exp_data, exp_len) == 0) {
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                flux_try_error_msg = saved_msg;
+                flux_panic(flux_string_new("assert_throws: error message mismatch", 37));
+            }
+        }
+    }
+    flux_try_error_msg = saved_msg;
+    return 0; /* FLUX_NONE */
+}
+#else
 int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
@@ -1132,6 +1365,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
         return 0; /* FLUX_NONE */
     }
 }
+#endif
 
 int64_t flux_clock_now(void) {
 #if defined(_MSC_VER) || defined(_WIN32)

@@ -11,7 +11,7 @@ use crate::{
         effect_ops::EffectOp,
         expression::Expression,
         precedence::Precedence,
-        statement::{FunctionTypeParam, Statement},
+        statement::{FunctionTypeParam, Statement, TypeAliasDecl},
         token_type::TokenType,
         type_class::{ClassConstraint, ClassMethod, InstanceMethod},
         type_expr::TypeExpr,
@@ -77,7 +77,7 @@ impl Parser {
             TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(false),
             TokenType::Effect => self.parse_effect_statement(),
-            TokenType::Alias => self.parse_effect_alias_statement(),
+            TokenType::Alias => self.parse_alias_statement(false),
             TokenType::Class => self.parse_class_statement(false),
             TokenType::Instance => self.parse_instance_statement(false),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
@@ -120,6 +120,10 @@ impl Parser {
             TokenType::Public if self.is_peek_token(TokenType::Data) => {
                 self.next_token(); // data
                 self.parse_data_statement(true)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Alias) => {
+                self.next_token(); // alias
+                self.parse_alias_statement(true)
             }
             TokenType::At => self.parse_annotated_function(),
             TokenType::Ident if self.current_token.literal == "fn" => {
@@ -1160,42 +1164,11 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
-        // Optional generic type parameters <T, U, ...> (parsed but stored only as names for now)
-        let mut type_params = Vec::new();
-
-        if self.is_peek_token(TokenType::Lt) {
-            self.next_token(); // consume '<'
-            loop {
-                if !self.expect_peek_context_with_details(
-                    TokenType::Ident,
-                    "Missing Generic Parameter Name",
-                    DiagnosticCategory::ParserDeclaration,
-                    "Expected generic type parameter name.".to_string(),
-                    "Data generics use `data Type<T, U> { ... }`.".to_string(),
-                ) {
-                    return None;
-                }
-                type_params.push(
-                    self.current_token
-                        .symbol
-                        .expect("ident token should have symbol"),
-                );
-                if self.is_peek_token(TokenType::Comma) {
-                    self.next_token(); // consume ','
-                } else {
-                    break;
-                }
-            }
-            if !self.expect_peek_context_with_details(
-                TokenType::Gt,
-                "Missing Generic Parameter List",
-                DiagnosticCategory::ParserDelimiter,
-                "Expected `>` to close data type parameters.".to_string(),
-                "Data generics use `data Type<T, U> { ... }`.".to_string(),
-            ) {
-                return None;
-            }
-        }
+        // Optional generic type parameters. Reuse the function parser so
+        // constrained params (`data Box<a: Sendable>`) get the same recovery
+        // and diagnostics. Data declarations still store only names today.
+        let type_params =
+            Statement::function_type_param_names(&self.parse_function_type_params_angle_bracket()?);
 
         // Expect opening brace
         if !self.expect_peek_context_with_details(
@@ -1460,11 +1433,40 @@ impl Parser {
             if self.is_current_token(TokenType::RParen) {
                 break;
             }
-            if let Some(sym) = self.current_token.symbol {
-                classes.push(sym);
+            if self.is_current_token(TokenType::Ident) {
+                if let Some(sym) = self.parse_qualified_name() {
+                    classes.push(sym);
+                }
+            } else {
+                self.emit_parser_diagnostic(unexpected_token_with_details(
+                    self.current_token.span(),
+                    "Invalid Deriving Class",
+                    DiagnosticCategory::ParserDeclaration,
+                    format!(
+                        "Expected a class name in `deriving (...)`, but found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
+                    ),
+                ));
+                while !matches!(
+                    self.current_token.token_type,
+                    TokenType::Comma | TokenType::RParen | TokenType::Eof
+                ) {
+                    self.next_token();
+                }
+                if self.is_current_token(TokenType::Eof) {
+                    return classes;
+                }
             }
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume `,`
+                if self.is_peek_token(TokenType::RParen) {
+                    self.emit_parser_diagnostic(unexpected_token_with_details(
+                        self.peek_token.span(),
+                        "Trailing Deriving Comma",
+                        DiagnosticCategory::ParserSeparator,
+                        "Remove the trailing comma or add another class name after it.".to_string(),
+                    ));
+                }
             } else {
                 break;
             }
@@ -1472,6 +1474,13 @@ impl Parser {
         // Consume `)`
         if self.is_peek_token(TokenType::RParen) {
             self.next_token();
+        } else if !self.is_current_token(TokenType::RParen) {
+            self.emit_parser_diagnostic(unexpected_token_with_details(
+                self.current_token.span(),
+                "Missing Deriving Close Paren",
+                DiagnosticCategory::ParserDelimiter,
+                "Expected `)` to close the `deriving` class list.".to_string(),
+            ));
         }
         classes
     }
@@ -1498,41 +1507,10 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
-        // Optional generic type parameters <T, U, ...>
-        let mut type_params = Vec::new();
-        if self.is_peek_token(TokenType::Lt) {
-            self.next_token(); // consume '<'
-            loop {
-                if !self.expect_peek_context_with_details(
-                    TokenType::Ident,
-                    "Missing Generic Parameter Name",
-                    DiagnosticCategory::ParserDeclaration,
-                    "Expected generic type parameter name.".to_string(),
-                    "Type generics use `type Name<T, U> = ...`.".to_string(),
-                ) {
-                    return None;
-                }
-                type_params.push(
-                    self.current_token
-                        .symbol
-                        .expect("ident token should have symbol"),
-                );
-                if self.is_peek_token(TokenType::Comma) {
-                    self.next_token(); // consume ','
-                } else {
-                    break;
-                }
-            }
-            if !self.expect_peek_context_with_details(
-                TokenType::Gt,
-                "Missing Generic Parameter List",
-                DiagnosticCategory::ParserDelimiter,
-                "Expected `>` to close type parameters.".to_string(),
-                "Type generics use `type Name<T, U> = ...`.".to_string(),
-            ) {
-                return None;
-            }
-        }
+        // Optional generic type parameters. Reuse the function parser for
+        // constrained syntax and keep only the names in today's AST shape.
+        let type_params =
+            Statement::function_type_param_names(&self.parse_function_type_params_angle_bracket()?);
 
         // Expect '='
         if !self.expect_peek_context_with_details(
@@ -1630,6 +1608,14 @@ impl Parser {
             break;
         }
 
+        // Optional `deriving (Eq, Show, ...)` after legacy `type` ADT sugar.
+        let deriving = if self.is_peek_token(TokenType::Deriving) {
+            self.next_token(); // consume `deriving`
+            self.parse_deriving_list()
+        } else {
+            vec![]
+        };
+
         Some(Statement::Data {
             // `type Foo = ...` form is the legacy ADT syntax — defaults
             // to private under the new visibility model.
@@ -1638,7 +1624,7 @@ impl Parser {
             type_params,
             variants,
             span: self.span_from(start),
-            deriving: vec![],
+            deriving,
         })
     }
 
@@ -2265,20 +2251,20 @@ impl Parser {
         })
     }
 
-    /// Parses `alias Name = <E1 | E2 | ...>` (Proposal 0161 B1).
+    /// Parses `alias Name = <E1 | E2 | ...>` effect aliases and
+    /// `alias Name<a> = TypeExpr` transparent type aliases.
     ///
     /// Effect-row aliases let users give a short name to a decomposed row.
-    /// Expansion happens at type-inference time; see
-    /// `Compiler::effect_alias_table`.
-    pub(super) fn parse_effect_alias_statement(&mut self) -> Option<Statement> {
+    /// Type aliases are transparent and expand before HM inference.
+    pub(super) fn parse_alias_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
         if !self.expect_peek_context_with_details(
             TokenType::Ident,
-            "Missing Effect Alias Name",
+            "Missing Alias Name",
             DiagnosticCategory::ParserDeclaration,
             "Expected alias name after `alias`.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = Type` or `alias Name = <E1 | E2 | ...>`.".to_string(),
         ) {
             return None;
         }
@@ -2287,33 +2273,49 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        let params = self.parse_type_params_angle_bracket();
+
         if !self.expect_peek_context_with_details(
             TokenType::Assign,
-            "Missing `=` in Effect Alias",
+            "Missing `=` in Alias",
             DiagnosticCategory::ParserSeparator,
             "Expected `=` after alias name.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
+            "Aliases use `alias Name = Type` or `alias Name = <E1 | E2 | ...>`.".to_string(),
         ) {
             return None;
         }
 
-        if !self.expect_peek_context_with_details(
-            TokenType::Lt,
-            "Missing `<` in Effect Alias Body",
-            DiagnosticCategory::ParserSeparator,
-            "Expected `<` to begin the effect-row body.".to_string(),
-            "Effect aliases use `alias Name = <E1 | E2 | ...>`.".to_string(),
-        ) {
-            return None;
+        if self.is_peek_token(TokenType::Lt) {
+            if !params.is_empty() {
+                self.emit_parser_diagnostic(unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Invalid Generic Effect Alias",
+                    DiagnosticCategory::ParserDeclaration,
+                    "Effect aliases cannot declare type parameters.".to_string(),
+                )
+                .with_hint_text("Use `alias Name = <E1 | E2>` for effect aliases, or make the right-hand side a type expression."));
+                return None;
+            }
+            self.next_token(); // consume `<`
+            let expansion = self.parse_effect_alias_body()?;
+
+            return Some(Statement::EffectAlias {
+                name,
+                expansion,
+                span: self.span_from(start),
+            });
         }
 
-        let expansion = self.parse_effect_alias_body()?;
+        self.next_token(); // move to type expression start
+        let body = self.parse_type_expr()?;
 
-        Some(Statement::EffectAlias {
+        Some(Statement::TypeAlias(TypeAliasDecl {
+            is_public,
             name,
-            expansion,
+            params,
+            body,
             span: self.span_from(start),
-        })
+        }))
     }
 
     /// Parses the `<E1 | E2 | ...>` body of an alias declaration.

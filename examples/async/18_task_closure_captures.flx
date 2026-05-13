@@ -1,0 +1,43 @@
+// 18 — Task.spawn closure captures
+//
+// A spawned closure may capture immutable local values when every captured
+// value is Sendable. The closure result must still be Sendable.
+
+// parity-expected-stdout-begin
+// "job a = 18"
+// "job b = 27"
+// "total = 45"
+// parity-expected-stdout-end
+
+import Flow.Task as Task
+
+data JobConfig {
+    JobConfig(Int, String),
+}
+
+fn require_sendable<a: Sendable>(x: a) -> a { x }
+
+fn job_config_sendable_witness(config: JobConfig) -> JobConfig {
+    require_sendable(config)
+}
+
+fn weight(config: JobConfig) -> Int {
+    match config {
+        JobConfig(scale, label) -> if label == "heavy" { scale * 3 } else { scale }
+    }
+}
+
+fn main() with IO {
+    let base = 6
+    let config = JobConfig(9, "heavy")
+
+    let a = Task.spawn(fn() { base * 3 })
+    let b = Task.spawn(fn() { weight(config) })
+
+    let ra = Task.blocking_join(a)
+    let rb = Task.blocking_join(b)
+
+    print("job a = " + to_string(ra))
+    print("job b = " + to_string(rb))
+    print("total = " + to_string(ra + rb))
+}

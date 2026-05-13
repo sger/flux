@@ -389,6 +389,7 @@ Effects are validated at two points:
 | E450 | PUBLIC INSTANCE OF PRIVATE CLASS | `public instance` of a non-public class | make the class `public` or remove `public` from the instance |
 | E451 | PUBLIC CLASS LEAKS PRIVATE TYPE | `public class` method signature references a private data type | make the data type `public` or the class private |
 | E452 | INSTANCE METHOD EFFECT FLOOR VIOLATION | instance method's effect row does not satisfy the class method's effect floor | add the missing effects to the instance method's `with` clause |
+| E453 | SEALED CLASS INSTANCE | user code tries to implement compiler-owned `Sendable` | remove the manual instance; structurally safe data types derive `Sendable` automatically |
 | E455 | PUBLIC INSTANCE WITH PRIVATE HEAD TYPE | `public instance` head type is a private data type | make the data type `public` or remove `public` from the instance |
 
 Notes:

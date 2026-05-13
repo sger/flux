@@ -1,0 +1,101 @@
+import Flow.Async as Async
+import Flow.Channel as Channel
+
+module Flow.Event {
+    public data Event<a> { Event(Int) }
+    public data Poll<a> { Ready(a), Pending }
+
+    intrinsic fn event_recv_id(id: Int) -> Int = primop EventRecv
+    intrinsic fn event_send_id<a>(id: Int, value: a) -> Int = primop EventSend
+    intrinsic fn event_send_move_id<a>(id: Int, value: a) -> Int = primop EventSendMove
+    intrinsic fn event_after_id(ms: Int) -> Int = primop EventAfter
+    intrinsic fn event_always_id<a>(value: a) -> Int = primop EventAlways
+    intrinsic fn event_never_id() -> Int = primop EventNever
+    intrinsic fn event_choose_ids(ids: List<Int>) -> Int = primop EventChoose
+    intrinsic fn event_wrap_id<a, b>(id: Int, f: (a) -> b) -> Int = primop EventWrap
+    intrinsic fn event_poll_id<a>(id: Int) -> Poll<a> = primop EventPoll
+    intrinsic fn event_wait_id(id: Int) -> Unit with Async = primop EventWait
+
+    fn ids<a>(events: List<Event<a>>) -> List<Int> {
+        match events {
+            [Event(id) | rest] -> [id | ids(rest)],
+            _ -> []
+        }
+    }
+
+    public fn recv<a: Sendable>(ch: Channel<a>) -> Event<Option<a>> {
+        match ch { Channel(id) -> Event(event_recv_id(id)) }
+    }
+
+    public fn send<a: Sendable>(ch: Channel<a>, value: a) -> Event<Unit> {
+        match ch { Channel(id) -> Event(event_send_id(id, value)) }
+    }
+
+    /// Build a send event by ownership transfer. Prefer this when `value` is
+    /// not aliased; the runtime attempts a zero-copy transfer and falls back
+    /// to a deep copy when the value is shared.
+    public fn send_move<a: Sendable>(ch: Channel<a>, value: a) -> Event<Unit> {
+        match ch { Channel(id) -> Event(event_send_move_id(id, value)) }
+    }
+
+    public fn after(ms: Int) -> Event<Unit> {
+        Event(event_after_id(ms))
+    }
+
+    public fn always<a>(value: a) -> Event<a> {
+        Event(event_always_id(value))
+    }
+
+    public fn never<a>() -> Event<a> {
+        Event(event_never_id())
+    }
+
+    public fn choose<a>(events: List<Event<a>>) -> Event<a> {
+        match events {
+            [_ | _] -> Event(event_choose_ids(ids(events))),
+            _ -> panic("Event.choose called on empty list")
+        }
+    }
+
+    public fn wrap<a, b>(event: Event<a>, f: (a) -> b) -> Event<b> {
+        match event { Event(id) -> Event(event_wrap_id(id, f)) }
+    }
+
+    /// Placeholder for CML-style guard. This currently evaluates `f`
+    /// immediately while building the event; it does not delay until sync-time.
+    public fn guard<a>(f: () -> Event<a>) -> Event<a> {
+        f()
+    }
+
+    /// Placeholder for CML-style negative acknowledgement.
+    /// The nack event does not fire yet; full loser notification requires
+    /// transaction-level select cancellation in the runtime.
+    public fn with_nack<a>(f: (Event<Unit>) -> Event<a>) -> Event<a> {
+        f(never())
+    }
+
+    /// Synchronize on an event. Sync consumes the whole event tree when it
+    /// commits a result; build a fresh event before syncing again. Sharing a
+    /// sub-event between two choices is invalid after either choice commits.
+    /// Wait notifications are readiness hints, so sync may repoll and wait
+    /// again if another fiber wins the readiness race first.
+    public fn sync<a>(event: Event<a>) -> a with Async {
+        match event {
+            Event(id) -> sync_id(id)
+        }
+    }
+
+    public fn run_selected<a, e>(f: (() -> a with Async | e)) -> a with Async | e {
+        f()
+    }
+
+    fn sync_id<a>(id: Int) -> a with Async {
+        match event_poll_id(id) {
+            Ready(value) -> value,
+            Pending -> do {
+                event_wait_id(id)
+                sync_id(id)
+            }
+        }
+    }
+}

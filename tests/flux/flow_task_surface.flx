@@ -1,0 +1,109 @@
+// Flow.Task end-to-end tests (proposal 0174 D5-a).
+//
+// VM backend now runs `spawn` / `blocking_join` / `cancel` on worker
+// threads. These tests both type-check the surface and assert the runtime
+// behaviour. Native runtime support uses `runtime/c/tasks.c`.
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+data Packet {
+    Packet(Int, String),
+}
+
+fn packet_score(p: Packet) -> Int {
+    match p {
+        Packet(n, label) -> if label == "nine" { n } else { 0 }
+    }
+}
+
+fn await_int_body() -> Int with Async {
+    let t = Task.spawn(fn() { 21 * 2 });
+    Task.await(t)
+}
+
+fn await_cancel_body() -> Int with Async {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    Task.await(t)
+}
+
+fn test_spawn_join_int_round_trip() {
+    let t = Task.spawn(fn() { 7 * 6 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
+}
+
+fn test_spawn_join_string_round_trip() {
+    let t = Task.spawn(fn() { "hello-task" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "hello-task")
+}
+
+fn test_spawn_join_list_int_round_trip() {
+    // List<Int> auto-derives Sendable structurally (1a-v).
+    let t = Task.spawn(fn() { [1, 2, 3] });
+    let r = Task.blocking_join(t);
+    assert_eq(r, [1, 2, 3])
+}
+
+fn test_spawn_join_tuple_round_trip() {
+    let t = Task.spawn(fn() { (7, "ok", true) });
+    let r = Task.blocking_join(t);
+    assert_eq(r, (7, "ok", true))
+}
+
+fn test_spawn_join_adt_round_trip() {
+    let t = Task.spawn(fn() { Packet(9, "nine") });
+    let r = Task.blocking_join(t);
+    assert_eq(packet_score(r), 9)
+}
+
+fn test_spawn_join_captured_int_round_trip() {
+    let offset = 40;
+    let t = Task.spawn(fn() { offset + 2 });
+    let r = Task.blocking_join(t);
+    assert_eq(r, 42)
+}
+
+fn test_spawn_join_captured_string_round_trip() {
+    let label = "task";
+    let t = Task.spawn(fn() { label + "-capture" });
+    let r = Task.blocking_join(t);
+    assert_eq(r, "task-capture")
+}
+
+fn test_spawn_join_captured_list_tuple_adt_round_trip() {
+    let nums = [1, 2, 3];
+    let pair = (7, "ok");
+    let packet = Packet(9, "nine");
+    let t = Task.spawn(fn() { (nums, pair, packet_score(packet)) });
+    let r = Task.blocking_join(t);
+    assert_eq(r, ([1, 2, 3], (7, "ok"), 9))
+}
+
+fn test_await_int_round_trip() {
+    let r = run_async(await_int_body);
+    assert_eq(r, 42)
+}
+
+fn test_cancel_before_await_surfaces_error() {
+    assert_throws(fn() { run_async(await_cancel_body) })
+}
+
+fn test_cancel_before_join_surfaces_error() {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    // Joining a cancelled task surfaces an error rather than the value.
+    assert_throws(fn() { Task.blocking_join(t) })
+}
+
+fn test_independent_spawn_join_pairs() {
+    // Two independent spawns must not share storage.
+    let a = Task.spawn(fn() { 100 });
+    let b = Task.spawn(fn() { 200 });
+    let ra = Task.blocking_join(a);
+    let rb = Task.blocking_join(b);
+    assert_eq(ra, 100);
+    assert_eq(rb, 200)
+}

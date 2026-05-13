@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// bug: scope must execute the body function and return its result.
+//      VM: synchronous call with a dummy Scope(0) handle.
+
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    scope(fn(_s) { 55 })
+}
+
+fn main() with IO {
+    let v = run_async(body)
+    print(v)
+}

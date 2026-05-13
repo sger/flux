@@ -1,0 +1,51 @@
+// 14 — Task.cancel
+//
+// `Task.cancel(t)` marks the task cancelled. The runtime contract is:
+//
+//   - Pre-pickup: the worker observes the cancel flag before running the
+//     body and short-circuits.
+//   - Post-completion: a no-op — the result is already stashed.
+//   - In-flight: cooperative — the body must reach a fiber yield point
+//     (sleep, await, I/O) for cancellation to be observed.
+//
+// `cancel` is idempotent.
+//
+// Awaiting a cancelled task surfaces as a fiber failure — wrap the await
+// in `Async.try` and check `result_is_ok` to recover.
+
+// parity-expected-stdout-begin
+// "task ok? false"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+// Body of the task. In a real program this would be CPU work or
+// blocking I/O. Here it returns 42 unconditionally, but we cancel
+// before the worker picks it up so the result is never observed.
+fn long_job() -> Int { 42 }
+
+fn await_one() -> Int with Async {
+    // Spawn, then immediately mark cancelled. Because no scheduler
+    // tick has happened between `spawn` and `cancel`, the worker
+    // observes the cancel flag *before* running `long_job` and
+    // short-circuits.
+    let t = Task.spawn(long_job)
+    Task.cancel(t)
+
+    // `Task.await` of a cancelled task panics inside the fiber. The
+    // outer `try` (in `body` below) catches that.
+    Task.await(t)
+}
+
+fn body() -> Bool with Async {
+    // `try(await_one)` returns `Result<Int, AsyncError>`. Cancellation
+    // surfaces as an `Err`, so `result_is_ok` is `false` — exactly the
+    // signal we want for "the task didn't finish."
+    result_is_ok(try(await_one))
+}
+
+fn main() with IO {
+    // Expected: "task ok? false" — the cancellation was observed.
+    print("task ok? " + to_string(run_async(body)))
+}

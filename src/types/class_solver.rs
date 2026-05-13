@@ -44,8 +44,11 @@ pub fn solve_class_constraints(
             continue;
         }
 
-        // Only check concrete types — variables are left unsolved for now.
-        if !constraint.type_args.iter().all(is_concrete_type) {
+        // Only check concrete types by default — variables are left unsolved
+        // for now. Function-shaped type arguments are already specific enough
+        // to reject for marker classes like `Sendable`, even if their inner
+        // parameter/return slots still contain variables.
+        if !constraint.type_args.iter().all(is_solvable_type_arg) {
             continue;
         }
 
@@ -78,6 +81,23 @@ pub fn solve_class_constraints(
 
         if !has_matching_instance {
             let class_display = interner.resolve(constraint.class_name);
+            if let WantedClassConstraintOrigin::TaskSpawnCapture { capture_name } =
+                constraint.origin
+            {
+                let capture_display = interner.resolve(capture_name);
+                diagnostics.push(
+                    diagnostic_for(&NO_INSTANCE)
+                        .with_span(constraint.span)
+                        .with_message(format!(
+                            "Task.spawn closure captures non-Sendable value `{capture_display}: {type_display}`."
+                        ))
+                        .with_hint_text(
+                            "Only values with a Sendable instance can cross the task worker boundary."
+                                .to_string(),
+                        ),
+                );
+                continue;
+            }
             diagnostics.push(
                 diagnostic_for(&NO_INSTANCE)
                     .with_span(constraint.span)
@@ -149,7 +169,7 @@ fn has_structural_builtin_instance(
     seen: &mut HashSet<String>,
 ) -> bool {
     let class_name = interner.resolve(class_name);
-    if !matches!(class_name, "Eq" | "Ord") || type_args.len() != 1 {
+    if !matches!(class_name, "Eq" | "Ord" | "Sendable") || type_args.len() != 1 {
         return false;
     }
 
@@ -162,6 +182,15 @@ fn has_structural_builtin_instance(
         | InferType::App(TypeConstructor::Array, args) => args.first().is_some_and(|arg| {
             has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
         }),
+        // `Sendable<Map<k, v>>` requires both the keys and values to be
+        // sendable. `Eq` and `Ord` are not currently auto-derived for `Map`
+        // (the existing rules only cover `Option`/`List`/`Array`), so this
+        // arm only fires for `Sendable`.
+        InferType::App(TypeConstructor::Map, args) if class_name == "Sendable" => {
+            args.iter().all(|arg| {
+                has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
+            })
+        }
         InferType::App(TypeConstructor::Either, args) => args.iter().all(|arg| {
             has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
         }),
@@ -266,6 +295,10 @@ fn is_concrete_type(ty: &InferType) -> bool {
             is_concrete_type(head) && args.iter().all(is_concrete_type)
         }
     }
+}
+
+fn is_solvable_type_arg(ty: &InferType) -> bool {
+    is_concrete_type(ty) || matches!(ty, InferType::Fun(_, _, _))
 }
 
 /// Format a type for display in diagnostics.

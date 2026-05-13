@@ -247,7 +247,7 @@ fn test_mode_flow_list_module_fixture_passes() {
 }
 
 #[test]
-fn test_mode_flow_list_module_fixture_reports_strict_stdlib_diagnostics() {
+fn test_mode_flow_list_module_fixture_passes_in_strict_mode() {
     let file = fixture_path("Flow/List_test.flx");
     let output = run_flux(&[
         "--strict",
@@ -259,22 +259,13 @@ fn test_mode_flow_list_module_fixture_reports_strict_stdlib_diagnostics() {
     let text = combined_output(&output);
 
     assert!(
-        !output.status.success(),
-        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        output.status.success(),
+        "expected strict Flow/List fixture success, output:\n{}",
         text
     );
     assert!(
-        text.contains("tests/flux/Flow/List_test.flx")
-            || text.contains("lib/Flow/List.flx")
-            || text.contains("lib/Flow/Assert.flx"),
-        "expected strict Flow-related module path in output, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("error[E417]")
-            || text.contains("error[E430]")
-            || text.contains("error[E425]"),
-        "expected strict typing diagnostics from stdlib, output:\n{}",
+        text.contains("9 tests: 9 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
         text
     );
 }
@@ -328,7 +319,7 @@ fn test_mode_flow_array_module_fixture_passes() {
 }
 
 #[test]
-fn test_mode_flow_array_module_fixture_reports_strict_stdlib_diagnostics() {
+fn test_mode_flow_array_module_fixture_passes_in_strict_mode() {
     let file = fixture_path("Flow/Array_test.flx");
     let output = run_flux(&[
         "--strict",
@@ -340,22 +331,13 @@ fn test_mode_flow_array_module_fixture_reports_strict_stdlib_diagnostics() {
     let text = combined_output(&output);
 
     assert!(
-        !output.status.success(),
-        "expected strict failure surfacing stdlib diagnostics, output:\n{}",
+        output.status.success(),
+        "expected strict Flow/Array fixture success, output:\n{}",
         text
     );
     assert!(
-        text.contains("tests/flux/Flow/Array_test.flx")
-            || text.contains("lib/Flow/Array.flx")
-            || text.contains("lib/Flow/Assert.flx"),
-        "expected strict Flow-related module path in output, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("error[E417]")
-            || text.contains("error[E430]")
-            || text.contains("error[E425]"),
-        "expected strict typing diagnostics from stdlib, output:\n{}",
+        text.contains("5 tests: 5 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
         text
     );
 }
@@ -724,18 +706,18 @@ fn test_mode_base_assertions_all_pass() {
         text
     );
     assert!(
-        text.contains("PASS  test_try_ok"),
-        "expected try ok test, output:\n{}",
+        text.contains("PASS  test_try_catch_ok"),
+        "expected try_catch ok test, output:\n{}",
         text
     );
     assert!(
-        text.contains("PASS  test_try_error"),
-        "expected try error test, output:\n{}",
+        text.contains("PASS  test_try_catch_error"),
+        "expected try_catch error test, output:\n{}",
         text
     );
     assert!(
-        text.contains("PASS  test_try_does_not_propagate"),
-        "expected try isolation test, output:\n{}",
+        text.contains("PASS  test_try_catch_does_not_propagate"),
+        "expected try_catch isolation test, output:\n{}",
         text
     );
     assert!(

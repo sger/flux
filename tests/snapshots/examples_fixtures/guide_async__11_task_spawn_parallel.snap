@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/guide_async/11_task_spawn_parallel.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

@@ -173,11 +173,19 @@ fn compile_parallel_native_module(
                 path: node.path.clone(),
                 object_path: PathBuf::new(),
                 compile_failed: true,
-                error_message: Some(format!(
-                    "native lowering failed for {}: {}",
-                    node.path.display(),
-                    diag.title()
-                )),
+                error_message: Some(match diag.message() {
+                    Some(message) => format!(
+                        "native lowering failed for {}: {}: {}",
+                        node.path.display(),
+                        diag.title(),
+                        message
+                    ),
+                    None => format!(
+                        "native lowering failed for {}: {}",
+                        node.path.display(),
+                        diag.title()
+                    ),
+                }),
                 interface: None,
                 skipped: false,
                 interface_changed: true,

@@ -1,0 +1,16 @@
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn choose_ready_send() -> String with Async {
+    let ch = Channel.make(1)
+
+    select {
+        send ch 7 -> "sent",
+        after 100 -> "timeout"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(choose_ready_send))
+}

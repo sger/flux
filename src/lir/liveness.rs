@@ -375,6 +375,7 @@ mod tests {
             name: "test".to_string(),
             id: LirFuncId(0),
             qualified_name: "test".to_string(),
+            is_dict_def: false,
             params: Vec::new(),
             blocks: Vec::new(),
             next_var: 0,
@@ -445,7 +446,9 @@ mod tests {
                 func,
                 args: vec![v0],
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },

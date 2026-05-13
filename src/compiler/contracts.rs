@@ -244,9 +244,18 @@ fn lower_adt_type(
         return Err(ContractLoweringIssue::UnsupportedBoundaryType);
     }
 
-    let type_args = args
+    let used_type_params = adt_used_type_params(spec);
+    let type_args = spec
+        .type_params
         .iter()
-        .map(|arg| convert_type_expr_rec(arg, env, bindings, active_adts))
+        .zip(args.iter())
+        .map(|(type_param, arg)| {
+            if used_type_params.contains(type_param) {
+                convert_type_expr_rec(arg, env, bindings, active_adts)
+            } else {
+                Ok(RuntimeType::Unit)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut child_bindings = bindings.clone();
@@ -283,6 +292,45 @@ fn lower_adt_type(
         type_args,
         constructors,
     })
+}
+
+fn adt_used_type_params(spec: &AdtContractSpec) -> HashSet<Identifier> {
+    let declared: HashSet<_> = spec.type_params.iter().copied().collect();
+    let mut used = HashSet::new();
+    for ctor in &spec.constructors {
+        for field in &ctor.fields {
+            collect_used_type_params(field, &declared, &mut used);
+        }
+    }
+    used
+}
+
+fn collect_used_type_params(
+    ty: &TypeExpr,
+    declared: &HashSet<Identifier>,
+    used: &mut HashSet<Identifier>,
+) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if declared.contains(name) && args.is_empty() {
+                used.insert(*name);
+            }
+            for arg in args {
+                collect_used_type_params(arg, declared, used);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_used_type_params(element, declared, used);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_used_type_params(param, declared, used);
+            }
+            collect_used_type_params(ret, declared, used);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -414,6 +462,60 @@ mod tests {
                         fields: vec![],
                     },
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn lowers_phantom_adt_type_params_without_requiring_runtime_boundary() {
+        let mut interner = Interner::new();
+        let channel = interner.intern("Channel");
+        let ctor = interner.intern("Channel");
+        let int = interner.intern("Int");
+        let t = interner.intern("T");
+
+        let ty = TypeExpr::Named {
+            name: channel,
+            args: vec![TypeExpr::Named {
+                name: t,
+                args: vec![],
+                span: Default::default(),
+            }],
+            span: Default::default(),
+        };
+        let adts = HashMap::from([(
+            channel,
+            AdtContractSpec {
+                module_name: None,
+                type_name: channel,
+                type_params: vec![t],
+                constructors: vec![AdtConstructorContractSpec {
+                    name: ctor,
+                    fields: vec![TypeExpr::Named {
+                        name: int,
+                        args: vec![],
+                        span: Default::default(),
+                    }],
+                }],
+            },
+        )]);
+
+        let lowered = convert_type_expr_checked(&ty, &interner, &[t], &adts)
+            .expect("phantom type param does not need runtime lowering");
+
+        assert_eq!(
+            lowered,
+            RuntimeType::Adt {
+                module_name: None,
+                module_name_text: None,
+                name: channel,
+                display_name: "Channel".to_string(),
+                type_args: vec![RuntimeType::Unit],
+                constructors: vec![AdtConstructorContract {
+                    name: ctor,
+                    display_name: "Channel".to_string(),
+                    fields: vec![RuntimeType::Int],
+                }],
             }
         );
     }

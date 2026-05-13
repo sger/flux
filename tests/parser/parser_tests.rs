@@ -2283,6 +2283,40 @@ let w = match x { Some(n) -> n, None -> 0 };
     }
 
     #[test]
+    fn transparent_type_aliases_parse_without_breaking_effect_aliases() {
+        let (program, interner) = parse(
+            r#"
+alias Async = <Suspend | Fork>
+alias Stream<a> = () -> Option<a> with Async
+alias AsyncFn<a, b, e> = (a) -> b with <Async | e>
+public alias Bytes = String
+"#,
+        );
+
+        assert!(matches!(
+            program.statements[0],
+            Statement::EffectAlias { .. }
+        ));
+        assert!(matches!(
+            &program.statements[1],
+            Statement::TypeAlias(alias)
+                if interner.resolve(alias.name) == "Stream"
+                    && alias.params.len() == 1
+        ));
+        assert!(matches!(
+            &program.statements[2],
+            Statement::TypeAlias(alias)
+                if interner.resolve(alias.name) == "AsyncFn"
+                    && alias.params.len() == 3
+        ));
+        assert!(matches!(
+            &program.statements[3],
+            Statement::TypeAlias(alias)
+                if alias.is_public && interner.resolve(alias.name) == "Bytes"
+        ));
+    }
+
+    #[test]
     fn parameterized_handle_parses_initializer_and_state_param_shape() {
         let (program, interner) = parse(
             r#"

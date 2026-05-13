@@ -1,0 +1,10 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/http/parallel_http_fetch.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

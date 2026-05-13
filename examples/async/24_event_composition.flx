@@ -1,0 +1,14 @@
+import Flow.Async as Async
+import Flow.Event as Event
+
+fn composed() -> String with Async {
+    let fast = Event.wrap(Event.always(3), fn(n) { "value: " + to_string(n) })
+    let guarded = Event.guard(fn() { fast })
+    let ignored_nack = Event.with_nack(fn(_nack) { Event.after(50) })
+    let winner = Event.choose([guarded, Event.wrap(ignored_nack, fn(_) { "late" })])
+    Event.sync(winner)
+}
+
+fn main() with IO {
+    print(Async.run_async(composed))
+}

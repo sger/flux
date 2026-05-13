@@ -153,6 +153,7 @@ void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+int32_t flux_can_use_bump_arena(void);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
@@ -162,10 +163,302 @@ void  flux_gc_pop_root(void);
 extern char *flux_arena_hp;
 extern char *flux_arena_limit;
 
-/* Aether RC: dup/drop for pointer-tagged heap values. */
+/* Set to 1 in task worker threads (tasks.c) to bypass the bump arena
+ * and force all allocations through malloc, which is thread-safe.
+ * Defined in rc.c; each thread gets its own copy via __thread TLS. */
+extern __thread int flux_worker_thread;
+
+/* Aether RC: dup/drop for pointer-tagged heap values.
+ *
+ * Hybrid atomic-on-share refcount (proposal 0174 Phase 1a-iv): the rc
+ * field is sign-bit-encoded. rc > 0 = single-threaded mode (relaxed
+ * non-atomic ops); rc < 0 = thread-shared mode, |rc| references
+ * (atomic ops). flux_rc_promote flips ST → MT recursively at cross-
+ * worker boundaries; flux_rc_is_shared reports the current mode. */
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
 int  flux_rc_is_unique(int64_t val);
+int  flux_rc_is_shared(int64_t val);
+void flux_rc_promote(int64_t val);
+
+/* Concurrency / Task<a> (proposal 0174 D5-b/c). Implemented in tasks.c
+ * using POSIX threads; Phase 1a semantics (thread-per-task, best-effort
+ * cancel). Windows implementation is a follow-up. */
+int64_t flux_task_spawn(int64_t closure);
+int64_t flux_task_spawn_move(int64_t closure);
+int64_t flux_task_blocking_join(int64_t task);
+int64_t flux_task_cancel(int64_t task);
+
+/* Fiber / structured concurrency (proposal 0174 Phase 1b+). */
+int64_t flux_fiber_suspend(int64_t setup_closure);
+int64_t flux_fiber_fork(int64_t body_closure);
+int64_t flux_fiber_get_context(void);
+int64_t flux_fiber_fail(int64_t error_value);
+int64_t flux_task_await(int64_t task);
+/* Entry-point / scheduling (Phase 1b-vi sequential semantics). */
+int64_t flux_fiber_run_async(int64_t closure);
+int64_t flux_fiber_yield_now(void);
+int64_t flux_fiber_sleep(int64_t ms);
+/* Fiber combinators — sequential-equivalent (proposal 0174 Phase 1b-vi-d). */
+int64_t flux_fiber_both(int64_t f, int64_t g);
+int64_t flux_fiber_race(int64_t f, int64_t g);
+int64_t flux_fiber_first_of(int64_t children);
+int64_t flux_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
+int64_t flux_fiber_timeout(int64_t ms, int64_t f);
+/* scope_ctor_tag: Scope constructor's integer tag, supplied by LLVM codegen. */
+int64_t flux_fiber_new_scope(int32_t scope_ctor_tag);
+int64_t flux_fiber_fork_scoped(int64_t s, int64_t f);
+int64_t flux_fiber_cancel_scope(int64_t s);
+/* Phase 2 slice 2-iv: poll whether the current fiber's enclosing scope
+ * has been cancelled. Returns a tagged Flux Bool. Outside run_async,
+ * returns FLUX_FALSE. */
+int64_t flux_fiber_check_cancelled(void);
+/* Slice 2-vii follow-up: report the active scheduler's worker count.
+ * Returns a tagged Flux Int. Outside run_async, returns 0. */
+int64_t flux_fiber_current_worker_count(void);
+/* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
+ * (worker_count, fs_pool_size, dns_pool_size). Each int is a tagged Flux
+ * Int; a value of 0 means "use the default". */
+int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure);
+
+/* Flow.Channel<a> (bounded producer/consumer channels). */
+int64_t flux_chan_make(int64_t capacity);
+int64_t flux_chan_send(int64_t id, int64_t value);
+int64_t flux_chan_send_move(int64_t id, int64_t value);
+int64_t flux_chan_recv(int64_t id);
+int64_t flux_chan_try_send(int64_t id, int64_t value);
+int64_t flux_chan_try_send_move(int64_t id, int64_t value);
+int64_t flux_chan_try_recv(int64_t id);
+int64_t flux_chan_close(int64_t id);
+int64_t flux_chan_len(int64_t id);
+int64_t flux_chan_cap(int64_t id);
+int64_t flux_chan_is_closed(int64_t id);
+int32_t flux_chan_event_can_recv(int64_t id);
+int32_t flux_chan_event_can_send(int64_t id);
+void flux_chan_event_watch_recv(int64_t id, uint64_t request_id);
+void flux_chan_event_watch_send(int64_t id, uint64_t request_id);
+int64_t flux_event_recv(int64_t ch);
+int64_t flux_event_send(int64_t ch, int64_t value);
+int64_t flux_event_send_move(int64_t ch, int64_t value);
+int64_t flux_event_after(int64_t ms);
+int64_t flux_event_always(int64_t value);
+int64_t flux_event_never(void);
+int64_t flux_event_choose(int64_t ids);
+int64_t flux_event_wrap(int64_t id, int64_t closure);
+int64_t flux_event_sync(int64_t id);
+int64_t flux_event_poll(int32_t ready_tag, int32_t pending_tag, int64_t id);
+int64_t flux_event_wait(int64_t id);
+void flux_event_complete_wait(uint64_t request_id);
+int flux_event_wait_is_active(uint64_t request_id);
+
+/* Native async bridge (proposal 0174 Phase 1b-vi-d). */
+typedef struct FluxAsyncCallbacks {
+    int64_t (*call0)(int64_t closure);
+    int64_t (*resume1)(int64_t continuation, int64_t value);
+    int32_t (*try_call0)(int64_t closure, int64_t *out);
+    int32_t (*try_resume1)(int64_t continuation, int64_t value, int64_t *out);
+    void (*retain)(int64_t value);
+    void (*release)(int64_t value);
+    int64_t (*make_tuple2)(int64_t left, int64_t right);
+    int64_t (*wrap_some)(int64_t value);
+    int64_t (*make_adt0)(int32_t ctor_tag);
+    int64_t (*make_adt1)(int32_t ctor_tag, int64_t value);
+    int64_t (*suspend)(int64_t request_id, int64_t resume_value);
+    int32_t (*is_suspended)(void);
+    int64_t (*current_request)(void);
+    void (*clear_suspend)(void);
+    int64_t (*compose_conts)(void);
+    void   *(*capture_effect_context)(void);
+    void    (*restore_effect_context)(void *snapshot);
+    void    (*reset_effect_context)(void);
+    void    (*release_effect_context)(void *snapshot);
+    void (*promote)(int64_t value);
+    void (*enter_worker_thread)(void);
+    int64_t (*make_string)(const uint8_t *data, uintptr_t len);
+    int64_t (*task_spawn)(int64_t closure);
+    int64_t (*task_spawn_move)(int64_t closure);
+    int64_t (*task_cancel)(int64_t task_id);
+    void    (*register_root_task)(int64_t task_id);
+    void    (*deregister_root_task)(int64_t task_id);
+} FluxAsyncCallbacks;
+
+int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
+int32_t  flux_async_runtime_init(void);
+int64_t  flux_async_run_root(int64_t root_closure);
+int32_t  flux_async_last_run_failed(void);
+int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
+uint64_t flux_async_timer_start(int64_t ms);
+int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
+int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_task_await_request(void);
+uint64_t flux_async_yield_request(void);
+void     flux_async_task_complete(uint64_t request_id, int64_t value);
+uint64_t flux_async_fiber_both(int64_t left, int64_t right);
+uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
+uint64_t flux_async_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
+uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
+uint64_t flux_async_scope_new(void);
+int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
+int32_t  flux_async_cancel_scope(uint64_t scope_id);
+int64_t  flux_async_task_spawn_scoped(uint64_t scope_id, int64_t closure);
+int64_t  flux_async_task_spawn_scoped_move(uint64_t scope_id, int64_t closure);
+void     flux_async_register_root_task(int64_t task_id);
+void     flux_async_deregister_root_task(int64_t task_id);
+int32_t  flux_async_check_cancelled(void);
+int32_t  flux_async_current_worker_count(void);
+uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
+uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t port);
+uint64_t flux_async_tcp_read(uint64_t handle, uintptr_t max);
+uint64_t flux_async_tcp_write_all(uint64_t handle, const uint8_t *data, uintptr_t len);
+uint64_t flux_async_tcp_accept(uint64_t handle);
+int32_t  flux_async_tcp_close(uint64_t handle);
+int32_t  flux_async_poll_dispatch(uint64_t request_id);
+int32_t  flux_async_shutdown(void);
+int32_t  flux_async_is_suspended(void);
+int64_t  flux_async_current_request(void);
+void     flux_async_clear_suspend(void);
+int64_t  flux_async_call0(int64_t closure);
+int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+int32_t  flux_async_try_call0(int64_t closure, int64_t *out);
+int32_t  flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out);
+void     flux_async_retain(int64_t value);
+void     flux_async_release(int64_t value);
+int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
+int64_t  flux_async_wrap_some(int64_t value);
+int64_t  flux_async_make_adt0(int32_t ctor_tag);
+int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
+void     flux_async_promote(int64_t value);
+void     flux_async_enter_worker_thread(void);
+int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);
+
+/* Native async bridge (proposal 0174 Phase 1b-vi-d). */
+int32_t  flux_async_runtime_init(void);
+int64_t  flux_async_run_root(int64_t root_closure);
+int32_t  flux_async_last_run_failed(void);
+uint64_t flux_async_timer_start(int64_t ms);
+int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
+int64_t  flux_async_suspend_request(uint64_t request_id);
+uint64_t flux_async_task_await_request(void);
+uint64_t flux_async_yield_request(void);
+void     flux_async_task_complete(uint64_t request_id, int64_t value);
+uint64_t flux_async_fiber_both(int64_t left, int64_t right);
+uint64_t flux_async_fiber_race(int64_t left, int64_t right);
+uint64_t flux_async_fiber_first_of(const int64_t *children, uintptr_t len);
+uint64_t flux_async_fiber_try(int32_t ok_ctor_tag, int32_t err_ctor_tag, int32_t panicked_ctor_tag, int64_t body);
+uint64_t flux_async_fiber_timeout(int64_t ms, int64_t body);
+uint64_t flux_async_scope_new(void);
+int32_t  flux_async_fork_scoped(uint64_t scope_id, int64_t body);
+int32_t  flux_async_cancel_scope(uint64_t scope_id);
+int64_t  flux_async_task_spawn_scoped(uint64_t scope_id, int64_t closure);
+void     flux_async_register_root_task(int64_t task_id);
+void     flux_async_deregister_root_task(int64_t task_id);
+int32_t  flux_async_poll_dispatch(uint64_t request_id);
+int32_t  flux_async_shutdown(void);
+int32_t  flux_async_is_suspended(void);
+int64_t  flux_async_current_request(void);
+void     flux_async_clear_suspend(void);
+int64_t  flux_async_call0(int64_t closure);
+int64_t  flux_async_resume1(int64_t continuation, int64_t value);
+int32_t  flux_async_try_call0(int64_t closure, int64_t *out);
+int32_t  flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out);
+void     flux_async_retain(int64_t value);
+void     flux_async_release(int64_t value);
+int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
+int64_t  flux_async_wrap_some(int64_t value);
+int64_t  flux_async_make_adt0(int32_t ctor_tag);
+int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
+
+int32_t flux_try_call0_raw(int64_t closure, int64_t *out);
+int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out);
+
+/* ── TCP (proposal 0174 Phase 1b-vii) ──────────────────────────────── */
+/* VM: blocking POSIX calls.  Native: will become fiber-suspending in Phase 2. */
+int64_t flux_tcp_connect(int64_t host_val, int64_t port_val);
+int64_t flux_tcp_read(int64_t handle_val, int64_t max_val);
+int64_t flux_tcp_write_all(int64_t handle_val, int64_t data_val);
+int64_t flux_tcp_close(int64_t handle_val);
+int64_t flux_tcp_listen(int64_t host_val, int64_t port_val);
+int64_t flux_tcp_accept(int64_t listener_val);
+
+/* ── HTTP (proposal 0174 Phase 3a reserved server-manager hooks) ───── */
+int64_t flux_http_serve_config(int64_t listener_val, int64_t scope_val, int64_t config_val);
+int64_t flux_http_shutdown(int64_t handle_val);
+int64_t flux_http_shutdown_now(int64_t handle_val);
+int64_t flux_http_parse_request(
+    int32_t need_more_tag,
+    int32_t parsed_tag,
+    int32_t parse_failure_tag,
+    int32_t request_tag,
+    int32_t get_tag,
+    int32_t post_tag,
+    int32_t put_tag,
+    int32_t delete_tag,
+    int32_t patch_tag,
+    int32_t head_tag,
+    int32_t options_tag,
+    int64_t raw_val,
+    int64_t server_val
+);
+int64_t flux_http_write_response(int64_t response_val, int64_t keep_alive_val);
+int64_t flux_http_write_chunked_head(int64_t response_val);
+int64_t flux_http_write_chunk(int64_t chunk_val);
+int64_t flux_http_write_chunked_end(void);
+int64_t flux_http_parse_url(int32_t parsed_tag, int32_t failure_tag, int64_t url_val);
+int64_t flux_http_write_request(
+    int32_t get_tag,
+    int32_t post_tag,
+    int32_t put_tag,
+    int32_t delete_tag,
+    int32_t patch_tag,
+    int32_t head_tag,
+    int32_t options_tag,
+    int64_t method_val,
+    int64_t host_val,
+    int64_t target_val,
+    int64_t headers_val,
+    int64_t body_val
+);
+int64_t flux_http_parse_response(
+    int32_t need_more_tag,
+    int32_t parsed_tag,
+    int32_t failure_tag,
+    int32_t response_tag,
+    int64_t raw_val
+);
+int64_t flux_http_register_connection(int64_t server_val, int64_t conn_val);
+int64_t flux_http_unregister_connection(int64_t server_val, int64_t conn_val);
+int64_t flux_http_active_connection_count(int64_t server_val);
+int64_t flux_http_is_shutting_down(int64_t server_val);
+int64_t flux_http_server_stopped(int64_t server_val);
+int64_t flux_http_is_server_stopped(int64_t server_val);
+
+/* ── JSON (proposal 0174 Phase 3 Json-a) ───────────────────────────── */
+int64_t flux_json_parse(
+    int32_t json_null_tag,
+    int32_t json_bool_tag,
+    int32_t json_number_tag,
+    int32_t json_int_tag,
+    int32_t json_float_tag,
+    int32_t json_string_tag,
+    int32_t json_array_tag,
+    int32_t json_object_tag,
+    int32_t json_error_tag,
+    int32_t json_ok_tag,
+    int32_t json_err_tag,
+    int64_t raw_val
+);
+int64_t flux_json_stringify(
+    int32_t json_null_tag,
+    int32_t json_bool_tag,
+    int32_t json_number_tag,
+    int32_t json_int_tag,
+    int32_t json_float_tag,
+    int32_t json_string_tag,
+    int32_t json_array_tag,
+    int32_t json_object_tag,
+    int64_t value
+);
 
 /* Allocation stats (for diagnostics / testing). */
 size_t flux_gc_allocated(void);
@@ -367,8 +660,10 @@ int64_t flux_ho_find(int64_t collection, int64_t func);
 
 /* ── Effect handlers (Koka-style yield model, Proposal 0134) ───────── */
 
-/* Yield state — accessible from LLVM IR for inline yield checks. */
-extern int32_t flux_yield_yielding;
+/* Yield state lives in a per-thread FluxEffectContext (proposal 0174 Phase
+ * 0d). Generated LLVM IR reaches it through `flux_is_yielding()` and the
+ * other entry points below — the storage is intentionally not exposed as
+ * an extern global. */
 
 /* Evidence vector management. */
 int64_t flux_evv_get(void);
@@ -383,6 +678,10 @@ int64_t flux_yield_extend(int64_t cont);
 int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
 int64_t flux_compose_conts(void);
 int32_t flux_is_yielding(void);
+void   *flux_effect_context_capture(void);
+void    flux_effect_context_restore(void *snapshot);
+void    flux_effect_context_reset(void);
+void    flux_effect_context_release(void *snapshot);
 
 /* Proposal 0162 Phase 3 (partial): short-circuit detection for non-TR
  * handlers on the native backend.  `flux_resume_mark_called` is used as
@@ -391,8 +690,8 @@ int32_t flux_is_yielding(void);
  * both marks the flag and returns its argument) instead of the pure
  * identity.  When a clause returns without having invoked resume, the
  * flag is still 0 — flux_perform_direct then emits a structured error
- * instead of silently returning the wrong value. */
-extern int32_t flux_resume_called;
+ * instead of silently returning the wrong value. The counter itself lives
+ * in the per-thread FluxEffectContext (proposal 0174 Phase 0d). */
 int64_t flux_resume_mark_called(int64_t value);
 
 #ifdef __cplusplus
