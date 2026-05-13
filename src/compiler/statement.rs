@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use crate::ast::free_vars::collect_free_vars_in_function_body;
@@ -1719,7 +1719,7 @@ impl Compiler {
             self.to_runtime_contract(&contract)
         };
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(
+        let fn_idx = self.add_constant(Value::Function(Arc::new(
             CompiledFunction::new(
                 instructions,
                 num_locals,
@@ -1892,7 +1892,7 @@ impl Compiler {
                         .with_effect_summary(effect_summary),
                 ),
             );
-            self.constants[const_slots[idx]] = Value::Function(Rc::new(compiled));
+            self.constants[const_slots[idx]] = Value::Function(Arc::new(compiled));
 
             // Push captures for this function in the enclosing scope.
             for free in &free_symbols {

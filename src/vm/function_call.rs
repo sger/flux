@@ -53,9 +53,11 @@ impl VM {
         shell.frames.clear();
         shell.frames.push(frame);
         shell.stack.clear();
-        shell
-            .stack
-            .extend(self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref));
+        shell.stack.extend(
+            self.stack[entry_sp..resume_slot]
+                .iter()
+                .map(super::slot::from_slot_ref),
+        );
         shell.sp = resume_slot;
         shell.entry_sp = entry_sp;
         shell.entry_frame_index = frame_index.saturating_sub(1);
@@ -105,7 +107,9 @@ impl VM {
         )?;
         self.reset_sp(entry_sp)?;
         self.cont_pieces.clear();
-        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(composed))))
+        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(
+            composed,
+        ))))
     }
 
     #[inline]
@@ -701,8 +705,10 @@ impl RuntimeContext for VM {
         self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
     }
 
-    fn vm_worker_snapshot(&self) -> Option<Box<dyn std::any::Any + Send>> {
-        Some(Box::new(self.worker_vm_snapshot()))
+    fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
+        self.worker_shared_state()
+            .ok()
+            .map(|shared| Box::new(shared) as Box<dyn std::any::Any + Send>)
     }
 
     fn resume_from_dispatch(&mut self, cont: Value, resume_val: Value) -> Result<Value, String> {

@@ -92,7 +92,7 @@ fn object_roundtrip_includes_function_debug_info() {
             Value::Boolean(false),
         ])),
         ConsCell::cons(Value::Integer(1), Value::EmptyList),
-        Value::Function(std::rc::Rc::new(function)),
+        Value::Function(std::sync::Arc::new(function)),
     ];
 
     for obj in &objects {

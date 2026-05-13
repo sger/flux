@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     bytecode::{
@@ -120,7 +120,7 @@ fn patch_value(
     if let Value::Function(function) = value {
         let mut compiled = (**function).clone();
         patch_instructions(&mut compiled.instructions, constant_base, global_map)?;
-        *value = Value::Function(Rc::new(compiled));
+        *value = Value::Function(Arc::new(compiled));
     }
     Ok(())
 }

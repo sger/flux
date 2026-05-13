@@ -19,16 +19,16 @@
 //! The scheduler owns logical worker queues on both backends. Native `run_async`
 //! runs those queues on OS worker threads and may allow cross-worker stealing.
 //! The VM uses the same logical queue model — including load-aware spawn
-//! placement (see [`FiberScheduler::spawn_child`]) — but drains each worker's
-//! queue without stealing, since VM `Value`/continuations are not yet safe to
-//! migrate across worker execution contexts. Both backends honour
-//! `FLUX_WORK_STEALING=0` to fall back to plain round-robin spawn placement
-//! (and, on native, owner-only dispatch).
+//! placement (see [`FiberScheduler::spawn_child`]) — and can steal parked
+//! fibers through the Arc mirror path when `FLUX_FIBER_MIGRATION` is enabled.
+//! Both backends honour `FLUX_WORK_STEALING=0` to fall back to plain
+//! round-robin spawn placement (and, on native, owner-only dispatch).
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use super::backend::RequestId;
+use super::config::fiber_migration_enabled;
 use super::context::WorkerId;
 use super::fiber::{Fiber, FiberId, FiberQueue, FiberState};
 use super::fiber_trace::{self, FiberEvent};
@@ -58,6 +58,9 @@ struct WorkerState {
     ready: FiberQueue,
     /// Fibers suspended waiting for a backend completion, keyed by request id.
     suspended: HashMap<u64, Fiber>,
+    /// Fibers stolen from this worker whose `Rc` graphs must be dropped by
+    /// this worker rather than by the thief.
+    pending_drop: Vec<Fiber>,
 }
 
 impl WorkerState {
@@ -65,6 +68,7 @@ impl WorkerState {
         WorkerState {
             ready: FiberQueue::new(),
             suspended: HashMap::new(),
+            pending_drop: Vec::new(),
         }
     }
 }
@@ -113,7 +117,10 @@ impl FiberScheduler {
             self.next_ready_worker = worker_idx;
         }
         self.workers[worker_idx].ready.push(fiber);
-        fiber_trace::emit(FiberEvent::Spawn { fid: id.0, worker: home_worker.0 });
+        fiber_trace::emit(FiberEvent::Spawn {
+            fid: id.0,
+            worker: home_worker.0,
+        });
         id
     }
 
@@ -197,7 +204,11 @@ impl FiberScheduler {
         self.workers[worker_idx]
             .suspended
             .insert(request_id.0, fiber);
-        fiber_trace::emit(FiberEvent::Suspend { fid, worker, request_id: request_id.0 });
+        fiber_trace::emit(FiberEvent::Suspend {
+            fid,
+            worker,
+            request_id: request_id.0,
+        });
     }
 
     /// Deliver a backend completion: move the matching fiber back to ready.
@@ -216,7 +227,11 @@ impl FiberScheduler {
                 self.next_ready_worker = idx;
             }
             self.workers[idx].ready.push(fiber);
-            fiber_trace::emit(FiberEvent::Resume { fid, worker: idx as u32, request_id: request_id.0 });
+            fiber_trace::emit(FiberEvent::Resume {
+                fid,
+                worker: idx as u32,
+                request_id: request_id.0,
+            });
             true
         } else {
             false
@@ -270,7 +285,10 @@ impl FiberScheduler {
                         ready_was_empty = false;
                     }
                     worker.ready.push(fiber);
-                    fiber_trace::emit(FiberEvent::Cancel { fid, worker: worker_idx as u32 });
+                    fiber_trace::emit(FiberEvent::Cancel {
+                        fid,
+                        worker: worker_idx as u32,
+                    });
                 }
             }
         }
@@ -279,7 +297,58 @@ impl FiberScheduler {
     /// Pop the next ready fiber from a worker's queue.
     pub fn next_ready(&mut self, worker: WorkerId) -> Option<Fiber> {
         let idx = worker.0 as usize;
+        self.drain_pending_drop(idx);
         self.workers[idx].ready.pop()
+    }
+
+    /// Pop local work first, otherwise steal the newest stealable ready fiber
+    /// from another worker when VM fiber migration is enabled.
+    pub fn next_ready_or_steal(
+        &mut self,
+        worker: WorkerId,
+        root: FiberId,
+    ) -> Result<Option<Fiber>, String> {
+        self.next_ready_or_steal_inner(worker, root, fiber_migration_enabled())
+    }
+
+    fn next_ready_or_steal_inner(
+        &mut self,
+        worker: WorkerId,
+        root: FiberId,
+        migration_enabled: bool,
+    ) -> Result<Option<Fiber>, String> {
+        let idx = worker.0 as usize;
+        self.drain_pending_drop(idx);
+        if let Some(fiber) = self.workers[idx].ready.pop() {
+            return Ok(Some(fiber));
+        }
+        if !migration_enabled || self.workers.len() <= 1 {
+            return Ok(None);
+        }
+
+        for offset in 1..self.workers.len() {
+            let victim_idx = (idx + offset) % self.workers.len();
+            let steal_id = self.workers[victim_idx]
+                .ready
+                .iter()
+                .rev()
+                .find(|fiber| fiber.id != root && fiber.stealable)
+                .map(|fiber| fiber.id);
+            let Some(steal_id) = steal_id else {
+                continue;
+            };
+            let Some(original) = self.workers[victim_idx].ready.remove(steal_id) else {
+                continue;
+            };
+            let promoted = original.promote_ref()?;
+            self.workers[victim_idx].pending_drop.push(original);
+            let mut stolen = promoted.demote();
+            stolen.home_worker = worker;
+            stolen.context.home_worker = worker;
+            return Ok(Some(stolen));
+        }
+
+        Ok(None)
     }
 
     /// Pop the next ready fiber from the first non-empty logical worker.
@@ -355,6 +424,16 @@ impl FiberScheduler {
             .keys()
             .copied()
             .collect()
+    }
+
+    fn drain_pending_drop(&mut self, worker_idx: usize) {
+        self.workers[worker_idx].pending_drop.clear();
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    fn pending_drop_count(&self, worker: WorkerId) -> usize {
+        self.workers[worker.0 as usize].pending_drop.len()
     }
 }
 
@@ -607,5 +686,87 @@ mod tests {
         assert_eq!(worker, w0());
         assert_eq!(fiber.id, id);
         assert_eq!(fiber.home_worker, w0());
+    }
+
+    #[test]
+    fn next_ready_or_steal_prefers_local_front() {
+        let mut sched = FiberScheduler::new(2);
+        let local = sched.spawn(w0());
+        let remote = sched.spawn(WorkerId(1));
+        let mut remote_fiber = sched.next_ready(WorkerId(1)).unwrap();
+        remote_fiber.mark_parked();
+        sched.spawn_existing(remote_fiber);
+
+        let fiber = sched
+            .next_ready_or_steal_inner(w0(), FiberId(999), true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fiber.id, local);
+        assert_eq!(sched.ready_count(WorkerId(1)), 1);
+        assert_eq!(sched.next_ready(WorkerId(1)).unwrap().id, remote);
+    }
+
+    #[test]
+    fn next_ready_or_steal_steals_from_back() {
+        let mut sched = FiberScheduler::new(2);
+        let first = sched.spawn(WorkerId(1));
+        let second = sched.spawn(WorkerId(1));
+        for _ in 0..2 {
+            let mut fiber = sched.next_ready(WorkerId(1)).unwrap();
+            fiber.mark_parked();
+            sched.spawn_existing(fiber);
+        }
+
+        let stolen = sched
+            .next_ready_or_steal_inner(w0(), FiberId(999), true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stolen.id, second);
+        assert_eq!(stolen.home_worker, w0());
+        assert_eq!(sched.pending_drop_count(WorkerId(1)), 1);
+        assert_eq!(sched.next_ready(WorkerId(1)).unwrap().id, first);
+        assert_eq!(sched.pending_drop_count(WorkerId(1)), 0);
+    }
+
+    #[test]
+    fn next_ready_or_steal_skips_root_and_non_stealable() {
+        let mut sched = FiberScheduler::new(2);
+        let root = sched.spawn(WorkerId(1));
+        let non_stealable = sched.spawn(WorkerId(1));
+        let stealable = sched.spawn(WorkerId(1));
+
+        let mut buf = Vec::new();
+        while let Some(fiber) = sched.next_ready(WorkerId(1)) {
+            buf.push(fiber);
+        }
+        for mut fiber in buf {
+            if fiber.id == root || fiber.id == stealable {
+                fiber.mark_parked();
+            }
+            sched.spawn_existing(fiber);
+        }
+
+        let stolen = sched
+            .next_ready_or_steal_inner(w0(), root, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stolen.id, stealable);
+        assert!(sched.is_ready(root));
+        assert!(sched.is_ready(non_stealable));
+    }
+
+    #[test]
+    fn next_ready_or_steal_respects_disabled_migration() {
+        let mut sched = FiberScheduler::new(2);
+        sched.spawn(WorkerId(1));
+        let mut fiber = sched.next_ready(WorkerId(1)).unwrap();
+        fiber.mark_parked();
+        sched.spawn_existing(fiber);
+
+        let stolen = sched
+            .next_ready_or_steal_inner(w0(), FiberId(999), false)
+            .unwrap();
+        assert!(stolen.is_none());
+        assert_eq!(sched.ready_count(WorkerId(1)), 1);
     }
 }

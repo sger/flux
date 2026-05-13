@@ -439,6 +439,10 @@ name = "vm_fiber_multiworker"
 path = "tests/integration/vm_fiber_multiworker.rs"
 
 [[test]]
+name = "vm_fiber_migration"
+path = "tests/integration/vm_fiber_migration.rs"
+
+[[test]]
 name = "vm_fiber_bracket_cancel"
 path = "tests/integration/vm_fiber_bracket_cancel.rs"
 
