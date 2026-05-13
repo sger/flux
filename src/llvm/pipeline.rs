@@ -294,14 +294,15 @@ fn run_linker(
             if use_lld {
                 cmd.arg("-fuse-ld=lld");
             }
-            // libflux.a (defines flux_async_*) must precede -lflux_rt (references
-            // those symbols). macOS ld and GNU ld are both order-sensitive here.
-            if let Some(path) = rust_staticlib_path() {
-                cmd.arg(path);
-            }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg("-lflux_rt");
+            }
+            // libflux.a defines the Rust async bridge symbols referenced by
+            // libflux_rt.a. Unix archive linkers extract members left-to-right,
+            // so the provider archive must follow the C runtime archive.
+            if let Some(path) = rust_staticlib_path() {
+                cmd.arg(path);
             }
             if cfg!(windows) {
                 // Windows: set subsystem and stack size via lld-link.
@@ -695,8 +696,6 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         }
     }
 
-    eprintln!("[c2l] Building C runtime ({lib_name})...");
-
     let c_files = [
         "rc.c",
         "flux_rt.c",
@@ -783,7 +782,6 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         let _ = std::fs::remove_file(obj);
     }
 
-    eprintln!("[c2l] Built {}", lib_path.display());
     Ok(())
 }
 
