@@ -162,8 +162,9 @@ static void *flux_task_worker(void *arg) {
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
         pthread_mutex_unlock(&e->mutex);
-        flux_task_publish_async_completion(e);
         flux_drop(e->closure);
+        e->closure = FLUX_NONE;
+        flux_task_publish_async_completion(e);
         return NULL;
     }
 
@@ -522,8 +523,9 @@ static unsigned __stdcall flux_task_worker(void *arg) {
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
         LeaveCriticalSection(&e->mutex);
-        flux_task_publish_async_completion(e);
         flux_drop(e->closure);
+        e->closure = FLUX_NONE;
+        flux_task_publish_async_completion(e);
         return 0;
     }
 
