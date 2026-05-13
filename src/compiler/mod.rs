@@ -5026,10 +5026,40 @@ impl Compiler {
     }
 
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
+        fn type_has_row_var(ty: &TypeExpr) -> bool {
+            match ty {
+                TypeExpr::Named { args, .. } => args.iter().any(type_has_row_var),
+                TypeExpr::Tuple { elements, .. } => elements.iter().any(type_has_row_var),
+                TypeExpr::Function {
+                    params,
+                    ret,
+                    effects,
+                    ..
+                } => {
+                    params.iter().any(type_has_row_var)
+                        || type_has_row_var(ret)
+                        || effects.iter().any(|effect| effect.row_var().is_some())
+                }
+            }
+        }
+
+        let has_row_var = contract.params.iter().flatten().any(type_has_row_var)
+            || contract.ret.as_ref().is_some_and(type_has_row_var)
+            || contract
+                .effects
+                .iter()
+                .any(|effect| effect.row_var().is_some());
+
         to_runtime_contract_checked(contract, &self.interner, &self.adt_contract_specs)
             .ok()
             .flatten()
-            .or_else(|| to_runtime_contract(contract, &self.interner))
+            .or_else(|| {
+                if contract.type_params.is_empty() && !has_row_var {
+                    to_runtime_contract(contract, &self.interner)
+                } else {
+                    None
+                }
+            })
     }
 
     #[inline]
