@@ -12,6 +12,7 @@ use crate::{
         Compiler, contracts::convert_type_expr_checked, module_constants::compile_module_constants,
         suggestions::suggest_effect_name, symbol_scope::SymbolScope,
     },
+    core::CoreType,
     diagnostics::{
         DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ICE_SYMBOL_SCOPE_LET,
         IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
@@ -19,7 +20,12 @@ use crate::{
         position::{Position, Span},
         types::ErrorType,
     },
-    runtime::{compiled_function::CompiledFunction, value::Value},
+    runtime::{
+        compiled_function::CompiledFunction,
+        function_contract::FunctionContract,
+        runtime_type::{AdtConstructorContract, RuntimeType},
+        value::Value,
+    },
     syntax::{
         block::Block,
         data_variant::DataVariant,
@@ -77,6 +83,334 @@ impl Compiler {
             || self.block_has_effectful_base_ref(body, declared_effects)
             || self.block_has_index_type_error(body)
             || self.block_has_undefined_identifier(body, parameters)
+    }
+
+    fn runtime_contract_from_ir_function(
+        &self,
+        ir_function: Option<&IrFunction>,
+    ) -> Option<FunctionContract> {
+        let ir_function = ir_function?;
+        let explicit_start = match ir_function.origin {
+            crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function.captures.len(),
+            _ => 0,
+        };
+        let params = ir_function
+            .inferred_param_types
+            .iter()
+            .skip(explicit_start)
+            .map(|ty| {
+                ty.as_ref()
+                    .and_then(|ty| self.core_type_to_runtime_type(ty, &HashMap::new()))
+            })
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .map(Some)
+            .collect();
+        let ret = ir_function
+            .inferred_return_type
+            .as_ref()
+            .and_then(|ty| self.core_type_to_runtime_type(ty, &HashMap::new()))?;
+        let effects = ir_function
+            .effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect::<Vec<_>>();
+        Some(FunctionContract {
+            params,
+            ret: Some(ret),
+            effects,
+        })
+    }
+
+    fn core_type_to_runtime_type(
+        &self,
+        ty: &CoreType,
+        bindings: &HashMap<Symbol, RuntimeType>,
+    ) -> Option<RuntimeType> {
+        match ty {
+            CoreType::Int => Some(RuntimeType::Int),
+            CoreType::Float => Some(RuntimeType::Float),
+            CoreType::Bool => Some(RuntimeType::Bool),
+            CoreType::String => Some(RuntimeType::String),
+            CoreType::Unit | CoreType::Never => Some(RuntimeType::Unit),
+            CoreType::List(inner) => Some(RuntimeType::List(Box::new(
+                self.core_type_to_runtime_type(inner, bindings)?,
+            ))),
+            CoreType::Array(inner) => Some(RuntimeType::Array(Box::new(
+                self.core_type_to_runtime_type(inner, bindings)?,
+            ))),
+            CoreType::Option(inner) => Some(RuntimeType::Option(Box::new(
+                self.core_type_to_runtime_type(inner, bindings)?,
+            ))),
+            CoreType::Either(left, right) => Some(RuntimeType::Either(
+                Box::new(self.core_type_to_runtime_type(left, bindings)?),
+                Box::new(self.core_type_to_runtime_type(right, bindings)?),
+            )),
+            CoreType::Map(key, value) => Some(RuntimeType::Map(
+                Box::new(self.core_type_to_runtime_type(key, bindings)?),
+                Box::new(self.core_type_to_runtime_type(value, bindings)?),
+            )),
+            CoreType::Tuple(elements) if elements.is_empty() => Some(RuntimeType::Unit),
+            CoreType::Tuple(elements) => Some(RuntimeType::Tuple(
+                elements
+                    .iter()
+                    .map(|element| self.core_type_to_runtime_type(element, bindings))
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            CoreType::Function(params, ret) => Some(RuntimeType::Function {
+                params: params
+                    .iter()
+                    .map(|param| self.core_type_to_runtime_type(param, bindings))
+                    .collect::<Option<Vec<_>>>()?,
+                ret: Box::new(self.core_type_to_runtime_type(ret, bindings)?),
+                effects: vec![],
+            }),
+            CoreType::Adt(name, args) => {
+                self.core_adt_type_to_runtime_type(*name, args, bindings, &mut HashSet::new())
+            }
+            CoreType::Forall(_, body) => self.core_type_to_runtime_type(body, bindings),
+            CoreType::Var(_) => None,
+            CoreType::Abstract(_) => None,
+        }
+    }
+
+    fn core_adt_type_to_runtime_type(
+        &self,
+        name: Symbol,
+        args: &[CoreType],
+        bindings: &HashMap<Symbol, RuntimeType>,
+        active_adts: &mut HashSet<Symbol>,
+    ) -> Option<RuntimeType> {
+        let spec = self.adt_contract_specs.get(&name)?;
+        if spec.type_params.len() != args.len() || active_adts.contains(&name) {
+            return None;
+        }
+
+        let used_type_params = Self::adt_contract_used_type_params(spec);
+        let type_args = spec
+            .type_params
+            .iter()
+            .zip(args.iter())
+            .map(|(type_param, arg)| {
+                if used_type_params.contains(type_param) {
+                    self.core_type_to_runtime_type(arg, bindings)
+                } else {
+                    Some(RuntimeType::Unit)
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        let mut child_bindings = bindings.clone();
+        for (type_param, arg) in spec.type_params.iter().zip(args.iter()) {
+            child_bindings.insert(*type_param, self.core_type_to_runtime_type(arg, bindings)?);
+        }
+
+        active_adts.insert(name);
+        let constructors = spec
+            .constructors
+            .iter()
+            .map(|ctor| {
+                let fields = ctor
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        self.type_expr_to_runtime_type_with_bindings(
+                            field,
+                            &child_bindings,
+                            active_adts,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(AdtConstructorContract {
+                    name: ctor.name,
+                    display_name: self.interner.resolve(ctor.name).to_string(),
+                    fields,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        active_adts.remove(&name);
+
+        Some(RuntimeType::Adt {
+            module_name: spec.module_name,
+            module_name_text: spec
+                .module_name
+                .map(|module_name| self.interner.resolve(module_name).to_string()),
+            name: spec.type_name,
+            display_name: self.interner.resolve(spec.type_name).to_string(),
+            type_args,
+            constructors,
+        })
+    }
+
+    fn type_expr_to_runtime_type_with_bindings(
+        &self,
+        ty: &TypeExpr,
+        bindings: &HashMap<Symbol, RuntimeType>,
+        active_adts: &mut HashSet<Symbol>,
+    ) -> Option<RuntimeType> {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                if args.is_empty()
+                    && let Some(bound) = bindings.get(name)
+                {
+                    return Some(bound.clone());
+                }
+                let name_text = self.interner.resolve(*name);
+                match (name_text, args.len()) {
+                    ("Int", 0) => Some(RuntimeType::Int),
+                    ("Float", 0) => Some(RuntimeType::Float),
+                    ("Bool", 0) => Some(RuntimeType::Bool),
+                    ("String", 0) => Some(RuntimeType::String),
+                    ("None" | "Unit", 0) => Some(RuntimeType::Unit),
+                    ("Option", 1) => Some(RuntimeType::Option(Box::new(
+                        self.type_expr_to_runtime_type_with_bindings(
+                            &args[0],
+                            bindings,
+                            active_adts,
+                        )?,
+                    ))),
+                    ("List", 1) => Some(RuntimeType::List(Box::new(
+                        self.type_expr_to_runtime_type_with_bindings(
+                            &args[0],
+                            bindings,
+                            active_adts,
+                        )?,
+                    ))),
+                    ("Array", 1) => Some(RuntimeType::Array(Box::new(
+                        self.type_expr_to_runtime_type_with_bindings(
+                            &args[0],
+                            bindings,
+                            active_adts,
+                        )?,
+                    ))),
+                    ("Either", 2) => Some(RuntimeType::Either(
+                        Box::new(self.type_expr_to_runtime_type_with_bindings(
+                            &args[0],
+                            bindings,
+                            active_adts,
+                        )?),
+                        Box::new(self.type_expr_to_runtime_type_with_bindings(
+                            &args[1],
+                            bindings,
+                            active_adts,
+                        )?),
+                    )),
+                    ("Map", 2) => Some(RuntimeType::Map(
+                        Box::new(self.type_expr_to_runtime_type_with_bindings(
+                            &args[0],
+                            bindings,
+                            active_adts,
+                        )?),
+                        Box::new(self.type_expr_to_runtime_type_with_bindings(
+                            &args[1],
+                            bindings,
+                            active_adts,
+                        )?),
+                    )),
+                    _ => {
+                        let core_args = args
+                            .iter()
+                            .map(|arg| self.type_expr_to_core_type_with_bindings(arg, bindings))
+                            .collect::<Option<Vec<_>>>()?;
+                        self.core_adt_type_to_runtime_type(*name, &core_args, bindings, active_adts)
+                    }
+                }
+            }
+            TypeExpr::Tuple { elements, .. } if elements.is_empty() => Some(RuntimeType::Unit),
+            TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
+                elements
+                    .iter()
+                    .map(|element| {
+                        self.type_expr_to_runtime_type_with_bindings(element, bindings, active_adts)
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            TypeExpr::Function {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
+                if effects.iter().any(|effect| effect.row_var().is_some()) {
+                    return None;
+                }
+                let mut effect_set = effects
+                    .iter()
+                    .flat_map(EffectExpr::normalized_names)
+                    .collect::<Vec<_>>();
+                effect_set.sort_by_key(|sym| sym.as_u32());
+                effect_set.dedup();
+                Some(RuntimeType::Function {
+                    params: params
+                        .iter()
+                        .map(|param| {
+                            self.type_expr_to_runtime_type_with_bindings(
+                                param,
+                                bindings,
+                                active_adts,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                    ret: Box::new(self.type_expr_to_runtime_type_with_bindings(
+                        ret,
+                        bindings,
+                        active_adts,
+                    )?),
+                    effects: effect_set,
+                })
+            }
+        }
+    }
+
+    fn type_expr_to_core_type_with_bindings(
+        &self,
+        ty: &TypeExpr,
+        bindings: &HashMap<Symbol, RuntimeType>,
+    ) -> Option<CoreType> {
+        self.type_expr_to_runtime_type_with_bindings(ty, bindings, &mut HashSet::new())
+            .and_then(|runtime| TypeEnv::try_infer_type_from_runtime(&runtime).ok())
+            .and_then(|infer| CoreType::try_from_infer(&infer))
+    }
+
+    fn adt_contract_used_type_params(
+        spec: &crate::compiler::contracts::AdtContractSpec,
+    ) -> HashSet<Symbol> {
+        let declared: HashSet<_> = spec.type_params.iter().copied().collect();
+        let mut used = HashSet::new();
+        for ctor in &spec.constructors {
+            for field in &ctor.fields {
+                Self::collect_used_type_params(field, &declared, &mut used);
+            }
+        }
+        used
+    }
+
+    fn collect_used_type_params(
+        ty: &TypeExpr,
+        declared: &HashSet<Symbol>,
+        used: &mut HashSet<Symbol>,
+    ) {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                if args.is_empty() && declared.contains(name) {
+                    used.insert(*name);
+                }
+                for arg in args {
+                    Self::collect_used_type_params(arg, declared, used);
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    Self::collect_used_type_params(element, declared, used);
+                }
+            }
+            TypeExpr::Function { params, ret, .. } => {
+                for param in params {
+                    Self::collect_used_type_params(param, declared, used);
+                }
+                Self::collect_used_type_params(ret, declared, used);
+            }
+        }
     }
 
     /// Check if any index expression uses a non-Int index (E300).
@@ -1716,7 +2050,8 @@ impl Compiler {
                 ret: return_type.clone(),
                 effects: effects.to_vec(),
             };
-            self.to_runtime_contract(&contract)
+            self.runtime_contract_from_ir_function(ir_function)
+                .or_else(|| self.to_runtime_contract(&contract))
         };
 
         let fn_idx = self.add_constant(Value::Function(Arc::new(

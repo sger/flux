@@ -1069,6 +1069,7 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
     pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
     ///
@@ -1301,6 +1302,7 @@ impl Compiler {
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            contextual_function_contracts: HashMap::new(),
             current_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
@@ -1364,6 +1366,7 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
+        self.contextual_function_contracts.clear();
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
@@ -1659,6 +1662,7 @@ impl Compiler {
         self.preloaded_adt_variants = preloaded_adt_variants;
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
+        self.contextual_function_contracts.clear();
         self.effect_ops_registry = preloaded_effect_ops;
         self.effect_op_signatures = preloaded_effect_sigs;
         self.seed_builtin_effect_operations();
