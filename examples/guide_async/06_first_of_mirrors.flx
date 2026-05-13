@@ -1,0 +1,32 @@
+// 06 — `first_of`: race over a list
+//
+// Goal: race more than two candidates.
+//
+// `first_of(fs)` is the same idea as `race` but generalised to a list
+// of `() -> a with Async` thunks. It returns `(index, value)`:
+// `index` is the zero-based position in `fs` of the winner, `value`
+// is its result. Every loser is cancelled.
+//
+// Use case: try multiple mirrors of a service, take the fastest.
+
+// parity-expected-stdout-begin
+// "winner index = 2"
+// "winner value = 200"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Three "mirrors" with different latencies. Mirror 2 is fastest.
+fn mirror_a() -> Int with Async { sleep(80);  100 }
+fn mirror_b() -> Int with Async { sleep(50);  150 }
+fn mirror_c() -> Int with Async { sleep(20);  200 }     // wins
+
+fn body() -> (Int, Int) with Async {
+    first_of([mirror_a, mirror_b, mirror_c])
+}
+
+fn main() with IO {
+    let result = run_async(body)
+    print("winner index = " + to_string(result.0))
+    print("winner value = " + to_string(result.1))
+}

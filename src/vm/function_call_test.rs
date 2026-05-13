@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::{
     bytecode::bytecode::Bytecode,
@@ -18,7 +18,7 @@ fn new_vm() -> VM {
 fn call_closure_updates_frame_and_stack() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 2, 0, None);
-    let closure = Closure::new(Rc::new(function), vec![]);
+    let closure = Closure::new(Arc::new(function), vec![]);
     vm.push(Value::Closure(Rc::new(closure))).unwrap();
 
     let initial_frame_index = vm.frame_index;
@@ -34,7 +34,7 @@ fn call_closure_updates_frame_and_stack() {
 fn call_closure_wrong_arity_errors() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 0, 1, None);
-    let closure = Closure::new(Rc::new(function), vec![]);
+    let closure = Closure::new(Arc::new(function), vec![]);
     vm.push(Value::Closure(Rc::new(closure))).unwrap();
 
     let err = vm.execute_call(0).unwrap_err();
@@ -45,7 +45,7 @@ fn call_closure_wrong_arity_errors() {
 fn call_self_uses_current_frame_closure_without_callee_slot() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 2, 1, None);
-    let closure = Rc::new(Closure::new(Rc::new(function), vec![]));
+    let closure = Rc::new(Closure::new(Arc::new(function), vec![]));
     vm.frames[0] = crate::runtime::frame::Frame::new(closure, 0);
     vm.push(Value::Integer(5)).unwrap();
 

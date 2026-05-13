@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: sleep(ms) must complete without error on the VM path; it blocks the
+//      OS thread for the given duration and then continues normally.
+
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(1)
+    99
+}
+
+fn main() with IO {
+    let v = run_async(body)
+    print(v)
+}

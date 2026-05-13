@@ -1,0 +1,3 @@
+- Native async fibers now support real cross-worker stealing. Ready workers still pop local FIFO first; idle workers steal from the back of another ready queue when `FLUX_WORK_STEALING` is enabled. The root fiber and source-order-sensitive immediate `race` / `first_of` candidates stay owner-only so existing deterministic tie semantics are preserved.
+- Native fibers now carry an opaque C-owned effect-context snapshot. The C runtime owns capture/restore/reset/release helpers for `flux_thread_ctx`, keeping tagged-value RC handling on the C side while Rust moves snapshots with fibers.
+- `FLUX_WORK_STEALING=0` remains the regression escape hatch, restoring owner-only FIFO dispatch plus round-robin spawn placement.

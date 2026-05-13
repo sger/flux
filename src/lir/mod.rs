@@ -17,8 +17,9 @@ pub mod cont_split;
 pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
+pub mod run_async_outline;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::core::CorePrimOp;
@@ -389,7 +390,10 @@ pub enum CallKind {
     /// Known imported top-level function — emit direct call to an external symbol.
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
-    Indirect,
+    Indirect {
+        /// True when type/effect context proves the closure call can suspend.
+        async_capable: bool,
+    },
     /// Proposal 0162 Phase 3 slice 5-tr-fix: a `YieldTo` PrimCall has already
     /// been emitted inline in this block; the terminator exists purely to
     /// give `cont_split` + the yield-check machinery a Call-shaped hook so
@@ -421,6 +425,8 @@ pub struct LirFunction {
     /// Module-qualified symbol name for LLVM emission.
     /// E.g. `"Flow_List_sort"`, `"main"`, `"lambda_42"`.
     pub qualified_name: String,
+    /// True for compiler-generated type-class dictionary definitions.
+    pub is_dict_def: bool,
     /// Parameter variables.
     pub params: Vec<LirVar>,
     /// The entry block is always `blocks[0]`.
@@ -452,6 +458,128 @@ pub struct LirProgram {
     pub constructor_tags: HashMap<String, i32>,
     /// Monotonic allocator for synthetic nested-function IDs.
     next_synthetic_func_id: u32,
+}
+
+/// True for direct imported symbols whose native execution can suspend through
+/// the async runtime. `run_async` is intentionally excluded: it is the async
+/// boundary and must return a completed value to its caller.
+pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
+    let normalized = symbol.replace(['.', '-'], "_");
+    const ASYNC_SYMBOLS: &[&str] = &[
+        "Flow_Async_sleep",
+        "Flow_Async_fiber_sleep_prim",
+        "Flow_Async_scope",
+        "Flow_Async_new_scope",
+        "Flow_Async_fork",
+        "Flow_Async_cancel",
+        "Flow_Async_both",
+        "Flow_Async_fiber_both_prim",
+        "Flow_Async_race",
+        "Flow_Async_fiber_race_prim",
+        "Flow_Async_first",
+        "Flow_Async_first_of",
+        "Flow_Async_fiber_first_of_prim",
+        "Flow_Async_timeout",
+        "Flow_Async_timeout_result",
+        "Flow_Async_fiber_timeout_prim",
+        "Flow_Async_try",
+        "Flow_Async_fiber_try_prim",
+        "Flow_Async_finally",
+        "Flow_Async_bracket",
+        "Flow_Async_result_or_else_async",
+        "Flow_Async_result_or_timeout_with_async",
+        "Flow_Async_yield_now",
+        "Flow_Async_fiber_yield_now_prim",
+        "Flow_Async_check_cancelled",
+        "Flow_Async_bail_if_cancelled",
+        "Flow_Async_fail",
+        "Flow_Async_fiber_fail_prim",
+        "Flow_Task_await",
+        "Flow_Task_task_await_id",
+        "Flow_Task_spawn_scoped_move",
+        "Flow_Task_task_spawn_scoped_move_id",
+        "Flow_Channel_send_move",
+        "Flow_Channel_chan_send_move_id",
+        "Flow_Event_event_wait_id",
+        "Flow_Event_run_selected",
+        "Flow_Event_sync",
+        "Flow_Event_sync_id",
+        "Flow_Http_get",
+        "Flow_Http_post",
+        "Flow_Http_request",
+        "Flow_Http_serve",
+        "Flow_Http_serve_stream",
+        "Flow_Http_shutdown",
+        "Flow_Http_shutdown_now",
+        "Flow_Tcp_connect",
+        "Flow_Tcp_tcp_connect_prim",
+        "Flow_Tcp_read",
+        "Flow_Tcp_tcp_read_prim",
+        "Flow_Tcp_write_all",
+        "Flow_Tcp_tcp_write_all_prim",
+        "Flow_Tcp_listen",
+        "Flow_Tcp_tcp_listen_prim",
+        "Flow_Tcp_accept",
+        "Flow_Tcp_tcp_accept_prim",
+    ];
+
+    ASYNC_SYMBOLS.iter().any(|needle| {
+        if *needle == "Flow_Event_sync" {
+            // `sync` must not match `sync_id`; the latter has its own entry.
+            // Still allow mangled symbols that end in `_Flow_Event_sync`.
+            normalized == *needle
+                || normalized
+                    .strip_suffix(needle)
+                    .is_some_and(|prefix| prefix.ends_with('_'))
+        } else {
+            normalized.contains(needle)
+        }
+    })
+}
+
+pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncId>) -> bool {
+    match kind {
+        CallKind::Direct { func_id } | CallKind::DirectClosure { func_id, .. } => {
+            async_funcs.contains(func_id)
+        }
+        CallKind::DirectExtern { symbol } => is_direct_async_extern_symbol(symbol),
+        CallKind::Indirect { async_capable } => *async_capable,
+        CallKind::YieldTo => true,
+    }
+}
+
+/// Compute the set of local LIR functions that can suspend through direct
+/// native async calls. This is intentionally direct-call only; higher-order
+/// closure-call metadata is a later phase.
+pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
+    let mut async_funcs = HashSet::new();
+
+    loop {
+        let mut changed = false;
+        for func in &program.functions {
+            if async_funcs.contains(&func.id) {
+                continue;
+            }
+            if function_has_direct_async_site(func, &async_funcs) {
+                async_funcs.insert(func.id);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    async_funcs
+}
+
+fn function_has_direct_async_site(func: &LirFunction, async_funcs: &HashSet<LirFuncId>) -> bool {
+    func.blocks.iter().any(|block| match &block.terminator {
+        LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
+            call_kind_is_direct_async(kind, async_funcs)
+        }
+        _ => false,
+    })
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────

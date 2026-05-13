@@ -200,6 +200,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             expansion,
             span,
         },
+        Statement::TypeAlias(alias) => Statement::TypeAlias(alias),
         Statement::Class {
             is_public,
             name,

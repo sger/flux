@@ -1,0 +1,52 @@
+// 10 — `Channel`: passing values between fibers
+//
+// Goal: hand values from one fiber to another with backpressure.
+//
+// A channel is a typed mailbox. The producer fiber sends; the
+// consumer fiber receives. They run concurrently and synchronise
+// only at the channel boundary — neither has to know about the
+// other's progress.
+//
+// API used here:
+//   Channel.make(capacity) -> Channel<a>
+//   Channel.send(ch, value)         (suspends if full)
+//   Channel.recv(ch) -> Option<a>   (Some on value, None on close)
+//   Channel.close(ch)
+//
+// `both` runs producer and consumer concurrently. The pair of
+// returns is `(producer_unit, consumer_total)`.
+
+// parity-expected-stdout-begin
+// "total = 6"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+// Single-fiber producer/consumer keeps the example readable. Each
+// `send` and `recv` is a `with Async` call — they suspend cleanly,
+// so even with one fiber the code interleaves naturally.
+
+fn body() -> Int with Async {
+    let ch = Channel.make(4)          // 4-slot buffer
+
+    // Push three values, then close the channel so the receiver
+    // loop knows when to stop.
+    Channel.send(ch, 1)
+    Channel.send(ch, 2)
+    Channel.send(ch, 3)
+    Channel.close(ch)
+
+    // Drain the channel into a running total.
+    fn drain(total) -> Int with Async {
+        match Channel.recv(ch) {
+            Some(v) -> drain(total + v),
+            None    -> total           // sender closed → done
+        }
+    }
+    drain(0)
+}
+
+fn main() with IO {
+    print("total = " + to_string(run_async(body)))
+}

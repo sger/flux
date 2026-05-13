@@ -1,0 +1,68 @@
+// 15 — Concurrent jobs in practice
+//
+// Two layers of concurrency, both demonstrated in one file:
+//
+// 1. FIBERS — `both` runs three I/O-bound jobs concurrently inside a
+//    single worker. The total wall clock is ~max(50, 80, 30) ms = 80ms,
+//    not 50+80+30 = 160ms. This is the "concurrent" half.
+//
+// 2. TASKS — `Task.spawn` runs two CPU-bound jobs on real OS threads.
+//    This is the "parallel" half.
+//
+// Combine them: spawn tasks for CPU work, gather them with `Task.await`
+// from a fiber, and use `Async.both` to interleave I/O.
+
+// parity-expected-stdout-begin
+// "io_jobs = 6"
+// "cpu_jobs = 16"
+// "combined = 22"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+// Three I/O-bound "jobs" — each takes wall-clock time but no CPU.
+fn io_a() -> Int with Async { sleep(50); 1 }
+fn io_b() -> Int with Async { sleep(80); 2 }
+fn io_c() -> Int with Async { sleep(30); 3 }
+
+// Concurrent fan-out using `both` (binary) composed twice for three jobs.
+fn pair_ab() -> (Int, Int) with Async { both(io_a, io_b) }
+
+fn io_jobs() -> Int with Async {
+    let outer = both(pair_ab, io_c)
+    let ab    = outer.0
+    ab.0 + ab.1 + outer.1                // 1 + 2 + 3 = 6, ~80ms not 160ms
+}
+
+// Two CPU-bound "jobs" for Task.spawn.
+fn sum_to(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { sum_to(n - 1, acc + n) }
+}
+fn cpu_a() -> Int { sum_to(3, 0) }       // 1+2+3 = 6
+fn cpu_b() -> Int { sum_to(4, 0) }       // 1+2+3+4 = 10
+
+// Run concurrent IO and parallel CPU together, gather both halves.
+fn combined() -> Int with Async {
+    // Kick off CPU work on real workers.
+    let t1 = Task.spawn(cpu_a)
+    let t2 = Task.spawn(cpu_b)
+
+    // While they're running, do concurrent I/O on the fiber side.
+    let io_total = io_jobs()             // ~80ms
+
+    // Gather the CPU results without blocking the OS thread.
+    let cpu_total = Task.await(t1) + Task.await(t2)
+
+    io_total + cpu_total
+}
+
+fn cpu_jobs() -> Int {
+    Task.blocking_join(Task.spawn(cpu_a)) + Task.blocking_join(Task.spawn(cpu_b))
+}
+
+fn main() with IO {
+    print("io_jobs = "  + to_string(run_async(io_jobs)))   // 6
+    print("cpu_jobs = " + to_string(cpu_jobs()))           // 6 + 10 = 16... let me actually run it
+    print("combined = " + to_string(run_async(combined)))  // 6 + 16
+}

@@ -1,0 +1,33 @@
+// parity: vm, llvm
+
+import Flow.Async exposing (..)
+
+fn sleep_50() -> Int with Async {
+    sleep(50)
+    50
+}
+
+fn sleep_100() -> Int with Async {
+    sleep(100)
+    100
+}
+
+fn sleep_200() -> Int with Async {
+    sleep(200)
+    200
+}
+
+fn ten() -> Int with Async { 10 }
+fn twenty() -> Int with Async { 20 }
+fn thirty() -> Int with Async { 30 }
+
+fn body() -> Int with Async {
+    let winner = first([sleep_50, sleep_100, sleep_200])
+    let indexed = first_of([sleep_100, sleep_50, sleep_200])
+    let tie = first_of([ten, twenty, thirty])
+    winner + indexed.0 + indexed.1 + tie.0 + tie.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

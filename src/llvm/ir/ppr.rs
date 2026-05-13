@@ -144,8 +144,24 @@ impl Display for LlvmFunction {
             write!(f, "...")?;
         }
         write!(f, ")")?;
+        // On Windows, emit `uwtable` so SEH `.pdata`/`.xdata` unwind
+        // tables are generated for every Flux function.  Without this,
+        // `nounwind` causes LLVM to omit the function-table entry and
+        // any unwind that crosses this frame (Windows `longjmp` walks
+        // the SEH chain; SEH `RaiseException` does too) terminates with
+        // STATUS_BAD_FUNCTION_TABLE (0xC00000FF) — which breaks
+        // `assert_throws` of any panic that crosses LLVM-emitted code.
+        // `uwtable` is harmless on Linux/macOS (DWARF unwind info is
+        // emitted regardless) so we add it unconditionally.
+        let mut emitted_uwtable = false;
         for attr in &self.attrs {
+            if attr == "uwtable" {
+                emitted_uwtable = true;
+            }
             write!(f, " {attr}")?;
+        }
+        if !emitted_uwtable {
+            write!(f, " uwtable")?;
         }
         writeln!(f, " {{")?;
         for block in &self.blocks {

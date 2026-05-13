@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "done"
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Channel as Channel
+
+fn channel_main() -> String with Async {
+    let ch = Channel.make(1)
+    Channel.close(ch)
+    match Channel.recv(ch) {
+        Some(_) -> "value",
+        None -> "done"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(channel_main))
+}

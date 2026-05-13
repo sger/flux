@@ -139,6 +139,7 @@ define_tokens! {
         Some   => "Some",
         None   => "None",
         Match  => "match",
+        Select => "select",
         Left   => "Left",
         Right  => "Right",
         Where  => "where",

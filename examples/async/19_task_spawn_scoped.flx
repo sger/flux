@@ -1,0 +1,78 @@
+// 19 — Task.spawn_scoped
+//
+// `Task.spawn_scoped(s, action)` spawns a task and registers it under a
+// cancellation scope. When `cancel(s)` fires, the runtime cancels both
+// the fibers forked under `s` and every task registered under it.
+//
+// This gives tasks the same structured-concurrency guarantee as fibers:
+// no task can outlive the scope that owns it.
+//
+// Comparison:
+//
+//   Task.spawn(work)           — detached, lives until process exit if never
+//                                awaited or cancelled explicitly
+//   Task.spawn_scoped(s, work) — owned by `s`, cancelled when `cancel(s)`
+//                                fires, no way to leak past the scope
+//
+// Pattern: pass a *named* function to `scope` so it can carry `with Async`.
+// Anonymous lambdas inside `scope(fn(s) { ... })` cannot currently declare
+// `with Async`, so effectful calls must live in a named helper.
+
+// parity-expected-stdout-begin
+// "scoped_result = 42"
+// "cancel_fast = done"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+// ── Example 1: normal completion ─────────────────────────────────────────────
+
+fn compute() -> Int { 21 * 2 }
+
+// Spawn a scoped task and await its result. The task completes normally —
+// `cancel(s)` is never called, so `await` returns the computed value.
+fn run_normal(s: Scope) -> Int with Async {
+    let t = Task.spawn_scoped(s, compute)
+    Task.await(t)
+}
+
+fn example_normal() -> Int with Async {
+    scope(run_normal)
+}
+
+// ── Example 2: cancel short-circuits the slow task ───────────────────────────
+
+fn spin(n: Int) -> Int {
+    if n <= 0 { 0 } else { spin(n - 1) }
+}
+
+// A slow CPU-bound task — ~50 million iterations. Without cancel this would
+// take hundreds of milliseconds.
+fn slow_task() -> Int { spin(50000000) }
+
+// Spawn the slow task under `s`, sleep only 20ms, then cancel the scope.
+// The sleep gives the scheduler a tick; `cancel(s)` sets the cancel flag
+// before the worker picks up `slow_task`, so it short-circuits. The whole
+// scope body returns in ~20ms instead of hundreds.
+fn run_cancel(s: Scope) -> String with Async {
+    let _t = Task.spawn_scoped(s, slow_task)
+    sleep(20)
+    cancel(s)
+    // The scope body returns here immediately; the slow task never runs to
+    // completion. If we had awaited `_t` after cancel it would surface as
+    // AsyncError.Canceled — see example 14 for that pattern.
+    "done"
+}
+
+fn example_cancel() -> String with Async {
+    scope(run_cancel)
+}
+
+// ── main ──────────────────────────────────────────────────────────────────────
+
+fn main() with IO {
+    print("scoped_result = " + to_string(run_async(example_normal)))
+    // Completes in ~20ms, not ~500ms — cancel fired before the task ran.
+    print("cancel_fast = " + run_async(example_cancel))
+}

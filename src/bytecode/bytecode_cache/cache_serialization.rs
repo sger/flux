@@ -192,7 +192,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
             let mut instructions = vec![0u8; instructions_len];
             reader.read_exact(&mut instructions).ok()?;
             let debug_info = read_function_debug_info(reader);
-            Some(Value::Function(std::rc::Rc::new(CompiledFunction::new(
+            Some(Value::Function(std::sync::Arc::new(CompiledFunction::new(
                 instructions,
                 num_locals,
                 num_parameters,

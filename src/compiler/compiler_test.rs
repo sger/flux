@@ -59,7 +59,7 @@ fn top_level_has_function(statements: &[Statement], name: &str, interner: &Inter
 fn find_compiled_function(
     constants: &[Value],
     name: &str,
-) -> Option<std::rc::Rc<crate::runtime::compiled_function::CompiledFunction>> {
+) -> Option<std::sync::Arc<crate::runtime::compiled_function::CompiledFunction>> {
     constants.iter().find_map(|value| match value {
         Value::Function(function)
             if function

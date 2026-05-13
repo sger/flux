@@ -739,8 +739,23 @@ impl Parser {
         let mut effects = Vec::new();
 
         loop {
+            let wrapped_in_angle_row = self.is_peek_token(TokenType::Lt);
+            if wrapped_in_angle_row {
+                self.next_token(); // <
+            }
+
             let effect = self.parse_effect_expr()?;
             effects.push(effect);
+
+            if wrapped_in_angle_row
+                && !self.expect_peek_context(
+                    TokenType::Gt,
+                    "Expected `>` to close effect row.".to_string(),
+                    "Effect rows use `with <Async | e>`.".to_string(),
+                )
+            {
+                return None;
+            }
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
@@ -959,12 +974,15 @@ impl Parser {
                 }
 
                 if !is_lowercase_ident(&self.current_token.literal) {
+                    let tail_name = self.current_token.literal.clone();
                     self.emit_parser_diagnostic(
                         unexpected_token(
                             self.current_token.span(),
                             "Effect row tail variables must be lowercase identifiers.".to_string(),
                         )
-                        .with_hint_text("Use a lowercase tail name, for example `with IO | e`."),
+                        .with_hint_text(format!(
+                            "Did you mean `with ..., {tail_name}`? Use `,` to list multiple effects; use `| e` only for lowercase row-tail variables."
+                        )),
                     );
                     return None;
                 }

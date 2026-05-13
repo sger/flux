@@ -15,6 +15,7 @@
 //! Future cyclic data features must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
+pub mod r#async;
 pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;
@@ -27,6 +28,8 @@ pub mod handler_arm;
 pub mod handler_descriptor;
 pub mod handler_frame;
 pub mod hash_key;
+pub mod http;
+pub mod json;
 pub mod leak_detector;
 pub mod perform_descriptor;
 pub mod runtime_type;
@@ -57,6 +60,70 @@ pub trait RuntimeContext {
         &'a self,
         _callee: &'a Value,
     ) -> Option<&'a function_contract::FunctionContract> {
+        None
+    }
+
+    // ── VM task hooks ─────────────────────────────────────────────────────
+    //
+    // Only the VM implements these. They let the backend-neutral CorePrimOp
+    // dispatch route Flow.Task operations to an isolated VM worker runtime
+    // without downcasting the `RuntimeContext` trait object.
+
+    fn vm_task_spawn(&mut self, _action: Value) -> Result<i64, String> {
+        Err("Task.spawn is not implemented for this runtime context".to_string())
+    }
+
+    fn vm_task_spawn_move(&mut self, _action: Value) -> Result<i64, String> {
+        Err("Task.spawn_move is not implemented for this runtime context".to_string())
+    }
+
+    fn vm_task_blocking_join(&mut self, _id: i64) -> Result<Value, String> {
+        Err("Task.blocking_join is not implemented for this runtime context".to_string())
+    }
+
+    fn vm_task_cancel(&mut self, _id: i64) -> Result<(), String> {
+        Err("Task.cancel is not implemented for this runtime context".to_string())
+    }
+
+    // ── Fiber-suspend hooks (proposal 0174 Phase 1b-vi-b₂.1) ────────────
+    // Default impls panic; only the VM implementor needs to provide real
+    // bodies. The native (LLVM) backend will get its own implementation in
+    // Phase 1b-vi-d.
+
+    /// Current frame index (for setting the FiberRunAsync boundary).
+    fn current_frame_index(&self) -> usize {
+        unimplemented!("current_frame_index not implemented for this RuntimeContext")
+    }
+
+    /// Current stack pointer (for setting the FiberRunAsync boundary).
+    fn current_sp(&self) -> usize {
+        unimplemented!("current_sp not implemented for this RuntimeContext")
+    }
+
+    /// Capture a delimited continuation from the current frame back to
+    /// `(entry_frame_index, entry_sp)`. Returns a `Value::Continuation`.
+    /// Mirrors the OpPerform capture mechanism with a non-handler boundary.
+    fn capture_to_fiber_boundary(
+        &mut self,
+        _entry_frame_index: usize,
+        _entry_sp: usize,
+    ) -> Result<Value, String> {
+        unimplemented!("capture_to_fiber_boundary not implemented for this RuntimeContext")
+    }
+
+    /// Resume a captured continuation outside any `OpPerform` context. Drives
+    /// the inner interpreter loop until the captured frames return; the final
+    /// value of the resumed body is returned.
+    fn resume_from_dispatch(&mut self, _cont: Value, _resume_val: Value) -> Result<Value, String> {
+        unimplemented!("resume_from_dispatch not implemented for this RuntimeContext")
+    }
+
+    /// Produce shared read-only VM state for Phase 4 OS worker threads.
+    ///
+    /// The default implementation returns `None` (no shared state available),
+    /// which causes the multi-worker path to use empty state for that
+    /// context. Only `VM` provides a real implementation.
+    fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
         None
     }
 }

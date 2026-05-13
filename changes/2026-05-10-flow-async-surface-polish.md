@@ -1,0 +1,7 @@
+### Added
+- `import M exposing (..)` now brings public ADT type names and their constructors into scope alongside functions/let-bindings. Writing `import Flow.Async exposing (..)` exposes `Result` / `AsyncError` / `Scope` as type names usable in annotations (e.g. `fn helper(s: Scope) -> ...`) and `Ok` / `Err` / `Canceled` / `TimedOut` etc. as unqualified constructor names. Previously only function-visibility entries were exposed; ADT types and constructors required explicit listing or qualification.
+
+### Changed
+- `Flow.Async` parser-limitation comments removed: multi-callback combinators (`both`, `race`, `bracket`, `finally`) document that callback parameters carrying `with <effect>` use parenthesized function types (e.g. `f: (() -> a with Async | e1)`). The parens scope the row so the comma between parameters is unambiguous; the bare form remains available on the final parameter where the trailing `with` is unambiguously the enclosing function's effect clause.
+- Constructor lookup at pattern-compile and ADT-arm sites now consults the preloaded dependency ADT registry and `exposed_bindings` qualified-name fallback, so unqualified short names brought in via `exposing` resolve correctly.
+- `Flow.Async.try_` renamed to `try`: the LLVM backend now emits the underlying C symbol as `flux_try` instead of the bare keyword `try`, eliminating the C/C++ keyword collision that forced the underscore workaround. All call sites updated.

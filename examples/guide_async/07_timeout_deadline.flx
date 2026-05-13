@@ -1,0 +1,38 @@
+// 07 — `timeout`: bound wall-clock time
+//
+// Goal: cap how long an async operation may take.
+//
+// `timeout(ms, f)` returns:
+//   - `Some(value)` if `f` finishes within `ms` milliseconds, or
+//   - `None` if the deadline fires first.
+//
+// On `None`, the body fiber is CANCELLED — same discipline as `race`.
+// Pending I/O is aborted; `bracket` / `finally` cleanup runs.
+
+// parity-expected-stdout-begin
+// "fast finished in time"
+// "slow timed out"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn fast() -> Int with Async { sleep(20);   7 }
+fn slow() -> Int with Async { sleep(1000); 99 }
+
+fn body() -> Unit with Async, IO {
+    // 200ms is plenty for `fast` (which only needs 20ms).
+    match timeout(200, fast) {
+        Some(_) -> print("fast finished in time"),
+        None    -> print("fast somehow timed out (?)")
+    }
+
+    // 50ms is way too short for `slow` (1000ms). Deadline wins.
+    match timeout(50, slow) {
+        Some(_) -> print("slow somehow finished (?)"),
+        None    -> print("slow timed out")
+    }
+}
+
+fn main() with IO {
+    run_async(body)
+}

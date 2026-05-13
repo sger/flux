@@ -624,7 +624,194 @@ pub enum CorePrimOp {
     FCosh = 151,
     FTanh = 152,
     FTruncate = 153,
-    // ── Next free ID: 154 ─────────────────────────────────────────────
+
+    // ── Concurrency (proposal 0174 D5-a) ──────────────────────────────
+    // Discriminants 154 reserved for DebugTrace above; the next slot is
+    // 155.
+    TaskSpawn = 155,
+    TaskBlockingJoin = 156,
+    TaskCancel = 157,
+
+    // ── Fiber / structured concurrency (proposal 0174 Phase 1b) ──────
+    /// Suspend the calling fiber at a `perform Suspend` point and register
+    /// a backend completion. Wired to the scheduler in Slice 1b-vi.
+    FiberSuspend = 158,
+    /// Fork a child fiber on the same worker (no-migration invariant).
+    FiberFork = 159,
+    /// Retrieve the current fiber's `EffectContext` handle.
+    FiberGetContext = 160,
+    /// Raise an `AsyncError` inside the current fiber.
+    FiberFail = 161,
+    /// Fiber-suspending join — suspends instead of blocking the OS thread.
+    TaskAwait = 162,
+    /// Entry point for the fiber scheduler: runs `action` on the scheduler.
+    /// VM: runs synchronously. Native: installs effect handler + dispatch loop.
+    FiberRunAsync = 163,
+    /// Yield the current fiber to the scheduler. VM: no-op. Native: real yield.
+    FiberYieldNow = 164,
+    /// Suspend for at least `ms` milliseconds. VM: thread::sleep. Native: timer.
+    FiberSleep = 165,
+    // ── TCP primops (proposal 0174 Phase 1b-vii) ──────────────────────
+    /// Open a TCP connection. Args: (host: String, port: Int) → handle: Int.
+    /// VM: blocking POSIX connect. Native: fiber-suspending via mio reactor.
+    TcpConnect = 166,
+    /// Read up to `max` bytes from a connection. Args: (handle: Int, max: Int) → String.
+    /// VM: blocking recv. Native: fiber-suspending.
+    TcpRead = 167,
+    /// Write all bytes to a connection. Args: (handle: Int, data: String) → Unit.
+    /// VM: blocking send loop. Native: fiber-suspending.
+    TcpWriteAll = 168,
+    /// Close a TCP connection. Args: (handle: Int) → Unit.
+    TcpClose = 169,
+    /// Listen for TCP connections. Args: (host: String, port: Int) → listener: Int.
+    TcpListen = 170,
+    /// Accept one incoming TCP connection. Args: (listener: Int) → handle: Int.
+    /// VM: blocking accept. Native: fiber-suspending.
+    TcpAccept = 171,
+    /// Run two fibers concurrently and return their results as a tuple
+    /// (proposal 0174 Phase 1b-vi-b₂.2). Args: (f, g) → (a, b). VM: both
+    /// children dispatched via the fiber scheduler; parent parks until
+    /// both finish. Native: 1b-vi-d.
+    FiberBoth = 172,
+    /// Run two fibers concurrently and return whichever result arrives
+    /// first (proposal 0174 Phase 1b-vi-b₂.2). Args: (f, g) → a. Loser
+    /// keeps running; cancellation lands in 1b-vi-c.
+    FiberRace = 173,
+    /// Bound `f` by `ms` milliseconds; returns `Some(result)` if `f`
+    /// finishes in time, `None` otherwise (proposal 0174 Phase 1b-vi
+    /// follow-up). Args: (ms, f). VM: spawns body fiber, parks parent on
+    /// either-completes await. Native: 1b-vi-d.
+    FiberTimeout = 174,
+    /// Allocate a new cancellation scope handle (proposal 0174 1b-vi-c).
+    /// Returns a `Scope(id)` ADT value.
+    FiberNewScope = 175,
+    /// Fork a child fiber attached to a scope (proposal 0174 1b-vi-c).
+    /// Args: (scope, body). Spawns child, registers it under the scope.
+    FiberForkScoped = 176,
+    /// Cancel all fibers registered under a scope (proposal 0174 1b-vi-c).
+    /// Args: (scope). Cancels backend requests + marks fibers Cancelled.
+    FiberCancelScope = 177,
+    /// Poll whether the current fiber's enclosing scope has been cancelled
+    /// (proposal 0174 Phase 2 slice 2-iv). Returns `Bool`. No suspend, no
+    /// backend round-trip — a scheduler flag read. Composes with `Async.fail`
+    /// when the caller wants to raise; slice 2-vi makes that raise
+    /// catchable.
+    FiberCheckCancelled = 178,
+    /// Run an async action with explicit `RuntimeConfig` knobs (proposal 0174
+    /// Phase 2 slice 2-vii). Args: (worker_count: Int, fs_pool_size: Int,
+    /// dns_pool_size: Int, action: () -> a with Async). Any zero argument
+    /// means "use the default for that knob"; the implementation chooses
+    /// `available_parallelism()` for `worker_count`, `min(4, parallelism)`
+    /// for `fs_pool_size`, and `4` for `dns_pool_size`. `fs_pool_size` and
+    /// `dns_pool_size` are accepted today but only consulted once slice
+    /// 2-viii lands the blocking pool.
+    FiberRunAsyncWith = 179,
+    /// N-way race over a non-empty list of async thunks (proposal 0174 Phase
+    /// 2 slice 2-ii). Args: (List<() -> a with Async>) → (Int, a), where
+    /// Int is the zero-based winning index. Empty-list checking lives in
+    /// `Flow.Async.first_of`; the primop is the scheduler primitive.
+    FiberFirstOf = 180,
+    /// Run an async action under a catch boundary, returning Result.
+    /// Args: (() -> a with Async) → Result<a, AsyncError>.
+    FiberTry = 181,
+    // ── HTTP/1.1 server foundation (proposal 0174 Phase 3a) ───────────
+    /// Reserved server-manager entry point for Flow.Http. Args:
+    /// (addr, port, ServerConfig, handler) -> ServerHandle id.
+    HttpServeConfig = 182,
+    /// Graceful HTTP server shutdown. Args: (ServerHandle id) -> Unit.
+    HttpShutdown = 183,
+    /// Immediate HTTP server shutdown. Args: (ServerHandle id) -> Unit.
+    HttpShutdownNow = 184,
+    /// Parse one HTTP request from a buffered string. Args:
+    /// (raw, max_header_bytes, max_body_bytes) -> HttpParseResult.
+    HttpParseRequest = 185,
+    /// Serialize an HTTP response. Args: (Response, keep_alive) -> String.
+    HttpWriteResponse = 186,
+    /// Track an active server connection. Args: (server_id, conn_id) -> Unit.
+    HttpRegisterConnection = 187,
+    /// Stop tracking an active server connection. Args: (server_id, conn_id) -> Unit.
+    HttpUnregisterConnection = 188,
+    /// Return active connection count. Args: (server_id) -> Int.
+    HttpActiveConnectionCount = 189,
+    /// True once graceful or forced shutdown has been requested. Args: (server_id) -> Bool.
+    HttpIsShuttingDown = 190,
+    /// Mark the detached source-level HTTP accept loop as stopped. Args: (server_id) -> Unit.
+    HttpServerStopped = 191,
+    /// True once the detached source-level HTTP accept loop has stopped. Args: (server_id) -> Bool.
+    HttpIsServerStopped = 192,
+    /// Parse a client URL. Args: (url) -> HttpUrlResult.
+    HttpParseUrl = 193,
+    /// Serialize a client request. Args: (Method, host, target, headers, body) -> String.
+    HttpWriteRequest = 194,
+    /// Parse one HTTP response from a buffered string. Args: (raw) -> HttpResponseParseResult.
+    HttpParseResponse = 195,
+    /// Parse JSON text into Flow.Json.JsonResult<Json>. Args: (raw) -> JsonResult<Json>.
+    JsonParse = 196,
+    /// Serialize Flow.Json.Json into compact JSON text. Args: (Json) -> String.
+    JsonStringify = 197,
+    /// Serialize an HTTP chunked response head. Args: (StreamResponse) -> String.
+    HttpWriteChunkedHead = 198,
+    /// Serialize one HTTP chunk. Args: (String) -> String.
+    HttpWriteChunk = 199,
+    /// Serialize the terminating HTTP chunk. Args: () -> String.
+    HttpWriteChunkedEnd = 200,
+    /// Report the worker count of the currently active `run_async`
+    /// scheduler (proposal 0174 slice 2-vii follow-up). Returns 0 outside
+    /// `run_async`. Args: () -> Int.
+    FiberCurrentWorkerCount = 201,
+    /// Create a bounded cross-fiber channel. Args: (capacity: Int) -> channel id.
+    ChanMake = 202,
+    /// Send on a channel, suspending the current fiber if full.
+    ChanSend = 203,
+    /// Receive from a channel, suspending the current fiber if empty.
+    ChanRecv = 204,
+    /// Non-blocking send. Args: (channel id, value) -> Bool.
+    ChanTrySend = 205,
+    /// Non-blocking receive. Args: (channel id) -> Option<a>.
+    ChanTryRecv = 206,
+    /// Close a channel and wake parked senders/receivers.
+    ChanClose = 207,
+    /// Return the current buffered length.
+    ChanLen = 208,
+    /// Return the channel capacity.
+    ChanCap = 209,
+    /// Spawn a task and register it under a fiber scope. When `cancel(scope)`
+    /// is called, the task is cancelled automatically alongside any forked
+    /// fibers. Requires `with Async` — only valid inside a `run_async` boundary.
+    TaskSpawnScoped = 210,
+    /// True iff a channel has been closed.
+    ChanIsClosed = 211,
+    /// Create an event that receives from a channel.
+    EventRecv = 212,
+    /// Create an event that sends to a channel.
+    EventSend = 213,
+    /// Create a timer event.
+    EventAfter = 214,
+    /// Create an event that is immediately ready with a value.
+    EventAlways = 215,
+    /// Create an event that is never ready.
+    EventNever = 216,
+    /// Create a source-ordered choice event from event IDs.
+    EventChoose = 217,
+    /// Create a mapped event.
+    EventWrap = 218,
+    /// Synchronize on an event.
+    EventSync = 219,
+    /// Poll an event once, committing if ready.
+    EventPoll = 220,
+    /// Suspend until an event may be ready. Readiness is a hint; poll commits.
+    EventWait = 221,
+    /// Spawn a task by ownership transfer.
+    TaskSpawnMove = 222,
+    /// Spawn a scoped task by ownership transfer.
+    TaskSpawnScopedMove = 223,
+    /// Send on a channel by ownership transfer.
+    ChanSendMove = 224,
+    /// Non-blocking ownership-transfer send.
+    ChanTrySendMove = 225,
+    /// Create a channel-send event by ownership transfer.
+    EventSendMove = 226,
+    // ── Next free ID: 227 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -666,6 +853,78 @@ impl CorePrimOp {
             "FTanh" => return Some(Self::FTanh),
             "FTruncate" => return Some(Self::FTruncate),
             "DebugTrace" => return Some(Self::DebugTrace),
+            "TaskSpawn" => return Some(Self::TaskSpawn),
+            "TaskBlockingJoin" => return Some(Self::TaskBlockingJoin),
+            "TaskCancel" => return Some(Self::TaskCancel),
+            "FiberSuspend" => return Some(Self::FiberSuspend),
+            "FiberFork" => return Some(Self::FiberFork),
+            "FiberGetContext" => return Some(Self::FiberGetContext),
+            "FiberFail" => return Some(Self::FiberFail),
+            "TaskAwait" => return Some(Self::TaskAwait),
+            "FiberRunAsync" => return Some(Self::FiberRunAsync),
+            "FiberYieldNow" => return Some(Self::FiberYieldNow),
+            "FiberSleep" => return Some(Self::FiberSleep),
+            "TcpConnect" => return Some(Self::TcpConnect),
+            "TcpRead" => return Some(Self::TcpRead),
+            "TcpWriteAll" => return Some(Self::TcpWriteAll),
+            "TcpClose" => return Some(Self::TcpClose),
+            "TcpListen" => return Some(Self::TcpListen),
+            "TcpAccept" => return Some(Self::TcpAccept),
+            "FiberBoth" => return Some(Self::FiberBoth),
+            "FiberRace" => return Some(Self::FiberRace),
+            "FiberTimeout" => return Some(Self::FiberTimeout),
+            "FiberNewScope" => return Some(Self::FiberNewScope),
+            "FiberForkScoped" => return Some(Self::FiberForkScoped),
+            "FiberCancelScope" => return Some(Self::FiberCancelScope),
+            "FiberCheckCancelled" => return Some(Self::FiberCheckCancelled),
+            "FiberRunAsyncWith" => return Some(Self::FiberRunAsyncWith),
+            "FiberFirstOf" => return Some(Self::FiberFirstOf),
+            "FiberTry" => return Some(Self::FiberTry),
+            "FiberCurrentWorkerCount" => return Some(Self::FiberCurrentWorkerCount),
+            "ChanMake" => return Some(Self::ChanMake),
+            "ChanSend" => return Some(Self::ChanSend),
+            "ChanRecv" => return Some(Self::ChanRecv),
+            "ChanTrySend" => return Some(Self::ChanTrySend),
+            "ChanTryRecv" => return Some(Self::ChanTryRecv),
+            "ChanClose" => return Some(Self::ChanClose),
+            "ChanLen" => return Some(Self::ChanLen),
+            "ChanCap" => return Some(Self::ChanCap),
+            "ChanIsClosed" => return Some(Self::ChanIsClosed),
+            "EventRecv" => return Some(Self::EventRecv),
+            "EventSend" => return Some(Self::EventSend),
+            "EventAfter" => return Some(Self::EventAfter),
+            "EventAlways" => return Some(Self::EventAlways),
+            "EventNever" => return Some(Self::EventNever),
+            "EventChoose" => return Some(Self::EventChoose),
+            "EventWrap" => return Some(Self::EventWrap),
+            "EventSync" => return Some(Self::EventSync),
+            "EventPoll" => return Some(Self::EventPoll),
+            "EventWait" => return Some(Self::EventWait),
+            "TaskSpawnMove" => return Some(Self::TaskSpawnMove),
+            "TaskSpawnScopedMove" => return Some(Self::TaskSpawnScopedMove),
+            "ChanSendMove" => return Some(Self::ChanSendMove),
+            "ChanTrySendMove" => return Some(Self::ChanTrySendMove),
+            "EventSendMove" => return Some(Self::EventSendMove),
+            "TaskSpawnScoped" => return Some(Self::TaskSpawnScoped),
+            "HttpServeConfig" => return Some(Self::HttpServeConfig),
+            "HttpShutdown" => return Some(Self::HttpShutdown),
+            "HttpShutdownNow" => return Some(Self::HttpShutdownNow),
+            "HttpParseRequest" => return Some(Self::HttpParseRequest),
+            "HttpWriteResponse" => return Some(Self::HttpWriteResponse),
+            "HttpRegisterConnection" => return Some(Self::HttpRegisterConnection),
+            "HttpUnregisterConnection" => return Some(Self::HttpUnregisterConnection),
+            "HttpActiveConnectionCount" => return Some(Self::HttpActiveConnectionCount),
+            "HttpIsShuttingDown" => return Some(Self::HttpIsShuttingDown),
+            "HttpServerStopped" => return Some(Self::HttpServerStopped),
+            "HttpIsServerStopped" => return Some(Self::HttpIsServerStopped),
+            "HttpParseUrl" => return Some(Self::HttpParseUrl),
+            "HttpWriteRequest" => return Some(Self::HttpWriteRequest),
+            "HttpParseResponse" => return Some(Self::HttpParseResponse),
+            "JsonParse" => return Some(Self::JsonParse),
+            "JsonStringify" => return Some(Self::JsonStringify),
+            "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
+            "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
+            "HttpWriteChunkedEnd" => return Some(Self::HttpWriteChunkedEnd),
             _ => {}
         }
         let snake = camel_to_snake(name);
@@ -740,6 +999,78 @@ impl CorePrimOp {
             Self::FCosh => Some("fcosh"),
             Self::FTanh => Some("ftanh"),
             Self::FTruncate => Some("ftruncate"),
+            Self::TaskSpawn => Some("task_spawn"),
+            Self::TaskSpawnMove => Some("task_spawn_move"),
+            Self::TaskBlockingJoin => Some("task_blocking_join"),
+            Self::TaskCancel => Some("task_cancel"),
+            Self::FiberSuspend => Some("fiber_suspend"),
+            Self::FiberFork => Some("fiber_fork"),
+            Self::FiberGetContext => Some("fiber_get_context"),
+            Self::FiberFail => Some("fiber_fail"),
+            Self::TaskAwait => Some("task_await"),
+            Self::FiberRunAsync => Some("fiber_run_async"),
+            Self::FiberYieldNow => Some("fiber_yield_now"),
+            Self::FiberSleep => Some("fiber_sleep"),
+            Self::TcpConnect => Some("tcp_connect"),
+            Self::TcpRead => Some("tcp_read"),
+            Self::TcpWriteAll => Some("tcp_write_all"),
+            Self::TcpClose => Some("tcp_close"),
+            Self::TcpListen => Some("tcp_listen"),
+            Self::TcpAccept => Some("tcp_accept"),
+            Self::FiberBoth => Some("fiber_both"),
+            Self::FiberRace => Some("fiber_race"),
+            Self::FiberFirstOf => Some("fiber_first_of"),
+            Self::FiberTimeout => Some("fiber_timeout"),
+            Self::FiberNewScope => Some("fiber_new_scope"),
+            Self::FiberForkScoped => Some("fiber_fork_scoped"),
+            Self::FiberCancelScope => Some("fiber_cancel_scope"),
+            Self::FiberCheckCancelled => Some("fiber_check_cancelled"),
+            Self::FiberRunAsyncWith => Some("fiber_run_async_with"),
+            Self::FiberTry => Some("fiber_try"),
+            Self::FiberCurrentWorkerCount => Some("fiber_current_worker_count"),
+            Self::ChanMake => Some("chan_make"),
+            Self::ChanSend => Some("chan_send"),
+            Self::ChanSendMove => Some("chan_send_move"),
+            Self::ChanRecv => Some("chan_recv"),
+            Self::ChanTrySend => Some("chan_try_send"),
+            Self::ChanTrySendMove => Some("chan_try_send_move"),
+            Self::ChanTryRecv => Some("chan_try_recv"),
+            Self::ChanClose => Some("chan_close"),
+            Self::ChanLen => Some("chan_len"),
+            Self::ChanCap => Some("chan_cap"),
+            Self::ChanIsClosed => Some("chan_is_closed"),
+            Self::EventRecv => Some("event_recv"),
+            Self::EventSend => Some("event_send"),
+            Self::EventSendMove => Some("event_send_move"),
+            Self::EventAfter => Some("event_after"),
+            Self::EventAlways => Some("event_always"),
+            Self::EventNever => Some("event_never"),
+            Self::EventChoose => Some("event_choose"),
+            Self::EventWrap => Some("event_wrap"),
+            Self::EventSync => Some("event_sync"),
+            Self::EventPoll => Some("event_poll"),
+            Self::EventWait => Some("event_wait"),
+            Self::TaskSpawnScoped => Some("task_spawn_scoped"),
+            Self::TaskSpawnScopedMove => Some("task_spawn_scoped_move"),
+            Self::HttpServeConfig => Some("http_serve_config"),
+            Self::HttpShutdown => Some("http_shutdown"),
+            Self::HttpShutdownNow => Some("http_shutdown_now"),
+            Self::HttpParseRequest => Some("http_parse_request"),
+            Self::HttpWriteResponse => Some("http_write_response"),
+            Self::HttpRegisterConnection => Some("http_register_connection"),
+            Self::HttpUnregisterConnection => Some("http_unregister_connection"),
+            Self::HttpActiveConnectionCount => Some("http_active_connection_count"),
+            Self::HttpIsShuttingDown => Some("http_is_shutting_down"),
+            Self::HttpServerStopped => Some("http_server_stopped"),
+            Self::HttpIsServerStopped => Some("http_is_server_stopped"),
+            Self::HttpParseUrl => Some("http_parse_url"),
+            Self::HttpWriteRequest => Some("http_write_request"),
+            Self::HttpParseResponse => Some("http_parse_response"),
+            Self::JsonParse => Some("json_parse"),
+            Self::JsonStringify => Some("json_stringify"),
+            Self::HttpWriteChunkedHead => Some("http_write_chunked_head"),
+            Self::HttpWriteChunk => Some("http_write_chunk"),
+            Self::HttpWriteChunkedEnd => Some("http_write_chunked_end"),
             _ => None,
         }
     }
@@ -889,6 +1220,78 @@ impl CorePrimOp {
             152 => FTanh,
             153 => FTruncate,
             154 => DebugTrace,
+            155 => TaskSpawn,
+            156 => TaskBlockingJoin,
+            157 => TaskCancel,
+            158 => FiberSuspend,
+            159 => FiberFork,
+            160 => FiberGetContext,
+            161 => FiberFail,
+            162 => TaskAwait,
+            163 => FiberRunAsync,
+            164 => FiberYieldNow,
+            165 => FiberSleep,
+            166 => TcpConnect,
+            167 => TcpRead,
+            168 => TcpWriteAll,
+            169 => TcpClose,
+            170 => TcpListen,
+            171 => TcpAccept,
+            172 => FiberBoth,
+            173 => FiberRace,
+            174 => FiberTimeout,
+            175 => FiberNewScope,
+            176 => FiberForkScoped,
+            177 => FiberCancelScope,
+            178 => FiberCheckCancelled,
+            179 => FiberRunAsyncWith,
+            180 => FiberFirstOf,
+            181 => FiberTry,
+            182 => HttpServeConfig,
+            183 => HttpShutdown,
+            184 => HttpShutdownNow,
+            185 => HttpParseRequest,
+            186 => HttpWriteResponse,
+            187 => HttpRegisterConnection,
+            188 => HttpUnregisterConnection,
+            189 => HttpActiveConnectionCount,
+            190 => HttpIsShuttingDown,
+            191 => HttpServerStopped,
+            192 => HttpIsServerStopped,
+            193 => HttpParseUrl,
+            194 => HttpWriteRequest,
+            195 => HttpParseResponse,
+            196 => JsonParse,
+            197 => JsonStringify,
+            198 => HttpWriteChunkedHead,
+            199 => HttpWriteChunk,
+            200 => HttpWriteChunkedEnd,
+            201 => FiberCurrentWorkerCount,
+            202 => ChanMake,
+            203 => ChanSend,
+            204 => ChanRecv,
+            205 => ChanTrySend,
+            206 => ChanTryRecv,
+            207 => ChanClose,
+            208 => ChanLen,
+            209 => ChanCap,
+            210 => TaskSpawnScoped,
+            211 => ChanIsClosed,
+            212 => EventRecv,
+            213 => EventSend,
+            214 => EventAfter,
+            215 => EventAlways,
+            216 => EventNever,
+            217 => EventChoose,
+            218 => EventWrap,
+            219 => EventSync,
+            220 => EventPoll,
+            221 => EventWait,
+            222 => TaskSpawnMove,
+            223 => TaskSpawnScopedMove,
+            224 => ChanSendMove,
+            225 => ChanTrySendMove,
+            226 => EventSendMove,
             _ => return None,
         };
         Some(op)
@@ -1019,10 +1422,99 @@ impl CorePrimOp {
             ("string_slice_builtin", 3, CorePrimOp::StringSlice),
             ("substring", 3, CorePrimOp::Substring),
             ("sqrt", 1, CorePrimOp::FSqrt),
+            ("fiber_both", 2, CorePrimOp::FiberBoth),
+            ("fiber_fail", 1, CorePrimOp::FiberFail),
+            ("fiber_fork", 1, CorePrimOp::FiberFork),
+            ("fiber_race", 2, CorePrimOp::FiberRace),
+            ("fiber_timeout", 2, CorePrimOp::FiberTimeout),
+            ("fiber_get_context", 0, CorePrimOp::FiberGetContext),
+            ("fiber_run_async", 1, CorePrimOp::FiberRunAsync),
+            ("fiber_sleep", 1, CorePrimOp::FiberSleep),
+            ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
+            ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
+            ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
+            (
+                "fiber_current_worker_count",
+                0,
+                CorePrimOp::FiberCurrentWorkerCount,
+            ),
+            ("chan_cap", 1, CorePrimOp::ChanCap),
+            ("chan_close", 1, CorePrimOp::ChanClose),
+            ("chan_is_closed", 1, CorePrimOp::ChanIsClosed),
+            ("chan_len", 1, CorePrimOp::ChanLen),
+            ("chan_make", 1, CorePrimOp::ChanMake),
+            ("chan_recv", 1, CorePrimOp::ChanRecv),
+            ("chan_send", 2, CorePrimOp::ChanSend),
+            ("chan_send_move", 2, CorePrimOp::ChanSendMove),
+            ("chan_try_recv", 1, CorePrimOp::ChanTryRecv),
+            ("chan_try_send", 2, CorePrimOp::ChanTrySend),
+            ("chan_try_send_move", 2, CorePrimOp::ChanTrySendMove),
+            ("event_after", 1, CorePrimOp::EventAfter),
+            ("event_always", 1, CorePrimOp::EventAlways),
+            ("event_choose", 1, CorePrimOp::EventChoose),
+            ("event_never", 0, CorePrimOp::EventNever),
+            ("event_recv", 1, CorePrimOp::EventRecv),
+            ("event_send", 2, CorePrimOp::EventSend),
+            ("event_send_move", 2, CorePrimOp::EventSendMove),
+            ("event_sync", 1, CorePrimOp::EventSync),
+            ("event_poll", 1, CorePrimOp::EventPoll),
+            ("event_wait", 1, CorePrimOp::EventWait),
+            ("event_wrap", 2, CorePrimOp::EventWrap),
+            ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
+            ("fiber_try", 1, CorePrimOp::FiberTry),
+            ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
+            ("http_serve_config", 3, CorePrimOp::HttpServeConfig),
+            ("http_shutdown", 1, CorePrimOp::HttpShutdown),
+            ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
+            ("http_parse_request", 2, CorePrimOp::HttpParseRequest),
+            ("http_write_response", 2, CorePrimOp::HttpWriteResponse),
+            (
+                "http_register_connection",
+                2,
+                CorePrimOp::HttpRegisterConnection,
+            ),
+            (
+                "http_unregister_connection",
+                2,
+                CorePrimOp::HttpUnregisterConnection,
+            ),
+            (
+                "http_active_connection_count",
+                1,
+                CorePrimOp::HttpActiveConnectionCount,
+            ),
+            ("http_is_shutting_down", 1, CorePrimOp::HttpIsShuttingDown),
+            ("http_server_stopped", 1, CorePrimOp::HttpServerStopped),
+            ("http_is_server_stopped", 1, CorePrimOp::HttpIsServerStopped),
+            ("http_parse_url", 1, CorePrimOp::HttpParseUrl),
+            ("http_write_request", 5, CorePrimOp::HttpWriteRequest),
+            ("http_parse_response", 1, CorePrimOp::HttpParseResponse),
+            ("json_parse", 1, CorePrimOp::JsonParse),
+            ("json_stringify", 1, CorePrimOp::JsonStringify),
+            (
+                "http_write_chunked_head",
+                1,
+                CorePrimOp::HttpWriteChunkedHead,
+            ),
+            ("http_write_chunk", 1, CorePrimOp::HttpWriteChunk),
+            ("http_write_chunked_end", 0, CorePrimOp::HttpWriteChunkedEnd),
+            ("task_await", 1, CorePrimOp::TaskAwait),
+            ("task_blocking_join", 1, CorePrimOp::TaskBlockingJoin),
+            ("task_cancel", 1, CorePrimOp::TaskCancel),
+            ("task_spawn", 1, CorePrimOp::TaskSpawn),
+            ("task_spawn_move", 1, CorePrimOp::TaskSpawnMove),
+            ("task_spawn_scoped", 2, CorePrimOp::TaskSpawnScoped),
+            ("task_spawn_scoped_move", 2, CorePrimOp::TaskSpawnScopedMove),
+            ("tcp_accept", 1, CorePrimOp::TcpAccept),
+            ("tcp_close", 1, CorePrimOp::TcpClose),
+            ("tcp_connect", 2, CorePrimOp::TcpConnect),
+            ("tcp_listen", 2, CorePrimOp::TcpListen),
+            ("tcp_read", 2, CorePrimOp::TcpRead),
+            ("tcp_write_all", 2, CorePrimOp::TcpWriteAll),
             ("time", 0, CorePrimOp::Time),
             ("to_string", 1, CorePrimOp::ToString),
             ("trim", 1, CorePrimOp::Trim),
-            ("try", 1, CorePrimOp::Try),
+            ("try_catch_prim", 1, CorePrimOp::Try),
             ("type_of", 1, CorePrimOp::TypeOf),
             ("unwrap", 1, CorePrimOp::Unwrap),
             ("upper", 1, CorePrimOp::Upper),
@@ -1038,20 +1530,188 @@ impl CorePrimOp {
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
         match self {
-            ClockNow | ReadStdin | Time => 0,
-            Abs | ArrayLen | DebugTrace | IsArray | IsBool | IsFloat | IsInt | IsList | IsMap
-            | IsNone | IsSome | IsString | Len | Lower | Panic | ParseInt | Print | Println
-            | ReadFile | ReadLines | StringLength | ToString | Trim | Try | AssertThrows
-            | TypeOf | Upper | HamtKeys | HamtValues | HamtSize | Neg | Not | Unwrap | FSqrt
-            | FSin | FCos | FExp | FLog | FFloor | FCeil | FRound | FTan | FAsin | FAcos
-            | FAtan | FSinh | FCosh | FTanh | FTruncate => 1,
-            Add | Sub | Mul | Div | Mod | IAdd | ISub | IMul | IDiv | IMod | FAdd | FSub | FMul
-            | FDiv | Eq | NEq | Lt | Le | Gt | Ge | ICmpEq | ICmpNe | ICmpLt | ICmpLe | ICmpGt
-            | ICmpGe | FCmpEq | FCmpNe | FCmpLt | FCmpLe | FCmpGt | FCmpGe | CmpEq | CmpNe
-            | And | Or | Concat | ArrayGet | ArrayPush | ArrayConcat | HamtGet | HamtContains
-            | HamtDelete | HamtMerge | Index | Max | Min | Split | StringConcat | WriteFile
-            | SafeDiv | SafeMod | BitAnd | BitOr | BitXor | BitShl | BitShr => 2,
-            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring => 3,
+            ClockNow
+            | ReadStdin
+            | Time
+            | FiberGetContext
+            | FiberYieldNow
+            | FiberNewScope
+            | FiberCheckCancelled
+            | FiberCurrentWorkerCount
+            | EventNever => 0,
+            Abs
+            | ArrayLen
+            | DebugTrace
+            | IsArray
+            | IsBool
+            | IsFloat
+            | IsInt
+            | IsList
+            | IsMap
+            | IsNone
+            | IsSome
+            | IsString
+            | Len
+            | Lower
+            | Panic
+            | ParseInt
+            | Print
+            | Println
+            | ReadFile
+            | ReadLines
+            | StringLength
+            | ToString
+            | Trim
+            | Try
+            | AssertThrows
+            | TypeOf
+            | Upper
+            | HamtKeys
+            | HamtValues
+            | HamtSize
+            | Neg
+            | Not
+            | Unwrap
+            | FSqrt
+            | FSin
+            | FCos
+            | FExp
+            | FLog
+            | FFloor
+            | FCeil
+            | FRound
+            | FTan
+            | FAsin
+            | FAcos
+            | FAtan
+            | FSinh
+            | FCosh
+            | FTanh
+            | FTruncate
+            | TaskSpawn
+            | TaskSpawnMove
+            | TaskBlockingJoin
+            | TaskCancel
+            | FiberSuspend
+            | FiberFork
+            | FiberFail
+            | TaskAwait
+            | FiberRunAsync
+            | FiberSleep
+            | TcpClose
+            | TcpAccept
+            | FiberCancelScope
+            | FiberFirstOf
+            | FiberTry
+            | ChanMake
+            | ChanRecv
+            | ChanTryRecv
+            | ChanClose
+            | ChanLen
+            | ChanCap
+            | ChanIsClosed
+            | EventAfter
+            | EventAlways
+            | EventChoose
+            | EventRecv
+            | EventSync
+            | EventPoll
+            | EventWait
+            | HttpShutdown
+            | HttpShutdownNow
+            | HttpActiveConnectionCount
+            | HttpIsShuttingDown
+            | HttpServerStopped
+            | HttpIsServerStopped
+            | HttpParseUrl
+            | HttpParseResponse
+            | JsonParse
+            | JsonStringify
+            | HttpWriteChunkedHead
+            | HttpWriteChunk => 1,
+            HttpWriteChunkedEnd => 0,
+            Add
+            | Sub
+            | Mul
+            | Div
+            | Mod
+            | IAdd
+            | ISub
+            | IMul
+            | IDiv
+            | IMod
+            | FAdd
+            | FSub
+            | FMul
+            | FDiv
+            | Eq
+            | NEq
+            | Lt
+            | Le
+            | Gt
+            | Ge
+            | ICmpEq
+            | ICmpNe
+            | ICmpLt
+            | ICmpLe
+            | ICmpGt
+            | ICmpGe
+            | FCmpEq
+            | FCmpNe
+            | FCmpLt
+            | FCmpLe
+            | FCmpGt
+            | FCmpGe
+            | CmpEq
+            | CmpNe
+            | And
+            | Or
+            | Concat
+            | ArrayGet
+            | ArrayPush
+            | ArrayConcat
+            | HamtGet
+            | HamtContains
+            | HamtDelete
+            | HamtMerge
+            | Index
+            | Max
+            | Min
+            | Split
+            | StringConcat
+            | WriteFile
+            | SafeDiv
+            | SafeMod
+            | BitAnd
+            | BitOr
+            | BitXor
+            | BitShl
+            | BitShr
+            | TcpConnect
+            | TcpListen
+            | TcpRead
+            | TcpWriteAll
+            | FiberBoth
+            | FiberRace
+            | FiberTimeout
+            | FiberForkScoped
+            | TaskSpawnScoped
+            | TaskSpawnScopedMove
+            | ChanSend
+            | ChanSendMove
+            | ChanTrySend
+            | ChanTrySendMove
+            | EventSend
+            | EventSendMove
+            | EventWrap
+            | HttpWriteResponse
+            | HttpRegisterConnection
+            | HttpUnregisterConnection
+            | HttpParseRequest => 2,
+            ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
+            | HttpServeConfig => 3,
+            FiberRunAsyncWith => 4,
+            HttpWriteRequest => 5,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
@@ -1294,6 +1954,8 @@ pub struct CoreDef {
     pub name: Identifier,
     pub binder: CoreBinder,
     pub expr: CoreExpr,
+    /// True for compiler-generated type-class dictionary definitions.
+    pub is_dict_def: bool,
     /// Compiler-owned borrow metadata inferred/registered for this definition.
     pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
     /// HM-inferred result type for this definition, if available.
@@ -1477,6 +2139,7 @@ impl CoreDef {
             name: binder.name,
             binder,
             expr,
+            is_dict_def: false,
             borrow_signature: None,
             result_ty: None,
             is_anonymous,

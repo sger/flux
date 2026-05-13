@@ -68,7 +68,7 @@ module Flow.FTest {
         test_fn: ((a) -> Unit with Console)
     ) -> () with Console {
         fn run_case(test_fn, c, fail_count) {
-            if try(\() -> test_fn(c)).0 == "error" { fail_count + 1 } else { fail_count }
+            if try_catch(\() -> test_fn(c)).0 == "error" { fail_count + 1 } else { fail_count }
         }
         fn for_each_list(xs, fail_count) {
             match xs {
@@ -108,7 +108,7 @@ module Flow.FTest {
             [t | rest] -> do {
                 let test_name = t.0
                 let test_fn = t.1
-                let result = try(test_fn)
+                let result = try_catch(test_fn)
                 match result.0 {
                     "ok" -> print("    PASS  " + test_name),
                     _ -> print("    FAIL  " + test_name + "\n            " + result.1)

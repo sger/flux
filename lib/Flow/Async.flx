@@ -1,0 +1,433 @@
+// Flow.Async — structured concurrency primitives (proposal 0174 Phase 1b).
+//
+// All public functions that carry `with Async` are backed by fiber primops
+// (163–165 in CorePrimOp). VM fibers are cooperative and single-OS-threaded
+// inside each run_async boundary: worker_count creates logical queues, not OS
+// workers. Native fibers run on real OS workers. `yield_now` performs a real
+// cooperative reschedule on both backends (proposal 0174 slice 2-vi): the
+// calling fiber moves to the tail of its run-queue so other ready fibers run
+// first.
+//
+// The `Async` effect alias (`<Suspend | Fork | GetContext | AsyncFail>`) is
+// compiler-seeded in `src/compiler/mod.rs` and declared in `lib/Flow/Effects.flx`.
+//
+// Parens scope effect rows: a callback parameter that carries `with <effect>`
+// must wrap its function type in parens, e.g. `f: (() -> a with Async | e)`.
+// The bare form `f: () -> a with Async` works only on the *final* parameter
+// (where the `with` is unambiguously the enclosing function's effect clause);
+// any non-final callback that carries an effect row needs the parens.
+
+module Flow.Async {
+
+    // ── Error type ────────────────────────────────────────────────────
+
+    /// Errors that may be raised by async operations.
+    public data AsyncError {
+        /// The enclosing scope was cancelled before this fiber completed.
+        Canceled,
+        /// A `timeout` or `timeout_result` deadline expired.
+        TimedOut,
+        /// A fiber panicked while running under `Async.run_async`.
+        Panicked(String),
+        /// TCP / UDP I/O failure. Fields: (errno, message, syscall).
+        IoError(Int, String, String),
+        /// DNS resolution failure. Fields: (code, message, host).
+        DnsError(Int, String, String),
+        /// HTTP protocol/framing failure. Fields: (status, message).
+        ProtocolError(Int, String),
+        /// The remote peer closed the connection.
+        ConnectionClosed,
+        /// Address could not be parsed.
+        InvalidAddress(String),
+    }
+
+    public data Result<a, e> {
+        Ok(a),
+        Err(e),
+    }
+
+    public fn canceled_error() -> AsyncError { Canceled }
+
+    public fn protocol_error(status: Int, message: String) -> AsyncError {
+        ProtocolError(status, message)
+    }
+
+    // ── Structural handles ────────────────────────────────────────────
+
+    /// Cancellation boundary. Fibers forked inside a `scope` call are
+    /// attached to the `Scope` value; cancelling the scope cancels all
+    /// of them.
+    public data Scope { Scope(Int) }
+
+    /// Opaque fiber identifier.
+    public data FiberId { FiberId(Int) }
+
+    /// Handle returned by an async operation registration.
+    public data CancelHandle { CancelHandle(Int) }
+
+    // ── Fiber primop intrinsics ───────────────────────────────────────
+
+    /// Entry point: run `action` under the fiber scheduler.
+    /// VM: synchronous call. Native: installs Async effect handler.
+    intrinsic fn fiber_run_async<a>(action: () -> a with Async | e) -> a = primop FiberRunAsync
+
+    /// Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
+    /// knobs. Each int is a tagged Flux Int; passing 0 means "use the default
+    /// for that knob".
+    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async | e) -> a = primop FiberRunAsyncWith
+
+    /// Cooperative reschedule: move the current fiber to the tail of its
+    /// run-queue. Real on both the VM and native backends; a no-op only
+    /// outside a `run_async` scheduler. Also a cancellation checkpoint.
+    intrinsic fn fiber_yield_now_prim() -> Unit = primop FiberYieldNow
+
+    /// Phase 2 slice 2-iv: poll whether the current fiber's enclosing
+    /// scope has been cancelled. Returns `true` iff cancelled. No
+    /// suspend, no backend round-trip — a scheduler flag check.
+    intrinsic fn fiber_check_cancelled_prim() -> Bool = primop FiberCheckCancelled
+
+    /// Slice 2-vii follow-up: report the worker count of the currently
+    /// active `run_async` scheduler. Returns 0 outside `run_async`.
+    intrinsic fn fiber_current_worker_count_prim() -> Int = primop FiberCurrentWorkerCount
+
+    /// Wall-clock sleep for `ms` milliseconds. VM and native both suspend the
+    /// current fiber; only native can run other fibers on another OS worker.
+    intrinsic fn fiber_sleep_prim(ms: Int) -> Unit = primop FiberSleep
+
+    /// Raise an `AsyncError` in the current fiber.
+    intrinsic fn fiber_fail_prim<a>(err: AsyncError) -> a = primop FiberFail
+
+    /// Run `body` under an async error boundary.
+    intrinsic fn fiber_try_prim<a>(body: () -> a with Async | e) -> Result<a, AsyncError> = primop FiberTry
+
+    /// Run two fibers concurrently, returning both results as a pair. VM:
+    /// cooperative overlap on one OS thread. Native: fiber overlap on OS
+    /// workers.
+    intrinsic fn fiber_both_prim<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) = primop FiberBoth
+
+    /// Run two fibers concurrently, returning the first result that arrives.
+    /// VM: cooperative overlap on one OS thread; loser cancelled immediately
+    /// on winner resolution.
+    intrinsic fn fiber_race_prim<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a = primop FiberRace
+
+    /// Phase 2 slice 2-ii: run N fibers concurrently and return the
+    /// zero-based winning index plus the first result.
+    intrinsic fn fiber_first_of_prim<a>(fs: List<() -> a with Async>) -> (Int, a) = primop FiberFirstOf
+
+    /// Bound `f` by `ms` milliseconds: returns `Some(f())` if `f` completes
+    /// in time, `None` if the timer fires first. VM: cooperative overlap via
+    /// the single-threaded fiber scheduler. Native: fiber overlap on OS
+    /// workers.
+    intrinsic fn fiber_timeout_prim<a>(ms: Int, f: () -> a with Async | e) -> Option<a> = primop FiberTimeout
+
+    /// Allocate a new cancellation scope (proposal 0174 1b-vi-c).
+    intrinsic fn fiber_new_scope_prim() -> Scope = primop FiberNewScope
+
+    /// Fork a child fiber attached to scope `s` (proposal 0174 1b-vi-c).
+    intrinsic fn fiber_fork_scoped_prim<a, e>(s: Scope, f: () -> a with Async | e) -> Unit = primop FiberForkScoped
+
+    /// Cancel all fibers forked under scope `s` (proposal 0174 1b-vi-c).
+    intrinsic fn fiber_cancel_scope_prim(s: Scope) -> Unit = primop FiberCancelScope
+
+    // ── Runtime configuration (Phase 2 slice 2-vii) ───────────────────
+
+    /// Knobs passed to `Async.run_async_with` to override scheduler /
+    /// blocking-pool defaults for a single `run_async` boundary.
+    ///
+    /// Field semantics:
+    ///
+    /// - `worker_count`: `Some(n)` requests `n` scheduler workers (>= 1).
+    ///   On the VM these are logical fiber queues drained on the caller OS
+    ///   thread; on native they are real OS worker slots.
+    ///   `None` means "use the runtime default" — `available_parallelism()`
+    ///   on platforms that report it, falling back to 2 logical workers.
+    /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
+    ///   Accepted today and stored; consulted once filesystem blocking
+    ///   consumers land. `0` means "use default".
+    /// - `dns_pool_size`: blocking-thread pool size for DNS resolution.
+    ///   `0` means use `FLUX_DNS_THREADS` or the runtime default.
+    public data RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  Option<Int>,
+            fs_pool_size:  Int,
+            dns_pool_size: Int,
+        }
+    }
+
+    /// Construct a `RuntimeConfig` with all defaults.
+    ///
+    /// `run_async(action)` is equivalent to
+    /// `run_async_with(default_runtime_config(), action)`.
+    /// Env-var fallbacks (`FLUX_WORKERS`, `FLUX_FS_THREADS`,
+    /// `FLUX_DNS_THREADS`) are read by the runtime when the corresponding
+    /// field is the default sentinel; an explicit `RuntimeConfig` override
+    /// always wins.
+    public fn default_runtime_config() -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  None,
+            fs_pool_size:  0,
+            dns_pool_size: 0,
+        }
+    }
+
+    /// Builder helper: a `RuntimeConfig` with `worker_count = Some(n)` and
+    /// defaults elsewhere. Convenient for the common case of pinning the
+    /// scheduler to a specific worker count without spelling out the full
+    /// record literal at the call site.
+    public fn with_worker_count(n: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  Some(n),
+            fs_pool_size:  0,
+            dns_pool_size: 0,
+        }
+    }
+
+    /// Builder helper for DNS-heavy runs.
+    public fn with_dns_pool_size(n: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  None,
+            fs_pool_size:  0,
+            dns_pool_size: n,
+        }
+    }
+
+    // ── Entry point ───────────────────────────────────────────────────
+
+    /// Run an async computation. This is the boundary that installs the
+    /// `Async` effect handler. Blocks the calling OS thread until the
+    /// root fiber completes.
+    public fn run_async<a>(action: () -> a with Async | e) -> a {
+        fiber_run_async(action)
+    }
+
+    /// Run an async computation with explicit `RuntimeConfig` knobs.
+    /// See [`RuntimeConfig`] for field semantics. `worker_count == None`
+    /// is encoded as the sentinel `0` in the primop call so the runtime
+    /// can choose its default.
+    public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async | e) -> a {
+        let workers = match cfg.worker_count {
+            Some(n) -> n,
+            None    -> 0
+        }
+        fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, action)
+    }
+
+    /// Run an async computation with an explicit worker count and default
+    /// settings for the other runtime knobs.
+    public fn run_async_with_workers<a>(n: Int, action: () -> a with Async | e) -> a {
+        run_async_with(with_worker_count(n), action)
+    }
+
+    // ── Structured concurrency ────────────────────────────────────────
+
+    /// Establish a cancellation boundary.
+    ///
+    /// Allocates a fresh scope ID and passes it to `f`. Any fibers forked
+    /// inside `f` via `fork(s, ...)` are registered under this scope and can
+    /// be cancelled together via `cancel(s)`.
+    public fn scope<a>(f: (Scope) -> a with Async | e) -> a with Async | e {
+        let s = fiber_new_scope_prim()
+        f(s)
+    }
+
+    public fn new_scope() -> Scope with Async {
+        fiber_new_scope_prim()
+    }
+
+    /// Fork a child fiber attached to `s`.
+    ///
+    /// The child is registered under the scope so `cancel(s)` can stop it.
+    public fn fork<a>(s: Scope, f: () -> a with Async | e) -> Unit with Async | e {
+        fiber_fork_scoped_prim(s, f)
+    }
+
+    /// Cancel all fibers forked under scope `s`.
+    ///
+    /// Each registered fiber is cancelled: its pending backend request is
+    /// stopped and its continuation is resumed with `AsyncError.Canceled`
+    /// so that `bracket`/`finally` cleanup arms run.
+    public fn cancel(s: Scope) -> Unit with Async {
+        fiber_cancel_scope_prim(s)
+    }
+
+    public fn scope_id(s: Scope) -> Int {
+        match s {
+            Scope(id) -> id
+        }
+    }
+
+    /// Run `f` and `g` concurrently; return both results.
+    ///
+    /// VM: cooperative interleaving on the caller OS thread. Native:
+    /// cooperative fibers scheduled over OS workers.
+    ///
+    public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
+        fiber_both_prim(f, g)
+    }
+
+    /// Run `f` and `g` concurrently; return whichever finishes first.
+    ///
+    /// VM/native: real first-wins via the fiber scheduler. On the VM this is
+    /// single-threaded cooperative interleaving; losers are cancelled when the
+    /// winner resolves.
+    ///
+    public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
+        fiber_race_prim(f, g)
+    }
+
+    /// Run every async thunk in `fs`; return the zero-based index and value
+    /// from the first one that completes. Source order breaks immediate ties.
+    public fn first_of<a>(fs: List<() -> a with Async>) -> (Int, a) with Async {
+        match fs {
+            [_ | _] -> fiber_first_of_prim(fs),
+            _ -> panic("Async.first_of called on empty list")
+        }
+    }
+
+    /// Run every async thunk in `fs`; return the first completed value.
+    public fn first<a>(fs: List<() -> a with Async>) -> a with Async {
+        let pair = first_of(fs)
+        pair.1
+    }
+
+    /// Bound `f` by `ms` milliseconds. Returns `Some(v)` or `None`.
+    ///
+    /// VM/native: returns `Some(f())` if the body wins, `None` if the timer
+    /// wins. CPU-bound VM bodies must suspend or yield for the timer fiber to
+    /// make progress.
+    public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e {
+        fiber_timeout_prim(ms, f)
+    }
+
+    /// Like `timeout` but preserves the error channel.
+    ///
+    /// VM: cooperative interleaving via fiber scheduler — same shape as
+    /// `timeout`.
+    public fn timeout_result<a>(ms: Int, f: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
+        match fiber_try_prim(fn() { fiber_timeout_prim(ms, f) }) {
+            Ok(Some(v)) -> Ok(v),
+            Ok(None)    -> Err(TimedOut),
+            Err(err)    -> Err(err)
+        }
+    }
+
+    /// Run `body`; always run `cleanup` afterward.
+    ///
+    /// VM: runs `body`, then `cleanup`, returns body's result.
+    ///
+    public fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async {
+        let result = body()
+        let _ = cleanup()
+        result
+    }
+
+    /// Acquire a resource, run `body`, then always call `release`.
+    ///
+    /// VM: acquire → body → release, sequentially.
+    ///
+    public fn bracket<r, c, a>(acquire: () -> r, release: (r) -> c, body: (r) -> a with Async) -> a with Async {
+        let resource = acquire()
+        let result = body(resource)
+        let _ = release(resource)
+        result
+    }
+
+    /// Catch async fiber failures in `body`.
+    public fn try<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e {
+        fiber_try_prim(body)
+    }
+
+    public fn result_or<a>(r: Result<a, AsyncError>, fallback: a) -> a {
+        match r {
+            Ok(v) -> v,
+            Err(_) -> fallback
+        }
+    }
+
+    public fn result_is_timed_out<a>(r: Result<a, AsyncError>) -> Bool {
+        match r {
+            Err(TimedOut) -> true,
+            _ -> false
+        }
+    }
+
+    public fn result_is_ok<a>(r: Result<a, AsyncError>) -> Bool {
+        match r {
+            Ok(_) -> true,
+            _ -> false
+        }
+    }
+
+    public fn ok_result<a>(v: a) -> Result<a, AsyncError> {
+        Ok(v)
+    }
+
+    public fn result_or_else_async<a, b>(r: Result<a, AsyncError>, fallback: b, ok: (a) -> b with Async | e) -> b with Async | e {
+        match r {
+            Ok(v) -> ok(v),
+            Err(_) -> fallback
+        }
+    }
+
+    public fn result_or_timeout_with_async<a, b>(r: Result<a, AsyncError>, timed_out: a, failed: a, ok: (a, Bool) -> b with Async | e) -> b with Async | e {
+        match r {
+            Ok(v) -> ok(v, true),
+            Err(TimedOut) -> ok(timed_out, false),
+            Err(_) -> ok(failed, false)
+        }
+    }
+
+    /// Raise an `AsyncError` inside the current fiber.
+    public fn fail<a>(err: AsyncError) -> a with Async {
+        fiber_fail_prim(err)
+    }
+
+    // ── Scheduling primitives ─────────────────────────────────────────
+
+    /// Yield the current fiber to the scheduler: it is re-enqueued at the
+    /// tail of its run-queue, so any other ready fibers make progress before
+    /// it resumes. Real on both backends; a no-op only when called outside a
+    /// `run_async` scheduler. A tight `loop { yield_now() }` still spins —
+    /// cooperative scheduling has no preemption.
+    public fn yield_now() -> Unit with Async {
+        fiber_yield_now_prim()
+    }
+
+    /// True iff the enclosing `Async.scope` (or `timeout` / `race`) has
+    /// been cancelled. Fibers in long pure loops between `await` points
+    /// should call this periodically and `return` early when it returns
+    /// true.
+    ///
+    /// Pair this with `bail_if_cancelled` when the fiber should raise
+    /// `AsyncError.Canceled` at a cooperative checkpoint.
+    public fn check_cancelled() -> Bool with Async {
+        fiber_check_cancelled_prim()
+    }
+
+    /// Convenience wrapper: `if check_cancelled() { fail(AsyncError.Canceled) }`.
+    public fn bail_if_cancelled() -> Unit with Async {
+        if check_cancelled() { fail(Canceled) }
+        else { () };
+    }
+
+    /// Report the worker count of the currently active `run_async`
+    /// scheduler. Useful for tests and runtime introspection. Returns
+    /// 0 outside an active `run_async` boundary.
+    ///
+    /// On native, this is the number of OS worker threads spawned by
+    /// the scheduler (one is the main thread, others are
+    /// `flux-async-worker-{n}` threads visible in `ps -T` / Process
+    /// Explorer). On the VM, it's the logical-worker count of the
+    /// `FiberScheduler` (single OS thread, multiple logical queues).
+    public fn current_worker_count() -> Int with Async {
+        fiber_current_worker_count_prim()
+    }
+
+    /// Suspend the current fiber for at least `ms` milliseconds. On the VM the
+    /// fiber parks through the VM async backend while other ready fibers may
+    /// run on the same OS thread; on native the fiber parks and an OS worker
+    /// can run other work.
+    public fn sleep(ms: Int) -> Unit with Async {
+        fiber_sleep_prim(ms)
+    }
+}

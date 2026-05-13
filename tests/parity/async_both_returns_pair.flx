@@ -1,0 +1,21 @@
+// parity: vm, llvm
+// expect: success
+// bug: both(f, g) must run f and g concurrently and return (f_result, g_result).
+//      Phase 1b-vi-b₂.2: VM now overlaps the two branches via the fiber
+//      scheduler. The returned tuple still preserves source order regardless
+//      of which branch finishes first.
+
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async { 3 }
+fn right() -> Int with Async { 4 }
+
+fn body() -> (Int, Int) with Async {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    print(pair.0)
+    print(pair.1)
+}

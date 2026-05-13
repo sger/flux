@@ -1,0 +1,38 @@
+// 04 — race: first finisher wins, loser is cancelled
+//
+// `Async.race(f, g)` runs both fibers concurrently and returns whichever
+// resolves first. As soon as the winner produces a value, the loser is
+// cancelled — its pending I/O is stopped and any `bracket` / `finally`
+// cleanup arms fire.
+//
+// Both branches must produce the same type `a`.
+
+// parity-expected-stdout-begin
+// "winner = fast"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Both branches must produce the same type. Here that's `String`.
+fn fast() -> String with Async {
+    sleep(20)
+    "fast"
+}
+
+fn slow() -> String with Async {
+    sleep(2000)       // never observed in practice — we cancel before this
+    "slow"
+}
+
+// `race(f, g)` returns whichever of `f` or `g` finishes first. The moment
+// the winner produces a value, the loser's pending I/O is cancelled and
+// any of its `bracket` / `finally` cleanup arms fire. Without `race`,
+// `slow` would force this body to take ~2 seconds; with it, ~20ms.
+fn body() -> String with Async {
+    race(fast, slow)
+}
+
+fn main() with IO {
+    let winner = run_async(body)
+    print("winner = " + winner)
+}

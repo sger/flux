@@ -1,0 +1,110 @@
+// Flow.Task — task spawning surface (proposal 0174 Phase 1a-vi + D5-a).
+//
+// User-facing API for the Phase 1a Rust [`TaskScheduler`]. The `Sendable<a>`
+// constraint gates which values may cross a worker boundary.
+//
+// **Backend status:**
+// - **VM:** `spawn` runs the body on a Rust worker thread through a
+//   sendable deep-copy boundary, then rehydrates the result back into normal
+//   Rc-backed VM values. `blocking_join` blocks the caller; `await` suspends
+//   only the current VM fiber while the task computes.
+// - **Native (LLVM):** `spawn` runs the body on a native OS thread and
+//   promotes the closure across the worker boundary. `blocking_join` blocks
+//   the caller; `await` suspends only the current fiber and resumes through
+//   the native async scheduler when the task finishes.
+//
+// Either way, the **type-level surface** is fixed: `spawn`/`blocking_join`
+// require `Sendable<a>`; `cancel` is unconstrained on `a`.
+
+import Flow.Async exposing (..)
+
+module Flow.Task {
+
+    /// Handle to a task running on the worker pool. Wraps an opaque task id
+    /// allocated by the runtime scheduler.
+    public data Task<a> { Task(Int) }
+
+    /// Compiler intrinsic — directly maps to `CorePrimOp::TaskSpawn`. The
+    /// action's return type stays polymorphic so the VM dispatch can return
+    /// `Value::Integer(task_id)` to user code that wraps it in `Task(...)`.
+    intrinsic fn task_spawn_id<a>(action: () -> a) -> Int = primop TaskSpawn
+    intrinsic fn task_spawn_move_id<a>(action: () -> a) -> Int = primop TaskSpawnMove
+
+    /// Compiler intrinsic — `CorePrimOp::TaskBlockingJoin`. The result type
+    /// is polymorphic; the runtime returns whatever value was stashed by
+    /// the matching `task_spawn_id` call.
+    intrinsic fn task_join_id<a>(id: Int) -> a = primop TaskBlockingJoin
+
+    /// Compiler intrinsic — `CorePrimOp::TaskCancel`. Returns Unit.
+    intrinsic fn task_cancel_id(id: Int) -> Unit = primop TaskCancel
+
+    /// Schedule `action` on a worker thread. Returns immediately with a
+    /// handle. The result type `a` must be `Sendable` so the worker can
+    /// hand the produced value back to the joiner across threads.
+    public fn spawn<a: Sendable>(action: () -> a) -> Task<a> {
+        Task(task_spawn_id(action))
+    }
+
+    /// Schedule `action` by ownership transfer. Prefer this when captured
+    /// values are not aliased; the runtime attempts a zero-copy closure
+    /// transfer and falls back to a deep copy when the closure is shared.
+    public fn spawn_move<a: Sendable>(action: () -> a) -> Task<a> {
+        Task(task_spawn_move_id(action))
+    }
+
+    /// Block the calling thread until the task finishes, then return its
+    /// result.
+    public fn blocking_join<a: Sendable>(t: Task<a>) -> a {
+        match t {
+            Task(id) -> task_join_id(id)
+        }
+    }
+
+    /// Mark the task cancelled. Pre-pickup short-circuits the body;
+    /// post-completion is a no-op; in-flight cancellation surfaces only at
+    /// fiber yield points (Phase 1b). Idempotent.
+    public fn cancel<a>(t: Task<a>) -> Unit {
+        match t {
+            Task(id) -> task_cancel_id(id)
+        }
+    }
+
+    /// Compiler intrinsic — `CorePrimOp::TaskAwait`. Returns `Some(result)`
+    /// on success and `None` when cancellation wins.
+    intrinsic fn task_await_id<a>(id: Int) -> Option<a> = primop TaskAwait
+
+    /// Async-surface join.
+    ///
+    /// VM/native: fiber-suspending; the calling fiber keeps running other
+    /// work while the task worker thread computes.
+    public fn await<a: Sendable>(t: Task<a>) -> a with Async {
+        match t {
+            Task(id) -> match task_await_id(id) {
+                Some(v) -> v,
+                None    -> panic("TaskCancelled")
+            }
+        }
+    }
+
+    /// Compiler intrinsic — `CorePrimOp::TaskSpawnScoped`. Takes a `Scope` and
+    /// the action, returns the task id.
+    intrinsic fn task_spawn_scoped_id<a>(s: Scope, action: () -> a) -> Int = primop TaskSpawnScoped
+    intrinsic fn task_spawn_scoped_move_id<a>(s: Scope, action: () -> a) -> Int = primop TaskSpawnScopedMove
+
+    /// Spawn a task and register it under `s`. When `cancel(s)` is called,
+    /// this task is cancelled automatically alongside any forked fibers.
+    ///
+    /// The task body runs on a worker thread (or VM worker pool). `a` must
+    /// be `Sendable` for the same reason as `spawn`. The returned handle can
+    /// be `await`ed, `blocking_join`ed, or discarded — the scope owns the
+    /// lifetime regardless.
+    public fn spawn_scoped<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async {
+        Task(task_spawn_scoped_id(s, action))
+    }
+
+    /// Scoped ownership-transfer task spawn. Attempts zero-copy closure
+    /// transfer and falls back to a deep copy when the closure is shared.
+    public fn spawn_scoped_move<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async {
+        Task(task_spawn_scoped_move_id(s, action))
+    }
+}

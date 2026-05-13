@@ -65,6 +65,10 @@ fn program_has_yield_sites(program: &LirProgram) -> bool {
     false
 }
 
+fn program_has_direct_async_calls(program: &LirProgram) -> bool {
+    !crate::lir::direct_async_func_ids(program).is_empty()
+}
+
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -75,6 +79,10 @@ fn sanitize_llvm_symbol_fragment(name: &str) -> String {
             }
         })
         .collect()
+}
+
+fn is_dict_lir_function(func: &LirFunction) -> bool {
+    func.is_dict_def || func.qualified_name.starts_with("__dict_")
 }
 const RIGHT_TAG: i32 = 3;
 const CONS_TAG: i32 = 4;
@@ -94,6 +102,33 @@ pub fn emit_llvm_module_with_options(
     export_runtime_trampoline: bool,
     export_user_ctor_name_helper: bool,
 ) -> LlvmModule {
+    emit_llvm_module_with_yield_options(
+        program,
+        export_runtime_trampoline,
+        export_user_ctor_name_helper,
+        false,
+    )
+}
+
+/// Emit an `LlvmModule` with an optional forced yield-check mode.
+///
+/// Per-module native compilation needs forced checks because the module being
+/// emitted may call an imported function that suspends even when this module
+/// contains no local `YieldTo` site.
+pub fn emit_llvm_module_with_yield_options(
+    program: &LirProgram,
+    export_runtime_trampoline: bool,
+    export_user_ctor_name_helper: bool,
+    force_yield_checks: bool,
+) -> LlvmModule {
+    // Work around an LLVM optimizer hang triggered by many
+    // flux_fiber_run_async_with call sites in one generated function.
+    // Run before continuation splitting so subsequent native emission sees an
+    // ordinary LIR program with small noinline helper functions.
+    let outlined_program =
+        crate::lir::run_async_outline::outline_excess_run_async_with_sites(program.clone());
+    let program = &outlined_program;
+
     // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
     // the continuation-splitting pre-pass to synthesize per-call-site
     // continuation functions and populate `Call.yield_cont`. The yield-check
@@ -108,9 +143,14 @@ pub fn emit_llvm_module_with_options(
     // Clone is a cheap DAG copy — only happens when the feature flag is on,
     // so the default path pays nothing.
     let owned_program: LirProgram;
-    let yield_active = yield_checks_enabled() && program_has_yield_sites(program);
+    let force_yield_checks = force_yield_checks || program_has_direct_async_calls(program);
+    let yield_active =
+        yield_checks_enabled() && (force_yield_checks || program_has_yield_sites(program));
     let program: &LirProgram = if yield_active {
-        owned_program = crate::lir::cont_split::split_continuations(program.clone());
+        owned_program = crate::lir::cont_split::split_continuations_with_options(
+            program.clone(),
+            force_yield_checks,
+        );
         &owned_program
     } else {
         program
@@ -230,8 +270,16 @@ pub fn emit_llvm_module_with_options(
     // Emit closure entry wrappers for direct functions used as higher-order values.
     // These thin wrappers convert (i64 closure_raw, ptr args, i32 nargs) → direct call.
     for func in &program.functions {
-        if func.capture_vars.is_empty() && func.qualified_name != "main" {
-            let wrapper = emit_closure_wrapper(func, Linkage::External);
+        if func.capture_vars.is_empty()
+            && func.qualified_name != "main"
+            && !crate::lir::run_async_outline::is_run_async_with_outline_helper(func)
+        {
+            let linkage = if is_dict_lir_function(func) {
+                Linkage::Internal
+            } else {
+                Linkage::External
+            };
+            let wrapper = emit_closure_wrapper(func, linkage);
             module.functions.push(wrapper);
         }
     }
@@ -884,7 +932,11 @@ impl<'a> FnEmitter<'a> {
         if self.is_main {
             // Main: no params, returns i64, ccc (called from C main()).
             LlvmFunction {
-                linkage: Linkage::External,
+                linkage: if is_dict_lir_function(self.func) {
+                    Linkage::Internal
+                } else {
+                    Linkage::External
+                },
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),
@@ -932,8 +984,14 @@ impl<'a> FnEmitter<'a> {
             let param_types: Vec<LlvmType> =
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
+            let is_outline_helper =
+                crate::lir::run_async_outline::is_run_async_with_outline_helper(self.func);
             LlvmFunction {
-                linkage: Linkage::External,
+                linkage: if is_outline_helper || is_dict_lir_function(self.func) {
+                    Linkage::Internal
+                } else {
+                    Linkage::External
+                },
                 name: self.func_name(),
                 sig: LlvmFunctionSig {
                     ret: LlvmType::i64(),
@@ -942,7 +1000,11 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Fastcc,
                 },
                 params: param_locals,
-                attrs: vec!["nounwind".to_string()],
+                attrs: if is_outline_helper {
+                    vec!["noinline".to_string(), "nounwind".to_string()]
+                } else {
+                    vec!["nounwind".to_string()]
+                },
                 blocks,
             }
         } else {
@@ -1817,6 +1879,308 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_primcall(&mut self, dst: &Option<LirVar>, op: &CorePrimOp, args: &[LirVar]) {
+        // Some fiber shims need program-specific constructor tags. The LLVM
+        // emitter supplies them because the C runtime cannot know those tags.
+        if let CorePrimOp::FiberNewScope = op {
+            let tag = self
+                .program
+                .constructor_tags
+                .get("Scope")
+                .copied()
+                .unwrap_or(5); // 5 = first user ADT tag (matches lir/lower.rs)
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_fiber_new_scope",
+                vec![(LlvmType::i32(), self.i32_const(tag))],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::FiberTry = op {
+            let ok_tag = self
+                .program
+                .constructor_tags
+                .get("Ok")
+                .copied()
+                .unwrap_or(5);
+            let err_tag = self
+                .program
+                .constructor_tags
+                .get("Err")
+                .copied()
+                .unwrap_or(6);
+            let panicked_tag = self
+                .program
+                .constructor_tags
+                .get("Panicked")
+                .copied()
+                .unwrap_or(7);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_fiber_try",
+                vec![
+                    (LlvmType::i32(), self.i32_const(ok_tag)),
+                    (LlvmType::i32(), self.i32_const(err_tag)),
+                    (LlvmType::i32(), self.i32_const(panicked_tag)),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::EventPoll = op {
+            let ready_tag = self
+                .program
+                .constructor_tags
+                .get("Ready")
+                .copied()
+                .unwrap_or(5);
+            let pending_tag = self
+                .program
+                .constructor_tags
+                .get("Pending")
+                .copied()
+                .unwrap_or(6);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_event_poll",
+                vec![
+                    (LlvmType::i32(), self.i32_const(ready_tag)),
+                    (LlvmType::i32(), self.i32_const(pending_tag)),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpParseRequest = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_request",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("HttpNeedMore", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpParsed", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpParseFailure", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("Request", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("Get", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("Post", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("Put", 11))),
+                    (LlvmType::i32(), self.i32_const(tag("Delete", 12))),
+                    (LlvmType::i32(), self.i32_const(tag("Patch", 13))),
+                    (LlvmType::i32(), self.i32_const(tag("Head", 14))),
+                    (LlvmType::i32(), self.i32_const(tag("Options", 15))),
+                    (LlvmType::i64(), self.var(args[0])),
+                    (LlvmType::i64(), self.var(args[1])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpParseUrl = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_url",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("HttpUrlParsed", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpUrlFailure", 6))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpWriteRequest = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_write_request",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("Get", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("Post", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("Put", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("Delete", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("Patch", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("Head", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("Options", 11))),
+                    (LlvmType::i64(), self.var(args[0])),
+                    (LlvmType::i64(), self.var(args[1])),
+                    (LlvmType::i64(), self.var(args[2])),
+                    (LlvmType::i64(), self.var(args[3])),
+                    (LlvmType::i64(), self.var(args[4])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::HttpParseResponse = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_http_parse_response",
+                vec![
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseNeedMore", 5)),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseParsed", 6)),
+                    ),
+                    (
+                        LlvmType::i32(),
+                        self.i32_const(tag("HttpResponseFailure", 7)),
+                    ),
+                    (LlvmType::i32(), self.i32_const(tag("Response", 8))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::JsonParse = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_json_parse",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("JsonNull", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonBool", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonNumber", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonInt", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonFloat", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonString", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonArray", 11))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonObject", 12))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonError", 13))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonOk", 14))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonErr", 15))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
+        if let CorePrimOp::JsonStringify = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_json_stringify",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("JsonNull", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonBool", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonNumber", 7))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonInt", 8))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonFloat", 9))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonString", 10))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonArray", 11))),
+                    (LlvmType::i32(), self.i32_const(tag("JsonObject", 12))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
             .iter()
             .map(|a| (LlvmType::i64(), self.var(*a)))
@@ -2598,7 +2962,7 @@ impl<'a> FnEmitter<'a> {
                             LlvmType::i64(),
                         );
                     }
-                    CallKind::Indirect => {
+                    CallKind::Indirect { .. } => {
                         // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
                         self.call_c(
@@ -2633,15 +2997,15 @@ impl<'a> FnEmitter<'a> {
                         self.emit(instr);
                     }
                     term
-                } else if self.emit_yield_checks && !suppress_yield_check {
+                } else if self.emit_yield_checks && !suppress_yield_check && yield_cont.is_some() {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
                     // continuation function (populated in Call.yield_cont by
                     // the `cont_split` pre-pass) and hand it to
-                    // `flux_yield_extend`. When the pre-pass produced no
-                    // synthesized continuation, fall back to the stub path
-                    // that drops the continuation — only reachable for
-                    // degenerate cont subgraphs.
+                    // `flux_yield_extend`. Calls without a populated
+                    // continuation are known non-suspending call sites after
+                    // cont_split filtering, so they must not observe a stale
+                    // yielding flag and return a bare sentinel.
                     let passed_cont: Option<(LirFuncId, &[LirVar])> =
                         yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
                     self.emit_yield_check_after_call(*cont, passed_cont)
@@ -2728,7 +3092,7 @@ impl<'a> FnEmitter<'a> {
                             attrs: Vec::new(),
                         });
                     }
-                    CallKind::Indirect => {
+                    CallKind::Indirect { .. } => {
                         // User-visible indirect calls must validate target kind and exact arity.
                         let llvm_args = self.build_call_args(args);
                         self.call_c(
@@ -3325,7 +3689,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Panic => "panic",
         CorePrimOp::ClockNow => "now_ms",
         CorePrimOp::Time => "time",
-        CorePrimOp::Try => "try",
+        CorePrimOp::Try => return "flux_try".to_string(),
         CorePrimOp::AssertThrows => "assert_throws",
         CorePrimOp::ParseInt => "parse_int",
         CorePrimOp::Abs => "abs",
@@ -3412,6 +3776,101 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::Unwrap => return "flux_unwrap".to_string(),
         CorePrimOp::SafeDiv => return "flux_safe_div".to_string(),
         CorePrimOp::SafeMod => return "flux_safe_mod".to_string(),
+        // Concurrency (proposal 0174 D5-a). The LLVM/native side
+        // currently links against C stubs in `runtime/c/tasks.c` that
+        // abort at runtime. The full FFI bridge to the Rust scheduler
+        // lands in D5-b/c.
+        CorePrimOp::TaskSpawn => return "flux_task_spawn".to_string(),
+        CorePrimOp::TaskSpawnMove => return "flux_task_spawn_move".to_string(),
+        CorePrimOp::TaskSpawnScoped => return "flux_async_task_spawn_scoped".to_string(),
+        CorePrimOp::TaskSpawnScopedMove => {
+            return "flux_async_task_spawn_scoped_move".to_string();
+        }
+        CorePrimOp::TaskBlockingJoin => return "flux_task_blocking_join".to_string(),
+        CorePrimOp::TaskCancel => return "flux_task_cancel".to_string(),
+        // Fiber primops (proposal 0174 Phase 1b).
+        CorePrimOp::FiberSuspend => return "flux_fiber_suspend".to_string(),
+        CorePrimOp::FiberFork => return "flux_fiber_fork".to_string(),
+        CorePrimOp::FiberGetContext => return "flux_fiber_get_context".to_string(),
+        CorePrimOp::FiberFail => return "flux_fiber_fail".to_string(),
+        CorePrimOp::TaskAwait => return "flux_task_await".to_string(),
+        CorePrimOp::FiberRunAsync => return "flux_fiber_run_async".to_string(),
+        CorePrimOp::FiberYieldNow => return "flux_fiber_yield_now".to_string(),
+        CorePrimOp::FiberSleep => return "flux_fiber_sleep".to_string(),
+        CorePrimOp::TcpConnect => return "flux_tcp_connect".to_string(),
+        CorePrimOp::TcpRead => return "flux_tcp_read".to_string(),
+        CorePrimOp::TcpWriteAll => return "flux_tcp_write_all".to_string(),
+        CorePrimOp::TcpClose => return "flux_tcp_close".to_string(),
+        CorePrimOp::TcpListen => return "flux_tcp_listen".to_string(),
+        CorePrimOp::TcpAccept => return "flux_tcp_accept".to_string(),
+        // FiberBoth/FiberRace (proposal 0174 Phase 1b-vi-b₂.2). Native
+        // implementation lands in 1b-vi-d; until then any program that
+        // reaches these primops on the native backend will fail to link
+        // against `flux_fiber_both` / `flux_fiber_race`, which is the
+        // intended behaviour (loud failure, not silent fallback).
+        CorePrimOp::FiberBoth => return "flux_fiber_both".to_string(),
+        CorePrimOp::FiberRace => return "flux_fiber_race".to_string(),
+        CorePrimOp::FiberFirstOf => return "flux_fiber_first_of".to_string(),
+        CorePrimOp::FiberTry => return "flux_fiber_try".to_string(),
+        CorePrimOp::FiberTimeout => return "flux_fiber_timeout".to_string(),
+        // 1b-vi-c scope/fork/cancel: native implementation deferred to 1b-vi-d.
+        CorePrimOp::FiberNewScope => return "flux_fiber_new_scope".to_string(),
+        CorePrimOp::FiberForkScoped => return "flux_fiber_fork_scoped".to_string(),
+        CorePrimOp::FiberCancelScope => return "flux_fiber_cancel_scope".to_string(),
+        // Phase 2 slice 2-iv: poll the current fiber's scope cancel flag.
+        CorePrimOp::FiberCheckCancelled => return "flux_fiber_check_cancelled".to_string(),
+        // Slice 2-vii follow-up: report active scheduler's worker count.
+        CorePrimOp::FiberCurrentWorkerCount => {
+            return "flux_fiber_current_worker_count".to_string();
+        }
+        // Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
+        CorePrimOp::FiberRunAsyncWith => return "flux_fiber_run_async_with".to_string(),
+        CorePrimOp::ChanMake => return "flux_chan_make".to_string(),
+        CorePrimOp::ChanSend => return "flux_chan_send".to_string(),
+        CorePrimOp::ChanSendMove => return "flux_chan_send_move".to_string(),
+        CorePrimOp::ChanRecv => return "flux_chan_recv".to_string(),
+        CorePrimOp::ChanTrySend => return "flux_chan_try_send".to_string(),
+        CorePrimOp::ChanTrySendMove => return "flux_chan_try_send_move".to_string(),
+        CorePrimOp::ChanTryRecv => return "flux_chan_try_recv".to_string(),
+        CorePrimOp::ChanClose => return "flux_chan_close".to_string(),
+        CorePrimOp::ChanLen => return "flux_chan_len".to_string(),
+        CorePrimOp::ChanCap => return "flux_chan_cap".to_string(),
+        CorePrimOp::ChanIsClosed => return "flux_chan_is_closed".to_string(),
+        CorePrimOp::EventRecv => return "flux_event_recv".to_string(),
+        CorePrimOp::EventSend => return "flux_event_send".to_string(),
+        CorePrimOp::EventSendMove => return "flux_event_send_move".to_string(),
+        CorePrimOp::EventAfter => return "flux_event_after".to_string(),
+        CorePrimOp::EventAlways => return "flux_event_always".to_string(),
+        CorePrimOp::EventNever => return "flux_event_never".to_string(),
+        CorePrimOp::EventChoose => return "flux_event_choose".to_string(),
+        CorePrimOp::EventWrap => return "flux_event_wrap".to_string(),
+        CorePrimOp::EventSync => return "flux_event_sync".to_string(),
+        CorePrimOp::EventPoll => return "flux_event_poll".to_string(),
+        CorePrimOp::EventWait => return "flux_event_wait".to_string(),
+        // HTTP/1.1 server manager reserved hooks (proposal 0174 Phase 3a).
+        CorePrimOp::HttpServeConfig => return "flux_http_serve_config".to_string(),
+        CorePrimOp::HttpShutdown => return "flux_http_shutdown".to_string(),
+        CorePrimOp::HttpShutdownNow => return "flux_http_shutdown_now".to_string(),
+        CorePrimOp::HttpParseRequest => return "flux_http_parse_request".to_string(),
+        CorePrimOp::HttpWriteResponse => return "flux_http_write_response".to_string(),
+        CorePrimOp::HttpWriteChunkedHead => return "flux_http_write_chunked_head".to_string(),
+        CorePrimOp::HttpWriteChunk => return "flux_http_write_chunk".to_string(),
+        CorePrimOp::HttpWriteChunkedEnd => return "flux_http_write_chunked_end".to_string(),
+        CorePrimOp::HttpParseUrl => return "flux_http_parse_url".to_string(),
+        CorePrimOp::HttpWriteRequest => return "flux_http_write_request".to_string(),
+        CorePrimOp::HttpParseResponse => return "flux_http_parse_response".to_string(),
+        CorePrimOp::HttpRegisterConnection => return "flux_http_register_connection".to_string(),
+        CorePrimOp::HttpUnregisterConnection => {
+            return "flux_http_unregister_connection".to_string();
+        }
+        CorePrimOp::HttpActiveConnectionCount => {
+            return "flux_http_active_connection_count".to_string();
+        }
+        CorePrimOp::HttpIsShuttingDown => return "flux_http_is_shutting_down".to_string(),
+        CorePrimOp::HttpServerStopped => return "flux_http_server_stopped".to_string(),
+        CorePrimOp::HttpIsServerStopped => return "flux_http_is_server_stopped".to_string(),
+        CorePrimOp::JsonParse => return "flux_json_parse".to_string(),
+        CorePrimOp::JsonStringify => return "flux_json_stringify".to_string(),
     };
 
     // Look up in builtins table for the C name.
@@ -3446,7 +3905,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
-        "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
+        "flux_try" | "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
         "flux_rt_div_loc" | "flux_rt_mod_loc" => (
@@ -3517,6 +3976,190 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
         "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),
         "flux_unbox_float_rt" => (LlvmType::Double, vec![LlvmType::i64()]),
+        // Concurrency (proposal 0174 D5-a). C stubs in `runtime/c/tasks.c`
+        // abort at runtime; the full Rust-scheduler bridge lands in D5-b/c.
+        "flux_task_spawn" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_spawn_move" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_async_task_spawn_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_async_task_spawn_scoped_move" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
+        "flux_task_blocking_join" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_cancel" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Fiber primops (proposal 0174 Phase 1b).
+        "flux_fiber_suspend" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_fork" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_get_context" => (LlvmType::i64(), vec![]),
+        "flux_fiber_fail" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_task_await" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_run_async" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_yield_now" => (LlvmType::i64(), vec![]),
+        "flux_fiber_sleep" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Fiber combinators (proposal 0174 Phase 1b-vi-d — sequential-equivalent).
+        "flux_fiber_both" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_race" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_first_of" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_fiber_try" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
+        "flux_fiber_new_scope" => (LlvmType::i64(), vec![LlvmType::i32()]),
+        "flux_fiber_fork_scoped" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_fiber_cancel_scope" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Phase 2 slice 2-iv: zero-arg, returns tagged Flux Bool.
+        "flux_fiber_check_cancelled" => (LlvmType::i64(), vec![]),
+        // Slice 2-vii follow-up: zero-arg, returns tagged Flux Int.
+        "flux_fiber_current_worker_count" => (LlvmType::i64(), vec![]),
+        // Phase 2 slice 2-vii: 4-arg run_async_with (workers, fs, dns, closure).
+        "flux_fiber_run_async_with" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_chan_make" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_try_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_try_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_chan_try_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_len" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_cap" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_chan_is_closed" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_recv" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_send_move" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_after" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_always" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_never" => (LlvmType::i64(), vec![]),
+        "flux_event_choose" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_wrap" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_sync" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_poll" => (
+            LlvmType::i64(),
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+        ),
+        "flux_event_wait" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // TCP primops (proposal 0174 Phase 1b-vii).
+        // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
+        "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_read" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_write_all" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_tcp_listen" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_tcp_accept" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_serve_config" => (
+            LlvmType::i64(),
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+        ),
+        "flux_http_shutdown" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_shutdown_now" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_parse_request" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_http_write_response" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_http_write_chunked_head" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_write_chunk" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_write_chunked_end" => (LlvmType::i64(), vec![]),
+        "flux_http_parse_url" => (
+            LlvmType::i64(),
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
+        ),
+        "flux_http_write_request" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_http_parse_response" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_http_register_connection" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
+        "flux_http_unregister_connection" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
+        "flux_http_active_connection_count" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_is_shutting_down" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_http_is_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_json_parse" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_json_stringify" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
         _ => return None,
     };
     Some(LlvmDecl {

@@ -18,7 +18,7 @@ exit_code: 1
 • 5 errors • tests/fixtures/collections/empty_and_singleton.flx
 error[E430]: Could Not Infer Concrete Type
 
-Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10594 at the backend representation.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10603 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:1:1
   |
@@ -31,7 +31,7 @@ Hint:
 
 error[E430]: Could Not Infer Concrete Type
 
-Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10596 at the backend representation.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10605 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:3:1
   |
@@ -60,7 +60,7 @@ Help:
 
 error[E430]: Could Not Infer Concrete Type
 
-Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10598 at the backend representation.
+Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `0` still has unresolved type variable #10607 at the backend representation.
 
   tests/fixtures/collections/empty_and_singleton.flx:4:1
   |

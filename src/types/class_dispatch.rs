@@ -14,8 +14,11 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        data_variant::DataVariant,
         expression::{ExprId, ExprIdGen, Expression},
         interner::Interner,
+        lexer::Lexer,
+        parser::Parser,
         statement::{FunctionTypeParam, Statement},
         type_class::ClassConstraint,
         type_expr::TypeExpr,
@@ -57,6 +60,7 @@ pub fn generate_dispatch_functions(
     );
     if needs_builtin_dispatch_support(statements) {
         generate_builtin_instance_functions(
+            statements,
             class_env,
             interner,
             &mut generated,
@@ -135,6 +139,7 @@ fn collect_existing_function_names_into(statements: &[Statement], names: &mut Ha
 fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
     statements.iter().any(|stmt| match stmt {
         Statement::Class { .. } | Statement::Instance { .. } => true,
+        Statement::Data { deriving, .. } => !deriving.is_empty(),
         Statement::Function {
             type_params, body, ..
         } => {
@@ -147,6 +152,7 @@ fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
 }
 
 fn generate_builtin_instance_functions(
+    statements: &[Statement],
     class_env: &ClassEnv,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
@@ -154,6 +160,7 @@ fn generate_builtin_instance_functions(
     reserved_names: &mut HashSet<Identifier>,
     builtin_expr_ids: &mut ExprIdGen,
 ) {
+    let adts = collect_data_declarations(statements, interner);
     for instance in &class_env.instances {
         if instance.span != Span::default() || !instance.method_names.is_empty() {
             continue;
@@ -171,14 +178,26 @@ fn generate_builtin_instance_functions(
 
         for method_sig in &class_def.methods {
             let method_name_str = interner.resolve(method_sig.name).to_string();
-            let Some(body) = builtin_method_body(
-                interner,
-                builtin_expr_ids,
-                &class_name_str,
-                &type_name,
-                &method_name_str,
-            ) else {
-                continue;
+            let derived_json =
+                find_adt_info_for_instance(instance, &adts, interner).and_then(|adt| {
+                    derived_json_method_body(adt, &method_name_str, interner, builtin_expr_ids)
+                });
+            let body = if is_json_codec_class(&class_name_str) {
+                let Some(body) = derived_json else {
+                    continue;
+                };
+                body
+            } else {
+                let Some(body) = builtin_method_body(
+                    interner,
+                    builtin_expr_ids,
+                    &class_name_str,
+                    &type_name,
+                    &method_name_str,
+                ) else {
+                    continue;
+                };
+                body
             };
 
             let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
@@ -187,26 +206,29 @@ fn generate_builtin_instance_functions(
                 dispatch_table.insert((instance.class_name, method_sig.name));
                 continue;
             }
-            let parameter_types = method_sig
-                .param_types
-                .iter()
-                .map(|ty| {
-                    Some(specialize_type_expr(
-                        ty,
-                        &class_def.type_params,
-                        &instance.type_args,
-                        interner,
-                    ))
-                })
-                .collect::<Vec<_>>();
-            let params = builtin_param_names(method_sig.arity, interner);
+            let mut parameter_types: Vec<Option<TypeExpr>> = vec![None; instance.context.len()];
+            parameter_types.extend(method_sig.param_types.iter().map(|ty| {
+                Some(specialize_type_expr(
+                    ty,
+                    &class_def.type_params,
+                    &instance.type_args,
+                    interner,
+                ))
+            }));
+            let mut params = context_dict_param_names(&instance.context, interner);
+            params.extend(builtin_param_names(method_sig.arity, interner));
 
             generated.push(Statement::Function {
                 is_public: false,
                 intrinsic: None,
                 fip: None,
                 name: mangled_sym,
-                type_params: vec![],
+                type_params: build_instance_function_type_params(
+                    &instance.type_args,
+                    &instance.context,
+                    method_sig,
+                    interner,
+                ),
                 parameters: params,
                 parameter_types,
                 return_type: Some(specialize_type_expr(
@@ -224,6 +246,656 @@ fn generate_builtin_instance_functions(
             dispatch_table.insert((instance.class_name, method_sig.name));
         }
     }
+}
+
+#[derive(Clone)]
+struct DeriveAdtInfo {
+    variants: Vec<DataVariant>,
+}
+
+fn collect_data_declarations(
+    statements: &[Statement],
+    interner: &Interner,
+) -> HashMap<String, DeriveAdtInfo> {
+    let mut out = HashMap::new();
+    collect_data_declarations_into(statements, interner, &mut out);
+    out
+}
+
+fn collect_data_declarations_into(
+    statements: &[Statement],
+    interner: &Interner,
+    out: &mut HashMap<String, DeriveAdtInfo>,
+) {
+    for stmt in statements {
+        match stmt {
+            Statement::Data { name, variants, .. } => {
+                out.insert(
+                    interner.resolve(*name).to_string(),
+                    DeriveAdtInfo {
+                        variants: variants.clone(),
+                    },
+                );
+            }
+            Statement::Module { body, .. } => {
+                collect_data_declarations_into(&body.statements, interner, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn find_adt_info_for_instance<'a>(
+    instance: &crate::types::class_env::InstanceDef,
+    adts: &'a HashMap<String, DeriveAdtInfo>,
+    interner: &Interner,
+) -> Option<&'a DeriveAdtInfo> {
+    let TypeExpr::Named { name, .. } = instance.type_args.first()? else {
+        return None;
+    };
+    adts.get(interner.resolve(*name))
+}
+
+fn is_json_codec_class(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "Encode" | "Decode" | "Json.Encode" | "Json.Decode"
+    )
+}
+
+fn derived_json_method_body(
+    adt: &DeriveAdtInfo,
+    method_name: &str,
+    interner: &mut Interner,
+    id_gen: &mut ExprIdGen,
+) -> Option<Block> {
+    let expr = match method_name {
+        "encode" => derived_json_encode_expr(adt, interner),
+        "decode" => derived_json_decode_expr(adt, interner),
+        _ => return None,
+    };
+    let body = parse_generated_function_body(&expr, interner)?;
+    Some(refresh_block_expr_ids(body, id_gen))
+}
+
+fn parse_generated_function_body(body_expr: &str, interner: &mut Interner) -> Option<Block> {
+    let source = format!("fn __json_derive_dummy(__x0) {{ {body_expr} }}");
+    let mut parser = Parser::new(Lexer::new_with_interner(source.clone(), interner.clone()));
+    let program = parser.parse_program();
+    *interner = parser.take_interner();
+    if !parser.errors.is_empty() {
+        return None;
+    }
+    program.statements.into_iter().find_map(|stmt| match stmt {
+        Statement::Function { body, .. } => Some(body),
+        _ => None,
+    })
+}
+
+fn refresh_block_expr_ids(block: Block, id_gen: &mut ExprIdGen) -> Block {
+    Block {
+        statements: block
+            .statements
+            .into_iter()
+            .map(|stmt| refresh_stmt_expr_ids(stmt, id_gen))
+            .collect(),
+        span: block.span,
+    }
+}
+
+fn refresh_stmt_expr_ids(stmt: Statement, id_gen: &mut ExprIdGen) -> Statement {
+    match stmt {
+        Statement::Let {
+            is_public,
+            name,
+            type_annotation,
+            value,
+            span,
+        } => Statement::Let {
+            is_public,
+            name,
+            type_annotation,
+            value: refresh_expr_ids(value, id_gen),
+            span,
+        },
+        Statement::Return { value, span } => Statement::Return {
+            value: value.map(|value| refresh_expr_ids(value, id_gen)),
+            span,
+        },
+        Statement::Expression {
+            expression,
+            has_semicolon,
+            span,
+        } => Statement::Expression {
+            expression: refresh_expr_ids(expression, id_gen),
+            has_semicolon,
+            span,
+        },
+        other => other,
+    }
+}
+
+fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
+    match expr {
+        Expression::Identifier { name, span, .. } => Expression::Identifier {
+            name,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Integer { value, span, .. } => Expression::Integer {
+            value,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Float { value, span, .. } => Expression::Float {
+            value,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::String { value, span, .. } => Expression::String {
+            value,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::InterpolatedString { parts, span, .. } => Expression::InterpolatedString {
+            parts: parts
+                .into_iter()
+                .map(|part| match part {
+                    crate::syntax::expression::StringPart::Literal(text) => {
+                        crate::syntax::expression::StringPart::Literal(text)
+                    }
+                    crate::syntax::expression::StringPart::Interpolation(expr) => {
+                        crate::syntax::expression::StringPart::Interpolation(Box::new(
+                            refresh_expr_ids(*expr, id_gen),
+                        ))
+                    }
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Boolean { value, span, .. } => Expression::Boolean {
+            value,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Prefix {
+            operator,
+            right,
+            span,
+            ..
+        } => Expression::Prefix {
+            operator,
+            right: Box::new(refresh_expr_ids(*right, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Infix {
+            left,
+            operator,
+            right,
+            span,
+            ..
+        } => Expression::Infix {
+            left: Box::new(refresh_expr_ids(*left, id_gen)),
+            operator,
+            right: Box::new(refresh_expr_ids(*right, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            span,
+            ..
+        } => Expression::If {
+            condition: Box::new(refresh_expr_ids(*condition, id_gen)),
+            consequence: refresh_block_expr_ids(consequence, id_gen),
+            alternative: alternative.map(|block| refresh_block_expr_ids(block, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::DoBlock { block, span, .. } => Expression::DoBlock {
+            block: refresh_block_expr_ids(block, id_gen),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Function {
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body,
+            span,
+            ..
+        } => Expression::Function {
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body: refresh_block_expr_ids(body, id_gen),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Call {
+            function,
+            arguments,
+            span,
+            ..
+        } => Expression::Call {
+            function: Box::new(refresh_expr_ids(*function, id_gen)),
+            arguments: arguments
+                .into_iter()
+                .map(|arg| refresh_expr_ids(arg, id_gen))
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::ListLiteral { elements, span, .. } => Expression::ListLiteral {
+            elements: elements
+                .into_iter()
+                .map(|elem| refresh_expr_ids(elem, id_gen))
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::ArrayLiteral { elements, span, .. } => Expression::ArrayLiteral {
+            elements: elements
+                .into_iter()
+                .map(|elem| refresh_expr_ids(elem, id_gen))
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::TupleLiteral { elements, span, .. } => Expression::TupleLiteral {
+            elements: elements
+                .into_iter()
+                .map(|elem| refresh_expr_ids(elem, id_gen))
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::EmptyList { span, .. } => Expression::EmptyList {
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Index {
+            left, index, span, ..
+        } => Expression::Index {
+            left: Box::new(refresh_expr_ids(*left, id_gen)),
+            index: Box::new(refresh_expr_ids(*index, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Hash { pairs, span, .. } => Expression::Hash {
+            pairs: pairs
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        refresh_expr_ids(key, id_gen),
+                        refresh_expr_ids(value, id_gen),
+                    )
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::MemberAccess {
+            object,
+            member,
+            span,
+            ..
+        } => Expression::MemberAccess {
+            object: Box::new(refresh_expr_ids(*object, id_gen)),
+            member,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::TupleFieldAccess {
+            object,
+            index,
+            span,
+            ..
+        } => Expression::TupleFieldAccess {
+            object: Box::new(refresh_expr_ids(*object, id_gen)),
+            index,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Match {
+            scrutinee,
+            arms,
+            span,
+            ..
+        } => Expression::Match {
+            scrutinee: Box::new(refresh_expr_ids(*scrutinee, id_gen)),
+            arms: arms
+                .into_iter()
+                .map(|arm| crate::syntax::expression::MatchArm {
+                    pattern: arm.pattern,
+                    guard: arm.guard.map(|guard| refresh_expr_ids(guard, id_gen)),
+                    body: refresh_expr_ids(arm.body, id_gen),
+                    span: arm.span,
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::None { span, .. } => Expression::None {
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Some { value, span, .. } => Expression::Some {
+            value: Box::new(refresh_expr_ids(*value, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Left { value, span, .. } => Expression::Left {
+            value: Box::new(refresh_expr_ids(*value, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Right { value, span, .. } => Expression::Right {
+            value: Box::new(refresh_expr_ids(*value, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Cons {
+            head, tail, span, ..
+        } => Expression::Cons {
+            head: Box::new(refresh_expr_ids(*head, id_gen)),
+            tail: Box::new(refresh_expr_ids(*tail, id_gen)),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Perform {
+            effect,
+            operation,
+            args,
+            span,
+            ..
+        } => Expression::Perform {
+            effect,
+            operation,
+            args: args
+                .into_iter()
+                .map(|arg| refresh_expr_ids(arg, id_gen))
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Handle {
+            expr,
+            effect,
+            parameter,
+            arms,
+            span,
+            ..
+        } => Expression::Handle {
+            expr: Box::new(refresh_expr_ids(*expr, id_gen)),
+            effect,
+            parameter: parameter.map(|param| Box::new(refresh_expr_ids(*param, id_gen))),
+            arms: arms
+                .into_iter()
+                .map(|arm| crate::syntax::expression::HandleArm {
+                    operation_name: arm.operation_name,
+                    resume_param: arm.resume_param,
+                    params: arm.params,
+                    body: refresh_expr_ids(arm.body, id_gen),
+                    span: arm.span,
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Sealing {
+            expr,
+            allowed,
+            span,
+            ..
+        } => Expression::Sealing {
+            expr: Box::new(refresh_expr_ids(*expr, id_gen)),
+            allowed,
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::NamedConstructor {
+            name, fields, span, ..
+        } => Expression::NamedConstructor {
+            name,
+            fields: fields
+                .into_iter()
+                .map(|field| crate::syntax::expression::NamedFieldInit {
+                    name: field.name,
+                    value: field
+                        .value
+                        .map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
+                    span: field.span,
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+        Expression::Spread {
+            base,
+            overrides,
+            span,
+            ..
+        } => Expression::Spread {
+            base: Box::new(refresh_expr_ids(*base, id_gen)),
+            overrides: overrides
+                .into_iter()
+                .map(|field| crate::syntax::expression::NamedFieldInit {
+                    name: field.name,
+                    value: field
+                        .value
+                        .map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
+                    span: field.span,
+                })
+                .collect(),
+            span,
+            id: id_gen.next_id(),
+        },
+    }
+}
+
+fn derived_json_encode_expr(adt: &DeriveAdtInfo, interner: &Interner) -> String {
+    let arms = adt
+        .variants
+        .iter()
+        .map(|variant| {
+            let ctor = interner.resolve(variant.name);
+            let binders = (0..variant.fields.len())
+                .map(|idx| format!("__f{idx}"))
+                .collect::<Vec<_>>();
+            let pattern = if let Some(names) = &variant.field_names {
+                let fields = names
+                    .iter()
+                    .zip(binders.iter())
+                    .map(|(name, binder)| format!("{}: {binder}", interner.resolve(*name)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{ctor} {{ {fields} }}")
+            } else if binders.is_empty() {
+                ctor.to_string()
+            } else {
+                format!("{ctor}({})", binders.join(", "))
+            };
+            let fields = if let Some(names) = &variant.field_names {
+                let map_expr = names
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, name)| {
+                        let binder = &binders[idx];
+                        let value = json_encode_value_expr(&variant.fields[idx], binder, interner);
+                        format!("\"{}\": {value}", interner.resolve(*name))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Json.object({{{map_expr}}})")
+            } else {
+                let values = binders
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, binder)| {
+                        json_encode_value_expr(&variant.fields[idx], binder, interner)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Json.array([|{values}|])")
+            };
+            format!(
+                "{pattern} -> Json.object({{\"tag\": Json.string(\"{ctor}\"), \"fields\": {fields}}})"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("match __x0 {{ {arms} }}")
+}
+
+fn derived_json_decode_expr(adt: &DeriveAdtInfo, interner: &Interner) -> String {
+    let tag_arms = adt
+        .variants
+        .iter()
+        .map(|variant| {
+            let ctor = interner.resolve(variant.name);
+            format!("\"{ctor}\" -> {}", decode_variant_expr(variant, interner))
+        })
+        .chain(std::iter::once(
+            "_ -> Json.err(\"$.tag\", \"unknown constructor tag\")".to_string(),
+        ))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "Json.and_then(Json.as_object(__x0, \"$\"), fn(__obj) {{
+            Json.and_then(Json.object_get(__obj, \"tag\", \"$.tag\"), fn(__tag_json) {{
+                Json.and_then(Json.as_string(__tag_json, \"$.tag\"), fn(__tag) {{
+                    match __tag {{ {tag_arms} }}
+                }})
+            }})
+        }})"
+    )
+}
+
+fn decode_variant_expr(variant: &DataVariant, interner: &Interner) -> String {
+    if let Some(names) = &variant.field_names {
+        let body = names
+            .iter()
+            .enumerate()
+            .rev()
+            .fold(named_constructor_ok_expr(variant, names, interner), |inner, (idx, name)| {
+                let field_name = interner.resolve(*name);
+                let decoded = json_decode_value_expr(
+                    &variant.fields[idx],
+                    &format!("__j{idx}"),
+                    &format!("$.fields.{field_name}"),
+                    interner,
+                );
+                format!(
+                    "Json.and_then(Json.object_get(__field_obj, \"{field_name}\", \"$.fields.{field_name}\"), fn(__j{idx}) {{
+                        Json.and_then({decoded}, fn(__v{idx}) {{ {inner} }})
+                    }})"
+                )
+            });
+        format!(
+            "Json.and_then(Json.object_get(__obj, \"fields\", \"$.fields\"), fn(__fields_json) {{
+                Json.and_then(Json.as_object(__fields_json, \"$.fields\"), fn(__field_obj) {{ {body} }})
+            }})"
+        )
+    } else {
+        let expected = variant.fields.len();
+        let body = (0..expected).rev().fold(
+            positional_constructor_ok_expr(variant, expected, interner),
+            |inner, idx| {
+                let decoded = json_decode_value_expr(
+                    &variant.fields[idx],
+                    &format!("__j{idx}"),
+                    &format!("$.fields[{idx}]"),
+                    interner,
+                );
+                format!(
+                    "Json.and_then(Json.array_get(__field_arr, {idx}, \"$.fields[{idx}]\"), fn(__j{idx}) {{
+                        Json.and_then({decoded}, fn(__v{idx}) {{ {inner} }})
+                    }})"
+                )
+            },
+        );
+        format!(
+            "Json.and_then(Json.object_get(__obj, \"fields\", \"$.fields\"), fn(__fields_json) {{
+                Json.and_then(Json.as_array(__fields_json, \"$.fields\"), fn(__field_arr) {{
+                    if len(__field_arr) == {expected} {{ {body} }} else {{ Json.err(\"$.fields\", \"wrong field count\") }}
+                }})
+            }})"
+        )
+    }
+}
+
+fn json_encode_value_expr(ty: &TypeExpr, value: &str, interner: &Interner) -> String {
+    match json_primitive_type_name(ty, interner).as_deref() {
+        Some("String") => format!("Json.string({value})"),
+        Some("Bool") => format!("Json.bool({value})"),
+        Some("Int") => format!("Json.int({value})"),
+        Some("Float") => format!("Json.number({value})"),
+        Some("Json") => value.to_string(),
+        _ => format!("encode({value})"),
+    }
+}
+
+fn json_decode_value_expr(ty: &TypeExpr, value: &str, path: &str, interner: &Interner) -> String {
+    match json_primitive_type_name(ty, interner).as_deref() {
+        Some("String") => format!("Json.as_string({value}, \"{path}\")"),
+        Some("Bool") => format!("Json.as_bool({value}, \"{path}\")"),
+        Some("Int") => format!("Json.as_int({value}, \"{path}\")"),
+        Some("Float") => format!("Json.as_float({value}, \"{path}\")"),
+        Some("Json") => format!("Json.ok({value})"),
+        _ => format!("decode({value})"),
+    }
+}
+
+fn json_primitive_type_name(ty: &TypeExpr, interner: &Interner) -> Option<String> {
+    let TypeExpr::Named { name, args, .. } = ty else {
+        return None;
+    };
+    if !args.is_empty() {
+        return None;
+    }
+    let name = interner.resolve(*name);
+    let short = name.rsplit('.').next().unwrap_or(name);
+    matches!(short, "String" | "Bool" | "Int" | "Float" | "Json").then(|| short.to_string())
+}
+
+fn positional_constructor_ok_expr(
+    variant: &DataVariant,
+    arity: usize,
+    interner: &Interner,
+) -> String {
+    let ctor = interner.resolve(variant.name);
+    if arity == 0 {
+        format!("Json.ok({ctor})")
+    } else {
+        let args = (0..arity)
+            .map(|idx| format!("__v{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("Json.ok({ctor}({args}))")
+    }
+}
+
+fn named_constructor_ok_expr(
+    variant: &DataVariant,
+    names: &[Identifier],
+    interner: &Interner,
+) -> String {
+    let ctor = interner.resolve(variant.name);
+    let fields = names
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| format!("{}: __v{idx}", interner.resolve(*name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Json.ok({ctor} {{ {fields} }})")
 }
 
 /// Pre-intern `__dict_{Class}_{Type}` symbols for each concrete instance.

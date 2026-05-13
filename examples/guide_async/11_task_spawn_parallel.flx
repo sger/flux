@@ -1,0 +1,39 @@
+// 11 — `Task.spawn`: real OS-thread parallelism
+//
+// Goal: run CPU-bound work on multiple cores at the same time.
+//
+// Fibers share OS threads — that's perfect for I/O-bound work, but
+// it means CPU-bound fibers don't get any *parallelism*, just
+// concurrency. For real parallel CPU work, use `Task.spawn`:
+//
+//   - Task.spawn(f)        runs `f` on a fresh OS thread, returns a Task<a>.
+//   - Task.blocking_join(t) blocks the calling thread until the task
+//                           finishes; returns its result.
+//   - Task.await(t)        suspends only the current fiber until done
+//                           (use this from inside `run_async`).
+//
+// Tasks require their result type to be `Sendable` — primitives,
+// tuples of Sendable, Option/List of Sendable, etc. Closures are
+// not Sendable by design.
+
+// parity-expected-stdout-begin
+// "total = 440"
+// parity-expected-stdout-end
+
+import Flow.Task exposing (..)
+
+// Pure CPU work. No `with Async` annotation — tasks aren't fibers,
+// they run outside `run_async`.
+fn sum_squares(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { sum_squares(n - 1, acc + n * n) }
+}
+
+fn main() with IO {
+    // Two tasks running on two OS threads in parallel.
+    let t1 = spawn(fn() { sum_squares(5,  0) })   // 1+4+9+16+25 = 55
+    let t2 = spawn(fn() { sum_squares(10, 0) })   // 55 + ... + 100 = 385
+
+    // `blocking_join` parks the OS thread until each task is done.
+    let total = blocking_join(t1) + blocking_join(t2)
+    print("total = " + to_string(total))           // 55 + 385 = 440
+}

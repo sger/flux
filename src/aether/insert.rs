@@ -250,7 +250,15 @@ fn plan_expr(
 
             let mut env_before = AetherEnv::default();
             env_before.union_from(&tail_env);
-            for capture in body_plan.env_before.live.iter().cloned() {
+            // Sort for deterministic iteration order (proposal 0174 D1):
+            // `live` is a `HashSet`, so iterating it directly leaks
+            // process-randomized hash order into downstream reuse-spec
+            // decisions. The downstream pipeline isn't fully order-
+            // insensitive even though set membership is.
+            let mut captures: Vec<CoreBinderId> =
+                body_plan.env_before.live.iter().cloned().collect();
+            captures.sort();
+            for capture in captures {
                 if !param_ids.contains(&capture) {
                     if body_plan.env_before.is_owned(capture) {
                         env_before.mark_owned(capture);

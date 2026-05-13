@@ -1,0 +1,29 @@
+// parity: vm, llvm
+// expect: success
+// bug: yield_now() must move the calling fiber to the tail of its run-queue
+//      so other ready fibers run before it resumes (proposal 0174 slice 2-vi).
+//      Two `both` children that print/yield/print therefore interleave as
+//      1, 2, 3, 4 on both backends. Pinned to one worker so the FIFO ordering
+//      is deterministic on the native scheduler.
+
+import Flow.Async exposing (..)
+
+fn a() -> Unit with Async, IO {
+    print(1)
+    yield_now()
+    print(3)
+}
+
+fn b() -> Unit with Async, IO {
+    print(2)
+    yield_now()
+    print(4)
+}
+
+fn body() -> Unit with Async, IO {
+    let _ = both(a, b)
+}
+
+fn main() with IO {
+    let _ = run_async_with_workers(1, body)
+}

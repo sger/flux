@@ -1,5 +1,5 @@
 ---
-source: tests/llvm_codegen_snapshots.rs
+source: tests/native_llvm/llvm_codegen.rs
 expression: render_module(&module)
 ---
 source_filename = "helpers.flx"
@@ -38,6 +38,8 @@ declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
+declare ccc i32 @flux_can_use_bump_arena() nounwind
+
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
 
 declare ccc void @flux_panic(i64) nounwind
@@ -48,20 +50,20 @@ declare ccc i64 @flux_box_float_rt(double) nounwind
 
 declare ccc double @flux_unbox_float_rt(i64) nounwind
 
-define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline {
+define internal fastcc i64 @flux_tag_int(i64 %raw) alwaysinline uwtable {
 entry:
   %shifted = shl i64 %raw, 1
   %tagged = or i64 %shifted, 1
   ret i64 %tagged
 }
 
-define internal fastcc i64 @flux_untag_int(i64 %val) alwaysinline {
+define internal fastcc i64 @flux_untag_int(i64 %val) alwaysinline uwtable {
 entry:
   %raw = ashr i64 %val, 1
   ret i64 %raw
 }
 
-define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline {
+define internal fastcc i1 @flux_is_ptr(i64 %val) alwaysinline uwtable {
 entry:
   %bit0 = and i64 %val, 1
   %not_int = icmp eq i64 %bit0, 0
@@ -70,7 +72,7 @@ entry:
   ret i1 %result
 }
 
-define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline {
+define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline uwtable {
 entry:
   %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
   br i1 %is_ptr, label %check_rc, label %not_ptr
@@ -90,7 +92,7 @@ fresh:
   ret ptr %new_mem
 }
 
-define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline {
+define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline uwtable {
 entry:
   %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
   br i1 %is_ptr, label %check_rc, label %not_unique
@@ -104,7 +106,7 @@ not_unique:
   ret i1 0
 }
 
-define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline {
+define internal fastcc i1 @flux_is_thunk(i64 %val) alwaysinline uwtable {
 entry:
   %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
   br i1 %is_ptr, label %check_tag, label %not_thunk
@@ -118,29 +120,33 @@ not_thunk:
   ret i1 0
 }
 
-define internal fastcc i64 @flux_tag_thunk(ptr %ptr) alwaysinline {
+define internal fastcc i64 @flux_tag_thunk(ptr %ptr) alwaysinline uwtable {
 entry:
   %tagged = ptrtoint ptr %ptr to i64
   ret i64 %tagged
 }
 
-define internal fastcc ptr @flux_untag_thunk_ptr(i64 %val) alwaysinline {
+define internal fastcc ptr @flux_untag_thunk_ptr(i64 %val) alwaysinline uwtable {
 entry:
   %ptr = inttoptr i64 %val to ptr
   ret ptr %ptr
 }
 
-define internal fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag) alwaysinline {
+define internal fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag) alwaysinline uwtable {
 entry:
   %aligned = add i32 %size, 7
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
+  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
+  %can_bump = icmp ne i32 %can_bump_i32, 0
+  br i1 %can_bump, label %bump_check, label %slow
+bump_check:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
   %lim = load ptr, ptr @flux_arena_limit, align 8
-  %ok = icmp ule ptr %new_hp, %lim
-  br i1 %ok, label %fast, label %slow
+  %fits = icmp ule ptr %new_hp, %lim
+  br i1 %fits, label %fast, label %slow
 fast:
   store ptr %new_hp, ptr @flux_arena_hp, align 8
   store i32 1, ptr %hp, align 4
@@ -161,7 +167,7 @@ slow:
   ret ptr %slow_ptr
 }
 
-define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
@@ -170,7 +176,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_isub(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_isub(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
@@ -179,7 +185,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_imul(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_imul(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
@@ -188,7 +194,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_idiv(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_idiv(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
@@ -204,7 +210,7 @@ safe:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_imod(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %b_raw = call fastcc i64 @flux_untag_int(i64 %b)
@@ -220,7 +226,7 @@ safe:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline {
+define internal fastcc i64 @flux_ineg(i64 %a) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
   %neg = sub i64 0, %a_raw
@@ -228,7 +234,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_fadd(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
@@ -237,7 +243,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_fsub(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
@@ -246,7 +252,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_fmul(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
@@ -255,7 +261,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_fdiv(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
@@ -264,7 +270,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fmod(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_fmod(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %b_f = call ccc double @flux_unbox_float_rt(i64 %b)
@@ -273,7 +279,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline {
+define internal fastcc i64 @flux_fneg(i64 %a) alwaysinline uwtable {
 entry:
   %a_f = call ccc double @flux_unbox_float_rt(i64 %a)
   %neg = fsub double 0.0, %a_f
@@ -281,7 +287,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_not(i64 %a) alwaysinline {
+define internal fastcc i64 @flux_not(i64 %a) alwaysinline uwtable {
 entry:
   %is_false = icmp eq i64 %a, 2
   %is_none = icmp eq i64 %a, 0
@@ -294,7 +300,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_and(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_is_true = icmp eq i64 %a, 4
   %b_is_true = icmp eq i64 %b, 4
@@ -303,7 +309,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_or(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_is_true = icmp eq i64 %a, 4
   %b_is_true = icmp eq i64 %b, 4
@@ -312,7 +318,7 @@ entry:
   ret i64 %result
 }
 
-define internal fastcc i64 @flux_add(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_add(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float
@@ -324,7 +330,7 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_sub(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_sub(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float
@@ -336,7 +342,7 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_mul(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_mul(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float
@@ -348,7 +354,7 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_div(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_div(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float
@@ -360,7 +366,7 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_mod(i64 %a, i64 %b) alwaysinline {
+define internal fastcc i64 @flux_mod(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float
@@ -372,7 +378,7 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_neg(i64 %a) alwaysinline {
+define internal fastcc i64 @flux_neg(i64 %a) alwaysinline uwtable {
 entry:
   %is_int = trunc i64 %a to i1
   br i1 %is_int, label %do_int, label %do_float

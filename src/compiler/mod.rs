@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::aether::borrow_infer::{BorrowRegistry, BorrowSignature};
 use crate::ast::type_infer::InferProgramConfig;
 use crate::cfg::{FunctionId, IrFunction, IrInstr, IrProgram, IrTerminator};
+use crate::compiler::constructor_info::ConstructorInfo;
 use crate::compiler::effect_rows::EffectRow;
 use crate::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::syntax::expression::ExprId;
@@ -48,7 +49,7 @@ use crate::{
         interner::Interner,
         module_graph::ModuleKind,
         program::Program,
-        statement::Statement,
+        statement::{Statement, TypeAliasDecl},
         symbol::Symbol,
         type_expr::TypeExpr,
     },
@@ -511,6 +512,34 @@ fn substitute_type_expr_for_instance(
             effects: effects.clone(),
             span: *span,
         },
+    }
+}
+
+fn type_expr_named_symbols(ty: &TypeExpr) -> HashSet<Identifier> {
+    let mut symbols = HashSet::new();
+    collect_type_expr_named_symbols(ty, &mut symbols);
+    symbols
+}
+
+fn collect_type_expr_named_symbols(ty: &TypeExpr, symbols: &mut HashSet<Identifier>) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            symbols.insert(*name);
+            for arg in args {
+                collect_type_expr_named_symbols(arg, symbols);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for elem in elements {
+                collect_type_expr_named_symbols(elem, symbols);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_type_expr_named_symbols(param, symbols);
+            }
+            collect_type_expr_named_symbols(ret, symbols);
+        }
     }
 }
 
@@ -1003,6 +1032,11 @@ pub struct Compiler {
     pub module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub module_member_is_value: HashMap<(Symbol, Symbol), bool>,
     pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
+    /// Visibility of ADT type declarations within each module, keyed by
+    /// `(module_name, adt_type_name)`. Mirrors `module_function_visibility`
+    /// so `import M exposing (..)` can pull public ADT type names (and their
+    /// constructors) into scope alongside functions.
+    pub(super) module_adt_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) native_constructor_tags: HashMap<Symbol, i32>,
     pub(super) next_native_constructor_tag: i32,
     pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
@@ -1012,6 +1046,7 @@ pub struct Compiler {
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
+    pub(super) preloaded_adt_registry: AdtRegistry,
     pub(super) field_registry: FieldRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
@@ -1019,6 +1054,9 @@ pub struct Compiler {
     /// (Proposal 0161 B1). Populated during statement collection and
     /// consumed by the pre-inference alias-expansion pass.
     pub(super) effect_row_aliases: HashMap<Symbol, crate::syntax::effect_expr::EffectExpr>,
+    /// Transparent type aliases declared via `alias Name<a> = TypeExpr`.
+    /// Populated during collection and expanded before HM inference.
+    pub(super) transparent_type_aliases: HashMap<Symbol, TypeAliasDecl>,
     preloaded_effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     preloaded_effect_op_signatures: HashMap<(Symbol, Symbol), Scheme>,
     /// Effect names that have at least one user-written `effect E { ... }`
@@ -1031,6 +1069,8 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
+    pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
     ///
     /// Persists across `set_file_path()` calls so that downstream modules
@@ -1096,6 +1136,19 @@ enum LoweringPreparationMode {
 #[cfg(test)]
 mod compiler_test;
 
+fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>) {
+    fn walk(statements: &[Statement], out: &mut HashSet<Identifier>) {
+        for statement in statements {
+            if let Statement::Module { name, body, .. } = statement {
+                out.insert(*name);
+                walk(&body.statements, out);
+            }
+        }
+    }
+
+    walk(&program.statements, out);
+}
+
 impl Compiler {
     fn is_flow_library_file(&self) -> bool {
         self.current_module_kind == ModuleKind::FlowStdlib
@@ -1114,10 +1167,19 @@ impl Compiler {
 
         if module_count == 1 {
             let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
-                generated.into_iter().partition(|stmt| match stmt {
-                    Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
-                    _ => false,
-                });
+                if self.is_flow_library_file() {
+                    (Vec::new(), generated)
+                } else {
+                    generated.into_iter().partition(|stmt| match stmt {
+                        Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
+                        _ => false,
+                    })
+                };
+            let first_non_import = program
+                .statements
+                .iter()
+                .position(|stmt| !matches!(stmt, Statement::Import { .. }))
+                .unwrap_or(program.statements.len());
             let statements = program
                 .statements
                 .iter()
@@ -1125,7 +1187,7 @@ impl Compiler {
                 .enumerate()
                 .flat_map(|(idx, stmt)| {
                     let mut emitted = Vec::new();
-                    if idx == 0 {
+                    if idx == first_non_import {
                         emitted.extend(top_level_generated.clone());
                     }
                     match stmt {
@@ -1151,8 +1213,21 @@ impl Compiler {
                 span: program.span,
             }
         } else {
-            let mut statements = generated;
-            statements.extend(program.statements.iter().cloned());
+            let first_non_import = program
+                .statements
+                .iter()
+                .position(|stmt| !matches!(stmt, Statement::Import { .. }))
+                .unwrap_or(program.statements.len());
+            let mut statements = Vec::new();
+            for (idx, stmt) in program.statements.iter().cloned().enumerate() {
+                if idx == first_non_import {
+                    statements.extend(generated.clone());
+                }
+                statements.push(stmt);
+            }
+            if first_non_import == program.statements.len() {
+                statements.extend(generated);
+            }
             Program {
                 statements,
                 span: program.span,
@@ -1206,6 +1281,7 @@ impl Compiler {
             module_function_visibility: HashMap::new(),
             module_member_is_value: HashMap::new(),
             module_adt_constructors: HashMap::new(),
+            module_adt_visibility: HashMap::new(),
             native_constructor_tags: HashMap::new(),
             next_native_constructor_tag: 5,
             preloaded_ctor_field_names: HashMap::new(),
@@ -1215,15 +1291,19 @@ impl Compiler {
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
+            preloaded_adt_registry: AdtRegistry::new(),
             field_registry: FieldRegistry::new(),
             effect_ops_registry: HashMap::new(),
             effect_op_signatures: HashMap::new(),
             effect_row_aliases: HashMap::new(),
+            transparent_type_aliases: HashMap::new(),
             preloaded_effect_ops_registry: HashMap::new(),
             user_declared_effect_names: HashSet::new(),
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            contextual_function_contracts: HashMap::new(),
+            current_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
@@ -1286,12 +1366,14 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
+        self.contextual_function_contracts.clear();
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
+        self.transparent_type_aliases.clear();
         self.seed_builtin_effect_aliases();
         self.seed_builtin_effect_operations();
     }
@@ -1352,6 +1434,7 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
+        self.current_member_schemes = hm_final.module_member_schemes.clone();
     }
 
     #[allow(clippy::result_large_err)]
@@ -1366,21 +1449,37 @@ impl Compiler {
         } else {
             Some(&self.class_env)
         };
-        let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-            program_to_lower,
-            &self.hm_expr_types,
-            Some(&self.interner),
-            Some(&self.type_env),
-            None,
-            class_env_ref,
-        );
+        let mut module_member_schemes = self.build_preloaded_hm_member_schemes(program_to_lower);
+        let mut local_modules = HashSet::new();
+        collect_program_module_names(program_to_lower, &mut local_modules);
+        for ((module_name, member_name), scheme) in &self.current_member_schemes {
+            if local_modules.contains(module_name) {
+                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
+            }
+        }
+        for ((module_name, member_name), scheme) in &self.cached_member_schemes {
+            if local_modules.contains(module_name) {
+                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
+            }
+        }
+        let (mut core, def_schemes) =
+            crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
+                program_to_lower,
+                &self.hm_expr_types,
+                Some(&self.interner),
+                Some(&self.type_env),
+                None,
+                class_env_ref,
+                Some(&module_member_schemes),
+            );
 
-        if elaborate_dictionaries && !self.class_env.classes.is_empty() {
+        if elaborate_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-            crate::core::passes::elaborate_dictionaries(
+            crate::core::passes::elaborate_dictionaries_with_def_schemes(
                 &mut core,
                 &self.class_env,
                 &self.type_env,
+                &def_schemes,
                 &self.interner,
                 &mut next_id,
             );
@@ -1505,6 +1604,7 @@ impl Compiler {
             preloaded_visibility,
             preloaded_member_kinds,
             preloaded_adt_ctors,
+            preloaded_adt_visibility,
             preloaded_ctor_tags,
             preloaded_next_ctor_tag,
             preloaded_ctor_field_names,
@@ -1513,6 +1613,7 @@ impl Compiler {
             preloaded_effect_sigs,
         ) = match mode {
             LoweringPreparationMode::Fresh => (
+                HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
                 HashMap::new(),
@@ -1529,6 +1630,7 @@ impl Compiler {
                 self.module_function_visibility.clone(),
                 self.module_member_is_value.clone(),
                 self.module_adt_constructors.clone(),
+                self.module_adt_visibility.clone(),
                 self.native_constructor_tags.clone(),
                 self.next_native_constructor_tag,
                 self.preloaded_ctor_field_names.clone(),
@@ -1553,12 +1655,14 @@ impl Compiler {
         self.module_function_visibility = preloaded_visibility;
         self.module_member_is_value = preloaded_member_kinds;
         self.module_adt_constructors = preloaded_adt_ctors;
+        self.module_adt_visibility = preloaded_adt_visibility;
         self.native_constructor_tags = preloaded_ctor_tags;
         self.next_native_constructor_tag = preloaded_next_ctor_tag;
         self.preloaded_ctor_field_names = preloaded_ctor_field_names;
         self.preloaded_adt_variants = preloaded_adt_variants;
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
+        self.contextual_function_contracts.clear();
         self.effect_ops_registry = preloaded_effect_ops;
         self.effect_op_signatures = preloaded_effect_sigs;
         self.seed_builtin_effect_operations();
@@ -1873,6 +1977,11 @@ impl Compiler {
         self.preloaded_adt_variants.extend(adt_variants);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
+        // Register dep ADT types so cross-module type references in function
+        // signatures (e.g. `s: Flow.Async.Scope`) pass the unknown-type check.
+        for statement in &program.statements {
+            self.collect_dep_adt_definitions_from_stmt(statement);
+        }
         self.collect_native_constructor_tags(program);
         // Proposal 0161 B1: populate alias table before contract collection.
         self.collect_effect_aliases_for_contracts(program);
@@ -2210,6 +2319,28 @@ impl Compiler {
         for statement in &program.statements {
             self.collect_adt_definitions_from_stmt(statement, None);
         }
+        // Accumulate this module's ADT types into the preloaded registry so
+        // that later compilations in the same Compiler session (e.g. snapshot
+        // test loops that call `compile` per module) can reference them in
+        // function-signature type checks.
+        for statement in &program.statements {
+            self.collect_dep_adt_definitions_from_stmt(statement);
+        }
+    }
+
+    fn collect_dep_adt_definitions_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Data { name, variants, .. } => {
+                self.preloaded_adt_registry
+                    .register_adt(*name, variants, &self.interner);
+            }
+            Statement::Module { body, .. } => {
+                for stmt in &body.statements {
+                    self.collect_dep_adt_definitions_from_stmt(stmt);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn collect_adt_definitions_from_stmt(
@@ -2294,6 +2425,61 @@ impl Compiler {
         }
     }
 
+    pub(in crate::compiler) fn collect_transparent_type_aliases(&mut self, program: &Program) {
+        self.transparent_type_aliases.clear();
+        for statement in &program.statements {
+            self.collect_transparent_type_aliases_from_stmt(statement);
+        }
+    }
+
+    fn collect_transparent_type_aliases_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::TypeAlias(alias) => {
+                self.validate_transparent_type_alias(alias);
+                self.transparent_type_aliases
+                    .insert(alias.name, alias.clone());
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_transparent_type_aliases_from_stmt(nested);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn validate_transparent_type_alias(&mut self, alias: &TypeAliasDecl) {
+        let mut seen = HashSet::new();
+        for param in &alias.params {
+            if !seen.insert(*param) {
+                self.errors.push(Diagnostic::make_error_dynamic(
+                    "E308",
+                    "Duplicate Type Alias Parameter",
+                    ErrorType::Compiler,
+                    "Type alias parameters must be unique.",
+                    None,
+                    self.file_path.clone(),
+                    alias.span,
+                ));
+            }
+        }
+
+        let used = type_expr_named_symbols(&alias.body);
+        for param in &alias.params {
+            if !used.contains(param) {
+                self.errors.push(Diagnostic::make_error_dynamic(
+                    "E308",
+                    "Phantom Type Alias Parameter",
+                    ErrorType::Compiler,
+                    "Transparent type aliases cannot declare unused type parameters.",
+                    Some("Remove the parameter or use a nominal `data` type.".to_string()),
+                    self.file_path.clone(),
+                    alias.span,
+                ));
+            }
+        }
+    }
+
     fn collect_effect_declarations_from_stmt(&mut self, statement: &Statement) {
         match statement {
             Statement::EffectDecl { name, ops, .. } => {
@@ -2372,6 +2558,25 @@ impl Compiler {
         self.effect_row_aliases
             .entry(time_sym)
             .or_insert(named(clock_sym));
+
+        // Async alias (Proposal 0174 Phase 1b):
+        //   Async = <Suspend | Fork | GetContext | AsyncFail>
+        let suspend_sym = self.interner.intern(be::SUSPEND);
+        let fork_sym = self.interner.intern(be::FORK);
+        let get_context_sym = self.interner.intern(be::GET_CONTEXT);
+        let async_fail_sym = self.interner.intern(be::ASYNC_FAIL);
+        let async_sym = self.interner.intern(be::ASYNC);
+
+        let async_expansion = add(
+            add(
+                add(named(suspend_sym), named(fork_sym)),
+                named(get_context_sym),
+            ),
+            named(async_fail_sym),
+        );
+        self.effect_row_aliases
+            .entry(async_sym)
+            .or_insert(async_expansion);
     }
 
     pub(in crate::compiler) fn seed_builtin_effect_operations(&mut self) {
@@ -2437,6 +2642,23 @@ impl Compiler {
         // performing this operation. Output goes to stderr via the
         // DebugTrace primop.
         add_op(be::DEBUG, "trace", mono(vec![string()], unit()));
+
+        // Async seam labels (Proposal 0174 Phase 1b).
+        // Registered as phantom labels so the type-checker accepts `with Async`
+        // annotations. Operations are seeded in later slices once the fiber
+        // scheduler implementation lands.
+        // Registering with an empty op set is sufficient for the row alias to
+        // expand correctly and for drift tests to pass.
+        let _ = &add_op; // suppress unused-variable hint if no ops are added below
+        // (The add_op closure registers into effect_ops_registry on first call;
+        //  we touch each label to ensure it appears in the registry even with
+        //  zero operations, matching the phantom-label pattern used by Random/NonDet.)
+        for label in [be::SUSPEND, be::FORK, be::GET_CONTEXT, be::ASYNC_FAIL] {
+            let label_sym = self.interner.intern(label);
+            if !user_declared.contains(&label_sym) {
+                self.effect_ops_registry.entry(label_sym).or_default();
+            }
+        }
     }
 
     fn collect_class_declarations(&mut self, program: &Program) {
@@ -2453,7 +2675,11 @@ impl Compiler {
             &self.interner,
         );
         self.class_env = env;
-        self.warnings.extend(diagnostics);
+        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
+            .into_iter()
+            .partition(|diag| diag.code() == Some("E453"));
+        self.errors.extend(errors);
+        self.warnings.extend(warnings);
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
@@ -2486,8 +2712,15 @@ impl Compiler {
         module_name: Option<Symbol>,
     ) {
         match statement {
-            Statement::Data { name, variants, .. } => {
+            Statement::Data {
+                name,
+                is_public,
+                variants,
+                ..
+            } => {
                 if let Some(module_name) = module_name {
+                    self.module_adt_visibility
+                        .insert((module_name, *name), *is_public);
                     for variant in variants {
                         self.module_adt_constructors
                             .insert((module_name, variant.name), *name);
@@ -2636,6 +2869,40 @@ impl Compiler {
         bindings
     }
 
+    fn task_spawn_import_metadata(&mut self, program: &Program) -> (HashSet<Symbol>, bool) {
+        use crate::syntax::statement::ImportExposing;
+
+        let flow_task = self.interner.intern("Flow.Task");
+        let spawn = self.interner.intern("spawn");
+        let mut task_module_bindings = HashSet::new();
+        let mut task_spawn_exposed = false;
+
+        for statement in &program.statements {
+            let Statement::Import {
+                name,
+                alias,
+                exposing,
+                except,
+                ..
+            } = statement
+            else {
+                continue;
+            };
+            if *name != flow_task {
+                continue;
+            }
+
+            task_module_bindings.insert(alias.unwrap_or(*name));
+            task_spawn_exposed = match exposing {
+                ImportExposing::All => !except.contains(&spawn),
+                ImportExposing::Names(names) => names.contains(&spawn),
+                ImportExposing::None => !except.is_empty() && !except.contains(&spawn),
+            };
+        }
+
+        (task_module_bindings, task_spawn_exposed)
+    }
+
     fn scheme_from_contract(contract: &FnContract, interner: &Interner) -> Option<Scheme> {
         // For HM member lookup we require a complete typed signature.
         if contract.params.iter().any(|p| p.is_none()) || contract.ret.is_none() {
@@ -2688,7 +2955,7 @@ impl Compiler {
 
     fn native_function_arity(scheme: &Scheme) -> usize {
         match &scheme.infer_type {
-            InferType::Fun(params, _, _) => params.len(),
+            InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
             _ => 0,
         }
     }
@@ -2811,6 +3078,7 @@ impl Compiler {
     /// Can be called multiple times (e.g. for two-phase inference).
     fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+        let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
         let flow_module_symbol = self.interner.intern("Flow");
 
         // Exposed import schemes are used as unqualified identifiers by HM inference.
@@ -2859,6 +3127,8 @@ impl Compiler {
             file_path: Some(self.file_path.as_str().into()),
             preloaded_base_schemes: exposed_schemes,
             preloaded_module_member_schemes: preloaded_member_schemes,
+            task_module_bindings,
+            task_spawn_exposed,
             known_flow_names: HashSet::new(),
             flow_module_symbol,
             class_env,
@@ -3936,7 +4206,9 @@ impl Compiler {
         use crate::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Function { effects, .. } => {
+                Some(self.effect_row_from_function_effects(effects))
+            }
             Expression::Identifier { name, .. } => {
                 if let Some(local) = self.current_function_param_effect_row(*name) {
                     return Some(local);
@@ -4457,6 +4729,31 @@ impl Compiler {
                 | "Option"
                 | "Either"
         ) || self.adt_registry.lookup_adt(name).is_some()
+            || self.preloaded_adt_registry.lookup_adt(name).is_some()
+    }
+
+    /// Resolve a constructor name to its `ConstructorInfo` across both the
+    /// current compilation unit's ADT registry and the preloaded dependency
+    /// registry, with an `exposed_bindings` fallback for short names that
+    /// were brought into scope by `import M exposing (..)` / `exposing
+    /// (Ctor, ...)`. Used by pattern-compile and ADT-arm sites that
+    /// previously consulted only `self.adt_registry`.
+    pub(super) fn lookup_constructor_resolved(&self, name: Symbol) -> Option<&ConstructorInfo> {
+        if let Some(info) = self.adt_registry.lookup_constructor(name) {
+            return Some(info);
+        }
+        if let Some(info) = self.preloaded_adt_registry.lookup_constructor(name) {
+            return Some(info);
+        }
+        if let Some(&qualified) = self.exposed_bindings.get(&name) {
+            if let Some(info) = self.adt_registry.lookup_constructor(qualified) {
+                return Some(info);
+            }
+            if let Some(info) = self.preloaded_adt_registry.lookup_constructor(qualified) {
+                return Some(info);
+            }
+        }
+        None
     }
 
     fn strict_missing_ambient_effects(
@@ -4729,10 +5026,40 @@ impl Compiler {
     }
 
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
+        fn type_has_row_var(ty: &TypeExpr) -> bool {
+            match ty {
+                TypeExpr::Named { args, .. } => args.iter().any(type_has_row_var),
+                TypeExpr::Tuple { elements, .. } => elements.iter().any(type_has_row_var),
+                TypeExpr::Function {
+                    params,
+                    ret,
+                    effects,
+                    ..
+                } => {
+                    params.iter().any(type_has_row_var)
+                        || type_has_row_var(ret)
+                        || effects.iter().any(|effect| effect.row_var().is_some())
+                }
+            }
+        }
+
+        let has_row_var = contract.params.iter().flatten().any(type_has_row_var)
+            || contract.ret.as_ref().is_some_and(type_has_row_var)
+            || contract
+                .effects
+                .iter()
+                .any(|effect| effect.row_var().is_some());
+
         to_runtime_contract_checked(contract, &self.interner, &self.adt_contract_specs)
             .ok()
             .flatten()
-            .or_else(|| to_runtime_contract(contract, &self.interner))
+            .or_else(|| {
+                if contract.type_params.is_empty() && !has_row_var {
+                    to_runtime_contract(contract, &self.interner)
+                } else {
+                    None
+                }
+            })
     }
 
     #[inline]
@@ -4972,10 +5299,11 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_module_with_options(
+        Ok(crate::lir::emit_llvm::emit_llvm_module_with_yield_options(
             &lir,
             false,
             export_user_ctor_name_helper,
+            false,
         ))
     }
 
@@ -6205,12 +6533,33 @@ impl Compiler {
         F: FnOnce(&mut Self) -> R,
     {
         self.function_param_counts.push(num_params);
-        self.function_effects.push(
-            effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect(),
-        );
+        let mut normalized_effects = Vec::new();
+        for effect in effects {
+            match effect {
+                EffectExpr::RowVar { name, .. } if self.sym(*name) == "ambient" => {
+                    if let Some(current) = self.current_function_effects() {
+                        normalized_effects.extend(current.iter().copied());
+                    }
+                    normalized_effects.extend(self.handled_effects.iter().copied());
+                }
+                EffectExpr::RowVar { name, .. }
+                    if self.sym(*name) == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                {
+                    let enclosing = self
+                        .function_effects
+                        .iter()
+                        .rev()
+                        .nth(1)
+                        .or_else(|| self.function_effects.last());
+                    if let Some(effects) = enclosing {
+                        normalized_effects.extend(effects.iter().copied());
+                    }
+                    normalized_effects.extend(self.handled_effects.iter().copied());
+                }
+                _ => normalized_effects.extend(effect.normalized_names()),
+            }
+        }
+        self.function_effects.push(normalized_effects);
         self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
         let result = f(self);
@@ -6219,6 +6568,37 @@ impl Compiler {
         self.function_effects.pop();
         self.function_param_counts.pop();
         result
+    }
+
+    pub(super) fn effect_row_from_function_effects(
+        &self,
+        effects: &[EffectExpr],
+    ) -> effect_rows::EffectRow {
+        let mut row = effect_rows::EffectRow::default();
+        for effect in effects {
+            match effect {
+                EffectExpr::RowVar { name, .. }
+                    if self.sym(*name) == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                {
+                    let enclosing = self
+                        .function_effects
+                        .iter()
+                        .rev()
+                        .nth(1)
+                        .or_else(|| self.function_effects.last());
+                    if let Some(effects) = enclosing {
+                        row.atoms.extend(effects.iter().copied());
+                    }
+                    row.atoms.extend(self.handled_effects.iter().copied());
+                }
+                _ => {
+                    let piece = effect_rows::EffectRow::from_effect_expr(effect);
+                    row.atoms.extend(piece.atoms);
+                    row.vars.extend(piece.vars);
+                }
+            }
+        }
+        row
     }
 
     pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {
@@ -6322,10 +6702,10 @@ impl Compiler {
     pub(super) fn emit_identity_closure(&mut self) {
         use crate::bytecode::op_code::OpCode;
         use crate::runtime::value::Value;
-        use std::rc::Rc;
+        use std::sync::Arc;
 
         let instructions = vec![OpCode::OpReturnLocal as u8, 0];
-        let func = Rc::new(crate::runtime::compiled_function::CompiledFunction::new(
+        let func = Arc::new(crate::runtime::compiled_function::CompiledFunction::new(
             instructions,
             1,    // arity = 1
             1,    // num_locals = 1 (the parameter)

@@ -1,0 +1,42 @@
+// 17 — Worker / CPU diagnostic (safe minimal version)
+//
+// Reports what the active runtime is using. Two `run_async` calls only
+// (default + one explicit pin) — bounded thread create/join, no churn.
+//
+// Usage:
+//
+//   # VM
+//   cargo run -- examples/async/17_worker_diagnostic.flx
+//
+//   # Native
+//   cargo run --features llvm -- --native examples/async/17_worker_diagnostic.flx
+//
+//   # Override the default with FLUX_WORKERS:
+//   FLUX_WORKERS=4 cargo run --features llvm -- --native \
+//       examples/async/17_worker_diagnostic.flx
+//
+// ── Known issue ──────────────────────────────────────────────────────
+// Stacking many sequential `run_async_with*` boundaries on the native
+// backend (e.g. printing 8 lines that each call `run_async_with_workers`
+// with different counts) deadlocks under churn. Tracked separately. The
+// VM is unaffected. Keep this example small until the native sequential
+// teardown is fixed.
+// ─────────────────────────────────────────────────────────────────────
+//
+// Native worker threads also show up by name in OS process viewers
+// while the program is running:
+//
+//   # Linux / macOS
+//   ps -T -p $(pgrep -f 17_worker_diagnostic)
+//
+//   # Windows: open Process Explorer (sysinternals), find the flux
+//   process, look at its Threads tab — search for "flux-async-worker".
+
+import Flow.Async exposing (..)
+
+fn report() -> Int with Async { current_worker_count() }
+
+fn main() with IO {
+    print("default workers = " + to_string(run_async(report)))
+    print("pinned to 2     = " + to_string(run_async_with_workers(2, report)))
+}

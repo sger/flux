@@ -126,6 +126,7 @@ impl<'a> InferCtx<'a> {
                 spec.fn_ty,
                 spec.param_tys,
                 spec.input.arguments,
+                spec.input.function,
                 spec.fn_effects,
                 spec.input.span,
             );
@@ -174,6 +175,7 @@ impl<'a> InferCtx<'a> {
         fn_ty: &InferType,
         param_tys: &[InferType],
         arguments: &[Expression],
+        function: &Expression,
         fn_effects: &InferEffectRow,
         span: Span,
     ) -> InferType {
@@ -189,7 +191,85 @@ impl<'a> InferCtx<'a> {
             fn_effects.apply_row_subst(&self.subst),
         );
         self.unify_reporting(fn_ty, &expected_fn_ty, span);
+        self.emit_task_spawn_capture_constraints(function, arguments, param_tys, span);
         ret_var.apply_type_subst(&self.subst)
+    }
+
+    /// `Task.spawn` moves the action closure to a worker, so each captured
+    /// runtime value must be independently Sendable even though function
+    /// values remain non-Sendable in the general type-class lattice.
+    fn emit_task_spawn_capture_constraints(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        param_tys: &[InferType],
+        span: Span,
+    ) {
+        if !self.is_task_spawn_callee(function, param_tys) {
+            return;
+        }
+        let Some(Expression::Function {
+            parameters, body, ..
+        }) = arguments.first()
+        else {
+            return;
+        };
+        let Some(sendable) = self.interner.lookup("Sendable") else {
+            return;
+        };
+
+        let mut captures = collect_free_vars_in_function_body(parameters, body)
+            .into_iter()
+            .filter(|name| self.env.lookup_level(*name).is_some_and(|level| level > 0))
+            .collect::<Vec<_>>();
+        captures.sort_unstable_by_key(|name| name.as_u32());
+        captures.dedup();
+
+        for capture in captures {
+            let Some(scheme) = self.env.lookup(capture) else {
+                continue;
+            };
+            let capture_ty = scheme.infer_type.apply_type_subst(&self.subst);
+            self.emit_class_constraint(
+                sendable,
+                capture_ty,
+                span,
+                constraint::WantedClassConstraintOrigin::TaskSpawnCapture {
+                    capture_name: capture,
+                },
+            );
+        }
+    }
+
+    /// Return whether a call resolves to the `Flow.Task.spawn` surface.
+    ///
+    /// This uses import-origin metadata instead of matching every function named
+    /// `spawn`, so unrelated module members and local shadows do not receive
+    /// Task-specific closure-capture constraints.
+    fn is_task_spawn_callee(&self, function: &Expression, param_tys: &[InferType]) -> bool {
+        let has_spawn_shape = || {
+            param_tys
+                .first()
+                .map(|ty| ty.apply_type_subst(&self.subst))
+                .is_some_and(|ty| matches!(ty, InferType::Fun(params, _, _) if params.is_empty()))
+        };
+
+        match function {
+            Expression::Identifier { name, .. } => {
+                self.interner.resolve(*name) == "spawn"
+                    && self.env.lookup_span(*name).is_none()
+                    && self.task_spawn_exposed
+                    && has_spawn_shape()
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                self.interner.resolve(*member) == "spawn"
+                    && matches!(object.as_ref(), Expression::Identifier { name, .. }
+                        if self.task_module_bindings.contains(name)
+                            && self.module_member_schemes.contains_key(&(*name, *member)))
+                    && has_spawn_shape()
+            }
+            _ => false,
+        }
     }
 
     /// Infer one higher-order call argument with bidirectional propagation

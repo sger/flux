@@ -344,6 +344,7 @@ mod tests {
             name: Symbol::new(id),
             binder: binder(id),
             expr,
+            is_dict_def: false,
             borrow_signature: None,
             result_ty: None,
             is_anonymous: false,
