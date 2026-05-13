@@ -337,6 +337,7 @@ mod vm_fibers {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
         static DEPTH: Cell<u32> = const { Cell::new(0) };
         static CURRENT: Cell<Option<FiberId>> = const { Cell::new(None) };
+        static CURRENT_WORKER: Cell<Option<WorkerId>> = const { Cell::new(None) };
         // (frame_index, sp) recorded at the outermost FiberRunAsync entry —
         // the boundary that FiberSleep captures continuations down to
         // (proposal 0174 Phase 1b-vi-b₂.1).
@@ -708,6 +709,25 @@ mod vm_fibers {
         f()
     }
 
+    fn with_current_worker<F, R>(worker: WorkerId, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        struct Guard(Option<WorkerId>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                CURRENT_WORKER.with(|w| w.set(self.0));
+            }
+        }
+        let prev = CURRENT_WORKER.with(|w| w.replace(Some(worker)));
+        let _g = Guard(prev);
+        f()
+    }
+
+    fn current_worker() -> Option<WorkerId> {
+        CURRENT_WORKER.with(|w| w.get())
+    }
+
     // ── Phase 1b-vi-b₂.1: park/resume + dispatch loop ───────────────────────
 
     /// Set the FiberRunAsync boundary, returning the previous value so the
@@ -832,6 +852,31 @@ mod vm_fibers {
                     .as_mut()
                     .expect("spawn_child_with_body outside Async.run_async")
                     .spawn_child()
+            })
+        };
+        attach_body_to_ready_fiber(id, body);
+        id
+    }
+
+    /// Spawn a child on the currently executing fiber's worker.
+    ///
+    /// Used for source-order-sensitive combinators (`race` / `first_of`) so
+    /// immediate candidates drain FIFO on one worker before any parked/yielded
+    /// candidate becomes eligible for migration.
+    pub fn spawn_ordered_child_with_body(body: Value) -> FiberId {
+        let worker = current_worker().unwrap_or(WorkerId(0));
+        let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared
+                .sched
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .spawn(worker)
+        } else {
+            SCHED.with(|s| {
+                s.borrow_mut()
+                    .as_mut()
+                    .expect("spawn_ordered_child_with_body outside Async.run_async")
+                    .spawn(worker)
             })
         };
         attach_body_to_ready_fiber(id, body);
@@ -1440,13 +1485,15 @@ mod vm_fibers {
                     }
                 };
                 let outcome = with_current(fiber_id, || {
-                    if let Some(cont) = fiber.parked.take() {
-                        ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
-                    } else if let Some(body) = fiber.body.take() {
-                        ctx.invoke_value(body, vec![])
-                    } else {
-                        unreachable!("checked above")
-                    }
+                    with_current_worker(fiber.home_worker, || {
+                        if let Some(cont) = fiber.parked.take() {
+                            ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
+                        } else if let Some(body) = fiber.body.take() {
+                            ctx.invoke_value(body, vec![])
+                        } else {
+                            unreachable!("checked above")
+                        }
+                    })
                 });
 
                 // Did the fiber park during this tick?  FiberSleep/FiberSuspend
@@ -1906,6 +1953,8 @@ mod vm_fibers {
             None
         };
 
+        let prev_worker = CURRENT_WORKER.with(|w| w.replace(Some(home_worker)));
+
         let outcome = if let Some(cont) = fiber.parked.take() {
             ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
         } else if let Some(body) = fiber.body.take() {
@@ -1915,6 +1964,7 @@ mod vm_fibers {
             if let Some(prev) = prev_boundary {
                 restore_boundary(prev);
             }
+            CURRENT_WORKER.with(|w| w.set(prev_worker));
             CURRENT.with(|c| c.set(prev_current));
             return WorkerFiberResult::Done {
                 fiber_id,
@@ -1926,6 +1976,7 @@ mod vm_fibers {
         if let Some(prev) = prev_boundary {
             restore_boundary(prev);
         }
+        CURRENT_WORKER.with(|w| w.set(prev_worker));
         CURRENT.with(|c| c.set(prev_current));
 
         // Check for park signal.
@@ -3510,8 +3561,8 @@ pub fn execute_core_primop(
             let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
                 "fiber_race called outside Async.run_async — no boundary set".to_string()
             })?;
-            let child_a = vm_fibers::spawn_child_with_body(args[0].clone());
-            let child_b = vm_fibers::spawn_child_with_body(args[1].clone());
+            let child_a = vm_fibers::spawn_ordered_child_with_body(args[0].clone());
+            let child_b = vm_fibers::spawn_ordered_child_with_body(args[1].clone());
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
@@ -3538,7 +3589,7 @@ pub fn execute_core_primop(
             let children: Vec<_> = bodies
                 .into_iter()
                 .enumerate()
-                .map(|(idx, body)| (vm_fibers::spawn_child_with_body(body), idx))
+                .map(|(idx, body)| (vm_fibers::spawn_ordered_child_with_body(body), idx))
                 .collect();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_first_of_await(req.0, children.clone());
