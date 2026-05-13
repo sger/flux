@@ -1,13 +1,15 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
-use crate::bytecode::bytecode::Bytecode;
 use crate::bytecode::debug_info::FunctionDebugInfo;
 use crate::bytecode::op_code::Instructions;
+use crate::runtime::r#async::context::EffectContext;
 use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::r#async::task_scheduler::{TaskHandle, TaskJoinError, TaskScheduler};
+use crate::runtime::frame::Frame;
 use crate::runtime::{
     closure::Closure,
     compiled_function::CompiledFunction,
@@ -15,7 +17,7 @@ use crate::runtime::{
     hamt,
     hamt::{HamtCollision, HamtEntry, HamtNode},
     hash_key::HashKey,
-    value::{AdtFields, AdtValue, ArcValue, Value, promote_value},
+    value::{AdtFields, AdtValue, ArcValue, Value, demote_value, promote_value},
 };
 
 use super::{VM, slot};
@@ -45,7 +47,6 @@ pub(super) enum VmSendValue {
     AdtUnit(String),
     Cons(Box<VmSendValue>, Box<VmSendValue>),
     HashMap(Vec<(HashKey, VmSendValue)>),
-    Unsupported(String),
 }
 
 #[derive(Clone)]
@@ -64,10 +65,15 @@ pub(super) struct VmSendClosure {
     free: Vec<VmSendValue>,
 }
 
-struct VmTaskSnapshot {
-    action: VmSendValue,
-    constants: Vec<VmSendValue>,
-    globals: Vec<(usize, VmSendValue)>,
+struct VmTaskPayload {
+    action: VmTaskAction,
+    constants: Arc<[ArcValue]>,
+    globals: Vec<(usize, ArcValue)>,
+}
+
+enum VmTaskAction {
+    Shared(ArcValue),
+    Send(VmSendValue),
 }
 
 /// Arc-backed read-only VM state shared by Phase 4 OS fiber workers.
@@ -90,6 +96,10 @@ static TASKS: OnceLock<Mutex<HashMap<i64, VmTaskEntry>>> = OnceLock::new();
 static CANCELLED: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
 static SCHEDULER: OnceLock<TaskScheduler> = OnceLock::new();
 static COMPLETIONS: OnceLock<CompletionQueue> = OnceLock::new();
+
+thread_local! {
+    static TASK_WORKER_VM: RefCell<Option<VM>> = const { RefCell::new(None) };
+}
 
 fn tasks() -> &'static Mutex<HashMap<i64, VmTaskEntry>> {
     TASKS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -126,18 +136,18 @@ fn default_worker_count() -> usize {
 
 impl VM {
     pub(super) fn spawn_vm_task(&mut self, action: Value) -> Result<i64, String> {
-        let snapshot = self.task_snapshot(action, false)?;
-        self.spawn_task_snapshot(snapshot)
+        let payload = self.task_payload(action, false)?;
+        self.spawn_task_payload(payload)
     }
 
     pub(super) fn spawn_vm_task_move(&mut self, action: Value) -> Result<i64, String> {
-        let snapshot = self.task_snapshot(action, true)?;
-        self.spawn_task_snapshot(snapshot)
+        let payload = self.task_payload(action, true)?;
+        self.spawn_task_payload(payload)
     }
 
-    fn spawn_task_snapshot(&mut self, snapshot: VmTaskSnapshot) -> Result<i64, String> {
+    fn spawn_task_payload(&mut self, payload: VmTaskPayload) -> Result<i64, String> {
         let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
-        let handle = scheduler().spawn(move || run_task_snapshot(snapshot));
+        let handle = scheduler().spawn(move || run_task_payload(payload));
         tasks().lock().expect("VM task table poisoned").insert(
             id,
             VmTaskEntry {
@@ -183,19 +193,64 @@ impl VM {
         }))
     }
 
-    fn task_snapshot(&self, action: Value, move_action: bool) -> Result<VmTaskSnapshot, String> {
-        Ok(VmTaskSnapshot {
+    fn task_payload(&mut self, action: Value, move_action: bool) -> Result<VmTaskPayload, String> {
+        Ok(VmTaskPayload {
             action: if move_action {
-                VmSendValue::try_transfer_from_value(action)?
+                VmTaskAction::Send(VmSendValue::try_transfer_from_value(action)?)
             } else {
-                VmSendValue::try_from_value(&action)?
+                VmTaskAction::Shared(promote_task_value(&action)?)
             },
-            constants: self
-                .constants
+            constants: self.task_shared_constants()?,
+            globals: self.task_sparse_globals()?,
+        })
+    }
+
+    fn task_shared_constants(&mut self) -> Result<Arc<[ArcValue]>, String> {
+        if let Some(constants) = &self.shared_constants {
+            return Ok(Arc::clone(constants));
+        }
+        if let Some(constants) = &self.task_shared_constants {
+            return Ok(Arc::clone(constants));
+        }
+        let constants: Arc<[ArcValue]> = Arc::from(
+            self.constants
                 .iter()
-                .map(|slot| VmSendValue::from_constant(&slot::from_slot_ref(slot)))
+                .map(|slot| promote_task_constant(&slot::from_slot_ref(slot)))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        self.task_shared_constants = Some(Arc::clone(&constants));
+        Ok(constants)
+    }
+
+    fn task_sparse_globals(&self) -> Result<Vec<(usize, ArcValue)>, String> {
+        match &self.shared_globals {
+            Some(shared) => self
+                .globals
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, slot)| {
+                    let promoted = if self.global_overrides.get(idx).copied().unwrap_or(false) {
+                        let value = slot::from_slot_ref(slot);
+                        if matches!(value, Value::None | Value::Uninit) {
+                            return None;
+                        }
+                        promote_task_value(&value)
+                    } else if let Some(value) = shared.get(idx) {
+                        if arc_value_is_none_or_uninit(value) {
+                            return None;
+                        }
+                        Ok(value.clone())
+                    } else {
+                        let value = slot::from_slot_ref(slot);
+                        if matches!(value, Value::None | Value::Uninit) {
+                            return None;
+                        }
+                        promote_task_value(&value)
+                    };
+                    Some(promoted.map(|v| (idx, v)))
+                })
                 .collect(),
-            globals: self
+            None => self
                 .globals
                 .iter()
                 .enumerate()
@@ -204,11 +259,51 @@ impl VM {
                     if matches!(value, Value::None | Value::Uninit) {
                         None
                     } else {
-                        Some(VmSendValue::try_from_value(&value).map(|v| (idx, v)))
+                        Some(promote_task_value(&value).map(|v| (idx, v)))
                     }
                 })
-                .collect::<Result<Vec<_>, _>>()?,
-        })
+                .collect(),
+        }
+    }
+
+    fn prepare_for_task(&mut self, constants: Arc<[ArcValue]>, globals: &[(usize, ArcValue)]) {
+        self.cleanup_after_task();
+        self.shared_constants = Some(constants);
+        for (idx, value) in globals {
+            if *idx < self.globals.len() {
+                self.mark_global_dirty(*idx);
+                self.globals[*idx] = slot::to_slot(demote_value(value.clone()));
+            }
+        }
+    }
+
+    fn cleanup_after_task(&mut self) {
+        for i in 0..self.sp.min(self.stack.len()) {
+            let _ = std::mem::replace(&mut self.stack[i], slot::uninit());
+        }
+        self.sp = 0;
+        self.last_popped = slot::to_slot(Value::None);
+        self.frames.truncate(1);
+        if self.frames.is_empty() {
+            self.frames.push(empty_root_frame());
+        } else {
+            self.frames[0] = empty_root_frame();
+        }
+        self.frame_index = 0;
+        self.shared_constants = None;
+        self.shared_globals = None;
+        for idx in self.global_dirty.drain(..) {
+            if idx < self.globals.len() {
+                self.globals[idx] = slot::to_slot(Value::None);
+                self.global_overrides[idx] = false;
+            }
+        }
+        self.tail_arg_scratch.clear();
+        self.cont_pieces.clear();
+        self.cont_pool.clear();
+        self.handler_stack.clear();
+        self.context = EffectContext::new();
+        self.cc_stack.clear();
     }
 }
 
@@ -313,6 +408,11 @@ pub(super) fn vm_from_worker_shared(shared: Arc<WorkerSharedState>) -> VM {
     vm
 }
 
+fn empty_root_frame() -> Frame {
+    let func = Arc::new(CompiledFunction::new(vec![], 0, 0, None));
+    Frame::new(Rc::new(Closure::new(func, vec![])), 0)
+}
+
 fn join_error(err: TaskJoinError) -> String {
     match err {
         TaskJoinError::Cancelled => "TaskCancelled".to_string(),
@@ -320,32 +420,82 @@ fn join_error(err: TaskJoinError) -> String {
     }
 }
 
-fn run_task_snapshot(snapshot: VmTaskSnapshot) -> TaskResult {
-    let constants = snapshot
-        .constants
-        .into_iter()
-        .map(VmSendValue::to_constant_value)
-        .collect::<Result<Vec<_>, _>>()?;
-    let action = snapshot.action.to_value()?;
-    let mut vm = VM::new(Bytecode {
-        instructions: vec![],
+fn run_task_payload(payload: VmTaskPayload) -> TaskResult {
+    let VmTaskPayload {
+        action,
         constants,
-        debug_info: None,
+        globals,
+    } = payload;
+    let action = match action {
+        VmTaskAction::Shared(value) => demote_value(value),
+        VmTaskAction::Send(value) => value.to_value()?,
+    };
+
+    let mut vm = TASK_WORKER_VM
+        .with(|pool| pool.borrow_mut().take())
+        .unwrap_or_else(task_worker_vm);
+    vm.prepare_for_task(constants, &globals);
+    let result = vm
+        .invoke_value(action, vec![])
+        .and_then(|value| VmSendValue::try_from_value(&value));
+    vm.cleanup_after_task();
+    TASK_WORKER_VM.with(|pool| {
+        *pool.borrow_mut() = Some(vm);
     });
-    for (idx, value) in snapshot.globals {
-        if idx < vm.globals.len() {
-            vm.globals[idx] = slot::to_slot(value.to_value()?);
-        }
+    result
+}
+
+fn task_worker_vm() -> VM {
+    VM::new(crate::bytecode::bytecode::Bytecode {
+        instructions: vec![],
+        constants: vec![],
+        debug_info: None,
+    })
+}
+
+fn arc_value_is_none_or_uninit(value: &ArcValue) -> bool {
+    matches!(value, ArcValue::None | ArcValue::Uninit)
+}
+
+fn promote_task_constant(value: &Value) -> Result<ArcValue, String> {
+    match validate_task_value(value).and_then(|_| promote_value(value)) {
+        Ok(value) => Ok(value),
+        Err(_) => Ok(ArcValue::None),
     }
-    let result = vm.invoke_value(action, vec![])?;
-    VmSendValue::try_from_value(&result)
+}
+
+fn promote_task_value(value: &Value) -> Result<ArcValue, String> {
+    validate_task_value(value)?;
+    promote_value(value)
+}
+
+fn validate_task_value(value: &Value) -> Result<(), String> {
+    match value {
+        Value::ReturnValue(_) => {
+            return Err("Task.spawn cannot transfer internal return values".to_string());
+        }
+        Value::Continuation(_) => {
+            return Err("Task.spawn cannot transfer VM continuations".to_string());
+        }
+        Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {
+            return Err("Task.spawn cannot transfer VM effect descriptors".to_string());
+        }
+        Value::Some(v) | Value::Left(v) | Value::Right(v) => validate_task_value(v),
+        Value::Closure(c) => c.free.iter().try_for_each(validate_task_value),
+        Value::Array(v) | Value::Tuple(v) => v.iter().try_for_each(validate_task_value),
+        Value::Adt(adt) => adt.fields.iter().try_for_each(validate_task_value),
+        Value::Cons(cell) => {
+            validate_task_value(&cell.head)?;
+            validate_task_value(&cell.tail)
+        }
+        Value::HashMap(root) => hamt::hamt_iter(root)
+            .into_iter()
+            .try_for_each(|(_, v)| validate_task_value(&v)),
+        _ => Ok(()),
+    }
 }
 
 impl VmSendValue {
-    fn from_constant(value: &Value) -> Self {
-        Self::try_from_value(value).unwrap_or_else(|err| Self::Unsupported(err))
-    }
-
     pub(super) fn try_from_value(value: &Value) -> Result<Self, String> {
         Ok(match value {
             Value::Uninit => Self::Uninit,
@@ -552,17 +702,7 @@ impl VmSendValue {
                 }
                 Value::HashMap(root)
             }
-            Self::Unsupported(err) => {
-                return Err(format!("VM task referenced unsupported constant: {err}"));
-            }
         })
-    }
-
-    fn to_constant_value(self) -> Result<Value, String> {
-        match self {
-            Self::Unsupported(_) => Ok(Value::None),
-            other => other.to_value(),
-        }
     }
 }
 
@@ -713,6 +853,8 @@ fn transfer_hamt_value(value: Value) -> Result<VmSendValue, MoveValueError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bytecode::bytecode::Bytecode;
+    use crate::bytecode::op_code::OpCode;
     use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
@@ -741,5 +883,67 @@ mod tests {
             .collect::<Vec<_>>();
         values.sort();
         assert_eq!(values, vec![0, 1]);
+    }
+
+    #[test]
+    fn task_shared_constants_are_cached_and_preserve_function_arc() {
+        let function = Arc::new(CompiledFunction::new(
+            vec![OpCode::OpReturnValue as u8],
+            0,
+            0,
+            None,
+        ));
+        let mut vm = VM::new(Bytecode {
+            instructions: vec![],
+            constants: vec![Value::Function(Arc::clone(&function))],
+            debug_info: None,
+        });
+
+        let first = vm.task_shared_constants().expect("first constants");
+        let second = vm.task_shared_constants().expect("second constants");
+
+        assert!(Arc::ptr_eq(&first, &second));
+        match &first[0] {
+            ArcValue::Function(shared) => assert!(Arc::ptr_eq(&function, shared)),
+            _ => panic!("expected function constant"),
+        }
+    }
+
+    #[test]
+    fn pooled_vm_cleanup_clears_stack_context_and_touched_globals() {
+        let mut vm = task_worker_vm();
+        let constants: Arc<[ArcValue]> = Arc::from(Vec::new());
+        let globals = vec![(7, ArcValue::Integer(41))];
+
+        vm.prepare_for_task(Arc::clone(&constants), &globals);
+        vm.push(Value::Integer(99)).expect("push");
+        vm.global_set(9, Value::Integer(100));
+        vm.handler_stack
+            .push(crate::runtime::handler_frame::HandlerFrame {
+                effect: crate::syntax::symbol::Symbol::SENTINEL,
+                arms: Rc::new(vec![]),
+                marker: 1,
+                saved_evv: crate::runtime::evidence::EvidenceVector::new(),
+                state: None,
+                entry_frame_index: 0,
+                entry_sp: 0,
+                entry_handler_stack_len: 0,
+                is_direct: false,
+                is_discard: false,
+            });
+        vm.context.cancel_scope = crate::runtime::r#async::context::CancelScope::Cancelled;
+
+        vm.cleanup_after_task();
+
+        assert_eq!(vm.sp, 0);
+        assert_eq!(vm.frame_index, 0);
+        assert!(vm.handler_stack.is_empty());
+        assert!(!vm.context.is_cancelled());
+        assert!(vm.shared_constants.is_none());
+        assert!(vm.global_dirty.is_empty());
+        assert!(!vm.global_overrides[7]);
+        assert!(!vm.global_overrides[9]);
+        assert!(matches!(slot::from_slot_ref(&vm.globals[7]), Value::None));
+        assert!(matches!(slot::from_slot_ref(&vm.globals[9]), Value::None));
     }
 }

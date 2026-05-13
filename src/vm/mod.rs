@@ -78,12 +78,14 @@ use slot::Slot;
 pub struct VM {
     constants: Vec<Slot>,
     shared_constants: Option<Arc<[ArcValue]>>,
+    task_shared_constants: Option<Arc<[ArcValue]>>,
     stack: Vec<Slot>,
     sp: usize,
     last_popped: Slot,
     pub globals: Vec<Slot>,
     shared_globals: Option<Arc<[ArcValue]>>,
     global_overrides: Vec<bool>,
+    global_dirty: Vec<usize>,
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
@@ -119,12 +121,14 @@ impl VM {
         Self {
             constants: bytecode.constants.into_iter().map(slot::to_slot).collect(),
             shared_constants: None,
+            task_shared_constants: None,
             stack: vec![slot::uninit(); INITIAL_STACK_SIZE],
             sp: 0,
             last_popped: slot::to_slot(Value::None),
             globals: vec![slot::to_slot(Value::None); GLOBALS_SIZE],
             shared_globals: None,
             global_overrides: vec![false; GLOBALS_SIZE],
+            global_dirty: Vec::new(),
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
@@ -657,10 +661,18 @@ impl VM {
     /// Store `v` at globals index `idx`.
     #[inline(always)]
     fn global_set(&mut self, idx: usize, v: Value) {
+        self.mark_global_dirty(idx);
+        self.globals[idx] = slot::to_slot(v);
+    }
+
+    #[inline(always)]
+    fn mark_global_dirty(&mut self, idx: usize) {
         if let Some(overridden) = self.global_overrides.get_mut(idx) {
+            if !*overridden {
+                self.global_dirty.push(idx);
+            }
             *overridden = true;
         }
-        self.globals[idx] = slot::to_slot(v);
     }
 
     /// Returns the last popped value from the stack.
@@ -703,6 +715,7 @@ impl VM {
             *e = vm_val;
         }
         self.global_overrides.fill(true);
+        self.global_dirty.clear();
     }
 }
 
