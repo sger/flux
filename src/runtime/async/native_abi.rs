@@ -671,7 +671,6 @@ impl NativeRun {
                 }
                 AwaitEvent::TimeoutBodyReady { request, outcome } => {
                     backend().cancel(RequestId(request));
-                    self.cancelled_requests.insert(request);
                     match outcome {
                         FiberOutcome::Value(value) => {
                             if let Some(cb) = callbacks() {
@@ -687,6 +686,7 @@ impl NativeRun {
                             self.wake(request, FiberOutcome::Error(err));
                         }
                     }
+                    self.cancelled_requests.insert(request);
                 }
                 AwaitEvent::TimeoutTimerReady { request, body } => {
                     self.wake(request, FiberOutcome::Value(FLUX_NONE));
@@ -1463,9 +1463,13 @@ pub extern "C" fn flux_async_last_run_failed() -> i32 {
 pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
-        let left_id = run.spawn_child(left);
-        let right_id = run.spawn_child(right);
+        let left_id = next_fiber_id();
+        let left_worker = run.pick_next_worker();
+        let right_id = next_fiber_id();
+        let right_worker = run.pick_next_worker();
         run.awaits.register_both(parent_req, left_id, right_id);
+        run.spawn_child_on(left_worker, left_id, left);
+        run.spawn_child_on(right_worker, right_id, right);
         parent_req
     })
     .unwrap_or(0)
@@ -1476,13 +1480,15 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
         let worker = current_worker();
+        let left_id = next_fiber_id();
+        let right_id = next_fiber_id();
+        run.awaits
+            .register_race(parent_req, vec![left_id, right_id]);
         // Launch race candidates on the caller's worker in source order so
         // immediate completions have deterministic FIFO tie-breaking. Once a
         // child suspends, backend completions still race normally.
-        let left_id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), left, false);
-        let right_id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), right, false);
-        run.awaits
-            .register_race(parent_req, vec![left_id, right_id]);
+        run.spawn_child_on_with_stealable(worker, left_id, left, false);
+        run.spawn_child_on_with_stealable(worker, right_id, right, false);
         parent_req
     })
     .unwrap_or(0)
@@ -1498,11 +1504,16 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
         let parent_req = next_request_id();
         let worker = current_worker();
         let mut child_ids = Vec::with_capacity(closures.len());
+        let mut planned = Vec::with_capacity(closures.len());
         for (idx, closure) in closures.iter().copied().enumerate() {
-            let id = run.spawn_child_on_with_stealable(worker, next_fiber_id(), closure, false);
+            let id = next_fiber_id();
             child_ids.push((id, idx));
+            planned.push((id, closure));
         }
         run.awaits.register_first_of(parent_req, child_ids);
+        for (id, closure) in planned {
+            run.spawn_child_on_with_stealable(worker, id, closure, false);
+        }
         parent_req
     })
     .unwrap_or(0)
@@ -1518,7 +1529,8 @@ pub extern "C" fn flux_async_fiber_try(
     with_run(|run| {
         run.panicked_ctor_tag = panicked_ctor_tag;
         let parent_req = next_request_id();
-        let child_id = run.spawn_child(body);
+        let child_id = next_fiber_id();
+        let child_worker = run.pick_next_worker();
         run.awaits.register_try(
             parent_req,
             child_id,
@@ -1527,6 +1539,7 @@ pub extern "C" fn flux_async_fiber_try(
                 err_ctor_tag,
             },
         );
+        run.spawn_child_on(child_worker, child_id, body);
         parent_req
     })
     .unwrap_or(0)
@@ -1536,8 +1549,10 @@ pub extern "C" fn flux_async_fiber_try(
 pub extern "C" fn flux_async_fiber_timeout(ms: i64, body: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
-        let body_id = run.spawn_child(body);
+        let body_id = next_fiber_id();
+        let body_worker = run.pick_next_worker();
         run.awaits.register_timeout(parent_req, body_id);
+        run.spawn_child_on(body_worker, body_id, body);
         let delay = if ms < 0 { 0 } else { ms as u64 };
         backend().timer_start(RequestId(parent_req), delay);
         parent_req

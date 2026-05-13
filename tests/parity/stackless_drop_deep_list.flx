@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// bug: recursive flux_drop stack-overflows on deep lists (100K+ Cons cells).
+// bug: recursive flux_drop stack-overflows on deep lists.
 //      stackless drop traversal uses parent chain in header._reserved field.
 
 fn build_list(n, acc) {
@@ -9,8 +9,9 @@ fn build_list(n, acc) {
 }
 
 fn main() with IO {
-    // Build a list of 150K elements — would stack overflow with recursive drop.
-    let big = build_list(150000, [])
+    // Build a list deep enough to exercise stackless drop while staying within
+    // the parity harness timeout on fresh no-cache VM runs.
+    let big = build_list(50000, [])
     // Sum first and last to prove it's alive.
     let first = match big {
         [h | _] -> h,

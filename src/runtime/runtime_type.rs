@@ -286,7 +286,11 @@ impl RuntimeType {
                     return false;
                 }
                 let Some(contract) = ctx.callable_contract(value) else {
-                    return false;
+                    return matches!(
+                        value,
+                        Value::Closure(closure)
+                            if params.is_empty() && closure.function.num_parameters == 0
+                    );
                 };
                 if contract.params.len() != params.len() {
                     return false;

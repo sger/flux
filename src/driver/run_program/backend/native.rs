@@ -470,8 +470,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         if let Some(val) = fiber_trace {
             native_cmd.env("FLUX_FIBER_TRACE", val);
         }
-        match native_cmd.spawn()
-        {
+        match native_cmd.spawn() {
             Ok(child) => {
                 let output = match child.wait_with_output() {
                     Ok(output) => output,

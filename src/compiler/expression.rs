@@ -38,13 +38,14 @@ use crate::{
         types::ErrorType,
     },
     runtime::{
-        compiled_function::CompiledFunction, handler_descriptor::HandlerDescriptor,
-        perform_descriptor::PerformDescriptor, runtime_type::RuntimeType, value::Value,
+        compiled_function::CompiledFunction, function_contract::FunctionContract,
+        handler_descriptor::HandlerDescriptor, perform_descriptor::PerformDescriptor,
+        runtime_type::RuntimeType, value::Value,
     },
     syntax::{
         block::Block,
         effect_expr::EffectExpr,
-        expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
+        expression::{ExprId, Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
@@ -769,9 +770,11 @@ impl Compiler {
                 return_type,
                 effects,
                 body,
+                id,
                 ..
             } => {
                 self.compile_function_literal(
+                    *id,
                     parameters,
                     parameter_types,
                     return_type,
@@ -957,12 +960,38 @@ impl Compiler {
                     }
                 }
 
-                for argument in arguments {
-                    if is_self_tail_call {
-                        self.compile_tail_call_argument(argument, &consumable_counts)?;
+                let contextual_contracts =
+                    self.contextual_function_contracts_for_call(function, arguments);
+
+                for (index, argument) in arguments.iter().enumerate() {
+                    let previous_context = if let Some(contract) = contextual_contracts
+                        .get(index)
+                        .and_then(|contract| contract.as_ref())
+                        && let Expression::Function { id, .. } = argument
+                    {
+                        Some((
+                            *id,
+                            self.contextual_function_contracts
+                                .insert(*id, contract.clone()),
+                        ))
                     } else {
-                        self.compile_non_tail_expression(argument)?;
+                        None
+                    };
+                    let compile_result = if is_self_tail_call {
+                        self.compile_tail_call_argument(argument, &consumable_counts)
+                    } else {
+                        self.compile_non_tail_expression(argument)
+                    };
+                    if let Expression::Function { id, .. } = argument
+                        && contextual_contracts.get(index).is_some_and(Option::is_some)
+                    {
+                        if let Some((_, Some(previous))) = previous_context {
+                            self.contextual_function_contracts.insert(*id, previous);
+                        } else {
+                            self.contextual_function_contracts.remove(id);
+                        }
                     }
+                    compile_result?;
                 }
 
                 // Emit OpTailCall for tail-position calls (self or sibling),
@@ -1204,6 +1233,57 @@ impl Compiler {
         self.check_imported_runtime_contract_call(function, arguments, &contract)
     }
 
+    fn contextual_function_contracts_for_call(
+        &self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> Vec<Option<FunctionContract>> {
+        let mut contracts = vec![None; arguments.len()];
+        if let Some(contract) = self.resolve_call_contract(function, arguments.len()) {
+            for (index, param) in contract.params.iter().enumerate().take(arguments.len()) {
+                let Some(param_ty) = param.as_ref() else {
+                    continue;
+                };
+                let Ok(runtime_ty) = convert_type_expr_checked(
+                    param_ty,
+                    &self.interner,
+                    &contract.type_params,
+                    &self.adt_contract_specs,
+                ) else {
+                    continue;
+                };
+                contracts[index] = Self::function_contract_from_runtime_type(&runtime_ty);
+            }
+            return contracts;
+        }
+
+        let Some(contract) = self.resolve_call_runtime_contract(function) else {
+            return contracts;
+        };
+        for (index, param) in contract.params.iter().enumerate().take(arguments.len()) {
+            let Some(runtime_ty) = param.as_ref() else {
+                continue;
+            };
+            contracts[index] = Self::function_contract_from_runtime_type(runtime_ty);
+        }
+        contracts
+    }
+
+    fn function_contract_from_runtime_type(runtime_ty: &RuntimeType) -> Option<FunctionContract> {
+        match runtime_ty {
+            RuntimeType::Function {
+                params,
+                ret,
+                effects,
+            } => Some(FunctionContract {
+                params: params.iter().cloned().map(Some).collect(),
+                ret: Some((**ret).clone()),
+                effects: effects.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     fn check_source_contract_call(
         &mut self,
         function: &Expression,
@@ -1285,10 +1365,10 @@ impl Compiler {
             ) {
                 Ok(runtime) => runtime,
                 Err(err) => {
-                    let static_argument_matches = if let HmExprTypeResult::Known(actual) =
-                        self.hm_expr_type_strict_path(argument)
-                        && let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
-                            self.hm_expr_type_strict_path(function)
+                    let static_argument_matches = if let Some(actual) =
+                        self.hm_expr_types.get(&argument.expr_id())
+                        && let Some(InferType::Fun(hm_params, _, _)) =
+                            self.hm_expr_types.get(&function.expr_id())
                         && let Some(hm_expected) = hm_params.get(index)
                         && let Ok(subst) = unify(hm_expected, &actual)
                     {
@@ -2230,6 +2310,7 @@ impl Compiler {
 
     pub(super) fn compile_function_literal(
         &mut self,
+        expr_id: ExprId,
         parameters: &[Symbol],
         parameters_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
@@ -2329,7 +2410,10 @@ impl Compiler {
                 ret: return_type.clone(),
                 effects: effects.to_vec(),
             };
-            self.to_runtime_contract(&contract)
+            self.contextual_function_contracts
+                .get(&expr_id)
+                .cloned()
+                .or_else(|| self.to_runtime_contract(&contract))
         };
 
         let fn_idx = self.add_constant(Value::Function(Arc::new(
@@ -3810,7 +3894,14 @@ impl Compiler {
             };
 
             // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
+            self.compile_function_literal(
+                ExprId::UNSET,
+                &params,
+                &parameter_types,
+                &None,
+                &[],
+                &arm_block,
+            )?;
         }
 
         if let Some(parameter) = parameter {
