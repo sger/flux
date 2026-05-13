@@ -79,9 +79,9 @@ impl Continuation {
             state_marker,
             &mut scratch_pool,
         )?;
-        Ok(Value::Continuation(std::rc::Rc::new(std::cell::RefCell::new(
-            composed,
-        ))))
+        Ok(Value::Continuation(std::rc::Rc::new(
+            std::cell::RefCell::new(composed),
+        )))
     }
 
     /// Compose continuation pieces — innermost-first, as accumulated during
@@ -179,10 +179,10 @@ impl Drop for Continuation {
 mod tests {
     use super::*;
     use crate::runtime::{closure::Closure, compiled_function::CompiledFunction};
-    use std::{cell::RefCell, rc::Rc};
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
 
     fn frame(base_pointer: usize, return_slot: usize) -> Frame {
-        let func = Rc::new(CompiledFunction::new(vec![], 0, 0, None));
+        let func = Arc::new(CompiledFunction::new(vec![], 0, 0, None));
         let closure = Rc::new(Closure::new(func, vec![]));
         Frame::new_with_return_slot(closure, base_pointer, return_slot)
     }
@@ -275,7 +275,14 @@ mod tests {
     fn compose_pieces_multi_splices_stack_and_recycles_shells() {
         // innermost first, matching the order capture_to_boundary pushes.
         let mut pieces = vec![
-            piece(20, 29, 20, 22, 1, vec![Value::Integer(1), Value::Integer(2)]),
+            piece(
+                20,
+                29,
+                20,
+                22,
+                1,
+                vec![Value::Integer(1), Value::Integer(2)],
+            ),
             piece(10, 19, 10, 19, 0, vec![Value::Integer(3)]),
         ];
         let mut pool = Vec::new();

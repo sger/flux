@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
+    sync::Arc,
 };
 
 use super::suggestions::suggest_effect_name;
@@ -2331,7 +2332,7 @@ impl Compiler {
             self.to_runtime_contract(&contract)
         };
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(
+        let fn_idx = self.add_constant(Value::Function(Arc::new(
             CompiledFunction::new(
                 instructions,
                 num_locals,
