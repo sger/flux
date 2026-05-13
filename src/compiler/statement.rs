@@ -9,8 +9,11 @@ use crate::{
     ast::type_infer::display_infer_type,
     bytecode::{debug_info::FunctionDebugInfo, op_code::OpCode},
     compiler::{
-        Compiler, contracts::convert_type_expr_checked, module_constants::compile_module_constants,
-        suggestions::suggest_effect_name, symbol_scope::SymbolScope,
+        Compiler,
+        contracts::{FnContract, convert_type_expr_checked},
+        module_constants::compile_module_constants,
+        suggestions::suggest_effect_name,
+        symbol_scope::SymbolScope,
     },
     core::CoreType,
     diagnostics::{
@@ -120,6 +123,58 @@ impl Compiler {
             ret: Some(ret),
             effects,
         })
+    }
+
+    fn runtime_contract_from_source_annotations(
+        &self,
+        contract: &FnContract,
+    ) -> Option<FunctionContract> {
+        if let Some(contract) = self.to_runtime_contract(contract) {
+            return Some(contract);
+        }
+        if !contract.type_params.is_empty() {
+            return None;
+        }
+
+        let params = contract
+            .params
+            .iter()
+            .map(|ty| {
+                ty.as_ref().and_then(|ty| {
+                    convert_type_expr_checked(
+                        ty,
+                        &self.interner,
+                        &contract.type_params,
+                        &self.adt_contract_specs,
+                    )
+                    .ok()
+                })
+            })
+            .collect::<Vec<_>>();
+        let ret = contract.ret.as_ref().and_then(|ty| {
+            convert_type_expr_checked(
+                ty,
+                &self.interner,
+                &contract.type_params,
+                &self.adt_contract_specs,
+            )
+            .ok()
+        });
+        let effects = contract
+            .effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect::<Vec<_>>();
+
+        if params.iter().all(Option::is_none) && ret.is_none() && effects.is_empty() {
+            None
+        } else {
+            Some(FunctionContract {
+                params,
+                ret,
+                effects,
+            })
+        }
     }
 
     fn core_type_to_runtime_type(
@@ -2050,8 +2105,12 @@ impl Compiler {
                 ret: return_type.clone(),
                 effects: effects.to_vec(),
             };
-            self.runtime_contract_from_ir_function(ir_function)
-                .or_else(|| self.to_runtime_contract(&contract))
+            if intrinsic.is_some() {
+                self.to_runtime_contract(&contract)
+            } else {
+                self.runtime_contract_from_source_annotations(&contract)
+                    .or_else(|| self.runtime_contract_from_ir_function(ir_function))
+            }
         };
 
         let fn_idx = self.add_constant(Value::Function(Arc::new(
