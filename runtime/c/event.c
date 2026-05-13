@@ -1,3 +1,8 @@
+// Expose POSIX APIs (clock_gettime, nanosleep) on Linux/glibc.
+#if !defined(_POSIX_C_SOURCE) && !defined(__APPLE__)
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 #include "flux_rt.h"
 
 #include <stdint.h>
@@ -236,6 +241,8 @@ static int poll_event(int64_t id, int64_t *out) {
     }
 
     switch (ev->kind) {
+    case EV_FREE:
+        return 0;
     case EV_RECV: {
         int64_t value = flux_chan_try_recv(flux_tag_int(ev->a));
         if (value != FLUX_NONE) {
