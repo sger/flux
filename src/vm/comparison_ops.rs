@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::{bytecode::op_code::OpCode, runtime::value::Value};
 
@@ -53,7 +53,7 @@ impl VM {
                 (Value::Some(l), Value::Some(r)) => Rc::ptr_eq(l, r),
                 (Value::Left(l), Value::Left(r)) => Rc::ptr_eq(l, r),
                 (Value::Right(l), Value::Right(r)) => Rc::ptr_eq(l, r),
-                (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
+                (Value::Function(l), Value::Function(r)) => Arc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
                 _ => false,
             };

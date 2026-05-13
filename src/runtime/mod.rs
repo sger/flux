@@ -118,16 +118,12 @@ pub trait RuntimeContext {
         unimplemented!("resume_from_dispatch not implemented for this RuntimeContext")
     }
 
-    /// Produce a snapshot of this VM's constants and globals for use by
-    /// Phase 4 OS worker threads.
+    /// Produce shared read-only VM state for Phase 4 OS worker threads.
     ///
-    /// The default implementation returns `None` (no snapshot available),
-    /// which causes the multi-worker path to skip the snapshot for that
+    /// The default implementation returns `None` (no shared state available),
+    /// which causes the multi-worker path to use empty state for that
     /// context. Only `VM` provides a real implementation.
-    ///
-    /// The returned box contains a `crate::vm::task::WorkerVmSnapshot`.
-    /// Callers in the `vm` module can downcast it.
-    fn vm_worker_snapshot(&self) -> Option<Box<dyn std::any::Any + Send>> {
+    fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
         None
     }
 }

@@ -6509,8 +6509,7 @@ impl Compiler {
                     normalized_effects.extend(self.handled_effects.iter().copied());
                 }
                 EffectExpr::RowVar { name, .. }
-                    if self.sym(*name)
-                        == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                    if self.sym(*name) == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
                 {
                     let enclosing = self
                         .function_effects
@@ -6545,8 +6544,7 @@ impl Compiler {
         for effect in effects {
             match effect {
                 EffectExpr::RowVar { name, .. }
-                    if self.sym(*name)
-                        == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
+                    if self.sym(*name) == crate::syntax::select_desugar::SELECT_AMBIENT_ROW_VAR =>
                 {
                     let enclosing = self
                         .function_effects
@@ -6670,10 +6668,10 @@ impl Compiler {
     pub(super) fn emit_identity_closure(&mut self) {
         use crate::bytecode::op_code::OpCode;
         use crate::runtime::value::Value;
-        use std::rc::Rc;
+        use std::sync::Arc;
 
         let instructions = vec![OpCode::OpReturnLocal as u8, 0];
-        let func = Rc::new(crate::runtime::compiled_function::CompiledFunction::new(
+        let func = Arc::new(crate::runtime::compiled_function::CompiledFunction::new(
             instructions,
             1,    // arity = 1
             1,    // num_locals = 1 (the parameter)

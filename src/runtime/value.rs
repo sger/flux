@@ -281,7 +281,7 @@ pub enum Value {
     /// Internal return-signal wrapper used by function returns.
     ReturnValue(Rc<Value>),
     /// Compiled function object.
-    Function(Rc<CompiledFunction>),
+    Function(Arc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
     /// Ordered collection of values.
@@ -775,6 +775,39 @@ mod tests {
         // With discriminant + padding the enum fits in 16 bytes on 64-bit platforms.
         assert_eq!(std::mem::size_of::<Value>(), 16);
     }
+
+    #[test]
+    fn function_promote_demote_preserves_arc_identity() {
+        let function = Arc::new(CompiledFunction::new(vec![1, 2, 3], 0, 0, None));
+
+        let promoted = promote_value(&Value::Function(Arc::clone(&function))).expect("promote");
+        let demoted = demote_value(promoted);
+
+        match demoted {
+            Value::Function(back) => assert!(Arc::ptr_eq(&function, &back)),
+            other => panic!("expected function, got {}", other.type_name()),
+        }
+    }
+
+    #[test]
+    fn closure_promote_demote_preserves_function_arc_identity() {
+        let function = Arc::new(CompiledFunction::new(vec![1, 2, 3], 1, 0, None));
+        let closure = Closure {
+            function: Arc::clone(&function),
+            free: vec![Value::Integer(42)],
+        };
+
+        let promoted = promote_value(&Value::Closure(Rc::new(closure))).expect("promote");
+        let demoted = demote_value(promoted);
+
+        match demoted {
+            Value::Closure(back) => {
+                assert!(Arc::ptr_eq(&function, &back.function));
+                assert_eq!(back.free, vec![Value::Integer(42)]);
+            }
+            other => panic!("expected closure, got {}", other.type_name()),
+        }
+    }
 }
 
 // ── Thread-safe value representation (Phase 4 VM multithreading) ─────────────
@@ -945,7 +978,7 @@ pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
         Value::ReturnValue(_) => {
             return Err("cannot promote internal ReturnValue across worker boundary".into());
         }
-        Value::Function(f) => ArcValue::Function(Arc::new((**f).clone())),
+        Value::Function(f) => ArcValue::Function(Arc::clone(f)),
         Value::Closure(c) => ArcValue::Closure(Arc::new(promote_closure(c)?)),
         Value::Array(v) => ArcValue::Array(Arc::new(
             v.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
@@ -964,7 +997,9 @@ pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
         Value::AdtUnit(name) => ArcValue::AdtUnit(Arc::new((**name).clone())),
         Value::Continuation(cont) => {
             let cont = cont.borrow();
-            ArcValue::Continuation(Arc::new(std::sync::Mutex::new(promote_continuation(&cont)?)))
+            ArcValue::Continuation(Arc::new(std::sync::Mutex::new(promote_continuation(
+                &cont,
+            )?)))
         }
         Value::HandlerDescriptor(hd) => ArcValue::HandlerDescriptor(Arc::new((**hd).clone())),
         Value::PerformDescriptor(pd) => ArcValue::PerformDescriptor(Arc::new((**pd).clone())),
@@ -972,16 +1007,18 @@ pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
             head: promote_value(&cell.head)?,
             tail: promote_value(&cell.tail)?,
         })),
-        Value::HashMap(root) => {
-            ArcValue::HashMap(Arc::new(promote_hamt_node(root)?))
-        }
+        Value::HashMap(root) => ArcValue::HashMap(Arc::new(promote_hamt_node(root)?)),
     })
 }
 
 fn promote_closure(c: &Closure) -> Result<ArcClosure, String> {
     Ok(ArcClosure {
-        function: Arc::new((*c.function).clone()),
-        free: c.free.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
+        function: Arc::clone(&c.function),
+        free: c
+            .free
+            .iter()
+            .map(promote_value)
+            .collect::<Result<Vec<_>, _>>()?,
     })
 }
 
@@ -1018,27 +1055,38 @@ fn promote_frame(f: &crate::runtime::frame::Frame) -> Result<ArcFrame, String> {
     })
 }
 
-fn promote_handler_arm(arm: &crate::runtime::handler_arm::HandlerArm) -> Result<ArcHandlerArm, String> {
+fn promote_handler_arm(
+    arm: &crate::runtime::handler_arm::HandlerArm,
+) -> Result<ArcHandlerArm, String> {
     Ok(ArcHandlerArm {
         op: arm.op.clone(),
         closure: Arc::new(promote_closure(&arm.closure)?),
     })
 }
 
-fn promote_evv_entries(evv: &crate::runtime::evidence::EvidenceVector) -> Result<Arc<Vec<ArcEvidence>>, String> {
-    let entries: Result<Vec<ArcEvidence>, String> = evv.entries().iter().map(|e| {
-        Ok::<ArcEvidence, String>(ArcEvidence {
-            effect: e.effect.clone(),
-            marker: e.marker,
-            arms: Arc::new(
-                e.arms.iter().map(promote_handler_arm).collect::<Result<Vec<_>, _>>()?
-            ),
-            parent: match &e.parent {
-                Some(parent_evv) => Some(promote_evv_entries(parent_evv)?),
-                None => None,
-            },
+fn promote_evv_entries(
+    evv: &crate::runtime::evidence::EvidenceVector,
+) -> Result<Arc<Vec<ArcEvidence>>, String> {
+    let entries: Result<Vec<ArcEvidence>, String> = evv
+        .entries()
+        .iter()
+        .map(|e| {
+            Ok::<ArcEvidence, String>(ArcEvidence {
+                effect: e.effect.clone(),
+                marker: e.marker,
+                arms: Arc::new(
+                    e.arms
+                        .iter()
+                        .map(promote_handler_arm)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                parent: match &e.parent {
+                    Some(parent_evv) => Some(promote_evv_entries(parent_evv)?),
+                    None => None,
+                },
+            })
         })
-    }).collect();
+        .collect();
     Ok(Arc::new(entries?))
 }
 
@@ -1048,7 +1096,10 @@ fn promote_handler_frame(
     Ok(ArcHandlerFrame {
         effect: hf.effect.clone(),
         arms: Arc::new(
-            hf.arms.iter().map(promote_handler_arm).collect::<Result<Vec<_>, _>>()?
+            hf.arms
+                .iter()
+                .map(promote_handler_arm)
+                .collect::<Result<Vec<_>, _>>()?,
         ),
         marker: hf.marker,
         saved_evv: promote_evv_entries(&hf.saved_evv)?,
@@ -1108,7 +1159,7 @@ pub fn demote_value(value: ArcValue) -> Value {
         ArcValue::Left(v) => Value::Left(Rc::new(demote_value((*v).clone()))),
         ArcValue::Right(v) => Value::Right(Rc::new(demote_value((*v).clone()))),
         ArcValue::ReturnValue(v) => Value::ReturnValue(Rc::new(demote_value((*v).clone()))),
-        ArcValue::Function(f) => Value::Function(Rc::new((*f).clone())),
+        ArcValue::Function(f) => Value::Function(Arc::clone(&f)),
         ArcValue::Closure(c) => Value::Closure(Rc::new(demote_closure((*c).clone()))),
         ArcValue::Array(v) => {
             Value::Array(Rc::new((*v).iter().cloned().map(demote_value).collect()))
@@ -1134,9 +1185,7 @@ pub fn demote_value(value: ArcValue) -> Value {
             let cell = (*cell).clone();
             ConsCell::cons(demote_value(cell.head), demote_value(cell.tail))
         }
-        ArcValue::HashMap(root) => {
-            Value::HashMap(Rc::new(demote_hamt_node((*root).clone())))
-        }
+        ArcValue::HashMap(root) => Value::HashMap(Rc::new(demote_hamt_node((*root).clone()))),
     }
 }
 
@@ -1144,7 +1193,7 @@ fn demote_closure(c: ArcClosure) -> Closure {
     // Bypass Closure::new() to avoid double-counting in the leak detector —
     // we're reconstructing an already-counted closure from across a worker boundary.
     Closure {
-        function: Rc::new((*c.function).clone()),
+        function: Arc::clone(&c.function),
         free: c.free.into_iter().map(demote_value).collect(),
     }
 }
@@ -1156,7 +1205,11 @@ fn demote_continuation(c: ArcContinuation) -> Continuation {
         sp: c.sp,
         entry_sp: c.entry_sp,
         entry_frame_index: c.entry_frame_index,
-        inner_handlers: c.inner_handlers.into_iter().map(demote_handler_frame).collect(),
+        inner_handlers: c
+            .inner_handlers
+            .into_iter()
+            .map(demote_handler_frame)
+            .collect(),
         state_marker: c.state_marker,
     }
 }
@@ -1185,16 +1238,19 @@ fn demote_evv_entries(entries: &[ArcEvidence]) -> crate::runtime::evidence::Evid
     // Since EvidenceVector::insert builds from parent → child, we reconstruct
     // each entry independently. For cross-worker boundaries this is acceptable
     // (demote is only called at fiber hand-off, not on a hot path).
-    let reconstructed: Vec<Evidence> = entries.iter().map(|e| {
-        let arms: Vec<_> = e.arms.iter().cloned().map(demote_handler_arm).collect();
-        let parent_evv = e.parent.as_deref().map(|v| demote_evv_entries(v));
-        Evidence {
-            effect: e.effect.clone(),
-            marker: e.marker,
-            arms: Rc::new(arms),
-            parent: parent_evv,
-        }
-    }).collect();
+    let reconstructed: Vec<Evidence> = entries
+        .iter()
+        .map(|e| {
+            let arms: Vec<_> = e.arms.iter().cloned().map(demote_handler_arm).collect();
+            let parent_evv = e.parent.as_deref().map(|v| demote_evv_entries(v));
+            Evidence {
+                effect: e.effect.clone(),
+                marker: e.marker,
+                arms: Rc::new(arms),
+                parent: parent_evv,
+            }
+        })
+        .collect();
     EvidenceVector::from_entries(reconstructed)
 }
 
@@ -1231,7 +1287,11 @@ fn demote_hamt_entry(entry: ArcHamtEntry) -> crate::runtime::hamt::HamtEntry {
             let c = (*c).clone();
             HamtEntry::Collision(Rc::new(HamtCollision {
                 hash: c.hash,
-                entries: c.entries.into_iter().map(|(k, v)| (k, demote_value(v))).collect(),
+                entries: c
+                    .entries
+                    .into_iter()
+                    .map(|(k, v)| (k, demote_value(v)))
+                    .collect(),
             }))
         }
     }

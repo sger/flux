@@ -11,7 +11,7 @@ use crate::{
     },
     vm::VM,
 };
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 fn new_vm() -> VM {
     VM::new(Bytecode {
@@ -27,7 +27,7 @@ fn make_test_closure(
     num_locals: usize,
 ) -> Rc<Closure> {
     Rc::new(Closure::new(
-        Rc::new(CompiledFunction::new(
+        Arc::new(CompiledFunction::new(
             instructions,
             num_locals,
             num_parameters,
@@ -179,7 +179,7 @@ fn dispatch_op_aether_drop_local_clears_boxed_values() {
 fn dispatch_op_return_local_moves_value_out_of_frame_slot() {
     let mut vm = new_vm();
     let function = CompiledFunction::new(vec![], 1, 0, None);
-    let frame = Frame::new(Rc::new(Closure::new(Rc::new(function), vec![])), 1);
+    let frame = Frame::new(Rc::new(Closure::new(Arc::new(function), vec![])), 1);
     vm.frames.push(frame);
     vm.frame_index = 1;
     vm.sp = 2;

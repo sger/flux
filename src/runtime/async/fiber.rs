@@ -102,6 +102,14 @@ pub struct Fiber {
     /// (e.g. the tuple built for `FiberBoth`) before invoking
     /// `resume_from_dispatch`. Cleared by the dispatch loop after read.
     pub last_completion_req: Option<u64>,
+
+    /// Whether this fiber may be stolen by another OS worker.
+    ///
+    /// Fresh race/first_of candidates start non-stealable so immediate
+    /// completions preserve source-order FIFO ties. Once a fiber parks or
+    /// yields, it has crossed a scheduling boundary and can migrate safely via
+    /// the Arc mirror path.
+    pub stealable: bool,
 }
 
 // SAFETY: `Fiber` contains `Rc`/`RefCell` (in `parked`, `body`, and `context`),
@@ -141,6 +149,7 @@ impl Fiber {
             body: None,
             parked: None,
             last_completion_req: None,
+            stealable: false,
         }
     }
 
@@ -154,6 +163,12 @@ impl Fiber {
         self.context.cancel_scope = CancelScope::Cancelled;
     }
 
+    /// Mark that this fiber has crossed its first scheduling boundary and can
+    /// now be considered for cross-worker stealing.
+    pub fn mark_parked(&mut self) {
+        self.stealable = true;
+    }
+
     /// Promote this fiber into its `Send` [`ArcFiber`] mirror — used the instant
     /// a fiber's ownership crosses to another OS worker (cross-worker steal,
     /// gated by `FLUX_FIBER_MIGRATION`). Deep-copies the body, parked
@@ -163,14 +178,23 @@ impl Fiber {
     ///
     /// See proposal 0174 §"VM cross-worker fiber dispatch".
     pub fn promote(self) -> Result<ArcFiber, String> {
+        self.promote_ref()
+    }
+
+    /// Promote this fiber into its `Send` [`ArcFiber`] mirror without consuming
+    /// the original. Used by work stealing so the original `Fiber` can be moved
+    /// to its home worker's pending-drop queue and have its `Rc`s dropped on
+    /// the owning worker.
+    pub fn promote_ref(&self) -> Result<ArcFiber, String> {
         if self.resume.is_some() {
             return Err("Fiber::promote: legacy `resume` closure is not migratable".to_string());
         }
         Ok(ArcFiber {
             id: self.id,
-            state: self.state,
+            state: self.state.clone(),
             home_worker: self.home_worker,
             last_completion_req: self.last_completion_req,
+            stealable: self.stealable,
             body: match &self.body {
                 Some(v) => Some(promote_value(v)?),
                 None => None,
@@ -201,6 +225,7 @@ pub struct ArcFiber {
     pub state: FiberState,
     pub home_worker: WorkerId,
     pub last_completion_req: Option<u64>,
+    pub stealable: bool,
     /// Body thunk for a not-yet-started fiber. `ArcValue::Closure` in practice.
     pub body: Option<ArcValue>,
     /// Parked continuation for a suspended/yielded fiber. Always
@@ -234,6 +259,7 @@ impl ArcFiber {
                 ),
             },
             last_completion_req: self.last_completion_req,
+            stealable: self.stealable,
         }
     }
 }
@@ -277,7 +303,10 @@ pub struct FiberExecState {
 
 impl FiberExecState {
     pub fn new(home_worker: WorkerId) -> Self {
-        FiberExecState { home_worker, suspended_on: None }
+        FiberExecState {
+            home_worker,
+            suspended_on: None,
+        }
     }
 }
 
@@ -308,6 +337,22 @@ impl FiberQueue {
     /// Pop the next ready fiber from the front of the queue.
     pub fn pop(&mut self) -> Option<Fiber> {
         self.inner.pop_front()
+    }
+
+    /// Pop the newest ready fiber from the back of the queue.
+    pub fn pop_back(&mut self) -> Option<Fiber> {
+        self.inner.pop_back()
+    }
+
+    /// Iterate over queued fibers from front to back.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Fiber> {
+        self.inner.iter()
+    }
+
+    /// Remove a queued fiber by id, preserving relative order of the rest.
+    pub fn remove(&mut self, id: FiberId) -> Option<Fiber> {
+        let idx = self.inner.iter().position(|fiber| fiber.id == id)?;
+        self.inner.remove(idx)
     }
 
     /// True when no fibers are ready.
@@ -384,6 +429,34 @@ mod tests {
     }
 
     #[test]
+    fn fiber_queue_pop_back_iter_and_remove_work() {
+        let mut q = FiberQueue::new();
+        let f1 = Fiber::new(WorkerId(0));
+        let f2 = Fiber::new(WorkerId(0));
+        let f3 = Fiber::new(WorkerId(0));
+        let id1 = f1.id;
+        let id2 = f2.id;
+        let id3 = f3.id;
+
+        q.push(f1);
+        q.push(f2);
+        q.push(f3);
+
+        let ids: Vec<_> = q.iter().map(|fiber| fiber.id).collect();
+        assert_eq!(ids, vec![id1, id2, id3]);
+
+        let removed = q.remove(id2).expect("remove middle fiber");
+        assert_eq!(removed.id, id2);
+        assert_eq!(q.len(), 2);
+
+        let newest = q.pop_back().expect("pop newest");
+        assert_eq!(newest.id, id3);
+        let oldest = q.pop().expect("pop oldest");
+        assert_eq!(oldest.id, id1);
+        assert!(q.remove(id2).is_none());
+    }
+
+    #[test]
     fn home_worker_is_preserved() {
         let f = Fiber::new(WorkerId(7));
         assert_eq!(f.home_worker, WorkerId(7));
@@ -408,8 +481,9 @@ mod tests {
         use crate::runtime::compiled_function::CompiledFunction;
         use crate::runtime::frame::Frame;
         use std::cell::RefCell;
+        use std::sync::Arc;
 
-        let func = Rc::new(CompiledFunction::new(vec![], 0, 0, None));
+        let func = Arc::new(CompiledFunction::new(vec![], 0, 0, None));
         let closure = Rc::new(Closure::new(func, vec![Value::Integer(99)]));
         let frame = Frame::new_with_return_slot(closure, 3, 2);
         let cont = Continuation {
@@ -425,15 +499,18 @@ mod tests {
         f.state = FiberState::Suspended { request_id: 42 };
         f.parked = Some(Rc::new(RefCell::new(cont)));
         f.last_completion_req = Some(42);
+        f.mark_parked();
         let id = f.id;
 
-        let arc: ArcFiber = f.promote().expect("promote");
+        let arc: ArcFiber = f.promote_ref().expect("promote_ref");
+        assert!(f.parked.is_some(), "promote_ref must not consume the fiber");
         let back = arc.demote();
 
         assert_eq!(back.id, id);
         assert_eq!(back.home_worker, WorkerId(2));
         assert_eq!(back.state, FiberState::Suspended { request_id: 42 });
         assert_eq!(back.last_completion_req, Some(42));
+        assert!(back.stealable);
         let cont = back.parked.expect("parked round-trips").borrow().clone();
         assert_eq!(cont.sp, 5);
         assert_eq!(cont.entry_sp, 3);
