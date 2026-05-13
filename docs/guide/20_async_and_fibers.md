@@ -426,8 +426,8 @@ Fibers share OS threads. If you have CPU-bound work that should run *in parallel
 
 > **On the VM**, `Task.spawn` is the *only* way to achieve CPU parallelism.
 > VM fibers run cooperatively on one OS thread; spawning more fibers does not
-> use more cores. `Task.spawn` crosses a `Sendable` deep-copy boundary into
-> an isolated worker VM on a real OS thread, so the two sides run in parallel.
+> use more cores. `Task.spawn` crosses a `Sendable` boundary into a pooled
+> isolated worker VM on a real OS thread, so the two sides run in parallel.
 
 ```flux
 import Flow.Task as Task
@@ -439,11 +439,11 @@ fn parallel_sum() -> Int with Async {
 }
 ```
 
-`Task.spawn(f)` runs `f` on a dedicated OS thread and returns a handle. `Task.await(t)` suspends the current fiber until the task completes, then returns its value (panicking if the task panicked).
+`Task.spawn(f)` runs `f` on a task worker thread and returns a handle. `Task.await(t)` suspends the current fiber until the task completes, then returns its value (panicking if the task panicked).
 
 When to use which:
 - **`both` / `fork`** — many concurrent operations, each mostly waiting (I/O). Hundreds or thousands of them. Cheap.
-- **`Task.spawn`** — a small number of CPU-bound chunks you want to run on different cores. Each task is one OS thread. Expensive — don't spawn 10,000.
+- **`Task.spawn`** — CPU-bound chunks you want to run on different cores. More expensive than fibers because it crosses a worker boundary, but VM workers reuse VM shells and shared read-only state.
 
 ### Lifetimes are bounded by `run_async`
 
