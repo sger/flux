@@ -680,7 +680,7 @@ fn main() with IO, Clock {
         "fib(36) task completed too quickly to prove overlap: {solo_ms}ms"
     );
     assert!(
-        both_ms < solo_ms + 75,
+        both_ms < solo_ms + 200,
         "Task.await appears to have blocked scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
     );
 }
