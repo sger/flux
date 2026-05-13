@@ -1463,11 +1463,13 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
     with_run(|run| {
         let parent_req = next_request_id();
         let left_id = next_fiber_id();
-        let left_worker = run.pick_next_worker();
         let right_id = next_fiber_id();
-        let right_worker = run.pick_next_worker();
         run.awaits.register_both(parent_req, left_id, right_id);
+        // Pick workers after each spawn so the second pick sees the first
+        // fiber already queued and chooses a different worker.
+        let left_worker = run.pick_next_worker();
         run.spawn_child_on(left_worker, left_id, left);
+        let right_worker = run.pick_next_worker();
         run.spawn_child_on(right_worker, right_id, right);
         parent_req
     })
