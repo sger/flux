@@ -679,8 +679,12 @@ fn main() with IO, Clock {
         solo_ms >= 80,
         "fib(36) task completed too quickly to prove overlap: {solo_ms}ms"
     );
+    // Prove overlap: if the scheduler was blocked, both fibers ran on the same
+    // worker serially and both_ms ≈ 2 * solo_ms. With true parallelism
+    // both_ms ≈ solo_ms. Requiring both_ms < 1.75 * solo_ms catches the serial
+    // case while tolerating heavy CI timer jitter on the 100ms sleep.
     assert!(
-        both_ms < solo_ms + 200,
+        both_ms * 4 < solo_ms * 7,
         "Task.await appears to have blocked scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
     );
 }
