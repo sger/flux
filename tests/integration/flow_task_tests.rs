@@ -27,6 +27,7 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("flux").join(fixture);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
+        .env("FLUX_WORKERS", "4")
         .args(["--test", path.to_str().unwrap(), "--no-cache"])
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
@@ -50,6 +51,7 @@ fn run_flux_source(source: &str) -> (String, String, bool) {
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
+        .env("FLUX_WORKERS", "4")
         .args([path.to_str().unwrap(), "--no-cache"])
         .output()
         .expect("run flux on Flow.Task D1 fixture");
@@ -74,6 +76,7 @@ fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
+        .env("FLUX_WORKERS", "4")
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
         .output()
         .expect("run native flux on Flow.Task fixture");
@@ -652,9 +655,9 @@ fn pair_body() -> (Int, Int) with Async {
 
 fn main() with IO, Clock {
     let t0 = now_ms()
-    let solo = run_async(wait_task)
+    let solo = run_async_with_workers(4, wait_task)
     let t1 = now_ms()
-    let pair = run_async(pair_body)
+    let pair = run_async_with_workers(4, pair_body)
     let t2 = now_ms()
     print(solo)
     print(pair.0)
