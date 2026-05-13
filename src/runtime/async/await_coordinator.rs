@@ -265,10 +265,7 @@ where
                             right_value.take().expect("right just set")
                         };
                         let loser = if child == left { right } else { left };
-                        let discarded = left_value
-                            .into_iter()
-                            .chain(right_value.into_iter())
-                            .collect();
+                        let discarded = left_value.into_iter().chain(right_value).collect();
                         self.unindex_child_request(loser, request);
                         events.push(AwaitEvent::BothError {
                             request,

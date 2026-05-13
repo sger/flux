@@ -604,24 +604,24 @@ pub fn drop_value_stackless(value: Value) {
     while let Some(value) = pending.pop() {
         match value {
             Value::Some(rc) | Value::Left(rc) | Value::Right(rc) | Value::ReturnValue(rc) => {
-                if Rc::strong_count(&rc) == 1 {
-                    if let Ok(inner) = Rc::try_unwrap(rc) {
-                        pending.push(inner);
-                    }
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(inner) = Rc::try_unwrap(rc)
+                {
+                    pending.push(inner);
                 }
             }
             Value::Array(rc) | Value::Tuple(rc) => {
-                if Rc::strong_count(&rc) == 1 {
-                    if let Ok(values) = Rc::try_unwrap(rc) {
-                        pending.extend(values);
-                    }
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(values) = Rc::try_unwrap(rc)
+                {
+                    pending.extend(values);
                 }
             }
             Value::Adt(rc) => {
-                if Rc::strong_count(&rc) == 1 {
-                    if let Ok(adt) = Rc::try_unwrap(rc) {
-                        pending.extend(adt.fields.into_iter());
-                    }
+                if Rc::strong_count(&rc) == 1
+                    && let Ok(adt) = Rc::try_unwrap(rc)
+                {
+                    pending.extend(adt.fields.into_iter());
                 }
             }
             other => drop(other),
@@ -1059,7 +1059,7 @@ fn promote_handler_arm(
     arm: &crate::runtime::handler_arm::HandlerArm,
 ) -> Result<ArcHandlerArm, String> {
     Ok(ArcHandlerArm {
-        op: arm.op.clone(),
+        op: arm.op,
         closure: Arc::new(promote_closure(&arm.closure)?),
     })
 }
@@ -1072,7 +1072,7 @@ fn promote_evv_entries(
         .iter()
         .map(|e| {
             Ok::<ArcEvidence, String>(ArcEvidence {
-                effect: e.effect.clone(),
+                effect: e.effect,
                 marker: e.marker,
                 arms: Arc::new(
                     e.arms
@@ -1094,7 +1094,7 @@ fn promote_handler_frame(
     hf: &crate::runtime::handler_frame::HandlerFrame,
 ) -> Result<ArcHandlerFrame, String> {
     Ok(ArcHandlerFrame {
-        effect: hf.effect.clone(),
+        effect: hf.effect,
         arms: Arc::new(
             hf.arms
                 .iter()
@@ -1244,7 +1244,7 @@ fn demote_evv_entries(entries: &[ArcEvidence]) -> crate::runtime::evidence::Evid
             let arms: Vec<_> = e.arms.iter().cloned().map(demote_handler_arm).collect();
             let parent_evv = e.parent.as_deref().map(|v| demote_evv_entries(v));
             Evidence {
-                effect: e.effect.clone(),
+                effect: e.effect,
                 marker: e.marker,
                 arms: Rc::new(arms),
                 parent: parent_evv,

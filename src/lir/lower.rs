@@ -215,13 +215,12 @@ fn collect_async_effect_function_names(
 ) {
     for item in items {
         match item {
-            CoreTopLevelItem::Function { name, effects, .. } => {
+            CoreTopLevelItem::Function { name, effects, .. }
                 if effects
                     .iter()
-                    .any(|effect| effect_expr_contains_async(effect, interner))
-                {
-                    out.insert(*name);
-                }
+                    .any(|effect| effect_expr_contains_async(effect, interner)) =>
+            {
+                out.insert(*name);
             }
             CoreTopLevelItem::Module { body, .. } => {
                 collect_async_effect_function_names(body, interner, out);

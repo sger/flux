@@ -261,10 +261,8 @@ impl Parser<'_> {
         }
         let raw = std::str::from_utf8(&self.input[start..self.pos])
             .map_err(|_| JsonError::new(path, "invalid number"))?;
-        if integral {
-            if let Ok(n) = raw.parse::<i64>() {
-                return Ok(JsonNumber::Int(n));
-            }
+        if integral && let Ok(n) = raw.parse::<i64>() {
+            return Ok(JsonNumber::Int(n));
         }
         let n = raw
             .parse::<f64>()

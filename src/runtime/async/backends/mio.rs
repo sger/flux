@@ -513,17 +513,17 @@ fn run_reactor(mut poll: Poll, shared: Arc<ReactorShared>) {
                 continue;
             }
             if let Some(&lhandle) = listener_tokens.get(&event.token()) {
-                if event.is_readable() {
-                    if let Some(ls) = listeners.get_mut(&lhandle) {
-                        try_progress_accept(
-                            &shared,
-                            ls,
-                            &mut conns,
-                            &mut handles_by_token,
-                            &mut next_token,
-                            poll.registry(),
-                        );
-                    }
+                if event.is_readable()
+                    && let Some(ls) = listeners.get_mut(&lhandle)
+                {
+                    try_progress_accept(
+                        &shared,
+                        ls,
+                        &mut conns,
+                        &mut handles_by_token,
+                        &mut next_token,
+                        poll.registry(),
+                    );
                 }
                 continue;
             }

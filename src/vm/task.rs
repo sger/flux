@@ -369,7 +369,7 @@ pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
     let queue = completion_queue();
     let rx = queue.rx.lock().expect("VM task completion queue poisoned");
     match rx.try_recv() {
-        Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.to_value()))),
+        Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.into_value()))),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
     }
 }
@@ -394,7 +394,7 @@ fn take_handle(id: i64) -> Result<JoinTarget, String> {
 
 fn join_handle(handle: TaskHandle<TaskResult>) -> Result<Value, String> {
     let result = scheduler().blocking_join(handle).map_err(join_error)??;
-    result.to_value()
+    result.into_value()
 }
 
 pub(super) fn vm_from_worker_shared(shared: Arc<WorkerSharedState>) -> VM {
@@ -428,7 +428,7 @@ fn run_task_payload(payload: VmTaskPayload) -> TaskResult {
     } = payload;
     let action = match action {
         VmTaskAction::Shared(value) => demote_value(value),
-        VmTaskAction::Send(value) => value.to_value()?,
+        VmTaskAction::Send(value) => value.into_value()?,
     };
 
     let mut vm = TASK_WORKER_VM
@@ -472,13 +472,11 @@ fn promote_task_value(value: &Value) -> Result<ArcValue, String> {
 fn validate_task_value(value: &Value) -> Result<(), String> {
     match value {
         Value::ReturnValue(_) => {
-            return Err("Task.spawn cannot transfer internal return values".to_string());
+            Err("Task.spawn cannot transfer internal return values".to_string())
         }
-        Value::Continuation(_) => {
-            return Err("Task.spawn cannot transfer VM continuations".to_string());
-        }
+        Value::Continuation(_) => Err("Task.spawn cannot transfer VM continuations".to_string()),
         Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {
-            return Err("Task.spawn cannot transfer VM effect descriptors".to_string());
+            Err("Task.spawn cannot transfer VM effect descriptors".to_string())
         }
         Value::Some(v) | Value::Left(v) | Value::Right(v) => validate_task_value(v),
         Value::Closure(c) => c.free.iter().try_for_each(validate_task_value),
@@ -655,7 +653,7 @@ impl VmSendValue {
         })
     }
 
-    pub(super) fn to_value(self) -> Result<Value, String> {
+    pub(super) fn into_value(self) -> Result<Value, String> {
         Ok(match self {
             Self::Uninit => Value::Uninit,
             Self::Integer(v) => Value::Integer(v),
@@ -664,19 +662,19 @@ impl VmSendValue {
             Self::String(v) => Value::String(Rc::new(v)),
             Self::None => Value::None,
             Self::EmptyList => Value::EmptyList,
-            Self::Some(v) => Value::Some(Rc::new(v.to_value()?)),
-            Self::Left(v) => Value::Left(Rc::new(v.to_value()?)),
-            Self::Right(v) => Value::Right(Rc::new(v.to_value()?)),
-            Self::Function(f) => Value::Function(Arc::new(f.to_function())),
-            Self::Closure(c) => Value::Closure(Rc::new(c.to_closure()?)),
+            Self::Some(v) => Value::Some(Rc::new(v.into_value()?)),
+            Self::Left(v) => Value::Left(Rc::new(v.into_value()?)),
+            Self::Right(v) => Value::Right(Rc::new(v.into_value()?)),
+            Self::Function(f) => Value::Function(Arc::new(f.into_function())),
+            Self::Closure(c) => Value::Closure(Rc::new(c.into_closure()?)),
             Self::Array(v) => Value::Array(Rc::new(
                 v.into_iter()
-                    .map(Self::to_value)
+                    .map(Self::into_value)
                     .collect::<Result<Vec<_>, _>>()?,
             )),
             Self::Tuple(v) => Value::Tuple(Rc::new(
                 v.into_iter()
-                    .map(Self::to_value)
+                    .map(Self::into_value)
                     .collect::<Result<Vec<_>, _>>()?,
             )),
             Self::Adt {
@@ -687,18 +685,19 @@ impl VmSendValue {
                 fields: AdtFields::from_vec(
                     fields
                         .into_iter()
-                        .map(Self::to_value)
+                        .map(Self::into_value)
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
             })),
             Self::AdtUnit(name) => Value::AdtUnit(Rc::new(name)),
-            Self::Cons(head, tail) => {
-                Value::Cons(Rc::new(ConsCell::new(head.to_value()?, tail.to_value()?)))
-            }
+            Self::Cons(head, tail) => Value::Cons(Rc::new(ConsCell::new(
+                head.into_value()?,
+                tail.into_value()?,
+            ))),
             Self::HashMap(entries) => {
                 let mut root = hamt::hamt_empty();
                 for (key, value) in entries {
-                    root = hamt::hamt_insert(&root, key, value.to_value()?);
+                    root = hamt::hamt_insert(&root, key, value.into_value()?);
                 }
                 Value::HashMap(root)
             }
@@ -722,7 +721,7 @@ impl VmSendFunction {
         }
     }
 
-    fn to_function(self) -> CompiledFunction {
+    fn into_function(self) -> CompiledFunction {
         CompiledFunction {
             instructions: self.instructions,
             num_locals: self.num_locals,
@@ -760,12 +759,12 @@ impl VmSendClosure {
         })
     }
 
-    fn to_closure(self) -> Result<Closure, String> {
+    fn into_closure(self) -> Result<Closure, String> {
         Ok(Closure::new(
-            Arc::new(self.function.to_function()),
+            Arc::new(self.function.into_function()),
             self.free
                 .into_iter()
-                .map(VmSendValue::to_value)
+                .map(VmSendValue::into_value)
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
