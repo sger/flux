@@ -8,13 +8,13 @@
 //! primitive on top; Phase 1b adds fibers and structured concurrency.
 
 pub mod await_coordinator;
-pub mod fiber_trace;
 pub mod backend;
 pub mod backends;
 pub mod blocking_pool;
 pub mod config;
 pub mod context;
 pub mod fiber;
+pub mod fiber_trace;
 #[cfg(feature = "llvm")]
 pub mod native_abi;
 pub mod request_registry;

@@ -21,7 +21,7 @@ fn fast() -> Int with Async {
     40
 }
 
-fn body() -> Unit with Async {
+fn body() -> Unit with Async, Console {
     let pair = both(right, left)
     print(pair.0)
     print(pair.1)

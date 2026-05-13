@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::{mpsc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::runtime::{
-    value::{AdtFields, AdtValue, Value},
     RuntimeContext,
+    value::{AdtFields, AdtValue, Value},
 };
 
 use super::task::VmSendValue;
