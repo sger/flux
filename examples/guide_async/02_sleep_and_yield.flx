@@ -1,0 +1,33 @@
+// 02 — sleep and yield_now
+//
+// Goal: see what "suspension" actually means.
+//
+// A fiber is cooperative — it only suspends at well-defined points.
+// `sleep(ms)` is the most obvious one: ask the runtime to come back
+// after `ms` milliseconds. `yield_now()` is a polite "I have more
+// work, but other fibers may want a turn."
+//
+// On a single fiber (this example) the wall-clock difference between
+// sleep and yield is what you'd expect — sleep waits, yield doesn't.
+// Where they really matter is when you have *multiple* fibers, which
+// is what example 03 shows.
+
+// parity-expected-stdout-begin
+// "step 1"
+// "step 2"
+// "step 3"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn body() -> Unit with Async, IO {
+    print("step 1")
+    sleep(20)            // wait at least 20ms; let other fibers run
+    print("step 2")
+    yield_now()          // yield once; resume immediately if alone
+    print("step 3")
+}
+
+fn main() with IO {
+    run_async(body)
+}

@@ -1,0 +1,37 @@
+// 04 — `both`: run two fibers, get both results
+//
+// Goal: the simplest concurrent combinator.
+//
+// `both(f, g)` returns the pair `(f_result, g_result)` once both
+// finish. Tuple position reflects SOURCE ORDER, not finish order —
+// even if `g` finishes first, you still get `(f_result, g_result)`.
+//
+// To prove that, we make `g` finish first by giving it a shorter
+// sleep. The output order is still left/right, not finish order.
+
+// parity-expected-stdout-begin
+// "left = 10"
+// "right = 20"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async {
+    sleep(60)             // slow on purpose
+    10
+}
+
+fn right() -> Int with Async {
+    sleep(20)             // fast on purpose; finishes first
+    20
+}
+
+fn body() -> (Int, Int) with Async {
+    both(left, right)     // returns (left, right) regardless of which is faster
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    print("left = "  + to_string(pair.0))
+    print("right = " + to_string(pair.1))
+}

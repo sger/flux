@@ -40,7 +40,10 @@ fn run_module(module_source: &str, entry_source: &str) -> Value {
 fn run_named_module(module_file_name: &str, module_source: &str, entry_source: &str) -> Value {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp_dir = workspace_root.join(format!("target/tmp/cross_module_tests/{id}"));
+    let temp_dir = workspace_root.join(format!(
+        "target/tmp/cross_module_tests/{}-{id}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let module_path = temp_dir.join(format!("{module_file_name}.flx"));
@@ -108,7 +111,10 @@ fn run_two_modules(
 ) -> Value {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp_dir = workspace_root.join(format!("target/tmp/cross_module_tests/{id}"));
+    let temp_dir = workspace_root.join(format!(
+        "target/tmp/cross_module_tests/{}-{id}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     std::fs::write(temp_dir.join(format!("{mod_a_name}.flx")), mod_a_source).unwrap();

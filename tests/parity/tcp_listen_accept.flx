@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// skip: native LLVM can hang on Ubuntu for this fixed-port accept-only smoke; covered by TCP round-trip parity fixtures.
+// bug: TCP listen/accept/close through the VM handle table.
+//      Phase 1b-vi-e: basic connection handshake via Async.both.
+
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn server() -> Unit with Async {
+    let l = listen("127.0.0.1", 21972)
+    let conn = accept(l)
+    let _msg = read(conn, 1024)
+    close(conn)
+}
+
+fn client() -> Unit with Async {
+    let conn = connect("127.0.0.1", 21972)
+    let _ = write_all(conn, "accept")
+    close(conn)
+}
+
+fn body() -> Unit with Async {
+    let _ = both(server, client)
+}
+
+fn main() with IO {
+    let _ = run_async(body)
+    print("ok")
+}

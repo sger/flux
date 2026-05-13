@@ -74,6 +74,8 @@ fn infer_scheme(source: &str, name: &str) -> (String, String) {
             file_path: None,
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
+            task_module_bindings: HashSet::new(),
+            task_spawn_exposed: false,
             known_flow_names: HashSet::new(),
             flow_module_symbol,
             preloaded_effect_op_signatures: HashMap::new(),

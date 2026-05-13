@@ -10,11 +10,16 @@ default-run = "flux"
 native = []
 llvm = ["native"]
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [dependencies]
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rayon = "1.11"
+# Async I/O reactor (proposal 0174 Phase 1a).
+mio = { version = "1.0", features = ["os-poll", "net"] }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
@@ -77,6 +82,10 @@ harness = false
 
 [[bench]]
 name = "aether_bench"
+harness = false
+
+[[bench]]
+name = "continuation_capture"
 harness = false
 
 [[bin]]
@@ -314,6 +323,38 @@ name = "effect_multi_shot_tests"
 path = "tests/native_llvm/effect_multi_shot_tests.rs"
 
 [[test]]
+name = "native_async_sleep_tests"
+path = "tests/native_llvm/native_async_sleep_tests.rs"
+
+[[test]]
+name = "native_http_server_tests"
+path = "tests/native_llvm/native_http_server_tests.rs"
+
+[[test]]
+name = "native_http_client_tests"
+path = "tests/native_llvm/native_http_client_tests.rs"
+
+[[test]]
+name = "native_json_tests"
+path = "tests/native_llvm/native_json_tests.rs"
+
+[[test]]
+name = "native_stream_tests"
+path = "tests/native_llvm/native_stream_tests.rs"
+
+[[test]]
+name = "native_async_indirect_tests"
+path = "tests/native_llvm/native_async_indirect_tests.rs"
+
+[[test]]
+name = "native_work_stealing_tests"
+path = "tests/native_llvm/native_work_stealing_tests.rs"
+
+[[test]]
+name = "native_runtime_config_tests"
+path = "tests/native_llvm/native_runtime_config_tests.rs"
+
+[[test]]
 name = "type_inference_tests"
 path = "tests/type_inference/type_inference_tests.rs"
 
@@ -340,6 +381,94 @@ path = "tests/type_inference/static_type_validation_tests.rs"
 [[test]]
 name = "constrained_type_params_integration"
 path = "tests/type_inference/constrained_type_params_integration.rs"
+
+[[test]]
+name = "sendable_tests"
+path = "tests/type_inference/sendable_tests.rs"
+
+[[test]]
+name = "flow_task_tests"
+path = "tests/integration/flow_task_tests.rs"
+
+[[test]]
+name = "flow_async_surface_tests"
+path = "tests/integration/flow_async_surface_tests.rs"
+
+[[test]]
+name = "vm_channel_tests"
+path = "tests/integration/vm_channel_tests.rs"
+
+[[test]]
+name = "vm_fiber_sleep"
+path = "tests/integration/vm_fiber_sleep.rs"
+
+[[test]]
+name = "vm_fiber_check_cancelled"
+path = "tests/integration/vm_fiber_check_cancelled.rs"
+
+[[test]]
+name = "vm_runtime_config"
+path = "tests/integration/vm_runtime_config.rs"
+
+[[test]]
+name = "vm_fiber_registry"
+path = "tests/integration/vm_fiber_registry.rs"
+
+[[test]]
+name = "vm_fiber_overlap"
+path = "tests/integration/vm_fiber_overlap.rs"
+
+[[test]]
+name = "vm_fiber_first_of"
+path = "tests/integration/vm_fiber_first_of.rs"
+
+[[test]]
+name = "vm_fiber_timeout"
+path = "tests/integration/vm_fiber_timeout.rs"
+
+[[test]]
+name = "vm_fiber_cancel_loser"
+path = "tests/integration/vm_fiber_cancel_loser.rs"
+
+[[test]]
+name = "vm_fiber_cancel_timeout"
+path = "tests/integration/vm_fiber_cancel_timeout.rs"
+
+[[test]]
+name = "vm_fiber_multiworker"
+path = "tests/integration/vm_fiber_multiworker.rs"
+
+[[test]]
+name = "vm_fiber_migration"
+path = "tests/integration/vm_fiber_migration.rs"
+
+[[test]]
+name = "vm_fiber_bracket_cancel"
+path = "tests/integration/vm_fiber_bracket_cancel.rs"
+
+[[test]]
+name = "vm_fiber_scope_cancel"
+path = "tests/integration/vm_fiber_scope_cancel.rs"
+
+[[test]]
+name = "vm_tcp_echo"
+path = "tests/integration/vm_tcp_echo.rs"
+
+[[test]]
+name = "vm_http_server"
+path = "tests/integration/vm_http_server.rs"
+
+[[test]]
+name = "vm_http_client"
+path = "tests/integration/vm_http_client.rs"
+
+[[test]]
+name = "vm_json"
+path = "tests/integration/vm_json.rs"
+
+[[test]]
+name = "vm_stream"
+path = "tests/integration/vm_stream.rs"
 
 [[test]]
 name = "non_zero_type_tests"

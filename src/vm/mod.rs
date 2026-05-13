@@ -1,22 +1,30 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, evidence::EvidenceVector,
-        frame::Frame, hamt, handler_frame::HandlerFrame, leak_detector, value::Value,
-        yield_state::YieldState,
+        r#async::context::EffectContext,
+        closure::Closure,
+        compiled_function::CompiledFunction,
+        frame::Frame,
+        hamt,
+        handler_frame::HandlerFrame,
+        leak_detector,
+        value::{ArcValue, Value, demote_value},
     },
 };
 
 mod binary_ops;
+mod channel;
 mod comparison_ops;
 mod core_dispatch;
 mod dispatch;
+mod event;
 mod function_call;
 mod index_ops;
 mod primop;
 pub mod profiling;
+mod task;
 pub mod test_runner;
 mod trace;
 
@@ -69,20 +77,35 @@ use slot::Slot;
 
 pub struct VM {
     constants: Vec<Slot>,
+    shared_constants: Option<Arc<[ArcValue]>>,
+    task_shared_constants: Option<Arc<[ArcValue]>>,
     stack: Vec<Slot>,
     sp: usize,
     last_popped: Slot,
     pub globals: Vec<Slot>,
+    shared_globals: Option<Arc<[ArcValue]>>,
+    global_overrides: Vec<bool>,
+    global_dirty: Vec<usize>,
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
     tail_arg_scratch: Vec<Slot>,
+    /// Reused scratch buffer holding the per-frame pieces accumulated while a
+    /// continuation capture unwinds toward its boundary (see
+    /// `capture_to_boundary`). Cleared between captures, never shrunk — keeps
+    /// the capture path off the allocator.
+    cont_pieces: Vec<crate::runtime::continuation::Continuation>,
+    /// Free-list of recycled `Continuation` shells (Vec capacities retained).
+    /// One-shot continuation resume returns its shell here; the next capture
+    /// pulls from it, so steady-state fiber park/resume allocates nothing.
+    /// Bounded by `continuation::CONT_POOL_CAP`.
+    cont_pool: Vec<crate::runtime::continuation::Continuation>,
     /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
     pub(crate) handler_stack: Vec<HandlerFrame>,
-    /// Shared evidence vector for the Phase 3 VM effect runtime path.
-    pub(crate) evv: EvidenceVector,
-    /// In-flight yield state for the Phase 3 VM effect runtime path.
-    pub(crate) yield_state: YieldState,
+    /// Scheduler-owned effect/fiber context (proposal 0174 Phase 0).
+    /// Holds the evidence vector, yield bookkeeping, and (Phase 1a/1b)
+    /// scheduler-issued continuation/cancellation/worker fields.
+    pub(crate) context: EffectContext,
     /// Profiling state — only active when `--prof` is passed.
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
@@ -92,26 +115,51 @@ pub struct VM {
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
         let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
-        let main_closure = Closure::new(Rc::new(main_fn), vec![]);
+        let main_closure = Closure::new(Arc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
 
         Self {
             constants: bytecode.constants.into_iter().map(slot::to_slot).collect(),
+            shared_constants: None,
+            task_shared_constants: None,
             stack: vec![slot::uninit(); INITIAL_STACK_SIZE],
             sp: 0,
             last_popped: slot::to_slot(Value::None),
             globals: vec![slot::to_slot(Value::None); GLOBALS_SIZE],
+            shared_globals: None,
+            global_overrides: vec![false; GLOBALS_SIZE],
+            global_dirty: Vec::new(),
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
             tail_arg_scratch: Vec::new(),
+            cont_pieces: Vec::new(),
+            cont_pool: Vec::new(),
             handler_stack: Vec::new(),
-            evv: EvidenceVector::new(),
-            yield_state: YieldState::new(),
+            context: EffectContext::new(),
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),
         }
+    }
+
+    /// Create a worker VM backed by Arc-shared read-only constants/globals.
+    ///
+    /// Used by Phase 4 OS-worker threads to get an execution context without
+    /// repeating full bytecode compilation. Constants and initial globals are
+    /// promoted to the `ArcValue` mirror; reads demote into local `Value`s and
+    /// worker global writes stay local.
+    ///
+    /// The worker VM starts with an empty frame stack — the caller must push a
+    /// closure via `invoke_value` or `resume_from_dispatch` before running.
+    ///
+    pub fn new_for_worker(parent: &VM) -> Self {
+        let shared = parent
+            .worker_shared_state()
+            .expect("VM::new_for_worker failed to build shared worker state");
+        let mut vm = task::vm_from_worker_shared(shared);
+        vm.trace = parent.trace;
+        vm
     }
 
     pub fn set_trace(&mut self, enabled: bool) {
@@ -171,7 +219,7 @@ impl VM {
     ///
     /// Proposal 0162 Phase 1: the identity closure is a thread-local
     /// singleton — every TR perform in a hot loop previously allocated a
-    /// fresh `Rc<CompiledFunction>` + `Rc<Closure>` per invocation. The
+    /// fresh `Arc<CompiledFunction>` + `Rc<Closure>` per invocation. The
     /// shared `Rc` is cloned (bumping only the refcount) instead of
     /// rebuilding the bytecode. Safe because the identity closure has no
     /// upvalues and no mutable state. Measured ~15% speedup on a 500k
@@ -180,7 +228,7 @@ impl VM {
         thread_local! {
             static IDENTITY: Rc<Closure> = {
                 let instructions = vec![OpCode::OpReturnLocal as u8, 0];
-                let func = Rc::new(CompiledFunction::new(instructions, 1, 1, None));
+                let func = Arc::new(CompiledFunction::new(instructions, 1, 1, None));
                 Rc::new(Closure::new(func, vec![]))
             };
         }
@@ -590,19 +638,41 @@ impl VM {
     /// Clone the Value at constants index `idx`.
     #[inline(always)]
     fn const_get(&self, idx: usize) -> Value {
+        if let Some(constants) = &self.shared_constants
+            && let Some(value) = constants.get(idx)
+        {
+            return demote_value(value.clone());
+        }
         slot::from_slot_ref(&self.constants[idx])
     }
 
     /// Clone the Value at globals index `idx`.
     #[inline(always)]
     fn global_get(&self, idx: usize) -> Value {
+        if !self.global_overrides.get(idx).copied().unwrap_or(false)
+            && let Some(globals) = &self.shared_globals
+            && let Some(value) = globals.get(idx)
+        {
+            return demote_value(value.clone());
+        }
         slot::from_slot_ref(&self.globals[idx])
     }
 
     /// Store `v` at globals index `idx`.
     #[inline(always)]
     fn global_set(&mut self, idx: usize, v: Value) {
+        self.mark_global_dirty(idx);
         self.globals[idx] = slot::to_slot(v);
+    }
+
+    #[inline(always)]
+    fn mark_global_dirty(&mut self, idx: usize) {
+        if let Some(overridden) = self.global_overrides.get_mut(idx) {
+            if !*overridden {
+                self.global_dirty.push(idx);
+            }
+            *overridden = true;
+        }
     }
 
     /// Returns the last popped value from the stack.
@@ -617,6 +687,9 @@ impl VM {
     /// Used by the LIR execution path to transfer CFG-compiled constants
     /// (prelude function closures) into the LIR VM.
     pub fn export_constants(&self) -> Vec<Value> {
+        if let Some(constants) = &self.shared_constants {
+            return constants.iter().cloned().map(demote_value).collect();
+        }
         self.constants.iter().map(slot::from_slot_ref).collect()
     }
 
@@ -641,6 +714,8 @@ impl VM {
             *g = slot::to_slot(ext_val);
             *e = vm_val;
         }
+        self.global_overrides.fill(true);
+        self.global_dirty.clear();
     }
 }
 

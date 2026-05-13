@@ -1,0 +1,19 @@
+// parity: vm
+// parity-expected-stdout-begin
+// "empty"
+// "value: 7"
+// parity-expected-stdout-end
+import Flow.Channel as Channel
+
+fn main() with IO {
+    let ch = Channel.make(1)
+    match Channel.try_recv(ch) {
+        Some(_) -> print("unexpected"),
+        None -> print("empty")
+    }
+    let _ok = Channel.try_send(ch, 7)
+    match Channel.try_recv(ch) {
+        Some(v) -> print("value: " + to_string(v)),
+        None -> print("missing")
+    }
+}

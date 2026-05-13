@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "ok: 42"
+// parity-expected-stdout-end
+import Flow.Channel as Channel
+import Flow.Async as Async
+
+fn body() -> String with Async {
+    let ch = Channel.make(1)
+    let ok = Channel.try_send_move(ch, 42)
+    match Channel.try_recv(ch) {
+        Some(v) -> "ok: " + to_string(v),
+        None -> "missing"
+    }
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+}

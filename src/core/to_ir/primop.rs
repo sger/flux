@@ -89,6 +89,79 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Min => "min",
         CorePrimOp::Max => "max",
         CorePrimOp::Len => "len",
+        CorePrimOp::TaskSpawn => "task_spawn",
+        CorePrimOp::TaskSpawnMove => "task_spawn_move",
+        CorePrimOp::TaskSpawnScoped => "task_spawn_scoped",
+        CorePrimOp::TaskSpawnScopedMove => "task_spawn_scoped_move",
+        CorePrimOp::TaskBlockingJoin => "task_blocking_join",
+        CorePrimOp::TaskCancel => "task_cancel",
+        // Fiber primops (proposal 0174 Phase 1b)
+        CorePrimOp::FiberSuspend => "fiber_suspend",
+        CorePrimOp::FiberFork => "fiber_fork",
+        CorePrimOp::FiberGetContext => "fiber_get_context",
+        CorePrimOp::FiberFail => "fiber_fail",
+        CorePrimOp::TaskAwait => "task_await",
+        CorePrimOp::FiberRunAsync => "fiber_run_async",
+        CorePrimOp::FiberYieldNow => "fiber_yield_now",
+        CorePrimOp::FiberSleep => "fiber_sleep",
+        CorePrimOp::TcpConnect => "tcp_connect",
+        CorePrimOp::TcpRead => "tcp_read",
+        CorePrimOp::TcpWriteAll => "tcp_write_all",
+        CorePrimOp::TcpClose => "tcp_close",
+        CorePrimOp::TcpListen => "tcp_listen",
+        CorePrimOp::TcpAccept => "tcp_accept",
+        CorePrimOp::FiberBoth => "fiber_both",
+        CorePrimOp::FiberRace => "fiber_race",
+        CorePrimOp::FiberTimeout => "fiber_timeout",
+        CorePrimOp::FiberNewScope => "fiber_new_scope",
+        CorePrimOp::FiberForkScoped => "fiber_fork_scoped",
+        CorePrimOp::FiberCancelScope => "fiber_cancel_scope",
+        CorePrimOp::FiberCheckCancelled => "fiber_check_cancelled",
+        CorePrimOp::FiberRunAsyncWith => "fiber_run_async_with",
+        CorePrimOp::FiberFirstOf => "fiber_first_of",
+        CorePrimOp::FiberTry => "fiber_try",
+        CorePrimOp::FiberCurrentWorkerCount => "fiber_current_worker_count",
+        CorePrimOp::HttpServeConfig => "http_serve_config",
+        CorePrimOp::HttpShutdown => "http_shutdown",
+        CorePrimOp::HttpShutdownNow => "http_shutdown_now",
+        CorePrimOp::HttpParseRequest => "http_parse_request",
+        CorePrimOp::HttpWriteResponse => "http_write_response",
+        CorePrimOp::HttpRegisterConnection => "http_register_connection",
+        CorePrimOp::HttpUnregisterConnection => "http_unregister_connection",
+        CorePrimOp::HttpActiveConnectionCount => "http_active_connection_count",
+        CorePrimOp::HttpIsShuttingDown => "http_is_shutting_down",
+        CorePrimOp::HttpServerStopped => "http_server_stopped",
+        CorePrimOp::HttpIsServerStopped => "http_is_server_stopped",
+        CorePrimOp::HttpParseUrl => "http_parse_url",
+        CorePrimOp::HttpWriteRequest => "http_write_request",
+        CorePrimOp::HttpParseResponse => "http_parse_response",
+        CorePrimOp::JsonParse => "json_parse",
+        CorePrimOp::JsonStringify => "json_stringify",
+        CorePrimOp::HttpWriteChunkedHead => "http_write_chunked_head",
+        CorePrimOp::HttpWriteChunk => "http_write_chunk",
+        CorePrimOp::HttpWriteChunkedEnd => "http_write_chunked_end",
+        CorePrimOp::ChanMake => "chan_make",
+        CorePrimOp::ChanSend => "chan_send",
+        CorePrimOp::ChanSendMove => "chan_send_move",
+        CorePrimOp::ChanRecv => "chan_recv",
+        CorePrimOp::ChanTrySend => "chan_try_send",
+        CorePrimOp::ChanTrySendMove => "chan_try_send_move",
+        CorePrimOp::ChanTryRecv => "chan_try_recv",
+        CorePrimOp::ChanClose => "chan_close",
+        CorePrimOp::ChanLen => "chan_len",
+        CorePrimOp::ChanCap => "chan_cap",
+        CorePrimOp::ChanIsClosed => "chan_is_closed",
+        CorePrimOp::EventRecv => "event_recv",
+        CorePrimOp::EventSend => "event_send",
+        CorePrimOp::EventSendMove => "event_send_move",
+        CorePrimOp::EventAfter => "event_after",
+        CorePrimOp::EventAlways => "event_always",
+        CorePrimOp::EventNever => "event_never",
+        CorePrimOp::EventChoose => "event_choose",
+        CorePrimOp::EventWrap => "event_wrap",
+        CorePrimOp::EventSync => "event_sync",
+        CorePrimOp::EventPoll => "event_poll",
+        CorePrimOp::EventWait => "event_wait",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -298,7 +371,81 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::CmpEq
             | CorePrimOp::CmpNe
             | CorePrimOp::Try
-            | CorePrimOp::AssertThrows => {
+            | CorePrimOp::AssertThrows
+            | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskSpawnMove
+            | CorePrimOp::TaskSpawnScoped
+            | CorePrimOp::TaskSpawnScopedMove
+            | CorePrimOp::TaskBlockingJoin
+            | CorePrimOp::TaskCancel
+            // Fiber primops (proposal 0174 Phase 1b)
+            | CorePrimOp::FiberSuspend
+            | CorePrimOp::FiberFork
+            | CorePrimOp::FiberGetContext
+            | CorePrimOp::FiberFail
+            | CorePrimOp::TaskAwait
+            | CorePrimOp::FiberRunAsync
+            | CorePrimOp::FiberYieldNow
+            | CorePrimOp::FiberSleep
+            // TCP primops (proposal 0174 Phase 1b-vii)
+            | CorePrimOp::TcpConnect
+            | CorePrimOp::TcpRead
+            | CorePrimOp::TcpWriteAll
+            | CorePrimOp::TcpClose
+            | CorePrimOp::TcpListen
+            | CorePrimOp::TcpAccept
+            | CorePrimOp::FiberBoth
+            | CorePrimOp::FiberRace
+            | CorePrimOp::FiberTimeout
+            | CorePrimOp::FiberNewScope
+            | CorePrimOp::FiberForkScoped
+            | CorePrimOp::FiberCancelScope
+            | CorePrimOp::FiberCheckCancelled
+            | CorePrimOp::FiberRunAsyncWith
+            | CorePrimOp::FiberFirstOf
+            | CorePrimOp::FiberTry
+            | CorePrimOp::FiberCurrentWorkerCount
+            | CorePrimOp::ChanMake
+            | CorePrimOp::ChanSend
+            | CorePrimOp::ChanSendMove
+            | CorePrimOp::ChanRecv
+            | CorePrimOp::ChanTrySend
+            | CorePrimOp::ChanTrySendMove
+            | CorePrimOp::ChanTryRecv
+            | CorePrimOp::ChanClose
+            | CorePrimOp::ChanLen
+            | CorePrimOp::ChanCap
+            | CorePrimOp::ChanIsClosed
+            | CorePrimOp::EventRecv
+            | CorePrimOp::EventSend
+            | CorePrimOp::EventSendMove
+            | CorePrimOp::EventAfter
+            | CorePrimOp::EventAlways
+            | CorePrimOp::EventNever
+            | CorePrimOp::EventChoose
+            | CorePrimOp::EventWrap
+            | CorePrimOp::EventSync
+            | CorePrimOp::EventPoll
+            | CorePrimOp::EventWait
+            | CorePrimOp::HttpServeConfig
+            | CorePrimOp::HttpShutdown
+            | CorePrimOp::HttpShutdownNow
+            | CorePrimOp::HttpParseRequest
+            | CorePrimOp::HttpWriteResponse
+            | CorePrimOp::HttpRegisterConnection
+            | CorePrimOp::HttpUnregisterConnection
+            | CorePrimOp::HttpActiveConnectionCount
+            | CorePrimOp::HttpIsShuttingDown
+            | CorePrimOp::HttpServerStopped
+            | CorePrimOp::HttpIsServerStopped
+            | CorePrimOp::HttpParseUrl
+            | CorePrimOp::HttpWriteRequest
+            | CorePrimOp::HttpParseResponse
+            | CorePrimOp::JsonParse
+            | CorePrimOp::JsonStringify
+            | CorePrimOp::HttpWriteChunkedHead
+            | CorePrimOp::HttpWriteChunk
+            | CorePrimOp::HttpWriteChunkedEnd => {
                 let name_str = promoted_primop_name(op);
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 // Emit as a named builtin call using the BuiltinCall target

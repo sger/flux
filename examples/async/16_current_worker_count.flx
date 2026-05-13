@@ -1,0 +1,35 @@
+// 16 — Async.current_worker_count
+//
+// `Async.current_worker_count()` reports the worker count the active
+// `run_async` scheduler is using. Useful for tests and runtime
+// introspection — "is the runtime actually using the workers I asked
+// for?"
+//
+// Returns 0 outside `run_async` (cannot be observed: the function
+// requires `with Async`, which forces it to be called inside a
+// `run_async` boundary).
+//
+// Naming on native: worker threads show up as `flux-async-worker-{N}`
+// in `ps -T`, `htop`, or Process Explorer while the program runs.
+
+// parity-expected-stdout-begin
+// "default = something positive"
+// "explicit 4 = 4"
+// "explicit 1 = 1"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn how_many() -> Int with Async { current_worker_count() }
+
+fn main() with IO {
+    let default_count = run_async(how_many)
+    if default_count > 0 {
+        print("default = something positive")
+    } else {
+        print("default = unexpected zero")
+    }
+
+    print("explicit 4 = " + to_string(run_async_with_workers(4, how_many)))
+    print("explicit 1 = " + to_string(run_async_with_workers(1, how_many)))
+}

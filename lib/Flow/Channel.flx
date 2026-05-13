@@ -1,0 +1,82 @@
+module Flow.Channel {
+    /// Opaque handle to a runtime channel. The Int wraps a slot in the
+    /// channel registry; Channel<a> is Sendable when a is Sendable, so both
+    /// ends can cross task/fiber boundaries for sendable payloads.
+    public data Channel<a> { Channel(Int) }
+
+    intrinsic fn chan_make(capacity: Int) -> Int = primop ChanMake
+    intrinsic fn chan_send_id<a>(id: Int, value: a) -> Unit = primop ChanSend
+    intrinsic fn chan_send_move_id<a>(id: Int, value: a) -> Unit = primop ChanSendMove
+    intrinsic fn chan_recv_id<a>(id: Int) -> Option<a> = primop ChanRecv
+    intrinsic fn chan_try_send_id<a>(id: Int, value: a) -> Bool = primop ChanTrySend
+    intrinsic fn chan_try_send_move_id<a>(id: Int, value: a) -> Bool = primop ChanTrySendMove
+    intrinsic fn chan_try_recv_id<a>(id: Int) -> Option<a> = primop ChanTryRecv
+    intrinsic fn chan_close_id(id: Int) -> Unit = primop ChanClose
+    intrinsic fn chan_len_id(id: Int) -> Int = primop ChanLen
+    intrinsic fn chan_cap_id(id: Int) -> Int = primop ChanCap
+    intrinsic fn chan_is_closed_id(id: Int) -> Bool = primop ChanIsClosed
+
+    /// Create a bounded channel with the given capacity.
+    /// capacity = 0 is a rendezvous channel: send waits for a receiver.
+    public fn make<a: Sendable>(capacity: Int) -> Channel<a> {
+        Channel(chan_make(capacity))
+    }
+
+    /// Send a value, suspending the calling fiber if the channel is full.
+    /// Sends to a closed channel are dropped.
+    public fn send<a: Sendable>(ch: Channel<a>, value: a) -> Unit with Async {
+        match ch { Channel(id) -> chan_send_id(id, value) }
+    }
+
+    /// Send by ownership transfer. Prefer this over send when `value` is not
+    /// aliased; the runtime attempts a zero-copy transfer and falls back to a
+    /// deep copy when the value is shared.
+    public fn send_move<a: Sendable>(ch: Channel<a>, value: a) -> Unit with Async {
+        match ch { Channel(id) -> chan_send_move_id(id, value) }
+    }
+
+    /// Receive a value, suspending the calling fiber if the channel is empty.
+    /// Returns None when the channel is closed and drained.
+    public fn recv<a: Sendable>(ch: Channel<a>) -> Option<a> with Async {
+        match ch { Channel(id) -> chan_recv_id(id) }
+    }
+
+    /// Non-blocking send. Returns true if the value was accepted immediately.
+    /// Returns false when the channel is full or closed.
+    public fn try_send<a: Sendable>(ch: Channel<a>, value: a) -> Bool {
+        match ch { Channel(id) -> chan_try_send_id(id, value) }
+    }
+
+    /// Non-blocking ownership-transfer send. Returns false when the channel is
+    /// full or closed; otherwise the runtime attempts a zero-copy transfer and
+    /// falls back to a deep copy when `value` is shared.
+    public fn try_send_move<a: Sendable>(ch: Channel<a>, value: a) -> Bool {
+        match ch { Channel(id) -> chan_try_send_move_id(id, value) }
+    }
+
+    /// Non-blocking receive. Returns Some(value) if one was available.
+    public fn try_recv<a: Sendable>(ch: Channel<a>) -> Option<a> {
+        match ch { Channel(id) -> chan_try_recv_id(id) }
+    }
+
+    /// Close the channel. Pending receivers get None; pending senders unblock
+    /// with their send dropped. Closing an already-closed channel is a no-op.
+    public fn close<a>(ch: Channel<a>) -> Unit {
+        match ch { Channel(id) -> chan_close_id(id) }
+    }
+
+    /// Number of values currently buffered.
+    public fn len<a>(ch: Channel<a>) -> Int {
+        match ch { Channel(id) -> chan_len_id(id) }
+    }
+
+    /// Capacity the channel was created with.
+    public fn cap<a>(ch: Channel<a>) -> Int {
+        match ch { Channel(id) -> chan_cap_id(id) }
+    }
+
+    /// True once the channel has been closed.
+    public fn is_closed<a>(ch: Channel<a>) -> Bool {
+        match ch { Channel(id) -> chan_is_closed_id(id) }
+    }
+}

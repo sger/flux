@@ -119,6 +119,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
     PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     INSTANCE_METHOD_EFFECT_FLOOR,
+    SEALED_CLASS_INSTANCE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD,
     AMBIGUOUS_CLASS_CONSTRAINT,
     EXPOSING_LOCAL_COLLISION,
@@ -191,9 +192,8 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E423" => Some(DiagnosticCategory::TypeInference),
         "E426" => Some(DiagnosticCategory::Internal),
         "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
-        | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E455" | "E456" => {
-            Some(DiagnosticCategory::TypeInference)
-        }
+        | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E453" | "E455"
+        | "E456" => Some(DiagnosticCategory::TypeInference),
         "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
         "E460" | "E461" | "E462" | "E463" | "E464" | "E465" | "E466" | "E467" | "E468" => {
             Some(DiagnosticCategory::TypeInference)

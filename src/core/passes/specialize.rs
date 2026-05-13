@@ -81,6 +81,11 @@ fn is_wrapper_primop(op: CorePrimOp) -> bool {
             | CorePrimOp::ClockNow
             | CorePrimOp::Time
             | CorePrimOp::Panic
+            | CorePrimOp::TaskSpawn
+            | CorePrimOp::TaskSpawnMove
+            | CorePrimOp::TaskSpawnScopedMove
+            | CorePrimOp::TaskBlockingJoin
+            | CorePrimOp::TaskCancel
             | CorePrimOp::Try
             | CorePrimOp::AssertThrows
             | CorePrimOp::PerformDirect

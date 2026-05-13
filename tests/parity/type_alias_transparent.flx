@@ -1,0 +1,48 @@
+// parity: vm, llvm
+
+import Flow.Async exposing (..)
+
+alias IntPair = (Int, Int)
+alias Mapper<a, b> = (a) -> b
+alias Stream<a> = () -> Option<a> with Async
+alias AsyncFn<a, b, e> = (a) -> b with <Async | e>
+
+fn inc(x: Int) -> Int {
+    x + 1
+}
+
+fn apply(f: Mapper<Int, Int>, x: Int) -> Int {
+    f(x)
+}
+
+fn make_pair() -> IntPair {
+    (20, 22)
+}
+
+fn ten_stream() -> Option<Int> with Async {
+    Some(10)
+}
+
+fn consume_stream(s: Stream<Int>) -> Int with Async {
+    match s() {
+        Some(v) -> v,
+        None -> 0
+    }
+}
+
+fn async_inc(x: Int) -> Int with Async {
+    x + 1
+}
+
+fn apply_async(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
+    f(x)
+}
+
+fn body() -> Int with Async {
+    let pair = make_pair()
+    apply(inc, 9) + pair.0 + pair.1 + consume_stream(ten_stream) + apply_async(async_inc, 4)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

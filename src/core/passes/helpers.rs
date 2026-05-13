@@ -582,7 +582,80 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::CmpEq
         | CorePrimOp::CmpNe
         | CorePrimOp::Try
-        | CorePrimOp::AssertThrows => false,
+        | CorePrimOp::AssertThrows
+        | CorePrimOp::TaskSpawn
+        | CorePrimOp::TaskSpawnMove
+        | CorePrimOp::TaskSpawnScoped
+        | CorePrimOp::TaskSpawnScopedMove
+        | CorePrimOp::TaskBlockingJoin
+        | CorePrimOp::TaskCancel
+        // Fiber primops (proposal 0174 Phase 1b) — not higher-order promoted
+        | CorePrimOp::FiberSuspend
+        | CorePrimOp::FiberFork
+        | CorePrimOp::FiberGetContext
+        | CorePrimOp::FiberFail
+        | CorePrimOp::TaskAwait
+        | CorePrimOp::FiberRunAsync
+        | CorePrimOp::FiberYieldNow
+        | CorePrimOp::FiberSleep
+        | CorePrimOp::TcpConnect
+        | CorePrimOp::TcpRead
+        | CorePrimOp::TcpWriteAll
+        | CorePrimOp::TcpClose
+        | CorePrimOp::TcpListen
+        | CorePrimOp::TcpAccept
+        | CorePrimOp::FiberBoth
+        | CorePrimOp::FiberRace
+        | CorePrimOp::FiberTimeout
+        | CorePrimOp::FiberNewScope
+        | CorePrimOp::FiberForkScoped
+        | CorePrimOp::FiberCancelScope
+        | CorePrimOp::FiberCheckCancelled
+        | CorePrimOp::FiberCurrentWorkerCount
+        | CorePrimOp::FiberRunAsyncWith
+        | CorePrimOp::FiberFirstOf
+        | CorePrimOp::FiberTry
+        | CorePrimOp::ChanMake
+        | CorePrimOp::ChanSend
+        | CorePrimOp::ChanSendMove
+        | CorePrimOp::ChanRecv
+        | CorePrimOp::ChanTrySend
+        | CorePrimOp::ChanTrySendMove
+        | CorePrimOp::ChanTryRecv
+        | CorePrimOp::ChanClose
+        | CorePrimOp::ChanLen
+        | CorePrimOp::ChanCap
+        | CorePrimOp::ChanIsClosed
+        | CorePrimOp::EventRecv
+        | CorePrimOp::EventSend
+        | CorePrimOp::EventSendMove
+        | CorePrimOp::EventAfter
+        | CorePrimOp::EventAlways
+        | CorePrimOp::EventNever
+        | CorePrimOp::EventChoose
+        | CorePrimOp::EventWrap
+        | CorePrimOp::EventPoll
+        | CorePrimOp::EventSync
+        | CorePrimOp::EventWait
+        | CorePrimOp::HttpServeConfig
+        | CorePrimOp::HttpShutdown
+        | CorePrimOp::HttpShutdownNow
+        | CorePrimOp::HttpParseRequest
+        | CorePrimOp::HttpWriteResponse
+        | CorePrimOp::HttpRegisterConnection
+        | CorePrimOp::HttpUnregisterConnection
+        | CorePrimOp::HttpActiveConnectionCount
+        | CorePrimOp::HttpIsShuttingDown
+        | CorePrimOp::HttpServerStopped
+        | CorePrimOp::HttpIsServerStopped
+        | CorePrimOp::HttpParseUrl
+        | CorePrimOp::HttpWriteRequest
+        | CorePrimOp::HttpParseResponse
+        | CorePrimOp::JsonParse
+        | CorePrimOp::JsonStringify
+        | CorePrimOp::HttpWriteChunkedHead
+        | CorePrimOp::HttpWriteChunk
+        | CorePrimOp::HttpWriteChunkedEnd => false,
         // Effect handler ops — not higher-order promoted
         CorePrimOp::EvvGet
         | CorePrimOp::EvvSet

@@ -1,0 +1,13 @@
+// parity: vm, llvm
+// expect: success
+// bug: yield_now() called outside a `run_async` scheduler (here the
+//      `main() with Async` host handler) has nothing to reschedule against
+//      and must be a harmless no-op — no hang, no error.
+
+import Flow.Async exposing (..)
+
+fn main() with Async, IO {
+    print(1)
+    yield_now()
+    print(2)
+}

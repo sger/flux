@@ -34,7 +34,11 @@ use crate::lir::{
 ///
 /// No-op when `FLUX_YIELD_CHECKS` is unset (or set to `"0"`/empty) — matches
 /// slice 3a's gating so default output is unchanged.
-pub fn split_continuations(mut program: LirProgram) -> LirProgram {
+pub fn split_continuations(program: LirProgram) -> LirProgram {
+    split_continuations_with_options(program, false)
+}
+
+pub fn split_continuations_with_options(mut program: LirProgram, force: bool) -> LirProgram {
     if !yield_checks_enabled() {
         return program;
     }
@@ -47,7 +51,7 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
                 if matches!(kind, crate::lir::CallKind::YieldTo))
         })
     });
-    if !has_yield {
+    if !force && !has_yield {
         return program;
     }
 
@@ -55,10 +59,11 @@ pub fn split_continuations(mut program: LirProgram) -> LirProgram {
     // functions get their own yield sites split recursively. Each iteration
     // processes one function's call sites and may append more functions to
     // the program; those new indices are added to the queue.
+    let async_funcs = crate::lir::direct_async_func_ids(&program);
     let mut queue: std::collections::VecDeque<usize> = (0..program.functions.len()).collect();
 
     while let Some(func_idx) = queue.pop_front() {
-        let sites = collect_call_sites(&program.functions[func_idx]);
+        let sites = collect_call_sites(&program.functions[func_idx], &async_funcs);
         if sites.is_empty() {
             continue;
         }
@@ -122,12 +127,16 @@ struct CallSite {
     synth_id: LirFuncId,
 }
 
-fn collect_call_sites(func: &LirFunction) -> Vec<CallSite> {
+fn collect_call_sites(
+    func: &LirFunction,
+    async_funcs: &std::collections::HashSet<LirFuncId>,
+) -> Vec<CallSite> {
     let mut sites = Vec::new();
     for block in &func.blocks {
         if let LirTerminator::Call {
             dst,
             cont,
+            kind,
             suppress_yield_check,
             yield_cont,
             ..
@@ -135,6 +144,9 @@ fn collect_call_sites(func: &LirFunction) -> Vec<CallSite> {
         {
             if *suppress_yield_check || yield_cont.is_some() {
                 // Already populated (e.g., by a previous pass run) — skip.
+                continue;
+            }
+            if !crate::lir::call_kind_is_direct_async(kind, async_funcs) {
                 continue;
             }
             // We can't allocate the synth id here without &mut program; defer
@@ -248,6 +260,7 @@ fn synthesize_continuation(
         name: qualified_name.clone(),
         id: site.synth_id, // caller replaces with a real id after synthesis
         qualified_name,
+        is_dict_def: false,
         params: vec![site.dst],
         blocks: synth_blocks,
         next_var,
@@ -354,6 +367,7 @@ mod tests {
             name: name.to_string(),
             id: LirFuncId(id),
             qualified_name: name.to_string(),
+            is_dict_def: false,
             params: Vec::new(),
             blocks: Vec::new(),
             next_var: 0,
@@ -382,7 +396,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },
@@ -445,7 +461,7 @@ mod tests {
 
         // Manually drive (skipping env gate).
         // Run the synthesis directly — no sites found → no changes.
-        let sites = collect_call_sites(&program.functions[0]);
+        let sites = collect_call_sites(&program.functions[0], &HashSet::new());
         assert!(sites.is_empty());
         assert_eq!(program.functions.len(), before);
     }
@@ -469,7 +485,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: false,
                 yield_cont: None,
             },
@@ -525,7 +543,9 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect,
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
                 suppress_yield_check: true,
                 yield_cont: None,
             },
@@ -537,6 +557,38 @@ mod tests {
             terminator: LirTerminator::Return(v_dst),
         });
 
-        assert!(collect_call_sites(&f).is_empty());
+        assert!(collect_call_sites(&f, &HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn non_async_calls_are_not_split() {
+        let mut f = empty_function(0, "f");
+        let v_func = LirVar(0);
+        let v_dst = LirVar(1);
+        f.params = vec![v_func];
+        f.blocks.push(LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Call {
+                dst: v_dst,
+                func: v_func,
+                args: Vec::new(),
+                cont: BlockId(1),
+                kind: CallKind::Indirect {
+                    async_capable: false,
+                },
+                suppress_yield_check: false,
+                yield_cont: None,
+            },
+        });
+        f.blocks.push(LirBlock {
+            id: BlockId(1),
+            params: vec![v_dst],
+            instrs: Vec::new(),
+            terminator: LirTerminator::Return(v_dst),
+        });
+
+        assert!(collect_call_sites(&f, &HashSet::new()).is_empty());
     }
 }

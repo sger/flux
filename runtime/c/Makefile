@@ -16,7 +16,7 @@ AR      ?= ar
 CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS ?=
 
-SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c
+SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c tasks.c channel.c tcp.c
 OBJS    = $(SRCS:.c=.o)
 LIB     = libflux_rt.a
 
@@ -28,6 +28,11 @@ ifeq ($(UNAME_S),Darwin)
 else
   SHARED_LIB = libflux_rt.so
   SHARED_FLAGS = -shared -fPIC
+endif
+
+# pthreads must be linked explicitly on Linux (macOS includes it in -lSystem).
+ifeq ($(UNAME_S),Linux)
+  LDFLAGS += -lpthread
 endif
 
 # ── Targets ──────────────────────────────────────────────────────────

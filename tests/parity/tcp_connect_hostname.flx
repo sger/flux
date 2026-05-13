@@ -1,0 +1,32 @@
+// parity: vm, llvm
+// expect: success
+// bug: Tcp.connect accepts hostnames by resolving through the async DNS pool.
+
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn server() -> Unit with Async {
+    let l = listen("127.0.0.1", 21973)
+    let conn = accept(l)
+    let msg = read(conn, 1024)
+    let _w = write_all(conn, msg)
+    close(conn)
+}
+
+fn client() -> String with Async {
+    let conn = connect("localhost", 21973)
+    let _w = write_all(conn, "hello-dns")
+    let reply = read(conn, 1024)
+    close(conn)
+    reply
+}
+
+fn body() -> String with Async {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    let reply = run_async(body)
+    print(reply)
+}
