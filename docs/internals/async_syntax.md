@@ -20,7 +20,7 @@ Flux async is an **effect-row + handler** system, not `async fn` / `await`. Thre
 There are two cooperating layers:
 
 - **Fibers** — lightweight cooperative tasks scheduled inside `run_async`. On the VM they are single-OS-threaded logical queues; on native they are scheduled over OS workers.
-- **Tasks** — OS-thread-backed work spawned via `Flow.Task`. VM tasks run in isolated worker VMs; native tasks run on native worker threads. `Sendable<T>` gates which values can cross the worker boundary.
+- **Tasks** — OS-thread-backed work spawned via `Flow.Task`. VM tasks run in pooled isolated worker VMs with Arc-shared read-only state; native tasks run on native worker threads. `Sendable<T>` gates which values can cross the worker boundary.
 
 ---
 
@@ -482,20 +482,22 @@ For *currently executing* fibers, `vm_fibers` mirrors the cancel set in a per-th
 | Cross-worker fiber dispatch | **Disabled**: VM stays single-OS-thread because `Rc<Value>` is non-Send | Enabled |
 
 The VM logical-only constraint applies to fibers, not tasks. VM `Task.spawn`
-crosses a sendable transfer boundary into an isolated worker VM, so task bodies
-can run in parallel without making the normal `Rc<Value>` graph thread-safe.
-CPU-bound code inside a VM fiber can starve sibling fibers until it suspends or
-calls `Async.yield_now`; CPU-bound parallelism should use `Task.spawn` /
-`Task.await` today.
+crosses a sendable transfer boundary into a pooled isolated worker VM with
+Arc-shared constants and sparse spawn-time globals, so task bodies can run in
+parallel without making the normal `Rc<Value>` graph thread-safe. CPU-bound code
+inside a VM fiber can starve sibling fibers until it suspends or calls
+`Async.yield_now`; CPU-bound parallelism should use `Task.spawn` / `Task.await`
+today.
 
 ---
 
 ## 10. Tasks
 
 `Flow.Task` is the OS-thread surface. Tasks are **not** fibers; they live on a
-worker pool and can run in true parallel. On the VM, each task runs inside an
-isolated worker VM after crossing the `Sendable` transfer boundary. On native,
-the task body runs through the C runtime task path.
+worker pool and can run in true parallel. On the VM, each task runs inside a
+reused isolated worker VM after crossing the `Sendable` transfer boundary; the
+worker VM shares immutable constants and receives a sparse globals snapshot. On
+native, the task body runs through the C runtime task path.
 
 ### 10.1 `spawn`
 
@@ -682,7 +684,7 @@ The solver ([src/types/class_solver.rs](../../src/types/class_solver.rs) `has_st
 | `sleep(ms)` | Suspends the current fiber through the VM async backend; other ready VM fibers may run on the caller OS thread | Suspends fiber; an OS worker can run other work |
 | `yield_now()` | Real cooperative reschedule within the single-threaded VM scheduler | Real cooperative reschedule across native ready queues |
 | `both` / `race` | Cooperative fiber overlap on a single OS thread | Fiber overlap across OS workers |
-| `Task.spawn` | Body runs in an isolated worker VM on a real OS thread | Body runs on a real OS worker thread |
+| `Task.spawn` | Body runs in a pooled isolated worker VM on a real OS thread | Body runs on a real OS worker thread |
 | `Task.blocking_join` | Waits for worker completion | Condvar wait |
 | `Task.await` | Suspends current fiber, resumes when task completes | Suspends current fiber, resumes when task completes |
 | `Async.scope` / `cancel` | Real cancellation through scheduler/backend | Real cancellation through scheduler/backend |

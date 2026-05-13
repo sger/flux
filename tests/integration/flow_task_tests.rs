@@ -393,6 +393,70 @@ fn main() with IO {
 }
 
 #[test]
+fn flow_task_vm_many_small_tasks_complete() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+fn spawn_many(n, acc) {
+    if n <= 0 { acc } else { spawn_many(n - 1, [Task.spawn(fn() { 1 }) | acc]) }
+}
+
+fn join_all(tasks, acc) {
+    match tasks {
+        [h | t] -> join_all(t, acc + Task.blocking_join(h)),
+        _ -> acc
+    }
+}
+
+fn main() with IO {
+    let tasks = spawn_many(512, [])
+    print(join_all(tasks, 0))
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "VM Task.spawn should handle many small tasks:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "512");
+}
+
+#[test]
+fn flow_task_vm_many_tasks_call_shared_helper_function() {
+    let (stdout, stderr, success) = run_flux_source(
+        r#"
+import Flow.Task as Task
+
+fn bump(x: Int) -> Int { x + 1 }
+
+fn spawn_many(n, acc) {
+    if n <= 0 { acc } else { spawn_many(n - 1, [Task.spawn(fn() { bump(1) }) | acc]) }
+}
+
+fn join_all(tasks, acc) {
+    match tasks {
+        [h | t] -> join_all(t, acc + Task.blocking_join(h)),
+        _ -> acc
+    }
+}
+
+fn main() with IO {
+    let tasks = spawn_many(256, [])
+    print(join_all(tasks, 0))
+}
+"#,
+    );
+
+    assert!(
+        success,
+        "VM Task.spawn should reuse shared function constants safely:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "512");
+}
+
+#[test]
 fn flow_task_spawn_rejects_non_sendable_capture_even_with_sendable_result() {
     let (_stdout, stderr, success) = run_flux_source(
         r#"
