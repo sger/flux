@@ -391,6 +391,16 @@ impl VM {
         let mut inner_handlers = std::mem::take(&mut cont_shell.inner_handlers);
 
         // Unwind all frames above the handler boundary.
+        // On background worker VMs the `frames` vec starts with a single
+        // placeholder entry (index 0).  If the continuation was captured on a
+        // different thread whose call stack was deeper, `entry_frame_index`
+        // may exceed `frames.len() - 1`.  Pad with clones of the root frame
+        // so that `self.frames[entry_frame_index]` is a valid slot before the
+        // `push_frame` loop below increments past it.
+        while self.frames.len() <= entry_frame_index {
+            let pad = self.frames[0].clone();
+            self.frames.push(pad);
+        }
         self.frame_index = entry_frame_index;
 
         // Reset stack to handler boundary.
