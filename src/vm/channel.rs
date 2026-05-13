@@ -257,13 +257,13 @@ pub(super) fn recv(id: i64) -> Result<Value, String> {
             flush_waiters(&mut cell);
             notify_event_watchers(&mut cell);
             entry.ready.notify_all();
-            return some(value).to_value();
+            return some(value).into_value();
         }
         if let Some((send_req, value)) = cell.waiting_send.pop_front() {
             publish(send_req, Ok(unit()));
             notify_event_watchers(&mut cell);
             entry.ready.notify_all();
-            return some(value).to_value();
+            return some(value).into_value();
         }
         if cell.closed {
             return Ok(Value::None);
@@ -329,13 +329,13 @@ pub(super) fn try_recv(id: i64) -> Result<Value, String> {
         flush_waiters(&mut cell);
         notify_event_watchers(&mut cell);
         entry.ready.notify_all();
-        return some(value).to_value();
+        return some(value).into_value();
     }
     if let Some((send_req, value)) = cell.waiting_send.pop_front() {
         publish(send_req, Ok(unit()));
         notify_event_watchers(&mut cell);
         entry.ready.notify_all();
-        return some(value).to_value();
+        return some(value).into_value();
     }
     Ok(Value::None)
 }
@@ -427,7 +427,7 @@ pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
         .lock()
         .expect("VM channel completion queue poisoned");
     match rx.try_recv() {
-        Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.to_value()))),
+        Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.into_value()))),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
     }
 }

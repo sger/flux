@@ -33,7 +33,7 @@ mod vm_tcp {
 
     thread_local! {
         static TCP_HANDLES: RefCell<HashMap<i64, TcpHandle>> = RefCell::new(HashMap::new());
-        static NEXT_ID: RefCell<i64> = RefCell::new(1);
+        static NEXT_ID: RefCell<i64> = const { RefCell::new(1) };
     }
 
     fn alloc_id() -> i64 {
@@ -148,7 +148,7 @@ mod vm_http {
 
     thread_local! {
         static SERVERS: RefCell<HashMap<i64, ServerState>> = RefCell::new(HashMap::new());
-        static NEXT_ID: RefCell<i64> = RefCell::new(1);
+        static NEXT_ID: RefCell<i64> = const { RefCell::new(1) };
     }
 
     pub fn register(
@@ -589,11 +589,11 @@ mod vm_fibers {
                 })
                 .unwrap_or_default()
         });
-        if !outstanding_reqs.is_empty() {
-            if let Ok(backend) = vm_async::backend() {
-                for req in outstanding_reqs {
-                    backend.cancel(RequestId(req));
-                }
+        if !outstanding_reqs.is_empty()
+            && let Ok(backend) = vm_async::backend()
+        {
+            for req in outstanding_reqs {
+                backend.cancel(RequestId(req));
             }
         }
         // Drain any leftover ready fibers (b₁ FiberFork bookkeeping
@@ -1837,8 +1837,10 @@ mod vm_fibers {
         /// The fiber scheduler: owns the per-worker ready queues and suspended map.
         pub sched: Arc<Mutex<FiberScheduler>>,
         /// Synthetic-await coordination (FiberBoth / FiberRace / etc.).
+        #[allow(clippy::arc_with_non_send_sync)]
         pub awaits: Arc<Mutex<AwaitCoordinator<FiberId, FiberOutcome>>>,
         /// Resume outcomes keyed by request id (parent-fiber wakeup values).
+        #[allow(clippy::arc_with_non_send_sync)]
         pub resume_outcomes: Arc<Mutex<HashMap<u64, FiberOutcome>>>,
         /// Scope-cancellation registry: scope_id → Vec<FiberId>.
         /// Reserved for future Phase 4+ scope cancellation across workers.
@@ -1872,6 +1874,7 @@ mod vm_fibers {
     unsafe impl Sync for SharedDispatchState {}
 
     impl SharedDispatchState {
+        #[allow(clippy::arc_with_non_send_sync)]
         fn new(sched: FiberScheduler, root_id: FiberId, n_workers: usize) -> Arc<Self> {
             let worker_wakeups = (0..n_workers).map(|_| WorkerWakeup::new()).collect();
             Arc::new(SharedDispatchState {
@@ -2728,25 +2731,25 @@ fn park_tcp_op(
         // No fiber boundary: pump backend synchronously (single-fiber fallback).
         let backend = vm_async::backend()?;
         loop {
-            if let Some(c) = backend.next_completion() {
-                if c.request_id == req {
-                    use crate::runtime::r#async::backend::CompletionPayload;
-                    return match c.payload {
-                        CompletionPayload::TcpHandle(h) => Ok(Value::Integer(h.0 as i64)),
-                        CompletionPayload::Bytes(buf) => Ok(Value::String(Rc::new(
-                            String::from_utf8_lossy(&buf).into_owned(),
-                        ))),
-                        CompletionPayload::Unit => Ok(Value::None),
-                        CompletionPayload::Error(e) => Err(e),
-                        CompletionPayload::AddressList(addrs) => {
-                            let Some(addr) = addrs.first() else {
-                                return Err("dns resolve returned no addresses".into());
-                            };
-                            backend.tcp_connect(req, *addr);
-                            continue;
-                        }
-                    };
-                }
+            if let Some(c) = backend.next_completion()
+                && c.request_id == req
+            {
+                use crate::runtime::r#async::backend::CompletionPayload;
+                return match c.payload {
+                    CompletionPayload::TcpHandle(h) => Ok(Value::Integer(h.0 as i64)),
+                    CompletionPayload::Bytes(buf) => Ok(Value::String(Rc::new(
+                        String::from_utf8_lossy(&buf).into_owned(),
+                    ))),
+                    CompletionPayload::Unit => Ok(Value::None),
+                    CompletionPayload::Error(e) => Err(e),
+                    CompletionPayload::AddressList(addrs) => {
+                        let Some(addr) = addrs.first() else {
+                            return Err("dns resolve returned no addresses".into());
+                        };
+                        backend.tcp_connect(req, *addr);
+                        continue;
+                    }
+                };
             }
             std::thread::park_timeout(std::time::Duration::from_millis(1));
         }
@@ -3945,7 +3948,7 @@ pub fn execute_core_primop(
                 }
                 park_tcp_op(ctx, req)
             }
-            _ => Err(format!("tcp_connect: expected (String, Int)")),
+            _ => Err("tcp_connect: expected (String, Int)".to_string()),
         },
 
         TcpRead => match (&args[0], &args[1]) {
@@ -3962,7 +3965,7 @@ pub fn execute_core_primop(
                 backend.tcp_read(req, h, max);
                 park_tcp_op(ctx, req)
             }
-            _ => Err(format!("tcp_read: expected (Int, Int)")),
+            _ => Err("tcp_read: expected (Int, Int)".to_string()),
         },
 
         TcpWriteAll => match (&args[0], &args[1]) {
@@ -3975,7 +3978,7 @@ pub fn execute_core_primop(
                 backend.tcp_write(req, h, bytes);
                 park_tcp_op(ctx, req)
             }
-            _ => Err(format!("tcp_write_all: expected (Int, String)")),
+            _ => Err("tcp_write_all: expected (Int, String)".to_string()),
         },
 
         TcpClose => match &args[0] {
@@ -4002,7 +4005,7 @@ pub fn execute_core_primop(
                 backend.tcp_listen(req, addr);
                 park_tcp_op(ctx, req)
             }
-            _ => Err(format!("tcp_listen: expected (String, Int)")),
+            _ => Err("tcp_listen: expected (String, Int)".to_string()),
         },
 
         TcpAccept => match &args[0] {
@@ -4714,7 +4717,7 @@ fn http_response_value(resp: &crate::runtime::http::HttpResponse) -> Value {
 fn http_method_name(value: &Value) -> Result<&'static str, String> {
     let name = match value {
         Value::AdtUnit(name) => name.as_ref(),
-        Value::Adt(adt) if adt.fields.len() == 0 => adt.constructor.as_ref(),
+        Value::Adt(adt) if adt.fields.is_empty() => adt.constructor.as_ref(),
         other => return Err(terr("http_write_request(method)", "Method", other)),
     };
     Ok(match name.as_str() {

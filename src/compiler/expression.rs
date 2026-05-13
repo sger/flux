@@ -1370,7 +1370,7 @@ impl Compiler {
                         && let Some(InferType::Fun(hm_params, _, _)) =
                             self.hm_expr_types.get(&function.expr_id())
                         && let Some(hm_expected) = hm_params.get(index)
-                        && let Ok(subst) = unify(hm_expected, &actual)
+                        && let Ok(subst) = unify(hm_expected, actual)
                     {
                         hm_expected.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
                     } else {

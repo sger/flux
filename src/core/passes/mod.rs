@@ -258,13 +258,13 @@ fn run_semantic_core_passes_with_optional_interner(
     Ok(warnings)
 }
 
-fn normalize_lam_param_type_lengths(program: &mut CoreProgram, interner: Option<&Interner>) {
+fn normalize_lam_param_type_lengths(program: &mut CoreProgram, _interner: Option<&Interner>) {
     for def in &mut program.defs {
-        normalize_lam_param_type_lengths_expr(&mut def.expr, interner);
+        normalize_lam_param_type_lengths_expr(&mut def.expr);
     }
 }
 
-fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr, interner: Option<&Interner>) {
+fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
     match expr {
         CoreExpr::Lam {
             params,
@@ -278,48 +278,48 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr, interner: Option<&
                 normalized.append(param_types);
                 *param_types = normalized;
             }
-            normalize_lam_param_type_lengths_expr(body, interner);
+            normalize_lam_param_type_lengths_expr(body);
         }
         CoreExpr::App { func, args, .. } => {
-            normalize_lam_param_type_lengths_expr(func, interner);
+            normalize_lam_param_type_lengths_expr(func);
             for arg in args {
-                normalize_lam_param_type_lengths_expr(arg, interner);
+                normalize_lam_param_type_lengths_expr(arg);
             }
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-            normalize_lam_param_type_lengths_expr(rhs, interner);
-            normalize_lam_param_type_lengths_expr(body, interner);
+            normalize_lam_param_type_lengths_expr(rhs);
+            normalize_lam_param_type_lengths_expr(body);
         }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
             for (_, rhs) in bindings {
-                normalize_lam_param_type_lengths_expr(rhs, interner);
+                normalize_lam_param_type_lengths_expr(rhs);
             }
-            normalize_lam_param_type_lengths_expr(body, interner);
+            normalize_lam_param_type_lengths_expr(body);
         }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
-            normalize_lam_param_type_lengths_expr(scrutinee, interner);
+            normalize_lam_param_type_lengths_expr(scrutinee);
             for alt in alts {
                 if let Some(guard) = &mut alt.guard {
-                    normalize_lam_param_type_lengths_expr(guard, interner);
+                    normalize_lam_param_type_lengths_expr(guard);
                 }
-                normalize_lam_param_type_lengths_expr(&mut alt.rhs, interner);
+                normalize_lam_param_type_lengths_expr(&mut alt.rhs);
             }
         }
         CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
             for field in fields {
-                normalize_lam_param_type_lengths_expr(field, interner);
+                normalize_lam_param_type_lengths_expr(field);
             }
         }
         CoreExpr::Return { value, .. }
         | CoreExpr::MemberAccess { object: value, .. }
         | CoreExpr::TupleField { object: value, .. } => {
-            normalize_lam_param_type_lengths_expr(value, interner);
+            normalize_lam_param_type_lengths_expr(value);
         }
         CoreExpr::Perform { args, .. } => {
             for arg in args {
-                normalize_lam_param_type_lengths_expr(arg, interner);
+                normalize_lam_param_type_lengths_expr(arg);
             }
         }
         CoreExpr::Handle {
@@ -328,12 +328,12 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr, interner: Option<&
             handlers,
             ..
         } => {
-            normalize_lam_param_type_lengths_expr(body, interner);
+            normalize_lam_param_type_lengths_expr(body);
             if let Some(parameter) = parameter {
-                normalize_lam_param_type_lengths_expr(parameter, interner);
+                normalize_lam_param_type_lengths_expr(parameter);
             }
             for handler in handlers {
-                normalize_lam_param_type_lengths_expr(&mut handler.body, interner);
+                normalize_lam_param_type_lengths_expr(&mut handler.body);
             }
         }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}

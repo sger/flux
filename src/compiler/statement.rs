@@ -1843,11 +1843,9 @@ impl Compiler {
         // handled via a separate mechanism).
         if let Some(ir_fn) = ir_function {
             let extra = ir_fn.params.len().saturating_sub(parameters.len());
-            if extra > 0 {
-                if !scheme_constraints.is_empty() {
-                    for ir_param in &ir_fn.params[..extra] {
-                        self.symbol_table.define(ir_param.name, Span::default());
-                    }
+            if extra > 0 && !scheme_constraints.is_empty() {
+                for ir_param in &ir_fn.params[..extra] {
+                    self.symbol_table.define(ir_param.name, Span::default());
                 }
             }
         }
