@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use flux::ast::type_infer::{InferProgramResult, infer_program};
@@ -9,7 +10,6 @@ use flux::syntax::parser::Parser;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 
-use crate::hover_index::HoverIndex;
 use crate::line_index::{PositionEncoding, PositionMap};
 use crate::prelude::Prelude;
 use crate::symbol_index::SymbolIndex;
@@ -19,10 +19,18 @@ pub struct Snapshot {
     pub program: Program,
     pub interner: Interner,
     pub infer: Option<InferProgramResult>,
-    pub hover_index: HoverIndex,
     pub symbol_index: SymbolIndex,
     pub position_map: PositionMap,
     pub diagnostics: Vec<FluxDiagnostic>,
+    /// Final segment of every module known to this session's prelude (e.g.
+    /// `"String"` for `Flow.String`). Used by hover to label module-prefixed
+    /// references like `String.join`.
+    pub module_short_names: HashSet<String>,
+    /// Short module name → member names (e.g. `"String" -> ["join", "split", ...]`).
+    /// Populated from the prelude's `cached_member_schemes` so completion
+    /// after `String.` can list available members without rebuilding the map
+    /// on every keystroke.
+    pub module_members: HashMap<String, Vec<String>>,
 }
 
 impl Snapshot {
@@ -42,7 +50,6 @@ impl Snapshot {
         diagnostics.extend(parser.take_warnings());
         prelude.compiler.interner = parser.take_interner();
 
-        let hover_index = HoverIndex::build(&program);
         let symbol_index = SymbolIndex::build(&program, &prelude.compiler.interner);
         let position_map = PositionMap::new(Arc::clone(&text), encoding);
 
@@ -61,15 +68,56 @@ impl Snapshot {
         // resolve symbols independently of subsequent buffer edits.
         let interner = prelude.compiler.interner.clone();
 
+        // Collect short names (final dotted segment) of every loaded module so
+        // hover can recognize `String.join` as referencing `Flow.String`.
+        let module_short_names: HashSet<String> = prelude
+            .loaded_modules
+            .iter()
+            .map(|qual| {
+                qual.rsplit('.')
+                    .next()
+                    .unwrap_or(qual.as_str())
+                    .to_string()
+            })
+            .collect();
+
+        // Index module members by short name for completion. Walks the
+        // compiler's `cached_member_schemes`; one entry per `(module, member)`.
+        let mut module_members: HashMap<String, Vec<String>> = HashMap::new();
+        for (module_sym, member_sym) in prelude.compiler.cached_member_schemes().keys() {
+            let Some(qualified) = prelude.compiler.interner.try_resolve(*module_sym) else {
+                continue;
+            };
+            let Some(member) = prelude.compiler.interner.try_resolve(*member_sym) else {
+                continue;
+            };
+            if !prelude.loaded_modules.contains(qualified) {
+                // Only surface members from prelude modules we actually
+                // recognize — avoids leaking arbitrary compiler-internal
+                // keys (e.g. effect-op intrinsics) into completion.
+                continue;
+            }
+            let short = qualified.rsplit('.').next().unwrap_or(qualified);
+            module_members
+                .entry(short.to_string())
+                .or_default()
+                .push(member.to_string());
+        }
+        for v in module_members.values_mut() {
+            v.sort();
+            v.dedup();
+        }
+
         Snapshot {
             text,
             program,
             interner,
             infer,
-            hover_index,
             symbol_index,
             position_map,
             diagnostics,
+            module_short_names,
+            module_members,
         }
     }
 }
