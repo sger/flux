@@ -260,6 +260,11 @@ impl FiberScheduler {
     /// Cancelled fibers are moved back onto the ready queue in `Cancelled`
     /// state; when the dispatch loop next dequeues them it delivers the
     /// `AsyncError.Canceled` error (Phase 1b-vi).
+    ///
+    /// Also marks any matching fiber already in the ready queue as `Cancelled`
+    /// to close the window where `deliver_completion` moves a fiber from
+    /// `suspended` to `ready` (as `Ready`) between the caller's
+    /// `find_request_for_fiber` and this call.
     pub fn cancel_fibers(&mut self, ids: &[FiberId]) {
         let id_set: std::collections::HashSet<u64> = ids.iter().map(|f| f.0).collect();
         let mut ready_was_empty = self.total_ready_count() == 0;
@@ -289,6 +294,19 @@ impl FiberScheduler {
                         fid,
                         worker: worker_idx as u32,
                     });
+                }
+            }
+            // A delivery-completion racing with this cancellation may have
+            // already moved the fiber from `suspended` into the ready queue
+            // as `Ready`.  Re-scan ready and downgrade those entries so the
+            // dispatch loop handles them as cancelled rather than live.
+            for fiber in worker.ready.iter_mut() {
+                if id_set.contains(&fiber.id.0) && fiber.state == FiberState::Ready {
+                    fiber_trace::emit(FiberEvent::Cancel {
+                        fid: fiber.id.0,
+                        worker: worker_idx as u32,
+                    });
+                    fiber.state = FiberState::Cancelled;
                 }
             }
         }
