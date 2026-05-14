@@ -9,37 +9,12 @@
 //! The actual park/resume cycle and overlap of `both` / `race` are b₂ work;
 //! tests for that live in `vm_fiber_overlap.rs` (added then).
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-fiber-registry-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        fixture_tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for fiber-registry fixture");
-    let path = dir.join("vm_fiber_registry.flx");
-    std::fs::write(&path, source).expect("write fiber-registry fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on fiber-registry fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, fixture_tag)
 }
 
 #[test]

@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NEXT_PORT: AtomicUsize = AtomicUsize::new(22880);
+static VM_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,6 +30,8 @@ fn write_fixture(source: String) -> PathBuf {
 }
 
 fn run_source(source: String) -> (String, String, bool) {
+    let mutex = VM_HTTP_CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let path = write_fixture(source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
