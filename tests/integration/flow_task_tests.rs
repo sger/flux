@@ -158,7 +158,11 @@ fn run_flux_source_native_with_timeout(
             let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
             (stdout, stderr, !timed_out && output.status.success())
         }
-        None => (String::new(), "[process did not produce output]".to_string(), false),
+        None => (
+            String::new(),
+            "[process did not produce output]".to_string(),
+            false,
+        ),
     }
 }
 
@@ -166,9 +170,7 @@ fn run_flux_source_native_with_timeout(
 fn nix_kill(pid: u32) {
     // Send SIGKILL to the child. `kill(2)` with signal 9 is the only
     // portable way to guarantee termination without the `libc` crate.
-    let _ = Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .status();
+    let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
 }
 
 #[cfg(feature = "llvm")]
@@ -754,7 +756,7 @@ fn main() with IO {
     );
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(
-        lines.get(0).copied(),
+        lines.first().copied(),
         Some("1"),
         "counter fiber result mismatch: stdout:\n{stdout}"
     );

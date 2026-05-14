@@ -9,7 +9,10 @@ use std::path::Path;
 // `cargo test -j` can run them in parallel instead of compiling every
 // fixture sequentially inside a single test function.
 
-fn snapshot_dir(workspace_root: &Path, subdir: &str) -> Vec<examples_snapshot::FixtureSnapshotCase> {
+fn snapshot_dir(
+    workspace_root: &Path,
+    subdir: &str,
+) -> Vec<examples_snapshot::FixtureSnapshotCase> {
     examples_snapshot::run_fixture_subdir_snapshots(workspace_root, "examples", subdir)
         .unwrap_or_else(|e| panic!("{e}"))
 }
