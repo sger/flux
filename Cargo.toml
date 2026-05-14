@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/flux-lsp"]
+resolver = "2"
+
 [package]
 name = "flux"
 version = "0.0.5"
