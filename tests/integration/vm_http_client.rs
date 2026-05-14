@@ -104,6 +104,7 @@ fn spawn_one_response_server(port: u16, response: &'static [u8]) -> std::thread:
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn get_returns_response_fields_from_local_server() {
     let port = next_port();
     let source = raw_server_source(
@@ -129,6 +130,7 @@ fn get_returns_response_fields_from_local_server() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn post_sends_body_and_returns_response() {
     let port = next_port();
     let source = raw_server_source(
@@ -159,6 +161,7 @@ fn post_sends_body_and_returns_response() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn request_writes_custom_headers() {
     let port = next_port();
     let source = raw_server_source(
@@ -181,6 +184,7 @@ fn request_writes_custom_headers() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn malformed_response_returns_protocol_failure() {
     let port = next_port();
     let handle = spawn_one_response_server(port, b"NOPE\r\n\r\n");
@@ -208,6 +212,7 @@ fn main() with IO {{
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn chunked_response_body_is_decoded() {
     let port = next_port();
     let source = raw_server_source(
@@ -228,6 +233,7 @@ fn chunked_response_body_is_decoded() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn unsupported_https_url_is_rejected() {
     let source = r#"
 import Flow.Async exposing (..)
