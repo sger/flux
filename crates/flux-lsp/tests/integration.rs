@@ -13,10 +13,11 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CompletionParams, DidOpenTextDocumentParams, DocumentFormattingParams,
-    DocumentSymbolParams, FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams,
-    InitializedParams, PartialResultParams, Position, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+    ClientCapabilities, CompletionParams, CompletionResponse, DidOpenTextDocumentParams,
+    DocumentFormattingParams, DocumentSymbolParams, FormattingOptions, GotoDefinitionParams,
+    HoverParams, InitializeParams, InitializedParams, PartialResultParams, Position,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
+    WorkDoneProgressParams,
 };
 use serde_json::Value;
 
@@ -688,5 +689,196 @@ fn formatting_request_returns_text_edits_for_messy_source() {
     assert_ne!(
         edits[0].new_text, original,
         "formatter should produce different text"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M4 — locator-driven hover coverage. One test per `NodeRef` variant that
+// wasn't surfacing useful content under the old per-handler walkers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn hover_markup(state: &mut GlobalState, u: &Uri, line: u32, character: u32) -> Option<String> {
+    let hover = state.handle_hover(HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(u),
+            position: Position { line, character },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    })?;
+    match hover.contents {
+        lsp_types::HoverContents::Markup(m) => Some(m.value),
+        _ => None,
+    }
+}
+
+#[test]
+fn hover_on_member_access_member_returns_field_label() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///rec.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet p = Person { name: \"A\", age: 1 }\nlet n = p.name\n",
+    );
+    // Line 3 (0-indexed 2): `let n = p.name`. `name` starts after `p.` at
+    // column 11 (0-indexed character 11).
+    let value = hover_markup(&mut state, &u, 2, 11).expect("hover on .name");
+    assert!(
+        value.contains("name"),
+        "expected member name in hover, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_data_declaration_name_returns_data_label() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///data.flx");
+    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\n");
+    // `Person` (data name) starts at column 6 (character 5 zero-indexed).
+    let value = hover_markup(&mut state, &u, 0, 6).expect("hover on data name");
+    assert!(
+        value.contains("data") && value.contains("Person"),
+        "expected data label, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_import_name_returns_module_label() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///imp.flx");
+    open(&mut state, &u, "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n");
+    // Cursor on `Async` in `Flow.Async` — column 13 (character 12).
+    let value = hover_markup(&mut state, &u, 0, 12).expect("hover on import name");
+    assert!(
+        value.contains("module") && value.contains("Flow.Async"),
+        "expected module label, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_keyword_returns_keyword_doc() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///kw.flx");
+    open(&mut state, &u, "let x = 1\n");
+    // Cursor on `let` (col 0).
+    let value = hover_markup(&mut state, &u, 0, 1).expect("keyword hover");
+    assert!(
+        value.contains("Bind a value to a name"),
+        "expected let keyword doc, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_keyword_inside_comment_does_not_return_doc() {
+    // Regression: prose mentions of keywords inside `//` comments must NOT
+    // surface keyword documentation. Today the locator returns None for
+    // cursor positions inside comments (no AST node there); the regression
+    // guards the keyword fast-path from leaking that.
+    let mut state = GlobalState::default();
+    let u = uri("file:///kwc.flx");
+    open(&mut state, &u, "// use let to bind\nlet x = 1\n");
+    // Cursor on `let` inside the comment (col 7).
+    let hover = state.handle_hover(HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position {
+                line: 0,
+                character: 8,
+            },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    });
+    if let Some(h) = hover {
+        let value = match h.contents {
+            lsp_types::HoverContents::Markup(m) => m.value,
+            other => panic!("unexpected hover contents: {other:?}"),
+        };
+        assert!(
+            !value.contains("Bind a value to a name"),
+            "keyword doc leaked into comment hover: {value}"
+        );
+    }
+}
+
+#[test]
+fn completion_after_module_dot_lists_module_members() {
+    // Type `String.` and expect Flow.String members in the completion list.
+    // The workspace is the flux repo root so prelude loads from lib/Flow/.
+    let mut state = GlobalState::default();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let workspace = workspace_root
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let buf_path = workspace.join("completion-fixture.flx");
+    let uri_str = format!(
+        "file:///{}",
+        buf_path.display().to_string().replace('\\', "/")
+    );
+    let u = uri(&uri_str);
+    // `String.` — cursor right after the dot.
+    let source = "fn main() with IO { String. }\n";
+    open(&mut state, &u, source);
+
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 0,
+                    character: 27,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    // Don't pin the exact set of String module members (subject to change);
+    // just assert we got SOMETHING that looks like a Flow.String member.
+    assert!(
+        !labels.is_empty(),
+        "expected non-empty completion list after `String.`"
+    );
+    // And confirm it's not the default keyword-only list (which would
+    // include `let`/`fn`/etc. — none of those should be in a member list).
+    assert!(
+        !labels.iter().any(|l| l == "let" || l == "fn"),
+        "got default keyword list instead of module members: {labels:?}"
+    );
+}
+
+#[test]
+fn goto_def_on_named_constructor_jumps_to_data_decl() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///cons.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet p = Person { name: \"A\", age: 1 }\n",
+    );
+    // `Person` reference on line 2 starts at column 9 (character 8).
+    let location = state.handle_definition(GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position {
+                line: 1,
+                character: 9,
+            },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert!(
+        location.is_some(),
+        "expected a definition Location for Person reference"
     );
 }
