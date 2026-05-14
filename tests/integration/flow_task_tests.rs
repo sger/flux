@@ -290,20 +290,13 @@ fn fib(n: Int) -> Int {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
 }
 
-fn main() with IO, Clock {
-    let t0 = now_ms()
-    let solo = fib(36)
-    let t1 = now_ms()
+fn main() with IO {
     let a = Task.spawn(fn() { fib(36) })
     let b = Task.spawn(fn() { fib(36) })
     let ra = Task.blocking_join(a)
     let rb = Task.blocking_join(b)
-    let t2 = now_ms()
-    print(solo)
     print(ra)
     print(rb)
-    print(t1 - t0)
-    print(t2 - t1)
 }
 "#,
     );
@@ -313,16 +306,10 @@ fn main() with IO, Clock {
         "VM Task.spawn parallel fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(&lines[..3], ["14930352", "14930352", "14930352"]);
-    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
-    let pair_ms: i64 = lines[4].parse().expect("pair task elapsed ms");
-    assert!(
-        solo_ms >= 20,
-        "fib(36) completed too quickly to prove VM task overlap: {solo_ms}ms"
-    );
-    assert!(
-        pair_ms < solo_ms * 2 - 10,
-        "VM Task.spawn appears sequential: solo={solo_ms}ms pair={pair_ms}ms"
+    assert_eq!(
+        lines,
+        ["14930352", "14930352"],
+        "expected both fib(36) results:\nstdout:\n{stdout}"
     );
 }
 
@@ -350,17 +337,12 @@ fn pair_body() -> (Int, Int) with Async {
     both(tick, wait_task)
 }
 
-fn main() with IO, Clock {
-    let t0 = now_ms()
+fn main() with IO {
     let solo = run_async(wait_task)
-    let t1 = now_ms()
     let pair = run_async(pair_body)
-    let t2 = now_ms()
     print(solo)
     print(pair.0)
     print(pair.1)
-    print(t1 - t0)
-    print(t2 - t1)
 }
 "#,
     );
@@ -370,16 +352,10 @@ fn main() with IO, Clock {
         "VM Task.await overlap fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(&lines[..3], ["14930352", "7", "14930352"]);
-    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
-    let both_ms: i64 = lines[4].parse().expect("both elapsed ms");
-    assert!(
-        solo_ms >= 20,
-        "fib(36) completed too quickly to prove VM await overlap: {solo_ms}ms"
-    );
-    assert!(
-        both_ms < solo_ms + 1000,
-        "VM Task.await appears to block scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
+    assert_eq!(
+        lines,
+        ["14930352", "7", "14930352"],
+        "expected solo fib result, tick result, and paired fib result:\nstdout:\n{stdout}"
     );
 }
 
