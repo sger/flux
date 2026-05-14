@@ -6,5 +6,10 @@ src/**
 tsconfig.json
 **/*.map
 **/*.ts
-node_modules/**
-!node_modules/vscode-languageclient/**
+!out/**/*.js
+node_modules/.package-lock.json
+node_modules/**/*.md
+node_modules/**/*.ts
+node_modules/**/*.map
+node_modules/**/test/**
+node_modules/**/tests/**

@@ -10,6 +10,7 @@ pub mod driver;
 pub mod lir;
 #[cfg(feature = "llvm")]
 pub mod llvm;
+pub mod lsp_support;
 pub mod parity;
 pub mod runtime;
 pub mod shared;

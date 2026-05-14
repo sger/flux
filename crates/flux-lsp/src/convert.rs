@@ -1,27 +1,8 @@
 use flux::diagnostics::Diagnostic as FluxDiagnostic;
-use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
 use flux::diagnostics::types::Severity as FluxSeverity;
-use lsp_types::{
-    Diagnostic as LspDiagnostic, DiagnosticSeverity, NumberOrString, Position as LspPosition, Range,
-};
+use lsp_types::{Diagnostic as LspDiagnostic, DiagnosticSeverity, NumberOrString};
 
-/// Convert a Flux source position into an LSP position.
-///
-/// Flux: 1-based `line`, 0-based `column`.
-/// LSP: 0-based `line`, 0-based `character`.
-pub fn position_to_lsp(p: FluxPosition) -> LspPosition {
-    LspPosition {
-        line: p.line.saturating_sub(1) as u32,
-        character: p.column as u32,
-    }
-}
-
-pub fn span_to_range(s: FluxSpan) -> Range {
-    Range {
-        start: position_to_lsp(s.start),
-        end: position_to_lsp(s.end),
-    }
-}
+use crate::line_index::PositionMap;
 
 pub fn severity_to_lsp(s: FluxSeverity) -> DiagnosticSeverity {
     match s {
@@ -32,8 +13,11 @@ pub fn severity_to_lsp(s: FluxSeverity) -> DiagnosticSeverity {
     }
 }
 
-pub fn diagnostic_to_lsp(d: &FluxDiagnostic) -> LspDiagnostic {
-    let range = d.span().map(span_to_range).unwrap_or_default();
+pub fn diagnostic_to_lsp(d: &FluxDiagnostic, position_map: &PositionMap) -> LspDiagnostic {
+    let range = d
+        .span()
+        .map(|s| position_map.flux_span_to_range(s))
+        .unwrap_or_default();
     let message = match (d.message(), d.title()) {
         (Some(msg), title) if !title.is_empty() => format!("{title}: {msg}"),
         (Some(msg), _) => msg.to_string(),

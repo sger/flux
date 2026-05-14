@@ -5,20 +5,19 @@ use flux::syntax::expression::Expression;
 use flux::syntax::program::Program;
 use lsp_types::{Location, Position, Uri};
 
-use crate::convert::span_to_range;
 use crate::snapshot::Snapshot;
 
 pub fn goto_definition(snapshot: &Snapshot, uri: &Uri, position: Position) -> Option<Location> {
-    let ident = identifier_at(&snapshot.program, position)?;
+    let target = snapshot.position_map.lsp_to_flux(position)?;
+    let ident = identifier_at(&snapshot.program, target)?;
     let entry = snapshot.symbol_index.lookup_id(ident)?;
     Some(Location {
         uri: uri.clone(),
-        range: span_to_range(entry.span),
+        range: snapshot.position_map.flux_span_to_range(entry.span),
     })
 }
 
-fn identifier_at(program: &Program, position: Position) -> Option<Identifier> {
-    let target = FluxPosition::new(position.line as usize + 1, position.character as usize);
+fn identifier_at(program: &Program, target: FluxPosition) -> Option<Identifier> {
     let mut finder = IdentifierFinder {
         target,
         found: None,
