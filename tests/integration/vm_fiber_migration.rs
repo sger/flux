@@ -5,48 +5,16 @@
 //! `runtime::async::scheduler` pin the exact steal-from-back behavior; these
 //! tests keep the user-visible VM behavior stable while migration is active.
 
-use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source_with_env(
     source: &str,
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-fiber-migration-{}-{}-{}",
-        std::process::id(),
-        id,
-        tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for migration fixture");
-    let path = dir.join("vm_fiber_migration.flx");
-    std::fs::write(&path, source).expect("write migration fixture");
-
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
-    cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"]);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-
-    let start = Instant::now();
-    let output = cmd.output().expect("run flux on migration fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_dir_all(&dir);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_with_env(source, tag, env)
 }
 
 const MIGRATION_ON: &[(&str, &str)] = &[("FLUX_FIBER_MIGRATION", "1")];

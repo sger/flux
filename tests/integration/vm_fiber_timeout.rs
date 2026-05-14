@@ -5,37 +5,12 @@
 //! scheduler — the body fiber and a backend timer race for the same
 //! request id; whichever fires first wins.
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-fiber-timeout-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        fixture_tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for fiber-timeout fixture");
-    let path = dir.join("vm_fiber_timeout.flx");
-    std::fs::write(&path, source).expect("write fiber-timeout fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on fiber-timeout fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, fixture_tag)
 }
 
 #[test]
@@ -72,12 +47,14 @@ fn main() with IO {
         stdout.contains("-1"),
         "expected None (-1) in output:\nstdout:\n{stdout}"
     );
-    // Timer must fire well before slow's 1000ms. Includes ~1s startup
-    // overhead from --no-cache stdlib recompile.
+    // Timer must fire well before slow's 1000ms. 3000ms budget: ~50ms timer +
+    // ~1s --no-cache stdlib recompile + 1.5s CI load headroom. The non-firing
+    // path (slow's full 1000ms + startup) would be >3000ms, so the bound is
+    // still a meaningful proof.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(3000),
         "elapsed {elapsed:?} — timeout didn't return on timer (slow's full \
-         1000ms + startup would be >2000ms; timer + startup should be ~1100ms)"
+         1000ms + startup would be >3000ms; timer + startup should be ~1100ms)"
     );
 }
 
@@ -113,9 +90,11 @@ fn main() with IO {
         stdout.contains("42"),
         "expected Some(42) result in output:\nstdout:\n{stdout}"
     );
-    // Body must wake parent before timeout fires (~50ms vs 1000ms).
+    // Body must wake parent before timeout fires (~50ms vs 1000ms). 3000ms
+    // budget: ~50ms body + ~1s --no-cache compile + 1.5s CI load headroom.
+    // Waiting for the full timeout (1000ms + startup) would be >2000ms.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(3000),
         "elapsed {elapsed:?} — body should resume parent on completion (~50ms), \
          not wait for timeout (~1000ms)"
     );

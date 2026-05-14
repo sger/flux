@@ -4,37 +4,12 @@
 //! fibers under it; `cancel` stops them immediately by cancelling their backend
 //! requests and resuming their continuations with `AsyncError.Canceled`.
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-fiber-scope-cancel-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, tag)
 }
 
 #[test]

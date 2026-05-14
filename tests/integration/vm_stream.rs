@@ -1,37 +1,10 @@
 //! VM Flow.Stream pure pull-stream smoke tests.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn write_fixture(source: &str) -> PathBuf {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("flux-vm-stream-{}-{id}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-    path
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
 
 fn run_source(source: &str) -> (String, String, bool) {
-    let path = write_fixture(source);
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux");
-    let _ = std::fs::remove_file(&path);
-    (
-        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
-        output.status.success(),
-    )
+    flux_runner::run_flux(source, "stream")
 }
 
 #[test]

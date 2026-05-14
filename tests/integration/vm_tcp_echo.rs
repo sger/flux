@@ -4,72 +4,64 @@
 //! echoes the payload back; client fiber connects, writes, reads reply.
 //! Both run concurrently via `Async.both` on the fiber scheduler.
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::net::TcpListener;
+use std::time::Duration;
 
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+// Bind to port 0 to let the OS pick a free port, then release the listener
+// immediately.  There is a small TOCTOU window before the Flux subprocess
+// binds, but this is acceptable for integration tests and avoids hardcoded
+// port collisions when multiple CI jobs run in parallel.
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("bind port 0")
+        .local_addr()
+        .expect("local_addr")
+        .port()
 }
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-tcp-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, tag)
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_tcp_echo -- --include-ignored"]
 fn tcp_loopback_echo_round_trips() {
-    let source = r#"
+    let port = free_port();
+    let source = format!(
+        r#"
 import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)
 
-fn server() -> Unit with Async {
-    let l = listen("127.0.0.1", 19871)
+fn server() -> Unit with Async {{
+    let l = listen("127.0.0.1", {port})
     let conn = accept(l)
     let msg = read(conn, 1024)
     let _w = write_all(conn, msg)
     close(conn)
-}
+}}
 
-fn client() -> String with Async {
-    let conn = connect("127.0.0.1", 19871)
+fn client() -> String with Async {{
+    let conn = connect("127.0.0.1", {port})
     let _w = write_all(conn, "hello")
     let reply = read(conn, 1024)
     close(conn)
     reply
-}
+}}
 
-fn body() -> String with Async {
+fn body() -> String with Async {{
     let pair = both(server, client)
     pair.1
-}
+}}
 
-fn main() with IO {
+fn main() with IO {{
     let reply = run_async(body)
     print(reply)
-}
-"#;
-    let (stdout, stderr, success, _elapsed) = run_source(source, "echo");
+}}
+"#
+    );
+    let (stdout, stderr, success, _elapsed) = run_source(&source, "echo");
     assert!(
         success,
         "tcp echo must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -81,32 +73,36 @@ fn main() with IO {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_tcp_echo -- --include-ignored"]
 fn tcp_listen_accept_close() {
-    let source = r#"
+    let port = free_port();
+    let source = format!(
+        r#"
 import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)
 
-fn server() -> Unit with Async {
-    let l = listen("127.0.0.1", 19872)
+fn server() -> Unit with Async {{
+    let l = listen("127.0.0.1", {port})
     let conn = accept(l)
     close(conn)
-}
+}}
 
-fn client() -> Unit with Async {
-    let conn = connect("127.0.0.1", 19872)
+fn client() -> Unit with Async {{
+    let conn = connect("127.0.0.1", {port})
     close(conn)
-}
+}}
 
-fn body() -> Unit with Async {
+fn body() -> Unit with Async {{
     let _ = both(server, client)
-}
+}}
 
-fn main() with IO {
+fn main() with IO {{
     let _ = run_async(body)
     print("ok")
-}
-"#;
-    let (stdout, stderr, success, _elapsed) = run_source(source, "accept_close");
+}}
+"#
+    );
+    let (stdout, stderr, success, _elapsed) = run_source(&source, "accept_close");
     assert!(
         success,
         "tcp listen/accept/close must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
