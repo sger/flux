@@ -28,7 +28,8 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 #[test]
 fn tcp_loopback_echo_round_trips() {
     let port = free_port();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)
 
@@ -57,7 +58,8 @@ fn main() with IO {{
     let reply = run_async(body)
     print(reply)
 }}
-"#);
+"#
+    );
     let (stdout, stderr, success, _elapsed) = run_source(&source, "echo");
     assert!(
         success,
@@ -72,7 +74,8 @@ fn main() with IO {{
 #[test]
 fn tcp_listen_accept_close() {
     let port = free_port();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)
 
@@ -95,7 +98,8 @@ fn main() with IO {{
     let _ = run_async(body)
     print("ok")
 }}
-"#);
+"#
+    );
     let (stdout, stderr, success, _elapsed) = run_source(&source, "accept_close");
     assert!(
         success,
