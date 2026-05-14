@@ -26,6 +26,7 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_tcp_echo -- --include-ignored"]
 fn tcp_loopback_echo_round_trips() {
     let port = free_port();
     let source = format!(
@@ -72,6 +73,7 @@ fn main() with IO {{
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_tcp_echo -- --include-ignored"]
 fn tcp_listen_accept_close() {
     let port = free_port();
     let source = format!(
