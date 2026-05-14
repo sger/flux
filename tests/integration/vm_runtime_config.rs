@@ -8,38 +8,12 @@
 //! reachable from a CLI-driven integration test; that assertion lives in
 //! the in-process unit test module that drives `vm_fibers` directly.
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source_with_env(source: &str, env: &[(&str, &str)]) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-runtime-config-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for runtime-config fixture");
-    let path = dir.join("vm_runtime_config.flx");
-    std::fs::write(&path, source).expect("write runtime-config fixture");
-
-    let start = Instant::now();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
-    cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"]);
-    for (k, v) in env {
-        cmd.env(k, v);
-    }
-    let output = cmd.output().expect("run flux on runtime-config fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_with_env(source, "runtime_config", env)
 }
 
 #[test]
