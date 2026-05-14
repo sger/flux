@@ -114,7 +114,10 @@ impl GlobalState {
         let doc = self
             .docs
             .get(&params.text_document_position.text_document.uri)?;
-        Some(handlers::completion::complete(&doc.snapshot))
+        Some(handlers::completion::complete(
+            &doc.snapshot,
+            params.text_document_position.position,
+        ))
     }
 
     pub fn handle_formatting(&self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
