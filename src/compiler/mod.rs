@@ -3076,7 +3076,7 @@ impl Compiler {
     ///
     /// Collects module member schemes and effect signatures.
     /// Can be called multiple times (e.g. for two-phase inference).
-    fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
+    pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
         let flow_module_symbol = self.interner.intern("Flow");

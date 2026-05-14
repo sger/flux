@@ -2,9 +2,13 @@
   "name": "flux-language",
   "displayName": "Flux Language Support",
   "description": "Syntax highlighting and language server integration for the Flux language.",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "publisher": "flux",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sger/flux.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -42,8 +46,8 @@
       "properties": {
         "flux.serverPath": {
           "type": "string",
-          "default": "flux-lsp",
-          "description": "Path to the flux-lsp binary. Defaults to looking up `flux-lsp` on PATH."
+          "default": "",
+          "description": "Override path to the flux-lsp binary. Leave empty to use the binary bundled with this extension."
         },
         "flux.trace.server": {
           "type": "string",
