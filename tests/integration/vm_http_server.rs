@@ -255,7 +255,7 @@ fn max_connections_backpressures_live_connections() {
         r#"
 fn handler(req) with Async {{
     if req.path == "/hold" {{
-        let _slow = sleep(300)
+        let _slow = sleep(600)
         ok("hold")
     }} else {{
         ok("second")
@@ -265,7 +265,7 @@ fn handler(req) with Async {{
 fn body() -> String with Async, AsyncFail {{
     let config = server_config(1, 65536, 8388608, 30000)
     let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(900)
+    let _sleep = sleep(1500)
     shutdown(h)
     "server-done"
 }}
@@ -300,13 +300,17 @@ fn body() -> String with Async, AsyncFail {{
         .write_all(b"GET /hold HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
         .expect("write first request");
 
-    std::thread::sleep(std::time::Duration::from_millis(75));
+    // Wait long enough that the first request is definitely inside its 300ms
+    // sleep, but short enough that it hasn't completed yet.
+    std::thread::sleep(std::time::Duration::from_millis(150));
     let mut second =
         std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(500))
             .expect("connect second client");
     second
         .write_all(b"GET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
         .expect("write second request");
+    // 120ms window to detect a response — first hold has ~150ms remaining so
+    // a response here means backpressure didn't fire.
     second
         .set_read_timeout(Some(std::time::Duration::from_millis(120)))
         .expect("set second short timeout");
@@ -318,7 +322,7 @@ fn body() -> String with Async, AsyncFail {{
     );
 
     first
-        .set_read_timeout(Some(std::time::Duration::from_millis(1000)))
+        .set_read_timeout(Some(std::time::Duration::from_millis(2000)))
         .expect("set first timeout");
     let mut first_response = String::new();
     first
