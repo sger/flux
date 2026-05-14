@@ -92,9 +92,8 @@ pub fn run_fixture_subdir_snapshots(
             .to_string_lossy()
             .replace('\\', "/");
         let snapshot = snapshot_name(&fixtures_root, &fixture);
-        let transcript =
-            build_transcript_with_options(&fixture, &rel, workspace_root, false)
-                .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
+        let transcript = build_transcript_with_options(&fixture, &rel, workspace_root, false)
+            .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
         cases.push(FixtureSnapshotCase {
             snapshot_name: snapshot,
             transcript,
