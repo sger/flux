@@ -3,9 +3,12 @@ use lsp_types::{
     TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 
-pub fn server_capabilities() -> ServerCapabilities {
+use crate::line_index::PositionEncoding;
+
+pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
     ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        position_encoding: Some(encoding.as_lsp()),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         completion_provider: Some(CompletionOptions {

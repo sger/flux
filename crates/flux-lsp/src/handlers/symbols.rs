@@ -3,17 +3,25 @@ use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use lsp_types::{DocumentSymbol, SymbolKind};
 
-use crate::convert::span_to_range;
+use crate::line_index::PositionMap;
 
-pub fn document_symbols(program: &Program, interner: &Interner) -> Vec<DocumentSymbol> {
+pub fn document_symbols(
+    program: &Program,
+    interner: &Interner,
+    position_map: &PositionMap,
+) -> Vec<DocumentSymbol> {
     program
         .statements
         .iter()
-        .filter_map(|stmt| statement_to_symbol(stmt, interner))
+        .filter_map(|stmt| statement_to_symbol(stmt, interner, position_map))
         .collect()
 }
 
-fn statement_to_symbol(stmt: &Statement, interner: &Interner) -> Option<DocumentSymbol> {
+fn statement_to_symbol(
+    stmt: &Statement,
+    interner: &Interner,
+    position_map: &PositionMap,
+) -> Option<DocumentSymbol> {
     let (name, kind, span, detail) = match stmt {
         Statement::Let { name, span, .. } | Statement::Assign { name, span, .. } => {
             (*name, SymbolKind::VARIABLE, *span, None)
@@ -57,7 +65,7 @@ fn statement_to_symbol(stmt: &Statement, interner: &Interner) -> Option<Document
         return None;
     }
 
-    let range = span_to_range(span);
+    let range = position_map.flux_span_to_range(span);
     #[allow(deprecated)]
     Some(DocumentSymbol {
         name: resolved,

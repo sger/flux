@@ -3,6 +3,14 @@ use std::collections::HashMap;
 use super::super::Compiler;
 
 impl Compiler {
+    /// LSP-facing wrapper around `phase_reset`. The LSP shares one `Compiler`
+    /// across prelude loading and every buffer's inference pass; this clears
+    /// per-file scratch between buffers while leaving preloaded prelude state
+    /// (`cached_member_schemes`, etc.) intact.
+    pub fn phase_reset_for_lsp(&mut self) {
+        self.phase_reset();
+    }
+
     /// Phase 0: Clear per-file tracking state for each compile pass.
     pub(in crate::compiler) fn phase_reset(&mut self) {
         self.warnings.clear();
