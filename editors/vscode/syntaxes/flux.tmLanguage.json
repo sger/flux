@@ -1,0 +1,89 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Flux",
+  "scopeName": "source.flux",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#operators" },
+    { "include": "#types" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.flux",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.flux",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.flux",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.flux",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.flux",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.flux",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.flux",
+          "match": "\\b(if|else|match|return|do|with|perform|handle|resume|spawn)\\b"
+        },
+        {
+          "name": "keyword.declaration.flux",
+          "match": "\\b(let|fn|data|effect|alias|class|instance|import|module|public|intrinsic)\\b"
+        },
+        {
+          "name": "constant.language.flux",
+          "match": "\\b(true|false|None|Some|Left|Right)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "name": "keyword.operator.flux",
+      "match": "(==|!=|<=|>=|->|=>|::|\\|\\||&&|[+\\-*/%<>=!])"
+    },
+    "types": {
+      "name": "support.type.flux",
+      "match": "\\b(Int|Float|String|Bool|Char|List|Array|Map|Option|Either|Unit)\\b"
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.type.flux",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "variable.other.flux",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}
