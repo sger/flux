@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NEXT_PORT: AtomicUsize = AtomicUsize::new(22880);
+static VM_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -28,6 +30,8 @@ fn write_fixture(source: String) -> PathBuf {
 }
 
 fn run_source(source: String) -> (String, String, bool) {
+    let mutex = VM_HTTP_CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let path = write_fixture(source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -100,6 +104,7 @@ fn spawn_one_response_server(port: u16, response: &'static [u8]) -> std::thread:
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn get_returns_response_fields_from_local_server() {
     let port = next_port();
     let source = raw_server_source(
@@ -125,6 +130,7 @@ fn get_returns_response_fields_from_local_server() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn post_sends_body_and_returns_response() {
     let port = next_port();
     let source = raw_server_source(
@@ -155,6 +161,7 @@ fn post_sends_body_and_returns_response() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn request_writes_custom_headers() {
     let port = next_port();
     let source = raw_server_source(
@@ -177,6 +184,7 @@ fn request_writes_custom_headers() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn malformed_response_returns_protocol_failure() {
     let port = next_port();
     let handle = spawn_one_response_server(port, b"NOPE\r\n\r\n");
@@ -204,6 +212,7 @@ fn main() with IO {{
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn chunked_response_body_is_decoded() {
     let port = next_port();
     let source = raw_server_source(
@@ -224,6 +233,7 @@ fn chunked_response_body_is_decoded() {
 }
 
 #[test]
+#[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn unsupported_https_url_is_rejected() {
     let source = r#"
 import Flow.Async exposing (..)

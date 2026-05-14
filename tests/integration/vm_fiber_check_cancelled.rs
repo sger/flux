@@ -11,36 +11,12 @@
 //! These tests are timing-light: only an upper bound is asserted on the
 //! wall clock since `check_cancelled` itself is a flag read, not a sleep.
 
-use std::path::Path;
-use std::process::Command;
-use std::time::{Duration, Instant};
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-check-cancelled-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for check_cancelled fixture");
-    let path = dir.join("vm_check_cancelled.flx");
-    std::fs::write(&path, source).expect("write check_cancelled fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on check_cancelled fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, "check_cancelled")
 }
 
 #[test]

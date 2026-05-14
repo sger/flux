@@ -2150,7 +2150,7 @@ mod vm_fibers {
                 false
             }
             WorkerFiberResult::Yielded {
-                fiber_id: _,
+                fiber_id,
                 cont,
                 home_worker,
             } => {
@@ -2161,7 +2161,21 @@ mod vm_fibers {
                 let mut f = fiber;
                 f.parked = Some(cont_rc);
                 f.mark_parked();
-                f.state = FiberState::Ready;
+                // If this fiber was cancelled while it was executing (its id
+                // was added to cancelled_ids by another worker's
+                // cancel_losers_shared), re-queue it as Cancelled so the
+                // dispatch loop delivers AsyncError.Canceled instead of
+                // resuming the stale continuation.
+                let is_cancelled = shared
+                    .cancelled_ids
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .contains(&fiber_id);
+                f.state = if is_cancelled {
+                    FiberState::Cancelled
+                } else {
+                    FiberState::Ready
+                };
                 let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
                 sched.spawn_existing(f);
                 drop(sched);

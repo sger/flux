@@ -11,41 +11,12 @@
 //! sleep completes — that's a small CPU waste but no observable
 //! correctness issue (cancellation is 1b-vi-c work).
 
-use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-fiber-overlap-{}-{}-{}",
-        std::process::id(),
-        id,
-        fixture_tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for fiber-overlap fixture");
-    let path = dir.join("vm_fiber_overlap.flx");
-    std::fs::write(&path, source).expect("write fiber-overlap fixture");
-
-    let start = Instant::now();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on fiber-overlap fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_timed(source, fixture_tag)
 }
 
 #[test]

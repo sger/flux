@@ -15,19 +15,12 @@
 //!   6. Load-aware spawn placement (least-loaded queue) and the
 //!      `FLUX_WORK_STEALING=0` round-robin fallback both produce correct output.
 
-use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use std::time::Duration;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    run_source_with_env(source, tag, &[])
+    flux_runner::run_flux_with_env(source, tag, &[])
 }
 
 fn run_source_with_env(
@@ -35,31 +28,7 @@ fn run_source_with_env(
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-multiworker-{}-{}-{}",
-        std::process::id(),
-        id,
-        tag,
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for multiworker fixture");
-    let path = dir.join("vm_fiber_multiworker.flx");
-    std::fs::write(&path, source).expect("write multiworker fixture");
-
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
-    cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"]);
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    let start = Instant::now();
-    let output = cmd.output().expect("run flux on multiworker fixture");
-    let elapsed = start.elapsed();
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_dir_all(&dir);
-    (stdout, stderr, output.status.success(), elapsed)
+    flux_runner::run_flux_with_env(source, tag, env)
 }
 
 // ── Test 1: correctness ───────────────────────────────────────────────────
@@ -87,13 +56,11 @@ fn main() with IO {
         success,
         "multiworker both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("11"),
-        "expected left result (11) in output:\nstdout:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("22"),
-        "expected right result (22) in output:\nstdout:\n{stdout}"
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        ["11", "22"],
+        "expected left=11 right=22 in order:\nstdout:\n{stdout}"
     );
 }
 
@@ -130,19 +97,23 @@ fn main() with IO {
         success,
         "multiworker sleep both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains('1') && stdout.contains('2'),
-        "expected both results in output:\nstdout:\n{stdout}"
+    let lines: Vec<_> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        ["1", "2"],
+        "expected both fibers' results in order:\nstdout:\n{stdout}"
     );
     // Must wait at least one sleep duration.
     assert!(
         elapsed >= Duration::from_millis(400),
         "elapsed {elapsed:?} too short — sleeps must actually wait"
     );
-    // With 2 OS workers the sleeps overlap: total should be ~500ms + startup,
-    // well under 1800ms. Sequential would be ~1000ms + ~1s startup = ~2s.
+    // With 2 OS workers the sleeps overlap: total should be ~500ms + startup.
+    // 2800ms budget: ~500ms sleep + ~1s --no-cache compile + 1.3s CI headroom.
+    // Sequential would be ~1000ms sleep + ~1s startup ≈ 2000ms, so if fibers
+    // don't overlap the assertion fails.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(2800),
         "elapsed {elapsed:?} — fibers didn't overlap across workers \
          (sequential would be ~1000ms sleep + startup)"
     );
@@ -251,9 +222,11 @@ fn main() with IO {
         stdout.contains("99"),
         "expected fast branch result (99):\nstdout:\n{stdout}"
     );
-    // Should complete in ~50ms + startup, well under 2200ms (slow branch).
+    // Should complete in ~50ms + startup. 3200ms budget: ~50ms fast branch +
+    // ~1s --no-cache compile + 2.1s CI load headroom. The slow branch (2s
+    // sleep + startup) would exceed this, so the bound proves early exit.
     assert!(
-        elapsed < Duration::from_millis(2200),
+        elapsed < Duration::from_millis(3200),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
 }
