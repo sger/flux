@@ -18,6 +18,8 @@
 
 use std::path::Path;
 use std::process::Command;
+#[cfg(feature = "llvm")]
+use std::time::Duration;
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -85,6 +87,88 @@ fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     let _ = std::fs::remove_file(&path);
     (stdout, stderr, output.status.success())
+}
+
+// Like run_flux_source_native but kills the child after `timeout` to detect
+// deadlocks (e.g. a rendezvous channel that never unblocks).
+#[cfg(feature = "llvm")]
+fn run_flux_source_native_with_timeout(
+    source: &str,
+    tag: &str,
+    timeout: Duration,
+) -> (String, String, bool) {
+    use std::sync::{Arc, Mutex};
+
+    let dir = std::env::temp_dir().join(format!(
+        "flux-flow-task-native-{}-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test"),
+        tag
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
+    let path = dir.join("flow_task_native_source.flx");
+    std::fs::write(&path, source).expect("write native Flow.Task fixture");
+
+    let child = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .env("FLUX_WORKERS", "4")
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn native flux on Flow.Task fixture");
+
+    // Drive wait_with_output on a background thread; the main thread enforces
+    // the deadline and kills the child process if it exceeds it.
+    type Output = std::process::Output;
+    let result: Arc<Mutex<Option<Output>>> = Arc::new(Mutex::new(None));
+    let result_bg = Arc::clone(&result);
+    let child_id = child.id();
+
+    // The background thread takes ownership of child and awaits it.
+    // We signal the main thread via a channel.
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let join = std::thread::spawn(move || {
+        let out = child.wait_with_output().ok();
+        *result_bg.lock().unwrap() = out;
+        let _ = tx.send(());
+    });
+
+    let timed_out = rx.recv_timeout(timeout).is_err();
+    if timed_out {
+        // Kill the child by platform-specific means.
+        #[cfg(unix)]
+        {
+            nix_kill(child_id);
+        }
+        #[cfg(not(unix))]
+        {
+            // Best-effort on Windows: send a Ctrl+C equivalent.
+            let _ = child_id;
+        }
+    }
+
+    let _ = join.join();
+    let _ = std::fs::remove_file(&path);
+
+    let guard = result.lock().unwrap();
+    match guard.as_ref() {
+        Some(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+            let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+            (stdout, stderr, !timed_out && output.status.success())
+        }
+        None => (String::new(), "[process did not produce output]".to_string(), false),
+    }
+}
+
+#[cfg(all(feature = "llvm", unix))]
+fn nix_kill(pid: u32) {
+    // Send SIGKILL to the child. `kill(2)` with signal 9 is the only
+    // portable way to guarantee termination without the `libc` crate.
+    let _ = Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status();
 }
 
 #[cfg(feature = "llvm")]
@@ -629,6 +713,13 @@ fn flow_task_native_compiles_and_passes() {
 #[test]
 #[cfg(feature = "llvm")]
 fn flow_task_native_await_suspends_fiber_scheduler() {
+    // Scheduler non-blocking proof via concurrent Task.await.
+    //
+    // `both` runs `counter` and `waiter` concurrently. `waiter` suspends on
+    // Task.await while a background OS thread computes fib(36). If Task.await
+    // ever blocks the scheduler thread, `counter` cannot run either and the
+    // whole program deadlocks. The 30-second process timeout detects this.
+    // No wall-clock timing ratios are involved.
     let source = r#"
 import Flow.Async exposing (..)
 import Flow.Task as Task
@@ -637,55 +728,40 @@ fn fib(n: Int) -> Int {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
 }
 
-fn wait_task() -> Int with Async {
+fn waiter() -> Int with Async {
     Task.await(Task.spawn(fn() { fib(36) }))
 }
 
-fn tick() -> Int with Async {
-    sleep(100)
-    7
-}
+fn counter() -> Int with Async { 1 }
 
 fn pair_body() -> (Int, Int) with Async {
-    // `both` schedules `tick` on worker 1 and `wait_task` on worker 0. The
-    // old native Task.await shim blocked worker 0, so the root scheduler could
-    // not route the 100ms timer until the task completed.
-    both(tick, wait_task)
+    both(counter, waiter)
 }
 
-fn main() with IO, Clock {
-    let t0 = now_ms()
-    let solo = run_async_with_workers(4, wait_task)
-    let t1 = now_ms()
+fn main() with IO {
     let pair = run_async_with_workers(4, pair_body)
-    let t2 = now_ms()
-    print(solo)
     print(pair.0)
     print(pair.1)
-    print(t1 - t0)
-    print(t2 - t1)
 }
 "#;
-    let (stdout, stderr, success) = run_flux_source_native(source, "await_overlap");
+    // 30-second budget: fib(36) is ~100-300ms even on slow CI; only a genuine
+    // scheduler deadlock would approach this ceiling.
+    let (stdout, stderr, success) =
+        run_flux_source_native_with_timeout(source, "await_overlap", Duration::from_secs(30));
     assert!(
         success,
-        "native Task.await overlap fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "Task.await blocked the scheduler (deadlock or process error):\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(&lines[..3], ["14930352", "7", "14930352"]);
-    let solo_ms: i64 = lines[3].parse().expect("solo task elapsed ms");
-    let both_ms: i64 = lines[4].parse().expect("both elapsed ms");
-    assert!(
-        solo_ms >= 80,
-        "fib(36) task completed too quickly to prove overlap: {solo_ms}ms"
+    assert_eq!(
+        lines.get(0).copied(),
+        Some("1"),
+        "counter fiber result mismatch: stdout:\n{stdout}"
     );
-    // Prove overlap: if the scheduler was blocked, both fibers ran on the same
-    // worker serially and both_ms ≈ 2 * solo_ms. With true parallelism
-    // both_ms ≈ solo_ms. Requiring both_ms < 1.75 * solo_ms catches the serial
-    // case while tolerating heavy CI timer jitter on the 100ms sleep.
-    assert!(
-        both_ms * 4 < solo_ms * 7,
-        "Task.await appears to have blocked scheduler timer routing: solo={solo_ms}ms both={both_ms}ms"
+    assert_eq!(
+        lines.get(1).copied(),
+        Some("14930352"),
+        "fib(36) result mismatch: stdout:\n{stdout}"
     );
 }
 

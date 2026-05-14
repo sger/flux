@@ -66,6 +66,51 @@ pub fn run_fixture_dir_snapshots_stripping_parity_metadata(
     run_fixture_dir_snapshots_with_options(workspace_root, fixtures_dir_rel, true)
 }
 
+/// Like `run_fixture_dir_snapshots` but only processes fixtures that live
+/// under `subdir` (a path relative to `fixtures_dir_rel`).  Snapshot names
+/// are still generated relative to `fixtures_dir_rel` so existing `.snap`
+/// files remain valid.
+#[allow(dead_code)]
+pub fn run_fixture_subdir_snapshots(
+    workspace_root: &Path,
+    fixtures_dir_rel: &str,
+    subdir: &str,
+) -> Result<Vec<FixtureSnapshotCase>, String> {
+    let fixtures_root = workspace_root.join(fixtures_dir_rel);
+    let subdir_path = fixtures_root.join(subdir);
+    let fixtures = discover_fixtures(&fixtures_root);
+
+    let mut cases = Vec::new();
+    for fixture in fixtures {
+        // Only process fixtures that live under the requested subdir.
+        if !fixture.starts_with(&subdir_path) {
+            continue;
+        }
+        let rel = fixture
+            .strip_prefix(workspace_root)
+            .unwrap_or(&fixture)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let snapshot = snapshot_name(&fixtures_root, &fixture);
+        let transcript =
+            build_transcript_with_options(&fixture, &rel, workspace_root, false)
+                .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
+        cases.push(FixtureSnapshotCase {
+            snapshot_name: snapshot,
+            transcript,
+        });
+    }
+
+    if cases.is_empty() {
+        return Err(format!(
+            "no .flx fixtures found under `{}`",
+            subdir_path.display()
+        ));
+    }
+
+    Ok(cases)
+}
+
 fn run_fixture_dir_snapshots_with_options(
     workspace_root: &Path,
     fixtures_dir_rel: &str,

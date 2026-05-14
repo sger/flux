@@ -349,6 +349,11 @@ impl FiberQueue {
         self.inner.iter()
     }
 
+    /// Iterate mutably over queued fibers from front to back.
+    pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Fiber> {
+        self.inner.iter_mut()
+    }
+
     /// Remove a queued fiber by id, preserving relative order of the rest.
     pub fn remove(&mut self, id: FiberId) -> Option<Fiber> {
         let idx = self.inner.iter().position(|fiber| fiber.id == id)?;

@@ -1,33 +1,10 @@
 //! VM Flow.Channel integration tests.
 
-use std::path::Path;
-use std::process::Command;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
 
 fn run_flux_source(source: &str, tag: &str) -> (String, String, bool) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-vm-channel-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag
-    ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for Flow.Channel fixture");
-    let path = dir.join("channel.flx");
-    std::fs::write(&path, source).expect("write Flow.Channel fixture");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .output()
-        .expect("run flux on Flow.Channel fixture");
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success())
+    flux_runner::run_flux(source, tag)
 }
 
 fn assert_flux(source: &str, tag: &str, expected: &[&str]) {
