@@ -756,6 +756,63 @@ fn hover_on_import_name_returns_module_label() {
 }
 
 #[test]
+fn hover_on_named_field_init_returns_declared_type() {
+    // `Person { name: "Alice", age: 30 }` — hover on `name` (the field
+    // name, not the value) should reveal its declared type `String`.
+    let mut state = GlobalState::default();
+    let u = uri("file:///nfi.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet alice = Person { name: \"A\", age: 1 }\n",
+    );
+    // `name` field-name on line 2 starts at column 22 (0-indexed character 21).
+    let value = hover_markup(&mut state, &u, 1, 22).expect("hover on field name");
+    assert!(
+        value.contains("name") && value.contains("String"),
+        "expected field type in hover, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_member_access_returns_declared_type() {
+    // `alice.name` — hover on `.name` should show `name: String` derived
+    // from the data variant `alice` resolves to.
+    let mut state = GlobalState::default();
+    let u = uri("file:///mab.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet alice = Person { name: \"A\", age: 1 }\nlet n = alice.name\n",
+    );
+    // `name` on line 3 (0-indexed 2) starts at column 15 (character 14).
+    let value = hover_markup(&mut state, &u, 2, 15).expect("hover on .name");
+    assert!(
+        value.contains("name") && value.contains("String"),
+        "expected member type in hover, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_data_field_decl_returns_declared_type() {
+    // `data Person { Person { name: String } }` — hover on the `name`
+    // field at the declaration site should show its type.
+    let mut state = GlobalState::default();
+    let u = uri("file:///dfn.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\n",
+    );
+    // `name` field name at the decl site sits around column 24 (character 23).
+    let value = hover_markup(&mut state, &u, 0, 24).expect("hover on data field decl");
+    assert!(
+        value.contains("name") && value.contains("String"),
+        "expected declared type in data field hover, got: {value}"
+    );
+}
+
+#[test]
 fn hover_on_keyword_returns_keyword_doc() {
     let mut state = GlobalState::default();
     let u = uri("file:///kw.flx");
@@ -766,6 +823,45 @@ fn hover_on_keyword_returns_keyword_doc() {
         value.contains("Bind a value to a name"),
         "expected let keyword doc, got: {value}"
     );
+}
+
+#[test]
+fn hover_on_new_keywords_returns_specific_docs() {
+    // Table-driven smoke test for the 10 keywords added in M5a. Each case
+    // gives a source snippet, the keyword to hover, and a phrase the
+    // keyword's docs MUST contain (so we don't accidentally return the
+    // wrong entry's docs).
+    let cases: &[(&str, &str, &str)] = &[
+        ("deriving", "data X { A, B } deriving (Eq)\n", "Auto-generate"),
+        ("type", "type T = Int\n", "transparent type alias"),
+        ("where", "let x = a where a = 1\n", "let-binding"),
+        (
+            "select",
+            "fn f() with Async { select { x -> 1 } }\n",
+            "first ready",
+        ),
+        ("sealing", "fn f() { x sealing { Console } }\n", "Restrict"),
+        ("primop", "intrinsic fn p() = primop X\n", "compiler primitive"),
+        ("Some", "let x = Some(1)\n", "Option"),
+        ("None", "let x = None\n", "absent value"),
+        ("Left", "let x = Left(1)\n", "Either"),
+        ("Right", "let x = Right(2)\n", "Either"),
+    ];
+
+    for (kw, source, expected_substring) in cases {
+        let mut state = GlobalState::default();
+        let u = uri(&format!("file:///kw_{kw}.flx"));
+        open(&mut state, &u, source);
+        let kw_byte_off = source.find(kw).expect("keyword in source");
+        // Convert byte offset to LSP character (UTF-16 by default but our
+        // sources are ASCII, so byte == char).
+        let value = hover_markup(&mut state, &u, 0, (kw_byte_off + 1) as u32)
+            .unwrap_or_else(|| panic!("expected hover on `{kw}`"));
+        assert!(
+            value.contains(expected_substring),
+            "for keyword `{kw}`, expected substring `{expected_substring}` in: {value}"
+        );
+    }
 }
 
 #[test]
@@ -798,6 +894,117 @@ fn hover_on_keyword_inside_comment_does_not_return_doc() {
             "keyword doc leaked into comment hover: {value}"
         );
     }
+}
+
+#[test]
+fn completion_in_with_clause_lists_effect_labels() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///cw.flx");
+    open(&mut state, &u, "fn main() with \n");
+    // Cursor right after `with `.
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 0,
+                    character: 15,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion in with clause");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(labels.iter().any(|l| l == "IO"), "expected IO in {labels:?}");
+    assert!(
+        labels.iter().any(|l| l == "Async"),
+        "expected Async in {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|l| l == "let"),
+        "got default keyword list in with-clause context: {labels:?}"
+    );
+}
+
+#[test]
+fn completion_after_record_dot_lists_fields() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///cd.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet alice = Person { name: \"A\", age: 1 }\nlet x = alice.\n",
+    );
+    // Cursor right after `alice.` on line 3.
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 2,
+                    character: 14,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion after record dot");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.iter().any(|l| l == "name"),
+        "expected `name` field in {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == "age"),
+        "expected `age` field in {labels:?}"
+    );
+}
+
+#[test]
+fn completion_in_named_constructor_lists_fields() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///cnc.flx");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\nlet p = Person { \n",
+    );
+    // Cursor inside the `{ ` on line 2, position right after `{ `.
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 1,
+                    character: 17,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion in constructor body");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.iter().any(|l| l == "name"),
+        "expected `name` field in {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == "age"),
+        "expected `age` field in {labels:?}"
+    );
 }
 
 #[test]

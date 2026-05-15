@@ -19,8 +19,14 @@
       "patterns": [
         { "include": "#doc-block-comment" },
         { "include": "#block-comment" },
+        { "include": "#doc-line-comment" },
         { "include": "#line-comment" }
       ]
+    },
+    "doc-line-comment": {
+      "comment": "Line doc comments start with /// — match before generic // line comments.",
+      "name": "comment.line.documentation.flux",
+      "match": "///.*$"
     },
     "doc-block-comment": {
       "name": "comment.block.documentation.flux",
@@ -139,12 +145,12 @@
         {
           "comment": "Function and binding declarations",
           "name": "keyword.declaration.flux",
-          "match": "\\b(?:fn|let|data|effect|class|instance|deriving|type|module|public)\\b"
+          "match": "\\b(?:fn|let|data|effect|class|instance|deriving|type|module|public|alias|intrinsic|primop|sealing)\\b"
         },
         {
           "comment": "Control flow",
           "name": "keyword.control.flux",
-          "match": "\\b(?:if|else|match|return|do|handle|perform|with|where)\\b"
+          "match": "\\b(?:if|else|match|return|do|handle|perform|with|where|select)\\b"
         },
         {
           "comment": "Module system",
@@ -239,6 +245,16 @@
           "comment": "Pipe operator: |>",
           "name": "keyword.operator.pipe.flux",
           "match": "\\|>"
+        },
+        {
+          "comment": "Fat arrow: => (matched before single = to win precedence)",
+          "name": "keyword.operator.fat-arrow.flux",
+          "match": "=>"
+        },
+        {
+          "comment": "Spread operator: ... (matched before single dot)",
+          "name": "keyword.operator.spread.flux",
+          "match": "\\.\\.\\."
         },
         {
           "comment": "Arrow: -> <-",
