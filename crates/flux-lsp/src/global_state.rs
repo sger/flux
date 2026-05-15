@@ -8,7 +8,9 @@ use lsp_types::{
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
     DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, PublishDiagnosticsParams, TextDocumentPositionParams, TextEdit, Uri,
+    Hover, HoverParams, InlayHint, InlayHintParams, Location, PublishDiagnosticsParams,
+    ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams,
+    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, Uri, WorkspaceEdit,
 };
 
 use crate::document::DocumentStore;
@@ -123,6 +125,57 @@ impl GlobalState {
     pub fn handle_formatting(&self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
         let doc = self.docs.get(&params.text_document.uri)?;
         Some(handlers::formatting::format(&doc.snapshot))
+    }
+
+    pub fn handle_inlay_hints(&self, params: InlayHintParams) -> Vec<InlayHint> {
+        let Some(doc) = self.docs.get(&params.text_document.uri) else {
+            return vec![];
+        };
+        handlers::inlay_hints::inlay_hints(&doc.snapshot)
+    }
+
+    pub fn handle_signature_help(&self, params: SignatureHelpParams) -> Option<SignatureHelp> {
+        let doc = self
+            .docs
+            .get(&params.text_document_position_params.text_document.uri)?;
+        handlers::signature_help::signature_help(
+            &doc.snapshot,
+            params.text_document_position_params.position,
+        )
+    }
+
+    pub fn handle_references(&self, params: ReferenceParams) -> Vec<Location> {
+        let Some(doc) = self
+            .docs
+            .get(&params.text_document_position.text_document.uri)
+        else {
+            return vec![];
+        };
+        handlers::references::find_references(
+            &doc.snapshot,
+            &params.text_document_position.text_document.uri,
+            params.text_document_position.position,
+        )
+    }
+
+    pub fn handle_rename(&self, params: RenameParams) -> Option<WorkspaceEdit> {
+        let doc = self
+            .docs
+            .get(&params.text_document_position.text_document.uri)?;
+        handlers::rename::rename(
+            &doc.snapshot,
+            &params.text_document_position.text_document.uri,
+            0,
+            params.text_document_position.position,
+            params.new_name,
+        )
+    }
+
+    pub fn handle_semantic_tokens_full(&self, params: SemanticTokensParams) -> SemanticTokens {
+        let Some(doc) = self.docs.get(&params.text_document.uri) else {
+            return SemanticTokens { result_id: None, data: vec![] };
+        };
+        handlers::semantic_tokens::semantic_tokens(&doc.snapshot)
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
