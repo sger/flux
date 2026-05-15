@@ -10,6 +10,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VSCODE_DIR="$REPO_ROOT/editors/vscode"
 
+# ── platform detection ────────────────────────────────────────────────────────
+# Windows builds produce flux-lsp.exe; macOS/Linux produce flux-lsp.
+# Matches the per-platform staging shown in editors/vscode/README.md.
+EXE_SUFFIX=""
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) EXE_SUFFIX=".exe" ;;
+esac
+
 # ── options ───────────────────────────────────────────────────────────────────
 NO_INSTALL=false
 for arg in "$@"; do
@@ -26,7 +34,7 @@ cargo build --release -p flux-lsp --manifest-path "$REPO_ROOT/Cargo.toml"
 # ── step 2: stage the binary ──────────────────────────────────────────────────
 echo "==> Staging binary..."
 mkdir -p "$VSCODE_DIR/server"
-cp "$REPO_ROOT/target/release/flux-lsp" "$VSCODE_DIR/server/flux-lsp"
+cp "$REPO_ROOT/target/release/flux-lsp$EXE_SUFFIX" "$VSCODE_DIR/server/flux-lsp$EXE_SUFFIX"
 
 # ── step 3: install JS deps (no-op if already up to date) ────────────────────
 echo "==> Installing JS dependencies..."

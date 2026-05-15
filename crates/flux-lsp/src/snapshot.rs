@@ -13,6 +13,7 @@ use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
 
+use crate::instance_index::InstanceIndex;
 use crate::line_index::{PositionEncoding, PositionMap};
 use crate::prelude::Prelude;
 use crate::symbol_index::SymbolIndex;
@@ -23,6 +24,11 @@ pub struct Snapshot {
     pub interner: Interner,
     pub infer: Option<InferProgramResult>,
     pub symbol_index: SymbolIndex,
+    /// Per-snapshot index of `instance` blocks for class-method
+    /// goto-definition. Looked up by the `ClassDispatch` tuple
+    /// (`class_name`, `head_type_ctor`, `method_name`) the type
+    /// checker stored in `InferProgramResult::class_method_dispatch`.
+    pub instance_index: InstanceIndex,
     pub position_map: PositionMap,
     pub diagnostics: Vec<FluxDiagnostic>,
     /// Final segment of every module known to this session's prelude (e.g.
@@ -67,6 +73,7 @@ impl Snapshot {
         prelude.compiler.interner = parser.take_interner();
 
         let symbol_index = SymbolIndex::build(&program, &prelude.compiler.interner);
+        let instance_index = InstanceIndex::build(&program);
         let position_map = PositionMap::new(Arc::clone(&text), encoding);
 
         // Walk buffer-level `import Flow.*` statements and lazily preload any
@@ -136,6 +143,7 @@ impl Snapshot {
             interner,
             infer,
             symbol_index,
+            instance_index,
             position_map,
             diagnostics,
             module_short_names,
@@ -200,6 +208,12 @@ fn run_inference(
     compiler.set_file_path("<buffer>".to_string());
 
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // Populate `class_env` from the buffer's class declarations so
+        // class-method dispatch resolves during inference. Without this,
+        // `lookup_class_method` would return None for buffer-declared
+        // classes and the LSP's class-method goto-definition would not
+        // fire.
+        lsp_support::collect_classes_for_program(compiler, program);
         let config = lsp_support::build_infer_config_for_program(compiler, program);
         infer_program(program, &compiler.interner, config)
     }))

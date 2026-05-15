@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::super::Compiler;
+use crate::syntax::program::Program;
 
 impl Compiler {
     /// LSP-facing wrapper around `phase_reset`. The LSP shares one `Compiler`
@@ -9,6 +10,23 @@ impl Compiler {
     /// (`cached_member_schemes`, etc.) intact.
     pub fn phase_reset_for_lsp(&mut self) {
         self.phase_reset();
+    }
+
+    /// LSP-facing wrapper that runs class-declaration collection for a
+    /// single program. The LSP's inference path doesn't go through the
+    /// full `phase_collection`, but class-method dispatch resolution
+    /// inside `infer_program` requires `class_env` to be populated
+    /// (`lookup_class_method` in `ast/type_infer/mod.rs` iterates
+    /// `class_env.classes`). Call this on the snapshot's program before
+    /// `build_infer_config_for_program` so buffer-declared classes are
+    /// visible to inference.
+    ///
+    /// Diagnostics produced by collection are folded into the compiler's
+    /// `errors` / `warnings` — they surface through the next `take` on
+    /// those lists. The LSP currently doesn't display class-collection
+    /// diagnostics separately from inference diagnostics.
+    pub fn collect_classes_for_lsp(&mut self, program: &Program) {
+        self.collect_class_declarations(program);
     }
 
     /// Phase 0: Clear per-file tracking state for each compile pass.
