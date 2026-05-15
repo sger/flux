@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use flux::ast::type_infer::{InferProgramResult, infer_program};
@@ -42,6 +43,10 @@ pub struct Snapshot {
     /// alongside `variant_fields` for ADT constructors that don't use
     /// named fields (`Left(err)`, `Some(42)`).
     pub variant_positional_fields: HashMap<Identifier, Vec<TypeExpr>>,
+    /// Short module name (e.g. `"Math"`) → (parsed program, source text, file
+    /// path). Cloned from the prelude at snapshot build time so goto-definition
+    /// can jump into imported module files.
+    pub module_programs: HashMap<String, (Program, Arc<str>, PathBuf)>,
 }
 
 impl Snapshot {
@@ -121,6 +126,10 @@ impl Snapshot {
 
         let (variant_fields, variant_positional_fields) = build_variant_indexes(&program);
 
+        // Clone the prelude's module-program cache so goto-definition can jump
+        // to definitions in imported Flow modules without re-parsing them.
+        let module_programs = prelude.module_programs.clone();
+
         Snapshot {
             text,
             program,
@@ -133,6 +142,7 @@ impl Snapshot {
             module_members,
             variant_fields,
             variant_positional_fields,
+            module_programs,
         }
     }
 }

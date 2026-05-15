@@ -179,6 +179,121 @@ pub fn find_at<'a>(
     finder.best
 }
 
+/// Find the innermost `Expression::Call` whose argument list contains `target`.
+///
+/// Returns `(call_expr, active_param_index)` where `active_param_index` is the
+/// zero-based index of the argument slot the cursor is in.
+pub fn find_enclosing_call<'a>(
+    program: &'a Program,
+    target: FluxPosition,
+) -> Option<(&'a Expression, usize)> {
+    let mut best: Option<(&'a Expression, usize, u64)> = None;
+    for stmt in &program.statements {
+        enclosing_call_stmt(stmt, target, &mut best);
+    }
+    best.map(|(e, idx, _)| (e, idx))
+}
+
+fn enclosing_call_stmt<'a>(
+    stmt: &'a Statement,
+    target: FluxPosition,
+    best: &mut Option<(&'a Expression, usize, u64)>,
+) {
+    match stmt {
+        Statement::Let { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::LetDestructure { value, .. } => {
+            enclosing_call_expr(value, target, best);
+        }
+        Statement::Return { value: Some(v), .. } => enclosing_call_expr(v, target, best),
+        Statement::Return { value: None, .. } => {}
+        Statement::Expression { expression, .. } => enclosing_call_expr(expression, target, best),
+        Statement::Function { body, .. } | Statement::Module { body, .. } => {
+            for s in &body.statements {
+                enclosing_call_stmt(s, target, best);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn enclosing_call_expr<'a>(
+    expr: &'a Expression,
+    target: FluxPosition,
+    best: &mut Option<(&'a Expression, usize, u64)>,
+) {
+    if let Expression::Call { function, arguments, span, .. } = expr {
+        // Cursor must be inside the call span but outside the function sub-expression.
+        if position_in_span(target, *span) && !position_in_span(target, function.span()) {
+            // Determine which argument slot the cursor is in.
+            let param_idx = arguments
+                .iter()
+                .position(|arg| position_in_span(target, arg.span()))
+                .unwrap_or_else(|| {
+                    // Cursor is between or after args — count args ending before target.
+                    arguments
+                        .iter()
+                        .filter(|arg| {
+                            let s = arg.span();
+                            (s.end.line, s.end.column) <= (target.line, target.column)
+                        })
+                        .count()
+                });
+            let extent = span_extent(*span);
+            if best.as_ref().map(|(_, _, e)| extent <= *e).unwrap_or(true) {
+                *best = Some((expr, param_idx, extent));
+            }
+        }
+        // Always recurse into sub-expressions.
+        enclosing_call_expr(function, target, best);
+        for arg in arguments {
+            enclosing_call_expr(arg, target, best);
+        }
+    } else {
+        match expr {
+            Expression::Infix { left, right, .. } => {
+                enclosing_call_expr(left, target, best);
+                enclosing_call_expr(right, target, best);
+            }
+            Expression::Prefix { right, .. } => enclosing_call_expr(right, target, best),
+            Expression::If { condition, consequence, alternative, .. } => {
+                enclosing_call_expr(condition, target, best);
+                for s in &consequence.statements {
+                    enclosing_call_stmt(s, target, best);
+                }
+                if let Some(alt) = alternative {
+                    for s in &alt.statements {
+                        enclosing_call_stmt(s, target, best);
+                    }
+                }
+            }
+            Expression::Match { scrutinee, arms, .. } => {
+                enclosing_call_expr(scrutinee, target, best);
+                for arm in arms {
+                    enclosing_call_expr(&arm.body, target, best);
+                }
+            }
+            Expression::DoBlock { block, .. } => {
+                for s in &block.statements {
+                    enclosing_call_stmt(s, target, best);
+                }
+            }
+            Expression::Function { body, .. } => {
+                for s in &body.statements {
+                    enclosing_call_stmt(s, target, best);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                enclosing_call_expr(expr, target, best);
+                for arm in arms {
+                    enclosing_call_expr(&arm.body, target, best);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 struct Finder<'ast, 'i> {
     target: FluxPosition,
     interner: &'i Interner,
@@ -786,7 +901,7 @@ fn decl_name_start(stmt_start: FluxPosition, is_public: bool, keyword: &str) -> 
     }
 }
 
-fn position_in_span(target: FluxPosition, span: FluxSpan) -> bool {
+pub(crate) fn position_in_span(target: FluxPosition, span: FluxSpan) -> bool {
     let after_start = (span.start.line, span.start.column) <= (target.line, target.column);
     let before_end = (target.line, target.column) <= (span.end.line, span.end.column);
     after_start && before_end

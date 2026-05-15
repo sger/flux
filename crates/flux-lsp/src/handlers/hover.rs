@@ -1,6 +1,6 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
 use flux::syntax::Identifier;
-use flux::syntax::expression::Expression;
+use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
 use flux::types::{infer_type::InferType, type_constructor::TypeConstructor};
@@ -47,7 +47,7 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
     match node {
         NodeRef::Expr(expr) => render_expr(snapshot, expr),
-        NodeRef::Pattern(_) => None, // Filled in M4d.
+        NodeRef::Pattern(pattern) => render_pattern(snapshot, pattern),
         NodeRef::Statement(_) => None,
         NodeRef::TypeExprNamed { name, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
@@ -75,6 +75,13 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
                     "{member_name}: {}",
                     render_type_expr(ty, &snapshot.interner)
                 ));
+            }
+            // Module member: look up the scheme from inference results.
+            if let Expression::Identifier { name: module_id, .. } = object
+                && let Some(infer) = snapshot.infer.as_ref()
+                && let Some(scheme) = infer.module_member_schemes.get(&(*module_id, *member))
+            {
+                return Some(render_scheme_canonical(&snapshot.interner, scheme));
             }
             Some(format!("field: {member_name}"))
         }
@@ -177,8 +184,49 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("decl: {resolved}"))
         }
-        NodeRef::FunctionParameter { name, .. } => {
+        NodeRef::FunctionParameter { name, function_span, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
+
+            for stmt in &snapshot.program.statements {
+                if let Statement::Function { span, parameters, parameter_types, .. } = stmt {
+                    if *span == *function_span {
+                        if let Some(idx) = parameters.iter().position(|p| *p == *name) {
+                            // Prefer the written type annotation.
+                            if let Some(Some(ty)) = parameter_types.get(idx) {
+                                return Some(format!(
+                                    "{resolved}: {}",
+                                    ty.display_with(&snapshot.interner)
+                                ));
+                            }
+                            // Fall back to the inferred parameter type from the
+                            // function's scheme (Fun(param_types, _, _)).
+                            let key = (
+                                span.start.line,
+                                span.start.column,
+                                span.end.line,
+                                span.end.column,
+                            );
+                            if let Some(infer) = snapshot.infer.as_ref()
+                                && let Some(scheme) =
+                                    infer.resolved_binding_schemes_by_span.get(&key)
+                                && let flux::types::infer_type::InferType::Fun(
+                                    param_infer_types,
+                                    _,
+                                    _,
+                                ) = &scheme.infer_type
+                                && let Some(param_ty) = param_infer_types.get(idx)
+                            {
+                                return Some(format!(
+                                    "{resolved}: {}",
+                                    display_infer_type(param_ty, &snapshot.interner)
+                                ));
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
             Some(format!("parameter: {resolved}"))
         }
     }
@@ -259,6 +307,21 @@ fn render_type_expr(ty: &TypeExpr, interner: &flux::syntax::interner::Interner) 
                 format!("{core} with ...")
             }
         }
+    }
+}
+
+fn render_pattern(snapshot: &Snapshot, pat: &Pattern) -> Option<String> {
+    match pat {
+        Pattern::Identifier { name, .. } => {
+            let resolved = snapshot.interner.try_resolve(*name)?;
+            if let Some(infer) = snapshot.infer.as_ref()
+                && let Some(scheme) = infer.resolved_binding_schemes.get(name)
+            {
+                return Some(render_scheme_canonical(&snapshot.interner, scheme));
+            }
+            Some(format!("binding: {resolved}"))
+        }
+        _ => None,
     }
 }
 

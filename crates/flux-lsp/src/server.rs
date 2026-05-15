@@ -5,7 +5,9 @@ use lsp_types::notification::{
     Notification as _,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, Request as _,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
+    InlayHintRequest, References, Rename, Request as _, SemanticTokensFullRequest,
+    SignatureHelpRequest,
 };
 
 use crate::global_state::GlobalState;
@@ -75,6 +77,41 @@ impl Server {
                 Response::new_ok(
                     id,
                     serde_json::to_value(self.state.handle_formatting(params))?,
+                )
+            }
+            m if m == InlayHintRequest::METHOD => {
+                let params = serde_json::from_value(req.params)?;
+                Response::new_ok(
+                    id,
+                    serde_json::to_value(self.state.handle_inlay_hints(params))?,
+                )
+            }
+            m if m == SignatureHelpRequest::METHOD => {
+                let params = serde_json::from_value(req.params)?;
+                Response::new_ok(
+                    id,
+                    serde_json::to_value(self.state.handle_signature_help(params))?,
+                )
+            }
+            m if m == References::METHOD => {
+                let params = serde_json::from_value(req.params)?;
+                Response::new_ok(
+                    id,
+                    serde_json::to_value(self.state.handle_references(params))?,
+                )
+            }
+            m if m == Rename::METHOD => {
+                let params = serde_json::from_value(req.params)?;
+                Response::new_ok(
+                    id,
+                    serde_json::to_value(self.state.handle_rename(params))?,
+                )
+            }
+            m if m == SemanticTokensFullRequest::METHOD => {
+                let params = serde_json::from_value(req.params)?;
+                Response::new_ok(
+                    id,
+                    serde_json::to_value(self.state.handle_semantic_tokens_full(params))?,
                 )
             }
             other => {
