@@ -169,6 +169,71 @@ pub fn preload_module_into_compiler(
     Some(())
 }
 
+/// Like [`preload_module_into_compiler`] but also returns the parsed `Program`.
+/// Used by the LSP to cache module ASTs for cross-file goto-definition without
+/// parsing the same file twice.
+pub fn preload_module_into_compiler_with_program(
+    compiler: &mut Compiler,
+    module_name: &str,
+    source_path: &str,
+    source: String,
+) -> Option<Program> {
+    let main_interner = std::mem::take(&mut compiler.interner);
+    let lexer = Lexer::new_with_interner(&source, main_interner);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    compiler.interner = parser.take_interner();
+
+    compiler.phase_reset_for_lsp();
+    compiler.set_file_path(source_path.to_string());
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let config = compiler.build_infer_config(&program);
+        infer_program(&program, &compiler.interner, config)
+    }))
+    .ok()?;
+
+    let module_id = compiler.interner.intern(module_name);
+    let mut interface = ModuleInterface::new(module_name, "lsp-prelude", "lsp-prelude");
+    for ((mid, member_id), scheme) in &result.module_member_schemes {
+        if *mid != module_id {
+            continue;
+        }
+        if let Some(name) = compiler.interner.try_resolve(*member_id) {
+            interface.schemes.insert(name.to_string(), scheme.clone());
+            interface.member_is_value.insert(name.to_string(), false);
+        }
+    }
+    for (member_id, scheme) in &result.resolved_binding_schemes {
+        if let Some(name) = compiler.interner.try_resolve(*member_id) {
+            interface
+                .schemes
+                .entry(name.to_string())
+                .or_insert_with(|| scheme.clone());
+            interface
+                .member_is_value
+                .entry(name.to_string())
+                .or_insert(false);
+        }
+    }
+    compiler.preload_module_interface(&interface);
+    Some(program)
+}
+
+/// Parse a module source file with the compiler's shared interner (so
+/// identifier IDs match those already in the snapshot) and return the `Program`
+/// without running inference. Used by the LSP to populate the goto-definition
+/// module cache for auto-prelude modules that were loaded before the LSP
+/// started storing ASTs.
+pub fn parse_module_for_goto_def(compiler: &mut Compiler, source: &str) -> Program {
+    let main_interner = std::mem::take(&mut compiler.interner);
+    let lexer = Lexer::new_with_interner(source, main_interner);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    compiler.interner = parser.take_interner();
+    program
+}
+
 /// Wrapper around `Compiler::build_infer_config` so callers don't need to
 /// reach into `Compiler` directly. Kept as a function (not a method) so the
 /// LSP only depends on this module, not on the broader `compiler` surface.

@@ -142,11 +142,21 @@ Confirm you see `out/extension.js`, `syntaxes/flux.tmLanguage.json`, `node_modul
 # Remove the previous version first (no-op if nothing installed):
 code --uninstall-extension flux.flux-language
 
-# Install the new one:
+# Install the new one (run from editors/vscode/):
 code --install-extension ./flux-language-<version>.vsix
 ```
 
-Windows users: replace `./` with `.\` if you prefer, or pass an absolute path.
+Or use an absolute path from anywhere:
+
+```bash
+# macOS / Linux:
+code --install-extension ~/path/to/flux/editors/vscode/flux-language-<version>.vsix
+
+# Windows:
+code --install-extension "C:\path\to\flux\editors\vscode\flux-language-<version>.vsix"
+```
+
+> **Tip:** `<version>` must match the `"version"` field in `package.json`. If you see `ENOENT`, check the filename with `ls editors/vscode/*.vsix`.
 
 ### 8. Restart VS Code
 
@@ -262,12 +272,15 @@ Option C — leave the binary in place and configure the extension to point at i
 
 ### Install the extension
 
+Build the `.vsix` first if you don't have one — follow [Build the `.vsix` yourself](#build-the-vsix-yourself-any-platform) above, then come back here.
+
 ```bash
 # If upgrading from a previous version:
 code --uninstall-extension flux.flux-language
 
-# Install the new .vsix:
-code --install-extension /path/to/flux/editors/vscode/flux-language-0.0.5.vsix
+# Install (run from editors/vscode/, or use an absolute path):
+code --install-extension ./flux-language-<version>.vsix
+# e.g.: code --install-extension ~/Downloads/Github/flux/editors/vscode/flux-language-0.0.5.vsix
 ```
 
 ### Configure VS Code (Option C only)
@@ -357,12 +370,15 @@ Option C — leave the binary in place and point the extension at it via the set
 
 ### Install the extension
 
+Build the `.vsix` first if you don't have one — follow [Build the `.vsix` yourself](#build-the-vsix-yourself-any-platform) above, then come back here.
+
 ```bash
 # If upgrading:
 code --uninstall-extension flux.flux-language
 
-# Install the new .vsix:
-code --install-extension /path/to/flux/editors/vscode/flux-language-0.0.5.vsix
+# Install (run from editors/vscode/, or use an absolute path):
+code --install-extension ./flux-language-<version>.vsix
+# e.g.: code --install-extension ~/path/to/flux/editors/vscode/flux-language-0.0.5.vsix
 ```
 
 ### Activate

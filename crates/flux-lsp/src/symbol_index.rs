@@ -68,3 +68,37 @@ fn top_level_definition(stmt: &Statement) -> Option<(Identifier, FluxSpan)> {
         _ => None,
     }
 }
+
+impl SymbolIndex {
+    /// Build an extended index that also maps effect operation names and data
+    /// variant names to their declaration spans. Used for cross-declaration
+    /// goto-definition (e.g. F12 on `perform Emit(x)` → jumps to the `Emit`
+    /// op inside its `effect` block).
+    pub fn build_extended(program: &Program, interner: &Interner) -> Self {
+        let mut idx = Self::build(program, interner);
+        for stmt in &program.statements {
+            match stmt {
+                Statement::EffectDecl { ops, .. } => {
+                    for op in ops {
+                        if let Some(name) = interner.try_resolve(op.name) {
+                            let entry = Entry { name: name.to_string(), span: op.span };
+                            idx.by_id.insert(op.name, entry.clone());
+                            idx.by_name.insert(name.to_string(), entry);
+                        }
+                    }
+                }
+                Statement::Data { variants, .. } => {
+                    for v in variants {
+                        if let Some(name) = interner.try_resolve(v.name) {
+                            let entry = Entry { name: name.to_string(), span: v.span };
+                            idx.by_id.insert(v.name, entry.clone());
+                            idx.by_name.insert(name.to_string(), entry);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        idx
+    }
+}
