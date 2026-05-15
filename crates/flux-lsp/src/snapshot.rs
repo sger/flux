@@ -7,8 +7,10 @@ use flux::lsp_support;
 use flux::syntax::interner::Interner;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
+use flux::syntax::Identifier;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
+use flux::syntax::type_expr::TypeExpr;
 
 use crate::line_index::{PositionEncoding, PositionMap};
 use crate::prelude::Prelude;
@@ -31,6 +33,15 @@ pub struct Snapshot {
     /// after `String.` can list available members without rebuilding the map
     /// on every keystroke.
     pub module_members: HashMap<String, Vec<String>>,
+    /// Variant `Identifier` → list of `(field_name, field_type)`. Empty for
+    /// positional variants. Drives hover content for record fields
+    /// (`alice.name`, `Person { name: ... }`) and completion inside record
+    /// literals.
+    pub variant_fields: HashMap<Identifier, Vec<(Identifier, TypeExpr)>>,
+    /// Variant `Identifier` → list of positional field types. Populated
+    /// alongside `variant_fields` for ADT constructors that don't use
+    /// named fields (`Left(err)`, `Some(42)`).
+    pub variant_positional_fields: HashMap<Identifier, Vec<TypeExpr>>,
 }
 
 impl Snapshot {
@@ -108,6 +119,8 @@ impl Snapshot {
             v.dedup();
         }
 
+        let (variant_fields, variant_positional_fields) = build_variant_indexes(&program);
+
         Snapshot {
             text,
             program,
@@ -118,8 +131,53 @@ impl Snapshot {
             diagnostics,
             module_short_names,
             module_members,
+            variant_fields,
+            variant_positional_fields,
         }
     }
+}
+
+/// Walk all `Statement::Data` declarations in `program` and emit two indexes:
+/// `(variant_name -> [(field_name, ty)])` for named-field variants, and
+/// `(variant_name -> [ty])` for positional variants. Used by hover and
+/// completion to look up a field's declared type given just the variant
+/// constructor identifier.
+type NamedFieldsIndex = HashMap<Identifier, Vec<(Identifier, TypeExpr)>>;
+type PositionalFieldsIndex = HashMap<Identifier, Vec<TypeExpr>>;
+
+fn build_variant_indexes(program: &Program) -> (NamedFieldsIndex, PositionalFieldsIndex) {
+    let mut named: HashMap<Identifier, Vec<(Identifier, TypeExpr)>> = HashMap::new();
+    let mut positional: HashMap<Identifier, Vec<TypeExpr>> = HashMap::new();
+    for stmt in &program.statements {
+        if let Statement::Data {
+            name: data_name,
+            variants,
+            ..
+        } = stmt
+        {
+            for variant in variants {
+                if let Some(field_names) = &variant.field_names {
+                    let pairs: Vec<(Identifier, TypeExpr)> = field_names
+                        .iter()
+                        .zip(variant.fields.iter())
+                        .map(|(n, t)| (*n, t.clone()))
+                        .collect();
+                    named.insert(variant.name, pairs.clone());
+                    // Also key by the parent data-type name when it differs
+                    // from the variant. Lets `alice.name` (where `alice: Person`)
+                    // resolve the same as `Person { name: ... }`. The common
+                    // `data X { X { ... } }` pattern lands the same value
+                    // under the same key — `insert` is fine.
+                    if *data_name != variant.name {
+                        named.entry(*data_name).or_insert(pairs);
+                    }
+                } else if !variant.fields.is_empty() {
+                    positional.insert(variant.name, variant.fields.clone());
+                }
+            }
+        }
+    }
+    (named, positional)
 }
 
 fn run_inference(

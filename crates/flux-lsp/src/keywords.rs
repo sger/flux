@@ -58,6 +58,17 @@ data Shape {
 ```",
     ),
     (
+        "deriving",
+        "**`deriving`** — Auto-generate type-class instances for a `data` declaration.
+
+The compiler synthesizes the listed classes' methods based on the data shape. \
+Common candidates are `Eq` and `Show`.
+
+```flux
+data Color { Red, Green, Blue } deriving (Eq, Show)
+```",
+    ),
+    (
         "do",
         "**`do`** — Block expression: sequence multiple statements producing the last value.
 
@@ -183,6 +194,20 @@ intrinsic fn print<a>(x: a) -> Unit with Console = primop Print
 ```",
     ),
     (
+        "Left",
+        "**`Left`** — `Either` constructor for the \"first\" alternative.
+
+Conventionally used for failure / error values in fallible computations \
+modeled with `Either<Error, Value>`.
+
+```flux
+match decode(buf) {
+    Left(err) -> handle_error(err),
+    Right(value) -> use_value(value),
+}
+```",
+    ),
+    (
         "let",
         "**`let`** — Bind a value to a name.
 
@@ -222,6 +247,19 @@ module Geometry {
 ```",
     ),
     (
+        "None",
+        "**`None`** — `Option` constructor representing the absent value.
+
+Pair with `Some(x)` to represent values that may be missing without using \
+sentinel encodings.
+
+```flux
+fn first(xs: Array<a>) -> Option<a> {
+    if Array.is_empty(xs) { None } else { Some(xs[0]) }
+}
+```",
+    ),
+    (
         "perform",
         "**`perform`** — Invoke an effect operation.
 
@@ -230,6 +268,18 @@ block must discharge it.
 
 ```flux
 fn read_state() -> Int with State { perform get() }
+```",
+    ),
+    (
+        "primop",
+        "**`primop`** — Bind an `intrinsic` function to a named compiler primitive.
+
+Appears on the right-hand side of `intrinsic fn ... = primop X`. The compiler \
+expands the call site to the named CorePrimOp. End-user code does not write \
+`primop` directly; it shows up only inside `Flow.Primops`.
+
+```flux
+intrinsic fn print<a>(x: a) -> Unit with Console = primop Print
 ```",
     ),
     (
@@ -259,10 +309,88 @@ fn first_positive(xs) {
 ```",
     ),
     (
+        "Right",
+        "**`Right`** — `Either` constructor for the \"second\" alternative.
+
+Conventionally used for success values, paired with `Left(err)` for the \
+failure case.
+
+```flux
+match decode(buf) {
+    Left(err) -> handle_error(err),
+    Right(value) -> use_value(value),
+}
+```",
+    ),
+    (
+        "sealing",
+        "**`sealing`** — Restrict the effect row of an expression.
+
+`expr sealing { E1, E2 }` constrains the contained expression to perform at \
+most the listed effects; effects outside that set become a type error inside \
+the sealed scope.
+
+```flux
+console_only() sealing { Console }
+```",
+    ),
+    (
+        "select",
+        "**`select`** — Wait on multiple async operations, returning the first ready.
+
+Each arm names a channel `recv`/`send` or a timer; the block evaluates the \
+arm whose source fires first.
+
+```flux
+select {
+    recv ch as value -> use_value(value),
+    after 100 -> \"timeout\",
+}
+```",
+    ),
+    (
+        "Some",
+        "**`Some`** — `Option` constructor wrapping a present value.
+
+Pair with `None` to model values that may be missing. Pattern-match to \
+unwrap.
+
+```flux
+match find(key) {
+    Some(value) -> handle(value),
+    None -> default(),
+}
+```",
+    ),
+    (
         "true",
         "**Boolean literal.**
 
 `true` and `false` are the two values of type `Bool`.",
+    ),
+    (
+        "type",
+        "**`type`** — Declare a transparent type alias (synonym for `alias`).
+
+The right-hand side may be any type expression. At type-checking time the \
+alias name expands to its body.
+
+```flux
+type Shape = Circle(Float) | Rect(Float, Float)
+```",
+    ),
+    (
+        "where",
+        "**`where`** — Introduce a let-binding scoped to the preceding clause.
+
+Common in list-comprehension-style code: `expr where x = ...` makes `x` \
+available throughout `expr`. Multiple `where` clauses may chain.
+
+```flux
+let result = process(left, right)
+    where left  = data |> Array.map(fst)
+    where right = data |> Array.map(snd)
+```",
     ),
     (
         "with",
