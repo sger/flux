@@ -182,6 +182,13 @@ struct InferCtx<'a> {
     class_env: Option<crate::types::class_env::ClassEnv>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
     class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Resolved class-method dispatches, keyed by the function-position
+    /// `ExprId` of each class-method call site. Populated in
+    /// `propagate_resolved_class_call_effects` once the matching
+    /// instance is known; drained into `InferProgramResult` in
+    /// `build_infer_result`. The LSP reads this for goto-definition on
+    /// class-method calls.
+    class_method_dispatch: HashMap<ExprId, ClassDispatch>,
     /// Type variables allocated as fallback after inference failures.
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
@@ -289,6 +296,7 @@ impl<'a> InferCtx<'a> {
             skolem_names: HashMap::new(),
             class_env: None,
             class_constraints: Vec::new(),
+            class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
@@ -655,6 +663,7 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         instantiated_expr_vars: resolved_instantiated_expr_vars,
         resolved_binding_schemes,
         resolved_binding_schemes_by_span,
+        class_method_dispatch: ctx.class_method_dispatch,
     }
 }
 
@@ -829,6 +838,33 @@ pub struct InferProgramResult {
     /// Resolved binding schemes for each statement-level generalization site,
     /// keyed by the `Statement::Function`/`Statement::Let` span.
     pub resolved_binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
+    /// Per-call-site class-method dispatch resolution, keyed by the
+    /// **function-position** `ExprId` (the identifier the user clicks
+    /// on at `show(42)` is the function expression `show`). Populated
+    /// from `propagate_resolved_class_call_effects` — the same
+    /// resolution the type checker performs to emit class constraints
+    /// and look up mangled `__tc_*` schemes is captured here so the LSP
+    /// can route F12 to the matching `InstanceMethod` arm. Empty when
+    /// no class methods were called in the program.
+    pub class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+}
+
+/// Where a class-method call site dispatched to — enough to identify
+/// the matching `instance` block by name and head type without keeping
+/// a back-reference to the type checker's `InstanceDef`. Mirrors what
+/// the LSP's [`crate::ast::type_infer::expression::calls`] dispatch
+/// stores in [`ResolvedClassMethodCall`] plus the resolved head
+/// identifier.
+#[derive(Debug, Clone, Copy)]
+pub struct ClassDispatch {
+    pub class_name: Identifier,
+    /// Head identifier of the first type argument of the matched
+    /// instance — `Int` for `instance Show<Int>`, `Maybe` for
+    /// `instance Show<Maybe<a>>`. Same notion as the private
+    /// `ClassEnv::head_type_name` helper in
+    /// `src/types/class_env.rs:684`.
+    pub head_type_ctor: Identifier,
+    pub method_name: Identifier,
 }
 
 /// Stable identifier for one expression node within a single inference run.

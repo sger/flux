@@ -889,7 +889,11 @@ impl<'ast> Finder<'ast, '_> {
 /// Synthesize the declaration-name start position for `data`, `effect`, etc.
 /// statements whose span begins at the keyword (not the name). Skips the
 /// optional `public ` prefix plus the keyword + a space.
-fn decl_name_start(stmt_start: FluxPosition, is_public: bool, keyword: &str) -> FluxPosition {
+pub(crate) fn decl_name_start(
+    stmt_start: FluxPosition,
+    is_public: bool,
+    keyword: &str,
+) -> FluxPosition {
     let mut col = stmt_start.column;
     if is_public {
         col += "public ".len();

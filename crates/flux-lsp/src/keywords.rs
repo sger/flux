@@ -5,6 +5,18 @@
 //! string with prose plus a code example. The hover handler queries this
 //! after rejecting comment/string contexts so prose like `// use let to
 //! bind` doesn't trigger keyword docs.
+//!
+//! Two sources contribute keywords:
+//! - **Lexer-reserved words** are listed in
+//!   `flux::syntax::token_type::KEYWORDS`. A drift test in this file
+//!   asserts every entry there has matching hover content (except the
+//!   built-in ADT constructors `Some`/`None`/`Left`/`Right`, whose hover
+//!   comes from the AST path showing the inferred type). A new lexer
+//!   keyword fails CI until a doc lands here.
+//! - **Contextual keywords** (`exposing`, `except`, `end`, `ambient`,
+//!   `resume`) are recognized only in specific syntactic positions; they
+//!   parse as ordinary identifiers elsewhere. The drift test also covers
+//!   them.
 
 /// Static `(keyword, markdown)` table. Keep alphabetically sorted so growth
 /// stays scannable. Search is linear; the list is small enough that a
@@ -20,6 +32,18 @@ side. Useful for naming common effect rows.
 ```flux
 alias IO = <Console | FileSystem | Stdin>
 alias Pair<a, b> = (a, b)
+```",
+    ),
+    (
+        "ambient",
+        "**`ambient`** — Reference the enclosing effect row inside a `sealing` clause.
+
+In the algebraic form `expr sealing (ambient - E1 - E2)`, `ambient` stands for \
+the effect row the surrounding scope provides; the subtraction restricts \
+`expr` to a strict subset of it.
+
+```flux
+fn inner() with Console, FileSystem { ... } sealing (ambient - FileSystem)
 ```",
     ),
     (
@@ -104,6 +128,30 @@ effect State {
 
 ```flux
 if x > 0 { \"+\" } else if x < 0 { \"-\" } else { \"0\" }
+```",
+    ),
+    (
+        "end",
+        "**`end`** — Optional terminator that closes a `module` block.
+
+Most blocks close with `}`. `end` is accepted as a soft terminator in \
+positions where matching the opening keyword reads more clearly than a brace.
+
+```flux
+module Geometry
+    public fn area(s: Shape) -> Float { ... }
+end
+```",
+    ),
+    (
+        "except",
+        "**`except`** — Exclude members from an `exposing (..)` clause.
+
+Pair with `exposing (..)` to expose everything except a few names — useful \
+when only one or two identifiers conflict.
+
+```flux
+import Flow.Math exposing (..) except (sqrt, pow)
 ```",
     ),
     (
@@ -194,20 +242,6 @@ intrinsic fn print<a>(x: a) -> Unit with Console = primop Print
 ```",
     ),
     (
-        "Left",
-        "**`Left`** — `Either` constructor for the \"first\" alternative.
-
-Conventionally used for failure / error values in fallible computations \
-modeled with `Either<Error, Value>`.
-
-```flux
-match decode(buf) {
-    Left(err) -> handle_error(err),
-    Right(value) -> use_value(value),
-}
-```",
-    ),
-    (
         "let",
         "**`let`** — Bind a value to a name.
 
@@ -243,19 +277,6 @@ All members declared inside a `module Foo { ... }` block are accessed as \
 ```flux
 module Geometry {
     public fn area(s: Shape) -> Float { ... }
-}
-```",
-    ),
-    (
-        "None",
-        "**`None`** — `Option` constructor representing the absent value.
-
-Pair with `Some(x)` to represent values that may be missing without using \
-sentinel encodings.
-
-```flux
-fn first(xs: Array<a>) -> Option<a> {
-    if Array.is_empty(xs) { None } else { Some(xs[0]) }
 }
 ```",
     ),
@@ -309,16 +330,17 @@ fn first_positive(xs) {
 ```",
     ),
     (
-        "Right",
-        "**`Right`** — `Either` constructor for the \"second\" alternative.
+        "resume",
+        "**`resume`** — Continue an effect handler with a value.
 
-Conventionally used for success values, paired with `Left(err)` for the \
-failure case.
+Inside a `handle` arm, `resume(v)` returns control to the computation that \
+performed the effect, supplying `v` as the result of the `perform` call. \
+Omitting `resume` aborts the handled computation entirely.
 
 ```flux
-match decode(buf) {
-    Left(err) -> handle_error(err),
-    Right(value) -> use_value(value),
+handle counter() with {
+    get() -> resume(0),
+    put(_) -> resume(()),
 }
 ```",
     ),
@@ -345,20 +367,6 @@ arm whose source fires first.
 select {
     recv ch as value -> use_value(value),
     after 100 -> \"timeout\",
-}
-```",
-    ),
-    (
-        "Some",
-        "**`Some`** — `Option` constructor wrapping a present value.
-
-Pair with `None` to model values that may be missing. Pattern-match to \
-unwrap.
-
-```flux
-match find(key) {
-    Some(value) -> handle(value),
-    None -> default(),
 }
 ```",
     ),
@@ -530,6 +538,20 @@ fn is_ident_byte(b: u8) -> bool {
 mod tests {
     use super::*;
 
+    /// Built-in ADT constructors that are tokenized as keywords by the
+    /// lexer (`Some`, `None`, `Left`, `Right`) but whose hover content
+    /// comes from the AST path (inferred type, e.g. `Option<Int>`)
+    /// rather than a static doc. The drift test skips these — adding a
+    /// doc here would shadow the useful inferred-type hover.
+    const CONSTRUCTOR_EXCLUSIONS: &[&str] = &["Some", "None", "Left", "Right"];
+
+    /// Contextual keywords: identifiers the parser treats specially in
+    /// specific positions (after `import`, inside `sealing { ... }`,
+    /// inside a `handle` arm) but that aren't lexer-reserved. Each must
+    /// have a hover entry; the drift test enforces this.
+    const CONTEXTUAL_KEYWORDS: &[&str] =
+        &["ambient", "end", "except", "exposing", "resume"];
+
     #[test]
     fn known_keywords_have_docs() {
         assert!(keyword_doc("let").is_some());
@@ -591,5 +613,72 @@ mod tests {
         assert!(!is_offset_in_comment_or_string(src, fn_off));
         let inner_off = src.find("inner").unwrap();
         assert!(is_offset_in_comment_or_string(src, inner_off));
+    }
+
+    /// Drift gate: every lexer keyword in `flux::syntax::token_type::KEYWORDS`
+    /// must have a hover entry here, *except* the built-in ADT constructors
+    /// listed in [`CONSTRUCTOR_EXCLUSIONS`] (whose hover comes from the
+    /// inferred type via the AST path). Adding a new keyword to the lexer
+    /// without a doc — or accidentally adding a doc for an excluded
+    /// constructor — fails this test.
+    #[test]
+    fn every_lexer_keyword_has_hover_doc() {
+        use flux::syntax::token_type::KEYWORDS;
+
+        let mut missing: Vec<&str> = Vec::new();
+        let mut unexpected: Vec<&str> = Vec::new();
+        for kw in KEYWORDS {
+            let excluded = CONSTRUCTOR_EXCLUSIONS.contains(kw);
+            let has_doc = keyword_doc(kw).is_some();
+            match (excluded, has_doc) {
+                (false, false) => missing.push(*kw),
+                (true, true) => unexpected.push(*kw),
+                _ => {}
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "lexer keywords lacking hover docs: {missing:?}. Add entries to KEYWORD_DOCS."
+        );
+        assert!(
+            unexpected.is_empty(),
+            "constructor exclusions unexpectedly have hover docs: {unexpected:?}. \
+             Either remove the doc or update CONSTRUCTOR_EXCLUSIONS."
+        );
+    }
+
+    /// Drift gate for contextual keywords (`exposing`, `except`, `end`,
+    /// `ambient`, `resume`). These aren't lexer-reserved, so they're listed
+    /// by hand in [`CONTEXTUAL_KEYWORDS`]; the test asserts each has hover
+    /// content.
+    #[test]
+    fn every_contextual_keyword_has_hover_doc() {
+        let missing: Vec<&str> = CONTEXTUAL_KEYWORDS
+            .iter()
+            .copied()
+            .filter(|kw| keyword_doc(kw).is_none())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "contextual keywords lacking hover docs: {missing:?}"
+        );
+    }
+
+    /// Catches the inverse: a keyword doc entry exists for a word that is
+    /// neither a lexer keyword nor a contextual keyword. Likely a typo or
+    /// a renamed keyword whose old entry was left behind.
+    #[test]
+    fn no_orphan_keyword_docs() {
+        use flux::syntax::token_type::KEYWORDS;
+
+        let orphans: Vec<&str> = KEYWORD_DOCS
+            .iter()
+            .map(|(kw, _)| *kw)
+            .filter(|kw| !KEYWORDS.contains(kw) && !CONTEXTUAL_KEYWORDS.contains(kw))
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "KEYWORD_DOCS entries match no known keyword: {orphans:?}"
+        );
     }
 }

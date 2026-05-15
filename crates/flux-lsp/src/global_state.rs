@@ -107,9 +107,17 @@ impl GlobalState {
             position,
         } = params.text_document_position_params;
         let doc = self.docs.get(&text_document.uri)?;
-        let location =
+        let nav =
             handlers::definition::goto_definition(&doc.snapshot, &text_document.uri, position)?;
-        Some(GotoDefinitionResponse::Scalar(location))
+        // Compute the source-side "from" span (the cursor word's range)
+        // so VS Code can underline just that word in the originating
+        // file when displaying the peek view. Returns `None` when the
+        // cursor is on whitespace/punctuation; that's fine — clients
+        // fall back to highlighting the cursor's full line.
+        let origin = cursor_word_range(&doc.snapshot, position);
+        Some(GotoDefinitionResponse::Link(vec![
+            nav.into_location_link(origin),
+        ]))
     }
 
     pub fn handle_completion(&self, params: CompletionParams) -> Option<CompletionResponse> {
@@ -188,4 +196,50 @@ impl GlobalState {
             &doc.snapshot,
         ))
     }
+}
+
+/// Return the LSP `Range` covering the identifier word at `position` in
+/// the source buffer, or `None` if the cursor is on whitespace /
+/// punctuation. Used as the `origin_selection_range` of a
+/// `LocationLink` so VS Code's peek view underlines just the cursor
+/// word, not the whole line. Reuses the same word-detection logic as
+/// keyword hover.
+fn cursor_word_range(
+    snapshot: &crate::snapshot::Snapshot,
+    position: lsp_types::Position,
+) -> Option<lsp_types::Range> {
+    let offset = snapshot.position_map.lsp_to_offset(position)?;
+    let off: usize = offset.into();
+    let text = snapshot.text.as_ref();
+    let word = crate::keywords::word_at_offset(text, off)?;
+    // Find the byte range of `word` in `text` around `off`. The same
+    // shape `word_at_offset` computes internally — recomputed here so we
+    // can produce an LSP `Range` rather than just the &str.
+    let bytes = text.as_bytes();
+    let pivot = if off < bytes.len() && is_ident_byte(bytes[off]) {
+        off
+    } else if off > 0 && is_ident_byte(bytes[off - 1]) {
+        off - 1
+    } else {
+        return None;
+    };
+    let mut start = pivot;
+    while start > 0 && is_ident_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let end = start + word.len();
+    let start_pos = snapshot
+        .position_map
+        .offset_to_lsp(u32::try_from(start).ok()?.into());
+    let end_pos = snapshot
+        .position_map
+        .offset_to_lsp(u32::try_from(end).ok()?.into());
+    Some(lsp_types::Range {
+        start: start_pos,
+        end: end_pos,
+    })
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
