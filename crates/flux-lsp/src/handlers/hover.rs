@@ -1,5 +1,9 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
+use flux::syntax::Identifier;
 use flux::syntax::expression::Expression;
+use flux::syntax::statement::Statement;
+use flux::syntax::type_expr::TypeExpr;
+use flux::types::{infer_type::InferType, type_constructor::TypeConstructor};
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
 use crate::keywords::{is_offset_in_comment_or_string, keyword_doc, word_at_offset};
@@ -57,12 +61,38 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("row var: |{resolved}"))
         }
-        NodeRef::MemberAccessMember { member, .. } => {
-            let resolved = snapshot.interner.try_resolve(*member)?;
-            Some(format!("field: {resolved}"))
+        NodeRef::MemberAccessMember { object, member, .. } => {
+            let member_name = snapshot.interner.try_resolve(*member)?;
+            // Best-effort: use the object's inferred type to find the data
+            // declaration the field lives on, then render its declared
+            // `TypeExpr`. Falls back to a bare label when the object's type
+            // isn't a known ADT or the field isn't named there.
+            if let Some(adt_sym) = inferred_adt_symbol(snapshot, object)
+                && let Some(fields) = snapshot.variant_fields.get(&adt_sym)
+                && let Some((_, ty)) = fields.iter().find(|(n, _)| *n == *member)
+            {
+                return Some(format!(
+                    "{member_name}: {}",
+                    render_type_expr(ty, &snapshot.interner)
+                ));
+            }
+            Some(format!("field: {member_name}"))
         }
-        NodeRef::NamedFieldInitName { field_name, .. } => {
+        NodeRef::NamedFieldInitName {
+            field_name,
+            parent_constructor,
+            ..
+        } => {
             let resolved = snapshot.interner.try_resolve(*field_name)?;
+            if let Some(parent) = parent_constructor
+                && let Some(fields) = snapshot.variant_fields.get(parent)
+                && let Some((_, ty)) = fields.iter().find(|(n, _)| *n == *field_name)
+            {
+                return Some(format!(
+                    "{resolved}: {}",
+                    render_type_expr(ty, &snapshot.interner)
+                ));
+            }
             Some(format!("field: {resolved}"))
         }
         NodeRef::NamedConstructorName { name, expr_id, .. } => {
@@ -97,17 +127,40 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("variant: {resolved}"))
         }
-        NodeRef::DataFieldName { name, .. } => {
-            let resolved = snapshot.interner.try_resolve(*name)?;
-            Some(format!("field: {resolved}"))
+        NodeRef::DataFieldName {
+            name,
+            ty_index,
+            parent_variant,
+            ..
+        } => {
+            let field_name = snapshot.interner.try_resolve(*name)?;
+            if let Some(fields) = snapshot.variant_fields.get(parent_variant)
+                && let Some((_, ty)) = fields.get(*ty_index)
+            {
+                return Some(format!(
+                    "{field_name}: {}",
+                    render_type_expr(ty, &snapshot.interner)
+                ));
+            }
+            Some(format!("field: {field_name}"))
         }
         NodeRef::EffectDeclName { name, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("effect: {resolved}"))
         }
-        NodeRef::EffectOpName { name, .. } => {
-            let resolved = snapshot.interner.try_resolve(*name)?;
-            Some(format!("op: {resolved}"))
+        NodeRef::EffectOpName {
+            name,
+            parent_effect,
+            ..
+        } => {
+            let op_name = snapshot.interner.try_resolve(*name)?;
+            if let Some(op_ty) = find_effect_op_type(snapshot, *parent_effect, *name) {
+                return Some(format!(
+                    "{op_name}: {}",
+                    render_type_expr(&op_ty, &snapshot.interner)
+                ));
+            }
+            Some(format!("op: {op_name}"))
         }
         NodeRef::DeclName { name, binding_span } => {
             let key = (
@@ -127,6 +180,84 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
         NodeRef::FunctionParameter { name, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("parameter: {resolved}"))
+        }
+    }
+}
+
+/// Extract the ADT symbol from `expr`'s inferred type, if it has one. Used
+/// to map a record-access target back to its data declaration for field
+/// lookups. Handles both `Con(Adt(s))` and `App(Adt(s), _)` forms.
+fn inferred_adt_symbol(snapshot: &Snapshot, expr: &Expression) -> Option<Identifier> {
+    let infer = snapshot.infer.as_ref()?;
+    let ty = infer.expr_types.get(&expr.expr_id())?;
+    match ty {
+        InferType::Con(TypeConstructor::Adt(s)) | InferType::App(TypeConstructor::Adt(s), _) => {
+            Some(*s)
+        }
+        _ => None,
+    }
+}
+
+/// Walk `Statement::EffectDecl` blocks in the program for one named
+/// `parent_effect`, return the declared type of operation `op_name` if
+/// found.
+fn find_effect_op_type(
+    snapshot: &Snapshot,
+    parent_effect: Identifier,
+    op_name: Identifier,
+) -> Option<TypeExpr> {
+    for stmt in &snapshot.program.statements {
+        if let Statement::EffectDecl { name, ops, .. } = stmt
+            && *name == parent_effect
+        {
+            for op in ops {
+                if op.name == op_name {
+                    return Some(op.type_expr.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Surface-syntax rendering of a `TypeExpr`. We have no compiler-side
+/// pretty-printer that takes an interner, so produce one ourselves for the
+/// small subset we encounter in field/op type rendering.
+fn render_type_expr(ty: &TypeExpr, interner: &flux::syntax::interner::Interner) -> String {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            let base = interner.try_resolve(*name).unwrap_or("?").to_string();
+            if args.is_empty() {
+                base
+            } else {
+                let rendered: Vec<String> =
+                    args.iter().map(|a| render_type_expr(a, interner)).collect();
+                format!("{base}<{}>", rendered.join(", "))
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            let parts: Vec<String> = elements
+                .iter()
+                .map(|e| render_type_expr(e, interner))
+                .collect();
+            format!("({})", parts.join(", "))
+        }
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            let params_str: Vec<String> =
+                params.iter().map(|p| render_type_expr(p, interner)).collect();
+            let ret_str = render_type_expr(ret, interner);
+            let core = format!("({}) -> {}", params_str.join(", "), ret_str);
+            if effects.is_empty() {
+                core
+            } else {
+                // Best-effort: print the effect rows by their root names.
+                format!("{core} with ...")
+            }
         }
     }
 }
