@@ -247,6 +247,17 @@ pub fn build_infer_config_for_program(
     compiler.build_infer_config(program)
 }
 
+/// LSP-facing wrapper that runs class-declaration collection for a
+/// program. Call before `build_infer_config_for_program` so the
+/// compiler's `class_env` includes the buffer's classes — required for
+/// class-method dispatch resolution (`lookup_class_method` in
+/// `src/ast/type_infer/mod.rs`) which the LSP consumes via
+/// `InferProgramResult::class_method_dispatch` for goto-definition on
+/// class-method calls.
+pub fn collect_classes_for_program(compiler: &mut Compiler, program: &Program) {
+    compiler.collect_classes_for_lsp(program);
+}
+
 /// Wrapper around `Compiler::phase_reset_for_lsp` so the LSP can clear
 /// per-file scratch state between buffers without holding stale errors or
 /// scope info. Does **not** clear `cached_member_schemes`.

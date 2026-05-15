@@ -17,6 +17,13 @@ struct ResolvedClassMethodCall {
     class_name: Identifier,
     method_name: Identifier,
     first_arg_id: ExprId,
+    /// `ExprId` of the **function-position** sub-expression of the call
+    /// (`show` in `show(42)`, or `member` in `Foldable.fold(xs, ...)`'s
+    /// `MemberAccess`). The LSP keys
+    /// `InferProgramResult::class_method_dispatch` by this id because
+    /// the locator's `NodeRef::Expr(Expression::Identifier { expr_id })`
+    /// for a cursor on the method name carries exactly this value.
+    function_expr_id: ExprId,
     span: Span,
 }
 
@@ -108,7 +115,18 @@ impl<'a> InferCtx<'a> {
             return result;
         }
 
-        self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)
+        let result =
+            self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row);
+        // The unresolved-callee path is what fires for buffer-declared
+        // class methods (their short name isn't pre-bound in HM env, so
+        // `fn_ty_resolved` is a fresh var rather than `Fun`). Re-run the
+        // dispatch resolution here so the LSP still gets a
+        // `ClassDispatch` entry — without emitting class constraints,
+        // since those are the typed-path's responsibility.
+        if let Some(info) = class_method_info {
+            let _ = self.propagate_resolved_class_call_effects(info);
+        }
+        result
     }
 
     /// Infer calls where callee type resolves to `Fun`.
@@ -412,6 +430,7 @@ impl<'a> InferCtx<'a> {
                     class_name,
                     method_name: *name,
                     first_arg_id,
+                    function_expr_id: function.expr_id(),
                     span,
                 })
             }
@@ -433,6 +452,7 @@ impl<'a> InferCtx<'a> {
                     class_name,
                     method_name: *member,
                     first_arg_id,
+                    function_expr_id: function.expr_id(),
                     span,
                 })
             }
@@ -463,6 +483,22 @@ impl<'a> InferCtx<'a> {
                     &first_arg_ty,
                     self.interner,
                 )?;
+
+            // Record the dispatch so the LSP can route F12 from
+            // `show(42)` to the matching `instance Show<Int>` arm.
+            // Reads the head identifier directly off the instance's
+            // syntactic `type_args[0]` — same shape
+            // `ClassEnv::head_type_name` uses (src/types/class_env.rs:684).
+            if let Some(TypeExpr::Named { name: head, .. }) = instance.type_args.first() {
+                self.class_method_dispatch.insert(
+                    info.function_expr_id,
+                    ClassDispatch {
+                        class_name: info.class_name,
+                        head_type_ctor: *head,
+                        method_name: info.method_name,
+                    },
+                );
+            }
 
             let type_key = instance
                 .type_args

@@ -1,16 +1,22 @@
 use std::collections::HashMap;
 
-use flux::diagnostics::position::Span as FluxSpan;
+use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
 use flux::syntax::Identifier;
 use flux::syntax::interner::Interner;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 
+use crate::locator::decl_name_start;
+
 /// Index of top-level definitions in one file.
 ///
-/// Maps the identifier symbol to (definition span, resolved name). The name is
-/// retained so handlers can look up by string without round-tripping through
-/// the interner.
+/// Maps the identifier symbol to a definition entry carrying both span
+/// extents the LSP cares about — `full_span` for the whole declaration
+/// (peek-definition's outer highlight) and `focus_span` for the
+/// identifier text alone (the inner highlight). Modeled after GHC's
+/// `NameAnn`/`EpAnn` split (`compiler/GHC/Parser/Annotation.hs:581-635`):
+/// the outer anchor and the inner identifier span are first-class and
+/// distinct.
 pub struct SymbolIndex {
     by_id: HashMap<Identifier, Entry>,
     by_name: HashMap<String, Entry>,
@@ -19,7 +25,14 @@ pub struct SymbolIndex {
 #[derive(Clone)]
 pub struct Entry {
     pub name: String,
-    pub span: FluxSpan,
+    /// Whole declaration extent: signature + body for `fn`, the entire
+    /// `let x = expr` for `let`, the whole `data ... { ... }` block, etc.
+    /// LSP `target_range` uses this so peek-view shows the full context.
+    pub full_span: FluxSpan,
+    /// Identifier-only sub-span — the position of just `foo` in
+    /// `fn foo(x, y) { ... }`. LSP `target_selection_range` uses this so
+    /// peek-view highlights only the name when the user lands.
+    pub focus_span: FluxSpan,
 }
 
 impl SymbolIndex {
@@ -27,13 +40,14 @@ impl SymbolIndex {
         let mut by_id = HashMap::new();
         let mut by_name = HashMap::new();
         for stmt in &program.statements {
-            if let Some((sym, span)) = top_level_definition(stmt)
+            if let Some((sym, full_span, focus_span)) = top_level_definition(stmt, interner)
                 && let Some(name) = interner.try_resolve(sym)
                 && !name.is_empty()
             {
                 let entry = Entry {
                     name: name.to_string(),
-                    span,
+                    full_span,
+                    focus_span,
                 };
                 by_id.insert(sym, entry.clone());
                 by_name.insert(name.to_string(), entry);
@@ -55,18 +69,67 @@ impl SymbolIndex {
     }
 }
 
-fn top_level_definition(stmt: &Statement) -> Option<(Identifier, FluxSpan)> {
-    match stmt {
-        Statement::Let { name, span, .. }
-        | Statement::Function { name, span, .. }
-        | Statement::Module { name, span, .. }
-        | Statement::Data { name, span, .. }
-        | Statement::EffectDecl { name, span, .. }
-        | Statement::EffectAlias { name, span, .. }
-        | Statement::Class { name, span, .. } => Some((*name, *span)),
-        Statement::TypeAlias(alias) => Some((alias.name, alias.span)),
-        _ => None,
-    }
+/// Top-level declarations whose name we index. Returns
+/// `(identifier_sym, full_span, focus_span)`. `focus_span` is synthesized
+/// from the statement start by skipping the declaration keyword (and
+/// `public ` prefix when present) — same calculation the locator uses
+/// when emitting `DataName` / `DeclName` nodes, lifted from
+/// `locator::decl_name_start`.
+fn top_level_definition(
+    stmt: &Statement,
+    interner: &Interner,
+) -> Option<(Identifier, FluxSpan, FluxSpan)> {
+    let (sym, full_span, focus_start) = match stmt {
+        Statement::Let {
+            is_public,
+            name,
+            span,
+            ..
+        } => (*name, *span, decl_name_start(span.start, *is_public, "let")),
+        Statement::Function {
+            is_public,
+            name,
+            span,
+            ..
+        } => (*name, *span, decl_name_start(span.start, *is_public, "fn")),
+        Statement::Module { name, span, .. } => {
+            // `module` has no `public` prefix in current grammar.
+            (*name, *span, decl_name_start(span.start, false, "module"))
+        }
+        Statement::Data {
+            is_public,
+            name,
+            span,
+            ..
+        } => (*name, *span, decl_name_start(span.start, *is_public, "data")),
+        Statement::EffectDecl { name, span, .. } => {
+            (*name, *span, decl_name_start(span.start, false, "effect"))
+        }
+        Statement::EffectAlias { name, span, .. } => {
+            (*name, *span, decl_name_start(span.start, false, "alias"))
+        }
+        Statement::Class {
+            is_public,
+            name,
+            span,
+            ..
+        } => (*name, *span, decl_name_start(span.start, *is_public, "class")),
+        Statement::TypeAlias(alias) => (
+            alias.name,
+            alias.span,
+            decl_name_start(alias.span.start, false, "type"),
+        ),
+        _ => return None,
+    };
+    let name_len = interner.try_resolve(sym).map(str::len).unwrap_or(0);
+    let focus_span = FluxSpan {
+        start: focus_start,
+        end: FluxPosition {
+            line: focus_start.line,
+            column: focus_start.column + name_len,
+        },
+    };
+    Some((sym, full_span, focus_span))
 }
 
 impl SymbolIndex {
@@ -74,6 +137,11 @@ impl SymbolIndex {
     /// variant names to their declaration spans. Used for cross-declaration
     /// goto-definition (e.g. F12 on `perform Emit(x)` → jumps to the `Emit`
     /// op inside its `effect` block).
+    ///
+    /// For ops and variants the parser already records a name-only span on
+    /// the `EffectOp` / `DataVariant` nodes, so `focus_span` and `full_span`
+    /// coincide — the locator's `EffectOpName` / `DataVariantName` emission
+    /// uses the same span.
     pub fn build_extended(program: &Program, interner: &Interner) -> Self {
         let mut idx = Self::build(program, interner);
         for stmt in &program.statements {
@@ -81,7 +149,11 @@ impl SymbolIndex {
                 Statement::EffectDecl { ops, .. } => {
                     for op in ops {
                         if let Some(name) = interner.try_resolve(op.name) {
-                            let entry = Entry { name: name.to_string(), span: op.span };
+                            let entry = Entry {
+                                name: name.to_string(),
+                                full_span: op.span,
+                                focus_span: op.span,
+                            };
                             idx.by_id.insert(op.name, entry.clone());
                             idx.by_name.insert(name.to_string(), entry);
                         }
@@ -90,7 +162,11 @@ impl SymbolIndex {
                 Statement::Data { variants, .. } => {
                     for v in variants {
                         if let Some(name) = interner.try_resolve(v.name) {
-                            let entry = Entry { name: name.to_string(), span: v.span };
+                            let entry = Entry {
+                                name: name.to_string(),
+                                full_span: v.span,
+                                focus_span: v.span,
+                            };
                             idx.by_id.insert(v.name, entry.clone());
                             idx.by_name.insert(name.to_string(), entry);
                         }

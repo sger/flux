@@ -2661,7 +2661,7 @@ impl Compiler {
         }
     }
 
-    fn collect_class_declarations(&mut self, program: &Program) {
+    pub(in crate::compiler) fn collect_class_declarations(&mut self, program: &Program) {
         // Register built-in classes first so that `deriving` clauses in the
         // program can reference them (Eq, Ord, Num, Show, Semigroup).
         let mut env = crate::types::class_env::ClassEnv::new();
