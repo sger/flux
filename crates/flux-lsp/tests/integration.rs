@@ -4,28 +4,24 @@
 //! `lsp_server::Connection`, no worker threads. One end-to-end test still goes
 //! through `Connection::memory()` to guard the JSON-RPC wiring in [`Server`].
 
-use std::fs;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId};
 use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CompletionParams, CompletionResponse, DidChangeWatchedFilesParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbolParams, FileChangeType,
-    FileEvent, FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams,
-    InitializedParams, PartialResultParams, Position, ReferenceContext, ReferenceParams,
-    RenameParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
-    WorkDoneProgressParams, WorkspaceSymbolParams,
+    ClientCapabilities, CompletionParams, CompletionResponse, DidOpenTextDocumentParams,
+    DocumentFormattingParams, DocumentSymbolParams, FormattingOptions, GotoDefinitionParams,
+    HoverParams, InitializeParams, InitializedParams, PartialResultParams, Position,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
+    WorkDoneProgressParams,
 };
 use serde_json::Value;
 
 use flux_lsp::line_index::PositionEncoding;
-use flux_lsp::workspace::{WorkspaceRoot, path_to_uri};
 use flux_lsp::{GlobalState, Server, server_capabilities};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,31 +45,6 @@ fn open(state: &mut GlobalState, uri: &Uri, text: &str) {
 
 fn ident(uri: &Uri) -> TextDocumentIdentifier {
     TextDocumentIdentifier { uri: uri.clone() }
-}
-
-fn temp_workspace(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "flux_lsp_{name}_{}_{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).unwrap();
-    root
-}
-
-fn state_for_root(root: &PathBuf) -> GlobalState {
-    let uri = path_to_uri(root).unwrap();
-    GlobalState::with_workspace_roots(
-        PositionEncoding::Utf16,
-        vec![WorkspaceRoot {
-            path: root.clone(),
-            uri,
-        }],
-    )
 }
 
 /// Lower a `GotoDefinitionResponse` to a single `Location` for tests
@@ -120,7 +91,7 @@ fn initialize_handshake_advertises_capabilities() {
     let server_thread = thread::spawn(move || {
         let caps = serde_json::to_value(server_capabilities(PositionEncoding::Utf16)).unwrap();
         let _params = server_conn.initialize(caps).expect("server initialize");
-        let server = Server::new(server_conn, PositionEncoding::Utf16, Vec::new());
+        let server = Server::new(server_conn, PositionEncoding::Utf16);
         server.run().expect("server run");
     });
 
@@ -239,146 +210,6 @@ fn did_open_clean_source_publishes_no_diagnostics() {
         "expected zero diagnostics, got {:?}",
         diags.diagnostics
     );
-}
-
-#[test]
-fn workspace_load_publishes_diagnostics_for_all_files() {
-    let root = temp_workspace("diagnostics");
-    fs::write(root.join("Good.flx"), "fn good() { 1 }\n").unwrap();
-    fs::write(root.join("Broken.flx"), "}\n").unwrap();
-
-    let state = state_for_root(&root);
-    let diags = state.workspace_diagnostics();
-    assert_eq!(diags.len(), 2);
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.uri.as_str().ends_with("Broken.flx") && !d.diagnostics.is_empty()),
-        "expected diagnostics for Broken.flx, got {diags:?}"
-    );
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.uri.as_str().ends_with("Good.flx") && d.diagnostics.is_empty()),
-        "expected clean diagnostics for Good.flx, got {diags:?}"
-    );
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn workspace_symbols_include_multiple_files() {
-    let root = temp_workspace("symbols");
-    fs::write(root.join("A.flx"), "fn alpha() { 1 }\n").unwrap();
-    fs::write(root.join("B.flx"), "fn beta() { 2 }\n").unwrap();
-
-    let state = state_for_root(&root);
-    let response = state
-        .handle_workspace_symbol(WorkspaceSymbolParams {
-            query: String::new(),
-            work_done_progress_params: WorkDoneProgressParams::default(),
-            partial_result_params: PartialResultParams::default(),
-        })
-        .expect("workspace symbols");
-    let names: Vec<String> = match response {
-        lsp_types::WorkspaceSymbolResponse::Flat(symbols) => {
-            symbols.into_iter().map(|s| s.name).collect()
-        }
-        other => panic!("unexpected symbol response: {other:?}"),
-    };
-    assert!(names.contains(&"alpha".to_string()), "{names:?}");
-    assert!(names.contains(&"beta".to_string()), "{names:?}");
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn workspace_goto_references_and_rename_cross_files() {
-    let root = temp_workspace("xrefs");
-    let a_path = root.join("A.flx");
-    let b_path = root.join("B.flx");
-    fs::write(&a_path, "fn foo() { 1 }\n").unwrap();
-    fs::write(&b_path, "fn bar() { foo() }\n").unwrap();
-    let a_uri = path_to_uri(&a_path).unwrap();
-    let b_uri = path_to_uri(&b_path).unwrap();
-
-    let mut state = state_for_root(&root);
-    open(&mut state, &b_uri, "fn bar() { foo() }\n");
-
-    let def = state
-        .handle_definition(GotoDefinitionParams {
-            text_document_position_params: TextDocumentPositionParams {
-                text_document: ident(&b_uri),
-                position: Position::new(0, 11),
-            },
-            work_done_progress_params: WorkDoneProgressParams::default(),
-            partial_result_params: PartialResultParams::default(),
-        })
-        .expect("cross-file definition");
-    let loc = expect_location(def);
-    assert_eq!(loc.uri, a_uri);
-
-    let refs = state.handle_references(ReferenceParams {
-        text_document_position: TextDocumentPositionParams {
-            text_document: ident(&b_uri),
-            position: Position::new(0, 11),
-        },
-        work_done_progress_params: WorkDoneProgressParams::default(),
-        partial_result_params: PartialResultParams::default(),
-        context: ReferenceContext {
-            include_declaration: true,
-        },
-    });
-    assert!(refs.iter().any(|r| r.uri == a_uri), "{refs:?}");
-    assert!(refs.iter().any(|r| r.uri == b_uri), "{refs:?}");
-
-    let edit = state
-        .handle_rename(RenameParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: ident(&b_uri),
-                position: Position::new(0, 11),
-            },
-            new_name: "renamed".to_string(),
-            work_done_progress_params: WorkDoneProgressParams::default(),
-        })
-        .expect("cross-file rename");
-    let changes = match edit.document_changes.expect("document changes") {
-        lsp_types::DocumentChanges::Edits(edits) => edits,
-        other => panic!("unexpected document changes: {other:?}"),
-    };
-    assert!(changes.iter().any(|e| e.text_document.uri == a_uri));
-    assert!(changes.iter().any(|e| e.text_document.uri == b_uri));
-
-    let _ = fs::remove_dir_all(root);
-}
-
-#[test]
-fn workspace_watcher_create_and_delete_updates_index() {
-    let root = temp_workspace("watcher");
-    let path = root.join("New.flx");
-    let uri = path_to_uri(&path).unwrap();
-    let mut state = state_for_root(&root);
-    assert!(state.workspace.symbols("made").is_empty());
-
-    fs::write(&path, "fn made() { 1 }\n").unwrap();
-    state.handle_did_change_watched_files(DidChangeWatchedFilesParams {
-        changes: vec![FileEvent {
-            uri: uri.clone(),
-            typ: FileChangeType::CREATED,
-        }],
-    });
-    assert_eq!(state.workspace.symbols("made").len(), 1);
-
-    fs::remove_file(&path).unwrap();
-    state.handle_did_change_watched_files(DidChangeWatchedFilesParams {
-        changes: vec![FileEvent {
-            uri,
-            typ: FileChangeType::DELETED,
-        }],
-    });
-    assert!(state.workspace.symbols("made").is_empty());
-
-    let _ = fs::remove_dir_all(root);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -643,7 +474,11 @@ fn goto_definition_resolves_import_alias_use_site() {
     // `import` line that introduced it.
     let mut state = GlobalState::default();
     let u = uri("file:///alias_use.flx");
-    open(&mut state, &u, "import Flow.Array as A\nlet x = A.length\n");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as A\nlet x = A.length\n",
+    );
 
     let resp = state
         .handle_definition(GotoDefinitionParams {
@@ -674,7 +509,11 @@ fn goto_definition_resolves_aliased_module_member() {
     // entry keyed by the short name `"Array"`.
     let mut state = GlobalState::default();
     let u = uri("file:///alias_mem.flx");
-    open(&mut state, &u, "import Flow.Array as A\nlet x = A.length\n");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as A\nlet x = A.length\n",
+    );
 
     let resp = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -741,7 +580,11 @@ fn goto_definition_resolves_effect_row_var() {
     // binding site, the binder and the use are the same location.
     let mut state = GlobalState::default();
     let u = uri("file:///rowvar.flx");
-    open(&mut state, &u, "fn f() with Console, |e { 1 }\n");
+    open(
+        &mut state,
+        &u,
+        "fn f() with Console, |e { 1 }\n",
+    );
 
     let resp = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -792,8 +635,9 @@ fn goto_definition_resolves_class_method_to_instance() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    let resp = resp
-        .expect("class-method dispatch should resolve `same(1, 2)` against `instance Eqish<Int>`");
+    let resp = resp.expect(
+        "class-method dispatch should resolve `same(1, 2)` against `instance Eqish<Int>`",
+    );
     let loc = expect_location(resp);
     assert_eq!(loc.uri, u);
     // Instance arm `fn same(x, y) { x == y }` is on line 4 (0-based);
@@ -1177,7 +1021,11 @@ fn hover_on_sleep_in_full_async_example_resolves_unit() {
     // and might mask a percent-decode bug in `parent_dir_of_uri`.
     let raw = buf_path.display().to_string().replace('\\', "/");
     let uri_str = if raw.chars().nth(1) == Some(':') {
-        format!("file:///{}%3A{}", &raw[..1], &raw[2..])
+        format!(
+            "file:///{}%3A{}",
+            &raw[..1],
+            &raw[2..]
+        )
     } else {
         format!("file:///{}", raw)
     };
@@ -1321,11 +1169,7 @@ fn hover_on_member_access_member_returns_field_label() {
 fn hover_on_data_declaration_name_returns_data_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///data.flx");
-    open(
-        &mut state,
-        &u,
-        "data Person { Person { name: String, age: Int } }\n",
-    );
+    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\n");
     // `Person` (data name) starts at column 6 (character 5 zero-indexed).
     let value = hover_markup(&mut state, &u, 0, 6).expect("hover on data name");
     assert!(
@@ -1338,11 +1182,7 @@ fn hover_on_data_declaration_name_returns_data_label() {
 fn hover_on_import_name_returns_module_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///imp.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n",
-    );
+    open(&mut state, &u, "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n");
     // Cursor on `Async` in `Flow.Async` — column 13 (character 12).
     let value = hover_markup(&mut state, &u, 0, 12).expect("hover on import name");
     assert!(
@@ -1430,11 +1270,7 @@ fn hover_on_new_keywords_returns_specific_docs() {
     // — they now route through the AST path and surface the inferred
     // type (see `hover_on_builtin_constructor_returns_inferred_type`).
     let cases: &[(&str, &str, &str)] = &[
-        (
-            "deriving",
-            "data X { A, B } deriving (Eq)\n",
-            "Auto-generate",
-        ),
+        ("deriving", "data X { A, B } deriving (Eq)\n", "Auto-generate"),
         ("type", "type T = Int\n", "transparent type alias"),
         ("where", "let x = a where a = 1\n", "let-binding"),
         (
@@ -1443,11 +1279,7 @@ fn hover_on_new_keywords_returns_specific_docs() {
             "first ready",
         ),
         ("sealing", "fn f() { x sealing { Console } }\n", "Restrict"),
-        (
-            "primop",
-            "intrinsic fn p() = primop X\n",
-            "compiler primitive",
-        ),
+        ("primop", "intrinsic fn p() = primop X\n", "compiler primitive"),
         // Newly added contextual keywords.
         (
             "ambient",
@@ -1459,11 +1291,7 @@ fn hover_on_new_keywords_returns_specific_docs() {
             "import Flow.Math exposing (..) except (sqrt)\n",
             "Exclude members",
         ),
-        (
-            "end",
-            "module M\n    public fn f() { 1 }\nend\n",
-            "terminator",
-        ),
+        ("end", "module M\n    public fn f() { 1 }\nend\n", "terminator"),
         (
             "resume",
             "handle counter() with { get() -> resume(0) }\n",
@@ -1581,10 +1409,7 @@ fn completion_in_with_clause_lists_effect_labels() {
         CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
         CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
     };
-    assert!(
-        labels.iter().any(|l| l == "IO"),
-        "expected IO in {labels:?}"
-    );
+    assert!(labels.iter().any(|l| l == "IO"), "expected IO in {labels:?}");
     assert!(
         labels.iter().any(|l| l == "Async"),
         "expected Async in {labels:?}"

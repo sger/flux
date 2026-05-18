@@ -6,8 +6,8 @@ use flux::syntax::block::Block;
 use flux::syntax::expression::Pattern;
 use flux::syntax::statement::Statement;
 use flux::types::infer_type::InferType;
-use line_index::TextSize;
 use lsp_types::{InlayHint, InlayHintKind, InlayHintLabel};
+use line_index::TextSize;
 
 use crate::snapshot::Snapshot;
 
@@ -39,7 +39,8 @@ fn collect_from_stmts(
                 if type_annotation.is_none() {
                     if let Some(ty) = infer.expr_types.get(&value.expr_id()) {
                         let label = format!(": {}", display_infer_type(ty, &snapshot.interner));
-                        let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
+                        let name_text =
+                            snapshot.interner.try_resolve(*name).unwrap_or("");
                         let keyword_len = if *is_public {
                             "public let ".len()
                         } else {
@@ -91,7 +92,8 @@ fn collect_from_stmts(
                             };
                             let label =
                                 format!(": {}", display_infer_type(param_ty, &snapshot.interner));
-                            let Some(position) = find_param_hint_position(snapshot, *span, *param)
+                            let Some(position) =
+                                find_param_hint_position(snapshot, *span, *param)
                             else {
                                 continue;
                             };
@@ -199,9 +201,7 @@ fn find_param_hint_position(
     let text = snapshot.text.as_ref();
     let after_fn = text.get(fn_start_offset..)?;
     let paren_pos = after_fn.find('(')?;
-    let close_paren = after_fn[paren_pos..]
-        .find(')')
-        .unwrap_or(after_fn.len() - paren_pos);
+    let close_paren = after_fn[paren_pos..].find(')').unwrap_or(after_fn.len() - paren_pos);
     let params_region = after_fn.get(paren_pos..paren_pos + close_paren)?;
     let rel = find_word_end(params_region, param_name)?;
     let byte_offset = fn_start_offset + paren_pos + rel;
