@@ -1,6 +1,5 @@
 use anyhow::Result;
 use flux_lsp::line_index::{PositionEncoding, negotiate_encoding};
-use flux_lsp::workspace::workspace_roots_from_initialize;
 use flux_lsp::{Server, server_capabilities};
 use lsp_server::Connection;
 use lsp_types::{InitializeParams, InitializeResult, ServerInfo};
@@ -15,7 +14,6 @@ fn main() -> Result<()> {
     let (initialize_id, initialize_params) = connection.initialize_start()?;
     let params: InitializeParams = serde_json::from_value(initialize_params)?;
     let encoding = pick_encoding(&params);
-    let workspace_roots = workspace_roots_from_initialize(&params);
     tracing::debug!(?encoding, "negotiated position encoding");
 
     let initialize_result = InitializeResult {
@@ -27,7 +25,7 @@ fn main() -> Result<()> {
     };
     connection.initialize_finish(initialize_id, serde_json::to_value(initialize_result)?)?;
 
-    let server = Server::new(connection, encoding, workspace_roots);
+    let server = Server::new(connection, encoding);
     server.run()?;
 
     io_threads.join()?;

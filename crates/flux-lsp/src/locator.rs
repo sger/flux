@@ -222,13 +222,7 @@ fn enclosing_call_expr<'a>(
     target: FluxPosition,
     best: &mut Option<(&'a Expression, usize, u64)>,
 ) {
-    if let Expression::Call {
-        function,
-        arguments,
-        span,
-        ..
-    } = expr
-    {
+    if let Expression::Call { function, arguments, span, .. } = expr {
         // Cursor must be inside the call span but outside the function sub-expression.
         if position_in_span(target, *span) && !position_in_span(target, function.span()) {
             // Determine which argument slot the cursor is in.
@@ -262,12 +256,7 @@ fn enclosing_call_expr<'a>(
                 enclosing_call_expr(right, target, best);
             }
             Expression::Prefix { right, .. } => enclosing_call_expr(right, target, best),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 enclosing_call_expr(condition, target, best);
                 for s in &consequence.statements {
                     enclosing_call_stmt(s, target, best);
@@ -278,9 +267,7 @@ fn enclosing_call_expr<'a>(
                     }
                 }
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 enclosing_call_expr(scrutinee, target, best);
                 for arm in arms {
                     enclosing_call_expr(&arm.body, target, best);
@@ -547,10 +534,10 @@ impl<'ast> Finder<'ast, '_> {
                 self.record_name_at(
                     FluxPosition {
                         line: ty_span.start.line,
-                        column: ty_span
-                            .start
-                            .column
-                            .saturating_sub(field_name_text_len(self.interner, *field_name) + 2),
+                        column: ty_span.start.column.saturating_sub(field_name_text_len(
+                            self.interner,
+                            *field_name,
+                        ) + 2),
                     },
                     *field_name,
                     |s| NodeRef::DataFieldName {
@@ -778,12 +765,10 @@ impl<'ast> Finder<'ast, '_> {
         field: &'ast NamedFieldInit,
         parent_constructor: Option<Identifier>,
     ) {
-        self.record_name_at(field.span.start, field.name, |s| {
-            NodeRef::NamedFieldInitName {
-                field_name: field.name,
-                parent_constructor,
-                span: s,
-            }
+        self.record_name_at(field.span.start, field.name, |s| NodeRef::NamedFieldInitName {
+            field_name: field.name,
+            parent_constructor,
+            span: s,
         });
         if let Some(v) = &field.value {
             self.visit_expr(v);
@@ -937,9 +922,7 @@ fn span_extent(span: FluxSpan) -> u64 {
         // line-delta count; this is a stable tiebreaker.
         u64::from(u32::MAX)
     };
-    line_delta
-        .saturating_mul(1_000_000)
-        .saturating_add(col_delta)
+    line_delta.saturating_mul(1_000_000).saturating_add(col_delta)
 }
 
 fn type_span(ty: &TypeExpr) -> FluxSpan {
@@ -953,6 +936,7 @@ fn type_span(ty: &TypeExpr) -> FluxSpan {
 fn field_name_text_len(interner: &Interner, name: Identifier) -> usize {
     interner.try_resolve(name).map(|s| s.len()).unwrap_or(0)
 }
+
 
 #[cfg(test)]
 mod tests {

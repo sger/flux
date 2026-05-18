@@ -80,18 +80,22 @@ impl Prelude {
         let mut module_programs: HashMap<String, (Program, Arc<str>, PathBuf)> = HashMap::new();
         if let Some(ref flow_dir) = primed.flow_dir {
             for qualified in &loaded_modules {
-                let Some(source_path) = lsp_support::flow_module_file_for(flow_dir, qualified)
-                else {
+                let Some(source_path) = lsp_support::flow_module_file_for(flow_dir, qualified) else {
                     continue;
                 };
                 let Ok(source) = std::fs::read_to_string(&source_path) else {
                     continue;
                 };
                 let source_arc: Arc<str> = source.into();
-                let program =
-                    lsp_support::parse_module_for_goto_def(&mut compiler, source_arc.as_ref());
+                let program = lsp_support::parse_module_for_goto_def(
+                    &mut compiler,
+                    source_arc.as_ref(),
+                );
                 let short = qualified.rsplit('.').next().unwrap_or(qualified.as_str());
-                module_programs.insert(short.to_string(), (program, source_arc, source_path));
+                module_programs.insert(
+                    short.to_string(),
+                    (program, source_arc, source_path),
+                );
             }
         }
 

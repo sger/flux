@@ -1,4 +1,3 @@
-pub mod analysis;
 pub mod capabilities;
 pub mod convert;
 pub mod document;
@@ -13,7 +12,6 @@ pub mod prelude;
 pub mod server;
 pub mod snapshot;
 pub mod symbol_index;
-pub mod workspace;
 
 pub use capabilities::server_capabilities;
 pub use global_state::GlobalState;
