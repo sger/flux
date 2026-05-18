@@ -549,7 +549,8 @@ mod tests {
     /// specific positions (after `import`, inside `sealing { ... }`,
     /// inside a `handle` arm) but that aren't lexer-reserved. Each must
     /// have a hover entry; the drift test enforces this.
-    const CONTEXTUAL_KEYWORDS: &[&str] = &["ambient", "end", "except", "exposing", "resume"];
+    const CONTEXTUAL_KEYWORDS: &[&str] =
+        &["ambient", "end", "except", "exposing", "resume"];
 
     #[test]
     fn known_keywords_have_docs() {

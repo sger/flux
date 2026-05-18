@@ -67,10 +67,6 @@ impl SymbolIndex {
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.by_name.keys().map(|s| s.as_str())
     }
-
-    pub fn entries(&self) -> impl Iterator<Item = &Entry> {
-        self.by_name.values()
-    }
 }
 
 /// Top-level declarations whose name we index. Returns
@@ -105,11 +101,7 @@ fn top_level_definition(
             name,
             span,
             ..
-        } => (
-            *name,
-            *span,
-            decl_name_start(span.start, *is_public, "data"),
-        ),
+        } => (*name, *span, decl_name_start(span.start, *is_public, "data")),
         Statement::EffectDecl { name, span, .. } => {
             (*name, *span, decl_name_start(span.start, false, "effect"))
         }
@@ -121,11 +113,7 @@ fn top_level_definition(
             name,
             span,
             ..
-        } => (
-            *name,
-            *span,
-            decl_name_start(span.start, *is_public, "class"),
-        ),
+        } => (*name, *span, decl_name_start(span.start, *is_public, "class")),
         Statement::TypeAlias(alias) => (
             alias.name,
             alias.span,

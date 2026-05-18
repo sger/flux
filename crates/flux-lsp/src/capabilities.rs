@@ -2,7 +2,6 @@ use lsp_types::{
     CompletionOptions, DefinitionOptions, HoverProviderCapability, OneOf, RenameOptions,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
     ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    WorkspaceSymbolOptions,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -35,24 +34,20 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         }),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
-        workspace_symbol_provider: Some(OneOf::Right(WorkspaceSymbolOptions {
-            resolve_provider: Some(false),
-            work_done_progress_options: Default::default(),
-        })),
         inlay_hint_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(false),
             work_done_progress_options: Default::default(),
         })),
-        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
-            SemanticTokensOptions {
+        semantic_tokens_provider: Some(
+            SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
                 legend: semantic_tokens_legend(),
                 full: Some(SemanticTokensFullOptions::Bool(true)),
                 range: None,
                 work_done_progress_options: Default::default(),
-            },
-        )),
+            }),
+        ),
         ..Default::default()
     }
 }

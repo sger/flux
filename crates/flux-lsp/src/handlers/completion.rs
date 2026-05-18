@@ -1,10 +1,10 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
 use flux::diagnostics::position::Span as FluxSpan;
-use flux::syntax::Identifier;
 use flux::syntax::block::Block;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::interner::Interner;
 use flux::syntax::statement::Statement;
+use flux::syntax::Identifier;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionResponse, Position};
 
 use crate::line_index::PositionMap;
@@ -16,23 +16,8 @@ const KEYWORDS: &[&str] = &[
 ];
 
 const BUILTIN_EFFECTS: &[&str] = &[
-    "IO",
-    "Time",
-    "Async",
-    "Console",
-    "FileSystem",
-    "Stdin",
-    "Clock",
-    "Random",
-    "NonDet",
-    "Div",
-    "Exn",
-    "Panic",
-    "Debug",
-    "Suspend",
-    "Fork",
-    "GetContext",
-    "AsyncFail",
+    "IO", "Time", "Async", "Console", "FileSystem", "Stdin", "Clock", "Random", "NonDet", "Div",
+    "Exn", "Panic", "Debug", "Suspend", "Fork", "GetContext", "AsyncFail",
 ];
 
 const BUILTIN_TYPES: &[&str] = &[
@@ -48,10 +33,12 @@ pub fn complete(snapshot: &Snapshot, position: Position) -> CompletionResponse {
     match ctx {
         CompletionContext::ModuleMember(m) => module_member_items(snapshot, &m),
         CompletionContext::DotAccess(v) => {
-            record_field_items(snapshot, v).unwrap_or_else(|| expr_items(snapshot, position, None))
+            record_field_items(snapshot, v)
+                .unwrap_or_else(|| expr_items(snapshot, position, None))
         }
         CompletionContext::ConstructorField(v) => {
-            record_field_items(snapshot, v).unwrap_or_else(|| expr_items(snapshot, position, None))
+            record_field_items(snapshot, v)
+                .unwrap_or_else(|| expr_items(snapshot, position, None))
         }
         CompletionContext::EffectRow => effect_row_items(snapshot),
         CompletionContext::TypeAnnotation => type_annotation_items(snapshot),
@@ -174,14 +161,7 @@ fn top_level_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
                         .get(&key)
                         .map(|s| render_scheme_canonical(&snapshot.interner, s))
                 });
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::FUNCTION,
-                    detail,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::FUNCTION, detail, "1_", &mut items);
             }
             Statement::Let { name, value, .. } => {
                 let detail = infer.and_then(|r| {
@@ -189,74 +169,25 @@ fn top_level_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
                         .get(&value.expr_id())
                         .map(|ty| display_infer_type(ty, &snapshot.interner))
                 });
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::VARIABLE,
-                    detail,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::VARIABLE, detail, "1_", &mut items);
             }
             Statement::Data { name, variants, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::STRUCT,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::STRUCT, None, "1_", &mut items);
                 for v in variants {
-                    push_item(
-                        &snapshot.interner,
-                        v.name,
-                        CompletionItemKind::CONSTRUCTOR,
-                        None,
-                        "1_",
-                        &mut items,
-                    );
+                    push_item(&snapshot.interner, v.name, CompletionItemKind::CONSTRUCTOR, None, "1_", &mut items);
                 }
             }
             Statement::Module { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::MODULE,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::MODULE, None, "1_", &mut items);
             }
             Statement::EffectDecl { name, .. } | Statement::EffectAlias { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::INTERFACE,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::INTERFACE, None, "1_", &mut items);
             }
             Statement::TypeAlias(a) => {
-                push_item(
-                    &snapshot.interner,
-                    a.name,
-                    CompletionItemKind::TYPE_PARAMETER,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, a.name, CompletionItemKind::TYPE_PARAMETER, None, "1_", &mut items);
             }
             Statement::Class { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::INTERFACE,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::INTERFACE, None, "1_", &mut items);
             }
             _ => {}
         }
@@ -280,16 +211,15 @@ fn module_member_items(snapshot: &Snapshot, module_name: &str) -> CompletionResp
     CompletionResponse::Array(items)
 }
 
-fn record_field_items(snapshot: &Snapshot, variant: Identifier) -> Option<CompletionResponse> {
+fn record_field_items(
+    snapshot: &Snapshot,
+    variant: Identifier,
+) -> Option<CompletionResponse> {
     let fields = snapshot.variant_fields.get(&variant)?;
     let items: Vec<CompletionItem> = fields
         .iter()
         .map(|(field_name, ty)| CompletionItem {
-            label: snapshot
-                .interner
-                .try_resolve(*field_name)
-                .unwrap_or("?")
-                .to_string(),
+            label: snapshot.interner.try_resolve(*field_name).unwrap_or("?").to_string(),
             kind: Some(CompletionItemKind::FIELD),
             detail: Some(ty.display_with(&snapshot.interner)),
             ..Default::default()
@@ -327,15 +257,12 @@ fn perform_op_items(snapshot: &Snapshot) -> CompletionResponse {
                 .iter()
                 .filter_map(|stmt| {
                     if let Statement::EffectDecl { name, .. } = stmt {
-                        snapshot
-                            .interner
-                            .try_resolve(*name)
-                            .map(|n| CompletionItem {
-                                label: n.to_string(),
-                                kind: Some(CompletionItemKind::INTERFACE),
-                                detail: Some("effect".to_string()),
-                                ..Default::default()
-                            })
+                        snapshot.interner.try_resolve(*name).map(|n| CompletionItem {
+                            label: n.to_string(),
+                            kind: Some(CompletionItemKind::INTERFACE),
+                            detail: Some("effect".to_string()),
+                            ..Default::default()
+                        })
                     } else {
                         None
                     }
@@ -387,24 +314,10 @@ fn type_annotation_items(snapshot: &Snapshot) -> CompletionResponse {
     for stmt in &snapshot.program.statements {
         match stmt {
             Statement::Data { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::STRUCT,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::STRUCT, None, "1_", &mut items);
             }
             Statement::TypeAlias(a) => {
-                push_item(
-                    &snapshot.interner,
-                    a.name,
-                    CompletionItemKind::TYPE_PARAMETER,
-                    None,
-                    "1_",
-                    &mut items,
-                );
+                push_item(&snapshot.interner, a.name, CompletionItemKind::TYPE_PARAMETER, None, "1_", &mut items);
             }
             _ => {}
         }
@@ -423,30 +336,14 @@ fn collect_locals(
     out: &mut Vec<CompletionItem>,
 ) {
     for stmt in &snapshot.program.statements {
-        if let Statement::Function {
-            span,
-            parameters,
-            parameter_types,
-            body,
-            ..
-        } = stmt
-        {
+        if let Statement::Function { span, parameters, parameter_types, body, .. } = stmt {
             if !span_contains_offset(*span, &snapshot.position_map, cursor_offset) {
                 continue;
             }
             // Parameters
             for (param, param_ty) in parameters.iter().zip(parameter_types.iter()) {
-                let detail = param_ty
-                    .as_ref()
-                    .map(|ty| ty.display_with(&snapshot.interner));
-                push_item(
-                    &snapshot.interner,
-                    *param,
-                    CompletionItemKind::VARIABLE,
-                    detail,
-                    "0_",
-                    out,
-                );
+                let detail = param_ty.as_ref().map(|ty| ty.display_with(&snapshot.interner));
+                push_item(&snapshot.interner, *param, CompletionItemKind::VARIABLE, detail, "0_", out);
             }
             // Let bindings before cursor inside body
             collect_locals_from_block(body, snapshot, cursor_offset, out);
@@ -478,27 +375,13 @@ fn collect_locals_from_block(
                         .get(&value.expr_id())
                         .map(|ty| display_infer_type(ty, &snapshot.interner))
                 });
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::VARIABLE,
-                    detail,
-                    "0_",
-                    out,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::VARIABLE, detail, "0_", out);
             }
             Statement::LetDestructure { pattern, value, .. } => {
                 collect_pattern_bindings(pattern, value, snapshot, out);
             }
             Statement::Function { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::FUNCTION,
-                    None,
-                    "0_",
-                    out,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::FUNCTION, None, "0_", out);
             }
             _ => {}
         }
@@ -518,14 +401,7 @@ fn collect_pattern_bindings(
                     .get(&value.expr_id())
                     .map(|ty| display_infer_type(ty, &snapshot.interner))
             });
-            push_item(
-                &snapshot.interner,
-                *name,
-                CompletionItemKind::VARIABLE,
-                detail,
-                "0_",
-                out,
-            );
+            push_item(&snapshot.interner, *name, CompletionItemKind::VARIABLE, detail, "0_", out);
         }
         Pattern::Tuple { elements, .. } => {
             for e in elements {
@@ -546,10 +422,7 @@ fn enclosing_function_span(snapshot: &Snapshot, offset: usize) -> Option<FluxSpa
             if span_contains_offset(*span, &snapshot.position_map, offset) {
                 // Check one level of nested functions
                 for inner in &body.statements {
-                    if let Statement::Function {
-                        span: inner_span, ..
-                    } = inner
-                    {
+                    if let Statement::Function { span: inner_span, .. } = inner {
                         if span_contains_offset(*inner_span, &snapshot.position_map, offset) {
                             return Some(*inner_span);
                         }
@@ -563,14 +436,8 @@ fn enclosing_function_span(snapshot: &Snapshot, offset: usize) -> Option<FluxSpa
 }
 
 fn span_contains_offset(span: FluxSpan, pos_map: &PositionMap, offset: usize) -> bool {
-    let start = pos_map
-        .flux_to_offset(span.start)
-        .map(usize::from)
-        .unwrap_or(usize::MAX);
-    let end = pos_map
-        .flux_to_offset(span.end)
-        .map(usize::from)
-        .unwrap_or(0);
+    let start = pos_map.flux_to_offset(span.start).map(usize::from).unwrap_or(usize::MAX);
+    let end = pos_map.flux_to_offset(span.end).map(usize::from).unwrap_or(0);
     offset >= start && offset <= end
 }
 
@@ -618,9 +485,7 @@ fn ident_before_dot(bytes: &[u8], off: usize) -> Option<String> {
     if start == dot_pos {
         return None;
     }
-    std::str::from_utf8(&bytes[start..dot_pos])
-        .ok()
-        .map(String::from)
+    std::str::from_utf8(&bytes[start..dot_pos]).ok().map(String::from)
 }
 
 /// Returns `true` when the text immediately before the cursor (ignoring
@@ -683,7 +548,11 @@ fn cursor_after_colon(bytes: &[u8], off: usize) -> bool {
     true
 }
 
-fn enclosing_constructor_name(snapshot: &Snapshot, bytes: &[u8], off: usize) -> Option<Identifier> {
+fn enclosing_constructor_name(
+    snapshot: &Snapshot,
+    bytes: &[u8],
+    off: usize,
+) -> Option<Identifier> {
     let mut depth: i32 = 0;
     let mut i = off;
     while i > 0 {
@@ -751,9 +620,7 @@ fn local_binding_variant_in_stmt(
 ) -> Option<Identifier> {
     if let Statement::Let { name, value, .. } = stmt
         && interner.try_resolve(*name) == Some(binding_name)
-        && let Expression::NamedConstructor {
-            name: variant_name, ..
-        } = value
+        && let Expression::NamedConstructor { name: variant_name, .. } = value
     {
         return Some(*variant_name);
     }

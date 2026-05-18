@@ -77,9 +77,7 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
                 ));
             }
             // Module member: look up the scheme from inference results.
-            if let Expression::Identifier {
-                name: module_id, ..
-            } = object
+            if let Expression::Identifier { name: module_id, .. } = object
                 && let Some(infer) = snapshot.infer.as_ref()
                 && let Some(scheme) = infer.module_member_schemes.get(&(*module_id, *member))
             {
@@ -186,21 +184,11 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("decl: {resolved}"))
         }
-        NodeRef::FunctionParameter {
-            name,
-            function_span,
-            ..
-        } => {
+        NodeRef::FunctionParameter { name, function_span, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
 
             for stmt in &snapshot.program.statements {
-                if let Statement::Function {
-                    span,
-                    parameters,
-                    parameter_types,
-                    ..
-                } = stmt
-                {
+                if let Statement::Function { span, parameters, parameter_types, .. } = stmt {
                     if *span == *function_span {
                         if let Some(idx) = parameters.iter().position(|p| *p == *name) {
                             // Prefer the written type annotation.
@@ -308,10 +296,8 @@ fn render_type_expr(ty: &TypeExpr, interner: &flux::syntax::interner::Interner) 
             effects,
             ..
         } => {
-            let params_str: Vec<String> = params
-                .iter()
-                .map(|p| render_type_expr(p, interner))
-                .collect();
+            let params_str: Vec<String> =
+                params.iter().map(|p| render_type_expr(p, interner)).collect();
             let ret_str = render_type_expr(ret, interner);
             let core = format!("({}) -> {}", params_str.join(", "), ret_str);
             if effects.is_empty() {

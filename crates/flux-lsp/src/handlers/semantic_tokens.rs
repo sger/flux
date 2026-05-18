@@ -3,7 +3,9 @@ use flux::syntax::Identifier;
 use flux::syntax::block::Block;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::statement::Statement;
-use lsp_types::{SemanticToken, SemanticTokenType, SemanticTokens, SemanticTokensLegend};
+use lsp_types::{
+    SemanticToken, SemanticTokenType, SemanticTokens, SemanticTokensLegend,
+};
 
 use crate::snapshot::Snapshot;
 
@@ -19,15 +21,15 @@ const TT_PARAMETER: u32 = 7;
 const TT_PROPERTY: u32 = 8;
 
 const TOKEN_TYPES: &[&str] = &[
-    "namespace", // 0
-    "type",      // 1
-    "struct",    // 2
-    "class",     // 3
-    "interface", // 4
-    "function",  // 5
-    "variable",  // 6
-    "parameter", // 7
-    "property",  // 8
+    "namespace",  // 0
+    "type",       // 1
+    "struct",     // 2
+    "class",      // 3
+    "interface",  // 4
+    "function",   // 5
+    "variable",   // 6
+    "parameter",  // 7
+    "property",   // 8
 ];
 
 pub fn semantic_tokens_legend() -> SemanticTokensLegend {
@@ -96,13 +98,7 @@ fn name_start(stmt_start: FluxPosition, is_public: bool, keyword: &str) -> FluxP
 
 fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
     match stmt {
-        Statement::Let {
-            name,
-            value,
-            span,
-            is_public,
-            ..
-        } => {
+        Statement::Let { name, value, span, is_public, .. } => {
             let pos = name_start(span.start, *is_public, "let");
             push_ident(snapshot, pos, *name, TT_VARIABLE, out);
             collect_expr(value, snapshot, out);
@@ -111,14 +107,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
             collect_pattern(pattern, snapshot, out);
             collect_expr(value, snapshot, out);
         }
-        Statement::Function {
-            name,
-            parameters,
-            body,
-            span,
-            is_public,
-            ..
-        } => {
+        Statement::Function { name, parameters, body, span, is_public, .. } => {
             let pos = name_start(span.start, *is_public, "fn");
             push_ident(snapshot, pos, *name, TT_FUNCTION, out);
             // Parameters: approximated from function span start + "fn <name>(" offset.
@@ -131,10 +120,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
                 let param_text = snapshot.interner.try_resolve(*param).unwrap_or("");
                 push_ident(
                     snapshot,
-                    FluxPosition {
-                        line: span.start.line,
-                        column: param_col,
-                    },
+                    FluxPosition { line: span.start.line, column: param_col },
                     *param,
                     TT_PARAMETER,
                     out,
@@ -145,13 +131,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
                 collect_stmt(s, snapshot, out);
             }
         }
-        Statement::Data {
-            name,
-            variants,
-            span,
-            is_public,
-            ..
-        } => {
+        Statement::Data { name, variants, span, is_public, .. } => {
             let pos = name_start(span.start, *is_public, "data");
             push_ident(snapshot, pos, *name, TT_STRUCT, out);
             for variant in variants {
@@ -163,9 +143,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
                 }
             }
         }
-        Statement::EffectDecl {
-            name, ops, span, ..
-        } => {
+        Statement::EffectDecl { name, ops, span, .. } => {
             let pos = name_start(span.start, false, "effect");
             push_ident(snapshot, pos, *name, TT_INTERFACE, out);
             for op in ops {
@@ -176,9 +154,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
             let pos = name_start(alias.span.start, alias.is_public, "alias");
             push_ident(snapshot, pos, alias.name, TT_TYPE, out);
         }
-        Statement::Module {
-            name, body, span, ..
-        } => {
+        Statement::Module { name, body, span, .. } => {
             let pos = name_start(span.start, false, "module");
             push_ident(snapshot, pos, *name, TT_NAMESPACE, out);
             collect_block(body, snapshot, out);
@@ -193,9 +169,7 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
         }
         Statement::Expression { expression, .. } => collect_expr(expression, snapshot, out),
         Statement::Return { value: Some(v), .. } => collect_expr(v, snapshot, out),
-        Statement::Assign {
-            name, value, span, ..
-        } => {
+        Statement::Assign { name, value, span, .. } => {
             push_ident(snapshot, span.start, *name, TT_VARIABLE, out);
             collect_expr(value, snapshot, out);
         }
@@ -205,40 +179,26 @@ fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
 
 fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
     match expr {
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             collect_expr(function, snapshot, out);
             for a in arguments {
                 collect_expr(a, snapshot, out);
             }
         }
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            ..
-        } => {
+        Expression::MemberAccess { object, member, span, .. } => {
             collect_expr(object, snapshot, out);
             // Member is at end of span; compute its start from the identifier text.
             let member_text = snapshot.interner.try_resolve(*member).unwrap_or("");
             let member_col = span.end.column.saturating_sub(member_text.len());
             push_ident(
                 snapshot,
-                FluxPosition {
-                    line: span.end.line,
-                    column: member_col,
-                },
+                FluxPosition { line: span.end.line, column: member_col },
                 *member,
                 TT_PROPERTY,
                 out,
             );
         }
-        Expression::NamedConstructor {
-            name, fields, span, ..
-        } => {
+        Expression::NamedConstructor { name, fields, span, .. } => {
             push_ident(snapshot, span.start, *name, TT_CLASS, out);
             for f in fields {
                 push_ident(snapshot, f.span.start, f.name, TT_PROPERTY, out);
@@ -247,12 +207,7 @@ fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>)
                 }
             }
         }
-        Expression::Perform {
-            operation,
-            args,
-            span,
-            ..
-        } => {
+        Expression::Perform { operation, args, span, .. } => {
             push_ident(snapshot, span.start, *operation, TT_INTERFACE, out);
             for a in args {
                 collect_expr(a, snapshot, out);
@@ -260,21 +215,14 @@ fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>)
         }
         Expression::Function { body, .. } => collect_block(body, snapshot, out),
         Expression::DoBlock { block, .. } => collect_block(block, snapshot, out),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_expr(condition, snapshot, out);
             collect_block(consequence, snapshot, out);
             if let Some(b) = alternative {
                 collect_block(b, snapshot, out);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_expr(scrutinee, snapshot, out);
             for arm in arms {
                 collect_expr(&arm.body, snapshot, out);
@@ -291,7 +239,8 @@ fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>)
                 collect_expr(&arm.body, snapshot, out);
             }
         }
-        Expression::ListLiteral { elements, .. } | Expression::ArrayLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. } => {
             for e in elements {
                 collect_expr(e, snapshot, out);
             }
@@ -301,9 +250,7 @@ fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>)
                 collect_expr(e, snapshot, out);
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             collect_expr(base, snapshot, out);
             for f in overrides {
                 push_ident(snapshot, f.span.start, f.name, TT_PROPERTY, out);
@@ -342,9 +289,7 @@ fn collect_pattern(pat: &Pattern, snapshot: &Snapshot, out: &mut Vec<RawToken>) 
                 collect_pattern(f, snapshot, out);
             }
         }
-        Pattern::NamedConstructor {
-            name, fields, span, ..
-        } => {
+        Pattern::NamedConstructor { name, fields, span, .. } => {
             push_ident(snapshot, span.start, *name, TT_CLASS, out);
             for f in fields {
                 if let Some(p) = &f.pattern {
