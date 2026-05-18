@@ -53,7 +53,9 @@ pub fn goto_definition(
     // `import Flow.Array as A` alias). Look up the member in the prelude's
     // cached program for that module and jump to its definition there.
     if let NodeRef::MemberAccessMember { object, member, .. } = &node {
-        if let Expression::Identifier { name: object_id, .. } = object
+        if let Expression::Identifier {
+            name: object_id, ..
+        } = object
             && let Some(module_short) = resolve_module_short_name(snapshot, *object_id)
             && let Some((mod_program, mod_source, mod_path)) =
                 snapshot.module_programs.get(&module_short)
@@ -99,7 +101,11 @@ pub fn goto_definition(
         && let Some((stmt_span, alias_span)) =
             find_import_alias_spans(&snapshot.program, &snapshot.interner, *name)
     {
-        let alias_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
+        let alias_text = snapshot
+            .interner
+            .try_resolve(*name)
+            .unwrap_or("")
+            .to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(stmt_span),
@@ -116,8 +122,7 @@ pub fn goto_definition(
         span,
     } = &node
     {
-        let stmt_span = find_import_stmt_span_by_alias(&snapshot.program, *alias)
-            .unwrap_or(*span);
+        let stmt_span = find_import_stmt_span_by_alias(&snapshot.program, *alias).unwrap_or(*span);
         let name = snapshot
             .interner
             .try_resolve(*qualified)
@@ -134,8 +139,8 @@ pub fn goto_definition(
         qualified, span, ..
     } = &node
     {
-        let stmt_span = find_import_stmt_span_by_qualified(&snapshot.program, *qualified)
-            .unwrap_or(*span);
+        let stmt_span =
+            find_import_stmt_span_by_qualified(&snapshot.program, *qualified).unwrap_or(*span);
         let name = snapshot
             .interner
             .try_resolve(*qualified)
@@ -153,7 +158,11 @@ pub fn goto_definition(
     // or in a `handle` clause). Jump to the binding occurrence. Focus =
     // the row var token; full = the enclosing function signature.
     if let NodeRef::EffectRowVar { name, span } = &node {
-        let name_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
+        let name_text = snapshot
+            .interner
+            .try_resolve(*name)
+            .unwrap_or("")
+            .to_string();
         if let Some((fn_span, binding_span)) =
             find_row_var_binding_with_fn(&snapshot.program, *name)
         {
@@ -205,7 +214,11 @@ pub fn goto_definition(
     // Extended index covers top-level names + effect ops + data variants.
     let extended_index = SymbolIndex::build_extended(&snapshot.program, &snapshot.interner);
     if let Some(entry) = extended_index.lookup_id(def_name) {
-        return Some(target_from_entry(uri.clone(), &snapshot.position_map, entry));
+        return Some(target_from_entry(
+            uri.clone(),
+            &snapshot.position_map,
+            entry,
+        ));
     }
 
     // Local binding walk (let/fn/parameter inside a function body).
@@ -290,7 +303,10 @@ fn enclosing_function_span(program: &Program, target: FluxPosition) -> Option<Fl
             // inside the body — so the cursor will be in the body's
             // statement spans, not in `span`. Walk both.
             if position_in_span(target, *span)
-                || body.statements.iter().any(|s| position_in_span(target, s.span()))
+                || body
+                    .statements
+                    .iter()
+                    .any(|s| position_in_span(target, s.span()))
             {
                 return Some(*span);
             }
@@ -340,7 +356,10 @@ fn enclosing_if_in_expr(expr: &Expression, target: FluxPosition) -> Option<FluxS
         // is the matching `if`. Return the if-expression's overall span
         // (start of `if`, just before the `else` keyword position).
         if let Some(alt) = alternative
-            && alt.statements.iter().any(|s| position_in_span(target, s.span()))
+            && alt
+                .statements
+                .iter()
+                .any(|s| position_in_span(target, s.span()))
         {
             return Some(*span);
         }
@@ -535,7 +554,9 @@ fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Opti
     }
     for stmt in &snapshot.program.statements {
         if let Statement::Import {
-            name, alias: Some(a), ..
+            name,
+            alias: Some(a),
+            ..
         } = stmt
             && *a == object_id
         {
@@ -702,14 +723,16 @@ fn name_span_after_keyword(
 fn find_in_pattern(pat: &Pattern, target: Identifier, binding_span: FluxSpan) -> Option<FluxSpan> {
     match pat {
         Pattern::Identifier { name, .. } if *name == target => Some(binding_span),
-        Pattern::Tuple { elements, .. } => {
-            elements.iter().find_map(|e| find_in_pattern(e, target, binding_span))
-        }
-        Pattern::Constructor { fields, .. } => {
-            fields.iter().find_map(|f| find_in_pattern(f, target, binding_span))
-        }
+        Pattern::Tuple { elements, .. } => elements
+            .iter()
+            .find_map(|e| find_in_pattern(e, target, binding_span)),
+        Pattern::Constructor { fields, .. } => fields
+            .iter()
+            .find_map(|f| find_in_pattern(f, target, binding_span)),
         Pattern::NamedConstructor { fields, .. } => fields.iter().find_map(|f| {
-            f.pattern.as_ref().and_then(|p| find_in_pattern(p, target, binding_span))
+            f.pattern
+                .as_ref()
+                .and_then(|p| find_in_pattern(p, target, binding_span))
         }),
         Pattern::Some { pattern, .. }
         | Pattern::Left { pattern, .. }

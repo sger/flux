@@ -5,10 +5,10 @@ use std::sync::Arc;
 use flux::ast::type_infer::{InferProgramResult, infer_program};
 use flux::diagnostics::Diagnostic as FluxDiagnostic;
 use flux::lsp_support;
+use flux::syntax::Identifier;
 use flux::syntax::interner::Interner;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
-use flux::syntax::Identifier;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
@@ -96,12 +96,7 @@ impl Snapshot {
         let module_short_names: HashSet<String> = prelude
             .loaded_modules
             .iter()
-            .map(|qual| {
-                qual.rsplit('.')
-                    .next()
-                    .unwrap_or(qual.as_str())
-                    .to_string()
-            })
+            .map(|qual| qual.rsplit('.').next().unwrap_or(qual.as_str()).to_string())
             .collect();
 
         // Index module members by short name for completion. Walks the
