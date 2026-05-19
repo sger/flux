@@ -15,7 +15,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use lsp_types::Uri;
@@ -54,7 +53,7 @@ pub struct Workspace {
     /// (or lazily off the first opened file when there are no roots).
     prelude: Option<Prelude>,
     encoding: PositionEncoding,
-    snapshots: HashMap<FileId, Rc<Snapshot>>,
+    snapshots: HashMap<FileId, Arc<Snapshot>>,
     /// Module-graph components, keyed by entry file. Rebuilt whenever a
     /// participating buffer changes.
     components: HashMap<FileId, GraphComponent>,
@@ -64,7 +63,9 @@ pub struct Workspace {
 }
 
 /// Directory names skipped when walking a workspace root for `.flx` files.
-const SKIP_DIRS: &[&str] = &["target", "node_modules", ".git"];
+/// Also reused by the file-watch [`loader`](crate::loader) to drop change
+/// events for generated/VCS paths.
+pub(crate) const SKIP_DIRS: &[&str] = &["target", "node_modules", ".git"];
 
 /// Maximum directory depth walked during file discovery — a guard against
 /// pathological trees and symlink loops.
@@ -131,12 +132,30 @@ impl Workspace {
         self.vfs.path(id).and_then(path_to_uri)
     }
 
-    pub fn snapshot(&self, id: FileId) -> Option<&Rc<Snapshot>> {
+    /// Cached snapshot for `id`, without building one. Used for internal
+    /// reads right after a rebuild; request handlers want
+    /// [`ensure_snapshot`](Self::ensure_snapshot) instead.
+    pub fn snapshot(&self, id: FileId) -> Option<&Arc<Snapshot>> {
         self.snapshots.get(&id)
     }
 
-    pub fn snapshot_for_uri(&self, uri: &Uri) -> Option<&Rc<Snapshot>> {
+    pub fn snapshot_for_uri(&self, uri: &Uri) -> Option<&Arc<Snapshot>> {
         self.snapshot(self.file_id(uri)?)
+    }
+
+    /// Snapshot for `id`, building it on demand from VFS content when the
+    /// file has not been analyzed yet. This is what request handlers use, so
+    /// a closed or never-opened project file still answers queries.
+    pub fn ensure_snapshot(&mut self, id: FileId) -> Option<&Arc<Snapshot>> {
+        if !self.snapshots.contains_key(&id) && self.vfs.text(id).is_some() {
+            self.rebuild(id);
+        }
+        self.snapshots.get(&id)
+    }
+
+    pub fn ensure_snapshot_for_uri(&mut self, uri: &Uri) -> Option<&Arc<Snapshot>> {
+        let id = self.file_id(uri)?;
+        self.ensure_snapshot(id)
     }
 
     /// Document version of an open buffer; `None` for files known only on disk.
@@ -169,14 +188,19 @@ impl Workspace {
         self.upsert(uri, version, text)
     }
 
-    /// Handle `textDocument/didClose`: drop the open-buffer overlay, the
-    /// cached snapshot, and any component this file was the entry of.
-    pub fn close(&mut self, uri: &Uri) {
-        if let Some(id) = self.file_id(uri) {
-            self.vfs.close(id);
-            self.snapshots.remove(&id);
-            self.components.remove(&id);
-        }
+    /// Handle `textDocument/didClose`: swap the open buffer back to its
+    /// on-disk content and drop the cached snapshot/component — a later query
+    /// rebuilds it lazily via [`ensure_snapshot`](Self::ensure_snapshot).
+    /// Returns the dependent files re-analyzed because the buffer→disk swap
+    /// may have changed their cross-file diagnostics.
+    pub fn close(&mut self, uri: &Uri) -> Vec<FileId> {
+        let Some(id) = self.file_id(uri) else {
+            return vec![];
+        };
+        self.vfs.close(id);
+        self.snapshots.remove(&id);
+        self.components.remove(&id);
+        self.reanalyze_dependents(id)
     }
 
     /// Handle a `workspace/didChangeWatchedFiles` event for one file: refresh
@@ -196,6 +220,12 @@ impl Workspace {
             // re-analysis will surface the resulting errors.
             Err(_) => return vec![],
         }
+        self.reanalyze_dependents(id)
+    }
+
+    /// Re-analyze every component that lists `id` as a member. Returns the
+    /// rebuilt files.
+    fn reanalyze_dependents(&mut self, id: FileId) -> Vec<FileId> {
         let entries: Vec<FileId> = self
             .components
             .values()
@@ -270,7 +300,7 @@ impl Workspace {
         // inference below uses VFS content so unsaved edits are honored. The
         // graph must be handed the very interner `entry_program` was parsed
         // with, or its identifier symbols are meaningless.
-        let roots = self.roots.clone();
+        let roots = self.module_search_roots(&entry_path);
         let build = ModuleGraph::build_with_entry_and_roots(
             &entry_path,
             &entry_program,
@@ -316,14 +346,16 @@ impl Workspace {
         // Sibling-module program cache: lets goto-definition jump from the
         // entry (or any member) into a user module's declaration site, the
         // same way it already jumps into Flow prelude modules.
-        let user_modules: HashMap<String, (Program, Arc<str>, PathBuf)> = built
+        let user_modules: HashMap<String, (Arc<Program>, Arc<str>, PathBuf)> = built
             .iter()
             .filter_map(|(_, snapshot, path, module_name)| {
                 module_name.as_ref().map(|name| {
                     (
                         name.clone(),
                         (
-                            snapshot.program.clone(),
+                            // One AST copy, then `Arc`-shared into every
+                            // member's `module_programs` below.
+                            Arc::new(snapshot.program.clone()),
                             Arc::clone(&snapshot.text),
                             path.clone(),
                         ),
@@ -341,7 +373,7 @@ impl Workspace {
                     .entry(name.clone())
                     .or_insert_with(|| program.clone());
             }
-            self.snapshots.insert(fid, Rc::new(snapshot));
+            self.snapshots.insert(fid, Arc::new(snapshot));
             members.push(fid);
         }
 
@@ -358,7 +390,7 @@ impl Workspace {
     /// Build a single-file snapshot (no cross-file context).
     fn analyze_single(&mut self, id: FileId, hint: &Path, text: Arc<str>) {
         let snapshot = self.build_snapshot(hint, text);
-        self.snapshots.insert(id, Rc::new(snapshot));
+        self.snapshots.insert(id, Arc::new(snapshot));
     }
 
     fn build_snapshot(&mut self, hint: &Path, text: Arc<str>) -> Snapshot {
@@ -395,6 +427,40 @@ impl Workspace {
             self.prelude = Some(Prelude::try_load_from(start));
         }
         self.prelude.as_mut().unwrap()
+    }
+
+    /// Search roots for module-graph resolution of `entry_path`'s imports.
+    ///
+    /// Flux resolves `import A.B.C` to `<root>/A/B/C.flx` for each search
+    /// root. A workspace folder is rarely the directory that *directly*
+    /// holds the `A/` package: a project's modules often sit in a subtree
+    /// (`examples/type_classes/ClassMatchableEffects/...`). So the workspace
+    /// roots alone are not enough — the entry's own ancestor directories are
+    /// added too, from its parent up to (and including) the enclosing
+    /// workspace root. Whichever ancestor actually holds the package
+    /// directory then resolves the import; `resolve_import_path` dedups by
+    /// canonical path, so an extra root that resolves to the same file is
+    /// harmless.
+    fn module_search_roots(&self, entry_path: &Path) -> Vec<PathBuf> {
+        let mut roots = self.roots.clone();
+        let mut dir = entry_path.parent();
+        let mut depth = 0;
+        while let Some(d) = dir {
+            depth += 1;
+            if depth > MAX_DISCOVERY_DEPTH {
+                break;
+            }
+            if !roots.iter().any(|r| r == d) {
+                roots.push(d.to_path_buf());
+            }
+            // Stop at a workspace root; with no roots configured, the
+            // entry's own directory is the only sensible anchor.
+            if self.roots.is_empty() || self.roots.iter().any(|r| r == d) {
+                break;
+            }
+            dir = d.parent();
+        }
+        roots
     }
 
     // ── discovery ──────────────────────────────────────────────────────────

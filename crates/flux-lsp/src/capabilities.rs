@@ -1,8 +1,9 @@
 use lsp_types::{
-    CompletionOptions, DefinitionOptions, HoverProviderCapability, OneOf, RenameOptions,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    CodeActionProviderCapability, CompletionOptions, DefinitionOptions, HoverProviderCapability,
+    OneOf, RenameOptions, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -33,6 +34,10 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             retrigger_characters: None,
             work_done_progress_options: Default::default(),
         }),
+        // Quick fixes derived from diagnostics (handlers::code_action).
+        // `Simple(true)` — the server does not pre-filter by
+        // `CodeActionKind`; every action it returns is a `QuickFix`.
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
@@ -41,14 +46,14 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             prepare_provider: Some(false),
             work_done_progress_options: Default::default(),
         })),
-        semantic_tokens_provider: Some(
-            SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+        semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
+            SemanticTokensOptions {
                 legend: semantic_tokens_legend(),
                 full: Some(SemanticTokensFullOptions::Bool(true)),
                 range: None,
                 work_done_progress_options: Default::default(),
-            }),
-        ),
+            },
+        )),
         // Advertise multi-root workspace support: the client sends
         // `workspaceFolders` at initialize and `didChangeWorkspaceFolders`
         // afterwards. The `Workspace` uses the roots to discover every

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
 use flux::syntax::block::Block;
@@ -5,12 +7,76 @@ use flux::syntax::data_variant::DataVariant;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
-use lsp_types::{Location, Position};
+use lsp_types::{Location, Position, Uri};
 
 use crate::locator::{NodeRef, find_at};
+use crate::snapshot::Snapshot;
 use crate::symbol_index::SymbolIndex;
 use crate::vfs::FileId;
 use crate::workspace::Workspace;
+
+/// One file in a reference/rename search, with everything the (off-thread)
+/// compute step needs: no `Workspace` borrow, just owned `Send` data.
+pub struct RefFile {
+    pub uri: Uri,
+    /// Open-buffer version, or `None` for an on-disk-only file.
+    pub version: Option<i32>,
+    pub snapshot: Arc<Snapshot>,
+}
+
+/// The result of the main-thread "gather" pass: the target identifier plus a
+/// self-contained, `Send` set of files to scan. Handed to the worker thread.
+pub struct RefBundle {
+    pub target_id: Identifier,
+    pub files: Vec<RefFile>,
+}
+
+/// Main-thread pass: resolve the identifier under the cursor and collect an
+/// owned snapshot for every file in its reference scope. Needs `&mut
+/// Workspace` to lazily build snapshots of closed / never-opened members.
+pub fn gather(workspace: &mut Workspace, file: FileId, position: Position) -> Option<RefBundle> {
+    // The borrow of `workspace` ends with this block so the scope pass can
+    // take `&mut`.
+    let target_id = {
+        let snapshot = workspace.ensure_snapshot(file)?;
+        let target = snapshot.position_map.lsp_to_flux(position)?;
+        let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+        node_identifier(&node)?
+    };
+
+    let mut files = Vec::new();
+    for fid in reference_scope(workspace, file, target_id) {
+        let Some(snapshot) = workspace.ensure_snapshot(fid).cloned() else {
+            continue;
+        };
+        let Some(uri) = workspace.uri_of(fid) else {
+            continue;
+        };
+        files.push(RefFile {
+            uri,
+            version: workspace.version(fid),
+            snapshot,
+        });
+    }
+    Some(RefBundle { target_id, files })
+}
+
+/// Pure pass: collect every reference location from a gathered bundle. Safe
+/// to run on a worker thread — no `Workspace` access.
+pub fn compute_locations(bundle: &RefBundle) -> Vec<Location> {
+    let mut locations = Vec::new();
+    for f in &bundle.files {
+        let mut spans: Vec<FluxSpan> = Vec::new();
+        collect_all_uses(&f.snapshot.program, bundle.target_id, &mut spans);
+        for span in spans {
+            locations.push(Location {
+                uri: f.uri.clone(),
+                range: f.snapshot.position_map.flux_span_to_range(span),
+            });
+        }
+    }
+    locations
+}
 
 /// Find every reference to the identifier under the cursor.
 ///
@@ -19,49 +85,33 @@ use crate::workspace::Workspace;
 /// component. A purely local binding (a `let`/parameter inside a function)
 /// is searched only within `file` — the component interner is shared, so a
 /// same-named local in a sibling module would otherwise be over-matched.
-pub fn find_references(workspace: &Workspace, file: FileId, position: Position) -> Vec<Location> {
-    let Some(snapshot) = workspace.snapshot(file) else {
-        return vec![];
-    };
-    let Some(target) = snapshot.position_map.lsp_to_flux(position) else {
-        return vec![];
-    };
-    let Some(node) = find_at(&snapshot.program, &snapshot.interner, target) else {
-        return vec![];
-    };
-    let Some(target_id) = node_identifier(&node) else {
-        return vec![];
-    };
-
-    let mut locations = Vec::new();
-    for fid in reference_scope(workspace, file, target_id) {
-        let Some(snap) = workspace.snapshot(fid) else {
-            continue;
-        };
-        let Some(uri) = workspace.uri_of(fid) else {
-            continue;
-        };
-        let mut spans: Vec<FluxSpan> = Vec::new();
-        collect_all_uses(&snap.program, target_id, &mut spans);
-        for span in spans {
-            locations.push(Location {
-                uri: uri.clone(),
-                range: snap.position_map.flux_span_to_range(span),
-            });
-        }
+pub fn find_references(
+    workspace: &mut Workspace,
+    file: FileId,
+    position: Position,
+) -> Vec<Location> {
+    match gather(workspace, file, position) {
+        Some(bundle) => compute_locations(&bundle),
+        None => vec![],
     }
-    locations
 }
 
 /// The set of files a reference/rename search may span. A top-level symbol
 /// scopes to its whole module-graph component; anything else scopes to just
 /// the cursor's file.
+///
+/// Takes `&mut Workspace` because it builds the snapshot of every component
+/// member that has not been analyzed yet — so a closed or never-opened file
+/// is still searched.
 pub(crate) fn reference_scope(
-    workspace: &Workspace,
+    workspace: &mut Workspace,
     file: FileId,
     target: Identifier,
 ) -> Vec<FileId> {
     let component = workspace.component_scope(file);
+    for &fid in &component {
+        workspace.ensure_snapshot(fid);
+    }
     let top_level = component.iter().any(|&fid| {
         workspace.snapshot(fid).is_some_and(|snap| {
             SymbolIndex::build_for_module_file(&snap.program, &snap.interner)
@@ -106,7 +156,9 @@ pub fn collect_all_uses(program: &Program, target: Identifier, out: &mut Vec<Flu
 
 fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>) {
     match stmt {
-        Statement::Let { name, value, span, .. } => {
+        Statement::Let {
+            name, value, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -116,7 +168,13 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             collect_in_pattern(pattern, target, out);
             collect_in_expr(value, target, out);
         }
-        Statement::Function { name, parameters, body, span, .. } => {
+        Statement::Function {
+            name,
+            parameters,
+            body,
+            span,
+            ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -130,19 +188,28 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
         Statement::Return { value: Some(v), .. } => collect_in_expr(v, target, out),
         Statement::Return { value: None, .. } => {}
         Statement::Expression { expression, .. } => collect_in_expr(expression, target, out),
-        Statement::Assign { name, value, span, .. } => {
+        Statement::Assign {
+            name, value, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
             collect_in_expr(value, target, out);
         }
-        Statement::Module { name, body, span, .. } => {
+        Statement::Module {
+            name, body, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
             collect_in_block(body, target, out);
         }
-        Statement::Data { name, variants, span, .. } => {
+        Statement::Data {
+            name,
+            variants,
+            span,
+            ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -150,7 +217,9 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
                 collect_in_variant(variant, target, out);
             }
         }
-        Statement::EffectDecl { name, ops, span, .. } => {
+        Statement::EffectDecl {
+            name, ops, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -160,7 +229,9 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
                 }
             }
         }
-        Statement::Import { name, alias, span, .. } => {
+        Statement::Import {
+            name, alias, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -194,7 +265,11 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
                 out.push(*span);
             }
         }
-        Expression::Call { function, arguments, .. } => {
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
             collect_in_expr(function, target, out);
             for a in arguments {
                 collect_in_expr(a, target, out);
@@ -219,20 +294,29 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
                 collect_in_block(b, target, out);
             }
         }
-        Expression::Match { scrutinee, arms, .. } => {
+        Expression::Match {
+            scrutinee, arms, ..
+        } => {
             collect_in_expr(scrutinee, target, out);
             for arm in arms {
                 collect_in_pattern(&arm.pattern, target, out);
                 collect_in_expr(&arm.body, target, out);
             }
         }
-        Expression::MemberAccess { object, member, span, .. } => {
+        Expression::MemberAccess {
+            object,
+            member,
+            span,
+            ..
+        } => {
             collect_in_expr(object, target, out);
             if *member == target {
                 out.push(*span);
             }
         }
-        Expression::NamedConstructor { name, fields, span, .. } => {
+        Expression::NamedConstructor {
+            name, fields, span, ..
+        } => {
             if *name == target {
                 out.push(*span);
             }
@@ -251,8 +335,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
         Expression::DoBlock { block, .. } => {
             collect_in_block(block, target, out);
         }
-        Expression::ListLiteral { elements, .. }
-        | Expression::ArrayLiteral { elements, .. } => {
+        Expression::ListLiteral { elements, .. } | Expression::ArrayLiteral { elements, .. } => {
             for e in elements {
                 collect_in_expr(e, target, out);
             }
@@ -268,7 +351,12 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
                 collect_in_expr(&arm.body, target, out);
             }
         }
-        Expression::Perform { operation, args, span, .. } => {
+        Expression::Perform {
+            operation,
+            args,
+            span,
+            ..
+        } => {
             if *operation == target {
                 out.push(*span);
             }
@@ -276,7 +364,9 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
                 collect_in_expr(a, target, out);
             }
         }
-        Expression::Spread { base, overrides, .. } => {
+        Expression::Spread {
+            base, overrides, ..
+        } => {
             collect_in_expr(base, target, out);
             for f in overrides {
                 if f.name == target {
