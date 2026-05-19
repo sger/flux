@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use flux_lsp::line_index::{PositionEncoding, negotiate_encoding};
+use flux_lsp::loader::WatcherKind;
 use flux_lsp::vfs::uri_to_path;
 use flux_lsp::{Server, server_capabilities};
 use lsp_server::Connection;
@@ -30,7 +31,11 @@ fn main() -> Result<()> {
 
     let roots = workspace_roots(&params);
     tracing::debug!(?roots, "workspace roots");
-    let mut server = Server::new(connection, encoding);
+    // Prefer the editor's own file watcher; fall back to a server-side `notify`
+    // watcher for clients without dynamic `didChangeWatchedFiles` registration.
+    let watcher = WatcherKind::for_client(&params);
+    tracing::debug!(?watcher, "file-watch backend");
+    let mut server = Server::new(connection, encoding, watcher);
     server.state.set_workspace_folders(roots);
     server.run()?;
 

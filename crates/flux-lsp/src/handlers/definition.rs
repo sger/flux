@@ -53,10 +53,31 @@ pub fn goto_definition(
     // `import Flow.Array as A` alias). Look up the member in the prelude's
     // cached program for that module and jump to its definition there.
     if let NodeRef::MemberAccessMember { object, member, .. } = &node {
-        if let Expression::Identifier { name: object_id, .. } = object
+        if let Expression::Identifier {
+            name: object_id, ..
+        } = object
             && let Some(module_short) = resolve_module_short_name(snapshot, *object_id)
             && let Some((mod_program, mod_source, mod_path)) =
                 snapshot.module_programs.get(&module_short)
+        {
+            let mod_index = SymbolIndex::build_for_module_file(mod_program, &snapshot.interner);
+            if let Some(entry) = mod_index.lookup_id(*member) {
+                let mod_map = PositionMap::new(
+                    std::sync::Arc::from(mod_source.as_ref()),
+                    snapshot.position_map.encoding(),
+                );
+                let module_uri = crate::vfs::path_to_uri(mod_path)?;
+                return Some(target_from_entry(module_uri, &mod_map, entry));
+            }
+        }
+        // Multi-segment qualified path: `A.B.C.member` where `A.B.C` is a
+        // loaded module's full declared name. `resolve_module_short_name`
+        // only handles a lone identifier or an `import … as A` alias, so
+        // flatten the `object` member-access chain to a dotted string and
+        // look it up directly.
+        if let Some(module_path) = module_path_string(object, &snapshot.interner)
+            && let Some((mod_program, mod_source, mod_path)) =
+                snapshot.module_programs.get(&module_path)
         {
             let mod_index = SymbolIndex::build_for_module_file(mod_program, &snapshot.interner);
             if let Some(entry) = mod_index.lookup_id(*member) {
@@ -99,7 +120,11 @@ pub fn goto_definition(
         && let Some((stmt_span, alias_span)) =
             find_import_alias_spans(&snapshot.program, &snapshot.interner, *name)
     {
-        let alias_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
+        let alias_text = snapshot
+            .interner
+            .try_resolve(*name)
+            .unwrap_or("")
+            .to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(stmt_span),
@@ -107,17 +132,20 @@ pub fn goto_definition(
             name: alias_text,
         });
     }
-    // Cursor on the import statement itself or on its alias position —
-    // the locator's `span` is already the precise sub-position; the full
-    // range is the whole import statement (walk back to find it).
+    // Cursor on an `import` statement — its module name or its alias.
+    // Jump into the imported module's file (to its `module` declaration)
+    // when the module is loaded; otherwise fall back to the import
+    // statement itself, the locator's precise sub-position as the focus.
     if let NodeRef::ImportAlias {
         alias,
         qualified,
         span,
     } = &node
     {
-        let stmt_span = find_import_stmt_span_by_alias(&snapshot.program, *alias)
-            .unwrap_or(*span);
+        if let Some(target) = import_module_target(snapshot, *qualified) {
+            return Some(target);
+        }
+        let stmt_span = find_import_stmt_span_by_alias(&snapshot.program, *alias).unwrap_or(*span);
         let name = snapshot
             .interner
             .try_resolve(*qualified)
@@ -134,8 +162,11 @@ pub fn goto_definition(
         qualified, span, ..
     } = &node
     {
-        let stmt_span = find_import_stmt_span_by_qualified(&snapshot.program, *qualified)
-            .unwrap_or(*span);
+        if let Some(target) = import_module_target(snapshot, *qualified) {
+            return Some(target);
+        }
+        let stmt_span =
+            find_import_stmt_span_by_qualified(&snapshot.program, *qualified).unwrap_or(*span);
         let name = snapshot
             .interner
             .try_resolve(*qualified)
@@ -153,7 +184,11 @@ pub fn goto_definition(
     // or in a `handle` clause). Jump to the binding occurrence. Focus =
     // the row var token; full = the enclosing function signature.
     if let NodeRef::EffectRowVar { name, span } = &node {
-        let name_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
+        let name_text = snapshot
+            .interner
+            .try_resolve(*name)
+            .unwrap_or("")
+            .to_string();
         if let Some((fn_span, binding_span)) =
             find_row_var_binding_with_fn(&snapshot.program, *name)
         {
@@ -205,23 +240,59 @@ pub fn goto_definition(
     // Extended index covers top-level names + effect ops + data variants.
     let extended_index = SymbolIndex::build_extended(&snapshot.program, &snapshot.interner);
     if let Some(entry) = extended_index.lookup_id(def_name) {
-        return Some(target_from_entry(uri.clone(), &snapshot.position_map, entry));
+        return Some(target_from_entry(
+            uri.clone(),
+            &snapshot.position_map,
+            entry,
+        ));
     }
 
     // Local binding walk (let/fn/parameter inside a function body).
-    let (full_span, focus_span) =
-        find_local_definition(&snapshot.program, &snapshot.interner, def_name)?;
-    let name = snapshot
-        .interner
-        .try_resolve(def_name)
-        .unwrap_or("")
-        .to_string();
-    Some(NavigationTarget {
-        uri: uri.clone(),
-        full_range: snapshot.position_map.flux_span_to_range(full_span),
-        focus_range: snapshot.position_map.flux_span_to_range(focus_span),
-        name,
-    })
+    if let Some((full_span, focus_span)) =
+        find_local_definition(&snapshot.program, &snapshot.interner, def_name)
+    {
+        let name = snapshot
+            .interner
+            .try_resolve(def_name)
+            .unwrap_or("")
+            .to_string();
+        return Some(NavigationTarget {
+            uri: uri.clone(),
+            full_range: snapshot.position_map.flux_span_to_range(full_span),
+            focus_range: snapshot.position_map.flux_span_to_range(focus_span),
+            name,
+        });
+    }
+
+    // Cross-module fallback: an unqualified reference to a member of an
+    // imported module — a Flow-prelude function used bare (`len`, `print`),
+    // or a sibling user module's export. Nothing in this buffer defines the
+    // name, so search every cached module program for a matching declaration.
+    module_member_target(snapshot, def_name)
+}
+
+/// Search every cached module program (`module_programs` carries the Flow
+/// prelude modules plus, in a cross-file component, the sibling user modules)
+/// for a top-level — or `module`-block-nested — definition of `def_name`,
+/// returning a `NavigationTarget` into that module's source file.
+///
+/// Iteration order over the `module_programs` map is unspecified, so if two
+/// modules export the same name the winner is arbitrary. That is acceptable
+/// for a last-resort fallback that only runs once every in-buffer lookup has
+/// failed.
+fn module_member_target(snapshot: &Snapshot, def_name: Identifier) -> Option<NavigationTarget> {
+    for (program, source, path) in snapshot.module_programs.values() {
+        let index = SymbolIndex::build_for_module_file(program, &snapshot.interner);
+        if let Some(entry) = index.lookup_id(def_name) {
+            let module_map = PositionMap::new(
+                std::sync::Arc::from(source.as_ref()),
+                snapshot.position_map.encoding(),
+            );
+            let module_uri = crate::vfs::path_to_uri(path)?;
+            return Some(target_from_entry(module_uri, &module_map, entry));
+        }
+    }
+    None
 }
 
 /// Build a `NavigationTarget` from a `SymbolIndex::Entry`, converting
@@ -290,7 +361,10 @@ fn enclosing_function_span(program: &Program, target: FluxPosition) -> Option<Fl
             // inside the body — so the cursor will be in the body's
             // statement spans, not in `span`. Walk both.
             if position_in_span(target, *span)
-                || body.statements.iter().any(|s| position_in_span(target, s.span()))
+                || body
+                    .statements
+                    .iter()
+                    .any(|s| position_in_span(target, s.span()))
             {
                 return Some(*span);
             }
@@ -340,7 +414,10 @@ fn enclosing_if_in_expr(expr: &Expression, target: FluxPosition) -> Option<FluxS
         // is the matching `if`. Return the if-expression's overall span
         // (start of `if`, just before the `else` keyword position).
         if let Some(alt) = alternative
-            && alt.statements.iter().any(|s| position_in_span(target, s.span()))
+            && alt
+                .statements
+                .iter()
+                .any(|s| position_in_span(target, s.span()))
         {
             return Some(*span);
         }
@@ -535,7 +612,9 @@ fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Opti
     }
     for stmt in &snapshot.program.statements {
         if let Statement::Import {
-            name, alias: Some(a), ..
+            name,
+            alias: Some(a),
+            ..
         } = stmt
             && *a == object_id
         {
@@ -545,6 +624,55 @@ fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Opti
         }
     }
     None
+}
+
+/// Flatten a pure member-access chain (`A.B.C`, built only from
+/// `Identifier`s and `MemberAccess`es) into its dotted string. Returns
+/// `None` for any expression that is not a plain qualified path — a call,
+/// index, or literal somewhere in the chain disqualifies it. Used to match
+/// a deeply-qualified module reference against the `module_programs` key,
+/// which is the module's full declared name.
+fn module_path_string(expr: &Expression, interner: &Interner) -> Option<String> {
+    match expr {
+        Expression::Identifier { name, .. } => interner.try_resolve(*name).map(str::to_string),
+        Expression::MemberAccess { object, member, .. } => {
+            let base = module_path_string(object, interner)?;
+            let segment = interner.try_resolve(*member)?;
+            Some(format!("{base}.{segment}"))
+        }
+        _ => None,
+    }
+}
+
+/// Goto-definition target for an `import` statement: the imported module's
+/// `module` declaration in its own file. Returns `None` when the module is
+/// not loaded into `module_programs` (an unresolved import), so the caller
+/// falls back to the in-file import statement.
+fn import_module_target(snapshot: &Snapshot, qualified: Identifier) -> Option<NavigationTarget> {
+    let module_name = snapshot.interner.try_resolve(qualified)?;
+    // `module_programs` keys user modules by their full declared name and
+    // Flow stdlib modules by their short final segment — try both.
+    let (mod_program, mod_source, mod_path) =
+        snapshot.module_programs.get(module_name).or_else(|| {
+            let short = module_name.rsplit('.').next().unwrap_or(module_name);
+            snapshot.module_programs.get(short)
+        })?;
+    let module_uri = crate::vfs::path_to_uri(mod_path)?;
+    let mod_map = PositionMap::new(
+        std::sync::Arc::from(mod_source.as_ref()),
+        snapshot.position_map.encoding(),
+    );
+    let mod_index = SymbolIndex::build_for_module_file(mod_program, &snapshot.interner);
+    if let Some(entry) = mod_index.lookup_id(qualified) {
+        return Some(target_from_entry(module_uri, &mod_map, entry));
+    }
+    // No `module` declaration matched (e.g. a plain-script module file) —
+    // open the file at its top.
+    Some(NavigationTarget::collapsed(
+        module_uri,
+        lsp_types::Range::default(),
+        module_name.to_string(),
+    ))
 }
 
 /// Walk top-level imports for one whose alias equals `target`. Returns
@@ -697,14 +825,16 @@ fn name_span_after_keyword(
 fn find_in_pattern(pat: &Pattern, target: Identifier, binding_span: FluxSpan) -> Option<FluxSpan> {
     match pat {
         Pattern::Identifier { name, .. } if *name == target => Some(binding_span),
-        Pattern::Tuple { elements, .. } => {
-            elements.iter().find_map(|e| find_in_pattern(e, target, binding_span))
-        }
-        Pattern::Constructor { fields, .. } => {
-            fields.iter().find_map(|f| find_in_pattern(f, target, binding_span))
-        }
+        Pattern::Tuple { elements, .. } => elements
+            .iter()
+            .find_map(|e| find_in_pattern(e, target, binding_span)),
+        Pattern::Constructor { fields, .. } => fields
+            .iter()
+            .find_map(|f| find_in_pattern(f, target, binding_span)),
         Pattern::NamedConstructor { fields, .. } => fields.iter().find_map(|f| {
-            f.pattern.as_ref().and_then(|p| find_in_pattern(p, target, binding_span))
+            f.pattern
+                .as_ref()
+                .and_then(|p| find_in_pattern(p, target, binding_span))
         }),
         Pattern::Some { pattern, .. }
         | Pattern::Left { pattern, .. }

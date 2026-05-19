@@ -5,16 +5,18 @@
 //! in-memory `lsp_server::Connection` or a worker thread.
 
 use lsp_types::{
-    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentFormattingParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
-    PublishDiagnosticsParams, ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams,
-    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
+    CodeActionParams, CodeActionResponse, CompletionParams, CompletionResponse,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, InlayHint, InlayHintParams, Location, PublishDiagnosticsParams,
+    ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams, SignatureHelp,
+    SignatureHelpParams, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
 };
 
 use crate::handlers;
 use crate::line_index::PositionEncoding;
+use crate::task::Job;
 use crate::vfs::FileId;
 use crate::workspace::Workspace;
 
@@ -83,8 +85,21 @@ impl GlobalState {
         }
     }
 
-    pub fn handle_did_close(&mut self, params: DidCloseTextDocumentParams) {
-        self.workspace.close(&params.text_document.uri);
+    pub fn handle_did_close(
+        &mut self,
+        params: DidCloseTextDocumentParams,
+    ) -> Vec<PublishDiagnosticsParams> {
+        let uri = params.text_document.uri;
+        let rebuilt = self.workspace.close(&uri);
+        let mut diagnostics = self.diagnostics_for_files(&rebuilt);
+        // Clear the closed file's own squiggles — its snapshot was dropped
+        // and a later query will rebuild it lazily from disk.
+        diagnostics.push(PublishDiagnosticsParams {
+            uri,
+            diagnostics: vec![],
+            version: None,
+        });
+        diagnostics
     }
 
     pub fn handle_did_change_watched_files(
@@ -102,22 +117,46 @@ impl GlobalState {
         self.diagnostics_for_files(&rebuilt)
     }
 
+    /// Apply on-disk `.flx` changes reported by the server-side `notify`
+    /// watcher (path-keyed sibling of [`handle_did_change_watched_files`]
+    /// (Self::handle_did_change_watched_files), which is uri-keyed). Both
+    /// funnel into `Workspace::on_disk_changed`.
+    pub fn handle_disk_changes(
+        &mut self,
+        paths: &[std::path::PathBuf],
+    ) -> Vec<PublishDiagnosticsParams> {
+        let mut rebuilt: Vec<FileId> = Vec::new();
+        for path in paths {
+            let Some(uri) = crate::vfs::path_to_uri(path) else {
+                continue;
+            };
+            for fid in self.workspace.on_disk_changed(&uri) {
+                if !rebuilt.contains(&fid) {
+                    rebuilt.push(fid);
+                }
+            }
+        }
+        self.diagnostics_for_files(&rebuilt)
+    }
+
     // ── requests ──────────────────────────────────────────────────────────
 
-    pub fn handle_hover(&self, params: HoverParams) -> Option<Hover> {
+    pub fn handle_hover(&mut self, params: HoverParams) -> Option<Hover> {
         let TextDocumentPositionParams {
             text_document,
             position,
         } = params.text_document_position_params;
-        let snapshot = self.workspace.snapshot_for_uri(&text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         handlers::hover::hover_at(snapshot, position)
     }
 
     pub fn handle_document_symbol(
-        &self,
+        &mut self,
         params: DocumentSymbolParams,
     ) -> Option<DocumentSymbolResponse> {
-        let snapshot = self.workspace.snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)?;
         let symbols = handlers::symbols::document_symbols(
             &snapshot.program,
             &snapshot.interner,
@@ -127,14 +166,14 @@ impl GlobalState {
     }
 
     pub fn handle_definition(
-        &self,
+        &mut self,
         params: GotoDefinitionParams,
     ) -> Option<GotoDefinitionResponse> {
         let TextDocumentPositionParams {
             text_document,
             position,
         } = params.text_document_position_params;
-        let snapshot = self.workspace.snapshot_for_uri(&text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         let nav = handlers::definition::goto_definition(snapshot, &text_document.uri, position)?;
         // Compute the source-side "from" span (the cursor word's range)
         // so VS Code can underline just that word in the originating
@@ -147,39 +186,54 @@ impl GlobalState {
         ]))
     }
 
-    pub fn handle_completion(&self, params: CompletionParams) -> Option<CompletionResponse> {
+    pub fn handle_completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
         let snapshot = self
             .workspace
-            .snapshot_for_uri(&params.text_document_position.text_document.uri)?;
+            .ensure_snapshot_for_uri(&params.text_document_position.text_document.uri)?;
         Some(handlers::completion::complete(
             snapshot,
             params.text_document_position.position,
         ))
     }
 
-    pub fn handle_formatting(&self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
-        let snapshot = self.workspace.snapshot_for_uri(&params.text_document.uri)?;
+    pub fn handle_code_action(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
+        let uri = params.text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri)?;
+        Some(handlers::code_action::code_actions(
+            snapshot,
+            &uri,
+            params.range,
+        ))
+    }
+
+    pub fn handle_formatting(&mut self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)?;
         Some(handlers::formatting::format(snapshot))
     }
 
-    pub fn handle_inlay_hints(&self, params: InlayHintParams) -> Vec<InlayHint> {
-        let Some(snapshot) = self.workspace.snapshot_for_uri(&params.text_document.uri) else {
+    pub fn handle_inlay_hints(&mut self, params: InlayHintParams) -> Vec<InlayHint> {
+        let Some(snapshot) = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+        else {
             return vec![];
         };
         handlers::inlay_hints::inlay_hints(snapshot)
     }
 
-    pub fn handle_signature_help(&self, params: SignatureHelpParams) -> Option<SignatureHelp> {
+    pub fn handle_signature_help(&mut self, params: SignatureHelpParams) -> Option<SignatureHelp> {
         let snapshot = self
             .workspace
-            .snapshot_for_uri(&params.text_document_position_params.text_document.uri)?;
+            .ensure_snapshot_for_uri(&params.text_document_position_params.text_document.uri)?;
         handlers::signature_help::signature_help(
             snapshot,
             params.text_document_position_params.position,
         )
     }
 
-    pub fn handle_references(&self, params: ReferenceParams) -> Vec<Location> {
+    pub fn handle_references(&mut self, params: ReferenceParams) -> Vec<Location> {
         let Some(id) = self
             .workspace
             .file_id(&params.text_document_position.text_document.uri)
@@ -187,32 +241,178 @@ impl GlobalState {
             return vec![];
         };
         handlers::references::find_references(
-            &self.workspace,
+            &mut self.workspace,
             id,
             params.text_document_position.position,
         )
     }
 
-    pub fn handle_rename(&self, params: RenameParams) -> Option<WorkspaceEdit> {
+    pub fn handle_rename(&mut self, params: RenameParams) -> Option<WorkspaceEdit> {
         let id = self
             .workspace
             .file_id(&params.text_document_position.text_document.uri)?;
         handlers::rename::rename(
-            &self.workspace,
+            &mut self.workspace,
             id,
             params.text_document_position.position,
             params.new_name,
         )
     }
 
-    pub fn handle_semantic_tokens_full(&self, params: SemanticTokensParams) -> SemanticTokens {
-        let Some(snapshot) = self.workspace.snapshot_for_uri(&params.text_document.uri) else {
+    pub fn handle_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> SemanticTokens {
+        let Some(snapshot) = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+        else {
             return SemanticTokens {
                 result_id: None,
                 data: vec![],
             };
         };
         handlers::semantic_tokens::semantic_tokens(snapshot)
+    }
+
+    // ── request dispatch (worker thread) ───────────────────────────────────
+    //
+    // Each `dispatch_*` runs the main-thread part — lazy snapshot building —
+    // and returns a `Send` closure that performs the actual read off-thread.
+    // The `handle_*` methods above stay for synchronous/test use.
+
+    pub fn dispatch_hover(&mut self, params: HoverParams) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::hover::hover_at(&snapshot, position))
+        }))
+    }
+
+    pub fn dispatch_document_symbol(&mut self, params: DocumentSymbolParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            let symbols = handlers::symbols::document_symbols(
+                &snapshot.program,
+                &snapshot.interner,
+                &snapshot.position_map,
+            );
+            to_value(DocumentSymbolResponse::Nested(symbols))
+        }))
+    }
+
+    pub fn dispatch_definition(&mut self, params: GotoDefinitionParams) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let uri = text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(
+            move || match handlers::definition::goto_definition(&snapshot, &uri, position) {
+                Some(nav) => {
+                    let origin = cursor_word_range(&snapshot, position);
+                    to_value(GotoDefinitionResponse::Link(vec![
+                        nav.into_location_link(origin),
+                    ]))
+                }
+                None => serde_json::Value::Null,
+            },
+        ))
+    }
+
+    pub fn dispatch_completion(&mut self, params: CompletionParams) -> Option<Job> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::completion::complete(&snapshot, position))
+        }))
+    }
+
+    pub fn dispatch_code_action(&mut self, params: CodeActionParams) -> Option<Job> {
+        let uri = params.text_document.uri;
+        let range = params.range;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::code_action::code_actions(&snapshot, &uri, range))
+        }))
+    }
+
+    pub fn dispatch_formatting(&mut self, params: DocumentFormattingParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::formatting::format(&snapshot))
+        }))
+    }
+
+    pub fn dispatch_inlay_hints(&mut self, params: InlayHintParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::inlay_hints::inlay_hints(&snapshot))
+        }))
+    }
+
+    pub fn dispatch_signature_help(&mut self, params: SignatureHelpParams) -> Option<Job> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::signature_help::signature_help(
+                &snapshot, position,
+            ))
+        }))
+    }
+
+    pub fn dispatch_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::semantic_tokens::semantic_tokens(&snapshot))
+        }))
+    }
+
+    pub fn dispatch_references(&mut self, params: ReferenceParams) -> Option<Job> {
+        let id = self
+            .workspace
+            .file_id(&params.text_document_position.text_document.uri)?;
+        let bundle = handlers::references::gather(
+            &mut self.workspace,
+            id,
+            params.text_document_position.position,
+        )?;
+        Some(Box::new(move || {
+            to_value(handlers::references::compute_locations(&bundle))
+        }))
+    }
+
+    pub fn dispatch_rename(&mut self, params: RenameParams) -> Option<Job> {
+        let id = self
+            .workspace
+            .file_id(&params.text_document_position.text_document.uri)?;
+        let bundle = handlers::references::gather(
+            &mut self.workspace,
+            id,
+            params.text_document_position.position,
+        )?;
+        let new_name = params.new_name;
+        Some(Box::new(move || {
+            to_value(handlers::rename::compute_workspace_edit(&bundle, &new_name))
+        }))
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
@@ -275,4 +475,10 @@ fn cursor_word_range(
 
 fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Serialize a handler result to a JSON value for a `WorkItem` response,
+/// falling back to `null` if serialization somehow fails.
+fn to_value<T: serde::Serialize>(value: T) -> serde_json::Value {
+    serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
 }

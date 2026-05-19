@@ -33,13 +33,13 @@ pub struct Snapshot {
     pub diagnostics: Vec<FluxDiagnostic>,
     /// Final segment of every module known to this session's prelude (e.g.
     /// `"String"` for `Flow.String`). Used by hover to label module-prefixed
-    /// references like `String.join`.
-    pub module_short_names: HashSet<String>,
+    /// references like `String.join`. `Arc`-shared from the prelude — these
+    /// names do not change between keystrokes.
+    pub module_short_names: Arc<HashSet<String>>,
     /// Short module name → member names (e.g. `"String" -> ["join", "split", ...]`).
-    /// Populated from the prelude's `cached_member_schemes` so completion
-    /// after `String.` can list available members without rebuilding the map
-    /// on every keystroke.
-    pub module_members: HashMap<String, Vec<String>>,
+    /// `Arc`-shared from the prelude so completion after `String.` needs no
+    /// per-keystroke rebuild.
+    pub module_members: Arc<HashMap<String, Vec<String>>>,
     /// Variant `Identifier` → list of `(field_name, field_type)`. Empty for
     /// positional variants. Drives hover content for record fields
     /// (`alice.name`, `Person { name: ... }`) and completion inside record
@@ -51,8 +51,9 @@ pub struct Snapshot {
     pub variant_positional_fields: HashMap<Identifier, Vec<TypeExpr>>,
     /// Short module name (e.g. `"Math"`) → (parsed program, source text, file
     /// path). Cloned from the prelude at snapshot build time so goto-definition
-    /// can jump into imported module files.
-    pub module_programs: HashMap<String, (Program, Arc<str>, PathBuf)>,
+    /// can jump into imported module files. The `Arc<Program>` makes that
+    /// per-keystroke clone a ref-count bump rather than an AST deep copy.
+    pub module_programs: HashMap<String, (Arc<Program>, Arc<str>, PathBuf)>,
 }
 
 impl Snapshot {
@@ -91,50 +92,18 @@ impl Snapshot {
         // resolve symbols independently of subsequent buffer edits.
         let interner = prelude.compiler.interner.clone();
 
-        // Collect short names (final dotted segment) of every loaded module so
-        // hover can recognize `String.join` as referencing `Flow.String`.
-        let module_short_names: HashSet<String> = prelude
-            .loaded_modules
-            .iter()
-            .map(|qual| {
-                qual.rsplit('.')
-                    .next()
-                    .unwrap_or(qual.as_str())
-                    .to_string()
-            })
-            .collect();
-
-        // Index module members by short name for completion. Walks the
-        // compiler's `cached_member_schemes`; one entry per `(module, member)`.
-        let mut module_members: HashMap<String, Vec<String>> = HashMap::new();
-        for (module_sym, member_sym) in prelude.compiler.cached_member_schemes().keys() {
-            let Some(qualified) = prelude.compiler.interner.try_resolve(*module_sym) else {
-                continue;
-            };
-            let Some(member) = prelude.compiler.interner.try_resolve(*member_sym) else {
-                continue;
-            };
-            if !prelude.loaded_modules.contains(qualified) {
-                // Only surface members from prelude modules we actually
-                // recognize — avoids leaking arbitrary compiler-internal
-                // keys (e.g. effect-op intrinsics) into completion.
-                continue;
-            }
-            let short = qualified.rsplit('.').next().unwrap_or(qualified);
-            module_members
-                .entry(short.to_string())
-                .or_default()
-                .push(member.to_string());
-        }
-        for v in module_members.values_mut() {
-            v.sort();
-            v.dedup();
-        }
+        // Prelude-derived indexes are computed once on the `Prelude` and
+        // shared by `Arc` — they change only when a Flow module loads, never
+        // between keystrokes.
+        let module_short_names = Arc::clone(&prelude.module_short_names);
+        let module_members = Arc::clone(&prelude.module_members);
 
         let (variant_fields, variant_positional_fields) = build_variant_indexes(&program);
 
         // Clone the prelude's module-program cache so goto-definition can jump
         // to definitions in imported Flow modules without re-parsing them.
+        // Cheap now: the values hold `Arc<Program>`, so this is a map of
+        // ref-count bumps, not AST deep copies.
         let module_programs = prelude.module_programs.clone();
 
         Snapshot {
@@ -237,5 +206,19 @@ fn load_buffer_imports(program: &Program, prelude: &mut Prelude) {
 
     for name in module_names {
         prelude.preload_module_if_needed(&name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Snapshot;
+
+    /// The worker thread receives `Arc<Snapshot>`; this locks in that
+    /// `Snapshot` stays `Send + Sync` (a stray `Rc` anywhere in the AST,
+    /// interner, or inference result would break the build here).
+    #[test]
+    fn snapshot_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Snapshot>();
     }
 }

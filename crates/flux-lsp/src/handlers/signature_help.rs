@@ -12,8 +12,7 @@ pub fn signature_help(snapshot: &Snapshot, position: Position) -> Option<Signatu
     let target = snapshot.position_map.lsp_to_flux(position)?;
     let infer = snapshot.infer.as_ref()?;
 
-    let (call_expr, active_param) =
-        find_enclosing_call(&snapshot.program, target)?;
+    let (call_expr, active_param) = find_enclosing_call(&snapshot.program, target)?;
 
     let Expression::Call { function, .. } = call_expr else {
         return None;

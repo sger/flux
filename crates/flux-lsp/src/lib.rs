@@ -5,12 +5,14 @@ pub mod handlers;
 pub mod instance_index;
 pub mod keywords;
 pub mod line_index;
+pub mod loader;
 pub mod locator;
 pub mod navigation_target;
 pub mod prelude;
 pub mod server;
 pub mod snapshot;
 pub mod symbol_index;
+pub mod task;
 pub mod vfs;
 pub mod workspace;
 

@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::diagnostics::position::Span;
 
@@ -230,7 +230,7 @@ pub fn invalid_operation(
     op_name: &str,
     left_type: &str,
     right_type: &str,
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
 ) -> Diagnostic {
     diagnostic_for(&INVALID_OPERATION)
@@ -248,7 +248,7 @@ pub fn runtime_type_error(
     expected: &str,
     actual: &str,
     value_preview: Option<&str>,
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
 ) -> Diagnostic {
     runtime_type_error_diagnostic(file, span, expected, actual, value_preview)
