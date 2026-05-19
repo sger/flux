@@ -13,11 +13,12 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CompletionParams, CompletionResponse, DidOpenTextDocumentParams,
-    DocumentFormattingParams, DocumentSymbolParams, FormattingOptions, GotoDefinitionParams,
-    HoverParams, InitializeParams, InitializedParams, PartialResultParams, Position,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
-    WorkDoneProgressParams,
+    ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidOpenTextDocumentParams, DocumentChanges,
+    DocumentFormattingParams, DocumentSymbolParams, FileChangeType, FileEvent, FormattingOptions,
+    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, PartialResultParams,
+    Position, ReferenceContext, ReferenceParams, RenameParams, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
 };
 use serde_json::Value;
 
@@ -183,6 +184,8 @@ fn did_open_publishes_parse_diagnostics_for_broken_source() {
                 text: "}\n".into(),
             },
         })
+        .into_iter()
+        .next()
         .expect("publishDiagnostics returned");
     assert_eq!(diags.uri, u);
     assert!(!diags.diagnostics.is_empty());
@@ -204,6 +207,8 @@ fn did_open_clean_source_publishes_no_diagnostics() {
                 text: "let x = 1\n".into(),
             },
         })
+        .into_iter()
+        .next()
         .expect("publishDiagnostics returned");
     assert!(
         diags.diagnostics.is_empty(),
@@ -1576,5 +1581,231 @@ fn goto_def_on_named_constructor_jumps_to_data_decl() {
     assert!(
         location.is_some(),
         "expected a definition Location for Person reference"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-file analysis (module graph)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Write `files` into a fresh temp directory and return a `GlobalState`
+/// whose single workspace root is that directory, plus the `file://` URIs of
+/// the written files (in the same order). The module graph reads dependency
+/// files from disk and canonicalizes paths, so real on-disk files are needed.
+fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState, Vec<Uri>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut uris = Vec::new();
+    for (name, content) in files {
+        let path = dir.path().join(name);
+        std::fs::write(&path, content).unwrap();
+        uris.push(flux_lsp::vfs::path_to_uri(&path).unwrap());
+    }
+    let mut state = GlobalState::default();
+    state.set_workspace_folders(vec![dir.path().to_path_buf()]);
+    (dir, state, uris)
+}
+
+#[test]
+fn cross_file_inference_publishes_diagnostics_for_each_module() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+
+    let diags = state.handle_did_open(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uris[1].clone(),
+            language_id: "flux".into(),
+            version: 1,
+            text: main_src.into(),
+        },
+    });
+
+    // Cross-file analysis rebuilt both the entry and its imported module.
+    assert_eq!(
+        diags.len(),
+        2,
+        "expected diagnostics for Math + main, got {diags:?}"
+    );
+    // The cross-module call `M.twice` must resolve — no unresolved-name error.
+    let main_diags = diags
+        .iter()
+        .find(|d| d.uri == uris[1])
+        .expect("diagnostics for main.flx");
+    assert!(
+        main_diags
+            .diagnostics
+            .iter()
+            .all(|d| !d.message.contains("twice")),
+        "unexpected diagnostic mentioning `twice`: {:?}",
+        main_diags.diagnostics
+    );
+}
+
+#[test]
+fn cross_file_goto_definition_jumps_into_user_module() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Cursor on `twice` in `M.twice(21)` (line 2, inside the identifier).
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(2, 14),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition response");
+    let location = expect_location(resp);
+    assert_eq!(
+        location.uri, uris[0],
+        "expected goto-definition to land in Math.flx"
+    );
+}
+
+#[test]
+fn editing_imported_module_refreshes_dependent() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+    open(&mut state, &uris[0], math_src);
+
+    // Edit Math.flx; the dependent main.flx must be re-analyzed too.
+    let diags = state.handle_did_change(DidChangeTextDocumentParams {
+        text_document: lsp_types::VersionedTextDocumentIdentifier {
+            uri: uris[0].clone(),
+            version: 2,
+        },
+        content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "module Math {\n    public fn twice(x) { x * 3 }\n}\n".into(),
+        }],
+    });
+    assert!(
+        diags.iter().any(|d| d.uri == uris[1]),
+        "editing Math.flx should refresh diagnostics for main.flx, got {diags:?}"
+    );
+}
+
+#[test]
+fn cross_file_references_span_the_component() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    // Opening the entry analyzes the whole module-graph component.
+    open(&mut state, &uris[1], main_src);
+
+    // Cursor on the `twice` declaration in Math.flx (line 1).
+    let refs = state.handle_references(ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: ident(&uris[0]),
+            position: Position::new(1, 16),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        context: ReferenceContext {
+            include_declaration: true,
+        },
+    });
+    assert!(
+        refs.iter().any(|r| r.uri == uris[1]),
+        "expected a reference to `twice` in main.flx, got {refs:?}"
+    );
+    let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
+    assert!(
+        distinct.len() >= 2,
+        "expected references across both files, got {refs:?}"
+    );
+}
+
+#[test]
+fn cross_file_rename_edits_every_affected_file() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    let edit = state
+        .handle_rename(RenameParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&uris[0]),
+                position: Position::new(1, 16),
+            },
+            new_name: "tripled".into(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("rename WorkspaceEdit");
+    let edits = match edit.document_changes {
+        Some(DocumentChanges::Edits(edits)) => edits,
+        other => panic!("expected DocumentChanges::Edits, got {other:?}"),
+    };
+    assert!(
+        edits.len() >= 2,
+        "expected a TextDocumentEdit per affected file, got {edits:?}"
+    );
+}
+
+#[test]
+fn local_rename_does_not_cross_files() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() {\n    let x = 1\n    M.twice(x)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // `x` is a local binding in main.flx — renaming it must not touch the
+    // same-named parameter in Math.flx.
+    let edit = state
+        .handle_rename(RenameParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 8),
+            },
+            new_name: "y".into(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("rename WorkspaceEdit");
+    let edits = match edit.document_changes {
+        Some(DocumentChanges::Edits(edits)) => edits,
+        other => panic!("expected DocumentChanges::Edits, got {other:?}"),
+    };
+    assert_eq!(edits.len(), 1, "local rename should touch only main.flx");
+    assert_eq!(edits[0].text_document.uri, uris[1]);
+}
+
+#[test]
+fn watched_file_change_refreshes_dependent() {
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Math.flx changes on disk while unopened; the watcher event must
+    // re-analyze the dependent main.flx.
+    std::fs::write(
+        dir.path().join("Math.flx"),
+        "module Math {\n    public fn twice(x) { x * 3 }\n}\n",
+    )
+    .unwrap();
+    let diags = state.handle_did_change_watched_files(DidChangeWatchedFilesParams {
+        changes: vec![FileEvent {
+            uri: uris[0].clone(),
+            typ: FileChangeType::CHANGED,
+        }],
+    });
+    assert!(
+        diags.iter().any(|d| d.uri == uris[1]),
+        "a watched change to Math.flx should refresh main.flx, got {diags:?}"
     );
 }

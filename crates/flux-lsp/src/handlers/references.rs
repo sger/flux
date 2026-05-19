@@ -5,12 +5,24 @@ use flux::syntax::data_variant::DataVariant;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
-use lsp_types::{Location, Position, Uri};
+use lsp_types::{Location, Position};
 
 use crate::locator::{NodeRef, find_at};
-use crate::snapshot::Snapshot;
+use crate::symbol_index::SymbolIndex;
+use crate::vfs::FileId;
+use crate::workspace::Workspace;
 
-pub fn find_references(snapshot: &Snapshot, uri: &Uri, position: Position) -> Vec<Location> {
+/// Find every reference to the identifier under the cursor.
+///
+/// When the target is a top-level / module-level declaration and `file`
+/// belongs to a module-graph component, the search spans every file in that
+/// component. A purely local binding (a `let`/parameter inside a function)
+/// is searched only within `file` — the component interner is shared, so a
+/// same-named local in a sibling module would otherwise be over-matched.
+pub fn find_references(workspace: &Workspace, file: FileId, position: Position) -> Vec<Location> {
+    let Some(snapshot) = workspace.snapshot(file) else {
+        return vec![];
+    };
     let Some(target) = snapshot.position_map.lsp_to_flux(position) else {
         return vec![];
     };
@@ -20,15 +32,48 @@ pub fn find_references(snapshot: &Snapshot, uri: &Uri, position: Position) -> Ve
     let Some(target_id) = node_identifier(&node) else {
         return vec![];
     };
-    let mut spans: Vec<FluxSpan> = Vec::new();
-    collect_all_uses(&snapshot.program, target_id, &mut spans);
-    spans
-        .into_iter()
-        .map(|span| Location {
-            uri: uri.clone(),
-            range: snapshot.position_map.flux_span_to_range(span),
+
+    let mut locations = Vec::new();
+    for fid in reference_scope(workspace, file, target_id) {
+        let Some(snap) = workspace.snapshot(fid) else {
+            continue;
+        };
+        let Some(uri) = workspace.uri_of(fid) else {
+            continue;
+        };
+        let mut spans: Vec<FluxSpan> = Vec::new();
+        collect_all_uses(&snap.program, target_id, &mut spans);
+        for span in spans {
+            locations.push(Location {
+                uri: uri.clone(),
+                range: snap.position_map.flux_span_to_range(span),
+            });
+        }
+    }
+    locations
+}
+
+/// The set of files a reference/rename search may span. A top-level symbol
+/// scopes to its whole module-graph component; anything else scopes to just
+/// the cursor's file.
+pub(crate) fn reference_scope(
+    workspace: &Workspace,
+    file: FileId,
+    target: Identifier,
+) -> Vec<FileId> {
+    let component = workspace.component_scope(file);
+    let top_level = component.iter().any(|&fid| {
+        workspace.snapshot(fid).is_some_and(|snap| {
+            SymbolIndex::build_for_module_file(&snap.program, &snap.interner)
+                .lookup_id(target)
+                .is_some()
         })
-        .collect()
+    });
+    if component.len() > 1 && top_level {
+        component
+    } else {
+        vec![file]
+    }
 }
 
 /// Extract the canonical `Identifier` from a `NodeRef`. Used by both
