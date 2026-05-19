@@ -9,9 +9,10 @@ use lsp_types::notification::{
     DidOpenTextDocument, DidSaveTextDocument, Initialized, Notification as _,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    InlayHintRequest, References, Rename, Request as _, SemanticTokensFullRequest,
-    SignatureHelpRequest,
+    CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
+    FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, HoverRequest,
+    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{CancelParams, NumberOrString};
 
@@ -155,6 +156,9 @@ impl Server {
             m if m == GotoDefinition::METHOD => self
                 .state
                 .dispatch_definition(serde_json::from_value(req.params)?),
+            m if m == GotoImplementation::METHOD => self
+                .state
+                .dispatch_implementation(serde_json::from_value(req.params)?),
             m if m == Completion::METHOD => self
                 .state
                 .dispatch_completion(serde_json::from_value(req.params)?),
@@ -173,12 +177,27 @@ impl Server {
             m if m == References::METHOD => self
                 .state
                 .dispatch_references(serde_json::from_value(req.params)?),
+            m if m == DocumentHighlightRequest::METHOD => self
+                .state
+                .dispatch_document_highlight(serde_json::from_value(req.params)?),
             m if m == Rename::METHOD => self
                 .state
                 .dispatch_rename(serde_json::from_value(req.params)?),
+            m if m == PrepareRenameRequest::METHOD => self
+                .state
+                .dispatch_prepare_rename(serde_json::from_value(req.params)?),
+            m if m == FoldingRangeRequest::METHOD => self
+                .state
+                .dispatch_folding_range(serde_json::from_value(req.params)?),
+            m if m == SelectionRangeRequest::METHOD => self
+                .state
+                .dispatch_selection_range(serde_json::from_value(req.params)?),
             m if m == SemanticTokensFullRequest::METHOD => self
                 .state
                 .dispatch_semantic_tokens_full(serde_json::from_value(req.params)?),
+            m if m == WorkspaceSymbolRequest::METHOD => self
+                .state
+                .dispatch_workspace_symbol(serde_json::from_value(req.params)?),
             other => {
                 tracing::debug!(method = %other, "unhandled request");
                 let resp = Response::new_err(
