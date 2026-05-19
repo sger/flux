@@ -262,7 +262,7 @@ fn hover_on_integer_literal_returns_type() {
 }
 
 #[test]
-fn hover_on_effect_name_returns_effect_label() {
+fn hover_on_builtin_effect_returns_doc_card() {
     let mut state = GlobalState::default();
     let u = uri("file:///eff.flx");
     open(&mut state, &u, "fn main() with IO {}\n");
@@ -285,8 +285,42 @@ fn hover_on_effect_name_returns_effect_label() {
         other => panic!("expected markup, got {other:?}"),
     };
     assert!(
-        value.contains("effect: IO"),
-        "expected effect label, got: {value}"
+        value.starts_with("**`IO`** — ") && value.contains("```flux"),
+        "expected the built-in `IO` effect doc card, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_user_effect_keeps_the_plain_label() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///user_eff.flx");
+    // A user-declared effect has no built-in doc — hover stays a plain label.
+    open(
+        &mut state,
+        &u,
+        "effect Logger { log: String -> Unit }\nfn run() with Logger {}\n",
+    );
+
+    // `Logger` in the `with` clause on line 1 (starts at column 13).
+    let hover = state
+        .handle_hover(HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 1,
+                    character: 15,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("hover result");
+    let value = match hover.contents {
+        lsp_types::HoverContents::Markup(m) => m.value,
+        other => panic!("expected markup, got {other:?}"),
+    };
+    assert!(
+        !value.starts_with("**`"),
+        "a user effect should not get a built-in doc card, got: {value}"
     );
 }
 
@@ -315,6 +349,66 @@ fn hover_on_function_decl_returns_scheme_or_label() {
     assert!(
         value.contains("main") || value.contains("decl:") || value.contains("->"),
         "expected scheme or decl label, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_main_notes_the_entry_point() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///entry.flx");
+    open(
+        &mut state,
+        &u,
+        "fn helper() { 1 }\nfn main() with IO { print(\"hi\") }\n",
+    );
+
+    // Hover `main` on line 1 — the entry-point note must be present.
+    let hover = state
+        .handle_hover(HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 1,
+                    character: 4,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("hover result");
+    let value = match hover.contents {
+        lsp_types::HoverContents::Markup(m) => m.value,
+        other => panic!("expected markup, got {other:?}"),
+    };
+    assert!(
+        value.starts_with("**`main`** — ") && value.contains("entry point"),
+        "expected the `main` hover to use the card shape with an entry-point \
+         note, got: {value}"
+    );
+    assert!(
+        value.contains("```flux"),
+        "expected the `main` hover to keep its signature in a flux block, got: {value}"
+    );
+
+    // Hover `helper` on line 0 — an ordinary function gets no such note.
+    let other = state
+        .handle_hover(HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 0,
+                    character: 4,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("hover result");
+    let other_value = match other.contents {
+        lsp_types::HoverContents::Markup(m) => m.value,
+        o => panic!("expected markup, got {o:?}"),
+    };
+    assert!(
+        !other_value.contains("entry point"),
+        "an ordinary function should not get the entry-point note, got: {other_value}"
     );
 }
 
