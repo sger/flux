@@ -1,4 +1,4 @@
-//! Hover documentation for Flux keywords.
+//! Hover documentation for Flux keywords and built-in effects.
 //!
 //! Modeled on rust-analyzer's keyword-hover but simplified for our scale:
 //! a single static lookup table maps each reserved word to a markdown
@@ -158,6 +158,9 @@ import Flow.Math exposing (..) except (sqrt, pow)
         "exposing",
         "**`exposing`** — Specify which members of an `import` enter unqualified scope.
 
+List names explicitly, or use `(..)` for every public member. Without an \
+`exposing` clause, members stay qualified under the module name.
+
 ```flux
 import Flow.String exposing (join, split)
 import Flow.Numeric exposing (..)
@@ -165,9 +168,14 @@ import Flow.Numeric exposing (..)
     ),
     (
         "false",
-        "**Boolean literal.**
+        "**`false`** — Boolean literal.
 
-`true` and `false` are the two values of type `Bool`.",
+`true` and `false` are the two values of type `Bool`, produced by comparison \
+and logical operators.
+
+```flux
+let done = false
+```",
     ),
     (
         "fn",
@@ -372,9 +380,14 @@ select {
     ),
     (
         "true",
-        "**Boolean literal.**
+        "**`true`** — Boolean literal.
 
-`true` and `false` are the two values of type `Bool`.",
+`true` and `false` are the two values of type `Bool`, produced by comparison \
+and logical operators.
+
+```flux
+let ready = true
+```",
     ),
     (
         "type",
@@ -419,6 +432,211 @@ pub fn keyword_doc(word: &str) -> Option<&'static str> {
     KEYWORD_DOCS
         .iter()
         .find(|(k, _)| *k == word)
+        .map(|(_, doc)| *doc)
+}
+
+/// Static `(effect, markdown)` table for built-in effect labels — the
+/// aliases (`IO`, `Time`, `Async`), the fine-grained labels (`Console`,
+/// `FileSystem`, …), and the async seams. Same card shape as
+/// [`KEYWORD_DOCS`]; descriptions track `flux::syntax::builtin_effects`.
+/// Keep alphabetically sorted.
+const EFFECT_DOCS: &[(&str, &str)] = &[
+    (
+        "Async",
+        "**`Async`** — Effect alias for asynchronous computation.
+
+`Async` expands to `<Suspend | Fork | GetContext | AsyncFail>`. Annotate code \
+that awaits I/O, forks fibers, or can fail asynchronously with `with Async`.
+
+```flux
+fn fetch(url: String) -> String with Async { ... }
+```",
+    ),
+    (
+        "AsyncFail",
+        "**`AsyncFail`** — Asynchronous-failure seam.
+
+Raised by `Async.fail` and by `timeout` expiry. Part of the `Async` alias; \
+user code writes `with Async` rather than `with AsyncFail`.
+
+```flux
+fn racy() -> Int with Async { ... }
+```",
+    ),
+    (
+        "Clock",
+        "**`Clock`** — Wall-clock and monotonic-time effect.
+
+Carried by `clock_now` and `now_ms`. The fine-grained label behind the \
+`Time` alias.
+
+```flux
+fn stamp() -> Int with Clock { now_ms() }
+```",
+    ),
+    (
+        "Console",
+        "**`Console`** — Standard-output effect.
+
+Carried by `print` and `println`. A function that writes to stdout lists \
+`Console` — or the broader `IO` alias — in its `with` clause.
+
+```flux
+fn greet(name: String) with Console { print(\"Hi, \" + name) }
+```",
+    ),
+    (
+        "Debug",
+        "**`Debug`** — Developer-tracing effect.
+
+Carried by `debug`, `debug_labeled`, and `debug_with` — diagnostic output to \
+stderr. Separate from `Console` so traces can be captured or silenced \
+independently of program output.
+
+```flux
+fn step(x: Int) -> Int with Debug { debug(x); x + 1 }
+```",
+    ),
+    (
+        "Div",
+        "**`Div`** — Recoverable-failure effect.
+
+Carried by integer division and modulo and by indexing — operations that can \
+fail at runtime on division by zero or an out-of-bounds access.
+
+```flux
+fn half(x: Int) -> Int with Div { x / 2 }
+```",
+    ),
+    (
+        "Exn",
+        "**`Exn`** — Recoverable-exception effect (reserved).
+
+Documented in `Flow.Effects` for future use; not yet emitted operationally \
+by compiler primops.
+
+```flux
+fn risky() -> Int with Exn { ... }
+```",
+    ),
+    (
+        "FileSystem",
+        "**`FileSystem`** — Filesystem input/output effect.
+
+Carried by `read_file`, `write_file`, and `read_lines`.
+
+```flux
+fn load(path: String) -> String with FileSystem { read_file(path) }
+```",
+    ),
+    (
+        "Fork",
+        "**`Fork`** — Fiber-fork seam.
+
+Emitted by structured-concurrency fork operations. Part of the `Async` \
+alias; user code writes `with Async`.
+
+```flux
+fn spawn_work() with Async { ... }
+```",
+    ),
+    (
+        "GetContext",
+        "**`GetContext`** — Fiber-context seam.
+
+Used to retrieve the current `FiberContext`. Part of the `Async` alias; \
+user code writes `with Async`.
+
+```flux
+fn current() with Async { ... }
+```",
+    ),
+    (
+        "IO",
+        "**`IO`** — Effect alias for general input/output.
+
+`IO` expands to `<Console | FileSystem | Stdin>` — a function `with IO` may \
+print, read files, and read stdin. Prefer a fine-grained label when only one \
+channel is needed.
+
+```flux
+fn main() with IO { print(\"hi\") }
+```",
+    ),
+    (
+        "NonDet",
+        "**`NonDet`** — Non-determinism effect (reserved).
+
+Documented in `Flow.Effects` for future use; not yet emitted operationally \
+by compiler primops.
+
+```flux
+fn choose() -> Int with NonDet { ... }
+```",
+    ),
+    (
+        "Panic",
+        "**`Panic`** — Intentional-crash effect.
+
+Carried by `panic`. Kept separate from `Exn` because a panic cannot be \
+discarded by the optimizer — it always aborts the program.
+
+```flux
+fn unreachable() with Panic { panic(\"impossible\") }
+```",
+    ),
+    (
+        "Random",
+        "**`Random`** — Randomness effect (reserved).
+
+Documented in `Flow.Effects` for future use; not yet emitted operationally \
+by compiler primops.
+
+```flux
+fn roll() -> Int with Random { ... }
+```",
+    ),
+    (
+        "Stdin",
+        "**`Stdin`** — Standard-input effect.
+
+Carried by `read_stdin` — reading a line from standard input.
+
+```flux
+fn ask() -> String with Stdin { read_stdin() }
+```",
+    ),
+    (
+        "Suspend",
+        "**`Suspend`** — Fiber-suspension seam.
+
+Emitted by the compiler at I/O await points. Part of the `Async` alias; user \
+code writes `with Async`, never `with Suspend` directly.
+
+```flux
+fn await_io() with Async { ... }
+```",
+    ),
+    (
+        "Time",
+        "**`Time`** — Effect alias for clock access.
+
+`Time` expands to `<Clock>` — a function `with Time` may read the wall-clock \
+or monotonic time.
+
+```flux
+fn stamp() -> Int with Time { now_ms() }
+```",
+    ),
+];
+
+/// Return the hover markdown for a built-in effect label, or `None` for a
+/// name that is not a recognized built-in effect (e.g. a user-declared
+/// `effect`).
+pub fn effect_doc(name: &str) -> Option<&'static str> {
+    EFFECT_DOCS
+        .iter()
+        .find(|(e, _)| *e == name)
         .map(|(_, doc)| *doc)
 }
 
@@ -549,8 +767,7 @@ mod tests {
     /// specific positions (after `import`, inside `sealing { ... }`,
     /// inside a `handle` arm) but that aren't lexer-reserved. Each must
     /// have a hover entry; the drift test enforces this.
-    const CONTEXTUAL_KEYWORDS: &[&str] =
-        &["ambient", "end", "except", "exposing", "resume"];
+    const CONTEXTUAL_KEYWORDS: &[&str] = &["ambient", "end", "except", "exposing", "resume"];
 
     #[test]
     fn known_keywords_have_docs() {
@@ -559,6 +776,43 @@ mod tests {
         assert!(keyword_doc("data").is_some());
         assert!(keyword_doc("public").is_some());
         assert!(keyword_doc("with").is_some());
+    }
+
+    /// Every keyword doc follows one uniform shape: a bold
+    /// ``**`kw`** — summary.`` header, then prose, then a ```flux fenced
+    /// example. This guards against a new entry drifting from the template.
+    #[test]
+    fn keyword_docs_share_a_uniform_shape() {
+        for &(kw, doc) in KEYWORD_DOCS {
+            assert!(
+                doc.starts_with(&format!("**`{kw}`** — ")),
+                "`{kw}` doc must open with a `**`{kw}`** — ` header, got: {doc}"
+            );
+            assert!(
+                doc.contains("```flux\n") && doc.contains("\n```"),
+                "`{kw}` doc must include a ```flux fenced example"
+            );
+        }
+    }
+
+    /// Built-in effect docs share the same uniform card shape as keyword
+    /// docs — and `effect_doc` resolves a known label while rejecting an
+    /// unknown one.
+    #[test]
+    fn effect_docs_share_a_uniform_shape() {
+        for &(effect, doc) in EFFECT_DOCS {
+            assert!(
+                doc.starts_with(&format!("**`{effect}`** — ")),
+                "`{effect}` doc must open with a `**`{effect}`** — ` header, got: {doc}"
+            );
+            assert!(
+                doc.contains("```flux\n") && doc.contains("\n```"),
+                "`{effect}` doc must include a ```flux fenced example"
+            );
+        }
+        assert!(effect_doc("IO").is_some());
+        assert!(effect_doc("Console").is_some());
+        assert!(effect_doc("State").is_none());
     }
 
     #[test]

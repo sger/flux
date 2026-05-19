@@ -6,7 +6,7 @@ use flux::syntax::type_expr::TypeExpr;
 use flux::types::{infer_type::InferType, type_constructor::TypeConstructor};
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use crate::keywords::{is_offset_in_comment_or_string, keyword_doc, word_at_offset};
+use crate::keywords::{effect_doc, is_offset_in_comment_or_string, keyword_doc, word_at_offset};
 use crate::locator::{NodeRef, find_at};
 use crate::snapshot::Snapshot;
 
@@ -34,13 +34,71 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 
     let target = snapshot.position_map.lsp_to_flux(position)?;
     let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+
+    // Built-in effect hover: a structured doc card for `IO`, `Console`,
+    // `FileSystem`, etc. Keyed off the AST effect-name node, so it fires
+    // only in effect position — never on an identical identifier elsewhere.
+    if let Some(doc) = builtin_effect_doc(snapshot, &node) {
+        return Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: doc.to_string(),
+            }),
+            range: None,
+        });
+    }
+
     let value = render(snapshot, &node)?;
+    // The top-level `fn main` is the program entry point — the compiler's
+    // `validate_main_entrypoint` singles it out. Render its hover in the
+    // same card shape as keyword docs: a `**`main`** — summary` header,
+    // prose, then a ```flux block (here holding the inferred signature).
+    let markdown = if is_entry_point_decl(snapshot, &node) {
+        format!(
+            "**`main`** — Program entry point.\n\n\
+             The Flux runtime calls `main` to start execution; a top-level \
+             `fn main` is what makes a file runnable.\n\n\
+             ```flux\n{value}\n```",
+        )
+    } else {
+        format!("```flux\n{value}\n```")
+    };
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: format!("```flux\n{value}\n```"),
+            value: markdown,
         }),
         range: None,
+    })
+}
+
+/// Markdown doc card for a built-in effect, if `node` is an effect-name use
+/// or declaration whose label is one of the built-ins (`IO`, `Console`, …).
+/// Returns `None` for a user-declared `effect`, which has no static doc.
+fn builtin_effect_doc(snapshot: &Snapshot, node: &NodeRef) -> Option<&'static str> {
+    let name = match node {
+        NodeRef::EffectName { name, .. } | NodeRef::EffectDeclName { name, .. } => *name,
+        _ => return None,
+    };
+    effect_doc(snapshot.interner.try_resolve(name)?)
+}
+
+/// Whether `node` is the declaration name of the top-level `fn main` — the
+/// program's entry point. Matches on both the `main` symbol and the
+/// declaration span, so a nested or module-scoped `fn main` (which is not an
+/// entry point) is not annotated.
+fn is_entry_point_decl(snapshot: &Snapshot, node: &NodeRef) -> bool {
+    let NodeRef::DeclName { name, binding_span } = node else {
+        return false;
+    };
+    if snapshot.interner.try_resolve(*name) != Some("main") {
+        return false;
+    }
+    snapshot.program.statements.iter().any(|stmt| {
+        matches!(
+            stmt,
+            Statement::Function { name: n, span, .. } if n == name && span == binding_span
+        )
     })
 }
 
