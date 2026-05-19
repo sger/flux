@@ -13,12 +13,14 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidOpenTextDocumentParams, DocumentChanges,
+    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CompletionParams,
+    CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
     DocumentFormattingParams, DocumentSymbolParams, FileChangeType, FileEvent, FormattingOptions,
-    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, PartialResultParams,
-    Position, ReferenceContext, ReferenceParams, RenameParams, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, OneOf,
+    PartialResultParams, Position, Range, ReferenceContext, ReferenceParams, RenameParams,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
+    WorkDoneProgressParams,
 };
 use serde_json::Value;
 
@@ -46,6 +48,12 @@ fn open(state: &mut GlobalState, uri: &Uri, text: &str) {
 
 fn ident(uri: &Uri) -> TextDocumentIdentifier {
     TextDocumentIdentifier { uri: uri.clone() }
+}
+
+fn close(state: &mut GlobalState, uri: &Uri) {
+    state.handle_did_close(DidCloseTextDocumentParams {
+        text_document: ident(uri),
+    });
 }
 
 /// Lower a `GotoDefinitionResponse` to a single `Location` for tests
@@ -92,7 +100,11 @@ fn initialize_handshake_advertises_capabilities() {
     let server_thread = thread::spawn(move || {
         let caps = serde_json::to_value(server_capabilities(PositionEncoding::Utf16)).unwrap();
         let _params = server_conn.initialize(caps).expect("server initialize");
-        let server = Server::new(server_conn, PositionEncoding::Utf16);
+        let server = Server::new(
+            server_conn,
+            PositionEncoding::Utf16,
+            flux_lsp::loader::WatcherKind::Client,
+        );
         server.run().expect("server run");
     });
 
@@ -479,11 +491,7 @@ fn goto_definition_resolves_import_alias_use_site() {
     // `import` line that introduced it.
     let mut state = GlobalState::default();
     let u = uri("file:///alias_use.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as A\nlet x = A.length\n",
-    );
+    open(&mut state, &u, "import Flow.Array as A\nlet x = A.length\n");
 
     let resp = state
         .handle_definition(GotoDefinitionParams {
@@ -514,11 +522,7 @@ fn goto_definition_resolves_aliased_module_member() {
     // entry keyed by the short name `"Array"`.
     let mut state = GlobalState::default();
     let u = uri("file:///alias_mem.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as A\nlet x = A.length\n",
-    );
+    open(&mut state, &u, "import Flow.Array as A\nlet x = A.length\n");
 
     let resp = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -585,11 +589,7 @@ fn goto_definition_resolves_effect_row_var() {
     // binding site, the binder and the use are the same location.
     let mut state = GlobalState::default();
     let u = uri("file:///rowvar.flx");
-    open(
-        &mut state,
-        &u,
-        "fn f() with Console, |e { 1 }\n",
-    );
+    open(&mut state, &u, "fn f() with Console, |e { 1 }\n");
 
     let resp = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -640,9 +640,8 @@ fn goto_definition_resolves_class_method_to_instance() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    let resp = resp.expect(
-        "class-method dispatch should resolve `same(1, 2)` against `instance Eqish<Int>`",
-    );
+    let resp = resp
+        .expect("class-method dispatch should resolve `same(1, 2)` against `instance Eqish<Int>`");
     let loc = expect_location(resp);
     assert_eq!(loc.uri, u);
     // Instance arm `fn same(x, y) { x == y }` is on line 4 (0-based);
@@ -1026,11 +1025,7 @@ fn hover_on_sleep_in_full_async_example_resolves_unit() {
     // and might mask a percent-decode bug in `parent_dir_of_uri`.
     let raw = buf_path.display().to_string().replace('\\', "/");
     let uri_str = if raw.chars().nth(1) == Some(':') {
-        format!(
-            "file:///{}%3A{}",
-            &raw[..1],
-            &raw[2..]
-        )
+        format!("file:///{}%3A{}", &raw[..1], &raw[2..])
     } else {
         format!("file:///{}", raw)
     };
@@ -1174,7 +1169,11 @@ fn hover_on_member_access_member_returns_field_label() {
 fn hover_on_data_declaration_name_returns_data_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///data.flx");
-    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\n");
+    open(
+        &mut state,
+        &u,
+        "data Person { Person { name: String, age: Int } }\n",
+    );
     // `Person` (data name) starts at column 6 (character 5 zero-indexed).
     let value = hover_markup(&mut state, &u, 0, 6).expect("hover on data name");
     assert!(
@@ -1187,7 +1186,11 @@ fn hover_on_data_declaration_name_returns_data_label() {
 fn hover_on_import_name_returns_module_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///imp.flx");
-    open(&mut state, &u, "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n",
+    );
     // Cursor on `Async` in `Flow.Async` — column 13 (character 12).
     let value = hover_markup(&mut state, &u, 0, 12).expect("hover on import name");
     assert!(
@@ -1275,7 +1278,11 @@ fn hover_on_new_keywords_returns_specific_docs() {
     // — they now route through the AST path and surface the inferred
     // type (see `hover_on_builtin_constructor_returns_inferred_type`).
     let cases: &[(&str, &str, &str)] = &[
-        ("deriving", "data X { A, B } deriving (Eq)\n", "Auto-generate"),
+        (
+            "deriving",
+            "data X { A, B } deriving (Eq)\n",
+            "Auto-generate",
+        ),
         ("type", "type T = Int\n", "transparent type alias"),
         ("where", "let x = a where a = 1\n", "let-binding"),
         (
@@ -1284,7 +1291,11 @@ fn hover_on_new_keywords_returns_specific_docs() {
             "first ready",
         ),
         ("sealing", "fn f() { x sealing { Console } }\n", "Restrict"),
-        ("primop", "intrinsic fn p() = primop X\n", "compiler primitive"),
+        (
+            "primop",
+            "intrinsic fn p() = primop X\n",
+            "compiler primitive",
+        ),
         // Newly added contextual keywords.
         (
             "ambient",
@@ -1296,7 +1307,11 @@ fn hover_on_new_keywords_returns_specific_docs() {
             "import Flow.Math exposing (..) except (sqrt)\n",
             "Exclude members",
         ),
-        ("end", "module M\n    public fn f() { 1 }\nend\n", "terminator"),
+        (
+            "end",
+            "module M\n    public fn f() { 1 }\nend\n",
+            "terminator",
+        ),
         (
             "resume",
             "handle counter() with { get() -> resume(0) }\n",
@@ -1414,7 +1429,10 @@ fn completion_in_with_clause_lists_effect_labels() {
         CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
         CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
     };
-    assert!(labels.iter().any(|l| l == "IO"), "expected IO in {labels:?}");
+    assert!(
+        labels.iter().any(|l| l == "IO"),
+        "expected IO in {labels:?}"
+    );
     assert!(
         labels.iter().any(|l| l == "Async"),
         "expected Async in {labels:?}"
@@ -1558,6 +1576,89 @@ fn completion_after_module_dot_lists_module_members() {
 }
 
 #[test]
+fn completion_after_non_prelude_flow_module_dot_lists_members() {
+    // `Http` is not part of the auto-prelude — completion must still work,
+    // because every `lib/Flow/*.flx` module is eagerly indexed for it.
+    let mut state = GlobalState::default();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let workspace = workspace_root
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let buf_path = workspace.join("completion-fixture.flx");
+    let uri_str = format!(
+        "file:///{}",
+        buf_path.display().to_string().replace('\\', "/")
+    );
+    let u = uri(&uri_str);
+    // `Http.` — `Http` starts at char 20, the dot at 24, cursor at 25.
+    let source = "fn main() with IO { Http. }\n";
+    open(&mut state, &u, source);
+
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(0, 25),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        !labels.is_empty() && !labels.iter().any(|l| l == "let" || l == "fn"),
+        "expected Flow.Http members for a non-prelude module, got {labels:?}"
+    );
+}
+
+#[test]
+fn completion_after_user_module_dot_lists_members() {
+    // Type `M.` where `M` aliases a sibling user module and expect that
+    // module's public members — not the default keyword list.
+    let math_src =
+        "module Math {\n    public fn twice(x) { x * 2 }\n    public fn triple(x) { x * 3 }\n}\n";
+    let main_src = "import Math as M\n\nfn run() { M. }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // `fn run() { M. }` — cursor right after the dot (char 13 on line 2).
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(2, 13),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.contains(&"twice".to_string()) && labels.contains(&"triple".to_string()),
+        "expected user-module members `twice`/`triple`, got {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|l| l == "let" || l == "fn"),
+        "got default keyword list instead of module members: {labels:?}"
+    );
+}
+
+#[test]
 fn goto_def_on_named_constructor_jumps_to_data_decl() {
     let mut state = GlobalState::default();
     let u = uri("file:///cons.flx");
@@ -1584,6 +1685,176 @@ fn goto_def_on_named_constructor_jumps_to_data_decl() {
     );
 }
 
+#[test]
+fn cross_file_goto_definition_resolves_modules_in_a_subdirectory_project() {
+    // The workspace root is the temp dir, but the project's entry and its
+    // package both live in a `proj/` subtree. `import Lib.App.Main` resolves
+    // against `proj/` — an ancestor of the entry — not the root itself.
+    let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
+    let entry = "import Lib.App.Main\n\nfn main() with IO {\n    Lib.App.Main.run()\n}\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[
+        ("proj/Lib/App/Main.flx", main_mod),
+        ("proj/main.flx", entry),
+    ]);
+    open(&mut state, &uris[1], entry);
+
+    // Cursor on `run` in `Lib.App.Main.run()` (line 3, char 18).
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 18),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition response");
+    let location = expect_location(resp);
+    assert_eq!(
+        location.uri, uris[0],
+        "expected goto-definition to land in the subdirectory module file"
+    );
+}
+
+#[test]
+fn goto_definition_on_import_jumps_into_the_module_file() {
+    let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
+    let entry = "import Lib.App.Main as M\n\nfn run() { M.run() }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Lib/App/Main.flx", main_mod), ("main.flx", entry)]);
+    open(&mut state, &uris[1], entry);
+
+    // char 12 — inside the `Lib.App.Main` module name; char 23 — the `M`
+    // alias. Both should jump into the module's own file.
+    for ch in [12u32, 23] {
+        let resp = state
+            .handle_definition(GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: ident(&uris[1]),
+                    position: Position::new(0, ch),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            })
+            .unwrap_or_else(|| panic!("goto-definition at char {ch}"));
+        let location = expect_location(resp);
+        assert_eq!(
+            location.uri, uris[0],
+            "import goto-def at char {ch} should land in the module file"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Code actions (quick fixes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn action_title(action: &CodeActionOrCommand) -> &str {
+    match action {
+        CodeActionOrCommand::CodeAction(ca) => &ca.title,
+        CodeActionOrCommand::Command(c) => &c.title,
+    }
+}
+
+/// New text of the first `TextEdit` in a code action's `WorkspaceEdit`.
+fn action_edit_text(action: &CodeActionOrCommand) -> Option<String> {
+    let CodeActionOrCommand::CodeAction(ca) = action else {
+        return None;
+    };
+    let DocumentChanges::Edits(edits) = ca.edit.as_ref()?.document_changes.as_ref()? else {
+        return None;
+    };
+    match edits.first()?.edits.first()? {
+        OneOf::Left(te) => Some(te.new_text.clone()),
+        OneOf::Right(ate) => Some(ate.text_edit.new_text.clone()),
+    }
+}
+
+fn code_action_params(u: &Uri, range: Range) -> CodeActionParams {
+    CodeActionParams {
+        text_document: ident(u),
+        range,
+        context: CodeActionContext::default(),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    }
+}
+
+#[test]
+fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///match.flx");
+    // `match c` covers only two of three `Color` variants — E015.
+    let src = "data Color { Red, Green, Blue }\nfn pick(c: Color) -> Int {\n    match c {\n        Red -> 1,\n        Green -> 2\n    }\n}\n";
+    open(&mut state, &u, src);
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(2, 4), Position::new(2, 13)),
+        ))
+        .expect("code action response");
+
+    let catchall = actions
+        .iter()
+        .find(|a| action_title(a).contains("catch-all"))
+        .expect("expected a catch-all arm quick fix");
+    let new_text = action_edit_text(catchall).expect("catch-all edit text");
+    assert!(
+        new_text.contains("_ -> ()"),
+        "catch-all edit should insert a `_` arm, got {new_text:?}"
+    );
+}
+
+#[test]
+fn code_action_offers_did_you_mean_keyword_fix() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///typo.flx");
+    // `func` is recovered by the parser with a `Did you mean `fn`?` hint.
+    let src = "func main() {\n}\n";
+    open(&mut state, &u, src);
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 4)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("fn"))
+        .expect("expected a did-you-mean quick fix");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some("fn"),
+        "did-you-mean fix should replace the bad keyword with `fn`"
+    );
+}
+
+#[test]
+fn code_action_returns_nothing_for_a_clean_range() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///clean.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    print(\"ok\")\n}\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 4), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+    assert!(
+        actions.is_empty(),
+        "a diagnostic-free range should yield no quick fixes, got {:?}",
+        actions.iter().map(action_title).collect::<Vec<_>>()
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-file analysis (module graph)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1597,6 +1868,11 @@ fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState,
     let mut uris = Vec::new();
     for (name, content) in files {
         let path = dir.path().join(name);
+        // `name` may carry subdirectories (`Lib/App/Main.flx`) for nested
+        // module fixtures — create the parent chain before writing.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
         std::fs::write(&path, content).unwrap();
         uris.push(flux_lsp::vfs::path_to_uri(&path).unwrap());
     }
@@ -1665,6 +1941,128 @@ fn cross_file_goto_definition_jumps_into_user_module() {
     assert_eq!(
         location.uri, uris[0],
         "expected goto-definition to land in Math.flx"
+    );
+}
+
+#[test]
+fn cross_file_goto_definition_resolves_unqualified_module_member() {
+    // `import Math exposing (..)` brings `twice` into scope unqualified.
+    // F12 on the bare `twice` must still land in Math.flx via the
+    // cross-module member fallback.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math exposing (..)\n\nfn run() { twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Cursor on the bare `twice` in `twice(21)` (line 2, char 12).
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(2, 12),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition response");
+    let location = expect_location(resp);
+    assert_eq!(
+        location.uri, uris[0],
+        "expected unqualified-member goto-definition to land in Math.flx"
+    );
+}
+
+#[test]
+fn cross_file_goto_definition_resolves_deeply_qualified_member() {
+    // `A.B.C.member` — a multi-segment qualified path. The `object` of the
+    // `.run` access is a `MemberAccess` chain, not a bare identifier.
+    let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
+    let entry = "import Lib.App.Main\n\nfn main() with IO {\n    Lib.App.Main.run()\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Lib/App/Main.flx", main_mod), ("main.flx", entry)]);
+    open(&mut state, &uris[1], entry);
+
+    // Cursor on `run` in `Lib.App.Main.run()` (line 3, char 18).
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 18),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition response");
+    let location = expect_location(resp);
+    assert_eq!(
+        location.uri, uris[0],
+        "expected deeply-qualified goto-definition to land in Lib/App/Main.flx"
+    );
+}
+
+#[test]
+fn completion_after_deeply_qualified_module_dot_lists_members() {
+    let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
+    let entry = "import Lib.App.Main\n\nfn main() with IO {\n    Lib.App.Main.\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Lib/App/Main.flx", main_mod), ("main.flx", entry)]);
+    open(&mut state, &uris[1], entry);
+
+    // `    Lib.App.Main.` — cursor right after the final dot (line 3, char 17).
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 17),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.contains(&"run".to_string()),
+        "expected `run` from Lib.App.Main, got {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|l| l == "let" || l == "fn"),
+        "got default keyword list instead of module members: {labels:?}"
+    );
+}
+
+#[test]
+fn completion_module_namespace_lists_next_segment() {
+    let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
+    let entry = "import Lib.App.Main\n\nfn main() with IO {\n    Lib.\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Lib/App/Main.flx", main_mod), ("main.flx", entry)]);
+    open(&mut state, &uris[1], entry);
+
+    // `    Lib.` — `Lib` is only a prefix of `Lib.App.Main`, so the next
+    // path segment (`App`) should be offered (line 3, char 8).
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 8),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.contains(&"App".to_string()),
+        "expected namespace segment `App`, got {labels:?}"
     );
 }
 
@@ -1808,4 +2206,226 @@ fn watched_file_change_refreshes_dependent() {
         diags.iter().any(|d| d.uri == uris[1]),
         "a watched change to Math.flx should refresh main.flx, got {diags:?}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Closed / never-opened files stay queryable
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MATH_SRC: &str = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+const MAIN_SRC: &str = "import Math as M\n\nfn run() { M.twice(21) }\n";
+
+#[test]
+fn closed_file_still_answers_references() {
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", MATH_SRC), ("main.flx", MAIN_SRC)]);
+    open(&mut state, &uris[1], MAIN_SRC);
+    open(&mut state, &uris[0], MATH_SRC);
+    close(&mut state, &uris[0]); // Math.flx is now closed (still on disk)
+
+    // References requested from the still-open main.flx must reach the
+    // declaration in the closed Math.flx.
+    let refs = state.handle_references(ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: ident(&uris[1]),
+            position: Position::new(2, 14),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        context: ReferenceContext {
+            include_declaration: true,
+        },
+    });
+    let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
+    assert!(
+        distinct.len() >= 2,
+        "references should still span the closed Math.flx, got {refs:?}"
+    );
+}
+
+#[test]
+fn goto_definition_into_closed_module() {
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", MATH_SRC), ("main.flx", MAIN_SRC)]);
+    open(&mut state, &uris[1], MAIN_SRC);
+    open(&mut state, &uris[0], MATH_SRC);
+    close(&mut state, &uris[0]);
+
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(2, 14),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition into a closed module");
+    assert_eq!(expect_location(resp).uri, uris[0]);
+}
+
+#[test]
+fn references_reach_never_opened_file() {
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", MATH_SRC), ("main.flx", MAIN_SRC)]);
+    // Only main.flx is ever opened — Math.flx is discovered on disk.
+    open(&mut state, &uris[1], MAIN_SRC);
+
+    let refs = state.handle_references(ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: ident(&uris[1]),
+            position: Position::new(2, 14),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        context: ReferenceContext {
+            include_declaration: true,
+        },
+    });
+    let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
+    assert!(
+        distinct.len() >= 2,
+        "references should reach the never-opened Math.flx, got {refs:?}"
+    );
+}
+
+#[test]
+fn closing_standalone_file_then_query_rebuilds_lazily() {
+    let solo = "let answer = 42\nlet result = answer\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("solo.flx", solo)]);
+    open(&mut state, &uris[0], solo);
+    close(&mut state, &uris[0]); // snapshot dropped — no component keeps it
+
+    // A request against the closed file must rebuild its snapshot lazily
+    // from the on-disk content.
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[0]),
+                position: Position::new(1, 13),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition should rebuild the closed file's snapshot");
+    assert_eq!(expect_location(resp).range.start.line, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Worker thread (end-to-end) — a read request is served off the main loop
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn hover_request_is_served_via_worker() {
+    use lsp_types::notification::{DidOpenTextDocument, Initialized};
+    use lsp_types::request::HoverRequest;
+
+    let (server_conn, client) = Connection::memory();
+    let server_thread = thread::spawn(move || {
+        let caps = serde_json::to_value(server_capabilities(PositionEncoding::Utf16)).unwrap();
+        let _ = server_conn.initialize(caps).expect("server initialize");
+        let server = Server::new(
+            server_conn,
+            PositionEncoding::Utf16,
+            flux_lsp::loader::WatcherKind::Client,
+        );
+        server.run().expect("server run");
+    });
+
+    // initialize handshake
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: 1.into(),
+            method: Initialize::METHOD.to_string(),
+            params: serde_json::to_value(InitializeParams::default()).unwrap(),
+        }))
+        .unwrap();
+    let _ = client.receiver.recv().unwrap(); // initialize response
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: Initialized::METHOD.to_string(),
+            params: serde_json::to_value(InitializedParams {}).unwrap(),
+        }))
+        .unwrap();
+
+    // open a document
+    let u = uri("file:///worker_hover.flx");
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: DidOpenTextDocument::METHOD.to_string(),
+            params: serde_json::to_value(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: u.clone(),
+                    language_id: "flux".into(),
+                    version: 1,
+                    text: "let answer = 42\n".into(),
+                },
+            })
+            .unwrap(),
+        }))
+        .unwrap();
+
+    // a hover request — computed on the worker thread
+    let hover_id: RequestId = 2.into();
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: hover_id.clone(),
+            method: HoverRequest::METHOD.to_string(),
+            params: serde_json::to_value(HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: ident(&u),
+                    position: Position::new(0, 4),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            })
+            .unwrap(),
+        }))
+        .unwrap();
+
+    // The worker's response eventually arrives (diagnostics / registerCapability
+    // messages may interleave first).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut served = false;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match client.receiver.recv_timeout(remaining).unwrap() {
+            Message::Response(r) if r.id == hover_id => {
+                served = true;
+                break;
+            }
+            _ => continue,
+        }
+    }
+    assert!(served, "expected a hover response from the worker thread");
+
+    // shutdown
+    let shutdown_id: RequestId = 3.into();
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: shutdown_id.clone(),
+            method: Shutdown::METHOD.to_string(),
+            params: Value::Null,
+        }))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match client.receiver.recv_timeout(remaining).unwrap() {
+            Message::Response(r) if r.id == shutdown_id => break,
+            _ => continue,
+        }
+    }
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: lsp_types::notification::Exit::METHOD.to_string(),
+            params: Value::Null,
+        }))
+        .unwrap();
+    server_thread.join().unwrap();
 }

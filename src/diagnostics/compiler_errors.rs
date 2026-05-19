@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use super::builders::DiagnosticBuilder;
 use super::quality::{
@@ -1543,7 +1543,7 @@ pub fn missing_function_body_brace(
 /// Used by the HM inference pass when two concrete types cannot be unified,
 /// e.g. `Int` vs `String` at a function call site.
 pub fn type_unification_error(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     expected: &str,
     actual: &str,
@@ -1564,7 +1564,7 @@ pub fn type_unification_error(
 
 /// Create a wrong-argument-count diagnostic (E056).
 pub fn wrong_argument_count(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     call_span: Span,
     fn_name: &str,
     expected: usize,
@@ -1631,7 +1631,7 @@ fn ordinal(index: usize) -> String {
 
 /// Create a call-argument type mismatch diagnostic (E300).
 pub fn call_arg_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     arg_span: Span,
     fn_name: Option<&str>,
     arg_index: usize,
@@ -1677,7 +1677,7 @@ pub fn call_arg_type_mismatch(
 
 /// Create a typed-let annotation mismatch diagnostic (E300).
 pub fn let_annotation_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     ann_span: Span,
     value_span: Span,
     name: &str,
@@ -1704,7 +1704,7 @@ pub fn let_annotation_type_mismatch(
 
 /// Create a function return-annotation mismatch diagnostic (E300).
 pub fn fun_return_annotation_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     ret_ann_span: Span,
     return_expr_span: Span,
     fn_name: &str,
@@ -1731,7 +1731,7 @@ pub fn fun_return_annotation_mismatch(
 
 /// Create an if-branch mismatch diagnostic (E300).
 pub fn if_branch_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     then_span: Span,
     else_span: Span,
     then_ty: &str,
@@ -1754,7 +1754,7 @@ pub fn if_branch_type_mismatch(
 
 /// Create a match-arm mismatch diagnostic (E300).
 pub fn match_arm_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     first_span: Span,
     arm_span: Span,
     first_ty: &str,
@@ -1778,7 +1778,7 @@ pub fn match_arm_type_mismatch(
 
 /// Create a function return-type mismatch diagnostic (E300).
 pub fn fun_return_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     expected_ret: &str,
     actual_ret: &str,
@@ -1799,7 +1799,7 @@ pub fn fun_return_type_mismatch(
 
 /// Create a function parameter-type mismatch diagnostic (E300).
 pub fn fun_param_type_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     index: usize,
     expected: &str,
@@ -1821,7 +1821,7 @@ pub fn fun_param_type_mismatch(
 
 /// Create a function arity mismatch diagnostic (E300).
 pub fn fun_arity_mismatch(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     expected: usize,
     actual: usize,
@@ -1859,7 +1859,7 @@ pub fn fun_arity_mismatch(
 /// Fires when a type variable would be bound to a type that contains itself,
 /// creating an infinite recursive type.
 pub fn occurs_check_failure(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     var: &str,
     ty: &str,

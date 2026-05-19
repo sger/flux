@@ -3,38 +3,17 @@ use lsp_types::{
     TextEdit, WorkspaceEdit,
 };
 
-use crate::handlers::references::{collect_all_uses, node_identifier, reference_scope};
-use crate::locator::find_at;
+use crate::handlers::references::{RefBundle, collect_all_uses, gather};
 use crate::vfs::FileId;
 use crate::workspace::Workspace;
 
-/// Rename the identifier under the cursor.
-///
-/// A top-level / module-level symbol is renamed across its whole
-/// module-graph component, producing one `TextDocumentEdit` per affected
-/// file; a purely local binding is renamed only within `file`. See
-/// [`reference_scope`] for the scoping rule.
-pub fn rename(
-    workspace: &Workspace,
-    file: FileId,
-    position: Position,
-    new_name: String,
-) -> Option<WorkspaceEdit> {
-    let snapshot = workspace.snapshot(file)?;
-    let target = snapshot.position_map.lsp_to_flux(position)?;
-    let node = find_at(&snapshot.program, &snapshot.interner, target)?;
-    let target_id = node_identifier(&node)?;
-
+/// Pure pass: turn a gathered reference bundle into a multi-file
+/// `WorkspaceEdit`. Safe to run on a worker thread — no `Workspace` access.
+pub fn compute_workspace_edit(bundle: &RefBundle, new_name: &str) -> Option<WorkspaceEdit> {
     let mut document_changes: Vec<TextDocumentEdit> = Vec::new();
-    for fid in reference_scope(workspace, file, target_id) {
-        let Some(snap) = workspace.snapshot(fid) else {
-            continue;
-        };
-        let Some(uri) = workspace.uri_of(fid) else {
-            continue;
-        };
+    for file in &bundle.files {
         let mut spans = Vec::new();
-        collect_all_uses(&snap.program, target_id, &mut spans);
+        collect_all_uses(&file.snapshot.program, bundle.target_id, &mut spans);
         if spans.is_empty() {
             continue;
         }
@@ -42,17 +21,17 @@ pub fn rename(
             .iter()
             .map(|span| {
                 OneOf::Left(TextEdit {
-                    range: snap.position_map.flux_span_to_range(*span),
-                    new_text: new_name.clone(),
+                    range: file.snapshot.position_map.flux_span_to_range(*span),
+                    new_text: new_name.to_string(),
                 })
             })
             .collect();
         document_changes.push(TextDocumentEdit {
             text_document: OptionalVersionedTextDocumentIdentifier {
-                uri,
+                uri: file.uri.clone(),
                 // Open buffers carry a version; on-disk dependency modules
                 // do not — `None` is a valid unversioned edit.
-                version: workspace.version(fid),
+                version: file.version,
             },
             edits,
         });
@@ -65,4 +44,19 @@ pub fn rename(
         document_changes: Some(DocumentChanges::Edits(document_changes)),
         ..Default::default()
     })
+}
+
+/// Rename the identifier under the cursor.
+///
+/// A top-level / module-level symbol is renamed across its whole
+/// module-graph component, producing one `TextDocumentEdit` per affected
+/// file; a purely local binding is renamed only within `file`.
+pub fn rename(
+    workspace: &mut Workspace,
+    file: FileId,
+    position: Position,
+    new_name: String,
+) -> Option<WorkspaceEdit> {
+    let bundle = gather(workspace, file, position)?;
+    compute_workspace_edit(&bundle, &new_name)
 }

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use crate::{
@@ -148,7 +148,7 @@ struct InferCtx<'a> {
     env: TypeEnv,
     interner: &'a Interner,
     errors: Vec<Diagnostic>,
-    file_path: Rc<str>,
+    file_path: Arc<str>,
     /// Accumulated global substitution — grows monotonically as constraints
     /// are solved.  Apply this to any `Ty` retrieved from the env to obtain
     /// its most-resolved form.
@@ -473,7 +473,7 @@ impl<'a> InferCtx<'a> {
 }
 
 struct InferCtxConfig {
-    file_path: Rc<str>,
+    file_path: Arc<str>,
     preloaded_base_schemes: HashMap<Identifier, Scheme>,
     preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     task_module_bindings: HashSet<Identifier>,
@@ -504,7 +504,7 @@ pub use display::suggest_type_name;
 /// };
 /// ```
 pub struct InferProgramConfig {
-    pub file_path: Option<Rc<str>>,
+    pub file_path: Option<Arc<str>>,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub task_module_bindings: HashSet<Identifier>,
@@ -547,7 +547,7 @@ pub fn infer_program(
     interner: &Interner,
     config: InferProgramConfig,
 ) -> InferProgramResult {
-    let file: Rc<str> = config.file_path.unwrap_or_else(|| "".into());
+    let file: Arc<str> = config.file_path.unwrap_or_else(|| "".into());
     let mut ctx = InferCtx::new(
         interner,
         InferCtxConfig {
