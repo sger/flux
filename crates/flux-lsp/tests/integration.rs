@@ -16,11 +16,12 @@ use lsp_types::{
     ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CompletionParams,
     CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
-    DocumentFormattingParams, DocumentSymbolParams, FileChangeType, FileEvent, FormattingOptions,
-    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, OneOf,
-    PartialResultParams, Position, Range, ReferenceContext, ReferenceParams, RenameParams,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, Uri,
-    WorkDoneProgressParams,
+    DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams, FileChangeType,
+    FileEvent, FoldingRangeParams, FormattingOptions, GotoDefinitionParams, HoverParams,
+    InitializeParams, InitializedParams, OneOf, PartialResultParams, Position, Range,
+    ReferenceContext, ReferenceParams, RenameParams, SelectionRangeParams, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -1837,6 +1838,241 @@ fn goto_definition_on_import_jumps_into_the_module_file() {
             "import goto-def at char {ch} should land in the module file"
         );
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Document highlight
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn document_highlight_marks_all_occurrences() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///hl.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() {\n    let total = 1\n    let next = total + total\n}\n",
+    );
+
+    // Cursor on the `total` declaration (line 1, char 9) — the binding plus
+    // its two uses in `total + total` should all be highlighted.
+    let highlights = state.handle_document_highlight(DocumentHighlightParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(1, 9),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert_eq!(
+        highlights.len(),
+        3,
+        "expected 3 highlights for `total`, got {highlights:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspace symbol search
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn workspace_symbol_names(state: &mut GlobalState, query: &str) -> Vec<String> {
+    let resp = state
+        .handle_workspace_symbol(WorkspaceSymbolParams {
+            query: query.to_string(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("workspace symbol response");
+    match resp {
+        WorkspaceSymbolResponse::Nested(syms) => syms.into_iter().map(|s| s.name).collect(),
+        WorkspaceSymbolResponse::Flat(syms) => syms.into_iter().map(|s| s.name).collect(),
+    }
+}
+
+#[test]
+fn workspace_symbol_finds_declarations_across_files() {
+    // `twice` lives inside `module Math` in a file that is never opened —
+    // the workspace discovers it on disk.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "fn compute() { 42 }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    let names = workspace_symbol_names(&mut state, "twice");
+    assert!(
+        names.iter().any(|n| n == "twice"),
+        "expected the module member `twice`, got {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "compute"),
+        "query `twice` should not match `compute`, got {names:?}"
+    );
+
+    // An empty query returns everything discovered — both files' symbols.
+    let all = workspace_symbol_names(&mut state, "");
+    assert!(
+        all.iter().any(|n| n == "twice") && all.iter().any(|n| n == "compute"),
+        "empty query should list every declaration, got {all:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prepare rename & folding ranges
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn prepare_rename_returns_the_identifier_range() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///pr.flx");
+    open(&mut state, &u, "fn main() {\n    let total = 1\n}\n\n");
+
+    // Cursor on `total` (line 1) — renameable, returns its 5-char range.
+    let resp = state
+        .handle_prepare_rename(TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(1, 9),
+        })
+        .expect("prepare-rename response");
+    match resp {
+        lsp_types::PrepareRenameResponse::Range(range) => {
+            assert_eq!(range.start.line, 1);
+            assert_eq!(
+                range.end.character - range.start.character,
+                5,
+                "expected the `total` identifier range"
+            );
+        }
+        other => panic!("expected a plain range, got {other:?}"),
+    }
+
+    // Cursor on the trailing blank line — nothing to rename.
+    let none = state.handle_prepare_rename(TextDocumentPositionParams {
+        text_document: ident(&u),
+        position: Position::new(3, 0),
+    });
+    assert!(none.is_none(), "a blank line has no renameable identifier");
+}
+
+#[test]
+fn folding_range_covers_multiline_declarations() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///fold.flx");
+    open(&mut state, &u, "fn helper() {\n    1\n}\nlet x = 2\n");
+
+    let folds = state.handle_folding_range(FoldingRangeParams {
+        text_document: ident(&u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+
+    // `fn helper` spans lines 0–2; `let x = 2` is single-line → one fold.
+    assert_eq!(
+        folds.len(),
+        1,
+        "expected one fold for the multi-line function, got {folds:?}"
+    );
+    assert_eq!(folds[0].start_line, 0);
+    assert_eq!(folds[0].end_line, 2);
+}
+
+#[test]
+fn selection_range_nests_outward_from_the_cursor() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sel.flx");
+    open(&mut state, &u, "fn main() {\n    let x = 1 + 2\n}\n");
+
+    // Cursor on the `1` literal inside `1 + 2` (line 1, char 12).
+    let resp = state.handle_selection_range(SelectionRangeParams {
+        text_document: ident(&u),
+        positions: vec![Position::new(1, 12)],
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert_eq!(resp.len(), 1, "one chain per requested position");
+
+    // Walk the parent chain, collecting each range.
+    let mut ranges = Vec::new();
+    let mut node = &resp[0];
+    loop {
+        ranges.push(node.range);
+        match &node.parent {
+            Some(parent) => node = parent,
+            None => break,
+        }
+    }
+    assert!(
+        ranges.len() >= 3,
+        "expected several nested ranges (literal → infix → statement → …), got {ranges:?}"
+    );
+    // Each parent must strictly enclose the child.
+    for pair in ranges.windows(2) {
+        let (inner, outer) = (pair[0], pair[1]);
+        assert!(
+            (outer.start.line, outer.start.character) <= (inner.start.line, inner.start.character)
+                && (inner.end.line, inner.end.character) <= (outer.end.line, outer.end.character),
+            "selection ranges are not nested: {ranges:?}"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Go to implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn implementation_lists_class_instances() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///impl.flx");
+    open(
+        &mut state,
+        &u,
+        "class Show<a> { show: a -> String }\n\
+         instance Show<Int> { show(x) { \"int\" } }\n\
+         instance Show<Bool> { show(x) { \"bool\" } }\n",
+    );
+
+    // Cursor on `Show` in the `class Show<a>` declaration (line 0, char 7).
+    let resp = state
+        .handle_implementation(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(0, 7),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("implementation response");
+
+    match resp {
+        lsp_types::GotoDefinitionResponse::Array(locations) => assert_eq!(
+            locations.len(),
+            2,
+            "expected both `Show` instances, got {locations:?}"
+        ),
+        other => panic!("expected an array of instance locations, got {other:?}"),
+    }
+}
+
+#[test]
+fn implementation_is_empty_off_a_class_name() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///impl_none.flx");
+    open(&mut state, &u, "fn main() {\n    let x = 1\n}\n");
+
+    // Cursor on the local `x` — not a class, so no implementations.
+    let resp = state.handle_implementation(GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(1, 8),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert!(
+        resp.is_none(),
+        "expected no implementations off a non-class"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

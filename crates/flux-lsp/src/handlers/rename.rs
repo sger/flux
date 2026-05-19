@@ -1,11 +1,27 @@
 use lsp_types::{
-    DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier, Position, TextDocumentEdit,
-    TextEdit, WorkspaceEdit,
+    DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
+    PrepareRenameResponse, TextDocumentEdit, TextEdit, WorkspaceEdit,
 };
 
-use crate::handlers::references::{RefBundle, collect_all_uses, gather};
+use crate::global_state::cursor_word_range;
+use crate::handlers::references::{RefBundle, collect_all_uses, gather, node_identifier};
+use crate::locator::find_at;
+use crate::snapshot::Snapshot;
 use crate::vfs::FileId;
 use crate::workspace::Workspace;
+
+/// Handle `textDocument/prepareRename`: validate that the cursor sits on a
+/// renameable identifier and return the exact range the editor should make
+/// editable. `None` tells the client rename is not valid here (cursor on a
+/// keyword, literal, or whitespace).
+pub fn prepare_rename(snapshot: &Snapshot, position: Position) -> Option<PrepareRenameResponse> {
+    let target = snapshot.position_map.lsp_to_flux(position)?;
+    let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+    // Only nodes that resolve to an identifier can be renamed.
+    node_identifier(&node)?;
+    let range = cursor_word_range(snapshot, position)?;
+    Some(PrepareRenameResponse::Range(range))
+}
 
 /// Pure pass: turn a gathered reference bundle into a multi-file
 /// `WorkspaceEdit`. Safe to run on a worker thread — no `Workspace` access.

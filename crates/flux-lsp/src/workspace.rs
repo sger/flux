@@ -113,6 +113,16 @@ impl Workspace {
         &self.roots
     }
 
+    /// `(uri, text)` for every file the VFS knows — open buffers and
+    /// discovered on-disk files alike. Cheap (`Arc` clones + URI lookups);
+    /// the `workspace/symbol` handler parses these off the main thread.
+    pub fn all_file_texts(&self) -> Vec<(Uri, Arc<str>)> {
+        self.vfs
+            .all_files()
+            .filter_map(|id| Some((self.uri_of(id)?, self.vfs.text(id)?)))
+            .collect()
+    }
+
     // ── queries ────────────────────────────────────────────────────────────
 
     /// Id of an already-interned file behind `uri`, if the workspace has seen

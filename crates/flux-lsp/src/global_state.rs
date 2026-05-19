@@ -8,10 +8,13 @@ use lsp_types::{
     CodeActionParams, CodeActionResponse, CompletionParams, CompletionResponse,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, InlayHint, InlayHintParams, Location, PublishDiagnosticsParams,
-    ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams, SignatureHelp,
-    SignatureHelpParams, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
+    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
+    FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverParams, InlayHint, InlayHintParams, Location, PrepareRenameResponse,
+    PublishDiagnosticsParams, ReferenceParams, RenameParams, SelectionRange, SelectionRangeParams,
+    SemanticTokens, SemanticTokensParams, SignatureHelp, SignatureHelpParams,
+    TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 
 use crate::handlers;
@@ -186,6 +189,18 @@ impl GlobalState {
         ]))
     }
 
+    pub fn handle_implementation(
+        &mut self,
+        params: GotoDefinitionParams,
+    ) -> Option<GotoDefinitionResponse> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
+        handlers::implementation::goto_implementation(snapshot, &text_document.uri, position)
+    }
+
     pub fn handle_completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
         let snapshot = self
             .workspace
@@ -194,6 +209,30 @@ impl GlobalState {
             snapshot,
             params.text_document_position.position,
         ))
+    }
+
+    pub fn handle_document_highlight(
+        &mut self,
+        params: DocumentHighlightParams,
+    ) -> Vec<DocumentHighlight> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&text_document.uri) else {
+            return vec![];
+        };
+        handlers::document_highlight::document_highlights(snapshot, position)
+    }
+
+    pub fn handle_workspace_symbol(
+        &mut self,
+        params: WorkspaceSymbolParams,
+    ) -> Option<WorkspaceSymbolResponse> {
+        let files = self.workspace.all_file_texts();
+        let symbols =
+            handlers::workspace_symbol::workspace_symbols(&files, &params.query, self.encoding);
+        Some(WorkspaceSymbolResponse::Nested(symbols))
     }
 
     pub fn handle_code_action(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
@@ -257,6 +296,38 @@ impl GlobalState {
             params.text_document_position.position,
             params.new_name,
         )
+    }
+
+    pub fn handle_prepare_rename(
+        &mut self,
+        params: TextDocumentPositionParams,
+    ) -> Option<PrepareRenameResponse> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        handlers::rename::prepare_rename(snapshot, params.position)
+    }
+
+    pub fn handle_folding_range(&mut self, params: FoldingRangeParams) -> Vec<FoldingRange> {
+        match self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+        {
+            Some(snapshot) => handlers::folding::folding_ranges(snapshot),
+            None => vec![],
+        }
+    }
+
+    pub fn handle_selection_range(&mut self, params: SelectionRangeParams) -> Vec<SelectionRange> {
+        match self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+        {
+            Some(snapshot) => {
+                handlers::selection_range::selection_ranges(snapshot, &params.positions)
+            }
+            None => vec![],
+        }
     }
 
     pub fn handle_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> SemanticTokens {
@@ -327,12 +398,55 @@ impl GlobalState {
         ))
     }
 
+    pub fn dispatch_implementation(&mut self, params: GotoDefinitionParams) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let uri = text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(
+            move || match handlers::implementation::goto_implementation(&snapshot, &uri, position) {
+                Some(resp) => to_value(resp),
+                None => serde_json::Value::Null,
+            },
+        ))
+    }
+
     pub fn dispatch_completion(&mut self, params: CompletionParams) -> Option<Job> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         Some(Box::new(move || {
             to_value(handlers::completion::complete(&snapshot, position))
+        }))
+    }
+
+    pub fn dispatch_document_highlight(&mut self, params: DocumentHighlightParams) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::document_highlight::document_highlights(
+                &snapshot, position,
+            ))
+        }))
+    }
+
+    pub fn dispatch_workspace_symbol(&mut self, params: WorkspaceSymbolParams) -> Option<Job> {
+        // Gather `(uri, text)` on the main thread — cheap `Arc` clones — then
+        // parse and filter off the main thread.
+        let files = self.workspace.all_file_texts();
+        let query = params.query;
+        let encoding = self.encoding;
+        Some(Box::new(move || {
+            let symbols = handlers::workspace_symbol::workspace_symbols(&files, &query, encoding);
+            to_value(WorkspaceSymbolResponse::Nested(symbols))
         }))
     }
 
@@ -372,6 +486,43 @@ impl GlobalState {
         Some(Box::new(move || {
             to_value(handlers::signature_help::signature_help(
                 &snapshot, position,
+            ))
+        }))
+    }
+
+    pub fn dispatch_prepare_rename(&mut self, params: TextDocumentPositionParams) -> Option<Job> {
+        let position = params.position;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            match handlers::rename::prepare_rename(&snapshot, position) {
+                Some(resp) => to_value(resp),
+                None => serde_json::Value::Null,
+            }
+        }))
+    }
+
+    pub fn dispatch_folding_range(&mut self, params: FoldingRangeParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::folding::folding_ranges(&snapshot))
+        }))
+    }
+
+    pub fn dispatch_selection_range(&mut self, params: SelectionRangeParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        let positions = params.positions;
+        Some(Box::new(move || {
+            to_value(handlers::selection_range::selection_ranges(
+                &snapshot, &positions,
             ))
         }))
     }
@@ -437,7 +588,7 @@ impl GlobalState {
 /// `LocationLink` so VS Code's peek view underlines just the cursor
 /// word, not the whole line. Reuses the same word-detection logic as
 /// keyword hover.
-fn cursor_word_range(
+pub(crate) fn cursor_word_range(
     snapshot: &crate::snapshot::Snapshot,
     position: lsp_types::Position,
 ) -> Option<lsp_types::Range> {
