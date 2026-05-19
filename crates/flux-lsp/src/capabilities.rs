@@ -2,6 +2,7 @@ use lsp_types::{
     CompletionOptions, DefinitionOptions, HoverProviderCapability, OneOf, RenameOptions,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
     ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -48,6 +49,17 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
                 work_done_progress_options: Default::default(),
             }),
         ),
+        // Advertise multi-root workspace support: the client sends
+        // `workspaceFolders` at initialize and `didChangeWorkspaceFolders`
+        // afterwards. The `Workspace` uses the roots to discover every
+        // project `.flx` file for cross-file analysis.
+        workspace: Some(WorkspaceServerCapabilities {
+            workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                supported: Some(true),
+                change_notifications: Some(OneOf::Left(true)),
+            }),
+            file_operations: None,
+        }),
         ..Default::default()
     }
 }

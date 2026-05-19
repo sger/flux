@@ -58,13 +58,13 @@ pub fn goto_definition(
             && let Some((mod_program, mod_source, mod_path)) =
                 snapshot.module_programs.get(&module_short)
         {
-            let mod_index = SymbolIndex::build_extended(mod_program, &snapshot.interner);
+            let mod_index = SymbolIndex::build_for_module_file(mod_program, &snapshot.interner);
             if let Some(entry) = mod_index.lookup_id(*member) {
                 let mod_map = PositionMap::new(
                     std::sync::Arc::from(mod_source.as_ref()),
                     snapshot.position_map.encoding(),
                 );
-                let module_uri = path_to_uri(mod_path)?;
+                let module_uri = crate::vfs::path_to_uri(mod_path)?;
                 return Some(target_from_entry(module_uri, &mod_map, entry));
             }
         }
@@ -610,11 +610,6 @@ fn find_import_stmt_span_by_qualified(program: &Program, target: Identifier) -> 
         }
     }
     None
-}
-
-fn path_to_uri(path: &std::path::Path) -> Option<Uri> {
-    let s = format!("file://{}", path.display());
-    s.parse().ok()
 }
 
 /// Walk the program for a non-top-level binding (let/fn/param inside a

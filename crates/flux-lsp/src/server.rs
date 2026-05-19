@@ -1,13 +1,17 @@
 use anyhow::Result;
-use lsp_server::{Connection, ErrorCode, Message, Notification, Request, Response};
+use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
-    DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument,
-    Notification as _,
+    DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+    DidSaveTextDocument, Initialized, Notification as _,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    InlayHintRequest, References, Rename, Request as _, SemanticTokensFullRequest,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, InlayHintRequest,
+    References, RegisterCapability, Rename, Request as _, SemanticTokensFullRequest,
     SignatureHelpRequest,
+};
+use lsp_types::{
+    DidChangeWatchedFilesRegistrationOptions, FileSystemWatcher, GlobPattern, Registration,
+    RegistrationParams,
 };
 
 use crate::global_state::GlobalState;
@@ -144,16 +148,54 @@ impl Server {
             m if m == DidCloseTextDocument::METHOD => {
                 let params = serde_json::from_value(note.params)?;
                 self.state.handle_did_close(params);
-                None
+                Vec::new()
+            }
+            m if m == DidChangeWatchedFiles::METHOD => {
+                let params = serde_json::from_value(note.params)?;
+                self.state.handle_did_change_watched_files(params)
+            }
+            m if m == Initialized::METHOD => {
+                // The client is ready — register a watcher for `.flx` files
+                // so on-disk edits to unopened modules invalidate dependents.
+                self.register_file_watchers()?;
+                Vec::new()
             }
             _ => {
                 tracing::trace!(method = %note.method, "notification ignored");
-                None
+                Vec::new()
             }
         };
-        if let Some(diagnostics) = diagnostics {
-            self.publish_diagnostics(diagnostics)?;
+        // A single edit can refresh diagnostics for several files — when a
+        // buffer pulls in user modules, every reachable module is republished.
+        for params in diagnostics {
+            self.publish_diagnostics(params)?;
         }
+        Ok(())
+    }
+
+    /// Ask the client to watch every `.flx` file in the workspace and notify
+    /// us via `workspace/didChangeWatchedFiles`. Sent once, after the client
+    /// reports it is `initialized`. The client's response is not awaited —
+    /// the main loop simply drops it.
+    fn register_file_watchers(&self) -> Result<()> {
+        let options = DidChangeWatchedFilesRegistrationOptions {
+            watchers: vec![FileSystemWatcher {
+                glob_pattern: GlobPattern::String("**/*.flx".to_string()),
+                kind: None,
+            }],
+        };
+        let params = RegistrationParams {
+            registrations: vec![Registration {
+                id: "flux-lsp-watch-flx".to_string(),
+                method: DidChangeWatchedFiles::METHOD.to_string(),
+                register_options: Some(serde_json::to_value(options)?),
+            }],
+        };
+        self.connection.sender.send(Message::Request(Request {
+            id: RequestId::from("flux-lsp-register-watchers".to_string()),
+            method: RegisterCapability::METHOD.to_string(),
+            params: serde_json::to_value(params)?,
+        }))?;
         Ok(())
     }
 
