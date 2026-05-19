@@ -177,4 +177,32 @@ impl SymbolIndex {
         }
         idx
     }
+
+    /// Like [`SymbolIndex::build_extended`] but also indexes declarations
+    /// nested inside top-level `module { ... }` blocks. A user module file
+    /// wraps its `public fn`s in a `module Name { ... }` block, so its
+    /// members are not top-level — cross-file goto-definition needs them.
+    pub fn build_for_module_file(program: &Program, interner: &Interner) -> Self {
+        let mut idx = Self::build_extended(program, interner);
+        for stmt in &program.statements {
+            if let Statement::Module { body, .. } = stmt {
+                for inner in &body.statements {
+                    if let Some((sym, full_span, focus_span)) =
+                        top_level_definition(inner, interner)
+                        && let Some(name) = interner.try_resolve(sym)
+                        && !name.is_empty()
+                    {
+                        let entry = Entry {
+                            name: name.to_string(),
+                            full_span,
+                            focus_span,
+                        };
+                        idx.by_id.insert(sym, entry.clone());
+                        idx.by_name.insert(name.to_string(), entry);
+                    }
+                }
+            }
+        }
+        idx
+    }
 }

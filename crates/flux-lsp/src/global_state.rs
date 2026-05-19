@@ -5,20 +5,21 @@
 //! in-memory `lsp_server::Connection` or a worker thread.
 
 use lsp_types::{
-    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, InlayHint, InlayHintParams, Location, PublishDiagnosticsParams,
-    ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams,
-    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, Uri, WorkspaceEdit,
+    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentFormattingParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
+    PublishDiagnosticsParams, ReferenceParams, RenameParams, SemanticTokens, SemanticTokensParams,
+    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
 };
 
-use crate::document::DocumentStore;
 use crate::handlers;
 use crate::line_index::PositionEncoding;
+use crate::vfs::FileId;
+use crate::workspace::Workspace;
 
 pub struct GlobalState {
-    pub docs: DocumentStore,
+    pub workspace: Workspace,
     pub encoding: PositionEncoding,
 }
 
@@ -31,9 +32,16 @@ impl Default for GlobalState {
 impl GlobalState {
     pub fn new(encoding: PositionEncoding) -> Self {
         Self {
-            docs: DocumentStore::new(encoding),
+            workspace: Workspace::new(encoding),
             encoding,
         }
+    }
+
+    /// Adopt the client's workspace folders (called once from `main` after
+    /// the `initialize` handshake). Triggers project-root discovery and an
+    /// initial scan for `.flx` files.
+    pub fn set_workspace_folders(&mut self, roots: Vec<std::path::PathBuf>) {
+        self.workspace.set_roots(roots);
     }
 
     // ── notifications ──────────────────────────────────────────────────────
@@ -41,37 +49,57 @@ impl GlobalState {
     pub fn handle_did_open(
         &mut self,
         params: DidOpenTextDocumentParams,
-    ) -> Option<PublishDiagnosticsParams> {
+    ) -> Vec<PublishDiagnosticsParams> {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        self.docs
-            .open(uri.clone(), version, params.text_document.text);
-        self.diagnostics_for(&uri)
+        let rebuilt = self
+            .workspace
+            .open(&uri, version, params.text_document.text);
+        self.diagnostics_for_files(&rebuilt)
     }
 
     pub fn handle_did_change(
         &mut self,
         params: DidChangeTextDocumentParams,
-    ) -> Option<PublishDiagnosticsParams> {
+    ) -> Vec<PublishDiagnosticsParams> {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
         // textDocumentSync = Full means we get one change with the entire
         // document text.
-        if let Some(change) = params.content_changes.into_iter().next() {
-            self.docs.change(uri.clone(), version, change.text);
-        }
-        self.diagnostics_for(&uri)
+        let Some(change) = params.content_changes.into_iter().next() else {
+            return vec![];
+        };
+        let rebuilt = self.workspace.change(&uri, version, change.text);
+        self.diagnostics_for_files(&rebuilt)
     }
 
     pub fn handle_did_save(
         &mut self,
         params: DidSaveTextDocumentParams,
-    ) -> Option<PublishDiagnosticsParams> {
-        self.diagnostics_for(&params.text_document.uri)
+    ) -> Vec<PublishDiagnosticsParams> {
+        match self.workspace.file_id(&params.text_document.uri) {
+            Some(id) => self.diagnostics_for_files(&[id]),
+            None => vec![],
+        }
     }
 
     pub fn handle_did_close(&mut self, params: DidCloseTextDocumentParams) {
-        self.docs.close(&params.text_document.uri);
+        self.workspace.close(&params.text_document.uri);
+    }
+
+    pub fn handle_did_change_watched_files(
+        &mut self,
+        params: DidChangeWatchedFilesParams,
+    ) -> Vec<PublishDiagnosticsParams> {
+        let mut rebuilt: Vec<FileId> = Vec::new();
+        for change in params.changes {
+            for fid in self.workspace.on_disk_changed(&change.uri) {
+                if !rebuilt.contains(&fid) {
+                    rebuilt.push(fid);
+                }
+            }
+        }
+        self.diagnostics_for_files(&rebuilt)
     }
 
     // ── requests ──────────────────────────────────────────────────────────
@@ -81,19 +109,19 @@ impl GlobalState {
             text_document,
             position,
         } = params.text_document_position_params;
-        let doc = self.docs.get(&text_document.uri)?;
-        handlers::hover::hover_at(&doc.snapshot, position)
+        let snapshot = self.workspace.snapshot_for_uri(&text_document.uri)?;
+        handlers::hover::hover_at(snapshot, position)
     }
 
     pub fn handle_document_symbol(
         &self,
         params: DocumentSymbolParams,
     ) -> Option<DocumentSymbolResponse> {
-        let doc = self.docs.get(&params.text_document.uri)?;
+        let snapshot = self.workspace.snapshot_for_uri(&params.text_document.uri)?;
         let symbols = handlers::symbols::document_symbols(
-            &doc.snapshot.program,
-            &doc.snapshot.interner,
-            &doc.snapshot.position_map,
+            &snapshot.program,
+            &snapshot.interner,
+            &snapshot.position_map,
         );
         Some(DocumentSymbolResponse::Nested(symbols))
     }
@@ -106,95 +134,100 @@ impl GlobalState {
             text_document,
             position,
         } = params.text_document_position_params;
-        let doc = self.docs.get(&text_document.uri)?;
-        let nav =
-            handlers::definition::goto_definition(&doc.snapshot, &text_document.uri, position)?;
+        let snapshot = self.workspace.snapshot_for_uri(&text_document.uri)?;
+        let nav = handlers::definition::goto_definition(snapshot, &text_document.uri, position)?;
         // Compute the source-side "from" span (the cursor word's range)
         // so VS Code can underline just that word in the originating
         // file when displaying the peek view. Returns `None` when the
         // cursor is on whitespace/punctuation; that's fine — clients
         // fall back to highlighting the cursor's full line.
-        let origin = cursor_word_range(&doc.snapshot, position);
+        let origin = cursor_word_range(snapshot, position);
         Some(GotoDefinitionResponse::Link(vec![
             nav.into_location_link(origin),
         ]))
     }
 
     pub fn handle_completion(&self, params: CompletionParams) -> Option<CompletionResponse> {
-        let doc = self
-            .docs
-            .get(&params.text_document_position.text_document.uri)?;
+        let snapshot = self
+            .workspace
+            .snapshot_for_uri(&params.text_document_position.text_document.uri)?;
         Some(handlers::completion::complete(
-            &doc.snapshot,
+            snapshot,
             params.text_document_position.position,
         ))
     }
 
     pub fn handle_formatting(&self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
-        let doc = self.docs.get(&params.text_document.uri)?;
-        Some(handlers::formatting::format(&doc.snapshot))
+        let snapshot = self.workspace.snapshot_for_uri(&params.text_document.uri)?;
+        Some(handlers::formatting::format(snapshot))
     }
 
     pub fn handle_inlay_hints(&self, params: InlayHintParams) -> Vec<InlayHint> {
-        let Some(doc) = self.docs.get(&params.text_document.uri) else {
+        let Some(snapshot) = self.workspace.snapshot_for_uri(&params.text_document.uri) else {
             return vec![];
         };
-        handlers::inlay_hints::inlay_hints(&doc.snapshot)
+        handlers::inlay_hints::inlay_hints(snapshot)
     }
 
     pub fn handle_signature_help(&self, params: SignatureHelpParams) -> Option<SignatureHelp> {
-        let doc = self
-            .docs
-            .get(&params.text_document_position_params.text_document.uri)?;
+        let snapshot = self
+            .workspace
+            .snapshot_for_uri(&params.text_document_position_params.text_document.uri)?;
         handlers::signature_help::signature_help(
-            &doc.snapshot,
+            snapshot,
             params.text_document_position_params.position,
         )
     }
 
     pub fn handle_references(&self, params: ReferenceParams) -> Vec<Location> {
-        let Some(doc) = self
-            .docs
-            .get(&params.text_document_position.text_document.uri)
+        let Some(id) = self
+            .workspace
+            .file_id(&params.text_document_position.text_document.uri)
         else {
             return vec![];
         };
         handlers::references::find_references(
-            &doc.snapshot,
-            &params.text_document_position.text_document.uri,
+            &self.workspace,
+            id,
             params.text_document_position.position,
         )
     }
 
     pub fn handle_rename(&self, params: RenameParams) -> Option<WorkspaceEdit> {
-        let doc = self
-            .docs
-            .get(&params.text_document_position.text_document.uri)?;
+        let id = self
+            .workspace
+            .file_id(&params.text_document_position.text_document.uri)?;
         handlers::rename::rename(
-            &doc.snapshot,
-            &params.text_document_position.text_document.uri,
-            0,
+            &self.workspace,
+            id,
             params.text_document_position.position,
             params.new_name,
         )
     }
 
     pub fn handle_semantic_tokens_full(&self, params: SemanticTokensParams) -> SemanticTokens {
-        let Some(doc) = self.docs.get(&params.text_document.uri) else {
-            return SemanticTokens { result_id: None, data: vec![] };
+        let Some(snapshot) = self.workspace.snapshot_for_uri(&params.text_document.uri) else {
+            return SemanticTokens {
+                result_id: None,
+                data: vec![],
+            };
         };
-        handlers::semantic_tokens::semantic_tokens(&doc.snapshot)
+        handlers::semantic_tokens::semantic_tokens(snapshot)
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
 
-    fn diagnostics_for(&self, uri: &Uri) -> Option<PublishDiagnosticsParams> {
-        let doc = self.docs.get(uri)?;
-        Some(handlers::diagnostics::build(
-            uri,
-            doc.version,
-            &doc.snapshot,
-        ))
+    fn diagnostics_for_files(&self, ids: &[FileId]) -> Vec<PublishDiagnosticsParams> {
+        ids.iter()
+            .filter_map(|&id| self.diagnostics_for(id))
+            .collect()
+    }
+
+    fn diagnostics_for(&self, id: FileId) -> Option<PublishDiagnosticsParams> {
+        let snapshot = self.workspace.snapshot(id)?;
+        let uri = self.workspace.uri_of(id)?;
+        let version = self.workspace.version(id).unwrap_or(0);
+        Some(handlers::diagnostics::build(&uri, version, snapshot))
     }
 }
 

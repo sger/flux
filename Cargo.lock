@@ -305,6 +305,7 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

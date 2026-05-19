@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use flux_lsp::line_index::{PositionEncoding, negotiate_encoding};
+use flux_lsp::vfs::uri_to_path;
 use flux_lsp::{Server, server_capabilities};
 use lsp_server::Connection;
 use lsp_types::{InitializeParams, InitializeResult, ServerInfo};
@@ -25,12 +28,35 @@ fn main() -> Result<()> {
     };
     connection.initialize_finish(initialize_id, serde_json::to_value(initialize_result)?)?;
 
-    let server = Server::new(connection, encoding);
+    let roots = workspace_roots(&params);
+    tracing::debug!(?roots, "workspace roots");
+    let mut server = Server::new(connection, encoding);
+    server.state.set_workspace_folders(roots);
     server.run()?;
 
     io_threads.join()?;
     tracing::info!("flux-lsp shutting down");
     Ok(())
+}
+
+/// Resolve the workspace roots the client advertised. Prefers the modern
+/// `workspaceFolders` list; falls back to the deprecated `rootUri`.
+fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
+    if let Some(folders) = &params.workspace_folders
+        && !folders.is_empty()
+    {
+        let roots: Vec<PathBuf> = folders.iter().filter_map(|f| uri_to_path(&f.uri)).collect();
+        if !roots.is_empty() {
+            return roots;
+        }
+    }
+    #[allow(deprecated)]
+    params
+        .root_uri
+        .as_ref()
+        .and_then(uri_to_path)
+        .into_iter()
+        .collect()
 }
 
 fn pick_encoding(params: &InitializeParams) -> PositionEncoding {

@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use crate::ast::type_infer::{InferProgramConfig, infer_program};
+use crate::ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program};
 use crate::compiler::Compiler;
 use crate::syntax::lexer::Lexer;
 use crate::syntax::parser::Parser;
@@ -218,6 +218,45 @@ pub fn preload_module_into_compiler_with_program(
     }
     compiler.preload_module_interface(&interface);
     Some(program)
+}
+
+/// Stash an already-inferred user module's schemes into `compiler` so later
+/// modules in topological order — and the entry buffer — resolve
+/// `import <module_name>` and qualified `Module.member` references.
+///
+/// This is the cross-file analogue of [`preload_module_into_compiler`]: it
+/// performs only the "extract member schemes → `ModuleInterface` → preload"
+/// tail, fed by an `InferProgramResult` the caller already computed (e.g.
+/// while building an LSP `Snapshot`), so the module is not inferred twice.
+pub fn stash_module_schemes(
+    compiler: &mut Compiler,
+    module_name: &str,
+    result: &InferProgramResult,
+) {
+    let module_id = compiler.interner.intern(module_name);
+    let mut interface = ModuleInterface::new(module_name, "lsp-user", "lsp-user");
+    for ((mid, member_id), scheme) in &result.module_member_schemes {
+        if *mid != module_id {
+            continue;
+        }
+        if let Some(name) = compiler.interner.try_resolve(*member_id) {
+            interface.schemes.insert(name.to_string(), scheme.clone());
+            interface.member_is_value.insert(name.to_string(), false);
+        }
+    }
+    for (member_id, scheme) in &result.resolved_binding_schemes {
+        if let Some(name) = compiler.interner.try_resolve(*member_id) {
+            interface
+                .schemes
+                .entry(name.to_string())
+                .or_insert_with(|| scheme.clone());
+            interface
+                .member_is_value
+                .entry(name.to_string())
+                .or_insert(false);
+        }
+    }
+    compiler.preload_module_interface(&interface);
 }
 
 /// Parse a module source file with the compiler's shared interner (so
