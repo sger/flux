@@ -11,9 +11,9 @@ use lsp_types::notification::{
 };
 use lsp_types::request::WorkDoneProgressCreate;
 use lsp_types::request::{
-    CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
-    FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, HoverRequest,
-    InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
+    CodeActionRequest, CodeLensRequest, Completion, DocumentHighlightRequest,
+    DocumentSymbolRequest, FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation,
+    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
     ResolveCompletionItem, SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
     WorkspaceSymbolRequest,
 };
@@ -184,6 +184,9 @@ impl Server {
             m if m == CodeActionRequest::METHOD => self
                 .state
                 .dispatch_code_action(serde_json::from_value(req.params)?),
+            m if m == CodeLensRequest::METHOD => self
+                .state
+                .dispatch_code_lens(serde_json::from_value(req.params)?),
             m if m == Formatting::METHOD => self
                 .state
                 .dispatch_formatting(serde_json::from_value(req.params)?),

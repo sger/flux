@@ -82,17 +82,19 @@ fn doc_data(kind: &str, word: &str) -> Option<serde_json::Value> {
     Some(serde_json::json!({ "kind": kind, "word": word }))
 }
 
-/// Resolve a completion item: fill in its `documentation` from the static
-/// keyword / effect / type doc tables, keyed by the `data` payload stashed at
-/// completion time. The heavy markdown is deferred to here so the initial
+/// Resolve a completion item: fill in its `documentation`, keyed by the `data`
+/// payload stashed at completion time. Keyword / effect / type items resolve
+/// from the static doc tables; a module-member item uses `member_doc` (its
+/// `///` comment, fetched by the caller from the module source — see
+/// [`member_ref`]). The heavy markdown is deferred to here so the initial
 /// completion response — which lists every keyword on each keystroke — stays
-/// small. Items with no resolvable `data` (or already-set documentation) are
+/// small. Items with no resolvable doc (or already-set documentation) are
 /// returned unchanged.
-pub fn resolve(mut item: CompletionItem) -> CompletionItem {
+pub fn resolve(mut item: CompletionItem, member_doc: Option<String>) -> CompletionItem {
     if item.documentation.is_some() {
         return item;
     }
-    let doc = item
+    let static_doc = item
         .data
         .as_ref()
         .and_then(|data| {
@@ -105,14 +107,29 @@ pub fn resolve(mut item: CompletionItem) -> CompletionItem {
             "effect" => crate::keywords::effect_doc(word),
             "type" => crate::keywords::builtin_type_doc(word),
             _ => None,
-        });
-    if let Some(doc) = doc {
+        })
+        .map(str::to_string);
+    if let Some(doc) = static_doc.or(member_doc) {
         item.documentation = Some(Documentation::MarkupContent(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: doc.to_string(),
+            value: doc,
         }));
     }
     item
+}
+
+/// `(module_key, member)` for a module-member completion item, read from the
+/// `data` stashed by [`module_member_items`]. `None` for any other item. The
+/// caller turns this into the member's doc comment via `Workspace::member_doc`
+/// and passes it to [`resolve`].
+pub fn member_ref(item: &CompletionItem) -> Option<(String, String)> {
+    let data = item.data.as_ref()?;
+    if data.get("kind").and_then(|v| v.as_str()) != Some("member") {
+        return None;
+    }
+    let module = data.get("module").and_then(|v| v.as_str())?.to_string();
+    let member = data.get("member").and_then(|v| v.as_str())?.to_string();
+    Some((module, member))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -423,10 +440,15 @@ fn module_member_items(
             .collect();
     }
 
-    if import_edit.is_some() {
-        for item in &mut items {
-            item.additional_text_edits = import_edit.clone();
-        }
+    for item in &mut items {
+        // Stash the (module, member) so `completionItem/resolve` can fetch the
+        // member's `///` doc comment, and carry the auto-import edit (if any).
+        item.data = Some(serde_json::json!({
+            "kind": "member",
+            "module": module_key,
+            "member": item.label.clone(),
+        }));
+        item.additional_text_edits = import_edit.clone();
     }
     CompletionResponse::Array(items)
 }
