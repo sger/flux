@@ -54,6 +54,11 @@ pub struct Snapshot {
     /// can jump into imported module files. The `Arc<Program>` makes that
     /// per-keystroke clone a ref-count bump rather than an AST deep copy.
     pub module_programs: HashMap<String, (Arc<Program>, Arc<str>, PathBuf)>,
+    /// Identifiers available to the buffer unqualified from outside it: the
+    /// prelude/builtin schemes inference was seeded with, plus every Flow name
+    /// it recognizes. The name-resolution pass treats these as resolved so it
+    /// never flags `print`, `len`, and friends.
+    pub base_names: HashSet<Identifier>,
 }
 
 impl Snapshot {
@@ -61,7 +66,18 @@ impl Snapshot {
     /// `Compiler` held by `prelude`, which already has Flow prelude schemes
     /// loaded into its `cached_member_schemes`. That's what lets `print`,
     /// `Console`, etc. resolve to their real types in this buffer.
-    pub fn build(text: Arc<str>, prelude: &mut Prelude, encoding: PositionEncoding) -> Self {
+    /// `workspace_modules` is the full name of every `module` declared across
+    /// the workspace (from [`Workspace`](crate::workspace::Workspace)'s
+    /// incremental index). It lets the unimported-module pass flag a path into
+    /// a not-yet-imported *sibling* — those never enter `module_programs`
+    /// because the module graph only follows existing imports. Pass an empty
+    /// slice when no workspace context is available (file-at-a-time mode).
+    pub fn build(
+        text: Arc<str>,
+        prelude: &mut Prelude,
+        encoding: PositionEncoding,
+        workspace_modules: &[String],
+    ) -> Self {
         // Swap the compiler's interner into the buffer's lexer so identifiers
         // in the buffer share IDs with the preloaded schemes. Swap the
         // enriched interner back when parsing finishes.
@@ -83,7 +99,7 @@ impl Snapshot {
         // to free type variables during inference.
         load_buffer_imports(&program, prelude);
 
-        let infer = run_inference(&program, &mut prelude.compiler);
+        let (infer, base_names) = run_inference(&program, &mut prelude.compiler);
         if let Some(result) = &infer {
             diagnostics.extend(result.diagnostics.iter().cloned());
         }
@@ -106,7 +122,7 @@ impl Snapshot {
         // ref-count bumps, not AST deep copies.
         let module_programs = prelude.module_programs.clone();
 
-        Snapshot {
+        let mut snapshot = Snapshot {
             text,
             program,
             interner,
@@ -120,7 +136,22 @@ impl Snapshot {
             variant_fields,
             variant_positional_fields,
             module_programs,
-        }
+            base_names,
+        };
+
+        // Inference does not report undefined names (it recovers with fresh type
+        // variables), so a dedicated lexical-scope pass supplies the squiggles —
+        // and the diagnostics the auto-import quick fix keys off.
+        let unresolved = crate::name_resolution::unresolved_name_diagnostics(&snapshot);
+        snapshot.diagnostics.extend(unresolved);
+        // Flag module-qualified paths whose module isn't imported (Flow stdlib,
+        // already-loaded siblings, and — via `workspace_modules` — not-yet-
+        // imported siblings); the auto-import quick fix on the squiggle resolves
+        // them.
+        let missing =
+            crate::handlers::auto_import::missing_import_diagnostics(&snapshot, workspace_modules);
+        snapshot.diagnostics.extend(missing);
+        snapshot
     }
 }
 
@@ -170,13 +201,13 @@ fn build_variant_indexes(program: &Program) -> (NamedFieldsIndex, PositionalFiel
 fn run_inference(
     program: &Program,
     compiler: &mut flux::compiler::Compiler,
-) -> Option<InferProgramResult> {
+) -> (Option<InferProgramResult>, HashSet<Identifier>) {
     // Clear per-file scratch from the previous buffer (errors, scope state,
     // function effects) without dropping the prelude's `cached_member_schemes`.
     lsp_support::reset_per_file_state(compiler);
     compiler.set_file_path("<buffer>".to_string());
 
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let captured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Populate `class_env` from the buffer's class declarations so
         // class-method dispatch resolves during inference. Without this,
         // `lookup_class_method` would return None for buffer-declared
@@ -184,9 +215,20 @@ fn run_inference(
         // fire.
         lsp_support::collect_classes_for_program(compiler, program);
         let config = lsp_support::build_infer_config_for_program(compiler, program);
-        infer_program(program, &compiler.interner, config)
+        // Capture the unqualified names the buffer inherits (prelude/builtin
+        // schemes + recognized Flow names) before `config` is consumed; the
+        // name-resolution pass treats these as resolved.
+        let mut base_names: HashSet<Identifier> =
+            config.preloaded_base_schemes.keys().copied().collect();
+        base_names.extend(config.known_flow_names.iter().copied());
+        let result = infer_program(program, &compiler.interner, config);
+        (result, base_names)
     }))
-    .ok()
+    .ok();
+    match captured {
+        Some((result, base_names)) => (Some(result), base_names),
+        None => (None, HashSet::new()),
+    }
 }
 
 fn load_buffer_imports(program: &Program, prelude: &mut Prelude) {

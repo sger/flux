@@ -8,6 +8,7 @@ pub mod keywords;
 pub mod line_index;
 pub mod loader;
 pub mod locator;
+pub mod name_resolution;
 pub mod navigation_target;
 pub mod prelude;
 pub mod server;
