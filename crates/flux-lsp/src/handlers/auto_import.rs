@@ -126,6 +126,43 @@ pub fn import_actions(
     }
 }
 
+/// The `additionalTextEdits` entry that makes `ref_name` resolve as a module
+/// by importing `full_name` — used by completion so accepting an un-imported
+/// module name inserts its `import` in the same step. `None` when `ref_name`
+/// is already bound by an import or a buffer declaration (nothing to add).
+///
+/// Mirrors [`import_actions`]' binding rules: when the typed name equals the
+/// module's full declared name an unaliased `import` binds it; otherwise an
+/// `as`-alias binds the typed name (e.g. `import Flow.Array as Array`).
+pub(crate) fn import_edit_for(
+    snapshot: &Snapshot,
+    full_name: &str,
+    ref_name: &str,
+) -> Option<TextEdit> {
+    let (bound, _imported_full) = imported_modules(snapshot);
+    if bound.contains(ref_name) || buffer_defined_names(snapshot).contains(ref_name) {
+        return None;
+    }
+    let body = if full_name == ref_name {
+        format!("import {full_name}")
+    } else {
+        format!("import {full_name} as {ref_name}")
+    };
+    let insertion = import_insertion(snapshot);
+    let new_text = if insertion.after_existing {
+        format!("\n{body}")
+    } else {
+        format!("{body}\n")
+    };
+    Some(TextEdit {
+        range: Range {
+            start: insertion.position,
+            end: insertion.position,
+        },
+        new_text,
+    })
+}
+
 /// Where a new `import` line should go and the text framing it: after the
 /// last existing import (prefixed with a newline), or at the very top of the
 /// file (suffixed with a newline) when there are no imports yet.
