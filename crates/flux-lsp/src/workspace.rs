@@ -57,6 +57,14 @@ pub struct Workspace {
     /// Module-graph components, keyed by entry file. Rebuilt whenever a
     /// participating buffer changes.
     components: HashMap<FileId, GraphComponent>,
+    /// Full names of every `module` each known file declares (`Flow.List`,
+    /// `Lib.App.Main`, …), indexed incrementally so the unimported-module
+    /// squiggle can flag a path into a not-yet-imported *sibling* without
+    /// re-parsing the whole workspace on each keystroke. The module graph only
+    /// follows existing imports, so an un-imported sibling never enters a
+    /// snapshot's `module_programs`; this index is what surfaces it. Refreshed
+    /// for one file whenever its content changes.
+    module_names: HashMap<FileId, Vec<String>>,
     /// Original client `Uri` for each interned file, so responses echo back
     /// exactly the spelling the editor sent rather than a re-derived one.
     uris: HashMap<FileId, Uri>,
@@ -87,6 +95,7 @@ impl Workspace {
             encoding,
             snapshots: HashMap::new(),
             components: HashMap::new(),
+            module_names: HashMap::new(),
             uris: HashMap::new(),
         }
     }
@@ -210,6 +219,8 @@ impl Workspace {
         self.vfs.close(id);
         self.snapshots.remove(&id);
         self.components.remove(&id);
+        // The buffer reverted to its on-disk content; re-index from that.
+        self.index_module_names(id);
         self.reanalyze_dependents(id)
     }
 
@@ -230,6 +241,7 @@ impl Workspace {
             // re-analysis will surface the resulting errors.
             Err(_) => return vec![],
         }
+        self.index_module_names(id);
         self.reanalyze_dependents(id)
     }
 
@@ -260,6 +272,10 @@ impl Workspace {
         let id = self.vfs.intern(&path);
         self.uris.entry(id).or_insert_with(|| uri.clone());
         self.vfs.set_open(id, Arc::from(text), version);
+        // Keep the module-name index fresh before the rebuild reads it, so a
+        // module just declared/renamed in this edit is reflected in sibling
+        // squiggles immediately.
+        self.index_module_names(id);
         self.rebuild(id)
     }
 
@@ -405,8 +421,11 @@ impl Workspace {
 
     fn build_snapshot(&mut self, hint: &Path, text: Arc<str>) -> Snapshot {
         let encoding = self.encoding;
+        // Owned list, so the immutable borrow is released before the mutable
+        // `prelude_for` borrow below.
+        let workspace_modules = self.workspace_module_full_names();
         let prelude = self.prelude_for(hint);
-        Snapshot::build(text, prelude, encoding)
+        Snapshot::build(text, prelude, encoding, &workspace_modules)
     }
 
     /// Publish a user module's inferred schemes into the shared compiler so
@@ -546,7 +565,35 @@ impl Workspace {
             {
                 self.vfs.set_on_disk(id, Arc::from(text));
             }
+            self.index_module_names(id);
         }
+    }
+
+    /// Refresh `id`'s entry in [`module_names`](Self::module_names) from its
+    /// current VFS text — a standalone parse keeping only the top-level
+    /// `module` declaration names. Removes the entry when the file declares no
+    /// module (or has no content), so the index never reports stale names.
+    fn index_module_names(&mut self, id: FileId) {
+        let names = self
+            .vfs
+            .text(id)
+            .map(|text| module_decl_names(&text))
+            .unwrap_or_default();
+        if names.is_empty() {
+            self.module_names.remove(&id);
+        } else {
+            self.module_names.insert(id, names);
+        }
+    }
+
+    /// Every `module` full-name declared anywhere in the workspace, deduped —
+    /// the import candidates the unimported-module squiggle scans, including
+    /// siblings the edited buffer has not imported.
+    fn workspace_module_full_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.module_names.values().flatten().cloned().collect();
+        names.sort();
+        names.dedup();
+        names
     }
 }
 
@@ -569,6 +616,21 @@ fn module_name_of(program: &Program, interner: &Interner) -> Option<String> {
         Statement::Module { name, .. } => interner.try_resolve(*name).map(str::to_string),
         _ => None,
     })
+}
+
+/// Full names of every top-level `module` declared in `text` (a file may
+/// declare more than one). Parsed standalone with a throwaway interner — only
+/// the name strings are kept — to feed the workspace module-name index.
+fn module_decl_names(text: &str) -> Vec<String> {
+    let (program, interner) = parse_standalone(text);
+    program
+        .statements
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Statement::Module { name, .. } => interner.try_resolve(*name).map(str::to_string),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parse `text` with a throwaway interner — used only for module-graph

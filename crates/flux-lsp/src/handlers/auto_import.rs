@@ -29,6 +29,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
+use flux::diagnostics::{Diagnostic as FluxDiagnostic, MODULE_NOT_IMPORTED};
 use flux::syntax::block::Block;
 use flux::syntax::expression::Expression;
 use flux::syntax::interner::Interner;
@@ -92,37 +93,301 @@ pub fn import_actions(
             // Already reachable under this name — nothing to import.
             return;
         }
-        let mut bodies: Vec<String> = Vec::new();
-
-        // Full-path import: the prefix is itself a known module's full name.
-        if known.contains(&prefix) && !imported_full.contains(&prefix) {
-            bodies.push(prefix.clone());
-        }
-
-        // Aliased short import: a single-segment prefix that is the final
-        // segment of one or more known modules. `import <full> as <prefix>`
-        // binds exactly the name that was typed.
-        if take == 1 {
-            for full in &known {
-                if full == &prefix || imported_full.contains(full) {
-                    continue;
-                }
-                if last_segment(full) == prefix {
-                    bodies.push(format!("{full} as {prefix}"));
-                }
-            }
-        }
-
+        let bodies = import_bodies_for(&prefix, take, &known, &imported_full);
         if bodies.is_empty() {
             continue;
         }
-        bodies.sort();
-        bodies.dedup();
         let insertion = import_insertion(snapshot);
         for body in bodies {
             out.push(import_action(uri, &body, insertion));
         }
         return;
+    }
+}
+
+/// The import bodies that would bind `prefix` (a module-qualified path's
+/// `take`-segment prefix), mirroring [`import_actions`]' two binding rules:
+/// an unaliased `import <full>` when the prefix is itself a module's full name,
+/// and `import <full> as <prefix>` when a single-segment prefix is some known
+/// module's final segment. Empty when nothing matches.
+fn import_bodies_for(
+    prefix: &str,
+    take: usize,
+    known: &[String],
+    imported_full: &HashSet<String>,
+) -> Vec<String> {
+    let mut bodies: Vec<String> = Vec::new();
+    if known.iter().any(|f| f == prefix) && !imported_full.contains(prefix) {
+        bodies.push(prefix.to_string());
+    }
+    if take == 1 {
+        for full in known {
+            if full == prefix || imported_full.contains(full) {
+                continue;
+            }
+            if last_segment(full) == prefix {
+                bodies.push(format!("{full} as {prefix}"));
+            }
+        }
+    }
+    bodies.sort();
+    bodies.dedup();
+    bodies
+}
+
+/// A module-qualified path in the buffer whose prefix names a known workspace
+/// module that no `import` binds — the basis for a `MODULE_NOT_IMPORTED`
+/// squiggle plus the import quick fix.
+struct MissingImport {
+    /// The span of the unbound prefix (the leading segment for `List.reverse`,
+    /// `Modules.Math` for `Modules.Math.square`).
+    span: FluxSpan,
+    /// The prefix as written, for the diagnostic message.
+    name: String,
+}
+
+/// Walk the whole buffer and report every module-qualified path whose prefix is
+/// a known-but-unbound module. Drives the `MODULE_NOT_IMPORTED` diagnostics.
+///
+/// `workspace_modules` is the full name of every `module` declared across the
+/// workspace (the [`Workspace`](crate::workspace::Workspace) index). Merged
+/// with the snapshot's own known modules (the Flow stdlib, always indexed, plus
+/// already-loaded siblings), it lets the squiggle also catch a path into a
+/// not-yet-imported sibling — which the module graph never loaded because no
+/// `import` points at it. Empty in file-at-a-time mode, where only Flow + loaded
+/// siblings are visible.
+pub fn missing_import_diagnostics(
+    snapshot: &Snapshot,
+    workspace_modules: &[String],
+) -> Vec<FluxDiagnostic> {
+    let (bound, imported_full) = imported_modules(snapshot);
+    let buffer_defined = buffer_defined_names(snapshot);
+    let mut known = known_module_full_names(snapshot);
+    known.extend(workspace_modules.iter().cloned());
+    known.sort();
+    known.dedup();
+
+    let mut paths: Vec<Vec<(String, FluxSpan)>> = Vec::new();
+    for stmt in &snapshot.program.statements {
+        collect_paths_stmt(stmt, &snapshot.interner, &mut paths);
+    }
+
+    let mut findings: Vec<MissingImport> = Vec::new();
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for path in paths {
+        // Longest prefix first — `Modules.Math.square` should report
+        // `Modules.Math`, never `Modules`.
+        for take in (1..=path.len()).rev() {
+            let (prefix, span) = (&path[take - 1].0, path[take - 1].1);
+            if bound.contains(prefix) || buffer_defined.contains(prefix) {
+                // Reachable under this name — this path needs no import.
+                break;
+            }
+            if import_bodies_for(prefix, take, &known, &imported_full).is_empty() {
+                continue;
+            }
+            if seen.insert((span.start.line, span.start.column)) {
+                findings.push(MissingImport {
+                    span,
+                    name: prefix.clone(),
+                });
+            }
+            break;
+        }
+    }
+
+    findings
+        .into_iter()
+        .map(|mi| {
+            FluxDiagnostic::make_error_dynamic(
+                MODULE_NOT_IMPORTED.code,
+                MODULE_NOT_IMPORTED.title,
+                MODULE_NOT_IMPORTED.error_type,
+                format!("Module `{}` is not imported.", mi.name),
+                None,
+                "",
+                mi.span,
+            )
+        })
+        .collect()
+}
+
+/// Flatten a pure `A.B.C` chain into its cumulative segments, each paired with
+/// the span covering the chain from its root through that segment. `None` for
+/// anything that is not a bare identifier / member-access chain.
+fn flatten_path(expr: &Expression, interner: &Interner) -> Option<Vec<(String, FluxSpan)>> {
+    match expr {
+        Expression::Identifier { name, span, .. } => interner
+            .try_resolve(*name)
+            .map(|s| vec![(s.to_string(), *span)]),
+        Expression::MemberAccess {
+            object,
+            member,
+            span,
+            ..
+        } => {
+            let mut base = flatten_path(object, interner)?;
+            let seg = interner.try_resolve(*member)?;
+            let prev = base.last()?.0.clone();
+            base.push((format!("{prev}.{seg}"), *span));
+            Some(base)
+        }
+        _ => None,
+    }
+}
+
+fn collect_paths_stmt(
+    stmt: &Statement,
+    interner: &Interner,
+    out: &mut Vec<Vec<(String, FluxSpan)>>,
+) {
+    match stmt {
+        Statement::Let { value, .. }
+        | Statement::Assign { value, .. }
+        | Statement::LetDestructure { value, .. } => collect_paths_expr(value, interner, out),
+        Statement::Return { value: Some(v), .. } => collect_paths_expr(v, interner, out),
+        Statement::Expression { expression, .. } => collect_paths_expr(expression, interner, out),
+        Statement::Function { body, .. } | Statement::Module { body, .. } => {
+            for stmt in &body.statements {
+                collect_paths_stmt(stmt, interner, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_paths_expr(
+    expr: &Expression,
+    interner: &Interner,
+    out: &mut Vec<Vec<(String, FluxSpan)>>,
+) {
+    // A pure path records as one finding; its segments are not re-walked.
+    if let Some(path) = flatten_path(expr, interner) {
+        out.push(path);
+        return;
+    }
+    let mut recurse = |e: &Expression| collect_paths_expr(e, interner, out);
+    match expr {
+        Expression::Prefix { right, .. } => recurse(right),
+        Expression::Infix { left, right, .. } => {
+            recurse(left);
+            recurse(right);
+        }
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            recurse(condition);
+            for stmt in &consequence.statements {
+                collect_paths_stmt(stmt, interner, out);
+            }
+            if let Some(alt) = alternative {
+                for stmt in &alt.statements {
+                    collect_paths_stmt(stmt, interner, out);
+                }
+            }
+        }
+        Expression::DoBlock { block, .. } | Expression::Function { body: block, .. } => {
+            for stmt in &block.statements {
+                collect_paths_stmt(stmt, interner, out);
+            }
+        }
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            recurse(function);
+            for a in arguments {
+                recurse(a);
+            }
+        }
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
+            for e in elements {
+                recurse(e);
+            }
+        }
+        Expression::Index { left, index, .. } => {
+            recurse(left);
+            recurse(index);
+        }
+        Expression::Hash { pairs, .. } => {
+            for (k, v) in pairs {
+                recurse(k);
+                recurse(v);
+            }
+        }
+        // A non-pure member access (`f().bar`): the object may still hold paths.
+        Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+            recurse(object)
+        }
+        Expression::Match {
+            scrutinee, arms, ..
+        } => {
+            recurse(scrutinee);
+            for arm in arms {
+                if let Some(g) = &arm.guard {
+                    recurse(g);
+                }
+                recurse(&arm.body);
+            }
+        }
+        Expression::Some { value, .. }
+        | Expression::Left { value, .. }
+        | Expression::Right { value, .. } => recurse(value),
+        Expression::Cons { head, tail, .. } => {
+            recurse(head);
+            recurse(tail);
+        }
+        Expression::Perform { args, .. } => {
+            for a in args {
+                recurse(a);
+            }
+        }
+        Expression::Handle {
+            expr,
+            parameter,
+            arms,
+            ..
+        } => {
+            recurse(expr);
+            if let Some(p) = parameter {
+                recurse(p);
+            }
+            for arm in arms {
+                recurse(&arm.body);
+            }
+        }
+        Expression::Sealing { expr, .. } => recurse(expr),
+        Expression::NamedConstructor { fields, .. } => {
+            for field in fields {
+                if let Some(v) = &field.value {
+                    recurse(v);
+                }
+            }
+        }
+        Expression::Spread {
+            base, overrides, ..
+        } => {
+            recurse(base);
+            for field in overrides {
+                if let Some(v) = &field.value {
+                    recurse(v);
+                }
+            }
+        }
+        Expression::InterpolatedString { parts, .. } => {
+            for part in parts {
+                if let flux::syntax::expression::StringPart::Interpolation(e) = part {
+                    recurse(e);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
