@@ -53,7 +53,9 @@ const BUILTIN_TYPES: &[&str] = &[
 pub fn complete(snapshot: &Snapshot, position: Position) -> CompletionResponse {
     let ctx = CompletionContext::detect(snapshot, position);
     match ctx {
-        CompletionContext::ModuleMember(m) => module_member_items(snapshot, &m),
+        CompletionContext::ModuleMember { key, reference } => {
+            module_member_items(snapshot, &key, &reference)
+        }
         CompletionContext::ModuleNamespace(p) => module_namespace_items(snapshot, &p),
         CompletionContext::DotAccess(v) => {
             record_field_items(snapshot, v).unwrap_or_else(|| expr_items(snapshot, position, None))
@@ -118,10 +120,12 @@ pub fn resolve(mut item: CompletionItem) -> CompletionItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum CompletionContext {
-    /// `Module.` — complete module exports. Carries the resolved
+    /// `Module.` — complete module exports. `key` is the resolved
     /// `module_programs`/`module_members` key (an `import … as A` alias is
-    /// already mapped back to the underlying module name).
-    ModuleMember(String),
+    /// already mapped back to the underlying module name); `reference` is the
+    /// dotted name the user actually typed before the dot, used to attach an
+    /// auto-import edit when that name isn't imported yet.
+    ModuleMember { key: String, reference: String },
     /// `A.B.` where `A.B` is a proper prefix of one or more module names
     /// (e.g. `A.B.C`) but not itself a module — complete the next path
     /// segment. Carries the dotted prefix.
@@ -221,17 +225,20 @@ fn expr_items(
     }));
 
     // Known module names (Flow stdlib + imported/sibling modules) so a bare
-    // `Arr…` surfaces `Array`, ready for a `Array.member` access. Picking the
-    // name then a `.` flows into module-member completion; if it isn't
-    // imported yet, the auto-import quick fix offers the `import`.
+    // `Arr…` surfaces `Array`. Accepting an item for a not-yet-imported module
+    // inserts its `import` in the same step via `additionalTextEdits`.
     items.extend(module_name_items(snapshot));
 
     CompletionResponse::Array(items)
 }
 
-/// Completion items for every known module's leading name segment — `Array`,
-/// `String`, `Lib` (for `Lib.App.Main`), … — deduplicated. Surfaced in
-/// expression position so the user can start a qualified `Module.member` path.
+/// Completion items for every known module, labelled by the name the user
+/// references it by — a short name for the Flow stdlib (`Array`,
+/// `String`, …), the full declared path for sibling modules
+/// (`Lib.App.Main`) — deduplicated. Surfaced in expression position so a bare
+/// prefix starts a qualified `Module.member` path; an item for a module that
+/// isn't imported yet carries the `import` as an `additionalTextEdits` so
+/// accepting it imports the module automatically.
 fn module_name_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut items = Vec::new();
@@ -240,18 +247,38 @@ fn module_name_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
         .keys()
         .chain(snapshot.module_members.keys())
     {
-        let name = key.split('.').next().unwrap_or(key);
-        if !name.is_empty() && seen.insert(name.to_string()) {
-            items.push(CompletionItem {
-                label: name.to_string(),
-                kind: Some(CompletionItemKind::MODULE),
-                detail: Some("module".to_string()),
-                sort_text: Some(format!("2_{name}")),
-                ..Default::default()
-            });
+        if key.is_empty() || !seen.insert(key.clone()) {
+            continue;
         }
+        let import_edit = module_full_name(snapshot, key)
+            .and_then(|full| crate::handlers::auto_import::import_edit_for(snapshot, &full, key))
+            .map(|edit| vec![edit]);
+        let detail = if import_edit.is_some() {
+            "module (auto-imports)"
+        } else {
+            "module"
+        };
+        items.push(CompletionItem {
+            label: key.clone(),
+            kind: Some(CompletionItemKind::MODULE),
+            detail: Some(detail.to_string()),
+            sort_text: Some(format!("2_{key}")),
+            additional_text_edits: import_edit,
+            ..Default::default()
+        });
     }
     items
+}
+
+/// The full declared name (`module Flow.Array { … }` → `"Flow.Array"`) of the
+/// module cached under `key`, or `None` when no parsed program is cached for
+/// it. Used to build a correct `import` for an auto-importing completion.
+fn module_full_name(snapshot: &Snapshot, key: &str) -> Option<String> {
+    let (program, _, _) = snapshot.module_programs.get(key)?;
+    program.statements.iter().find_map(|stmt| match stmt {
+        Statement::Module { name, .. } => snapshot.interner.try_resolve(*name).map(str::to_string),
+        _ => None,
+    })
 }
 
 /// Walk top-level statements and build completion items with correct kinds and
@@ -364,25 +391,43 @@ fn top_level_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
 /// `CompletionItemKind`s plus a rendered signature. Falls back to the
 /// prelude's scheme-derived name list when no program is cached (e.g. a Flow
 /// module that loaded schemes but whose source could not be re-parsed).
-fn module_member_items(snapshot: &Snapshot, module_key: &str) -> CompletionResponse {
-    if let Some((program, _, _)) = snapshot.module_programs.get(module_key) {
-        let items = collect_module_member_items(program, &snapshot.interner);
-        if !items.is_empty() {
-            return CompletionResponse::Array(items);
+fn module_member_items(
+    snapshot: &Snapshot,
+    module_key: &str,
+    reference: &str,
+) -> CompletionResponse {
+    // If the user reached these members through a module name that isn't
+    // imported (e.g. `Array.` where `Flow.Array` is indexed but not imported),
+    // accepting any member should also add the `import`. `reference` is the
+    // name typed before the dot, so the alias case (`import … as A`, `A.`) is
+    // already bound and yields no edit.
+    let import_edit = module_full_name(snapshot, module_key)
+        .and_then(|full| crate::handlers::auto_import::import_edit_for(snapshot, &full, reference))
+        .map(|edit| vec![edit]);
+
+    let mut items = match snapshot.module_programs.get(module_key) {
+        Some((program, _, _)) => collect_module_member_items(program, &snapshot.interner),
+        None => Vec::new(),
+    };
+    if items.is_empty()
+        && let Some(members) = snapshot.module_members.get(module_key)
+    {
+        items = members
+            .iter()
+            .map(|m| CompletionItem {
+                label: m.clone(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("{module_key}.{m}")),
+                ..Default::default()
+            })
+            .collect();
+    }
+
+    if import_edit.is_some() {
+        for item in &mut items {
+            item.additional_text_edits = import_edit.clone();
         }
     }
-    let Some(members) = snapshot.module_members.get(module_key) else {
-        return CompletionResponse::Array(Vec::new());
-    };
-    let items: Vec<CompletionItem> = members
-        .iter()
-        .map(|m| CompletionItem {
-            label: m.clone(),
-            kind: Some(CompletionItemKind::FUNCTION),
-            detail: Some(format!("{module_key}.{m}")),
-            ..Default::default()
-        })
-        .collect();
     CompletionResponse::Array(items)
 }
 
@@ -578,7 +623,10 @@ fn resolve_module_key(snapshot: &Snapshot, name: &str) -> Option<String> {
 ///   completion.
 fn module_completion_context(snapshot: &Snapshot, path: &str) -> Option<CompletionContext> {
     if let Some(key) = resolve_module_key(snapshot, path) {
-        return Some(CompletionContext::ModuleMember(key));
+        return Some(CompletionContext::ModuleMember {
+            key,
+            reference: path.to_string(),
+        });
     }
     let prefix = format!("{path}.");
     let is_namespace = snapshot
