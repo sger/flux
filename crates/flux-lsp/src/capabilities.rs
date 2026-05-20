@@ -28,6 +28,9 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         })),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![".".to_string()]),
+            // `completionItem/resolve` fills in documentation lazily
+            // (handlers::completion::resolve) so the initial list stays light.
+            resolve_provider: Some(true),
             ..Default::default()
         }),
         signature_help_provider: Some(SignatureHelpOptions {
