@@ -5,14 +5,14 @@
 //! in-memory `lsp_server::Connection` or a worker thread.
 
 use lsp_types::{
-    CodeActionParams, CodeActionResponse, CompletionItem, CompletionParams, CompletionResponse,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
-    DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
-    FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-    HoverParams, InlayHint, InlayHintParams, Location, PrepareRenameResponse,
-    PublishDiagnosticsParams, ReferenceParams, RenameParams, SelectionRange, SelectionRangeParams,
-    SemanticTokens, SemanticTokensParams, SignatureHelp, SignatureHelpParams,
+    CodeActionParams, CodeActionResponse, CodeLens, CodeLensParams, CompletionItem,
+    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
+    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameParams, SelectionRange,
+    SelectionRangeParams, SemanticTokens, SemanticTokensParams, SignatureHelp, SignatureHelpParams,
     TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
     WorkspaceSymbolResponse,
 };
@@ -211,10 +211,13 @@ impl GlobalState {
         ))
     }
 
-    /// `completionItem/resolve` — fill in an item's documentation. Stateless
-    /// (the lookup key travels in the item's `data`), so no snapshot is needed.
+    /// `completionItem/resolve` — fill in an item's documentation. Keyword /
+    /// effect / type docs come from the item's `data`; a module-member item's
+    /// `///` doc comment is fetched here from the module source.
     pub fn handle_completion_resolve(&mut self, item: CompletionItem) -> CompletionItem {
-        handlers::completion::resolve(item)
+        let member_doc = handlers::completion::member_ref(&item)
+            .and_then(|(module, member)| self.workspace.member_doc(&module, &member));
+        handlers::completion::resolve(item, member_doc)
     }
 
     pub fn handle_document_highlight(
@@ -251,6 +254,12 @@ impl GlobalState {
             params.range,
             &files,
         ))
+    }
+
+    pub fn handle_code_lens(&mut self, params: CodeLensParams) -> Option<Vec<CodeLens>> {
+        let uri = params.text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri)?;
+        Some(handlers::code_lens::code_lenses(snapshot, &uri))
     }
 
     pub fn handle_formatting(&mut self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
@@ -430,11 +439,14 @@ impl GlobalState {
         }))
     }
 
-    /// `completionItem/resolve` worker job. Stateless — always produces a
-    /// response (the item itself, documentation filled in when resolvable).
+    /// `completionItem/resolve` worker job. The module-member doc lookup needs
+    /// the workspace, so it runs here on the main thread; the (cheap) markdown
+    /// assembly happens in the job. Always produces a response.
     pub fn dispatch_completion_resolve(&mut self, item: CompletionItem) -> Option<Job> {
+        let member_doc = handlers::completion::member_ref(&item)
+            .and_then(|(module, member)| self.workspace.member_doc(&module, &member));
         Some(Box::new(move || {
-            to_value(handlers::completion::resolve(item))
+            to_value(handlers::completion::resolve(item, member_doc))
         }))
     }
 
@@ -475,6 +487,14 @@ impl GlobalState {
             to_value(handlers::code_action::code_actions(
                 &snapshot, &uri, range, &files,
             ))
+        }))
+    }
+
+    pub fn dispatch_code_lens(&mut self, params: CodeLensParams) -> Option<Job> {
+        let uri = params.text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::code_lens::code_lenses(&snapshot, &uri))
         }))
     }
 

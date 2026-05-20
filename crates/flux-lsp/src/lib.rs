@@ -1,5 +1,6 @@
 pub mod capabilities;
 pub mod convert;
+pub mod doc_comments;
 pub mod global_state;
 pub mod handlers;
 pub mod instance_index;

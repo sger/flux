@@ -41,11 +41,62 @@ export function activate(context: vscode.ExtensionContext) {
     );
   });
 
+  // Commands invoked by the server's "▶ Run" / "▶ Run Test" code lenses
+  // (handlers::code_lens). Each launches the Flux CLI on the file in a
+  // terminal; the runner command is configurable via `flux.runCommand`.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flux.run", (uriArg: string) => {
+      runFlux(uriArg, []);
+    }),
+    vscode.commands.registerCommand(
+      "flux.runTest",
+      (uriArg: string, testName: string) => {
+        runFlux(uriArg, ["--test", "--test-filter", testName]);
+      },
+    ),
+  );
+
   context.subscriptions.push({
     dispose: () => {
       client?.stop();
     },
   });
+}
+
+/** Shared terminal so repeated runs reuse one panel instead of stacking up. */
+let runTerminal: vscode.Terminal | undefined;
+
+/**
+ * Launch the Flux CLI on the file at `uriArg` with `extraArgs` appended, in an
+ * integrated terminal rooted at the file's workspace folder. The base command
+ * is `flux.runCommand` (default `cargo run --`); the file path is passed
+ * relative to the workspace folder when possible.
+ */
+function runFlux(uriArg: string, extraArgs: string[]) {
+  const uri = vscode.Uri.parse(uriArg);
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  const cwd = folder?.uri.fsPath;
+  const filePath = folder
+    ? vscode.workspace.asRelativePath(uri, false)
+    : uri.fsPath;
+  const runner = vscode.workspace
+    .getConfiguration("flux")
+    .get<string>("runCommand", "cargo run --")
+    .trim();
+
+  const parts = [runner, quoteArg(filePath), ...extraArgs.map(quoteArg)];
+  const command = parts.join(" ");
+
+  if (!runTerminal || runTerminal.exitStatus !== undefined) {
+    runTerminal = vscode.window.createTerminal({ name: "Flux Run", cwd });
+  }
+  runTerminal.show();
+  runTerminal.sendText(command);
+}
+
+/** Quote an argument for the shell only when it contains whitespace. */
+function quoteArg(arg: string): string {
+  return /\s/.test(arg) ? `"${arg}"` : arg;
 }
 
 export function deactivate(): Thenable<void> | undefined {

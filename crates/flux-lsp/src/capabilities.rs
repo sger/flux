@@ -1,5 +1,5 @@
 use lsp_types::{
-    CodeActionProviderCapability, CompletionOptions, DefinitionOptions,
+    CodeActionProviderCapability, CodeLensOptions, CompletionOptions, DefinitionOptions,
     FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
     OneOf, RenameOptions, SelectionRangeProviderCapability, SemanticTokensFullOptions,
     SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities,
@@ -42,6 +42,11 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         // `Simple(true)` — the server does not pre-filter by
         // `CodeActionKind`; every action it returns is a `QuickFix`.
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        // "▶ Run" / "▶ Run Test" runnables (handlers::code_lens). The command
+        // is fully specified by the server, so no lazy `resolve` is needed.
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         // Project-wide symbol search (handlers::workspace_symbol).

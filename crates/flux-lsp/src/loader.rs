@@ -153,22 +153,21 @@ impl Handle for NotifyHandle {
     /// over the loader channel.
     fn watch(&mut self, roots: &[PathBuf]) {
         let tx = self.loader_tx.clone();
-        let mut watcher = match notify::recommended_watcher(
-            move |res: notify::Result<notify::Event>| {
+        let mut watcher =
+            match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
                 let Ok(event) = res else { return };
                 let files = flx_paths_of_event(&event);
                 if !files.is_empty() {
                     // Unbounded channel — never blocks the watcher thread.
                     let _ = tx.send(Message::Changed { files });
                 }
-            },
-        ) {
-            Ok(watcher) => watcher,
-            Err(err) => {
-                tracing::warn!(%err, "failed to create filesystem watcher");
-                return;
-            }
-        };
+            }) {
+                Ok(watcher) => watcher,
+                Err(err) => {
+                    tracing::warn!(%err, "failed to create filesystem watcher");
+                    return;
+                }
+            };
         for root in roots {
             if let Err(err) = watcher.watch(root, RecursiveMode::Recursive) {
                 tracing::warn!(%err, root = %root.display(), "failed to watch root");
@@ -239,7 +238,9 @@ mod tests {
             &params_with_dynamic_registration(None)
         ));
         // No `workspace` capabilities at all.
-        assert!(!client_supports_dynamic_watchers(&InitializeParams::default()));
+        assert!(!client_supports_dynamic_watchers(
+            &InitializeParams::default()
+        ));
     }
 
     #[test]
@@ -269,7 +270,10 @@ mod tests {
         let files = flx_paths_of_event(&event);
         assert_eq!(
             files,
-            vec![PathBuf::from("/proj/a.flx"), PathBuf::from("/proj/sub/c.flx")]
+            vec![
+                PathBuf::from("/proj/a.flx"),
+                PathBuf::from("/proj/sub/c.flx")
+            ]
         );
     }
 
