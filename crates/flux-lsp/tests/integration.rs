@@ -20,8 +20,9 @@ use lsp_types::{
     Documentation, FileChangeType, FileEvent, FoldingRangeParams, FormattingOptions,
     GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, NumberOrString, OneOf,
     PartialResultParams, Position, Range, ReferenceContext, ReferenceParams, RenameParams,
-    SelectionRangeParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
-    Uri, WorkDoneProgressParams, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Uri, WorkDoneProgressParams, WorkspaceSymbolParams,
+    WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -3316,4 +3317,173 @@ fn hover_request_is_served_via_worker() {
         }))
         .unwrap();
     server_thread.join().unwrap();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Semantic tokens
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct DecodedToken {
+    line: u32,
+    start: u32,
+    #[allow(dead_code)]
+    length: u32,
+    ttype: String,
+    mods: Vec<String>,
+}
+
+/// Request `textDocument/semanticTokens/full` and decode the delta-packed
+/// stream back into absolute-positioned tokens with their type/modifier names
+/// resolved through the advertised legend.
+fn semantic_tokens(state: &mut GlobalState, u: &Uri) -> Vec<DecodedToken> {
+    let legend = flux_lsp::handlers::semantic_tokens::semantic_tokens_legend();
+    let types: Vec<String> = legend
+        .token_types
+        .iter()
+        .map(|t| t.as_str().to_string())
+        .collect();
+    let mod_names: Vec<String> = legend
+        .token_modifiers
+        .iter()
+        .map(|m| m.as_str().to_string())
+        .collect();
+
+    let result = state.handle_semantic_tokens_full(SemanticTokensParams {
+        text_document: ident(u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+
+    let mut decoded = Vec::new();
+    let mut line = 0u32;
+    let mut start = 0u32;
+    for tok in result.data {
+        if tok.delta_line != 0 {
+            line += tok.delta_line;
+            start = tok.delta_start;
+        } else {
+            start += tok.delta_start;
+        }
+        let mods = mod_names
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| tok.token_modifiers_bitset & (1 << i) != 0)
+            .map(|(_, m)| m.clone())
+            .collect();
+        decoded.push(DecodedToken {
+            line,
+            start,
+            length: tok.length,
+            ttype: types[tok.token_type as usize].clone(),
+            mods,
+        });
+    }
+    decoded
+}
+
+fn token_at(toks: &[DecodedToken], line: u32, start: u32) -> &DecodedToken {
+    toks.iter()
+        .find(|t| t.line == line && t.start == start)
+        .unwrap_or_else(|| panic!("no semantic token at {line}:{start}; got {toks:#?}"))
+}
+
+#[test]
+fn semantic_tokens_classify_declarations_and_references() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-decls.flx");
+    open(
+        &mut state,
+        &u,
+        "fn double(x) {\n    x * 2\n}\n\nfn main() {\n    double(21)\n}\n",
+    );
+    let toks = semantic_tokens(&mut state, &u);
+
+    // `fn` keyword, `double` a function declaration, `x` a parameter.
+    assert_eq!(token_at(&toks, 0, 0).ttype, "keyword");
+    let decl = token_at(&toks, 0, 3);
+    assert_eq!(decl.ttype, "function");
+    assert!(decl.mods.contains(&"declaration".to_string()));
+    assert_eq!(token_at(&toks, 0, 10).ttype, "parameter");
+
+    // Body: parameter use, operator, number literal.
+    assert_eq!(token_at(&toks, 1, 4).ttype, "parameter");
+    assert_eq!(token_at(&toks, 1, 6).ttype, "operator");
+    assert_eq!(token_at(&toks, 1, 8).ttype, "number");
+
+    // A *call* to `double` is a function reference without `declaration`.
+    let call = token_at(&toks, 5, 4);
+    assert_eq!(call.ttype, "function");
+    assert!(!call.mods.contains(&"declaration".to_string()));
+    assert_eq!(token_at(&toks, 5, 11).ttype, "number");
+}
+
+#[test]
+fn semantic_tokens_classify_data_constructors_and_bindings() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-data.flx");
+    open(&mut state, &u, "data Color { Red, Green }\nlet c = Red\n");
+    let toks = semantic_tokens(&mut state, &u);
+
+    let color = token_at(&toks, 0, 5);
+    assert_eq!(color.ttype, "enum");
+    assert!(color.mods.contains(&"declaration".to_string()));
+
+    assert_eq!(token_at(&toks, 0, 13).ttype, "enumMember"); // Red
+    assert_eq!(token_at(&toks, 0, 18).ttype, "enumMember"); // Green
+
+    let binding = token_at(&toks, 1, 4);
+    assert_eq!(binding.ttype, "variable");
+    assert!(binding.mods.contains(&"readonly".to_string()));
+    assert!(binding.mods.contains(&"declaration".to_string()));
+
+    // `Red` referenced as a value is still an enum member.
+    assert_eq!(token_at(&toks, 1, 8).ttype, "enumMember");
+}
+
+#[test]
+fn semantic_tokens_mark_stdlib_with_default_library() {
+    // Opening at the repo root loads the Flow prelude, so `Array` resolves to a
+    // stdlib module and `map` to one of its members.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-stdlib-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n",
+    );
+    let toks = semantic_tokens(&mut state, &u);
+
+    // The `Array` qualifier on the call line reads as a default-library namespace
+    // even though `Array` is also a built-in type name.
+    let array_ref = token_at(&toks, 3, 4);
+    assert_eq!(array_ref.ttype, "namespace");
+    assert!(array_ref.mods.contains(&"defaultLibrary".to_string()));
+
+    // `map` is a Flow stdlib member → method + defaultLibrary.
+    let map_ref = token_at(&toks, 3, 10);
+    assert_eq!(map_ref.ttype, "method");
+    assert!(map_ref.mods.contains(&"defaultLibrary".to_string()));
+}
+
+#[test]
+fn semantic_tokens_split_multiline_strings() {
+    // A triple-quoted string spans lines; each covered line must yield its own
+    // single-line `string` token (semantic tokens may not be multi-line).
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-multiline.flx");
+    open(&mut state, &u, "let s = \"\"\"\nhello\nworld\n\"\"\"\n");
+    let toks = semantic_tokens(&mut state, &u);
+
+    let string_lines: Vec<u32> = toks
+        .iter()
+        .filter(|t| t.ttype == "string")
+        .map(|t| t.line)
+        .collect();
+    // The literal opens on line 0 and closes on line 3; the interior lines are
+    // covered too. No token may straddle a newline.
+    assert!(
+        string_lines.contains(&0) && string_lines.contains(&1) && string_lines.contains(&2),
+        "expected per-line string tokens, got {string_lines:?}"
+    );
 }
