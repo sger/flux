@@ -5,7 +5,7 @@
 //! in-memory `lsp_server::Connection` or a worker thread.
 
 use lsp_types::{
-    CodeActionParams, CodeActionResponse, CompletionParams, CompletionResponse,
+    CodeActionParams, CodeActionResponse, CompletionItem, CompletionParams, CompletionResponse,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
     DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams, DocumentSymbolResponse,
@@ -211,6 +211,12 @@ impl GlobalState {
         ))
     }
 
+    /// `completionItem/resolve` — fill in an item's documentation. Stateless
+    /// (the lookup key travels in the item's `data`), so no snapshot is needed.
+    pub fn handle_completion_resolve(&mut self, item: CompletionItem) -> CompletionItem {
+        handlers::completion::resolve(item)
+    }
+
     pub fn handle_document_highlight(
         &mut self,
         params: DocumentHighlightParams,
@@ -237,11 +243,13 @@ impl GlobalState {
 
     pub fn handle_code_action(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
         let uri = params.text_document.uri;
+        let files = self.workspace.all_file_texts();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri)?;
         Some(handlers::code_action::code_actions(
             snapshot,
             &uri,
             params.range,
+            &files,
         ))
     }
 
@@ -422,6 +430,14 @@ impl GlobalState {
         }))
     }
 
+    /// `completionItem/resolve` worker job. Stateless — always produces a
+    /// response (the item itself, documentation filled in when resolvable).
+    pub fn dispatch_completion_resolve(&mut self, item: CompletionItem) -> Option<Job> {
+        Some(Box::new(move || {
+            to_value(handlers::completion::resolve(item))
+        }))
+    }
+
     pub fn dispatch_document_highlight(&mut self, params: DocumentHighlightParams) -> Option<Job> {
         let TextDocumentPositionParams {
             text_document,
@@ -453,9 +469,12 @@ impl GlobalState {
     pub fn dispatch_code_action(&mut self, params: CodeActionParams) -> Option<Job> {
         let uri = params.text_document.uri;
         let range = params.range;
+        let files = self.workspace.all_file_texts();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         Some(Box::new(move || {
-            to_value(handlers::code_action::code_actions(&snapshot, &uri, range))
+            to_value(handlers::code_action::code_actions(
+                &snapshot, &uri, range, &files,
+            ))
         }))
     }
 

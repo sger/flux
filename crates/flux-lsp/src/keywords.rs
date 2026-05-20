@@ -640,6 +640,102 @@ pub fn effect_doc(name: &str) -> Option<&'static str> {
         .map(|(_, doc)| *doc)
 }
 
+/// Static `(type, markdown)` table for the universal built-in types — the
+/// primitives plus the always-in-scope type constructors. Same card shape as
+/// [`KEYWORD_DOCS`]. `Result` is intentionally absent: it is a `Flow.Async`
+/// module type (`public data Result<a, e>`), not a universal built-in, so it
+/// resolves to no doc rather than a misleading one. Keep alphabetically
+/// sorted.
+const TYPE_DOCS: &[(&str, &str)] = &[
+    (
+        "Array",
+        "**`Array`** — Contiguous, indexed sequence `Array<a>`.
+
+Backed by a packed buffer, so element access is O(1). Prefer over `List` when \
+random access or bulk iteration dominates.
+
+```flux
+let xs: Array<Int> = [1, 2, 3]
+```",
+    ),
+    (
+        "Bool",
+        "**`Bool`** — Boolean truth value.
+
+The two values `true` and `false`, produced by comparison and logical \
+operators and consumed by `if` and guards.
+
+```flux
+let ready: Bool = 1 < 2
+```",
+    ),
+    (
+        "Float",
+        "**`Float`** — 64-bit IEEE-754 floating-point number.
+
+Float literals carry a decimal point. Mixing `Int` and `Float` requires an \
+explicit conversion.
+
+```flux
+let pi: Float = 3.14159
+```",
+    ),
+    (
+        "Int",
+        "**`Int`** — 64-bit signed integer.
+
+The default numeric type. Integer division and modulo carry the `Div` effect \
+because they can fail on a zero divisor.
+
+```flux
+let count: Int = 42
+```",
+    ),
+    (
+        "List",
+        "**`List`** — Immutable singly-linked list `List<a>`.
+
+Built from cons cells, so prepend is O(1) and indexed access is O(n). The \
+natural shape for head/tail recursion and pattern matching.
+
+```flux
+let xs: List<Int> = [1 | [2 | [3 | []]]]
+```",
+    ),
+    (
+        "Option",
+        "**`Option`** — An optional value `Option<a>`.
+
+Either `Some(x)` carrying a value or `None` for absence. Pattern-match to \
+handle both cases without null.
+
+```flux
+let found: Option<Int> = Some(7)
+```",
+    ),
+    (
+        "String",
+        "**`String`** — UTF-8 text.
+
+String literals use double quotes and support interpolation. `Flow.String` \
+provides operations like `join`, `split`, and `length`.
+
+```flux
+let greeting: String = \"Hello, Flux\"
+```",
+    ),
+];
+
+/// Return the hover markdown for a universal built-in type, or `None` for a
+/// name that is not one (a user `data`/`alias`, or a module type like
+/// `Result`).
+pub fn builtin_type_doc(name: &str) -> Option<&'static str> {
+    TYPE_DOCS
+        .iter()
+        .find(|(t, _)| *t == name)
+        .map(|(_, doc)| *doc)
+}
+
 /// Extract the identifier-shaped word covering byte offset `off` from
 /// `text`, or `None` if `off` is on whitespace / punctuation. Used by the
 /// hover handler to decide whether to surface keyword documentation
@@ -813,6 +909,27 @@ mod tests {
         assert!(effect_doc("IO").is_some());
         assert!(effect_doc("Console").is_some());
         assert!(effect_doc("State").is_none());
+    }
+
+    /// Built-in type docs share the same uniform card shape — and
+    /// `builtin_type_doc` resolves the universal built-ins while rejecting a
+    /// module type (`Result`) or a user type.
+    #[test]
+    fn type_docs_share_a_uniform_shape() {
+        for &(ty, doc) in TYPE_DOCS {
+            assert!(
+                doc.starts_with(&format!("**`{ty}`** — ")),
+                "`{ty}` doc must open with a `**`{ty}`** — ` header, got: {doc}"
+            );
+            assert!(
+                doc.contains("```flux\n") && doc.contains("\n```"),
+                "`{ty}` doc must include a ```flux fenced example"
+            );
+        }
+        assert!(builtin_type_doc("Int").is_some());
+        assert!(builtin_type_doc("Option").is_some());
+        assert!(builtin_type_doc("Result").is_none());
+        assert!(builtin_type_doc("Person").is_none());
     }
 
     #[test]

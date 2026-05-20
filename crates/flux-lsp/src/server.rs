@@ -4,17 +4,23 @@ use std::thread::JoinHandle;
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
+use lsp_types::notification::Progress;
 use lsp_types::notification::{
     Cancel, DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument,
     DidOpenTextDocument, DidSaveTextDocument, Initialized, Notification as _,
 };
+use lsp_types::request::WorkDoneProgressCreate;
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentHighlightRequest, DocumentSymbolRequest,
     FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation, HoverRequest,
     InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest, WorkspaceSymbolRequest,
+    ResolveCompletionItem, SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
+    WorkspaceSymbolRequest,
 };
-use lsp_types::{CancelParams, NumberOrString};
+use lsp_types::{
+    CancelParams, NumberOrString, ProgressParams, ProgressParamsValue, ProgressToken,
+    WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
+};
 
 use crate::global_state::GlobalState;
 use crate::line_index::PositionEncoding;
@@ -30,6 +36,9 @@ pub struct Server {
     cancel: Cancellation,
     /// Worker thread handle, joined on shutdown.
     worker: Option<JoinHandle<()>>,
+    /// Whether the client advertised `window.workDoneProgress` — gates the
+    /// `$/progress` notifications around prelude warm-up.
+    client_supports_progress: bool,
     /// File-change detection backend (client registration or `notify`).
     loader: Box<dyn loader::Handle>,
     /// On-disk `.flx` change batches from the `notify` backend. The
@@ -74,9 +83,16 @@ impl Server {
             work_tx: Some(work_tx),
             cancel,
             worker: Some(worker),
+            client_supports_progress: false,
             loader,
             loader_rx,
         }
+    }
+
+    /// Record whether the client supports server-initiated work-done
+    /// progress (`window.workDoneProgress`). Called once after `initialize`.
+    pub fn set_progress_support(&mut self, supported: bool) {
+        self.client_supports_progress = supported;
     }
 
     pub fn run(mut self) -> Result<()> {
@@ -162,6 +178,9 @@ impl Server {
             m if m == Completion::METHOD => self
                 .state
                 .dispatch_completion(serde_json::from_value(req.params)?),
+            m if m == ResolveCompletionItem::METHOD => self
+                .state
+                .dispatch_completion_resolve(serde_json::from_value(req.params)?),
             m if m == CodeActionRequest::METHOD => self
                 .state
                 .dispatch_code_action(serde_json::from_value(req.params)?),
@@ -262,6 +281,12 @@ impl Server {
                 // borrow `self` mutably and immutably at once.
                 let roots: Vec<PathBuf> = self.state.workspace.roots().to_vec();
                 self.loader.watch(&roots);
+                // Warm the Flow prelude up front (rather than lazily on the
+                // first edit), reporting it via `$/progress` so the startup
+                // cost is visible instead of a silent hang.
+                if !roots.is_empty() {
+                    self.warm_prelude_with_progress()?;
+                }
                 Vec::new()
             }
             m if m == Cancel::METHOD => {
@@ -284,6 +309,66 @@ impl Server {
         for params in diagnostics {
             self.publish_diagnostics(params)?;
         }
+        Ok(())
+    }
+
+    /// Load the Flow prelude, bracketing the work in `$/progress`
+    /// begin/end when the client supports it and the load will actually
+    /// happen (the prelude is not yet loaded).
+    fn warm_prelude_with_progress(&mut self) -> Result<()> {
+        const TOKEN: &str = "flux-lsp/prelude";
+        let report = self.client_supports_progress && !self.state.workspace.prelude_loaded();
+        if report {
+            self.progress_begin(TOKEN, "Flux: indexing standard library")?;
+        }
+        self.state.workspace.warm_prelude();
+        if report {
+            self.progress_end(TOKEN, "Standard library ready")?;
+        }
+        Ok(())
+    }
+
+    /// Create a progress token and emit its `begin`. `window/workDoneProgress/create`
+    /// is sent fire-and-forget — its response is ignored by the main loop.
+    fn progress_begin(&self, token: &str, title: &str) -> Result<()> {
+        let token = ProgressToken::String(token.to_string());
+        self.connection.sender.send(Message::Request(Request {
+            id: RequestId::from(format!("flux-progress/{title}")),
+            method: WorkDoneProgressCreate::METHOD.to_string(),
+            params: serde_json::to_value(WorkDoneProgressCreateParams {
+                token: token.clone(),
+            })?,
+        }))?;
+        self.send_progress(
+            token,
+            WorkDoneProgress::Begin(WorkDoneProgressBegin {
+                title: title.to_string(),
+                cancellable: Some(false),
+                message: None,
+                percentage: None,
+            }),
+        )
+    }
+
+    fn progress_end(&self, token: &str, message: &str) -> Result<()> {
+        self.send_progress(
+            ProgressToken::String(token.to_string()),
+            WorkDoneProgress::End(WorkDoneProgressEnd {
+                message: Some(message.to_string()),
+            }),
+        )
+    }
+
+    fn send_progress(&self, token: ProgressToken, value: WorkDoneProgress) -> Result<()> {
+        self.connection
+            .sender
+            .send(Message::Notification(Notification {
+                method: Progress::METHOD.to_string(),
+                params: serde_json::to_value(ProgressParams {
+                    token,
+                    value: ProgressParamsValue::WorkDone(value),
+                })?,
+            }))?;
         Ok(())
     }
 
