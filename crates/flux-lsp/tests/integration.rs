@@ -3320,6 +3320,337 @@ fn hover_request_is_served_via_worker() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Unresolved-name diagnostics (E004)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Open `text` as `u` on an existing state (which may carry workspace roots),
+/// returning just that file's published diagnostics. Unlike [`diags_for`] this
+/// reuses the caller's `state`, so a `workspace_fixture` project's sibling files
+/// stay visible.
+fn open_diags(state: &mut GlobalState, u: &Uri, text: &str) -> Vec<lsp_types::Diagnostic> {
+    state
+        .handle_did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: u.clone(),
+                language_id: "flux".into(),
+                version: 1,
+                text: text.into(),
+            },
+        })
+        .into_iter()
+        .find(|d| &d.uri == u)
+        .map(|d| d.diagnostics)
+        .unwrap_or_default()
+}
+
+fn diags_for(state: &mut GlobalState, u: &Uri, text: &str) -> Vec<lsp_types::Diagnostic> {
+    state
+        .handle_did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: u.clone(),
+                language_id: "flux".into(),
+                version: 1,
+                text: text.into(),
+            },
+        })
+        .into_iter()
+        // `handle_did_open` may republish for several open buffers; keep only
+        // the file we just opened.
+        .find(|d| &d.uri == u)
+        .map(|d| d.diagnostics)
+        .unwrap_or_default()
+}
+
+fn diags_with_code<'a>(
+    diags: &'a [lsp_types::Diagnostic],
+    code: &str,
+) -> Vec<&'a lsp_types::Diagnostic> {
+    diags
+        .iter()
+        .filter(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == code))
+        .collect()
+}
+
+fn e004(diags: &[lsp_types::Diagnostic]) -> Vec<&lsp_types::Diagnostic> {
+    diags_with_code(diags, "E004")
+}
+
+#[test]
+fn undefined_lowercase_identifier_is_flagged() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///undef.flx");
+    let diags = diags_for(&mut state, &u, "fn main() {\n    let y = mystery + 1\n}\n");
+    let e = e004(&diags);
+    assert_eq!(e.len(), 1, "expected one E004, got {diags:?}");
+    assert!(
+        e[0].message.contains("mystery"),
+        "message should name the missing variable: {}",
+        e[0].message
+    );
+    assert_eq!(e[0].severity, Some(lsp_types::DiagnosticSeverity::ERROR));
+}
+
+#[test]
+fn undefined_identifier_offers_did_you_mean() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///typo.flx");
+    // `amout` is a typo for the bound `amount`.
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "fn main() {\n    let amount = 5\n    let total = amout + 1\n}\n",
+    );
+    let e = e004(&diags);
+    assert_eq!(e.len(), 1, "expected one E004, got {diags:?}");
+    assert!(
+        e[0].message.contains("Did you mean `amount`?"),
+        "expected a suggestion: {}",
+        e[0].message
+    );
+}
+
+#[test]
+fn bound_names_and_builtins_are_not_flagged() {
+    // Params, `let`s, nested fns, top-level fns, and prelude builtins (`print`,
+    // available once the repo-root prelude loads) all resolve.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-resolve-fixture.flx");
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "fn helper(n) { n + 1 }\n\
+         fn main() with IO {\n\
+             let xs = [1, 2, 3]\n\
+             let f = \\x -> helper(x)\n\
+             print(f(xs))\n\
+         }\n",
+    );
+    assert!(
+        e004(&diags).is_empty(),
+        "no name should be flagged, got {:?}",
+        e004(&diags)
+    );
+}
+
+#[test]
+fn uppercase_constructors_and_module_paths_are_not_flagged() {
+    // Constructors and module qualifiers are uppercase and must never be flagged
+    // as undefined values.
+    let mut state = GlobalState::default();
+    let u = uri("file:///ctor.flx");
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         fn pick(b) {\n\
+             match b {\n\
+                 true -> Red,\n\
+                 false -> Green,\n\
+             }\n\
+         }\n",
+    );
+    assert!(
+        e004(&diags).is_empty(),
+        "constructors must not be flagged, got {:?}",
+        e004(&diags)
+    );
+}
+
+#[test]
+fn unknown_aliased_module_member_is_flagged() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-member-fixture.flx");
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn run(xs) {\n    Array.frobnicate(xs)\n}\n",
+    );
+    // `Array` is imported, so the member (not the module) is flagged: E012.
+    let e = diags_with_code(&diags, "E012");
+    assert!(
+        e.iter().any(|d| d.message.contains("frobnicate")),
+        "expected an unknown-member E012 for `frobnicate`, got {diags:?}"
+    );
+}
+
+#[test]
+fn unimported_module_path_is_flagged() {
+    // `Array` is a Flow stdlib module but no `import` binds it here, so the
+    // qualified path is flagged with E013 (module not imported).
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-unimported-fixture.flx");
+    let diags = diags_for(&mut state, &u, "fn run(xs) {\n    Array.map(xs, run)\n}\n");
+    let e = diags_with_code(&diags, "E013");
+    assert!(
+        e.iter().any(|d| d.message.contains("Array")),
+        "expected E013 for the unimported `Array`, got {diags:?}"
+    );
+}
+
+#[test]
+fn imported_module_path_is_not_flagged() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-imported-fixture.flx");
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n",
+    );
+    assert!(
+        diags_with_code(&diags, "E013").is_empty(),
+        "an imported module must not be flagged, got {:?}",
+        diags_with_code(&diags, "E013")
+    );
+}
+
+#[test]
+fn unimported_module_squiggle_offers_import_fix() {
+    // The E013 squiggle's range drives the existing auto-import quick fix.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-fix-fixture.flx");
+    let diags = diags_for(&mut state, &u, "fn run(xs) {\n    Array.map(xs, run)\n}\n");
+    let e = diags_with_code(&diags, "E013");
+    let diag = e.first().expect("an E013 diagnostic");
+
+    let actions = state
+        .handle_code_action(CodeActionParams {
+            text_document: ident(&u),
+            range: diag.range,
+            context: CodeActionContext {
+                diagnostics: vec![(*diag).clone()],
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("code action response");
+    let titles: Vec<String> = actions
+        .iter()
+        .filter_map(|a| match a {
+            CodeActionOrCommand::CodeAction(ca) => Some(ca.title.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        titles
+            .iter()
+            .any(|t| t.contains("Import") && t.contains("Array")),
+        "expected an import fix for `Array` at the squiggle, got {titles:?}"
+    );
+}
+
+#[test]
+fn known_aliased_module_member_is_not_flagged() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("sem-member-ok-fixture.flx");
+    let diags = diags_for(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n",
+    );
+    assert!(
+        e004(&diags).is_empty(),
+        "a real member must not be flagged, got {:?}",
+        e004(&diags)
+    );
+}
+
+#[test]
+fn unimported_sibling_module_path_is_flagged() {
+    // `main.flx` qualifies `Math.twice` but never imports the sibling `Math`.
+    // The module graph only follows imports, so `Math` never enters the
+    // snapshot's `module_programs` — only the workspace module index surfaces
+    // it. The squiggle must still fire (E013), turning the previously
+    // on-demand sibling import into a squiggle-driven one.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "fn run() {\n    Math.twice(21)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    let diags = open_diags(&mut state, &uris[1], main_src);
+    let e = diags_with_code(&diags, "E013");
+    assert!(
+        e.iter().any(|d| d.message.contains("Math")),
+        "expected E013 for the unimported sibling `Math`, got {diags:?}"
+    );
+}
+
+#[test]
+fn imported_sibling_module_path_is_not_flagged() {
+    // Same project, but `main.flx` imports the sibling — no squiggle.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math\n\nfn run() {\n    Math.twice(21)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    let diags = open_diags(&mut state, &uris[1], main_src);
+    assert!(
+        diags_with_code(&diags, "E013").is_empty(),
+        "an imported sibling must not be flagged, got {:?}",
+        diags_with_code(&diags, "E013")
+    );
+}
+
+/// False-positive safety net: every shipped `examples/guide/**` and
+/// `lib/Flow/**` file is known-good Flux, so the pass must flag nothing in them.
+#[test]
+fn shipped_sources_have_no_undefined_names() {
+    let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let repo = manifest
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for dir in ["examples/guide", "lib/Flow"] {
+        let full = repo.join(dir);
+        if let Ok(entries) = std::fs::read_dir(&full) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                // `Flow.FTest` calls `assert_throws`, which `Flow.Assert` does
+                // not define — a genuine undefined reference the pass correctly
+                // reports, so it is not a false positive to guard against here.
+                if path.file_name().and_then(|n| n.to_str()) == Some("FTest.flx") {
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) == Some("flx") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    assert!(!files.is_empty(), "found no shipped .flx files to check");
+
+    let mut offenders: Vec<String> = Vec::new();
+    for path in files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let rel = path.strip_prefix(&repo).unwrap_or(&path);
+        let u = uri(&format!(
+            "file:///{}",
+            path.display().to_string().replace('\\', "/")
+        ));
+        // Fresh state per file so one buffer's analysis can't bleed into another.
+        let mut state = GlobalState::default();
+        let diags = diags_for(&mut state, &u, &text);
+        // E004 undefined name, E012 unknown module member, E013 module not
+        // imported — all three are name-resolution findings that must not fire
+        // on known-good shipped code.
+        for code in ["E004", "E012", "E013"] {
+            for d in diags_with_code(&diags, code) {
+                offenders.push(format!("{}: [{code}] {}", rel.display(), d.message));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "name resolution produced false positives:\n{}",
+        offenders.join("\n")
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Semantic tokens
 // ─────────────────────────────────────────────────────────────────────────────
 

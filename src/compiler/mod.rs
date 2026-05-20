@@ -75,7 +75,7 @@ pub mod module_linker;
 mod passes;
 pub(crate) mod pipeline;
 mod statement;
-mod suggestions;
+pub mod suggestions;
 pub mod symbol_scope;
 pub mod symbol_table;
 pub(crate) mod tail_resumptive;

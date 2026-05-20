@@ -1526,6 +1526,16 @@ impl CorePrimOp {
             .map(|(_, _, op)| *op)
     }
 
+    /// True when `name` is a globally-available primop spelling — a builtin the
+    /// surface language recognizes without an import (`cmp_eq`, `len`,
+    /// `string_concat_builtin`, …). These never appear in a user's declarations
+    /// yet are valid call targets, so frontend tools (the LSP's name-resolution
+    /// pass) treat them as resolved. Probes every arity the table uses (max 5),
+    /// so no separate arity argument is needed.
+    pub fn is_builtin_helper_name(name: &str) -> bool {
+        (0..=5).any(|arity| Self::from_name(name, arity).is_some())
+    }
+
     /// Number of arguments this primop expects.
     pub fn arity(self) -> usize {
         use CorePrimOp::*;
