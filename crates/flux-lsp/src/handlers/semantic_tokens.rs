@@ -1,52 +1,131 @@
-use flux::diagnostics::position::Position as FluxPosition;
+//! Semantic highlighting (`textDocument/semanticTokens/full`).
+//!
+//! Two layers cooperate to colour a buffer, mirroring how rust-analyzer's
+//! semantic tokens augment a TextMate grammar:
+//!
+//! 1. A fresh lexer pass over the buffer gives every lexical token a real span
+//!    (no column arithmetic), so keywords, numbers, strings, doc-comments,
+//!    operators and decorators are emitted directly.
+//! 2. Identifiers are classified by their *semantic* role — the part a grammar
+//!    cannot know. Name sets harvested from the AST (which names are functions,
+//!    data types, variants, effects, classes, type aliases, type parameters,
+//!    value parameters, fields, modules) plus the prelude's stdlib index turn a
+//!    bare `foo`/`Bar` into `function`/`enum`/`parameter`/`namespace`/… with
+//!    `declaration`, `readonly`, and `defaultLibrary` modifiers.
+//!
+//! The legend is built entirely from *standard* LSP token types and modifiers,
+//! so VS Code themes colour them out of the box; `editors/vscode/package.json`
+//! adds `semanticTokenScopes` fallbacks for themes that only define TextMate
+//! scopes.
+
+use std::collections::HashSet;
+
+use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
 use flux::syntax::block::Block;
 use flux::syntax::expression::{Expression, Pattern};
+use flux::syntax::interner::Interner;
+use flux::syntax::lexer::Lexer;
 use flux::syntax::statement::Statement;
-use lsp_types::{SemanticToken, SemanticTokenType, SemanticTokens, SemanticTokensLegend};
+use flux::syntax::token::Token;
+use flux::syntax::token_type::TokenType;
+use line_index::TextSize;
+use lsp_types::{
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensLegend,
+};
 
 use crate::snapshot::Snapshot;
 
-// Token type indices — order matches TOKEN_TYPES below.
+// ── Legend ─────────────────────────────────────────────────────────────────
+// Token-type indices — order MUST match `TOKEN_TYPES` below.
 const TT_NAMESPACE: u32 = 0;
 const TT_TYPE: u32 = 1;
-const TT_STRUCT: u32 = 2;
-const TT_CLASS: u32 = 3;
+const TT_CLASS: u32 = 2;
+const TT_ENUM: u32 = 3;
 const TT_INTERFACE: u32 = 4;
-const TT_FUNCTION: u32 = 5;
-const TT_VARIABLE: u32 = 6;
-const TT_PARAMETER: u32 = 7;
+const TT_TYPE_PARAMETER: u32 = 5;
+const TT_PARAMETER: u32 = 6;
+const TT_VARIABLE: u32 = 7;
 const TT_PROPERTY: u32 = 8;
+const TT_ENUM_MEMBER: u32 = 9;
+const TT_FUNCTION: u32 = 10;
+const TT_METHOD: u32 = 11;
+const TT_KEYWORD: u32 = 12;
+const TT_COMMENT: u32 = 13;
+const TT_STRING: u32 = 14;
+const TT_NUMBER: u32 = 15;
+const TT_OPERATOR: u32 = 16;
+const TT_DECORATOR: u32 = 17;
 
-const TOKEN_TYPES: &[&str] = &[
-    "namespace", // 0
-    "type",      // 1
-    "struct",    // 2
-    "class",     // 3
-    "interface", // 4
-    "function",  // 5
-    "variable",  // 6
-    "parameter", // 7
-    "property",  // 8
-];
+fn token_types() -> Vec<SemanticTokenType> {
+    vec![
+        SemanticTokenType::NAMESPACE,      // 0
+        SemanticTokenType::TYPE,           // 1
+        SemanticTokenType::CLASS,          // 2
+        SemanticTokenType::ENUM,           // 3
+        SemanticTokenType::INTERFACE,      // 4
+        SemanticTokenType::TYPE_PARAMETER, // 5
+        SemanticTokenType::PARAMETER,      // 6
+        SemanticTokenType::VARIABLE,       // 7
+        SemanticTokenType::PROPERTY,       // 8
+        SemanticTokenType::ENUM_MEMBER,    // 9
+        SemanticTokenType::FUNCTION,       // 10
+        SemanticTokenType::METHOD,         // 11
+        SemanticTokenType::KEYWORD,        // 12
+        SemanticTokenType::COMMENT,        // 13
+        SemanticTokenType::STRING,         // 14
+        SemanticTokenType::NUMBER,         // 15
+        SemanticTokenType::OPERATOR,       // 16
+        SemanticTokenType::DECORATOR,      // 17
+    ]
+}
+
+// Modifier bit positions — order MUST match `token_modifiers()` below.
+const MOD_DECLARATION: u32 = 1 << 0;
+const MOD_READONLY: u32 = 1 << 1;
+const MOD_DEFAULT_LIBRARY: u32 = 1 << 2;
+const MOD_DOCUMENTATION: u32 = 1 << 3;
+
+fn token_modifiers() -> Vec<SemanticTokenModifier> {
+    vec![
+        SemanticTokenModifier::DECLARATION,     // bit 0
+        SemanticTokenModifier::READONLY,        // bit 1
+        SemanticTokenModifier::DEFAULT_LIBRARY, // bit 2
+        SemanticTokenModifier::DOCUMENTATION,   // bit 3
+    ]
+}
 
 pub fn semantic_tokens_legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
-        token_types: TOKEN_TYPES
-            .iter()
-            .map(|s| SemanticTokenType::new(s))
-            .collect(),
-        token_modifiers: vec![],
+        token_types: token_types(),
+        token_modifiers: token_modifiers(),
     }
 }
 
+/// Built-in type names that resolve to `defaultLibrary` types regardless of any
+/// buffer declarations.
+const BUILTIN_TYPES: &[&str] = &[
+    "Int", "Float", "String", "Bool", "Unit", "Char", "List", "Array", "Option", "Either", "Map",
+    "Result",
+];
+
+/// Built-in constructors that the lexer hands back as plain identifiers (unlike
+/// `Some`/`None`/`Left`/`Right`, which are keyword tokens).
+const BUILTIN_VARIANTS: &[&str] = &["Ok", "Err"];
+
 pub fn semantic_tokens(snapshot: &Snapshot) -> SemanticTokens {
+    let names = NameSets::collect(&snapshot.program, &snapshot.interner);
+    let stdlib_members: HashSet<&str> = snapshot
+        .module_members
+        .values()
+        .flat_map(|members| members.iter().map(String::as_str))
+        .collect();
+
+    let tokens = Lexer::new(snapshot.text.to_string()).tokenize();
     let mut raw: Vec<RawToken> = Vec::new();
-    for stmt in &snapshot.program.statements {
-        collect_stmt(stmt, snapshot, &mut raw);
-    }
+    classify(&tokens, &names, &stdlib_members, snapshot, &mut raw);
+
     raw.sort_by_key(|t| (t.line, t.start));
-    raw.dedup_by_key(|t| (t.line, t.start));
     SemanticTokens {
         result_id: None,
         data: delta_encode(raw),
@@ -59,316 +138,357 @@ struct RawToken {
     start: u32,
     length: u32,
     token_type: u32,
+    modifiers: u32,
 }
 
-fn push_ident(
+// ── Token-stream classifier ─────────────────────────────────────────────────
+
+fn classify(
+    tokens: &[Token],
+    names: &NameSets,
+    stdlib_members: &HashSet<&str>,
     snapshot: &Snapshot,
-    flux_pos: FluxPosition,
-    name: Identifier,
-    token_type: u32,
     out: &mut Vec<RawToken>,
 ) {
-    let Some(text) = snapshot.interner.try_resolve(name) else {
-        return;
-    };
-    let lsp_pos = snapshot.position_map.flux_to_lsp(flux_pos);
-    out.push(RawToken {
-        line: lsp_pos.line,
-        start: lsp_pos.character,
-        length: text.len() as u32,
-        token_type,
-    });
-}
+    // Set after a declaration keyword (`fn`, `let`, `data`, …); consumed by the
+    // immediately following identifier so the declared name carries the right
+    // type and the `declaration` modifier.
+    let mut pending_decl: Option<(u32, u32)> = None;
+    // `import …` / `module …` colour their dotted path as a namespace.
+    let mut import_mode = false;
+    let mut import_line = 0usize;
+    let mut module_mode = false;
+    // `@name` annotation: the `@` arms the next identifier as a decorator.
+    let mut decorator_pending = false;
+    let mut prev: Option<TokenType> = None;
 
-/// Compute the name start position for keyword-prefixed declarations.
-/// Mirrors `decl_name_start` in locator.rs.
-fn name_start(stmt_start: FluxPosition, is_public: bool, keyword: &str) -> FluxPosition {
-    let mut col = stmt_start.column;
-    if is_public {
-        col += "public ".len();
-    }
-    col += keyword.len() + 1;
-    FluxPosition {
-        line: stmt_start.line,
-        column: col,
-    }
-}
+    for (i, tok) in tokens.iter().enumerate() {
+        let tt = tok.token_type;
 
-fn collect_stmt(stmt: &Statement, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
-    match stmt {
-        Statement::Let {
-            name,
-            value,
-            span,
-            is_public,
-            ..
-        } => {
-            let pos = name_start(span.start, *is_public, "let");
-            push_ident(snapshot, pos, *name, TT_VARIABLE, out);
-            collect_expr(value, snapshot, out);
+        if tt == TokenType::Eof {
+            break;
         }
-        Statement::LetDestructure { pattern, value, .. } => {
-            collect_pattern(pattern, snapshot, out);
-            collect_expr(value, snapshot, out);
+        // A declaration keyword must be followed immediately by its name;
+        // anything else means the buffer is mid-edit — drop the pending decl.
+        if pending_decl.is_some() && tt != TokenType::Ident {
+            pending_decl = None;
         }
-        Statement::Function {
-            name,
-            parameters,
-            body,
-            span,
-            is_public,
-            ..
-        } => {
-            let pos = name_start(span.start, *is_public, "fn");
-            push_ident(snapshot, pos, *name, TT_FUNCTION, out);
-            // Parameters: approximated from function span start + "fn <name>(" offset.
-            // The parser does not record individual parameter name positions,
-            // so we use the same approximation as locator.rs's FunctionParameter arm.
-            let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
-            let paren_col = pos.column + name_text.len() + 1; // +1 for "("
-            let mut param_col = paren_col;
-            for param in parameters {
-                let param_text = snapshot.interner.try_resolve(*param).unwrap_or("");
-                push_ident(
+        if import_mode && tok.position.line != import_line {
+            import_mode = false;
+        }
+
+        match tt {
+            // ── declaration keywords ───────────────────────────────────────
+            TokenType::Fn => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_FUNCTION, MOD_DECLARATION));
+            }
+            TokenType::Let => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_VARIABLE, MOD_DECLARATION | MOD_READONLY));
+            }
+            TokenType::Data => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_ENUM, MOD_DECLARATION));
+            }
+            TokenType::Effect => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_INTERFACE, MOD_DECLARATION));
+            }
+            TokenType::Class => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_CLASS, MOD_DECLARATION));
+            }
+            TokenType::Type | TokenType::Alias => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                pending_decl = Some((TT_TYPE, MOD_DECLARATION));
+            }
+            TokenType::Module => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                module_mode = true;
+            }
+            TokenType::Import => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+                import_mode = true;
+                import_line = tok.position.line;
+            }
+
+            // ── built-in constructors / literals that are keyword tokens ────
+            TokenType::Some | TokenType::None | TokenType::Left | TokenType::Right => {
+                emit(
                     snapshot,
-                    FluxPosition {
-                        line: span.start.line,
-                        column: param_col,
-                    },
-                    *param,
-                    TT_PARAMETER,
+                    tok.span(),
+                    TT_ENUM_MEMBER,
+                    MOD_DEFAULT_LIBRARY,
                     out,
                 );
-                param_col += param_text.len() + 2; // +2 for ", "
             }
-            for s in &body.statements {
-                collect_stmt(s, snapshot, out);
+            TokenType::True | TokenType::False => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
             }
-        }
-        Statement::Data {
-            name,
-            variants,
-            span,
-            is_public,
-            ..
-        } => {
-            let pos = name_start(span.start, *is_public, "data");
-            push_ident(snapshot, pos, *name, TT_STRUCT, out);
-            for variant in variants {
-                push_ident(snapshot, variant.span.start, variant.name, TT_CLASS, out);
-                if let Some(field_names) = &variant.field_names {
-                    for field_name in field_names {
-                        push_ident(snapshot, variant.span.start, *field_name, TT_PROPERTY, out);
+
+            // ── remaining keywords ─────────────────────────────────────────
+            TokenType::Do
+            | TokenType::Intrinsic
+            | TokenType::Primop
+            | TokenType::Public
+            | TokenType::With
+            | TokenType::If
+            | TokenType::Else
+            | TokenType::Return
+            | TokenType::Match
+            | TokenType::Select
+            | TokenType::Where
+            | TokenType::Handle
+            | TokenType::Sealing
+            | TokenType::Perform
+            | TokenType::Instance
+            | TokenType::Deriving
+            | TokenType::As => {
+                emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
+            }
+
+            // ── literals ───────────────────────────────────────────────────
+            TokenType::Int | TokenType::Float => {
+                emit(snapshot, tok.span(), TT_NUMBER, 0, out);
+            }
+            TokenType::String
+            | TokenType::StringEnd
+            | TokenType::InterpolationStart
+            | TokenType::UnterminatedString => {
+                emit(snapshot, tok.span(), TT_STRING, 0, out);
+            }
+            TokenType::DocComment => {
+                emit(snapshot, tok.span(), TT_COMMENT, MOD_DOCUMENTATION, out);
+            }
+
+            // ── operators ──────────────────────────────────────────────────
+            TokenType::Plus
+            | TokenType::Minus
+            | TokenType::Asterisk
+            | TokenType::Slash
+            | TokenType::Percent
+            | TokenType::Bang
+            | TokenType::Lt
+            | TokenType::Gt
+            | TokenType::Lte
+            | TokenType::Gte
+            | TokenType::Eq
+            | TokenType::NotEq
+            | TokenType::Assign
+            | TokenType::And
+            | TokenType::Or
+            | TokenType::Pipe
+            | TokenType::Bar
+            | TokenType::Arrow
+            | TokenType::FatArrow
+            | TokenType::LeftArrow
+            | TokenType::Backslash
+            | TokenType::DotDotDot => {
+                emit(snapshot, tok.span(), TT_OPERATOR, 0, out);
+            }
+
+            // ── annotations ────────────────────────────────────────────────
+            TokenType::At => {
+                emit(snapshot, tok.span(), TT_DECORATOR, 0, out);
+                decorator_pending = true;
+            }
+
+            // `{` ends a `module Name { … }` path.
+            TokenType::LBrace => module_mode = false,
+
+            // ── identifiers ────────────────────────────────────────────────
+            TokenType::Ident => {
+                let text = tok.literal.as_str();
+                let (tt_idx, mods) = if decorator_pending {
+                    decorator_pending = false;
+                    (TT_DECORATOR, 0)
+                } else if import_mode {
+                    if text == "exposing" || text == "except" {
+                        import_mode = false;
+                        (TT_KEYWORD, 0)
+                    } else {
+                        (TT_NAMESPACE, 0)
                     }
-                }
+                } else if module_mode {
+                    (TT_NAMESPACE, MOD_DECLARATION)
+                } else if let Some(decl) = pending_decl.take() {
+                    decl
+                } else {
+                    let next = tokens.get(i + 1).map(|t| t.token_type);
+                    let next_paren = next == Some(TokenType::LParen);
+                    let next_dot = next == Some(TokenType::Dot);
+                    if prev == Some(TokenType::Dot) {
+                        classify_member(text, next_paren, names, stdlib_members)
+                    } else if first_is_upper(text) {
+                        classify_upper(text, next_dot, names, snapshot)
+                    } else {
+                        classify_lower(text, next_paren, names)
+                    }
+                };
+                emit(snapshot, tok.span(), tt_idx, mods, out);
             }
+
+            // Pure delimiters (parens, braces, brackets, comma, colon, dot,
+            // semicolon, hash) carry no semantic colour — the TextMate grammar
+            // styles them, and no standard semantic type fits.
+            _ => {}
         }
-        Statement::EffectDecl {
-            name, ops, span, ..
-        } => {
-            let pos = name_start(span.start, false, "effect");
-            push_ident(snapshot, pos, *name, TT_INTERFACE, out);
-            for op in ops {
-                push_ident(snapshot, op.span.start, op.name, TT_INTERFACE, out);
-            }
-        }
-        Statement::TypeAlias(alias) => {
-            let pos = name_start(alias.span.start, alias.is_public, "alias");
-            push_ident(snapshot, pos, alias.name, TT_TYPE, out);
-        }
-        Statement::Module {
-            name, body, span, ..
-        } => {
-            let pos = name_start(span.start, false, "module");
-            push_ident(snapshot, pos, *name, TT_NAMESPACE, out);
-            collect_block(body, snapshot, out);
-        }
-        Statement::Import { name, span, .. } => {
-            // "import " is 7 bytes.
-            let pos = FluxPosition {
-                line: span.start.line,
-                column: span.start.column + "import ".len(),
-            };
-            push_ident(snapshot, pos, *name, TT_NAMESPACE, out);
-        }
-        Statement::Expression { expression, .. } => collect_expr(expression, snapshot, out),
-        Statement::Return { value: Some(v), .. } => collect_expr(v, snapshot, out),
-        Statement::Assign {
-            name, value, span, ..
-        } => {
-            push_ident(snapshot, span.start, *name, TT_VARIABLE, out);
-            collect_expr(value, snapshot, out);
-        }
-        _ => {}
+
+        prev = Some(tt);
     }
 }
 
-fn collect_expr(expr: &Expression, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
-    match expr {
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
-            collect_expr(function, snapshot, out);
-            for a in arguments {
-                collect_expr(a, snapshot, out);
-            }
+/// Classify an uppercase reference (a type, constructor, effect, class, or
+/// module name used outside a member-access position). `next_is_dot` lets a
+/// qualifier like `Array` in `Array.map` read as a namespace even though
+/// `Array` is also a built-in type name.
+fn classify_upper(
+    name: &str,
+    next_is_dot: bool,
+    names: &NameSets,
+    snapshot: &Snapshot,
+) -> (u32, u32) {
+    if next_is_dot {
+        if snapshot.module_short_names.contains(name) {
+            return (TT_NAMESPACE, MOD_DEFAULT_LIBRARY);
         }
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            ..
-        } => {
-            collect_expr(object, snapshot, out);
-            // Member is at end of span; compute its start from the identifier text.
-            let member_text = snapshot.interner.try_resolve(*member).unwrap_or("");
-            let member_col = span.end.column.saturating_sub(member_text.len());
-            push_ident(
-                snapshot,
-                FluxPosition {
-                    line: span.end.line,
-                    column: member_col,
-                },
-                *member,
-                TT_PROPERTY,
-                out,
-            );
+        if names.modules.contains(name) {
+            return (TT_NAMESPACE, 0);
         }
-        Expression::NamedConstructor {
-            name, fields, span, ..
-        } => {
-            push_ident(snapshot, span.start, *name, TT_CLASS, out);
-            for f in fields {
-                push_ident(snapshot, f.span.start, f.name, TT_PROPERTY, out);
-                if let Some(v) = &f.value {
-                    collect_expr(v, snapshot, out);
-                }
-            }
-        }
-        Expression::Perform {
-            operation,
-            args,
-            span,
-            ..
-        } => {
-            push_ident(snapshot, span.start, *operation, TT_INTERFACE, out);
-            for a in args {
-                collect_expr(a, snapshot, out);
-            }
-        }
-        Expression::Function { body, .. } => collect_block(body, snapshot, out),
-        Expression::DoBlock { block, .. } => collect_block(block, snapshot, out),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
-            collect_expr(condition, snapshot, out);
-            collect_block(consequence, snapshot, out);
-            if let Some(b) = alternative {
-                collect_block(b, snapshot, out);
-            }
-        }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
-            collect_expr(scrutinee, snapshot, out);
-            for arm in arms {
-                collect_expr(&arm.body, snapshot, out);
-            }
-        }
-        Expression::Infix { left, right, .. } => {
-            collect_expr(left, snapshot, out);
-            collect_expr(right, snapshot, out);
-        }
-        Expression::Prefix { right, .. } => collect_expr(right, snapshot, out),
-        Expression::Handle { expr, arms, .. } => {
-            collect_expr(expr, snapshot, out);
-            for arm in arms {
-                collect_expr(&arm.body, snapshot, out);
-            }
-        }
-        Expression::ListLiteral { elements, .. } | Expression::ArrayLiteral { elements, .. } => {
-            for e in elements {
-                collect_expr(e, snapshot, out);
-            }
-        }
-        Expression::TupleLiteral { elements, .. } => {
-            for e in elements {
-                collect_expr(e, snapshot, out);
-            }
-        }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
-            collect_expr(base, snapshot, out);
-            for f in overrides {
-                push_ident(snapshot, f.span.start, f.name, TT_PROPERTY, out);
-                if let Some(v) = &f.value {
-                    collect_expr(v, snapshot, out);
-                }
-            }
-        }
-        Expression::Index { left, index, .. } => {
-            collect_expr(left, snapshot, out);
-            collect_expr(index, snapshot, out);
-        }
-        Expression::Cons { head, tail, .. } => {
-            collect_expr(head, snapshot, out);
-            collect_expr(tail, snapshot, out);
-        }
-        Expression::Some { value, .. }
-        | Expression::Left { value, .. }
-        | Expression::Right { value, .. } => collect_expr(value, snapshot, out),
-        _ => {}
+    }
+    if BUILTIN_TYPES.contains(&name) {
+        (TT_TYPE, MOD_DEFAULT_LIBRARY)
+    } else if BUILTIN_VARIANTS.contains(&name) {
+        (TT_ENUM_MEMBER, MOD_DEFAULT_LIBRARY)
+    } else if names.variants.contains(name) {
+        (TT_ENUM_MEMBER, 0)
+    } else if names.data_types.contains(name) {
+        (TT_ENUM, 0)
+    } else if names.effects.contains(name) {
+        (TT_INTERFACE, 0)
+    } else if names.classes.contains(name) {
+        (TT_CLASS, 0)
+    } else if names.type_aliases.contains(name) {
+        (TT_TYPE, 0)
+    } else if snapshot.module_short_names.contains(name) {
+        (TT_NAMESPACE, MOD_DEFAULT_LIBRARY)
+    } else if names.modules.contains(name) {
+        (TT_NAMESPACE, 0)
+    } else {
+        // Unknown uppercase identifier — treat as a type (matches the grammar's
+        // "uppercase starts a type" default).
+        (TT_TYPE, 0)
     }
 }
 
-fn collect_pattern(pat: &Pattern, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
-    match pat {
-        Pattern::Identifier { name, span } => {
-            push_ident(snapshot, span.start, *name, TT_VARIABLE, out);
-        }
-        Pattern::Tuple { elements, .. } => {
-            for e in elements {
-                collect_pattern(e, snapshot, out);
-            }
-        }
-        Pattern::Constructor { fields, .. } => {
-            for f in fields {
-                collect_pattern(f, snapshot, out);
-            }
-        }
-        Pattern::NamedConstructor {
-            name, fields, span, ..
-        } => {
-            push_ident(snapshot, span.start, *name, TT_CLASS, out);
-            for f in fields {
-                if let Some(p) = &f.pattern {
-                    collect_pattern(p, snapshot, out);
-                }
-            }
-        }
-        Pattern::Some { pattern, .. }
-        | Pattern::Left { pattern, .. }
-        | Pattern::Right { pattern, .. } => {
-            collect_pattern(pattern, snapshot, out);
-        }
-        Pattern::Cons { head, tail, .. } => {
-            collect_pattern(head, snapshot, out);
-            collect_pattern(tail, snapshot, out);
-        }
-        _ => {}
+/// Classify a lowercase reference (parameter, type variable, function, field,
+/// or local variable).
+fn classify_lower(name: &str, next_is_paren: bool, names: &NameSets) -> (u32, u32) {
+    if names.params.contains(name) {
+        (TT_PARAMETER, 0)
+    } else if names.type_params.contains(name) {
+        (TT_TYPE_PARAMETER, 0)
+    } else if names.functions.contains(name) {
+        (TT_FUNCTION, 0)
+    } else if next_is_paren {
+        // Calling something we don't otherwise know — still a function use.
+        (TT_FUNCTION, 0)
+    } else if names.fields.contains(name) {
+        (TT_PROPERTY, 0)
+    } else {
+        // Everything is immutably bound in Flux, so locals read as `readonly`.
+        (TT_VARIABLE, MOD_READONLY)
     }
 }
 
-fn collect_block(block: &Block, snapshot: &Snapshot, out: &mut Vec<RawToken>) {
-    for s in &block.statements {
-        collect_stmt(s, snapshot, out);
+/// Classify the member of a `obj.member` access.
+fn classify_member(
+    name: &str,
+    next_is_paren: bool,
+    names: &NameSets,
+    stdlib_members: &HashSet<&str>,
+) -> (u32, u32) {
+    if stdlib_members.contains(name) {
+        (TT_METHOD, MOD_DEFAULT_LIBRARY)
+    } else if next_is_paren || names.functions.contains(name) {
+        (TT_METHOD, 0)
+    } else {
+        (TT_PROPERTY, 0)
     }
+}
+
+fn first_is_upper(s: &str) -> bool {
+    s.chars().next().is_some_and(|c| c.is_uppercase())
+}
+
+// ── Span → LSP token conversion ─────────────────────────────────────────────
+
+/// Emit `span` as one or more single-line LSP tokens (semantic tokens may not
+/// span lines), with the length measured in the negotiated encoding via the
+/// position map.
+fn emit(
+    snapshot: &Snapshot,
+    span: FluxSpan,
+    token_type: u32,
+    modifiers: u32,
+    out: &mut Vec<RawToken>,
+) {
+    let pm = &snapshot.position_map;
+    let (Some(start_ts), Some(end_ts)) =
+        (pm.flux_to_offset(span.start), pm.flux_to_offset(span.end))
+    else {
+        return;
+    };
+    let start = u32::from(start_ts) as usize;
+    let bytes = snapshot.text.as_bytes();
+    let end = (u32::from(end_ts) as usize).min(bytes.len());
+    if end <= start {
+        return;
+    }
+
+    let mut seg_start = start;
+    for (idx, &b) in bytes[start..end].iter().enumerate() {
+        if b == b'\n' {
+            push_segment(snapshot, seg_start, start + idx, token_type, modifiers, out);
+            seg_start = start + idx + 1;
+        }
+    }
+    push_segment(snapshot, seg_start, end, token_type, modifiers, out);
+}
+
+fn push_segment(
+    snapshot: &Snapshot,
+    start: usize,
+    end: usize,
+    token_type: u32,
+    modifiers: u32,
+    out: &mut Vec<RawToken>,
+) {
+    let bytes = snapshot.text.as_bytes();
+    // Drop a trailing CR so CRLF line breaks don't pad the token.
+    let end = if end > start && bytes[end - 1] == b'\r' {
+        end - 1
+    } else {
+        end
+    };
+    if end <= start {
+        return;
+    }
+    let pm = &snapshot.position_map;
+    let s = pm.offset_to_lsp(TextSize::from(start as u32));
+    let e = pm.offset_to_lsp(TextSize::from(end as u32));
+    let length = e.character.saturating_sub(s.character);
+    if length == 0 {
+        return;
+    }
+    out.push(RawToken {
+        line: s.line,
+        start: s.character,
+        length,
+        token_type,
+        modifiers,
+    });
 }
 
 fn delta_encode(sorted: Vec<RawToken>) -> Vec<SemanticToken> {
@@ -387,10 +507,430 @@ fn delta_encode(sorted: Vec<RawToken>) -> Vec<SemanticToken> {
             delta_start,
             length: tok.length,
             token_type: tok.token_type,
-            token_modifiers_bitset: 0,
+            token_modifiers_bitset: tok.modifiers,
         });
         prev_line = tok.line;
         prev_start = tok.start;
     }
     result
+}
+
+// ── AST-derived name sets ────────────────────────────────────────────────────
+
+/// Names harvested from the buffer's AST, keyed by the role they play. The
+/// classifier consults these to decide what a bare identifier reference means.
+/// Sets are global (unscoped) — a deliberate approximation that keeps colouring
+/// cheap and stable; clashes (a parameter named like a top-level function) are
+/// resolved by the lookup order in `classify_lower`.
+#[derive(Default)]
+struct NameSets {
+    functions: HashSet<String>,
+    data_types: HashSet<String>,
+    variants: HashSet<String>,
+    effects: HashSet<String>,
+    classes: HashSet<String>,
+    type_aliases: HashSet<String>,
+    type_params: HashSet<String>,
+    params: HashSet<String>,
+    fields: HashSet<String>,
+    modules: HashSet<String>,
+}
+
+impl NameSets {
+    fn collect(program: &flux::syntax::program::Program, interner: &Interner) -> Self {
+        let mut sets = NameSets::default();
+        for stmt in &program.statements {
+            sets.collect_stmt(stmt, interner);
+        }
+        sets
+    }
+
+    fn insert(set: &mut HashSet<String>, interner: &Interner, id: Identifier) {
+        if let Some(name) = interner.try_resolve(id)
+            && !name.is_empty()
+        {
+            set.insert(name.to_string());
+        }
+    }
+
+    /// Add each dotted segment of a module path (`Flow.List` → `Flow`, `List`).
+    fn insert_module_path(&mut self, interner: &Interner, id: Identifier) {
+        if let Some(name) = interner.try_resolve(id) {
+            for segment in name.split('.') {
+                if !segment.is_empty() {
+                    self.modules.insert(segment.to_string());
+                }
+            }
+        }
+    }
+
+    fn collect_stmt(&mut self, stmt: &Statement, interner: &Interner) {
+        match stmt {
+            Statement::Function {
+                name,
+                type_params,
+                parameters,
+                body,
+                ..
+            } => {
+                Self::insert(&mut self.functions, interner, *name);
+                for tp in type_params {
+                    Self::insert(&mut self.type_params, interner, tp.name);
+                    for c in &tp.constraints {
+                        Self::insert(&mut self.classes, interner, *c);
+                    }
+                }
+                for p in parameters {
+                    Self::insert(&mut self.params, interner, *p);
+                }
+                self.collect_block(body, interner);
+            }
+            Statement::Let { name, value, .. } => {
+                Self::insert(&mut self.params, interner, *name);
+                self.collect_expr(value, interner);
+            }
+            Statement::LetDestructure { pattern, value, .. } => {
+                self.collect_pattern(pattern, interner);
+                self.collect_expr(value, interner);
+            }
+            Statement::Assign { name, value, .. } => {
+                Self::insert(&mut self.params, interner, *name);
+                self.collect_expr(value, interner);
+            }
+            Statement::Return { value: Some(v), .. } => self.collect_expr(v, interner),
+            Statement::Expression { expression, .. } => self.collect_expr(expression, interner),
+            Statement::Module { name, body, .. } => {
+                self.insert_module_path(interner, *name);
+                self.collect_block(body, interner);
+            }
+            Statement::Import { name, alias, .. } => {
+                self.insert_module_path(interner, *name);
+                if let Some(alias) = alias {
+                    Self::insert(&mut self.modules, interner, *alias);
+                }
+            }
+            Statement::Data {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                Self::insert(&mut self.data_types, interner, *name);
+                for tp in type_params {
+                    Self::insert(&mut self.type_params, interner, *tp);
+                }
+                for v in variants {
+                    Self::insert(&mut self.variants, interner, v.name);
+                    if let Some(field_names) = &v.field_names {
+                        for f in field_names {
+                            Self::insert(&mut self.fields, interner, *f);
+                        }
+                    }
+                }
+            }
+            Statement::EffectDecl { name, ops, .. } => {
+                Self::insert(&mut self.effects, interner, *name);
+                for op in ops {
+                    Self::insert(&mut self.functions, interner, op.name);
+                }
+            }
+            Statement::EffectAlias { name, .. } => {
+                Self::insert(&mut self.effects, interner, *name);
+            }
+            Statement::TypeAlias(alias) => {
+                Self::insert(&mut self.type_aliases, interner, alias.name);
+                for p in &alias.params {
+                    Self::insert(&mut self.type_params, interner, *p);
+                }
+            }
+            Statement::Class {
+                name,
+                type_params,
+                methods,
+                ..
+            } => {
+                Self::insert(&mut self.classes, interner, *name);
+                for tp in type_params {
+                    Self::insert(&mut self.type_params, interner, *tp);
+                }
+                for m in methods {
+                    Self::insert(&mut self.functions, interner, m.name);
+                    for tp in &m.type_params {
+                        Self::insert(&mut self.type_params, interner, *tp);
+                    }
+                    for p in &m.params {
+                        Self::insert(&mut self.params, interner, *p);
+                    }
+                    if let Some(body) = &m.default_body {
+                        self.collect_block(body, interner);
+                    }
+                }
+            }
+            Statement::Instance {
+                class_name,
+                methods,
+                ..
+            } => {
+                Self::insert(&mut self.classes, interner, *class_name);
+                for m in methods {
+                    Self::insert(&mut self.functions, interner, m.name);
+                    for p in &m.params {
+                        Self::insert(&mut self.params, interner, *p);
+                    }
+                    self.collect_block(&m.body, interner);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_block(&mut self, block: &Block, interner: &Interner) {
+        for stmt in &block.statements {
+            self.collect_stmt(stmt, interner);
+        }
+    }
+
+    fn collect_expr(&mut self, expr: &Expression, interner: &Interner) {
+        match expr {
+            Expression::Function {
+                parameters, body, ..
+            } => {
+                for p in parameters {
+                    Self::insert(&mut self.params, interner, *p);
+                }
+                self.collect_block(body, interner);
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.collect_expr(function, interner);
+                for a in arguments {
+                    self.collect_expr(a, interner);
+                }
+            }
+            Expression::Infix { left, right, .. } => {
+                self.collect_expr(left, interner);
+                self.collect_expr(right, interner);
+            }
+            Expression::Prefix { right, .. } => self.collect_expr(right, interner),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.collect_expr(condition, interner);
+                self.collect_block(consequence, interner);
+                if let Some(alt) = alternative {
+                    self.collect_block(alt, interner);
+                }
+            }
+            Expression::DoBlock { block, .. } => self.collect_block(block, interner),
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.collect_expr(scrutinee, interner);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_expr(guard, interner);
+                    }
+                    self.collect_expr(&arm.body, interner);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.collect_expr(expr, interner);
+                for arm in arms {
+                    Self::insert(&mut self.params, interner, arm.resume_param);
+                    for p in &arm.params {
+                        Self::insert(&mut self.params, interner, *p);
+                    }
+                    self.collect_expr(&arm.body, interner);
+                }
+            }
+            Expression::Sealing { expr, .. } => self.collect_expr(expr, interner),
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
+                for e in elements {
+                    self.collect_expr(e, interner);
+                }
+            }
+            Expression::Index { left, index, .. } => {
+                self.collect_expr(left, interner);
+                self.collect_expr(index, interner);
+            }
+            Expression::Hash { pairs, .. } => {
+                for (k, v) in pairs {
+                    self.collect_expr(k, interner);
+                    self.collect_expr(v, interner);
+                }
+            }
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => self.collect_expr(object, interner),
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => self.collect_expr(value, interner),
+            Expression::Cons { head, tail, .. } => {
+                self.collect_expr(head, interner);
+                self.collect_expr(tail, interner);
+            }
+            Expression::Perform { args, .. } => {
+                for a in args {
+                    self.collect_expr(a, interner);
+                }
+            }
+            Expression::NamedConstructor { fields, .. } => {
+                for f in fields {
+                    Self::insert(&mut self.fields, interner, f.name);
+                    if let Some(v) = &f.value {
+                        self.collect_expr(v, interner);
+                    }
+                }
+            }
+            Expression::Spread {
+                base, overrides, ..
+            } => {
+                self.collect_expr(base, interner);
+                for f in overrides {
+                    Self::insert(&mut self.fields, interner, f.name);
+                    if let Some(v) = &f.value {
+                        self.collect_expr(v, interner);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_pattern(&mut self, pat: &Pattern, interner: &Interner) {
+        match pat {
+            Pattern::Identifier { name, .. } => Self::insert(&mut self.params, interner, *name),
+            Pattern::Tuple { elements, .. } => {
+                for e in elements {
+                    self.collect_pattern(e, interner);
+                }
+            }
+            Pattern::Constructor { fields, .. } => {
+                for f in fields {
+                    self.collect_pattern(f, interner);
+                }
+            }
+            Pattern::NamedConstructor { fields, .. } => {
+                for f in fields {
+                    if let Some(p) = &f.pattern {
+                        self.collect_pattern(p, interner);
+                    }
+                }
+            }
+            Pattern::Some { pattern, .. }
+            | Pattern::Left { pattern, .. }
+            | Pattern::Right { pattern, .. } => self.collect_pattern(pattern, interner),
+            Pattern::Cons { head, tail, .. } => {
+                self.collect_pattern(head, interner);
+                self.collect_pattern(tail, interner);
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flux::syntax::parser::Parser;
+
+    fn name_sets(src: &str) -> NameSets {
+        let mut parser = Parser::new(Lexer::new(src.to_string()));
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+        NameSets::collect(&program, &interner)
+    }
+
+    #[test]
+    fn legend_indices_stay_in_range() {
+        let types = token_types();
+        let mods = token_modifiers();
+        // The highest declared index must address a real legend entry.
+        assert_eq!(types.len(), 18);
+        assert_eq!(TT_DECORATOR as usize, types.len() - 1);
+        assert_eq!(mods.len(), 4);
+        // Highest modifier bit must be within the declared modifier count.
+        assert!((MOD_DOCUMENTATION.trailing_zeros() as usize) < mods.len());
+    }
+
+    #[test]
+    fn first_is_upper_distinguishes_case() {
+        assert!(first_is_upper("Foo"));
+        assert!(!first_is_upper("foo"));
+        assert!(!first_is_upper("_x"));
+        assert!(!first_is_upper(""));
+    }
+
+    #[test]
+    fn delta_encode_is_relative_to_previous_token() {
+        let raw = vec![
+            RawToken {
+                line: 0,
+                start: 4,
+                length: 3,
+                token_type: TT_FUNCTION,
+                modifiers: MOD_DECLARATION,
+            },
+            RawToken {
+                line: 0,
+                start: 8,
+                length: 1,
+                token_type: TT_PARAMETER,
+                modifiers: 0,
+            },
+            RawToken {
+                line: 2,
+                start: 2,
+                length: 5,
+                token_type: TT_VARIABLE,
+                modifiers: MOD_READONLY,
+            },
+        ];
+        let encoded = delta_encode(raw);
+        // Same line → delta_start relative to previous start (8 - 4 = 4).
+        assert_eq!(encoded[1].delta_line, 0);
+        assert_eq!(encoded[1].delta_start, 4);
+        // New line → delta_start is absolute again.
+        assert_eq!(encoded[2].delta_line, 2);
+        assert_eq!(encoded[2].delta_start, 2);
+        assert_eq!(encoded[0].token_modifiers_bitset, MOD_DECLARATION);
+    }
+
+    #[test]
+    fn name_sets_capture_declaration_roles() {
+        let sets = name_sets(
+            "import Flow.List as List\n\
+             data Color { Red, Green }\n\
+             fn shade(x, factor) { x }\n",
+        );
+        assert!(sets.functions.contains("shade"));
+        assert!(sets.params.contains("x"));
+        assert!(sets.params.contains("factor"));
+        assert!(sets.data_types.contains("Color"));
+        assert!(sets.variants.contains("Red"));
+        assert!(sets.variants.contains("Green"));
+        // Both the dotted path segments and the alias become known modules.
+        assert!(sets.modules.contains("Flow"));
+        assert!(sets.modules.contains("List"));
+    }
+
+    #[test]
+    fn name_sets_recurse_into_nested_functions() {
+        let sets = name_sets(
+            "fn outer(xs) {\n\
+                 fn helper(acc) { acc }\n\
+                 helper(xs)\n\
+             }\n",
+        );
+        assert!(sets.functions.contains("outer"));
+        assert!(sets.functions.contains("helper"));
+        assert!(sets.params.contains("acc"));
+    }
 }
