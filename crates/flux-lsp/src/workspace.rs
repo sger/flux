@@ -433,6 +433,39 @@ impl Workspace {
         self.prelude.is_some()
     }
 
+    /// The leading `///` doc comment of `member` declared in the module cached
+    /// under `module_key`, as markdown — backs `completionItem/resolve`.
+    ///
+    /// Resolve requests carry no document URI, so the source is found without a
+    /// file context: first in the Flow prelude (always cached), then in any
+    /// analyzed snapshot's sibling-module cache (which is where user modules
+    /// live). Returns `None` for an unknown module or an undocumented member.
+    pub fn member_doc(&self, module_key: &str, member: &str) -> Option<String> {
+        if let Some(prelude) = self.prelude.as_ref()
+            && let Some(doc) =
+                prelude
+                    .module_programs
+                    .get(module_key)
+                    .and_then(|(program, source, _)| {
+                        let span = crate::doc_comments::member_decl_span(
+                            program,
+                            &prelude.compiler.interner,
+                            member,
+                        )?;
+                        crate::doc_comments::doc_comment_above(source, span, self.encoding)
+                    })
+        {
+            return Some(doc);
+        }
+        // User/sibling modules: any snapshot in the module's component holds
+        // the same parsed source, so the first hit wins.
+        self.snapshots.values().find_map(|snap| {
+            let (program, source, _) = snap.module_programs.get(module_key)?;
+            let span = crate::doc_comments::member_decl_span(program, &snap.interner, member)?;
+            crate::doc_comments::doc_comment_above(source, span, self.encoding)
+        })
+    }
+
     /// Eagerly load the Flow prelude (parse + infer the stdlib, index every
     /// `lib/Flow/*.flx`) anchored at the project root, unless it is already
     /// loaded. Called at `initialized` so the cost happens up front — and can

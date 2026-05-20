@@ -61,7 +61,12 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
              ```flux\n{value}\n```",
         )
     } else {
-        format!("```flux\n{value}\n```")
+        // Prepend the declaration's `///` doc comment as prose, above the
+        // signature block, when one is found.
+        match node_doc_comment(snapshot, &node) {
+            Some(doc) => format!("{doc}\n\n```flux\n{value}\n```"),
+            None => format!("```flux\n{value}\n```"),
+        }
     };
     Some(Hover {
         contents: HoverContents::Markup(MarkupContent {
@@ -70,6 +75,68 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
         }),
         range: None,
     })
+}
+
+/// The `///` doc comment to show above the hover signature, if any.
+///
+/// At a declaration site (`fn`, `data`, `effect`, variant) the comment is
+/// scanned from the current buffer's own source above the decl span — so it
+/// works for any open file, user modules included. At a module-member *use*
+/// site (`Module.member`) the comment is scanned from that module's cached
+/// source, the same way `completionItem/resolve` does.
+fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
+    let encoding = snapshot.position_map.encoding();
+    match node {
+        NodeRef::DeclName {
+            binding_span: span, ..
+        }
+        | NodeRef::DataName { span, .. }
+        | NodeRef::DataVariantName { span, .. }
+        | NodeRef::EffectDeclName { span, .. } => {
+            crate::doc_comments::doc_comment_above(snapshot.text.as_ref(), *span, encoding)
+        }
+        NodeRef::MemberAccessMember { object, member, .. } => {
+            let key = module_key_for(snapshot, object)?;
+            let (program, source, _) = snapshot.module_programs.get(&key)?;
+            let member_name = snapshot.interner.try_resolve(*member)?;
+            let span =
+                crate::doc_comments::member_decl_span(program, &snapshot.interner, member_name)?;
+            crate::doc_comments::doc_comment_above(source, span, encoding)
+        }
+        _ => None,
+    }
+}
+
+/// The `module_programs` key for the module referenced by `object` (the left
+/// side of a `Module.member` access): a direct module name, or the underlying
+/// module of an `import … as A` alias. `None` for a non-module object.
+fn module_key_for(snapshot: &Snapshot, object: &Expression) -> Option<String> {
+    let Expression::Identifier { name, .. } = object else {
+        return None;
+    };
+    let resolved = snapshot.interner.try_resolve(*name)?;
+    if snapshot.module_programs.contains_key(resolved) {
+        return Some(resolved.to_string());
+    }
+    for stmt in &snapshot.program.statements {
+        if let Statement::Import {
+            name: qualified,
+            alias: Some(alias),
+            ..
+        } = stmt
+            && snapshot.interner.try_resolve(*alias) == Some(resolved)
+        {
+            let qualified = snapshot.interner.try_resolve(*qualified)?;
+            if snapshot.module_programs.contains_key(qualified) {
+                return Some(qualified.to_string());
+            }
+            let short = qualified.rsplit('.').next().unwrap_or(qualified);
+            if snapshot.module_programs.contains_key(short) {
+                return Some(short.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Markdown doc card for a built-in effect, if `node` is an effect-name use

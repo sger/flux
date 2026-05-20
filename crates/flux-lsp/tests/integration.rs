@@ -13,15 +13,15 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CompletionItem,
-    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
-    DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams, Documentation,
-    FileChangeType, FileEvent, FoldingRangeParams, FormattingOptions, GotoDefinitionParams,
-    HoverParams, InitializeParams, InitializedParams, OneOf, PartialResultParams, Position, Range,
-    ReferenceContext, ReferenceParams, RenameParams, SelectionRangeParams, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CodeLensParams,
+    CompletionItem, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DocumentChanges, DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams,
+    Documentation, FileChangeType, FileEvent, FoldingRangeParams, FormattingOptions,
+    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, NumberOrString, OneOf,
+    PartialResultParams, Position, Range, ReferenceContext, ReferenceParams, RenameParams,
+    SelectionRangeParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
+    Uri, WorkDoneProgressParams, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -1272,6 +1272,50 @@ fn hover_markup(state: &mut GlobalState, u: &Uri, line: u32, character: u32) -> 
 }
 
 #[test]
+fn hover_on_function_decl_shows_doc_comment() {
+    // A `///` comment above a declaration is surfaced in its hover (the AST
+    // drops doc comments, so this is scanned from the buffer source).
+    let mut state = GlobalState::default();
+    let u = uri("file:///doc.flx");
+    open(
+        &mut state,
+        &u,
+        "/// Doubles its argument.\nfn twice(x: Int) -> Int { x * 2 }\n",
+    );
+
+    // Hover on `twice` (line 1, char 5).
+    let md = hover_markup(&mut state, &u, 1, 5).expect("hover on `twice`");
+    assert!(
+        md.contains("Doubles its argument."),
+        "expected the doc comment in hover, got: {md}"
+    );
+    assert!(
+        md.contains("```flux"),
+        "expected the signature block alongside the doc, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_module_member_use_shows_doc_comment() {
+    // Hovering a `Module.member` use site shows the member's doc comment,
+    // scanned from the (Flow) module's cached source.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("hover-member-doc-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Either as Either\n\nfn main() with IO {\n    let r = Either.either\n}\n",
+    );
+
+    // Hover on `either` in `Either.either` (line 3, char 21).
+    let md = hover_markup(&mut state, &u, 3, 21).expect("hover on `either`");
+    assert!(
+        md.contains("Case analysis for Either"),
+        "expected the Flow.Either member doc, got: {md}"
+    );
+}
+
+#[test]
 fn hover_on_member_access_member_returns_field_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///rec.flx");
@@ -2139,6 +2183,89 @@ fn code_action_params(u: &Uri, range: Range) -> CodeActionParams {
     }
 }
 
+fn code_lens_params(u: &Uri) -> CodeLensParams {
+    CodeLensParams {
+        text_document: ident(u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    }
+}
+
+#[test]
+fn diagnostics_carry_code_description_link() {
+    // A coded diagnostic (here E015, non-exhaustive match) carries a
+    // codeDescription deep-linking to the error-code reference anchor.
+    let mut state = GlobalState::default();
+    let u = uri("file:///diag.flx");
+    let src = "data Color { Red, Green, Blue }\nfn pick(c: Color) -> Int {\n    match c {\n        Red -> 1,\n        Green -> 2\n    }\n}\n";
+    let published = state.handle_did_open(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: u.clone(),
+            language_id: "flux".into(),
+            version: 1,
+            text: src.into(),
+        },
+    });
+
+    let diags: Vec<_> = published.into_iter().flat_map(|p| p.diagnostics).collect();
+    let e015 = diags
+        .iter()
+        .find(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E015"))
+        .expect("an E015 diagnostic");
+    let href = e015
+        .code_description
+        .as_ref()
+        .expect("code_description on E015");
+    assert!(
+        href.href.as_str().ends_with("error_codes.md#e015"),
+        "unexpected href: {}",
+        href.href.as_str()
+    );
+}
+
+#[test]
+fn code_lens_offers_run_above_main() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///run.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    print(\"hi\")\n}\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    assert_eq!(lenses.len(), 1, "expected exactly one Run lens on `main`");
+    let cmd = lenses[0].command.as_ref().expect("lens command");
+    assert_eq!(cmd.command, "flux.run");
+    assert!(cmd.title.contains("Run"), "title was {:?}", cmd.title);
+}
+
+#[test]
+fn code_lens_offers_run_test_per_test_function() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///tests.flx");
+    open(
+        &mut state,
+        &u,
+        "fn test_a() { assert_true(true) }\nfn test_b() { assert_true(true) }\nfn helper() { 1 }\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    assert_eq!(lenses.len(), 2, "a lens per test fn, none for `helper`");
+    let cmd = lenses[0].command.as_ref().expect("lens command");
+    assert_eq!(cmd.command, "flux.runTest");
+    let args = cmd.arguments.as_ref().expect("lens arguments");
+    assert_eq!(
+        args[1],
+        serde_json::json!("test_a"),
+        "the test name should travel as the second command argument"
+    );
+}
+
 #[test]
 fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
     let mut state = GlobalState::default();
@@ -2534,6 +2661,56 @@ fn completion_module_name_no_edit_when_already_imported() {
     assert!(
         array.additional_text_edits.is_none(),
         "an already-imported module should carry no auto-import edit"
+    );
+}
+
+#[test]
+fn completion_resolve_fills_member_doc_comment() {
+    // `Either.` lists members; resolving one surfaces its `///` doc comment,
+    // scanned from the Flow.Either source (the AST drops doc comments).
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("member-doc-fixture.flx");
+    open(&mut state, &u, "fn main() with IO {\n    Either.\n}\n");
+
+    // Cursor right after `Either.` (line 1, char 11).
+    let items = completion_items(&mut state, &u, 1, 11);
+    let either = items
+        .into_iter()
+        .find(|i| i.label == "either")
+        .expect("`either` member completion item");
+    assert!(
+        either.documentation.is_none(),
+        "member docs should be deferred to resolve"
+    );
+
+    let doc = item_doc(&state.handle_completion_resolve(either)).expect("resolved member doc");
+    assert!(
+        doc.contains("Case analysis for Either"),
+        "expected the `either` doc comment, got: {doc}"
+    );
+}
+
+#[test]
+fn completion_resolve_fills_user_module_member_doc() {
+    // A sibling user module's member doc resolves too (not just the Flow
+    // stdlib): the source is found in the analyzed snapshot's module cache.
+    let math_src =
+        "module Math {\n    /// Doubles its argument.\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math\n\nfn run() {\n    Math.\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Complete after `Math.` (line 3, char 9).
+    let items = completion_items(&mut state, &uris[1], 3, 9);
+    let twice = items
+        .into_iter()
+        .find(|i| i.label == "twice")
+        .expect("`twice` member completion item");
+    let doc = item_doc(&state.handle_completion_resolve(twice)).expect("resolved member doc");
+    assert!(
+        doc.contains("Doubles its argument"),
+        "expected the user-module member doc, got: {doc}"
     );
 }
 

@@ -101,7 +101,11 @@ fn top_level_definition(
             name,
             span,
             ..
-        } => (*name, *span, decl_name_start(span.start, *is_public, "data")),
+        } => (
+            *name,
+            *span,
+            decl_name_start(span.start, *is_public, "data"),
+        ),
         Statement::EffectDecl { name, span, .. } => {
             (*name, *span, decl_name_start(span.start, false, "effect"))
         }
@@ -113,7 +117,11 @@ fn top_level_definition(
             name,
             span,
             ..
-        } => (*name, *span, decl_name_start(span.start, *is_public, "class")),
+        } => (
+            *name,
+            *span,
+            decl_name_start(span.start, *is_public, "class"),
+        ),
         Statement::TypeAlias(alias) => (
             alias.name,
             alias.span,

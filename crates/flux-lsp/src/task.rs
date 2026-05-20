@@ -8,9 +8,9 @@
 //! computing a result the client will discard.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
 use lsp_server::{Message, RequestId, Response};

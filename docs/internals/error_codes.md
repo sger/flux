@@ -22,94 +22,94 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E001` | `DUPLICATE_NAME` | Name already declared in this scope |
-| `E002` | `IMMUTABLE_BINDING` | Attempt to reassign an immutable `let` binding |
-| `E003` | `OUTER_ASSIGNMENT` | Assignment to a variable in an outer scope |
-| `E004` | `UNDEFINED_VARIABLE` | Variable used before declaration |
-| `E007` | `DUPLICATE_PARAMETER` | Parameter name used more than once in a function |
+| <a id="e001"></a>`E001` | `DUPLICATE_NAME` | Name already declared in this scope |
+| <a id="e002"></a>`E002` | `IMMUTABLE_BINDING` | Attempt to reassign an immutable `let` binding |
+| <a id="e003"></a>`E003` | `OUTER_ASSIGNMENT` | Assignment to a variable in an outer scope |
+| <a id="e004"></a>`E004` | `UNDEFINED_VARIABLE` | Variable used before declaration |
+| <a id="e007"></a>`E007` | `DUPLICATE_PARAMETER` | Parameter name used more than once in a function |
 
 ### Operators
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E005` | `UNKNOWN_PREFIX_OPERATOR` | Unrecognized prefix operator |
-| `E006` | `UNKNOWN_INFIX_OPERATOR` | Unrecognized infix operator |
+| <a id="e005"></a>`E005` | `UNKNOWN_PREFIX_OPERATOR` | Unrecognized prefix operator |
+| <a id="e006"></a>`E006` | `UNKNOWN_INFIX_OPERATOR` | Unrecognized infix operator |
 
 ### Module System
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E008` | `INVALID_MODULE_NAME` | Module name does not match file path or naming rules |
-| `E009` | `MODULE_NAME_CLASH` | Two modules share the same name |
-| `E010` | `INVALID_MODULE_CONTENT` | Illegal declaration inside a module body |
-| `E011` | `PRIVATE_MEMBER` | Accessing a non-public module member from outside the module |
-| `E012` | `UNKNOWN_MODULE_MEMBER` | Member does not exist on the module |
-| `E013` | `MODULE_NOT_IMPORTED` | Qualified access to a module that was not imported |
-| `E017` | `IMPORT_SCOPE` | `import` used inside a function or block (top-level only) |
-| `E018` | `IMPORT_NOT_FOUND` | Imported module file could not be found |
-| `E019` | `IMPORT_READ_FAILED` | Imported module file could not be read |
-| `E021` | `IMPORT_CYCLE` | Import cycle detected |
-| `E022` | `SCRIPT_NOT_IMPORTABLE` | Importing a script file (no `module` declaration) |
-| `E023` | `MULTIPLE_MODULES` | File contains more than one module declaration |
-| `E024` | `MODULE_PATH_MISMATCH` | Module name in source does not match the file path |
-| `E025` | `MODULE_SCOPE` | Module declaration is not at top level |
-| `E026` | `INVALID_MODULE_ALIAS` | Alias name in `import ... as` is invalid |
-| `E027` | `DUPLICATE_MODULE` | Same module found in multiple roots |
-| `E028` | `INVALID_MODULE_FILE` | Module file is malformed |
-| `E029` | `IMPORT_NAME_COLLISION` | Two imports resolve to the same name |
-| `E044` | `CIRCULAR_DEPENDENCY` | Circular dependency between constants or definitions |
+| <a id="e008"></a>`E008` | `INVALID_MODULE_NAME` | Module name does not match file path or naming rules |
+| <a id="e009"></a>`E009` | `MODULE_NAME_CLASH` | Two modules share the same name |
+| <a id="e010"></a>`E010` | `INVALID_MODULE_CONTENT` | Illegal declaration inside a module body |
+| <a id="e011"></a>`E011` | `PRIVATE_MEMBER` | Accessing a non-public module member from outside the module |
+| <a id="e012"></a>`E012` | `UNKNOWN_MODULE_MEMBER` | Member does not exist on the module |
+| <a id="e013"></a>`E013` | `MODULE_NOT_IMPORTED` | Qualified access to a module that was not imported |
+| <a id="e017"></a>`E017` | `IMPORT_SCOPE` | `import` used inside a function or block (top-level only) |
+| <a id="e018"></a>`E018` | `IMPORT_NOT_FOUND` | Imported module file could not be found |
+| <a id="e019"></a>`E019` | `IMPORT_READ_FAILED` | Imported module file could not be read |
+| <a id="e021"></a>`E021` | `IMPORT_CYCLE` | Import cycle detected |
+| <a id="e022"></a>`E022` | `SCRIPT_NOT_IMPORTABLE` | Importing a script file (no `module` declaration) |
+| <a id="e023"></a>`E023` | `MULTIPLE_MODULES` | File contains more than one module declaration |
+| <a id="e024"></a>`E024` | `MODULE_PATH_MISMATCH` | Module name in source does not match the file path |
+| <a id="e025"></a>`E025` | `MODULE_SCOPE` | Module declaration is not at top level |
+| <a id="e026"></a>`E026` | `INVALID_MODULE_ALIAS` | Alias name in `import ... as` is invalid |
+| <a id="e027"></a>`E027` | `DUPLICATE_MODULE` | Same module found in multiple roots |
+| <a id="e028"></a>`E028` | `INVALID_MODULE_FILE` | Module file is malformed |
+| <a id="e029"></a>`E029` | `IMPORT_NAME_COLLISION` | Two imports resolve to the same name |
+| <a id="e044"></a>`E044` | `CIRCULAR_DEPENDENCY` | Circular dependency between constants or definitions |
 
 ### Pattern Matching
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E014` | `EMPTY_MATCH` | `match` expression has no arms |
-| `E015` | `NON_EXHAUSTIVE_MATCH` | `match` does not cover all cases |
-| `E016` | `CATCHALL_NOT_LAST` | Wildcard `_` arm is not the last arm |
-| `E020` | `INVALID_PATTERN` | Pattern is not valid in this context |
-| `E035` | `INVALID_PATTERN_LEGACY` | Legacy pattern syntax error |
-| `E075` | `DUPLICATE_PATTERN_BINDING` | Same name bound twice in one pattern |
+| <a id="e014"></a>`E014` | `EMPTY_MATCH` | `match` expression has no arms |
+| <a id="e015"></a>`E015` | `NON_EXHAUSTIVE_MATCH` | `match` does not cover all cases |
+| <a id="e016"></a>`E016` | `CATCHALL_NOT_LAST` | Wildcard `_` arm is not the last arm |
+| <a id="e020"></a>`E020` | `INVALID_PATTERN` | Pattern is not valid in this context |
+| <a id="e035"></a>`E035` | `INVALID_PATTERN_LEGACY` | Legacy pattern syntax error |
+| <a id="e075"></a>`E075` | `DUPLICATE_PATTERN_BINDING` | Same name bound twice in one pattern |
 
 ### Either / Option
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E041` | `EITHER_CONSTRUCTOR_ERROR` | Misuse of `Left` / `Right` constructor |
-| `E042` | `EITHER_VALUE_ERROR` | Invalid value inside `Left` / `Right` |
-| `E053` | `EITHER_UNWRAP_ERROR_LEFT` | Unwrapping `Left` as `Right` at compile time |
-| `E054` | `EITHER_UNWRAP_ERROR_RIGHT` | Unwrapping `Right` as `Left` at compile time |
+| <a id="e041"></a>`E041` | `EITHER_CONSTRUCTOR_ERROR` | Misuse of `Left` / `Right` constructor |
+| <a id="e042"></a>`E042` | `EITHER_VALUE_ERROR` | Invalid value inside `Left` / `Right` |
+| <a id="e053"></a>`E053` | `EITHER_UNWRAP_ERROR_LEFT` | Unwrapping `Left` as `Right` at compile time |
+| <a id="e054"></a>`E054` | `EITHER_UNWRAP_ERROR_RIGHT` | Unwrapping `Right` as `Left` at compile time |
 
 ### Type Errors
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E055` | `TYPE_MISMATCH` | Types are incompatible |
-| `E056` | `TYPE_ERROR` | Invalid type for this operation |
-| `E057` | `INCOMPATIBLE_TYPES` | Two operand types cannot be combined |
+| <a id="e055"></a>`E055` | `TYPE_MISMATCH` | Types are incompatible |
+| <a id="e056"></a>`E056` | `TYPE_ERROR` | Invalid type for this operation |
+| <a id="e057"></a>`E057` | `INCOMPATIBLE_TYPES` | Two operand types cannot be combined |
 
 ### Constant Evaluation
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E045` | `CONST_EVAL_ERROR` | Error during compile-time constant evaluation |
-| `E046` | `CONST_NOT_FOUND` | Constant reference not found |
-| `E047` | `CONST_NOT_PUBLIC` | Constant is private (`_` prefix) |
-| `E048` | `CONST_INVALID_EXPR` | Expression cannot be evaluated at compile time |
-| `E049` | `CONST_TYPE_ERROR` | Type error in constant expression |
-| `E050` | `CONST_SCOPE_ERROR` | Constant used outside of valid scope |
-| `E051` | `DIVISION_BY_ZERO_COMPILE` | Division by zero in constant expression |
-| `E052` | `MODULO_BY_ZERO_COMPILE` | Modulo by zero in constant expression |
-| `E058` | `CONST_RUNTIME_ERROR` | Runtime error during constant evaluation |
-| `E059` | `CONST_DIVISION_BY_ZERO` | Division by zero in constant fold |
-| `E060` | `CONST_OVERFLOW` | Integer overflow in constant expression |
+| <a id="e045"></a>`E045` | `CONST_EVAL_ERROR` | Error during compile-time constant evaluation |
+| <a id="e046"></a>`E046` | `CONST_NOT_FOUND` | Constant reference not found |
+| <a id="e047"></a>`E047` | `CONST_NOT_PUBLIC` | Constant is private (`_` prefix) |
+| <a id="e048"></a>`E048` | `CONST_INVALID_EXPR` | Expression cannot be evaluated at compile time |
+| <a id="e049"></a>`E049` | `CONST_TYPE_ERROR` | Type error in constant expression |
+| <a id="e050"></a>`E050` | `CONST_SCOPE_ERROR` | Constant used outside of valid scope |
+| <a id="e051"></a>`E051` | `DIVISION_BY_ZERO_COMPILE` | Division by zero in constant expression |
+| <a id="e052"></a>`E052` | `MODULO_BY_ZERO_COMPILE` | Modulo by zero in constant expression |
+| <a id="e058"></a>`E058` | `CONST_RUNTIME_ERROR` | Runtime error during constant evaluation |
+| <a id="e059"></a>`E059` | `CONST_DIVISION_BY_ZERO` | Division by zero in constant fold |
+| <a id="e060"></a>`E060` | `CONST_OVERFLOW` | Integer overflow in constant expression |
 
 ### Pipe and Short-Circuit
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E039` | `PIPE_OPERATOR_ERROR` | Invalid use of pipe operator `\|>` |
-| `E040` | `PIPE_TARGET_ERROR` | Pipe target is not callable |
-| `E043` | `SHORT_CIRCUIT_ERROR` | Invalid use of `&&` / `\|\|` |
+| <a id="e039"></a>`E039` | `PIPE_OPERATOR_ERROR` | Invalid use of pipe operator `\|>` |
+| <a id="e040"></a>`E040` | `PIPE_TARGET_ERROR` | Pipe target is not callable |
+| <a id="e043"></a>`E043` | `SHORT_CIRCUIT_ERROR` | Invalid use of `&&` / `\|\|` |
 
 ### Internal Compiler Errors (ICE)
 
@@ -117,35 +117,35 @@ These indicate a bug in the compiler, not user code:
 
 | Code | Constant |
 |------|----------|
-| `E061` | `ICE_SYMBOL_SCOPE_LET` |
-| `E062` | `ICE_SYMBOL_SCOPE_ASSIGN` |
-| `E063` | `ICE_TEMP_SYMBOL_MATCH` |
-| `E064` | `ICE_TEMP_SYMBOL_SOME_PATTERN` |
-| `E065` | `ICE_SYMBOL_SCOPE_PATTERN` |
-| `E066` | `ICE_TEMP_SYMBOL_SOME_BINDING` |
-| `E067` | `ICE_TEMP_SYMBOL_LEFT_PATTERN` |
-| `E068` | `ICE_TEMP_SYMBOL_RIGHT_PATTERN` |
-| `E069` | `ICE_TEMP_SYMBOL_LEFT_BINDING` |
-| `E070` | `ICE_TEMP_SYMBOL_RIGHT_BINDING` |
+| <a id="e061"></a>`E061` | `ICE_SYMBOL_SCOPE_LET` |
+| <a id="e062"></a>`E062` | `ICE_SYMBOL_SCOPE_ASSIGN` |
+| <a id="e063"></a>`E063` | `ICE_TEMP_SYMBOL_MATCH` |
+| <a id="e064"></a>`E064` | `ICE_TEMP_SYMBOL_SOME_PATTERN` |
+| <a id="e065"></a>`E065` | `ICE_SYMBOL_SCOPE_PATTERN` |
+| <a id="e066"></a>`E066` | `ICE_TEMP_SYMBOL_SOME_BINDING` |
+| <a id="e067"></a>`E067` | `ICE_TEMP_SYMBOL_LEFT_PATTERN` |
+| <a id="e068"></a>`E068` | `ICE_TEMP_SYMBOL_RIGHT_PATTERN` |
+| <a id="e069"></a>`E069` | `ICE_TEMP_SYMBOL_LEFT_BINDING` |
+| <a id="e070"></a>`E070` | `ICE_TEMP_SYMBOL_RIGHT_BINDING` |
 
 ### Lexer / Parser
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E030` | `UNKNOWN_KEYWORD` | Unrecognized keyword (e.g. `fun` instead of `fn`) |
-| `E031` | `EXPECTED_EXPRESSION` | Expected an expression, found something else |
-| `E032` | `INVALID_INTEGER` | Integer literal out of range or malformed |
-| `E033` | `INVALID_FLOAT` | Float literal malformed |
-| `E034` | `UNEXPECTED_TOKEN` | Token not valid in this position |
-| `E036` | `LAMBDA_SYNTAX_ERROR` | Lambda `\` syntax error |
-| `E037` | `LAMBDA_PARAMETER_ERROR` | Invalid parameter in lambda |
-| `E038` | `LAMBDA_BODY_ERROR` | Invalid lambda body |
-| `E071` | `UNTERMINATED_STRING` | String literal not closed |
-| `E072` | `UNTERMINATED_INTERPOLATION` | `#{` not closed |
-| `E073` | `MISSING_COMMA` | Missing comma in expression list |
-| `E074` | `UNTERMINATED_BLOCK_COMMENT` | `/*` not closed |
-| `E076` | `UNCLOSED_DELIMITER` | `(`, `[`, or `{` not closed |
-| `E077` | `LEGACY_LIST_TAIL_NONE` | Old-style list tail syntax |
+| <a id="e030"></a>`E030` | `UNKNOWN_KEYWORD` | Unrecognized keyword (e.g. `fun` instead of `fn`) |
+| <a id="e031"></a>`E031` | `EXPECTED_EXPRESSION` | Expected an expression, found something else |
+| <a id="e032"></a>`E032` | `INVALID_INTEGER` | Integer literal out of range or malformed |
+| <a id="e033"></a>`E033` | `INVALID_FLOAT` | Float literal malformed |
+| <a id="e034"></a>`E034` | `UNEXPECTED_TOKEN` | Token not valid in this position |
+| <a id="e036"></a>`E036` | `LAMBDA_SYNTAX_ERROR` | Lambda `\` syntax error |
+| <a id="e037"></a>`E037` | `LAMBDA_PARAMETER_ERROR` | Invalid parameter in lambda |
+| <a id="e038"></a>`E038` | `LAMBDA_BODY_ERROR` | Invalid lambda body |
+| <a id="e071"></a>`E071` | `UNTERMINATED_STRING` | String literal not closed |
+| <a id="e072"></a>`E072` | `UNTERMINATED_INTERPOLATION` | `#{` not closed |
+| <a id="e073"></a>`E073` | `MISSING_COMMA` | Missing comma in expression list |
+| <a id="e074"></a>`E074` | `UNTERMINATED_BLOCK_COMMENT` | `/*` not closed |
+| <a id="e076"></a>`E076` | `UNCLOSED_DELIMITER` | `(`, `[`, or `{` not closed |
+| <a id="e077"></a>`E077` | `LEGACY_LIST_TAIL_NONE` | Old-style list tail syntax |
 
 ---
 
@@ -153,28 +153,28 @@ These indicate a bug in the compiler, not user code:
 
 | Code | Constant | Description |
 |------|----------|-------------|
-| `E1000` | `WRONG_NUMBER_OF_ARGUMENTS` | Function called with wrong arity |
-| `E1001` | `NOT_A_FUNCTION` | Calling a non-function value |
-| `E1002` | `FUNCTION_NOT_FOUND` | Named function could not be resolved |
-| `E1003` | `BASE_FUNCTION_ERROR` | A Base function returned an error |
-| `E1004` | `RUNTIME_TYPE_ERROR` | Wrong type for a runtime operation |
-| `E1005` | `NOT_INDEXABLE` | Indexing a value that doesn't support `[]` |
-| `E1006` | `KEY_NOT_HASHABLE` | Hash map key is not a hashable type |
-| `E1007` | `NOT_ITERABLE` | Iterating over a non-iterable value |
-| `E1008` | `DIVISION_BY_ZERO_RUNTIME` | Division by zero at runtime |
-| `E1009` | `INVALID_OPERATION` | Operation not supported for this value |
-| `E1010` | `INTEGER_OVERFLOW` | Integer arithmetic overflow |
-| `E1011` | `MODULO_BY_ZERO_RUNTIME` | Modulo by zero at runtime |
-| `E1012` | `INDEX_OUT_OF_BOUNDS` | Array or tuple index out of bounds |
-| `E1013` | `KEY_NOT_FOUND` | Key missing from hash map |
-| `E1014` | `NEGATIVE_INDEX` | Negative index used |
-| `E1015` | `INVALID_SLICE` | `slice(arr, lo, hi)` bounds are invalid |
-| `E1016` | `MATCH_ERROR` | No match arm matched the value |
-| `E1017` | `OPTION_UNWRAP_ERROR` | Unwrapping `None` as `Some` |
-| `E1018` | `EITHER_UNWRAP_ERROR` | Unwrapping the wrong `Left`/`Right` variant |
-| `E1019` | `STRING_INDEX_ERROR` | String character index out of range |
-| `E1020` | `STRING_ENCODING_ERROR` | Invalid UTF-8 in string operation |
-| `E1021` | `INVALID_SUBSTRING` | `substring` bounds are invalid |
+| <a id="e1000"></a>`E1000` | `WRONG_NUMBER_OF_ARGUMENTS` | Function called with wrong arity |
+| <a id="e1001"></a>`E1001` | `NOT_A_FUNCTION` | Calling a non-function value |
+| <a id="e1002"></a>`E1002` | `FUNCTION_NOT_FOUND` | Named function could not be resolved |
+| <a id="e1003"></a>`E1003` | `BASE_FUNCTION_ERROR` | A Base function returned an error |
+| <a id="e1004"></a>`E1004` | `RUNTIME_TYPE_ERROR` | Wrong type for a runtime operation |
+| <a id="e1005"></a>`E1005` | `NOT_INDEXABLE` | Indexing a value that doesn't support `[]` |
+| <a id="e1006"></a>`E1006` | `KEY_NOT_HASHABLE` | Hash map key is not a hashable type |
+| <a id="e1007"></a>`E1007` | `NOT_ITERABLE` | Iterating over a non-iterable value |
+| <a id="e1008"></a>`E1008` | `DIVISION_BY_ZERO_RUNTIME` | Division by zero at runtime |
+| <a id="e1009"></a>`E1009` | `INVALID_OPERATION` | Operation not supported for this value |
+| <a id="e1010"></a>`E1010` | `INTEGER_OVERFLOW` | Integer arithmetic overflow |
+| <a id="e1011"></a>`E1011` | `MODULO_BY_ZERO_RUNTIME` | Modulo by zero at runtime |
+| <a id="e1012"></a>`E1012` | `INDEX_OUT_OF_BOUNDS` | Array or tuple index out of bounds |
+| <a id="e1013"></a>`E1013` | `KEY_NOT_FOUND` | Key missing from hash map |
+| <a id="e1014"></a>`E1014` | `NEGATIVE_INDEX` | Negative index used |
+| <a id="e1015"></a>`E1015` | `INVALID_SLICE` | `slice(arr, lo, hi)` bounds are invalid |
+| <a id="e1016"></a>`E1016` | `MATCH_ERROR` | No match arm matched the value |
+| <a id="e1017"></a>`E1017` | `OPTION_UNWRAP_ERROR` | Unwrapping `None` as `Some` |
+| <a id="e1018"></a>`E1018` | `EITHER_UNWRAP_ERROR` | Unwrapping the wrong `Left`/`Right` variant |
+| <a id="e1019"></a>`E1019` | `STRING_INDEX_ERROR` | String character index out of range |
+| <a id="e1020"></a>`E1020` | `STRING_ENCODING_ERROR` | Invalid UTF-8 in string operation |
+| <a id="e1021"></a>`E1021` | `INVALID_SUBSTRING` | `substring` bounds are invalid |
 
 ---
 
