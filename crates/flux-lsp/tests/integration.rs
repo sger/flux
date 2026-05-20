@@ -13,12 +13,12 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CompletionParams,
-    CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CompletionItem,
+    CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentChanges,
-    DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams, FileChangeType,
-    FileEvent, FoldingRangeParams, FormattingOptions, GotoDefinitionParams, HoverParams,
-    InitializeParams, InitializedParams, OneOf, PartialResultParams, Position, Range,
+    DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams, Documentation,
+    FileChangeType, FileEvent, FoldingRangeParams, FormattingOptions, GotoDefinitionParams,
+    HoverParams, InitializeParams, InitializedParams, OneOf, PartialResultParams, Position, Range,
     ReferenceContext, ReferenceParams, RenameParams, SelectionRangeParams, TextDocumentIdentifier,
     TextDocumentItem, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
@@ -178,6 +178,35 @@ fn initialize_handshake_advertises_capabilities() {
         }))
         .unwrap();
     server_thread.join().unwrap();
+}
+
+#[test]
+fn warm_prelude_loads_the_standard_library() {
+    // Anchor at a small subdirectory whose project root resolves to the flux
+    // repo, so `warm_prelude` finds `lib/Flow/` and loads it. (The
+    // `$/progress` notifications that bracket this in `Server` are thin wire
+    // plumbing; the meaningful, testable behavior is the warm-up itself.)
+    let mut state = GlobalState::default();
+    let root = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join("type_classes");
+    state.set_workspace_folders(vec![root]);
+
+    assert!(
+        !state.workspace.prelude_loaded(),
+        "prelude should not be loaded before warm-up"
+    );
+    state.workspace.warm_prelude();
+    assert!(
+        state.workspace.prelude_loaded(),
+        "warm_prelude should have loaded the Flow stdlib"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2182,6 +2211,255 @@ fn code_action_returns_nothing_for_a_clean_range() {
         actions.is_empty(),
         "a diagnostic-free range should yield no quick fixes, got {:?}",
         actions.iter().map(action_title).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn code_action_offers_import_for_unimported_custom_module() {
+    // `main.flx` qualifies `Math.twice` but never imports `Math`. The sibling
+    // module isn't in the module graph (no import to follow), so the fix has
+    // to find it by scanning the workspace.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "fn run() {\n    Math.twice(21)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Cursor on `Math` in `Math.twice(21)` (line 1, chars 4..8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &uris[1],
+            Range::new(Position::new(1, 4), Position::new(1, 8)),
+        ))
+        .expect("code action response");
+
+    let import = actions
+        .iter()
+        .find(|a| action_title(a).starts_with("Import"))
+        .expect("expected an auto-import quick fix");
+    assert_eq!(action_title(import), "Import `Math`");
+    assert_eq!(
+        action_edit_text(import).as_deref(),
+        Some("import Math\n"),
+        "the fix should insert `import Math` at the top of the file"
+    );
+}
+
+#[test]
+fn code_action_skips_import_when_module_already_bound() {
+    // The module is already imported — no fix should be offered.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math\n\nfn run() {\n    Math.twice(21)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Cursor on `Math` in `Math.twice(21)` (line 3, chars 4..8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &uris[1],
+            Range::new(Position::new(3, 4), Position::new(3, 8)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).starts_with("Import")),
+        "no import fix expected when the module is already imported, got {:?}",
+        actions.iter().map(action_title).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn code_action_offers_aliased_import_for_flow_stdlib_module() {
+    // A bare `Json.…` reference (single segment) needs `import Flow.Json as
+    // Json` so the typed name resolves. Anchored at the real repo root so the
+    // Flow prelude loads and indexes every `lib/Flow/*.flx`.
+    let mut state = GlobalState::default();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let repo = workspace_root
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let buf_path = repo.join("auto-import-json-fixture.flx");
+    let uri_str = format!(
+        "file:///{}",
+        buf_path.display().to_string().replace('\\', "/")
+    );
+    let u = uri(&uri_str);
+    let source = "fn main() with IO {\n    Json.stringify(1)\n}\n";
+    open(&mut state, &u, source);
+
+    // Cursor on `Json` in `Json.stringify(1)` (line 1, chars 4..8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 4), Position::new(1, 8)),
+        ))
+        .expect("code action response");
+
+    let import = actions
+        .iter()
+        .find(|a| action_title(a).starts_with("Import"))
+        .expect("expected a Flow stdlib auto-import quick fix");
+    assert_eq!(action_title(import), "Import `Flow.Json as Json`");
+    assert_eq!(
+        action_edit_text(import).as_deref(),
+        Some("import Flow.Json as Json\n"),
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// completionItem/resolve
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Documentation markdown of a completion item, if any.
+fn item_doc(item: &CompletionItem) -> Option<String> {
+    match item.documentation.as_ref()? {
+        Documentation::MarkupContent(m) => Some(m.value.clone()),
+        Documentation::String(s) => Some(s.clone()),
+    }
+}
+
+#[test]
+fn completion_keyword_items_defer_docs_to_resolve() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///kw.flx");
+    open(&mut state, &u, "fn main() {\n    \n}\n");
+
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(1, 4),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+    let items = match response {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    let kw = items
+        .into_iter()
+        .find(|i| i.label == "match")
+        .expect("`match` keyword completion item");
+    // Docs are deferred: the initial item carries resolve data but no
+    // documentation (so the per-keystroke list stays small).
+    assert!(
+        kw.documentation.is_none(),
+        "keyword docs should be deferred to resolve, not sent eagerly"
+    );
+    assert!(kw.data.is_some(), "keyword item should carry resolve data");
+
+    let resolved = state.handle_completion_resolve(kw);
+    let doc = item_doc(&resolved).expect("resolved keyword documentation");
+    assert!(
+        doc.contains("**`match`**"),
+        "expected the `match` keyword card, got: {doc}"
+    );
+}
+
+#[test]
+fn completion_resolve_fills_effect_and_type_docs() {
+    let mut state = GlobalState::default();
+
+    let io = CompletionItem {
+        label: "IO".to_string(),
+        data: Some(serde_json::json!({ "kind": "effect", "word": "IO" })),
+        ..Default::default()
+    };
+    let io_doc = item_doc(&state.handle_completion_resolve(io)).expect("IO doc");
+    assert!(io_doc.contains("**`IO`**"), "got: {io_doc}");
+
+    let int = CompletionItem {
+        label: "Int".to_string(),
+        data: Some(serde_json::json!({ "kind": "type", "word": "Int" })),
+        ..Default::default()
+    };
+    let int_doc = item_doc(&state.handle_completion_resolve(int)).expect("Int doc");
+    assert!(int_doc.contains("**`Int`**"), "got: {int_doc}");
+}
+
+#[test]
+fn completion_in_expression_offers_module_names() {
+    // Inside a function body (expression context), the known module names —
+    // here the Flow stdlib, indexed once the prelude loads off the repo root —
+    // are offered so a bare `Arr…` surfaces `Array`. Without this the
+    // expression list is only locals + top-level decls + keywords, and typing
+    // `Arr` shows nothing.
+    let mut state = GlobalState::default();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let repo = workspace_root
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let buf_path = repo.join("module-name-completion-fixture.flx");
+    let uri_str = format!(
+        "file:///{}",
+        buf_path.display().to_string().replace('\\', "/")
+    );
+    let u = uri(&uri_str);
+    let source = "fn main() with IO {\n    \n}\n";
+    open(&mut state, &u, source);
+
+    // Cursor on the blank line inside `main` (line 1, char 4).
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(1, 4),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+    let labels: Vec<String> = match response {
+        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
+        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
+    };
+    assert!(
+        labels.contains(&"Array".to_string()),
+        "expected `Array` among expression completions, got {labels:?}"
+    );
+}
+
+#[test]
+fn completion_resolve_passes_through_items_without_data() {
+    let mut state = GlobalState::default();
+    // No `data`, and `Result` is not a universal built-in type even if asked.
+    let plain = CompletionItem {
+        label: "foo".to_string(),
+        ..Default::default()
+    };
+    assert!(
+        state
+            .handle_completion_resolve(plain)
+            .documentation
+            .is_none()
+    );
+
+    let result_ty = CompletionItem {
+        label: "Result".to_string(),
+        data: Some(serde_json::json!({ "kind": "type", "word": "Result" })),
+        ..Default::default()
+    };
+    assert!(
+        state
+            .handle_completion_resolve(result_ty)
+            .documentation
+            .is_none(),
+        "`Result` is a module type, not a universal built-in — no doc expected"
     );
 }
 

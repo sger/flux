@@ -428,6 +428,30 @@ impl Workspace {
         Some(text)
     }
 
+    /// Whether the Flow prelude has been loaded yet.
+    pub fn prelude_loaded(&self) -> bool {
+        self.prelude.is_some()
+    }
+
+    /// Eagerly load the Flow prelude (parse + infer the stdlib, index every
+    /// `lib/Flow/*.flx`) anchored at the project root, unless it is already
+    /// loaded. Called at `initialized` so the cost happens up front — and can
+    /// be reported via `$/progress` — rather than lazily on the first edit.
+    /// A no-op without workspace roots; there the prelude loads lazily off
+    /// the first opened file's directory.
+    pub fn warm_prelude(&mut self) {
+        if self.prelude.is_some() {
+            return;
+        }
+        if let Some(start) = self
+            .project_root
+            .clone()
+            .or_else(|| self.roots.first().cloned())
+        {
+            self.prelude = Some(Prelude::try_load_from(&start));
+        }
+    }
+
     fn prelude_for(&mut self, hint: &Path) -> &mut Prelude {
         if self.prelude.is_none() {
             // Prefer the discovered project root so the prelude resolves

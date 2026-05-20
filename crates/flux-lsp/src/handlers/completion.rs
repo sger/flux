@@ -9,7 +9,10 @@ use flux::syntax::interner::Interner;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
-use lsp_types::{CompletionItem, CompletionItemKind, CompletionResponse, Position};
+use lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionResponse, Documentation, MarkupContent,
+    MarkupKind, Position,
+};
 
 use crate::line_index::PositionMap;
 use crate::snapshot::Snapshot;
@@ -64,6 +67,50 @@ pub fn complete(snapshot: &Snapshot, position: Position) -> CompletionResponse {
         CompletionContext::Expr { enclosing_fn } => expr_items(snapshot, position, enclosing_fn),
         CompletionContext::Default => expr_items(snapshot, position, None),
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// completionItem/resolve
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Build the `data` payload stashed on a completion item so
+/// [`resolve`] can fetch its documentation later. `kind` is the doc family
+/// (`"keyword"`, `"effect"`, `"type"`) and `word` the lookup label.
+fn doc_data(kind: &str, word: &str) -> Option<serde_json::Value> {
+    Some(serde_json::json!({ "kind": kind, "word": word }))
+}
+
+/// Resolve a completion item: fill in its `documentation` from the static
+/// keyword / effect / type doc tables, keyed by the `data` payload stashed at
+/// completion time. The heavy markdown is deferred to here so the initial
+/// completion response — which lists every keyword on each keystroke — stays
+/// small. Items with no resolvable `data` (or already-set documentation) are
+/// returned unchanged.
+pub fn resolve(mut item: CompletionItem) -> CompletionItem {
+    if item.documentation.is_some() {
+        return item;
+    }
+    let doc = item
+        .data
+        .as_ref()
+        .and_then(|data| {
+            let kind = data.get("kind").and_then(|v| v.as_str())?;
+            let word = data.get("word").and_then(|v| v.as_str())?;
+            Some((kind, word))
+        })
+        .and_then(|(kind, word)| match kind {
+            "keyword" => crate::keywords::keyword_doc(word),
+            "effect" => crate::keywords::effect_doc(word),
+            "type" => crate::keywords::builtin_type_doc(word),
+            _ => None,
+        });
+    if let Some(doc) = doc {
+        item.documentation = Some(Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: doc.to_string(),
+        }));
+    }
+    item
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,10 +216,42 @@ fn expr_items(
         label: kw.to_string(),
         kind: Some(CompletionItemKind::KEYWORD),
         sort_text: Some(format!("2_{kw}")),
+        data: doc_data("keyword", kw),
         ..Default::default()
     }));
 
+    // Known module names (Flow stdlib + imported/sibling modules) so a bare
+    // `Arr…` surfaces `Array`, ready for a `Array.member` access. Picking the
+    // name then a `.` flows into module-member completion; if it isn't
+    // imported yet, the auto-import quick fix offers the `import`.
+    items.extend(module_name_items(snapshot));
+
     CompletionResponse::Array(items)
+}
+
+/// Completion items for every known module's leading name segment — `Array`,
+/// `String`, `Lib` (for `Lib.App.Main`), … — deduplicated. Surfaced in
+/// expression position so the user can start a qualified `Module.member` path.
+fn module_name_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut items = Vec::new();
+    for key in snapshot
+        .module_programs
+        .keys()
+        .chain(snapshot.module_members.keys())
+    {
+        let name = key.split('.').next().unwrap_or(key);
+        if !name.is_empty() && seen.insert(name.to_string()) {
+            items.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::MODULE),
+                detail: Some("module".to_string()),
+                sort_text: Some(format!("2_{name}")),
+                ..Default::default()
+            });
+        }
+    }
+    items
 }
 
 /// Walk top-level statements and build completion items with correct kinds and
@@ -632,6 +711,7 @@ fn effect_row_items(snapshot: &Snapshot) -> CompletionResponse {
             label: (*name).to_string(),
             kind: Some(CompletionItemKind::INTERFACE),
             detail: Some("built-in effect".to_string()),
+            data: doc_data("effect", name),
             ..Default::default()
         })
         .collect();
@@ -660,6 +740,7 @@ fn type_annotation_items(snapshot: &Snapshot) -> CompletionResponse {
             label: name.to_string(),
             kind: Some(CompletionItemKind::STRUCT),
             detail: Some("built-in type".to_string()),
+            data: doc_data("type", name),
             ..Default::default()
         })
         .collect();

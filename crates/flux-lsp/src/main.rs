@@ -35,7 +35,14 @@ fn main() -> Result<()> {
     // watcher for clients without dynamic `didChangeWatchedFiles` registration.
     let watcher = WatcherKind::for_client(&params);
     tracing::debug!(?watcher, "file-watch backend");
+    let supports_progress = params
+        .capabilities
+        .window
+        .as_ref()
+        .and_then(|w| w.work_done_progress)
+        .unwrap_or(false);
     let mut server = Server::new(connection, encoding, watcher);
+    server.set_progress_support(supports_progress);
     server.state.set_workspace_folders(roots);
     server.run()?;
 

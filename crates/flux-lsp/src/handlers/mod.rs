@@ -1,3 +1,4 @@
+pub mod auto_import;
 pub mod code_action;
 pub mod completion;
 pub mod definition;
