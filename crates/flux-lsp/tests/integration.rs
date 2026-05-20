@@ -2387,6 +2387,44 @@ fn completion_resolve_fills_effect_and_type_docs() {
     assert!(int_doc.contains("**`Int`**"), "got: {int_doc}");
 }
 
+/// A `file://` URI for `filename` placed at the real repo root, so opening it
+/// makes the LSP load the Flow prelude (which anchors on the project root) and
+/// index every `lib/Flow/*.flx`.
+fn repo_root_uri(filename: &str) -> Uri {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let repo = manifest
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .to_path_buf();
+    let path = repo.join(filename);
+    uri(&format!(
+        "file:///{}",
+        path.display().to_string().replace('\\', "/")
+    ))
+}
+
+/// All completion items at `(line, ch)` for the document at `u`.
+fn completion_items(state: &mut GlobalState, u: &Uri, line: u32, ch: u32) -> Vec<CompletionItem> {
+    let response = state
+        .handle_completion(CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(u),
+                position: Position::new(line, ch),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        })
+        .expect("completion result");
+    match response {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    }
+}
+
 #[test]
 fn completion_in_expression_offers_module_names() {
     // Inside a function body (expression context), the known module names —
@@ -2395,42 +2433,107 @@ fn completion_in_expression_offers_module_names() {
     // expression list is only locals + top-level decls + keywords, and typing
     // `Arr` shows nothing.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let repo = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
-    let buf_path = repo.join("module-name-completion-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
-    let u = uri(&uri_str);
-    let source = "fn main() with IO {\n    \n}\n";
-    open(&mut state, &u, source);
+    let u = repo_root_uri("module-name-completion-fixture.flx");
+    open(&mut state, &u, "fn main() with IO {\n    \n}\n");
 
     // Cursor on the blank line inside `main` (line 1, char 4).
-    let response = state
-        .handle_completion(CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: ident(&u),
-                position: Position::new(1, 4),
-            },
-            work_done_progress_params: WorkDoneProgressParams::default(),
-            partial_result_params: PartialResultParams::default(),
-            context: None,
-        })
-        .expect("completion result");
-    let labels: Vec<String> = match response {
-        CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
-        CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
-    };
+    let labels: Vec<String> = completion_items(&mut state, &u, 1, 4)
+        .into_iter()
+        .map(|i| i.label)
+        .collect();
     assert!(
         labels.contains(&"Array".to_string()),
         "expected `Array` among expression completions, got {labels:?}"
+    );
+}
+
+#[test]
+fn completion_module_name_carries_auto_import_edit() {
+    // Accepting the `Array` module item in a buffer that hasn't imported it
+    // must also insert `import Flow.Array as Array` (additionalTextEdits).
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("module-name-autoimport-fixture.flx");
+    open(&mut state, &u, "fn main() with IO {\n    \n}\n");
+
+    let items = completion_items(&mut state, &u, 1, 4);
+    let array = items
+        .iter()
+        .find(|i| i.label == "Array")
+        .expect("`Array` module completion item");
+    let edits = array
+        .additional_text_edits
+        .as_ref()
+        .expect("an auto-import additionalTextEdits on the un-imported module");
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].new_text, "import Flow.Array as Array\n");
+}
+
+#[test]
+fn completion_member_after_module_dot_auto_imports() {
+    // `Array.` lists members even when `Flow.Array` is only indexed, not
+    // imported — accepting any member must also add `import Flow.Array as
+    // Array`.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("member-autoimport-fixture.flx");
+    open(&mut state, &u, "fn main() with IO {\n    Array.\n}\n");
+
+    // Cursor right after `Array.` (line 1, char 10).
+    let items = completion_items(&mut state, &u, 1, 10);
+    assert!(!items.is_empty(), "expected `Array` members");
+    assert!(
+        items.iter().all(|i| {
+            i.additional_text_edits
+                .as_ref()
+                .is_some_and(|e| e[0].new_text == "import Flow.Array as Array\n")
+        }),
+        "every member should carry the auto-import edit, got {:?}",
+        items
+            .iter()
+            .map(|i| (&i.label, &i.additional_text_edits))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn completion_member_no_import_edit_when_imported() {
+    // With `Array` already imported, member items carry no auto-import edit.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("member-imported-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn main() with IO {\n    Array.\n}\n",
+    );
+
+    // Cursor right after `Array.` (line 3, char 10).
+    let items = completion_items(&mut state, &u, 3, 10);
+    assert!(!items.is_empty(), "expected `Array` members");
+    assert!(
+        items.iter().all(|i| i.additional_text_edits.is_none()),
+        "imported-module members should carry no auto-import edit"
+    );
+}
+
+#[test]
+fn completion_module_name_no_edit_when_already_imported() {
+    // With `Array` already imported, its completion item carries no
+    // additionalTextEdits — nothing to add.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("module-name-imported-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn main() with IO {\n    \n}\n",
+    );
+
+    let items = completion_items(&mut state, &u, 3, 4);
+    let array = items
+        .iter()
+        .find(|i| i.label == "Array")
+        .expect("`Array` module completion item");
+    assert!(
+        array.additional_text_edits.is_none(),
+        "an already-imported module should carry no auto-import edit"
     );
 }
 
