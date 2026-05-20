@@ -65,7 +65,80 @@
           "description": "Trace LSP messages between VS Code and flux-lsp."
         }
       }
-    }
+    },
+    "configurationDefaults": {
+      "[flux]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "semanticTokenScopes": [
+      {
+        "language": "flux",
+        "scopes": {
+          "namespace": [
+            "entity.name.namespace.flux",
+            "entity.name.type.flux"
+          ],
+          "type": [
+            "entity.name.type.flux"
+          ],
+          "class": [
+            "entity.name.type.class.flux",
+            "entity.name.type.flux"
+          ],
+          "enum": [
+            "entity.name.type.enum.flux",
+            "entity.name.type.flux"
+          ],
+          "interface": [
+            "entity.name.type.interface.flux",
+            "entity.name.type.flux"
+          ],
+          "typeParameter": [
+            "entity.name.type.parameter.flux",
+            "entity.name.type.flux"
+          ],
+          "parameter": [
+            "variable.parameter.flux"
+          ],
+          "variable": [
+            "variable.other.flux"
+          ],
+          "property": [
+            "variable.other.property.flux"
+          ],
+          "enumMember": [
+            "variable.other.enummember.flux",
+            "support.type.variant.flux"
+          ],
+          "function": [
+            "entity.name.function.flux"
+          ],
+          "method": [
+            "entity.name.function.member.flux",
+            "entity.name.function.flux"
+          ],
+          "keyword": [
+            "keyword.flux"
+          ],
+          "comment": [
+            "comment.flux"
+          ],
+          "string": [
+            "string.flux"
+          ],
+          "number": [
+            "constant.numeric.flux"
+          ],
+          "operator": [
+            "keyword.operator.flux"
+          ],
+          "decorator": [
+            "entity.name.type.flux"
+          ]
+        }
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",
