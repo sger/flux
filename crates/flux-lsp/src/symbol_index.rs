@@ -118,10 +118,12 @@ fn top_level_definition(
             name_span,
             ..
         } => (*name, *span, name_span.start),
+        // `Statement::TypeAlias` comes from the `alias` keyword
+        // (`alias Foo = Int`), not `type` — so skip 5 chars, not 4.
         Statement::TypeAlias(alias) => (
             alias.name,
             alias.span,
-            decl_name_start(alias.span.start, false, "type"),
+            decl_name_start(alias.span.start, false, "alias"),
         ),
         _ => return None,
     };
@@ -208,5 +210,29 @@ impl SymbolIndex {
             }
         }
         idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flux::syntax::lexer::Lexer;
+    use flux::syntax::parser::Parser;
+
+    fn parse(src: &str) -> (Program, Interner) {
+        let mut parser = Parser::new(Lexer::new(src.to_string()));
+        let program = parser.parse_program();
+        (program, parser.take_interner())
+    }
+
+    #[test]
+    fn alias_focus_span_covers_the_name() {
+        // `alias Foo = Int` — the name starts at column 6 (`alias ` = 6 chars),
+        // not 5. Regression for the keyword length used to synthesize the span.
+        let (program, interner) = parse("alias Foo = Int\n");
+        let idx = SymbolIndex::build(&program, &interner);
+        let entry = idx.lookup("Foo").expect("alias indexed");
+        assert_eq!(entry.focus_span.start.column, 6);
+        assert_eq!(entry.focus_span.end.column, 9);
     }
 }

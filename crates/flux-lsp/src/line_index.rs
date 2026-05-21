@@ -56,6 +56,11 @@ impl PositionMap {
         self.encoding
     }
 
+    /// The source text this map indexes.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     // ── LSP ↔ byte offset ─────────────────────────────────────────────────
 
     pub fn lsp_to_offset(&self, p: LspPosition) -> Option<TextSize> {

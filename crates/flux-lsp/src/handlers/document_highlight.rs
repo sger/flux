@@ -7,7 +7,7 @@
 
 use lsp_types::{DocumentHighlight, DocumentHighlightKind, Position};
 
-use crate::handlers::references::{collect_all_uses, node_identifier};
+use crate::handlers::references::{collect_all_uses, node_identifier, occurrence_range};
 use crate::locator::find_at;
 use crate::snapshot::Snapshot;
 
@@ -24,12 +24,15 @@ pub fn document_highlights(snapshot: &Snapshot, position: Position) -> Vec<Docum
         return Vec::new();
     };
 
+    let name = snapshot.interner.try_resolve(target_id).unwrap_or("");
     let mut spans = Vec::new();
     collect_all_uses(&snapshot.program, target_id, &mut spans);
     spans
         .into_iter()
         .map(|span| DocumentHighlight {
-            range: snapshot.position_map.flux_span_to_range(span),
+            // `collect_all_uses` reports a declaration's whole-statement span;
+            // narrow each hit to the identifier name.
+            range: occurrence_range(&snapshot.position_map, span, name),
             // The compiler frontend does not distinguish read vs. write
             // occurrences, so every hit is reported as `TEXT`.
             kind: Some(DocumentHighlightKind::TEXT),

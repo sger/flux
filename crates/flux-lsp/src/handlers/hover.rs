@@ -125,7 +125,7 @@ fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
 /// The `module_programs` key for the module referenced by `object` (the left
 /// side of a `Module.member` access): a direct module name, or the underlying
 /// module of an `import … as A` alias. `None` for a non-module object.
-fn module_key_for(snapshot: &Snapshot, object: &Expression) -> Option<String> {
+pub(crate) fn module_key_for(snapshot: &Snapshot, object: &Expression) -> Option<String> {
     let Expression::Identifier { name, .. } = object else {
         return None;
     };
