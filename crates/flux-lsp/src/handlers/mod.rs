@@ -14,6 +14,7 @@ pub mod implementation;
 pub mod inlay_hints;
 pub mod linked_editing;
 pub mod on_type_formatting;
+pub mod organize_imports;
 pub mod references;
 pub mod rename;
 pub mod rename_files;

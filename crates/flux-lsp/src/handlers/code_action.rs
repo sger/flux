@@ -38,6 +38,7 @@ pub fn code_actions(
     uri: &Uri,
     range: Range,
     workspace_modules: &[String],
+    only: Option<&[CodeActionKind]>,
 ) -> CodeActionResponse {
     let mut actions: Vec<CodeActionOrCommand> = Vec::new();
     for diag in &snapshot.diagnostics {
@@ -60,6 +61,12 @@ pub fn code_actions(
     // Diagnostic-independent: offer an `import` when the cursor is on a
     // module-qualified path whose module isn't imported yet.
     super::auto_import::import_actions(snapshot, uri, range, workspace_modules, &mut actions);
+    // Source action: only when the client asks for `source.organizeImports`.
+    if super::organize_imports::organize_imports_requested(only)
+        && let Some(action) = super::organize_imports::organize_imports_action(snapshot, uri)
+    {
+        actions.push(action);
+    }
     actions
 }
 

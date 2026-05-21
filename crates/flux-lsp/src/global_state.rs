@@ -351,6 +351,7 @@ impl GlobalState {
 
     pub fn handle_code_action(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
         let uri = params.text_document.uri;
+        let only = params.context.only;
         let modules = self.workspace.workspace_module_full_names();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri)?;
         Some(handlers::code_action::code_actions(
@@ -358,6 +359,7 @@ impl GlobalState {
             &uri,
             params.range,
             &modules,
+            only.as_deref(),
         ))
     }
 
@@ -800,11 +802,16 @@ impl GlobalState {
     pub fn dispatch_code_action(&mut self, params: CodeActionParams) -> Option<Job> {
         let uri = params.text_document.uri;
         let range = params.range;
+        let only = params.context.only;
         let modules = self.workspace.workspace_module_full_names();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         Some(Box::new(move || {
             to_value(handlers::code_action::code_actions(
-                &snapshot, &uri, range, &modules,
+                &snapshot,
+                &uri,
+                range,
+                &modules,
+                only.as_deref(),
             ))
         }))
     }
