@@ -113,15 +113,11 @@ fn top_level_definition(
             (*name, *span, decl_name_start(span.start, false, "alias"))
         }
         Statement::Class {
-            is_public,
             name,
             span,
+            name_span,
             ..
-        } => (
-            *name,
-            *span,
-            decl_name_start(span.start, *is_public, "class"),
-        ),
+        } => (*name, *span, name_span.start),
         Statement::TypeAlias(alias) => (
             alias.name,
             alias.span,

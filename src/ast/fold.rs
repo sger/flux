@@ -208,6 +208,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             superclasses,
             methods,
             span,
+            name_span,
         } => Statement::Class {
             is_public,
             name,
@@ -215,6 +216,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             superclasses,
             methods,
             span,
+            name_span,
         },
         Statement::Instance {
             is_public,

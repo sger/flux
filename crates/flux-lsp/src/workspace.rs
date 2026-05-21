@@ -27,6 +27,7 @@ use flux::syntax::parser::Parser;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 
+use crate::handlers::workspace_symbol::FileSymbols;
 use crate::line_index::PositionEncoding;
 use crate::prelude::Prelude;
 use crate::snapshot::Snapshot;
@@ -57,14 +58,14 @@ pub struct Workspace {
     /// Module-graph components, keyed by entry file. Rebuilt whenever a
     /// participating buffer changes.
     components: HashMap<FileId, GraphComponent>,
-    /// Full names of every `module` each known file declares (`Flow.List`,
-    /// `Lib.App.Main`, …), indexed incrementally so the unimported-module
-    /// squiggle can flag a path into a not-yet-imported *sibling* without
-    /// re-parsing the whole workspace on each keystroke. The module graph only
-    /// follows existing imports, so an un-imported sibling never enters a
-    /// snapshot's `module_programs`; this index is what surfaces it. Refreshed
-    /// for one file whenever its content changes.
-    module_names: HashMap<FileId, Vec<String>>,
+    /// Per-file declaration index, refreshed for one file whenever its content
+    /// changes. Powers `workspace/symbol` without a per-query re-parse, and the
+    /// `module` entries also feed the unimported-sibling squiggle and the
+    /// auto-import quick fix — the module graph only follows existing imports,
+    /// so an un-imported sibling never enters a snapshot's `module_programs`;
+    /// this index is what surfaces it. `Arc` so handing the set to a worker is
+    /// a ref-count bump, not a deep copy.
+    symbols: HashMap<FileId, Arc<FileSymbols>>,
     /// Original client `Uri` for each interned file, so responses echo back
     /// exactly the spelling the editor sent rather than a re-derived one.
     uris: HashMap<FileId, Uri>,
@@ -95,7 +96,7 @@ impl Workspace {
             encoding,
             snapshots: HashMap::new(),
             components: HashMap::new(),
-            module_names: HashMap::new(),
+            symbols: HashMap::new(),
             uris: HashMap::new(),
         }
     }
@@ -122,14 +123,12 @@ impl Workspace {
         &self.roots
     }
 
-    /// `(uri, text)` for every file the VFS knows — open buffers and
-    /// discovered on-disk files alike. Cheap (`Arc` clones + URI lookups);
-    /// the `workspace/symbol` handler parses these off the main thread.
-    pub fn all_file_texts(&self) -> Vec<(Uri, Arc<str>)> {
-        self.vfs
-            .all_files()
-            .filter_map(|id| Some((self.uri_of(id)?, self.vfs.text(id)?)))
-            .collect()
+    /// The cached declaration index of every known file — open buffers and
+    /// discovered on-disk files alike. Cheap (`Arc` clones); the
+    /// `workspace/symbol` handler filters these off the main thread without a
+    /// re-parse.
+    pub fn workspace_symbol_files(&self) -> Vec<Arc<FileSymbols>> {
+        self.symbols.values().cloned().collect()
     }
 
     // ── queries ────────────────────────────────────────────────────────────
@@ -220,7 +219,7 @@ impl Workspace {
         self.snapshots.remove(&id);
         self.components.remove(&id);
         // The buffer reverted to its on-disk content; re-index from that.
-        self.index_module_names(id);
+        self.index_symbols(id);
         self.reanalyze_dependents(id)
     }
 
@@ -241,7 +240,7 @@ impl Workspace {
             // re-analysis will surface the resulting errors.
             Err(_) => return vec![],
         }
-        self.index_module_names(id);
+        self.index_symbols(id);
         self.reanalyze_dependents(id)
     }
 
@@ -275,7 +274,7 @@ impl Workspace {
         // Keep the module-name index fresh before the rebuild reads it, so a
         // module just declared/renamed in this edit is reflected in sibling
         // squiggles immediately.
-        self.index_module_names(id);
+        self.index_symbols(id);
         self.rebuild(id)
     }
 
@@ -565,32 +564,41 @@ impl Workspace {
             {
                 self.vfs.set_on_disk(id, Arc::from(text));
             }
-            self.index_module_names(id);
+            self.index_symbols(id);
         }
     }
 
-    /// Refresh `id`'s entry in [`module_names`](Self::module_names) from its
-    /// current VFS text — a standalone parse keeping only the top-level
-    /// `module` declaration names. Removes the entry when the file declares no
-    /// module (or has no content), so the index never reports stale names.
-    fn index_module_names(&mut self, id: FileId) {
-        let names = self
-            .vfs
-            .text(id)
-            .map(|text| module_decl_names(&text))
-            .unwrap_or_default();
-        if names.is_empty() {
-            self.module_names.remove(&id);
-        } else {
-            self.module_names.insert(id, names);
-        }
+    /// Refresh `id`'s entry in [`symbols`](Self::symbols) from its current VFS
+    /// text — a standalone parse extracting every searchable declaration.
+    /// Removes the entry when the file has no content (or no resolvable URI), so
+    /// the index never reports stale symbols.
+    fn index_symbols(&mut self, id: FileId) {
+        let Some(text) = self.vfs.text(id) else {
+            self.symbols.remove(&id);
+            return;
+        };
+        let Some(uri) = self.uri_of(id) else {
+            self.symbols.remove(&id);
+            return;
+        };
+        let file = crate::handlers::workspace_symbol::index_file(&uri, &text, self.encoding);
+        self.symbols.insert(id, Arc::new(file));
     }
 
     /// Every `module` full-name declared anywhere in the workspace, deduped —
-    /// the import candidates the unimported-module squiggle scans, including
-    /// siblings the edited buffer has not imported.
-    fn workspace_module_full_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.module_names.values().flatten().cloned().collect();
+    /// the import candidates the unimported-module squiggle and the auto-import
+    /// quick fix scan, including siblings the edited buffer has not imported.
+    /// Read from the cached symbol index (top-level `module` entries).
+    pub fn workspace_module_full_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .symbols
+            .values()
+            .flat_map(|file| file.entries.iter())
+            .filter(|entry| {
+                entry.kind == lsp_types::SymbolKind::MODULE && entry.container.is_none()
+            })
+            .map(|entry| entry.name.clone())
+            .collect();
         names.sort();
         names.dedup();
         names
@@ -616,21 +624,6 @@ fn module_name_of(program: &Program, interner: &Interner) -> Option<String> {
         Statement::Module { name, .. } => interner.try_resolve(*name).map(str::to_string),
         _ => None,
     })
-}
-
-/// Full names of every top-level `module` declared in `text` (a file may
-/// declare more than one). Parsed standalone with a throwaway interner — only
-/// the name strings are kept — to feed the workspace module-name index.
-fn module_decl_names(text: &str) -> Vec<String> {
-    let (program, interner) = parse_standalone(text);
-    program
-        .statements
-        .iter()
-        .filter_map(|stmt| match stmt {
-            Statement::Module { name, .. } => interner.try_resolve(*name).map(str::to_string),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Parse `text` with a throwaway interner — used only for module-graph

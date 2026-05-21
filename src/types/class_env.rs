@@ -712,6 +712,7 @@ impl ClassEnv {
                     superclasses,
                     methods,
                     span,
+                    ..
                 } => {
                     // Phase 1b Step 3: classes are keyed by ClassId, so two
                     // class declarations with the same short name in
