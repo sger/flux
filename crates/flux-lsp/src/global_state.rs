@@ -14,14 +14,14 @@ use lsp_types::{
     DocumentHighlight, DocumentHighlightParams, DocumentLink, DocumentLinkParams,
     DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
     DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
-    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameFilesParams,
-    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
-    SemanticTokensFullDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp,
-    SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
-    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceEdit,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams,
+    LinkedEditingRangeParams, LinkedEditingRanges, Location, PrepareRenameResponse,
+    PublishDiagnosticsParams, ReferenceParams, RenameFilesParams, RenameParams, SelectionRange,
+    SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams, SemanticTokensFullDeltaResult,
+    SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp, SignatureHelpParams,
+    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReportResult, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
 use std::sync::{Arc, Mutex};
@@ -326,6 +326,18 @@ impl GlobalState {
             return vec![];
         };
         handlers::document_highlight::document_highlights(snapshot, position)
+    }
+
+    pub fn handle_linked_editing_range(
+        &mut self,
+        params: LinkedEditingRangeParams,
+    ) -> Option<LinkedEditingRanges> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
+        handlers::linked_editing::linked_editing_ranges(snapshot, position)
     }
 
     pub fn handle_workspace_symbol(
@@ -750,6 +762,25 @@ impl GlobalState {
             .cloned()?;
         Some(Box::new(move || {
             to_value(handlers::document_highlight::document_highlights(
+                &snapshot, position,
+            ))
+        }))
+    }
+
+    pub fn dispatch_linked_editing_range(
+        &mut self,
+        params: LinkedEditingRangeParams,
+    ) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::linked_editing::linked_editing_ranges(
                 &snapshot, position,
             ))
         }))

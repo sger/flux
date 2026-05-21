@@ -4,7 +4,9 @@ use lsp_types::{
 };
 
 use crate::global_state::cursor_word_range;
-use crate::handlers::references::{RefBundle, collect_all_uses, gather, node_identifier};
+use crate::handlers::references::{
+    RefBundle, collect_all_uses, gather, node_identifier, occurrence_range,
+};
 use crate::locator::find_at;
 use crate::snapshot::Snapshot;
 use crate::vfs::FileId;
@@ -33,11 +35,19 @@ pub fn compute_workspace_edit(bundle: &RefBundle, new_name: &str) -> Option<Work
         if spans.is_empty() {
             continue;
         }
+        // `collect_all_uses` reports a declaration's whole-statement span; the
+        // edit must touch only the name, or renaming `fn twice(n)` would
+        // replace the entire signature.
+        let name = file
+            .snapshot
+            .interner
+            .try_resolve(bundle.target_id)
+            .unwrap_or("");
         let edits = spans
             .iter()
             .map(|span| {
                 OneOf::Left(TextEdit {
-                    range: file.snapshot.position_map.flux_span_to_range(*span),
+                    range: occurrence_range(&file.snapshot.position_map, *span, name),
                     new_text: new_name.to_string(),
                 })
             })

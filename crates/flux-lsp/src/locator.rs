@@ -1105,6 +1105,23 @@ mod tests {
     }
 
     #[test]
+    fn finds_alias_name() {
+        // `alias Foo = Int` is a `Statement::TypeAlias`; the name `Foo` starts
+        // at column 6 (`alias` is 5 chars + one space). The locator must record
+        // the name node there, not over the `alias` keyword.
+        let (program, interner) = parse("alias Foo = Int\n");
+        let node = find_at(&program, &interner, pos(1, 6)).expect("alias name");
+        match node {
+            NodeRef::DataName { name, span } => {
+                assert_eq!(interner.try_resolve(name), Some("Foo"));
+                assert_eq!(span.start.column, 6);
+                assert_eq!(span.end.column, 9);
+            }
+            other => panic!("expected DataName for the alias, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn returns_none_for_blank_position() {
         let (program, interner) = parse("let x = 1\n");
         // Way past end of source.
