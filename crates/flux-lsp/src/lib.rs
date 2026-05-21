@@ -18,6 +18,6 @@ pub mod task;
 pub mod vfs;
 pub mod workspace;
 
-pub use capabilities::server_capabilities;
+pub use capabilities::{server_capabilities, server_capabilities_json};
 pub use global_state::GlobalState;
 pub use server::Server;

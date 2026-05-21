@@ -26,15 +26,12 @@
 //! matches.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
 use flux::diagnostics::{Diagnostic as FluxDiagnostic, MODULE_NOT_IMPORTED};
 use flux::syntax::block::Block;
 use flux::syntax::expression::Expression;
 use flux::syntax::interner::Interner;
-use flux::syntax::lexer::Lexer;
-use flux::syntax::parser::Parser;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use lsp_types::{
@@ -50,18 +47,16 @@ use crate::snapshot::Snapshot;
 /// to `out`. A no-op when the cursor is not on a module-qualified path, or
 /// the path's module prefix is already imported / defined in this buffer.
 ///
-/// `workspace_files` is the `(uri, text)` of every file the workspace knows.
-/// The snapshot's own `module_programs` already covers the Flow stdlib (always
-/// indexed) and any *imported* sibling module, but a not-yet-imported sibling
-/// is invisible there — the module graph only follows existing imports. So
-/// `workspace_files` is scanned for module declarations to surface those too.
-/// The scan is lazy: it runs only after a qualified path is found under the
-/// cursor, so the common "no path here" case pays nothing.
+/// `workspace_modules` is every `module` name the workspace declares, from the
+/// cached symbol index. The snapshot's own `module_programs` already covers the
+/// Flow stdlib (always indexed) and any *imported* sibling module, but a
+/// not-yet-imported sibling is invisible there — the module graph only follows
+/// existing imports. Merging `workspace_modules` surfaces those too.
 pub fn import_actions(
     snapshot: &Snapshot,
     uri: &Uri,
     range: Range,
-    workspace_files: &[(Uri, Arc<str>)],
+    workspace_modules: &[String],
     out: &mut Vec<CodeActionOrCommand>,
 ) {
     let Some(target) = snapshot.position_map.lsp_to_flux(range.start) else {
@@ -76,10 +71,10 @@ pub fn import_actions(
     let (bound, imported_full) = imported_modules(snapshot);
     let buffer_defined = buffer_defined_names(snapshot);
     // Every module the workspace knows about, by its declared full name —
-    // the Flow stdlib + imported siblings (from the snapshot) merged with a
-    // scan of every workspace file (for not-yet-imported siblings).
+    // the Flow stdlib + imported siblings (from the snapshot) merged with the
+    // cached workspace module names (for not-yet-imported siblings).
     let mut known = known_module_full_names(snapshot);
-    known.extend(workspace_module_names(workspace_files));
+    known.extend(workspace_modules.iter().cloned());
     known.sort();
     known.dedup();
 
@@ -579,28 +574,6 @@ fn known_module_full_names(snapshot: &Snapshot) -> Vec<String> {
     }
     names.sort();
     names.dedup();
-    names
-}
-
-/// Top-level `module` declaration names across every workspace file. Parsed
-/// standalone (a throwaway interner per file — only the module-name strings
-/// are kept), this is what surfaces a sibling module that the edited buffer
-/// has not imported yet, so its `module_graph` node never loaded.
-fn workspace_module_names(files: &[(Uri, Arc<str>)]) -> Vec<String> {
-    let mut names = Vec::new();
-    for (_, text) in files {
-        let lexer = Lexer::new(text.to_string());
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-        let interner = parser.take_interner();
-        for stmt in &program.statements {
-            if let Statement::Module { name, .. } = stmt
-                && let Some(text) = interner.try_resolve(*name)
-            {
-                names.push(text.to_string());
-            }
-        }
-    }
     names
 }
 

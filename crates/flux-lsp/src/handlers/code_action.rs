@@ -15,8 +15,6 @@
 //! Edits are computed purely from the diagnostic and the source text, so
 //! the handler is a pure function safe to run on the worker thread.
 
-use std::sync::Arc;
-
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionResponse,
     Diagnostic as LspDiagnostic, DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier,
@@ -32,13 +30,14 @@ use crate::snapshot::Snapshot;
 /// Build the quick-fix list for `range`. Walks every snapshot diagnostic,
 /// keeps the ones whose range overlaps the request, and turns each into
 /// zero or more `CodeAction`s, then appends diagnostic-independent
-/// auto-import fixes. `workspace_files` (every known `(uri, text)`) lets the
-/// auto-import pass discover not-yet-imported sibling modules.
+/// auto-import fixes. `workspace_modules` (every `module` name the workspace
+/// declares, from the cached symbol index) lets the auto-import pass discover
+/// not-yet-imported sibling modules.
 pub fn code_actions(
     snapshot: &Snapshot,
     uri: &Uri,
     range: Range,
-    workspace_files: &[(Uri, Arc<str>)],
+    workspace_modules: &[String],
 ) -> CodeActionResponse {
     let mut actions: Vec<CodeActionOrCommand> = Vec::new();
     for diag in &snapshot.diagnostics {
@@ -60,7 +59,7 @@ pub fn code_actions(
     }
     // Diagnostic-independent: offer an `import` when the cursor is on a
     // module-qualified path whose module isn't imported yet.
-    super::auto_import::import_actions(snapshot, uri, range, workspace_files, &mut actions);
+    super::auto_import::import_actions(snapshot, uri, range, workspace_modules, &mut actions);
     actions
 }
 

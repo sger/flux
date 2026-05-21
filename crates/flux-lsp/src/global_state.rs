@@ -5,6 +5,8 @@
 //! in-memory `lsp_server::Connection` or a worker thread.
 
 use lsp_types::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     CodeActionParams, CodeActionResponse, CodeLens, CodeLensParams, CompletionItem,
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
@@ -13,8 +15,9 @@ use lsp_types::{
     GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
     PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameParams, SelectionRange,
     SelectionRangeParams, SemanticTokens, SemanticTokensParams, SignatureHelp, SignatureHelpParams,
-    TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
-    WorkspaceSymbolResponse,
+    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, WorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
 use crate::handlers;
@@ -197,8 +200,72 @@ impl GlobalState {
             text_document,
             position,
         } = params.text_document_position_params;
-        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
-        handlers::implementation::goto_implementation(snapshot, &text_document.uri, position)
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::implementation::gather(&mut self.workspace, file, position)?;
+        handlers::implementation::goto_implementation(&bundle)
+    }
+
+    pub fn handle_prepare_call_hierarchy(
+        &mut self,
+        params: CallHierarchyPrepareParams,
+    ) -> Option<Vec<CallHierarchyItem>> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::call_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
+        let items = handlers::call_hierarchy::prepare_items(&bundle);
+        if items.is_empty() { None } else { Some(items) }
+    }
+
+    pub fn handle_incoming_calls(
+        &mut self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Option<Vec<CallHierarchyIncomingCall>> {
+        let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(handlers::call_hierarchy::incoming_calls(&bundle))
+    }
+
+    pub fn handle_outgoing_calls(
+        &mut self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Option<Vec<CallHierarchyOutgoingCall>> {
+        let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(handlers::call_hierarchy::outgoing_calls(
+            &bundle,
+            &params.item,
+        ))
+    }
+
+    pub fn handle_prepare_type_hierarchy(
+        &mut self,
+        params: TypeHierarchyPrepareParams,
+    ) -> Option<Vec<TypeHierarchyItem>> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::type_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
+        let items = handlers::type_hierarchy::prepare_items(&bundle);
+        if items.is_empty() { None } else { Some(items) }
+    }
+
+    pub fn handle_supertypes(
+        &mut self,
+        params: TypeHierarchySupertypesParams,
+    ) -> Option<Vec<TypeHierarchyItem>> {
+        let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(handlers::type_hierarchy::supertypes(&bundle))
+    }
+
+    pub fn handle_subtypes(
+        &mut self,
+        params: TypeHierarchySubtypesParams,
+    ) -> Option<Vec<TypeHierarchyItem>> {
+        let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(handlers::type_hierarchy::subtypes(&bundle))
     }
 
     pub fn handle_completion(&mut self, params: CompletionParams) -> Option<CompletionResponse> {
@@ -238,21 +305,20 @@ impl GlobalState {
         &mut self,
         params: WorkspaceSymbolParams,
     ) -> Option<WorkspaceSymbolResponse> {
-        let files = self.workspace.all_file_texts();
-        let symbols =
-            handlers::workspace_symbol::workspace_symbols(&files, &params.query, self.encoding);
+        let files = self.workspace.workspace_symbol_files();
+        let symbols = handlers::workspace_symbol::query(&files, &params.query);
         Some(WorkspaceSymbolResponse::Nested(symbols))
     }
 
     pub fn handle_code_action(&mut self, params: CodeActionParams) -> Option<CodeActionResponse> {
         let uri = params.text_document.uri;
-        let files = self.workspace.all_file_texts();
+        let modules = self.workspace.workspace_module_full_names();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri)?;
         Some(handlers::code_action::code_actions(
             snapshot,
             &uri,
             params.range,
-            &files,
+            &modules,
         ))
     }
 
@@ -420,14 +486,89 @@ impl GlobalState {
             text_document,
             position,
         } = params.text_document_position_params;
-        let uri = text_document.uri;
-        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::implementation::gather(&mut self.workspace, file, position)?;
         Some(Box::new(
-            move || match handlers::implementation::goto_implementation(&snapshot, &uri, position) {
+            move || match handlers::implementation::goto_implementation(&bundle) {
                 Some(resp) => to_value(resp),
                 None => serde_json::Value::Null,
             },
         ))
+    }
+
+    pub fn dispatch_prepare_call_hierarchy(
+        &mut self,
+        params: CallHierarchyPrepareParams,
+    ) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::call_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
+        Some(Box::new(move || {
+            let items = handlers::call_hierarchy::prepare_items(&bundle);
+            if items.is_empty() {
+                serde_json::Value::Null
+            } else {
+                to_value(items)
+            }
+        }))
+    }
+
+    pub fn dispatch_incoming_calls(
+        &mut self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Option<Job> {
+        let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(Box::new(move || {
+            to_value(handlers::call_hierarchy::incoming_calls(&bundle))
+        }))
+    }
+
+    pub fn dispatch_outgoing_calls(
+        &mut self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Option<Job> {
+        let item = params.item.clone();
+        let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(Box::new(move || {
+            to_value(handlers::call_hierarchy::outgoing_calls(&bundle, &item))
+        }))
+    }
+
+    pub fn dispatch_prepare_type_hierarchy(
+        &mut self,
+        params: TypeHierarchyPrepareParams,
+    ) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let file = self.workspace.file_id(&text_document.uri)?;
+        let bundle = handlers::type_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
+        Some(Box::new(move || {
+            let items = handlers::type_hierarchy::prepare_items(&bundle);
+            if items.is_empty() {
+                serde_json::Value::Null
+            } else {
+                to_value(items)
+            }
+        }))
+    }
+
+    pub fn dispatch_supertypes(&mut self, params: TypeHierarchySupertypesParams) -> Option<Job> {
+        let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(Box::new(move || {
+            to_value(handlers::type_hierarchy::supertypes(&bundle))
+        }))
+    }
+
+    pub fn dispatch_subtypes(&mut self, params: TypeHierarchySubtypesParams) -> Option<Job> {
+        let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
+        Some(Box::new(move || {
+            to_value(handlers::type_hierarchy::subtypes(&bundle))
+        }))
     }
 
     pub fn dispatch_completion(&mut self, params: CompletionParams) -> Option<Job> {
@@ -467,13 +608,12 @@ impl GlobalState {
     }
 
     pub fn dispatch_workspace_symbol(&mut self, params: WorkspaceSymbolParams) -> Option<Job> {
-        // Gather `(uri, text)` on the main thread — cheap `Arc` clones — then
-        // parse and filter off the main thread.
-        let files = self.workspace.all_file_texts();
+        // Gather the cached per-file declaration index on the main thread —
+        // cheap `Arc` clones — then filter off the main thread (no re-parse).
+        let files = self.workspace.workspace_symbol_files();
         let query = params.query;
-        let encoding = self.encoding;
         Some(Box::new(move || {
-            let symbols = handlers::workspace_symbol::workspace_symbols(&files, &query, encoding);
+            let symbols = handlers::workspace_symbol::query(&files, &query);
             to_value(WorkspaceSymbolResponse::Nested(symbols))
         }))
     }
@@ -481,11 +621,11 @@ impl GlobalState {
     pub fn dispatch_code_action(&mut self, params: CodeActionParams) -> Option<Job> {
         let uri = params.text_document.uri;
         let range = params.range;
-        let files = self.workspace.all_file_texts();
+        let modules = self.workspace.workspace_module_full_names();
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         Some(Box::new(move || {
             to_value(handlers::code_action::code_actions(
-                &snapshot, &uri, range, &files,
+                &snapshot, &uri, range, &modules,
             ))
         }))
     }

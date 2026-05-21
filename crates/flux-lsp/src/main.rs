@@ -4,9 +4,9 @@ use anyhow::Result;
 use flux_lsp::line_index::{PositionEncoding, negotiate_encoding};
 use flux_lsp::loader::WatcherKind;
 use flux_lsp::vfs::uri_to_path;
-use flux_lsp::{Server, server_capabilities};
+use flux_lsp::{Server, server_capabilities_json};
 use lsp_server::Connection;
-use lsp_types::{InitializeParams, InitializeResult, ServerInfo};
+use lsp_types::InitializeParams;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
@@ -20,14 +20,16 @@ fn main() -> Result<()> {
     let encoding = pick_encoding(&params);
     tracing::debug!(?encoding, "negotiated position encoding");
 
-    let initialize_result = InitializeResult {
-        capabilities: server_capabilities(encoding),
-        server_info: Some(ServerInfo {
-            name: "flux-lsp".into(),
-            version: Some(env!("CARGO_PKG_VERSION").into()),
-        }),
-    };
-    connection.initialize_finish(initialize_id, serde_json::to_value(initialize_result)?)?;
+    // `typeHierarchyProvider` is injected here (see `server_capabilities_json`)
+    // because the `lsp-types` version in use has no typed field for it.
+    let initialize_result = serde_json::json!({
+        "capabilities": server_capabilities_json(encoding),
+        "serverInfo": {
+            "name": "flux-lsp",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+    });
+    connection.initialize_finish(initialize_id, initialize_result)?;
 
     let roots = workspace_roots(&params);
     tracing::debug!(?roots, "workspace roots");
