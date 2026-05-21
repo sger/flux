@@ -15,12 +15,12 @@ use lsp_types::request::{
     CodeActionRequest, CodeLensRequest, Completion, DocumentDiagnosticRequest,
     DocumentHighlightRequest, DocumentLinkRequest, DocumentSymbolRequest, FoldingRangeRequest,
     Formatting, GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest,
-    InlayHintResolveRequest, OnTypeFormatting, PrepareRenameRequest, RangeFormatting, References,
-    Rename, Request as _, ResolveCompletionItem, SelectionRangeRequest,
-    SemanticTokensFullDeltaRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
-    SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes, TypeHierarchySupertypes,
-    WillRenameFiles, WorkspaceDiagnosticRefresh, WorkspaceDiagnosticRequest,
-    WorkspaceSymbolRequest,
+    InlayHintResolveRequest, LinkedEditingRange, OnTypeFormatting, PrepareRenameRequest,
+    RangeFormatting, References, Rename, Request as _, ResolveCompletionItem,
+    SelectionRangeRequest, SemanticTokensFullDeltaRequest, SemanticTokensFullRequest,
+    SemanticTokensRangeRequest, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
+    TypeHierarchySupertypes, WillRenameFiles, WorkspaceDiagnosticRefresh,
+    WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CancelParams, NumberOrString, ProgressParams, ProgressParamsValue, ProgressToken,
@@ -256,6 +256,9 @@ impl Server {
             m if m == DocumentHighlightRequest::METHOD => self
                 .state
                 .dispatch_document_highlight(serde_json::from_value(req.params)?),
+            m if m == LinkedEditingRange::METHOD => self
+                .state
+                .dispatch_linked_editing_range(serde_json::from_value(req.params)?),
             m if m == Rename::METHOD => self
                 .state
                 .dispatch_rename(serde_json::from_value(req.params)?),

@@ -4,11 +4,12 @@ use lsp_types::{
     DocumentLinkOptions, DocumentOnTypeFormattingOptions, FileOperationFilter,
     FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
     FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
-    InlayHintOptions, InlayHintServerCapabilities, OneOf, RenameOptions,
-    SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
-    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
-    TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFileOperationsServerCapabilities,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    InlayHintOptions, InlayHintServerCapabilities, LinkedEditingRangeServerCapabilities, OneOf,
+    RenameOptions, SelectionRangeProviderCapability, SemanticTokensFullOptions,
+    SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities,
+    SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -119,6 +120,9 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         // Smart expand-selection (handlers::selection_range).
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        // Edit every same-file occurrence of an identifier in lockstep
+        // (handlers::linked_editing) — type once, all update — without a rename.
+        linked_editing_range_provider: Some(LinkedEditingRangeServerCapabilities::Simple(true)),
         // Semantic highlighting (handlers::semantic_tokens). `full.delta` lets a
         // re-highlight after an edit ship as a minimal splice (`…/full/delta`)
         // instead of the whole token stream; `range` answers `…/range` for just
@@ -215,6 +219,12 @@ mod tests {
         let provider = &value["documentOnTypeFormattingProvider"];
         assert_eq!(provider["firstTriggerCharacter"], serde_json::json!("\n"));
         assert_eq!(provider["moreTriggerCharacter"], serde_json::json!(["}"]));
+    }
+
+    #[test]
+    fn capabilities_advertise_linked_editing() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        assert_eq!(value["linkedEditingRangeProvider"], serde_json::json!(true));
     }
 
     #[test]

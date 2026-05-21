@@ -511,6 +511,43 @@ fn document_symbol_lists_top_level_items() {
 }
 
 #[test]
+fn document_symbol_selection_range_is_the_name() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///syms-sel.flx");
+    open(&mut state, &u, "fn greet(name) { name }\nlet answer = 42\n");
+
+    let syms = match state
+        .handle_document_symbol(DocumentSymbolParams {
+            text_document: ident(&u),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("document symbol result")
+    {
+        lsp_types::DocumentSymbolResponse::Nested(s) => s,
+        other => panic!("expected nested response, got {other:?}"),
+    };
+
+    let greet = syms
+        .iter()
+        .find(|s| s.name == "greet")
+        .expect("greet symbol");
+    // selection_range is just `greet` (cols 3..8), a strict sub-range of the
+    // whole-declaration range (`fn greet(name) { name }`).
+    assert_eq!(greet.selection_range.start, Position::new(0, 3));
+    assert_eq!(greet.selection_range.end, Position::new(0, 8));
+    assert_eq!(greet.range.start, Position::new(0, 0));
+    assert!(greet.range.end.character > greet.selection_range.end.character);
+
+    let answer = syms
+        .iter()
+        .find(|s| s.name == "answer")
+        .expect("answer symbol");
+    assert_eq!(answer.selection_range.start, Position::new(1, 4));
+    assert_eq!(answer.selection_range.end, Position::new(1, 10));
+}
+
+#[test]
 fn goto_definition_returns_link_with_distinct_focus_and_full_range_for_let() {
     // F12 on the use of `answer` in `let result = answer` should yield a
     // `LocationLink` whose `target_range` covers the whole declaration
@@ -3528,6 +3565,60 @@ fn local_rename_does_not_cross_files() {
 }
 
 #[test]
+fn rename_declaration_edits_only_the_name() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///rename-decl.flx");
+    // `fn twice(n)` is one statement; its recorded span covers the whole
+    // signature, so the rename edit must be narrowed to just `twice`.
+    open(
+        &mut state,
+        &u,
+        "fn twice(n) { n + n }\n\nfn main() {\n    twice(1)\n}\n",
+    );
+
+    let edit = state
+        .handle_rename(RenameParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(0, 4),
+            },
+            new_name: "tripled".into(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .expect("rename edit");
+    let edits = match edit.document_changes {
+        Some(DocumentChanges::Edits(e)) => e,
+        other => panic!("expected edits, got {other:?}"),
+    };
+    let ranges: Vec<Range> = edits[0]
+        .edits
+        .iter()
+        .map(|e| match e {
+            OneOf::Left(te) => te.range,
+            other => panic!("unexpected edit form {other:?}"),
+        })
+        .collect();
+    // Both the declaration and the call site rename `twice` (width 5),
+    // never the surrounding `fn twice(n)` signature.
+    for r in &ranges {
+        assert_eq!(r.start.line, r.end.line);
+        assert_eq!(
+            r.end.character - r.start.character,
+            "twice".len() as u32,
+            "rename edit must span only the name, got {r:?}"
+        );
+    }
+    // The declaration name starts after `fn ` (char 3), not at the statement
+    // start (char 0).
+    assert!(
+        ranges
+            .iter()
+            .any(|r| r.start.line == 0 && r.start.character == 3),
+        "declaration edit should start at the name, got {ranges:?}"
+    );
+}
+
+#[test]
 fn watched_file_change_refreshes_dependent() {
     let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
     let main_src = "import Math as M\n\nfn run() { M.twice(21) }\n";
@@ -5365,4 +5456,114 @@ fn signature_help_includes_doc_comment() {
         Some(Documentation::MarkupContent(m)) => assert!(m.value.contains("Adds two numbers")),
         other => panic!("expected the callee's doc comment, got {other:?}"),
     }
+}
+
+#[test]
+fn signature_help_cross_module_shows_param_names_and_doc() {
+    let math = "module Math {\n    /// Sums two ints.\n    public fn add(x, y) { x + y }\n}\n";
+    let main = "import Math\n\nfn main() {\n    Math.add(1, 2)\n}\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+    open(&mut state, &uris[1], main);
+
+    // Cursor on the first argument of the qualified call `Math.add(1, 2)`
+    // (line 3, char 13). The callee is declared in the *other* module.
+    let help = signature_help(&mut state, &uris[1], 3, 13).expect("cross-module signature help");
+    let sig = &help.signatures[0];
+    assert!(
+        sig.label.starts_with("add(x: "),
+        "imported callee should show parameter names, got {:?}",
+        sig.label
+    );
+    assert!(sig.label.contains(", y: "));
+    assert_eq!(help.active_parameter, Some(0));
+    match &sig.documentation {
+        Some(Documentation::MarkupContent(m)) => assert!(m.value.contains("Sums two ints")),
+        other => panic!("expected the imported callee's doc comment, got {other:?}"),
+    }
+}
+
+#[test]
+fn signature_help_exposing_unqualified_shows_param_names() {
+    let math = "module Math {\n    /// Sums two ints.\n    public fn add(x, y) { x + y }\n}\n";
+    // `add` is imported unqualified via `exposing`, so it's called without `Math.`.
+    let main = "import Math exposing (add)\n\nfn main() {\n    add(1, 2)\n}\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+    open(&mut state, &uris[1], main);
+
+    // Cursor on the first argument of the unqualified call `add(1, 2)`
+    // (line 3, char 8).
+    let help =
+        signature_help(&mut state, &uris[1], 3, 8).expect("exposing-unqualified signature help");
+    let sig = &help.signatures[0];
+    assert!(
+        sig.label.starts_with("add(x: "),
+        "an `exposing`-imported callee should show parameter names, got {:?}",
+        sig.label
+    );
+    assert!(sig.label.contains(", y: "));
+    assert_eq!(help.active_parameter, Some(0));
+    match &sig.documentation {
+        Some(Documentation::MarkupContent(m)) => assert!(m.value.contains("Sums two ints")),
+        other => panic!("expected the exposed callee's doc comment, got {other:?}"),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// linkedEditingRange
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn linked_editing(
+    state: &mut GlobalState,
+    u: &Uri,
+    line: u32,
+    character: u32,
+) -> Option<lsp_types::LinkedEditingRanges> {
+    state.handle_linked_editing_range(lsp_types::LinkedEditingRangeParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(u),
+            position: Position { line, character },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    })
+}
+
+const LINKED_SRC: &str = "fn main() {\n    let count = 1\n    count + count\n}\n";
+
+#[test]
+fn linked_editing_links_same_file_occurrences() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///linked.flx");
+    open(&mut state, &u, LINKED_SRC);
+
+    // Cursor inside the first use of `count` on line 2.
+    let linked = linked_editing(&mut state, &u, 2, 6).expect("linked ranges for `count`");
+
+    // The declaration plus both uses (3 occurrences), each spanning `count`.
+    assert_eq!(linked.ranges.len(), 3);
+    for r in &linked.ranges {
+        assert_eq!(r.start.line, r.end.line, "occurrences are single-line");
+        assert_eq!(
+            r.end.character - r.start.character,
+            "count".len() as u32,
+            "every range spans exactly the identifier"
+        );
+    }
+    // The cursor sits inside one of the returned ranges (so the editor links it).
+    assert!(
+        linked
+            .ranges
+            .iter()
+            .any(|r| r.start.line == 2 && r.start.character <= 6 && 6 < r.end.character)
+    );
+    assert!(linked.word_pattern.is_some());
+}
+
+#[test]
+fn linked_editing_none_off_identifier() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///linked-none.flx");
+    open(&mut state, &u, LINKED_SRC);
+
+    // Cursor on the `+` operator (line 2, char 10) — not an identifier.
+    assert!(linked_editing(&mut state, &u, 2, 10).is_none());
 }

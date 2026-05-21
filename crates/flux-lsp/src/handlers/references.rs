@@ -7,8 +7,10 @@ use flux::syntax::data_variant::DataVariant;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
-use lsp_types::{Location, Position, Uri};
+use line_index::TextSize;
+use lsp_types::{Location, Position, Range, Uri};
 
+use crate::line_index::PositionMap;
 use crate::locator::{NodeRef, find_at};
 use crate::snapshot::Snapshot;
 use crate::symbol_index::SymbolIndex;
@@ -66,16 +68,71 @@ pub fn gather(workspace: &mut Workspace, file: FileId, position: Position) -> Op
 pub fn compute_locations(bundle: &RefBundle) -> Vec<Location> {
     let mut locations = Vec::new();
     for f in &bundle.files {
+        let name = f
+            .snapshot
+            .interner
+            .try_resolve(bundle.target_id)
+            .unwrap_or("");
         let mut spans: Vec<FluxSpan> = Vec::new();
         collect_all_uses(&f.snapshot.program, bundle.target_id, &mut spans);
         for span in spans {
             locations.push(Location {
                 uri: f.uri.clone(),
-                range: f.snapshot.position_map.flux_span_to_range(span),
+                range: occurrence_range(&f.snapshot.position_map, span, name),
             });
         }
     }
     locations
+}
+
+/// The LSP range an occurrence should point at. `collect_all_uses` records a
+/// *declaration*'s whole-statement span (e.g. `fn twice(n)` or `let x = 1`), so
+/// it is narrowed to the identifier `name` itself; a use span already is the
+/// name and narrows to itself. Falls back to the full span only if the name
+/// can't be located in the source (which shouldn't happen for a real symbol) —
+/// callers that need identical-length ranges should use [`name_range_in_span`]
+/// directly and drop the `None`.
+pub(crate) fn occurrence_range(pm: &PositionMap, span: FluxSpan, name: &str) -> Range {
+    name_range_in_span(pm, span, name).unwrap_or_else(|| pm.flux_span_to_range(span))
+}
+
+/// The range of identifier `name` inside `span` (the first whole-word
+/// occurrence). `None` if the name isn't found in the span's source, or is
+/// empty.
+pub(crate) fn name_range_in_span(pm: &PositionMap, span: FluxSpan, name: &str) -> Option<Range> {
+    if name.is_empty() {
+        return None;
+    }
+    let start_off: usize = pm.flux_to_offset(span.start)?.into();
+    let end_off: usize = pm.flux_to_offset(span.end)?.into();
+    let text = pm.text();
+    let slice = text.get(start_off..end_off.min(text.len()))?;
+    let rel = find_word(slice, name)?;
+    let name_start = (start_off + rel) as u32;
+    let name_end = name_start + name.len() as u32;
+    Some(Range {
+        start: pm.offset_to_lsp(TextSize::from(name_start)),
+        end: pm.offset_to_lsp(TextSize::from(name_end)),
+    })
+}
+
+/// Byte offset of the first occurrence of `word` in `text` that stands alone
+/// (not part of a longer identifier). `None` if absent.
+fn find_word(text: &str, word: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(pos) = text[from..].find(word) {
+        let abs = from + pos;
+        let before_ok =
+            abs == 0 || !text[..abs].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let after = abs + word.len();
+        let after_ok = after >= text.len()
+            || !text[after..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
+        if before_ok && after_ok {
+            return Some(abs);
+        }
+        from = abs + 1;
+    }
+    None
 }
 
 /// Find every reference to the identifier under the cursor.
