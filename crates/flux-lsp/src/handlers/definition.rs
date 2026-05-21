@@ -788,7 +788,7 @@ fn find_in_stmt(
                 let focus = name_span_after_keyword(*span, *is_public, "fn", interner, *name);
                 return Some((*span, focus));
             }
-            if parameters.iter().any(|p| *p == target) {
+            if parameters.contains(&target) {
                 // The parser doesn't record per-parameter name spans —
                 // collapse focus = full (the function signature) and let
                 // the user land on the signature line.

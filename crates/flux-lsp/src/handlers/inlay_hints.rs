@@ -107,22 +107,22 @@ fn collect_from_stmts(
                 is_public,
                 ..
             } => {
-                if type_annotation.is_none() {
-                    if let Some(ty) = infer.expr_types.get(&value.expr_id()) {
-                        let ty_text = display_infer_type(ty, &snapshot.interner);
-                        let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
-                        let keyword_len = if *is_public {
-                            "public let ".len()
-                        } else {
-                            "let ".len()
-                        };
-                        let name_end = FluxPosition {
-                            line: span.start.line,
-                            column: span.start.column + keyword_len + name_text.len(),
-                        };
-                        let position = snapshot.position_map.flux_to_lsp(name_end);
-                        out.push(type_hint(position, ty_text, true));
-                    }
+                if type_annotation.is_none()
+                    && let Some(ty) = infer.expr_types.get(&value.expr_id())
+                {
+                    let ty_text = display_infer_type(ty, &snapshot.interner);
+                    let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
+                    let keyword_len = if *is_public {
+                        "public let ".len()
+                    } else {
+                        "let ".len()
+                    };
+                    let name_end = FluxPosition {
+                        line: span.start.line,
+                        column: span.start.column + keyword_len + name_text.len(),
+                    };
+                    let position = snapshot.position_map.flux_to_lsp(name_end);
+                    out.push(type_hint(position, ty_text, true));
                 }
             }
             Statement::Function {
@@ -140,24 +140,24 @@ fn collect_from_stmts(
                     span.end.line,
                     span.end.column,
                 );
-                if let Some(scheme) = infer.resolved_binding_schemes_by_span.get(&key) {
-                    if let InferType::Fun(param_infer_types, _, _) = &scheme.infer_type {
-                        for (idx, (param, annotated)) in
-                            parameters.iter().zip(parameter_types.iter()).enumerate()
-                        {
-                            if annotated.is_some() {
-                                continue;
-                            }
-                            let Some(param_ty) = param_infer_types.get(idx) else {
-                                continue;
-                            };
-                            let ty_text = display_infer_type(param_ty, &snapshot.interner);
-                            let Some(position) = find_param_hint_position(snapshot, *span, *param)
-                            else {
-                                continue;
-                            };
-                            out.push(type_hint(position, ty_text, true));
+                if let Some(scheme) = infer.resolved_binding_schemes_by_span.get(&key)
+                    && let InferType::Fun(param_infer_types, _, _) = &scheme.infer_type
+                {
+                    for (idx, (param, annotated)) in
+                        parameters.iter().zip(parameter_types.iter()).enumerate()
+                    {
+                        if annotated.is_some() {
+                            continue;
                         }
+                        let Some(param_ty) = param_infer_types.get(idx) else {
+                            continue;
+                        };
+                        let ty_text = display_infer_type(param_ty, &snapshot.interner);
+                        let Some(position) = find_param_hint_position(snapshot, *span, *param)
+                        else {
+                            continue;
+                        };
+                        out.push(type_hint(position, ty_text, true));
                     }
                 }
             }
