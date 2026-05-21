@@ -231,7 +231,10 @@ fn flatten_path(expr: &Expression, interner: &Interner) -> Option<Vec<(String, F
     }
 }
 
-fn collect_paths_stmt(
+/// Collect every pure `A.B.C` path in `stmt` (and its nested blocks) as
+/// `Vec<(cumulative-name, span)>` lists. Shared with the file-rename handler,
+/// which rewrites module-qualified references when a module is renamed.
+pub(crate) fn collect_paths_stmt(
     stmt: &Statement,
     interner: &Interner,
     out: &mut Vec<Vec<(String, FluxSpan)>>,

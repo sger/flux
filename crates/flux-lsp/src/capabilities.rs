@@ -1,10 +1,13 @@
 use lsp_types::{
     CallHierarchyServerCapability, CodeActionProviderCapability, CodeLensOptions,
-    CompletionOptions, DefinitionOptions, FoldingRangeProviderCapability, HoverProviderCapability,
+    CompletionOptions, DefinitionOptions, DiagnosticOptions, DiagnosticServerCapabilities,
+    DocumentLinkOptions, FileOperationFilter, FileOperationPattern, FileOperationPatternKind,
+    FileOperationRegistrationOptions, FoldingRangeProviderCapability, HoverProviderCapability,
     ImplementationProviderCapability, OneOf, RenameOptions, SelectionRangeProviderCapability,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
     ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
+    WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -47,6 +50,12 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         code_lens_provider: Some(CodeLensOptions {
             resolve_provider: Some(false),
         }),
+        // Clickable `import` module paths (handlers::document_link). Targets are
+        // resolved eagerly, so no `documentLink/resolve` is offered.
+        document_link_provider: Some(DocumentLinkOptions {
+            resolve_provider: Some(false),
+            work_done_progress_options: Default::default(),
+        }),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         // Project-wide symbol search (handlers::workspace_symbol).
@@ -60,6 +69,20 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         // "Who calls this / what does this call" navigation
         // (handlers::call_hierarchy): prepare + incoming/outgoing calls.
         call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
+        // Pull-model diagnostics: `textDocument/diagnostic` for one document
+        // (handlers::diagnostics::report) and `workspace/diagnostic` for the
+        // whole project (handlers::diagnostics::workspace_report). Push
+        // diagnostics (`textDocument/publishDiagnostics`) still ship; the server
+        // suppresses them per-client when the client opts into pulling, so the
+        // two never double up (see `Server::report_diagnostics`).
+        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+            identifier: Some("flux".to_string()),
+            // Editing one module changes diagnostics in its dependents.
+            inter_file_dependencies: true,
+            // Also answer project-wide pulls (`workspace/diagnostic`).
+            workspace_diagnostics: true,
+            work_done_progress_options: Default::default(),
+        })),
         inlay_hint_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         // `prepare_provider: true` — the client sends `prepareRename` first
@@ -90,7 +113,22 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
                 supported: Some(true),
                 change_notifications: Some(OneOf::Left(true)),
             }),
-            file_operations: None,
+            // `workspace/willRenameFiles` (handlers::rename_files): when a `.flx`
+            // module file is renamed/moved, return an edit that rewrites the
+            // `import`s in dependents so the rename doesn't break the project.
+            file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                will_rename: Some(FileOperationRegistrationOptions {
+                    filters: vec![FileOperationFilter {
+                        scheme: Some("file".to_string()),
+                        pattern: FileOperationPattern {
+                            glob: "**/*.flx".to_string(),
+                            matches: Some(FileOperationPatternKind::File),
+                            options: None,
+                        },
+                    }],
+                }),
+                ..Default::default()
+            }),
         }),
         ..Default::default()
     }
@@ -124,5 +162,31 @@ mod tests {
         assert_eq!(value["typeHierarchyProvider"], serde_json::json!(true));
         // The typed capabilities still serialize alongside the injected flag.
         assert_eq!(value["callHierarchyProvider"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn capabilities_advertise_pull_diagnostics() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let provider = &value["diagnosticProvider"];
+        assert_eq!(provider["identifier"], serde_json::json!("flux"));
+        assert_eq!(provider["interFileDependencies"], serde_json::json!(true));
+        assert_eq!(provider["workspaceDiagnostics"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn capabilities_advertise_document_links() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        assert_eq!(
+            value["documentLinkProvider"]["resolveProvider"],
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn capabilities_advertise_will_rename_files() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let glob =
+            &value["workspace"]["fileOperations"]["willRename"]["filters"][0]["pattern"]["glob"];
+        assert_eq!(glob, &serde_json::json!("**/*.flx"));
     }
 }

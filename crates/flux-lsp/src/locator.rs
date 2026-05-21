@@ -33,6 +33,7 @@ use flux::syntax::expression::{
 use flux::syntax::interner::Interner;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
+use flux::syntax::type_class::{ClassMethod, InstanceMethod};
 use flux::syntax::type_expr::TypeExpr;
 
 /// The deepest AST position covered at an offset. Handlers match on this to
@@ -127,6 +128,20 @@ pub enum NodeRef<'a> {
         function_span: FluxSpan,
         span: FluxSpan,
     },
+    /// Method declared inside a `class { … }` block. `parent_class` is the
+    /// class it belongs to, used to render the declared signature.
+    ClassMethodName {
+        name: Identifier,
+        parent_class: Identifier,
+        span: FluxSpan,
+    },
+    /// Method declared inside an `instance { … }` block. `parent_class` is the
+    /// class being implemented, used to render the class's declared signature.
+    InstanceMethodName {
+        name: Identifier,
+        parent_class: Identifier,
+        span: FluxSpan,
+    },
 }
 
 impl NodeRef<'_> {
@@ -155,7 +170,9 @@ impl NodeRef<'_> {
             | NodeRef::DeclName {
                 binding_span: span, ..
             }
-            | NodeRef::FunctionParameter { span, .. } => *span,
+            | NodeRef::FunctionParameter { span, .. }
+            | NodeRef::ClassMethodName { span, .. }
+            | NodeRef::InstanceMethodName { span, .. } => *span,
         }
     }
 }
@@ -501,7 +518,10 @@ impl<'ast> Finder<'ast, '_> {
                 self.visit_type(&alias.body);
             }
             Statement::Class {
-                name, name_span, ..
+                name,
+                name_span,
+                methods,
+                ..
             } => {
                 // The parser records the class name's own span — correct even
                 // with a superclass constraint (`class Eq<a> => Ord<a>`), where
@@ -510,20 +530,67 @@ impl<'ast> Finder<'ast, '_> {
                     name: *name,
                     span: s,
                 });
+                for m in methods {
+                    self.visit_class_method(m, *name);
+                }
             }
             Statement::Instance {
-                is_public,
                 class_name,
-                span,
+                methods,
+                name_span,
                 ..
             } => {
-                let name_start = decl_name_start(span.start, *is_public, "instance");
-                self.record_name_at(name_start, *class_name, |s| NodeRef::DataName {
+                // The parser records the head class name's own span — correct
+                // even with a context constraint (`instance Eq<a> => Eq<List<a>>`),
+                // where the head sits after `=>`, not right after the keyword.
+                self.record_name_at(name_span.start, *class_name, |s| NodeRef::DataName {
                     name: *class_name,
                     span: s,
                 });
+                for m in methods {
+                    self.visit_instance_method(m, *class_name);
+                }
             }
         }
+    }
+
+    /// A `class` method: record its name, then descend into its signature
+    /// types and any default body so hover works throughout the block.
+    fn visit_class_method(&mut self, m: &'ast ClassMethod, parent_class: Identifier) {
+        self.record_name_at(decl_name_start(m.span.start, false, "fn"), m.name, |s| {
+            NodeRef::ClassMethodName {
+                name: m.name,
+                parent_class,
+                span: s,
+            }
+        });
+        for pt in &m.param_types {
+            self.visit_type(pt);
+        }
+        self.visit_type(&m.return_type);
+        for e in &m.effects {
+            self.visit_effect(e);
+        }
+        if let Some(body) = &m.default_body {
+            self.visit_block(body);
+        }
+    }
+
+    /// An `instance` method: record its name, then descend into its effects
+    /// and body. Instance methods carry no type annotations, so hover renders
+    /// the class's declared signature instead.
+    fn visit_instance_method(&mut self, m: &'ast InstanceMethod, parent_class: Identifier) {
+        self.record_name_at(decl_name_start(m.span.start, false, "fn"), m.name, |s| {
+            NodeRef::InstanceMethodName {
+                name: m.name,
+                parent_class,
+                span: s,
+            }
+        });
+        for e in &m.effects {
+            self.visit_effect(e);
+        }
+        self.visit_block(&m.body);
     }
 
     fn visit_data_variant(&mut self, variant: &'ast DataVariant, parent_data: Identifier) {
@@ -1042,5 +1109,31 @@ mod tests {
         let (program, interner) = parse("let x = 1\n");
         // Way past end of source.
         assert!(find_at(&program, &interner, pos(99, 99)).is_none());
+    }
+
+    #[test]
+    fn instance_head_name_resolves_after_fat_arrow() {
+        let (program, interner) = parse(
+            "class Eq<a> { fn eq(x: a, y: a) -> Bool }\n\
+             instance Eq<a> => Eq<List<a>> { fn eq(x, y) { true } }\n",
+        );
+        // The head class name `Eq` sits after `=>` (column 18 on line 2), not at
+        // the context constraint right after `instance ` (column 9).
+        let node = find_at(&program, &interner, pos(2, 18)).expect("instance head name");
+        match node {
+            NodeRef::DataName { name, .. } => {
+                assert_eq!(interner.try_resolve(name), Some("Eq"));
+            }
+            other => panic!("expected DataName for the instance head, got {other:?}"),
+        }
+        // The old (buggy) position — the context constraint — no longer carries
+        // the instance head node.
+        assert!(
+            !matches!(
+                find_at(&program, &interner, pos(2, 9)),
+                Some(NodeRef::DataName { .. })
+            ),
+            "the context constraint position must not resolve to the head name"
+        );
     }
 }

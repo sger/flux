@@ -225,6 +225,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             context,
             methods,
             span,
+            name_span,
         } => Statement::Instance {
             is_public,
             class_name,
@@ -232,6 +233,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             context,
             methods,
             span,
+            name_span,
         },
     }
 }

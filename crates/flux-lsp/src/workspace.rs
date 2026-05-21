@@ -131,6 +131,13 @@ impl Workspace {
         self.symbols.values().cloned().collect()
     }
 
+    /// Every file the workspace knows — open buffers and discovered on-disk
+    /// files alike (the symbol index covers both). The `workspace/diagnostic`
+    /// sweep walks these to report problems project-wide. Order is unspecified.
+    pub fn all_file_ids(&self) -> Vec<FileId> {
+        self.symbols.keys().copied().collect()
+    }
+
     // ── queries ────────────────────────────────────────────────────────────
 
     /// Id of an already-interned file behind `uri`, if the workspace has seen
