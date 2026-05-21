@@ -1865,10 +1865,12 @@ impl Parser {
             return None;
         }
         let first_name = self.current_token.symbol.expect("ident should have symbol");
+        let first_name_span = self.current_token.span();
         let first_type_args = self.parse_instance_type_args();
 
         // Check for `=>` — if present, first_name was a context constraint.
-        let (context, class_name, type_args) = if self.is_peek_token(TokenType::FatArrow) {
+        let (context, class_name, type_args, name_span) = if self.is_peek_token(TokenType::FatArrow)
+        {
             let constraint_span = self.span_from(start);
             let ctx_constraint = ClassConstraint {
                 class_name: first_name,
@@ -1888,10 +1890,16 @@ impl Parser {
                 return None;
             }
             let actual_name = self.current_token.symbol.expect("ident should have symbol");
+            let actual_name_span = self.current_token.span();
             let actual_type_args = self.parse_instance_type_args();
-            (vec![ctx_constraint], actual_name, actual_type_args)
+            (
+                vec![ctx_constraint],
+                actual_name,
+                actual_type_args,
+                actual_name_span,
+            )
         } else {
-            (vec![], first_name, first_type_args)
+            (vec![], first_name, first_type_args, first_name_span)
         };
 
         // Expect `{`
@@ -1925,6 +1933,7 @@ impl Parser {
             context,
             methods,
             span: self.span_from(start),
+            name_span,
         })
     }
 

@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
+use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
@@ -22,7 +22,7 @@ use flux::syntax::type_expr::TypeExpr;
 use lsp_types::{Position, SymbolKind, TypeHierarchyItem, Uri};
 
 use crate::handlers::references::node_identifier;
-use crate::locator::{decl_name_start, find_at};
+use crate::locator::find_at;
 use crate::snapshot::Snapshot;
 use crate::vfs::FileId;
 use crate::workspace::Workspace;
@@ -172,10 +172,10 @@ pub fn subtypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
                 }
                 // An instance: the type implementing the target class.
                 Statement::Instance {
-                    is_public,
                     class_name,
                     type_args,
                     span,
+                    name_span,
                     ..
                 } if f.snapshot.interner.try_resolve(*class_name)
                     == Some(bundle.target.as_str()) =>
@@ -186,7 +186,7 @@ pub fn subtypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
                         &bundle.target,
                         type_args,
                         *span,
-                        *is_public,
+                        *name_span,
                     ));
                 }
                 _ => {}
@@ -246,7 +246,7 @@ fn instance_item(
     class: &str,
     type_args: &[TypeExpr],
     full: FluxSpan,
-    is_public: bool,
+    focus: FluxSpan,
 ) -> TypeHierarchyItem {
     let head = type_args
         .first()
@@ -258,8 +258,6 @@ fn instance_item(
         Some(h) => Some(format!("instance {class}<{h}>")),
         None => Some(format!("instance {class}")),
     };
-    // The class name sits right after `instance `; highlight it on land.
-    let focus = name_span(full, is_public, "instance", class.len());
     TypeHierarchyItem {
         name,
         kind: SymbolKind::CLASS,
@@ -267,20 +265,10 @@ fn instance_item(
         detail,
         uri: uri.clone(),
         range: snapshot.position_map.flux_span_to_range(full),
+        // `focus` is the parsed head class name span — precise even with a
+        // context constraint (`instance Eq<a> => Eq<List<a>>`).
         selection_range: snapshot.position_map.flux_span_to_range(focus),
         data: None,
-    }
-}
-
-/// The name span that follows a declaration keyword, `len` codepoints wide.
-fn name_span(full: FluxSpan, is_public: bool, keyword: &str, len: usize) -> FluxSpan {
-    let start = decl_name_start(full.start, is_public, keyword);
-    FluxSpan {
-        start,
-        end: FluxPosition {
-            line: start.line,
-            column: start.column + len,
-        },
     }
 }
 

@@ -1290,6 +1290,7 @@ impl<'a> AstLowerer<'a> {
                 context,
                 methods,
                 span,
+                name_span: _,
             } => Some(CoreTopLevelItem::Instance {
                 class_name: *class_name,
                 type_args: type_args.clone(),

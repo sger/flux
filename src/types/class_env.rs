@@ -805,6 +805,7 @@ impl ClassEnv {
                     context,
                     methods,
                     span,
+                    name_span: _,
                 } => {
                     // Check that the class exists. Phase 1b Step 4: prefer
                     // a class in the same module as the instance being

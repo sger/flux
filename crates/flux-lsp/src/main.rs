@@ -43,8 +43,40 @@ fn main() -> Result<()> {
         .as_ref()
         .and_then(|w| w.work_done_progress)
         .unwrap_or(false);
+    // The client pulls diagnostics if it advertises `textDocument.diagnostic`;
+    // it re-pulls on demand if it also advertises `workspace.diagnostic.refresh`.
+    let supports_pull_diagnostics = params
+        .capabilities
+        .text_document
+        .as_ref()
+        .and_then(|td| td.diagnostic.as_ref())
+        .is_some();
+    let supports_diagnostic_refresh = params
+        .capabilities
+        .workspace
+        .as_ref()
+        .and_then(|w| w.diagnostic.as_ref())
+        .and_then(|d| d.refresh_support)
+        .unwrap_or(false);
+    // `flux.workspaceDiagnostics.scanAllFiles` — opt into a full-project
+    // diagnostic sweep (default off: only the analyzed working set).
+    let scan_all_files = params
+        .initialization_options
+        .as_ref()
+        .and_then(|opts| opts.pointer("/workspaceDiagnostics/scanAllFiles"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    tracing::info!(
+        scan_all_files,
+        has_init_options = params.initialization_options.is_some(),
+        "workspace-diagnostics scope resolved"
+    );
     let mut server = Server::new(connection, encoding, watcher);
     server.set_progress_support(supports_progress);
+    server.set_diagnostic_support(supports_pull_diagnostics, supports_diagnostic_refresh);
+    server
+        .state
+        .set_workspace_diagnostics_scan_all(scan_all_files);
     server.state.set_workspace_folders(roots);
     server.run()?;
 

@@ -25,6 +25,15 @@ export function activate(context: vscode.ExtensionContext) {
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.flx"),
     },
+    // Evaluated on every (re)start, so a config change picked up after a
+    // restart sends the new value.
+    initializationOptions: () => ({
+      workspaceDiagnostics: {
+        scanAllFiles: vscode.workspace
+          .getConfiguration("flux")
+          .get<boolean>("workspaceDiagnostics.scanAllFiles", false),
+      },
+    }),
   };
 
   client = new LanguageClient(
@@ -41,9 +50,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
   });
 
-  // Commands invoked by the server's "▶ Run" / "▶ Run Test" code lenses
-  // (handlers::code_lens). Each launches the Flux CLI on the file in a
-  // terminal; the runner command is configurable via `flux.runCommand`.
+  // Commands invoked by the server's "▶ Run" / "▶ Run Test" / "▶ Run all
+  // tests" code lenses (handlers::code_lens). Each launches the Flux CLI on the
+  // file in a terminal; the runner command is configurable via `flux.runCommand`.
   context.subscriptions.push(
     vscode.commands.registerCommand("flux.run", (uriArg: string) => {
       runFlux(uriArg, []);
@@ -54,6 +63,21 @@ export function activate(context: vscode.ExtensionContext) {
         runFlux(uriArg, ["--test", "--test-filter", testName]);
       },
     ),
+    vscode.commands.registerCommand("flux.runTests", (uriArg: string) => {
+      runFlux(uriArg, ["--test"]);
+    }),
+  );
+
+  // `initializationOptions` is only read at startup, so restart the server when
+  // a setting that feeds it changes (the flag controls the diagnostic scope).
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("flux.workspaceDiagnostics.scanAllFiles")) {
+        client?.restart().catch((err) => {
+          vscode.window.showErrorMessage(`Failed to restart flux-lsp: ${err}`);
+        });
+      }
+    }),
   );
 
   context.subscriptions.push({
