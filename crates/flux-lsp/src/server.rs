@@ -15,10 +15,12 @@ use lsp_types::request::{
     CodeActionRequest, CodeLensRequest, Completion, DocumentDiagnosticRequest,
     DocumentHighlightRequest, DocumentLinkRequest, DocumentSymbolRequest, FoldingRangeRequest,
     Formatting, GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest,
-    PrepareRenameRequest, References, Rename, Request as _, ResolveCompletionItem,
-    SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest, TypeHierarchyPrepare,
-    TypeHierarchySubtypes, TypeHierarchySupertypes, WillRenameFiles, WorkspaceDiagnosticRefresh,
-    WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+    InlayHintResolveRequest, OnTypeFormatting, PrepareRenameRequest, RangeFormatting, References,
+    Rename, Request as _, ResolveCompletionItem, SelectionRangeRequest,
+    SemanticTokensFullDeltaRequest, SemanticTokensFullRequest, SemanticTokensRangeRequest,
+    SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes, TypeHierarchySupertypes,
+    WillRenameFiles, WorkspaceDiagnosticRefresh, WorkspaceDiagnosticRequest,
+    WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CancelParams, NumberOrString, ProgressParams, ProgressParamsValue, ProgressToken,
@@ -233,9 +235,18 @@ impl Server {
             m if m == Formatting::METHOD => self
                 .state
                 .dispatch_formatting(serde_json::from_value(req.params)?),
+            m if m == RangeFormatting::METHOD => self
+                .state
+                .dispatch_formatting_range(serde_json::from_value(req.params)?),
+            m if m == OnTypeFormatting::METHOD => self
+                .state
+                .dispatch_on_type_formatting(serde_json::from_value(req.params)?),
             m if m == InlayHintRequest::METHOD => self
                 .state
                 .dispatch_inlay_hints(serde_json::from_value(req.params)?),
+            m if m == InlayHintResolveRequest::METHOD => self
+                .state
+                .dispatch_inlay_hint_resolve(serde_json::from_value(req.params)?),
             m if m == SignatureHelpRequest::METHOD => self
                 .state
                 .dispatch_signature_help(serde_json::from_value(req.params)?),
@@ -260,6 +271,12 @@ impl Server {
             m if m == SemanticTokensFullRequest::METHOD => self
                 .state
                 .dispatch_semantic_tokens_full(serde_json::from_value(req.params)?),
+            m if m == SemanticTokensFullDeltaRequest::METHOD => self
+                .state
+                .dispatch_semantic_tokens_full_delta(serde_json::from_value(req.params)?),
+            m if m == SemanticTokensRangeRequest::METHOD => self
+                .state
+                .dispatch_semantic_tokens_range(serde_json::from_value(req.params)?),
             m if m == WorkspaceSymbolRequest::METHOD => self
                 .state
                 .dispatch_workspace_symbol(serde_json::from_value(req.params)?),

@@ -12,17 +12,22 @@ use lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentDiagnosticParams, DocumentDiagnosticReportResult, DocumentFormattingParams,
     DocumentHighlight, DocumentHighlightParams, DocumentLink, DocumentLinkParams,
-    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams,
-    Location, PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameFilesParams,
-    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensParams,
-    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
+    DocumentOnTypeFormattingParams, DocumentRangeFormattingParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
+    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameFilesParams,
+    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensDeltaParams,
+    SemanticTokensFullDeltaResult, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelp,
+    SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
     TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
     WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceEdit,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
+use std::sync::{Arc, Mutex};
+
 use crate::handlers;
+use crate::handlers::semantic_tokens::SemanticTokenCache;
 use crate::line_index::PositionEncoding;
 use crate::task::Job;
 use crate::vfs::FileId;
@@ -35,6 +40,10 @@ pub struct GlobalState {
     /// force-analyzes every discovered `.flx` instead of just the analyzed
     /// working set. Off by default (see `handlers::diagnostics::workspace_gather`).
     workspace_diagnostics_scan_all: bool,
+    /// Last semantic-token stream per document, so `…/full/delta` can answer
+    /// with a splice. Shared (`Arc<Mutex<…>>`) because the worker-thread
+    /// dispatch jobs update it off the main thread.
+    semantic_token_cache: Arc<Mutex<SemanticTokenCache>>,
 }
 
 impl Default for GlobalState {
@@ -49,6 +58,7 @@ impl GlobalState {
             workspace: Workspace::new(encoding),
             encoding,
             workspace_diagnostics_scan_all: false,
+            semantic_token_cache: Arc::new(Mutex::new(SemanticTokenCache::default())),
         }
     }
 
@@ -109,6 +119,10 @@ impl GlobalState {
         params: DidCloseTextDocumentParams,
     ) -> Vec<PublishDiagnosticsParams> {
         let uri = params.text_document.uri;
+        self.semantic_token_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget(uri.as_str());
         let rebuilt = self.workspace.close(&uri);
         let mut diagnostics = self.diagnostics_for_files(&rebuilt);
         // Clear the closed file's own squiggles — its snapshot was dropped
@@ -358,6 +372,33 @@ impl GlobalState {
         Some(handlers::formatting::format(snapshot))
     }
 
+    pub fn handle_formatting_range(
+        &mut self,
+        params: DocumentRangeFormattingParams,
+    ) -> Option<Vec<TextEdit>> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        Some(handlers::formatting::format_range(snapshot, params.range))
+    }
+
+    pub fn handle_on_type_formatting(
+        &mut self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Option<Vec<TextEdit>> {
+        let position = params.text_document_position.position;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document_position.text_document.uri)?;
+        Some(handlers::on_type_formatting::on_type_format(
+            snapshot,
+            position,
+            &params.ch,
+            params.options.tab_size,
+            params.options.insert_spaces,
+        ))
+    }
+
     pub fn handle_inlay_hints(&mut self, params: InlayHintParams) -> Vec<InlayHint> {
         let Some(snapshot) = self
             .workspace
@@ -366,6 +407,12 @@ impl GlobalState {
             return vec![];
         };
         handlers::inlay_hints::inlay_hints(snapshot)
+    }
+
+    /// `inlayHint/resolve` — fill in a hint's tooltip and insert-annotation
+    /// edit. Stateless (everything rides on the hint), so no snapshot is needed.
+    pub fn handle_inlay_hint_resolve(&mut self, hint: InlayHint) -> InlayHint {
+        handlers::inlay_hints::resolve(hint)
     }
 
     pub fn handle_signature_help(&mut self, params: SignatureHelpParams) -> Option<SignatureHelp> {
@@ -437,16 +484,54 @@ impl GlobalState {
     }
 
     pub fn handle_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> SemanticTokens {
+        let uri = params.text_document.uri;
+        let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&uri).cloned() else {
+            return SemanticTokens {
+                result_id: None,
+                data: vec![],
+            };
+        };
+        handlers::semantic_tokens::full(&snapshot, uri.as_str(), &self.semantic_token_cache)
+    }
+
+    /// `textDocument/semanticTokens/full/delta` — re-highlight after an edit as
+    /// a minimal splice against the client's last result id.
+    pub fn handle_semantic_tokens_full_delta(
+        &mut self,
+        params: SemanticTokensDeltaParams,
+    ) -> SemanticTokensFullDeltaResult {
+        let uri = params.text_document.uri;
+        let previous = params.previous_result_id;
+        let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&uri).cloned() else {
+            return SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+                result_id: None,
+                data: vec![],
+            });
+        };
+        handlers::semantic_tokens::full_delta(
+            &snapshot,
+            uri.as_str(),
+            &previous,
+            &self.semantic_token_cache,
+        )
+    }
+
+    /// `textDocument/semanticTokens/range` — colour just the requested span.
+    pub fn handle_semantic_tokens_range(
+        &mut self,
+        params: SemanticTokensRangeParams,
+    ) -> SemanticTokens {
         let Some(snapshot) = self
             .workspace
             .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()
         else {
             return SemanticTokens {
                 result_id: None,
                 data: vec![],
             };
         };
-        handlers::semantic_tokens::semantic_tokens(snapshot)
+        handlers::semantic_tokens::range(&snapshot, params.range)
     }
 
     /// `textDocument/diagnostic` (pull model). Always answers with a concrete
@@ -721,6 +806,43 @@ impl GlobalState {
         }))
     }
 
+    pub fn dispatch_formatting_range(
+        &mut self,
+        params: DocumentRangeFormattingParams,
+    ) -> Option<Job> {
+        let range = params.range;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::formatting::format_range(&snapshot, range))
+        }))
+    }
+
+    pub fn dispatch_on_type_formatting(
+        &mut self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Option<Job> {
+        let position = params.text_document_position.position;
+        let ch = params.ch;
+        let tab_size = params.options.tab_size;
+        let insert_spaces = params.options.insert_spaces;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document_position.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::on_type_formatting::on_type_format(
+                &snapshot,
+                position,
+                &ch,
+                tab_size,
+                insert_spaces,
+            ))
+        }))
+    }
+
     pub fn dispatch_inlay_hints(&mut self, params: InlayHintParams) -> Option<Job> {
         let snapshot = self
             .workspace
@@ -728,6 +850,14 @@ impl GlobalState {
             .cloned()?;
         Some(Box::new(move || {
             to_value(handlers::inlay_hints::inlay_hints(&snapshot))
+        }))
+    }
+
+    /// `inlayHint/resolve` worker job. Stateless — the resolved fields are
+    /// derived from the hint itself — so it always produces a response.
+    pub fn dispatch_inlay_hint_resolve(&mut self, hint: InlayHint) -> Option<Job> {
+        Some(Box::new(move || {
+            to_value(handlers::inlay_hints::resolve(hint))
         }))
     }
 
@@ -780,12 +910,47 @@ impl GlobalState {
     }
 
     pub fn dispatch_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> Option<Job> {
+        let uri = params.text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        let cache = self.semantic_token_cache.clone();
+        Some(Box::new(move || {
+            to_value(handlers::semantic_tokens::full(
+                &snapshot,
+                uri.as_str(),
+                &cache,
+            ))
+        }))
+    }
+
+    pub fn dispatch_semantic_tokens_full_delta(
+        &mut self,
+        params: SemanticTokensDeltaParams,
+    ) -> Option<Job> {
+        let uri = params.text_document.uri;
+        let previous = params.previous_result_id;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        let cache = self.semantic_token_cache.clone();
+        Some(Box::new(move || {
+            to_value(handlers::semantic_tokens::full_delta(
+                &snapshot,
+                uri.as_str(),
+                &previous,
+                &cache,
+            ))
+        }))
+    }
+
+    pub fn dispatch_semantic_tokens_range(
+        &mut self,
+        params: SemanticTokensRangeParams,
+    ) -> Option<Job> {
+        let range = params.range;
         let snapshot = self
             .workspace
             .ensure_snapshot_for_uri(&params.text_document.uri)
             .cloned()?;
         Some(Box::new(move || {
-            to_value(handlers::semantic_tokens::semantic_tokens(&snapshot))
+            to_value(handlers::semantic_tokens::range(&snapshot, range))
         }))
     }
 

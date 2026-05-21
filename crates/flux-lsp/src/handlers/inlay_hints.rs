@@ -7,7 +7,10 @@ use flux::syntax::expression::Pattern;
 use flux::syntax::statement::Statement;
 use flux::types::infer_type::InferType;
 use line_index::TextSize;
-use lsp_types::{InlayHint, InlayHintKind, InlayHintLabel};
+use lsp_types::{
+    InlayHint, InlayHintKind, InlayHintLabel, InlayHintTooltip, MarkupContent, MarkupKind,
+    Position, Range, TextEdit,
+};
 
 use crate::snapshot::Snapshot;
 
@@ -18,6 +21,74 @@ pub fn inlay_hints(snapshot: &Snapshot) -> Vec<InlayHint> {
     let mut hints = Vec::new();
     collect_from_stmts(&snapshot.program.statements, snapshot, infer, &mut hints);
     hints
+}
+
+/// Build a type inlay hint at `position` labelled `: <ty_text>`.
+///
+/// The tooltip and the "insert this annotation" text edit are *not* filled in
+/// here — they ride lazily on `inlayHint/resolve` (see [`resolve`]), so the
+/// initial `textDocument/inlayHint` response stays small even for a file with
+/// hundreds of hints. The data needed to reconstruct them later (the rendered
+/// type, and whether the site can take an inline annotation) is stashed in
+/// `data`. `editable` is true for `let`/parameter hints (where `: T` can be
+/// written in source) and false for destructuring-pattern bindings.
+fn type_hint(position: Position, ty_text: String, editable: bool) -> InlayHint {
+    let data = serde_json::json!({ "type": ty_text, "editable": editable });
+    InlayHint {
+        position,
+        label: InlayHintLabel::String(format!(": {ty_text}")),
+        kind: Some(InlayHintKind::TYPE),
+        text_edits: None,
+        tooltip: None,
+        padding_left: None,
+        padding_right: None,
+        data: Some(data),
+    }
+}
+
+/// `inlayHint/resolve` — fill in a hint's tooltip and (for editable hints) the
+/// text edit that turns the inferred type into an explicit annotation.
+///
+/// Stateless: everything needed is already on the hint — the rendered type and
+/// the `editable` flag ride in `data`, and the edit is inserted at the hint's
+/// own `position`. A hint that already has a tooltip (or carries no `data`) is
+/// returned unchanged, so re-resolving is idempotent.
+pub fn resolve(mut hint: InlayHint) -> InlayHint {
+    if hint.tooltip.is_some() {
+        return hint;
+    }
+    let data = hint.data.as_ref();
+    let Some(ty_text) = data
+        .and_then(|d| d.get("type"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    else {
+        return hint;
+    };
+    let editable = data
+        .and_then(|d| d.get("editable"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let note = if editable {
+        "Inferred type — accept the hint to insert this annotation."
+    } else {
+        "Inferred type."
+    };
+    hint.tooltip = Some(InlayHintTooltip::MarkupContent(MarkupContent {
+        kind: MarkupKind::Markdown,
+        value: format!("```flux\n: {ty_text}\n```\n\n{note}"),
+    }));
+    if editable {
+        hint.text_edits = Some(vec![TextEdit {
+            range: Range {
+                start: hint.position,
+                end: hint.position,
+            },
+            new_text: format!(": {ty_text}"),
+        }]);
+    }
+    hint
 }
 
 fn collect_from_stmts(
@@ -38,7 +109,7 @@ fn collect_from_stmts(
             } => {
                 if type_annotation.is_none() {
                     if let Some(ty) = infer.expr_types.get(&value.expr_id()) {
-                        let label = format!(": {}", display_infer_type(ty, &snapshot.interner));
+                        let ty_text = display_infer_type(ty, &snapshot.interner);
                         let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
                         let keyword_len = if *is_public {
                             "public let ".len()
@@ -50,16 +121,7 @@ fn collect_from_stmts(
                             column: span.start.column + keyword_len + name_text.len(),
                         };
                         let position = snapshot.position_map.flux_to_lsp(name_end);
-                        out.push(InlayHint {
-                            position,
-                            label: InlayHintLabel::String(label),
-                            kind: Some(InlayHintKind::TYPE),
-                            text_edits: None,
-                            tooltip: None,
-                            padding_left: None,
-                            padding_right: None,
-                            data: None,
-                        });
+                        out.push(type_hint(position, ty_text, true));
                     }
                 }
             }
@@ -89,22 +151,12 @@ fn collect_from_stmts(
                             let Some(param_ty) = param_infer_types.get(idx) else {
                                 continue;
                             };
-                            let label =
-                                format!(": {}", display_infer_type(param_ty, &snapshot.interner));
+                            let ty_text = display_infer_type(param_ty, &snapshot.interner);
                             let Some(position) = find_param_hint_position(snapshot, *span, *param)
                             else {
                                 continue;
                             };
-                            out.push(InlayHint {
-                                position,
-                                label: InlayHintLabel::String(label),
-                                kind: Some(InlayHintKind::TYPE),
-                                text_edits: None,
-                                tooltip: None,
-                                padding_left: None,
-                                padding_right: None,
-                                data: None,
-                            });
+                            out.push(type_hint(position, ty_text, true));
                         }
                     }
                 }
@@ -138,23 +190,17 @@ fn collect_pattern_hints(
     match pat {
         Pattern::Identifier { name, span } => {
             if let Some(scheme) = infer.resolved_binding_schemes.get(name) {
-                let label = format!(": {}", render_scheme_canonical(&snapshot.interner, scheme));
+                let ty_text = render_scheme_canonical(&snapshot.interner, scheme);
                 let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
                 let name_end = FluxPosition {
                     line: span.start.line,
                     column: span.start.column + name_text.len(),
                 };
                 let position = snapshot.position_map.flux_to_lsp(name_end);
-                out.push(InlayHint {
-                    position,
-                    label: InlayHintLabel::String(label),
-                    kind: Some(InlayHintKind::TYPE),
-                    text_edits: None,
-                    tooltip: None,
-                    padding_left: None,
-                    padding_right: None,
-                    data: None,
-                });
+                // A binding inside a destructuring pattern (`let (a, b) = …`)
+                // can't carry an inline `: T` annotation, so the hint is
+                // tooltip-only — not editable.
+                out.push(type_hint(position, ty_text, false));
             }
         }
         Pattern::Tuple { elements, .. } => {
@@ -226,4 +272,67 @@ fn find_word_end(text: &str, word: &str) -> Option<usize> {
         start = abs + 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_editable_hint_adds_tooltip_and_annotation_edit() {
+        let pos = Position {
+            line: 0,
+            character: 5,
+        };
+        let resolved = resolve(type_hint(pos, "Int".to_string(), true));
+
+        match resolved.tooltip {
+            Some(InlayHintTooltip::MarkupContent(m)) => {
+                assert!(m.value.contains(": Int"));
+                assert!(m.value.contains("accept the hint"));
+            }
+            other => panic!("expected a markdown tooltip, got {other:?}"),
+        }
+        let edits = resolved.text_edits.expect("an annotation text edit");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, ": Int");
+        // The annotation is inserted at the hint's own position (zero-width).
+        assert_eq!(edits[0].range.start, pos);
+        assert_eq!(edits[0].range.end, pos);
+    }
+
+    #[test]
+    fn resolve_non_editable_hint_has_tooltip_but_no_edit() {
+        let pos = Position {
+            line: 1,
+            character: 3,
+        };
+        let resolved = resolve(type_hint(pos, "String".to_string(), false));
+
+        assert!(resolved.tooltip.is_some(), "tooltip is always filled in");
+        assert!(
+            resolved.text_edits.is_none(),
+            "a destructuring-pattern hint offers no insert-annotation edit"
+        );
+    }
+
+    #[test]
+    fn resolve_is_idempotent() {
+        let pos = Position {
+            line: 0,
+            character: 0,
+        };
+        let once = resolve(type_hint(pos, "Bool".to_string(), true));
+        let twice = resolve(once.clone());
+        // `InlayHintTooltip` has no `PartialEq`; compare the markdown bodies.
+        assert_eq!(tooltip_value(&once), tooltip_value(&twice));
+        assert_eq!(once.text_edits, twice.text_edits);
+    }
+
+    fn tooltip_value(hint: &InlayHint) -> Option<String> {
+        match hint.tooltip.as_ref()? {
+            InlayHintTooltip::MarkupContent(m) => Some(m.value.clone()),
+            InlayHintTooltip::String(s) => Some(s.clone()),
+        }
+    }
 }

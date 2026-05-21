@@ -18,7 +18,8 @@
 //! adds `semanticTokenScopes` fallbacks for themes that only define TextMate
 //! scopes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
@@ -31,7 +32,8 @@ use flux::syntax::token::Token;
 use flux::syntax::token_type::TokenType;
 use line_index::TextSize;
 use lsp_types::{
-    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensLegend,
+    Range, SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
+    SemanticTokensDelta, SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensLegend,
 };
 
 use crate::snapshot::Snapshot;
@@ -113,7 +115,18 @@ const BUILTIN_TYPES: &[&str] = &[
 /// `Some`/`None`/`Left`/`Right`, which are keyword tokens).
 const BUILTIN_VARIANTS: &[&str] = &["Ok", "Err"];
 
+/// `textDocument/semanticTokens/full` (pure form — no result id / caching).
+/// Retained for direct callers and tests; the request path goes through
+/// [`full`], which also tags the result for delta follow-ups.
 pub fn semantic_tokens(snapshot: &Snapshot) -> SemanticTokens {
+    SemanticTokens {
+        result_id: None,
+        data: compute(snapshot),
+    }
+}
+
+/// The classified, line/column-sorted tokens for the whole buffer.
+fn raw_tokens(snapshot: &Snapshot) -> Vec<RawToken> {
     let names = NameSets::collect(&snapshot.program, &snapshot.interner);
     let stdlib_members: HashSet<&str> = snapshot
         .module_members
@@ -124,11 +137,155 @@ pub fn semantic_tokens(snapshot: &Snapshot) -> SemanticTokens {
     let tokens = Lexer::new(snapshot.text.to_string()).tokenize();
     let mut raw: Vec<RawToken> = Vec::new();
     classify(&tokens, &names, &stdlib_members, snapshot, &mut raw);
-
     raw.sort_by_key(|t| (t.line, t.start));
+    raw
+}
+
+/// The delta-encoded token stream for the whole buffer.
+fn compute(snapshot: &Snapshot) -> Vec<SemanticToken> {
+    delta_encode(raw_tokens(snapshot))
+}
+
+// ── Range / delta (incremental) requests ─────────────────────────────────────
+
+/// `textDocument/semanticTokens/full` — compute the tokens, tag them with a
+/// fresh `result_id`, and remember them in `cache` so a later `…/full/delta`
+/// can answer with a minimal splice.
+pub fn full(snapshot: &Snapshot, uri: &str, cache: &Mutex<SemanticTokenCache>) -> SemanticTokens {
+    let data = compute(snapshot);
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let result_id = cache.fresh_id();
+    cache.record(uri, result_id.clone(), data.clone());
+    SemanticTokens {
+        result_id: Some(result_id),
+        data,
+    }
+}
+
+/// `textDocument/semanticTokens/full/delta` — compute the current tokens and,
+/// if `previous_result_id` still matches what the client last received, return
+/// just the edits that turn the old stream into the new one. If the client is
+/// out of sync (unknown `previous_result_id`) it gets a fresh full set instead.
+pub fn full_delta(
+    snapshot: &Snapshot,
+    uri: &str,
+    previous_result_id: &str,
+    cache: &Mutex<SemanticTokenCache>,
+) -> SemanticTokensFullDeltaResult {
+    let data = compute(snapshot);
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let result_id = cache.fresh_id();
+    let result = match cache.previous(uri, previous_result_id) {
+        Some(old) => SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+            result_id: Some(result_id.clone()),
+            edits: diff_tokens(old, &data),
+        }),
+        None => SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
+            result_id: Some(result_id.clone()),
+            data: data.clone(),
+        }),
+    };
+    cache.record(uri, result_id, data);
+    result
+}
+
+/// `textDocument/semanticTokens/range` — only the tokens that fall inside
+/// `range`. Range responses don't participate in deltas, so they carry no
+/// `result_id` and aren't cached.
+pub fn range(snapshot: &Snapshot, range: Range) -> SemanticTokens {
+    let raw: Vec<RawToken> = raw_tokens(snapshot)
+        .into_iter()
+        .filter(|t| token_in_range(t, range))
+        .collect();
     SemanticTokens {
         result_id: None,
         data: delta_encode(raw),
+    }
+}
+
+/// Whether a token (a single-line span `start..start+length` on `line`)
+/// intersects the half-open `range`.
+fn token_in_range(t: &RawToken, range: Range) -> bool {
+    let end = t.start + t.length;
+    // Below the first line or above the last line → out.
+    if t.line < range.start.line || t.line > range.end.line {
+        return false;
+    }
+    // On the first line, the token must end past the range start.
+    if t.line == range.start.line && end <= range.start.character {
+        return false;
+    }
+    // On the last line, the token must start before the range end.
+    if t.line == range.end.line && t.start >= range.end.character {
+        return false;
+    }
+    true
+}
+
+/// Minimal edit list turning `old` into `new`, in the integer-array units the
+/// LSP semantic-tokens delta protocol uses (5 integers per token). Strips the
+/// common prefix and suffix and splices the changed middle as one edit; an
+/// unchanged stream yields no edits.
+fn diff_tokens(old: &[SemanticToken], new: &[SemanticToken]) -> Vec<SemanticTokensEdit> {
+    let max_prefix = old.len().min(new.len());
+    let mut prefix = 0;
+    while prefix < max_prefix && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < (old.len() - prefix).min(new.len() - prefix)
+        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let removed = old.len() - prefix - suffix;
+    let inserted = &new[prefix..new.len() - suffix];
+    if removed == 0 && inserted.is_empty() {
+        return Vec::new();
+    }
+    vec![SemanticTokensEdit {
+        start: (prefix * 5) as u32,
+        delete_count: (removed * 5) as u32,
+        data: Some(inserted.to_vec()),
+    }]
+}
+
+/// Per-document store of the last token stream handed to the client, keyed by
+/// the `result_id` it was tagged with, so `…/full/delta` can diff against it.
+#[derive(Default)]
+pub struct SemanticTokenCache {
+    next_id: u64,
+    last: HashMap<String, CachedTokens>,
+}
+
+struct CachedTokens {
+    result_id: String,
+    tokens: Vec<SemanticToken>,
+}
+
+impl SemanticTokenCache {
+    fn fresh_id(&mut self) -> String {
+        self.next_id += 1;
+        self.next_id.to_string()
+    }
+
+    fn record(&mut self, uri: &str, result_id: String, tokens: Vec<SemanticToken>) {
+        self.last
+            .insert(uri.to_string(), CachedTokens { result_id, tokens });
+    }
+
+    /// The tokens last sent for `uri`, but only if they carried
+    /// `previous_result_id` (else the client's baseline is stale).
+    fn previous(&self, uri: &str, previous_result_id: &str) -> Option<&[SemanticToken]> {
+        self.last
+            .get(uri)
+            .filter(|c| c.result_id == previous_result_id)
+            .map(|c| c.tokens.as_slice())
+    }
+
+    /// Drop a document's cached tokens (on close).
+    pub fn forget(&mut self, uri: &str) {
+        self.last.remove(uri);
     }
 }
 
@@ -840,6 +997,7 @@ impl NameSets {
 mod tests {
     use super::*;
     use flux::syntax::parser::Parser;
+    use lsp_types::Position;
 
     fn name_sets(src: &str) -> NameSets {
         let mut parser = Parser::new(Lexer::new(src.to_string()));
@@ -919,6 +1077,94 @@ mod tests {
         // Both the dotted path segments and the alias become known modules.
         assert!(sets.modules.contains("Flow"));
         assert!(sets.modules.contains("List"));
+    }
+
+    fn tok(delta_line: u32, delta_start: u32, length: u32, ty: u32) -> SemanticToken {
+        SemanticToken {
+            delta_line,
+            delta_start,
+            length,
+            token_type: ty,
+            token_modifiers_bitset: 0,
+        }
+    }
+
+    #[test]
+    fn diff_tokens_identical_yields_no_edits() {
+        let a = vec![tok(0, 0, 2, TT_KEYWORD), tok(0, 3, 4, TT_FUNCTION)];
+        assert!(diff_tokens(&a, &a).is_empty());
+    }
+
+    #[test]
+    fn diff_tokens_splices_changed_middle() {
+        let old = vec![
+            tok(0, 0, 2, TT_KEYWORD),
+            tok(0, 3, 4, TT_FUNCTION),
+            tok(1, 0, 1, TT_PARAMETER),
+        ];
+        // Middle token changes type; prefix (1 token) and suffix (1 token) hold.
+        let new = vec![
+            tok(0, 0, 2, TT_KEYWORD),
+            tok(0, 3, 4, TT_VARIABLE),
+            tok(1, 0, 1, TT_PARAMETER),
+        ];
+        let edits = diff_tokens(&old, &new);
+        assert_eq!(edits.len(), 1);
+        // Units are integers (5 per token): skip 1 token, replace 1 token.
+        assert_eq!(edits[0].start, 5);
+        assert_eq!(edits[0].delete_count, 5);
+        assert_eq!(edits[0].data.as_ref().map(Vec::len), Some(1));
+        assert_eq!(edits[0].data.as_ref().unwrap()[0], new[1]);
+    }
+
+    #[test]
+    fn diff_tokens_handles_pure_insertion() {
+        let old = vec![tok(0, 0, 2, TT_KEYWORD)];
+        let new = vec![tok(0, 0, 2, TT_KEYWORD), tok(0, 3, 4, TT_FUNCTION)];
+        let edits = diff_tokens(&old, &new);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].start, 5);
+        assert_eq!(edits[0].delete_count, 0);
+        assert_eq!(edits[0].data.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn token_in_range_filters_by_line_and_column() {
+        let r = Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 3,
+                character: 0,
+            },
+        };
+        let on_line_0 = RawToken {
+            line: 0,
+            start: 0,
+            length: 2,
+            token_type: TT_KEYWORD,
+            modifiers: 0,
+        };
+        let in_middle = RawToken {
+            line: 2,
+            start: 4,
+            length: 3,
+            token_type: TT_FUNCTION,
+            modifiers: 0,
+        };
+        // The end line is exclusive at character 0 → a token there is excluded.
+        let on_end_line = RawToken {
+            line: 3,
+            start: 0,
+            length: 1,
+            token_type: TT_PARAMETER,
+            modifiers: 0,
+        };
+        assert!(!token_in_range(&on_line_0, r));
+        assert!(token_in_range(&in_middle, r));
+        assert!(!token_in_range(&on_end_line, r));
     }
 
     #[test]

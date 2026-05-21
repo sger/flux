@@ -1,13 +1,14 @@
 use lsp_types::{
     CallHierarchyServerCapability, CodeActionProviderCapability, CodeLensOptions,
     CompletionOptions, DefinitionOptions, DiagnosticOptions, DiagnosticServerCapabilities,
-    DocumentLinkOptions, FileOperationFilter, FileOperationPattern, FileOperationPatternKind,
-    FileOperationRegistrationOptions, FoldingRangeProviderCapability, HoverProviderCapability,
-    ImplementationProviderCapability, OneOf, RenameOptions, SelectionRangeProviderCapability,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
-    WorkspaceServerCapabilities,
+    DocumentLinkOptions, DocumentOnTypeFormattingOptions, FileOperationFilter,
+    FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
+    FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
+    InlayHintOptions, InlayHintServerCapabilities, OneOf, RenameOptions,
+    SelectionRangeProviderCapability, SemanticTokensFullOptions, SemanticTokensOptions,
+    SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelpOptions,
+    TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFileOperationsServerCapabilities,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -36,9 +37,13 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             resolve_provider: Some(true),
             ..Default::default()
         }),
+        // Parameter hints (handlers::signature_help). `(` / `,` open the popup;
+        // `,` and `)` *retrigger* it while it's already showing so the active
+        // parameter advances (and the popup dismisses when the call closes)
+        // without reopening from scratch.
         signature_help_provider: Some(SignatureHelpOptions {
             trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
-            retrigger_characters: None,
+            retrigger_characters: Some(vec![",".to_string(), ")".to_string()]),
             work_done_progress_options: Default::default(),
         }),
         // Quick fixes derived from diagnostics (handlers::code_action).
@@ -57,6 +62,15 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             work_done_progress_options: Default::default(),
         }),
         document_formatting_provider: Some(OneOf::Left(true)),
+        // Format just the selection (handlers::formatting::format_range) — the
+        // whole-file formatter diffed down to the hunks inside the range.
+        document_range_formatting_provider: Some(OneOf::Left(true)),
+        // Auto-indent as you type (handlers::on_type_formatting): a newline
+        // indents the new line to the brace depth, `}` dedents its own line.
+        document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+            first_trigger_character: "\n".to_string(),
+            more_trigger_character: Some(vec!["}".to_string()]),
+        }),
         document_symbol_provider: Some(OneOf::Left(true)),
         // Project-wide symbol search (handlers::workspace_symbol).
         workspace_symbol_provider: Some(OneOf::Left(true)),
@@ -83,7 +97,16 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             workspace_diagnostics: true,
             work_done_progress_options: Default::default(),
         })),
-        inlay_hint_provider: Some(OneOf::Left(true)),
+        // Inferred-type inlay hints (handlers::inlay_hints). `resolve_provider:
+        // true` defers each hint's tooltip and its "insert the inferred type as
+        // an annotation" text edit to `inlayHint/resolve`, keeping the initial
+        // response small.
+        inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+            InlayHintOptions {
+                resolve_provider: Some(true),
+                work_done_progress_options: Default::default(),
+            },
+        ))),
         references_provider: Some(OneOf::Left(true)),
         // `prepare_provider: true` — the client sends `prepareRename` first
         // (handlers::rename::prepare_rename) to validate the cursor and get
@@ -96,11 +119,15 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         // Smart expand-selection (handlers::selection_range).
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        // Semantic highlighting (handlers::semantic_tokens). `full.delta` lets a
+        // re-highlight after an edit ship as a minimal splice (`…/full/delta`)
+        // instead of the whole token stream; `range` answers `…/range` for just
+        // the viewport so opening a large file colours the visible region first.
         semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(
             SemanticTokensOptions {
                 legend: semantic_tokens_legend(),
-                full: Some(SemanticTokensFullOptions::Bool(true)),
-                range: None,
+                full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
+                range: Some(true),
                 work_done_progress_options: Default::default(),
             },
         )),
@@ -171,6 +198,51 @@ mod tests {
         assert_eq!(provider["identifier"], serde_json::json!("flux"));
         assert_eq!(provider["interFileDependencies"], serde_json::json!(true));
         assert_eq!(provider["workspaceDiagnostics"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn capabilities_advertise_range_formatting() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        assert_eq!(
+            value["documentRangeFormattingProvider"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn capabilities_advertise_on_type_formatting() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let provider = &value["documentOnTypeFormattingProvider"];
+        assert_eq!(provider["firstTriggerCharacter"], serde_json::json!("\n"));
+        assert_eq!(provider["moreTriggerCharacter"], serde_json::json!(["}"]));
+    }
+
+    #[test]
+    fn capabilities_advertise_signature_help_retrigger() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let provider = &value["signatureHelpProvider"];
+        assert_eq!(provider["triggerCharacters"], serde_json::json!(["(", ","]));
+        assert_eq!(
+            provider["retriggerCharacters"],
+            serde_json::json!([",", ")"])
+        );
+    }
+
+    #[test]
+    fn capabilities_advertise_semantic_tokens_range_and_delta() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let provider = &value["semanticTokensProvider"];
+        assert_eq!(provider["range"], serde_json::json!(true));
+        assert_eq!(provider["full"]["delta"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn capabilities_advertise_inlay_hint_resolve() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        assert_eq!(
+            value["inlayHintProvider"]["resolveProvider"],
+            serde_json::json!(true)
+        );
     }
 
     #[test]
