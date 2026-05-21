@@ -13,16 +13,18 @@ use lsp_types::notification::Notification as _;
 use lsp_types::request::Request as _;
 use lsp_types::request::{Initialize, Shutdown};
 use lsp_types::{
-    ClientCapabilities, CodeActionContext, CodeActionOrCommand, CodeActionParams, CodeLensParams,
-    CompletionItem, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DocumentChanges, DocumentFormattingParams, DocumentHighlightParams, DocumentSymbolParams,
-    Documentation, FileChangeType, FileEvent, FoldingRangeParams, FormattingOptions,
-    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, NumberOrString, OneOf,
-    PartialResultParams, Position, Range, ReferenceContext, ReferenceParams, RenameParams,
-    SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, Uri, WorkDoneProgressParams, WorkspaceSymbolParams,
-    WorkspaceSymbolResponse,
+    CallHierarchyIncomingCallsParams, CallHierarchyItem, CallHierarchyOutgoingCallsParams,
+    CallHierarchyPrepareParams, ClientCapabilities, CodeActionContext, CodeActionOrCommand,
+    CodeActionParams, CodeLensParams, CompletionItem, CompletionParams, CompletionResponse,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentChanges, DocumentFormattingParams, DocumentHighlightParams,
+    DocumentSymbolParams, Documentation, FileChangeType, FileEvent, FoldingRangeParams,
+    FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams,
+    NumberOrString, OneOf, PartialResultParams, Position, Range, ReferenceContext, ReferenceParams,
+    RenameParams, SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, Uri, WorkDoneProgressParams,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -1991,6 +1993,47 @@ fn workspace_symbol_finds_declarations_across_files() {
     );
 }
 
+#[test]
+fn workspace_symbol_index_updates_on_edit() {
+    // The symbol index is cached per file; an edit must refresh that file's
+    // entry so the query reflects the new declaration, not the stale one.
+    let main_src = "fn alpha() { 1 }\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("main.flx", main_src)]);
+    open(&mut state, &uris[0], main_src);
+    assert!(
+        workspace_symbol_names(&mut state, "alpha")
+            .iter()
+            .any(|n| n == "alpha"),
+        "expected to find `alpha` before the edit"
+    );
+
+    // Rename the function and re-sync the buffer.
+    state.handle_did_change(DidChangeTextDocumentParams {
+        text_document: lsp_types::VersionedTextDocumentIdentifier {
+            uri: uris[0].clone(),
+            version: 2,
+        },
+        content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "fn beta() { 1 }\n".to_string(),
+        }],
+    });
+
+    assert!(
+        workspace_symbol_names(&mut state, "beta")
+            .iter()
+            .any(|n| n == "beta"),
+        "expected the renamed `beta` after the edit"
+    );
+    assert!(
+        !workspace_symbol_names(&mut state, "alpha")
+            .iter()
+            .any(|n| n == "alpha"),
+        "the stale `alpha` must be gone from the index after the edit"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Prepare rename & folding ranges
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2147,6 +2190,90 @@ fn implementation_is_empty_off_a_class_name() {
         resp.is_none(),
         "expected no implementations off a non-class"
     );
+}
+
+#[test]
+fn implementation_finds_instances_across_modules() {
+    // The class and one instance live in `Shapes`; a second instance lives in a
+    // sibling module `Extra`. A plain `main` importing both ties them into one
+    // module-graph component. Goto-implementation on the class name must list
+    // both instances — including the cross-module one (and instances nested in
+    // `module` blocks, which the old top-level-only scan missed).
+    let shapes = "module Shapes {\n    public class Show<a> {\n        fn show(x: a) -> String\n    }\n    instance Show<Int> {\n        fn show(x) { \"int\" }\n    }\n}\n";
+    let extra = "import Shapes\n\nmodule Extra {\n    instance Show<Bool> {\n        fn show(x) { \"bool\" }\n    }\n}\n";
+    let main = "import Shapes\nimport Extra\n\nfn run() { 0 }\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[
+        ("Shapes.flx", shapes),
+        ("Extra.flx", extra),
+        ("main.flx", main),
+    ]);
+    // Open the importer entry that ties the three files into one component.
+    open(&mut state, &uris[2], main);
+
+    // Cursor on `Show` in `public class Show<a>` (Shapes.flx line 1, char 18).
+    let resp = state
+        .handle_implementation(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[0]),
+                position: Position::new(1, 18),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("implementation response");
+
+    match resp {
+        lsp_types::GotoDefinitionResponse::Array(locations) => {
+            assert_eq!(
+                locations.len(),
+                2,
+                "expected instances from both modules, got {locations:?}"
+            );
+            assert!(
+                locations.iter().any(|l| l.uri == uris[1]),
+                "expected the cross-module instance in Extra.flx, got {locations:?}"
+            );
+        }
+        other => panic!("expected an array of instance locations, got {other:?}"),
+    }
+}
+
+#[test]
+fn implementation_resolves_public_class_name() {
+    // Regression: `decl_name_start` used to add `public `'s width on top of a
+    // span that already begins at the `class` keyword, so the cursor on a
+    // `public class` name landed past the name and resolved nothing.
+    let mut state = GlobalState::default();
+    let u = uri("file:///pubclass.flx");
+    open(
+        &mut state,
+        &u,
+        "public class Show<a> {\n    fn show(x: a) -> String\n}\n\
+         instance Show<Int> {\n    fn show(x) { \"int\" }\n}\n",
+    );
+
+    // Cursor on `Show` in `public class Show<a>` (line 0, char 14 — "public
+    // class " is 13 chars, so `Show` starts at column 13).
+    let resp = state
+        .handle_implementation(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position::new(0, 14),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("implementation response on a public class");
+    match resp {
+        lsp_types::GotoDefinitionResponse::Array(locations) => {
+            assert_eq!(
+                locations.len(),
+                1,
+                "expected the one instance, got {locations:?}"
+            )
+        }
+        other => panic!("expected an array of instance locations, got {other:?}"),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3816,5 +3943,257 @@ fn semantic_tokens_split_multiline_strings() {
     assert!(
         string_lines.contains(&0) && string_lines.contains(&1) && string_lines.contains(&2),
         "expected per-line string tokens, got {string_lines:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Call hierarchy
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn prepare_call_hierarchy(
+    state: &mut GlobalState,
+    u: &Uri,
+    pos: Position,
+) -> Vec<CallHierarchyItem> {
+    state
+        .handle_prepare_call_hierarchy(CallHierarchyPrepareParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(u),
+                position: pos,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+/// `fn helper` on lines 0-2, `fn main` on lines 4-7 calling `helper` twice.
+const CALL_HIERARCHY_SRC: &str =
+    "fn helper(x) {\n    x + 1\n}\n\nfn main() {\n    helper(1)\n    helper(2)\n}\n";
+
+#[test]
+fn prepare_call_hierarchy_on_decl_returns_item() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("ch-prepare.flx");
+    open(&mut state, &u, CALL_HIERARCHY_SRC);
+
+    // Cursor on `main` (line 4, "fn " then `main`).
+    let items = prepare_call_hierarchy(&mut state, &u, Position::new(4, 4));
+    assert_eq!(items.len(), 1, "expected one item, got {items:?}");
+    assert_eq!(items[0].name, "main");
+    assert_eq!(items[0].kind, lsp_types::SymbolKind::FUNCTION);
+    // The selection range covers just the name on the decl line.
+    assert_eq!(items[0].selection_range.start.line, 4);
+}
+
+#[test]
+fn prepare_call_hierarchy_on_call_site_resolves_to_decl() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("ch-prepare-call.flx");
+    open(&mut state, &u, CALL_HIERARCHY_SRC);
+
+    // Cursor on the `helper` call inside `main` (line 5) resolves to helper's
+    // declaration (line 0).
+    let items = prepare_call_hierarchy(&mut state, &u, Position::new(5, 6));
+    assert_eq!(items.len(), 1, "expected one item, got {items:?}");
+    assert_eq!(items[0].name, "helper");
+    assert_eq!(items[0].selection_range.start.line, 0);
+}
+
+#[test]
+fn incoming_calls_lists_callers() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("ch-incoming.flx");
+    open(&mut state, &u, CALL_HIERARCHY_SRC);
+
+    // Prepare on `helper`'s declaration, then ask who calls it.
+    let item = prepare_call_hierarchy(&mut state, &u, Position::new(0, 4))
+        .into_iter()
+        .next()
+        .expect("an item for helper");
+    let incoming = state
+        .handle_incoming_calls(CallHierarchyIncomingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default();
+
+    assert_eq!(incoming.len(), 1, "expected one caller, got {incoming:?}");
+    assert_eq!(incoming[0].from.name, "main");
+    // `main` calls `helper` twice.
+    assert_eq!(incoming[0].from_ranges.len(), 2);
+}
+
+#[test]
+fn outgoing_calls_lists_callees() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("ch-outgoing.flx");
+    open(&mut state, &u, CALL_HIERARCHY_SRC);
+
+    // Prepare on `main`, then ask what it calls.
+    let item = prepare_call_hierarchy(&mut state, &u, Position::new(4, 4))
+        .into_iter()
+        .next()
+        .expect("an item for main");
+    let outgoing = state
+        .handle_outgoing_calls(CallHierarchyOutgoingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default();
+
+    assert_eq!(outgoing.len(), 1, "expected one callee, got {outgoing:?}");
+    assert_eq!(outgoing[0].to.name, "helper");
+    assert_eq!(outgoing[0].from_ranges.len(), 2);
+}
+
+#[test]
+fn cross_file_incoming_calls_span_modules() {
+    // `Math.twice` is called from `main.flx`; incoming calls must reach across
+    // the module-graph component into the caller's file.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math\n\nfn run() {\n    Math.twice(21)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+    open(&mut state, &uris[1], main_src);
+
+    // Prepare on `twice` at its declaration in Math.flx (line 1).
+    open(&mut state, &uris[0], math_src);
+    let item = prepare_call_hierarchy(&mut state, &uris[0], Position::new(1, 16))
+        .into_iter()
+        .find(|i| i.name == "twice")
+        .expect("an item for twice");
+
+    let incoming = state
+        .handle_incoming_calls(CallHierarchyIncomingCallsParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default();
+
+    assert!(
+        incoming.iter().any(|c| c.from.name == "run"),
+        "expected `run` among callers of `twice`, got {incoming:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Type hierarchy
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn prepare_type_hierarchy(
+    state: &mut GlobalState,
+    u: &Uri,
+    pos: Position,
+) -> Vec<TypeHierarchyItem> {
+    state
+        .handle_prepare_type_hierarchy(TypeHierarchyPrepareParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(u),
+                position: pos,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+fn type_supertypes(state: &mut GlobalState, item: TypeHierarchyItem) -> Vec<TypeHierarchyItem> {
+    state
+        .handle_supertypes(TypeHierarchySupertypesParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+fn type_subtypes(state: &mut GlobalState, item: TypeHierarchyItem) -> Vec<TypeHierarchyItem> {
+    state
+        .handle_subtypes(TypeHierarchySubtypesParams {
+            item,
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+/// `Eq` (lines 0-2), `Ord` with superclass `Eq` (lines 4-6), and an
+/// `instance Ord<Int>` (lines 8-10).
+const TYPE_HIERARCHY_SRC: &str = "class Eq<a> {\n    fn eq(x: a, y: a) -> Bool\n}\n\nclass Eq<a> => Ord<a> {\n    fn lt(x: a, y: a) -> Bool\n}\n\ninstance Ord<Int> {\n    fn lt(x, y) { true }\n}\n";
+
+#[test]
+fn type_hierarchy_prepare_returns_class() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///th-prepare.flx");
+    open(&mut state, &u, TYPE_HIERARCHY_SRC);
+
+    // Cursor on `Eq` in `class Eq<a>` (line 0, "class " then `Eq`).
+    let items = prepare_type_hierarchy(&mut state, &u, Position::new(0, 7));
+    assert_eq!(items.len(), 1, "expected one item, got {items:?}");
+    assert_eq!(items[0].name, "Eq");
+}
+
+#[test]
+fn type_hierarchy_subtypes_lists_subclasses_and_instances() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///th-subtypes.flx");
+    open(&mut state, &u, TYPE_HIERARCHY_SRC);
+
+    // Subtypes of `Eq`: the subclass `Ord` that names it as a superclass.
+    let eq = prepare_type_hierarchy(&mut state, &u, Position::new(0, 7))
+        .into_iter()
+        .next()
+        .expect("an item for Eq");
+    let eq_subs = type_subtypes(&mut state, eq);
+    assert!(
+        eq_subs.iter().any(|i| i.name == "Ord"),
+        "expected `Ord` among Eq's subtypes, got {eq_subs:?}"
+    );
+
+    // Subtypes of `Ord`: the implementing type `Int` from `instance Ord<Int>`.
+    let ord = eq_subs
+        .into_iter()
+        .find(|i| i.name == "Ord")
+        .expect("the Ord subtype item");
+    let ord_subs = type_subtypes(&mut state, ord);
+    assert!(
+        ord_subs.iter().any(|i| i.name == "Int"),
+        "expected the `Int` instance among Ord's subtypes, got {ord_subs:?}"
+    );
+}
+
+#[test]
+fn type_hierarchy_prepare_on_superclass_constrained_subclass() {
+    // Regression: the class name in `class Eq<a> => Ord<a>` sits after `=>`, so
+    // the locator must resolve `Ord` at its real position (not the keyword-offset
+    // position, which would land on the `Eq` constraint).
+    let mut state = GlobalState::default();
+    let u = uri("file:///th-subclass.flx");
+    open(&mut state, &u, TYPE_HIERARCHY_SRC);
+
+    // Cursor on `Ord` in `class Eq<a> => Ord<a>` (line 4, char 16).
+    let items = prepare_type_hierarchy(&mut state, &u, Position::new(4, 16));
+    assert_eq!(items.len(), 1, "expected one item, got {items:?}");
+    assert_eq!(items[0].name, "Ord");
+}
+
+#[test]
+fn type_hierarchy_supertypes_lists_superclass() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///th-supertypes.flx");
+    open(&mut state, &u, TYPE_HIERARCHY_SRC);
+
+    // Prepare directly on the `=>`-declared subclass `Ord`, then ask for its
+    // supertypes.
+    let ord = prepare_type_hierarchy(&mut state, &u, Position::new(4, 16))
+        .into_iter()
+        .next()
+        .expect("an item for Ord");
+    let supers = type_supertypes(&mut state, ord);
+    assert!(
+        supers.iter().any(|i| i.name == "Eq"),
+        "expected `Eq` among Ord's supertypes, got {supers:?}"
     );
 }

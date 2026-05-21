@@ -11,11 +11,12 @@ use lsp_types::notification::{
 };
 use lsp_types::request::WorkDoneProgressCreate;
 use lsp_types::request::{
+    CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
     CodeActionRequest, CodeLensRequest, Completion, DocumentHighlightRequest,
     DocumentSymbolRequest, FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation,
     HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
     ResolveCompletionItem, SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
-    WorkspaceSymbolRequest,
+    TypeHierarchyPrepare, TypeHierarchySubtypes, TypeHierarchySupertypes, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CancelParams, NumberOrString, ProgressParams, ProgressParamsValue, ProgressToken,
@@ -175,6 +176,24 @@ impl Server {
             m if m == GotoImplementation::METHOD => self
                 .state
                 .dispatch_implementation(serde_json::from_value(req.params)?),
+            m if m == CallHierarchyPrepare::METHOD => self
+                .state
+                .dispatch_prepare_call_hierarchy(serde_json::from_value(req.params)?),
+            m if m == CallHierarchyIncomingCalls::METHOD => self
+                .state
+                .dispatch_incoming_calls(serde_json::from_value(req.params)?),
+            m if m == CallHierarchyOutgoingCalls::METHOD => self
+                .state
+                .dispatch_outgoing_calls(serde_json::from_value(req.params)?),
+            m if m == TypeHierarchyPrepare::METHOD => self
+                .state
+                .dispatch_prepare_type_hierarchy(serde_json::from_value(req.params)?),
+            m if m == TypeHierarchySupertypes::METHOD => self
+                .state
+                .dispatch_supertypes(serde_json::from_value(req.params)?),
+            m if m == TypeHierarchySubtypes::METHOD => self
+                .state
+                .dispatch_subtypes(serde_json::from_value(req.params)?),
             m if m == Completion::METHOD => self
                 .state
                 .dispatch_completion(serde_json::from_value(req.params)?),

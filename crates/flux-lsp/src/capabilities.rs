@@ -1,9 +1,9 @@
 use lsp_types::{
-    CodeActionProviderCapability, CodeLensOptions, CompletionOptions, DefinitionOptions,
-    FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
-    OneOf, RenameOptions, SelectionRangeProviderCapability, SemanticTokensFullOptions,
-    SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities,
-    SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CallHierarchyServerCapability, CodeActionProviderCapability, CodeLensOptions,
+    CompletionOptions, DefinitionOptions, FoldingRangeProviderCapability, HoverProviderCapability,
+    ImplementationProviderCapability, OneOf, RenameOptions, SelectionRangeProviderCapability,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
     WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 
@@ -57,6 +57,9 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         // Jump from a `class` to its `instance` blocks
         // (handlers::implementation).
         implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+        // "Who calls this / what does this call" navigation
+        // (handlers::call_hierarchy): prepare + incoming/outgoing calls.
+        call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         // `prepare_provider: true` — the client sends `prepareRename` first
@@ -90,5 +93,36 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             file_operations: None,
         }),
         ..Default::default()
+    }
+}
+
+/// [`server_capabilities`] serialized to JSON with `typeHierarchyProvider` added.
+///
+/// `lsp-types` 0.97's [`ServerCapabilities`] predates the type-hierarchy
+/// capability and has no typed field for it, so the flag is injected after
+/// serialization. VS Code only enables `textDocument/prepareTypeHierarchy` (and
+/// the supertypes/subtypes follow-ups) when this top-level flag is advertised.
+pub fn server_capabilities_json(encoding: PositionEncoding) -> serde_json::Value {
+    let mut value = serde_json::to_value(server_capabilities(encoding))
+        .unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "typeHierarchyProvider".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    }
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capabilities_json_advertises_hierarchy_providers() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        assert_eq!(value["typeHierarchyProvider"], serde_json::json!(true));
+        // The typed capabilities still serialize alongside the injected flag.
+        assert_eq!(value["callHierarchyProvider"], serde_json::json!(true));
     }
 }

@@ -1275,6 +1275,7 @@ impl<'a> AstLowerer<'a> {
                 superclasses,
                 methods,
                 span,
+                ..
             } => Some(CoreTopLevelItem::Class {
                 name: *name,
                 type_params: type_params.clone(),

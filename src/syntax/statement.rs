@@ -165,6 +165,10 @@ pub enum Statement {
         superclasses: Vec<ClassConstraint>,
         methods: Vec<ClassMethod>,
         span: Span,
+        /// Span of the class name identifier alone. Distinct from the part of
+        /// `span` after the keyword because a superclass constraint pushes the
+        /// name past `=>` (`class Eq<a> => Ord<a>` — the name is `Ord`).
+        name_span: Span,
     },
     /// Instance declaration: instance Eq<a> => Eq<List<a>> { methods... }
     ///

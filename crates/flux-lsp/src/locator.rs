@@ -501,13 +501,12 @@ impl<'ast> Finder<'ast, '_> {
                 self.visit_type(&alias.body);
             }
             Statement::Class {
-                is_public,
-                name,
-                span,
-                ..
+                name, name_span, ..
             } => {
-                let name_start = decl_name_start(span.start, *is_public, "class");
-                self.record_name_at(name_start, *name, |s| NodeRef::DataName {
+                // The parser records the class name's own span — correct even
+                // with a superclass constraint (`class Eq<a> => Ord<a>`), where
+                // the name sits after `=>`, not right after the keyword.
+                self.record_name_at(name_span.start, *name, |s| NodeRef::DataName {
                     name: *name,
                     span: s,
                 });
@@ -901,22 +900,23 @@ impl<'ast> Finder<'ast, '_> {
     }
 }
 
-/// Synthesize the declaration-name start position for `data`, `effect`, etc.
-/// statements whose span begins at the keyword (not the name). Skips the
-/// optional `public ` prefix plus the keyword + a space.
+/// Synthesize the declaration-name start position for `data`, `class`, etc.
+/// statements: skip the keyword and the single space before the name.
+///
+/// The parser consumes a leading `public` modifier *before* it records the
+/// statement's span (see `parse_statement`'s `public` dispatch arms, which
+/// `next_token()` past `public` first), so `stmt_start` already points at the
+/// keyword — there is no `public ` prefix to skip. `_is_public` is kept only so
+/// call sites can pass the declaration's visibility flag without each having to
+/// know this; it does not affect the column.
 pub(crate) fn decl_name_start(
     stmt_start: FluxPosition,
-    is_public: bool,
+    _is_public: bool,
     keyword: &str,
 ) -> FluxPosition {
-    let mut col = stmt_start.column;
-    if is_public {
-        col += "public ".len();
-    }
-    col += keyword.len() + 1;
     FluxPosition {
         line: stmt_start.line,
-        column: col,
+        column: stmt_start.column + keyword.len() + 1,
     }
 }
 

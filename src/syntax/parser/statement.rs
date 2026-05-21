@@ -1650,44 +1650,52 @@ impl Parser {
         }
 
         let first_name = self.current_token.symbol.expect("ident should have symbol");
+        let first_name_span = self.current_token.span();
         let first_args = self.parse_type_params_angle_bracket();
 
         // Check for `=>` — if present, the first name was a superclass constraint.
         // Disambiguation: `class Eq<a> => Ord<a> { ... }`
         //   first_name = Eq, first_args = [a] → superclass constraint
         //   then parse Ord<a> as the actual class name
-        let (superclasses, class_name, type_params) = if self.is_peek_token(TokenType::FatArrow) {
-            let constraint_span = self.span_from(start);
-            let superclass = ClassConstraint {
-                class_name: first_name,
-                type_args: first_args
-                    .iter()
-                    .map(|&id| TypeExpr::Named {
-                        name: id,
-                        args: vec![],
-                        span: constraint_span,
-                    })
-                    .collect(),
-                span: constraint_span,
-            };
-            self.next_token(); // consume `=>`
+        let (superclasses, class_name, type_params, name_span) =
+            if self.is_peek_token(TokenType::FatArrow) {
+                let constraint_span = self.span_from(start);
+                let superclass = ClassConstraint {
+                    class_name: first_name,
+                    type_args: first_args
+                        .iter()
+                        .map(|&id| TypeExpr::Named {
+                            name: id,
+                            args: vec![],
+                            span: constraint_span,
+                        })
+                        .collect(),
+                    span: constraint_span,
+                };
+                self.next_token(); // consume `=>`
 
-            // Parse the actual class name and type params.
-            if !self.expect_peek_context_with_details(
-                TokenType::Ident,
-                "Missing Class Name",
-                DiagnosticCategory::ParserDeclaration,
-                "Expected class name after `=>`.".to_string(),
-                "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
-            ) {
-                return None;
-            }
-            let actual_name = self.current_token.symbol.expect("ident should have symbol");
-            let actual_params = self.parse_type_params_angle_bracket();
-            (vec![superclass], actual_name, actual_params)
-        } else {
-            (vec![], first_name, first_args)
-        };
+                // Parse the actual class name and type params.
+                if !self.expect_peek_context_with_details(
+                    TokenType::Ident,
+                    "Missing Class Name",
+                    DiagnosticCategory::ParserDeclaration,
+                    "Expected class name after `=>`.".to_string(),
+                    "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
+                ) {
+                    return None;
+                }
+                let actual_name = self.current_token.symbol.expect("ident should have symbol");
+                let actual_name_span = self.current_token.span();
+                let actual_params = self.parse_type_params_angle_bracket();
+                (
+                    vec![superclass],
+                    actual_name,
+                    actual_params,
+                    actual_name_span,
+                )
+            } else {
+                (vec![], first_name, first_args, first_name_span)
+            };
 
         // Expect `{`
         if !self.expect_peek_context_with_details(
@@ -1720,6 +1728,7 @@ impl Parser {
             superclasses,
             methods,
             span: self.span_from(start),
+            name_span,
         })
     }
 

@@ -1,4 +1,5 @@
 pub mod auto_import;
+pub mod call_hierarchy;
 pub mod code_action;
 pub mod code_lens;
 pub mod completion;
@@ -16,4 +17,5 @@ pub mod selection_range;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
+pub mod type_hierarchy;
 pub mod workspace_symbol;
