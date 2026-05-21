@@ -3829,12 +3829,16 @@ fn hover_request_is_served_via_worker() {
     let mut served = false;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        match client.receiver.recv_timeout(remaining).unwrap() {
-            Message::Response(r) if r.id == hover_id => {
+        if remaining.is_zero() {
+            break;
+        }
+        match client.receiver.recv_timeout(remaining) {
+            Ok(Message::Response(r)) if r.id == hover_id => {
                 served = true;
                 break;
             }
-            _ => continue,
+            Ok(_) => continue,
+            Err(_) => break,
         }
     }
     assert!(served, "expected a hover response from the worker thread");
@@ -5566,4 +5570,109 @@ fn linked_editing_none_off_identifier() {
 
     // Cursor on the `+` operator (line 2, char 10) — not an identifier.
     assert!(linked_editing(&mut state, &u, 2, 10).is_none());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// source.organizeImports
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Request code actions filtered to `source.organizeImports` and return the
+/// single TextEdit of the organize action, if any.
+fn organize_imports_edit(state: &mut GlobalState, u: &Uri) -> Option<TextEdit> {
+    let params = CodeActionParams {
+        text_document: ident(u),
+        range: Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, 0),
+        },
+        context: CodeActionContext {
+            diagnostics: vec![],
+            only: Some(vec![lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS]),
+            trigger_kind: None,
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let resp = state.handle_code_action(params)?;
+    let action = resp.into_iter().find_map(|a| match a {
+        CodeActionOrCommand::CodeAction(ca)
+            if ca.kind == Some(lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS) =>
+        {
+            Some(ca)
+        }
+        _ => None,
+    })?;
+    match action.edit?.document_changes? {
+        DocumentChanges::Edits(mut edits) => match edits.pop()?.edits.pop()? {
+            OneOf::Left(e) => Some(e),
+            OneOf::Right(_) => None,
+        },
+        _ => None,
+    }
+}
+
+#[test]
+fn organize_imports_sorts_and_drops_unused() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///org-imports.flx");
+    // `Zebra` is unused; `Apple` is used qualified. Out of alphabetical order.
+    open(
+        &mut state,
+        &u,
+        "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n",
+    );
+
+    let edit = organize_imports_edit(&mut state, &u).expect("organize action");
+    // Unused `Zebra` dropped, leaving only the used import.
+    assert_eq!(edit.new_text, "import Apple");
+    // The edit replaces the import block (lines 0..1).
+    assert_eq!(edit.range.start, Position::new(0, 0));
+    assert_eq!(edit.range.end.line, 1);
+}
+
+#[test]
+fn organize_imports_keeps_exposing_imports() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///org-exposing.flx");
+    // `Helpers` is never used *qualified*, but it exposes `go` unqualified —
+    // so it must not be dropped (the unused check can't see the `go` binding).
+    open(
+        &mut state,
+        &u,
+        "import Helpers exposing (go)\n\nfn main() with IO {\n    go()\n}\n",
+    );
+
+    // Already sorted + nothing safely removable → no edit offered.
+    assert!(organize_imports_edit(&mut state, &u).is_none());
+}
+
+#[test]
+fn organize_imports_not_offered_without_source_request() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///org-noreq.flx");
+    open(
+        &mut state,
+        &u,
+        "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n",
+    );
+
+    // A normal (cursor) code-action request carries no `only` filter, so the
+    // source action must not appear.
+    let resp = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(0, 0),
+            },
+        ))
+        .unwrap_or_default();
+    assert!(
+        !resp.iter().any(|a| matches!(
+            a,
+            CodeActionOrCommand::CodeAction(ca)
+                if ca.kind == Some(lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS)
+        )),
+        "organize-imports should not appear without an explicit source request"
+    );
 }

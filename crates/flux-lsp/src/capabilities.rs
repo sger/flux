@@ -1,13 +1,13 @@
 use lsp_types::{
-    CallHierarchyServerCapability, CodeActionProviderCapability, CodeLensOptions,
-    CompletionOptions, DefinitionOptions, DiagnosticOptions, DiagnosticServerCapabilities,
-    DocumentLinkOptions, DocumentOnTypeFormattingOptions, FileOperationFilter,
-    FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
-    FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
-    InlayHintOptions, InlayHintServerCapabilities, LinkedEditingRangeServerCapabilities, OneOf,
-    RenameOptions, SelectionRangeProviderCapability, SemanticTokensFullOptions,
-    SemanticTokensOptions, SemanticTokensServerCapabilities, ServerCapabilities,
-    SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CallHierarchyServerCapability, CodeActionKind, CodeActionOptions, CodeActionProviderCapability,
+    CodeLensOptions, CompletionOptions, DefinitionOptions, DiagnosticOptions,
+    DiagnosticServerCapabilities, DocumentLinkOptions, DocumentOnTypeFormattingOptions,
+    FileOperationFilter, FileOperationPattern, FileOperationPatternKind,
+    FileOperationRegistrationOptions, FoldingRangeProviderCapability, HoverProviderCapability,
+    ImplementationProviderCapability, InlayHintOptions, InlayHintServerCapabilities,
+    LinkedEditingRangeServerCapabilities, OneOf, RenameOptions, SelectionRangeProviderCapability,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
+    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
@@ -47,10 +47,17 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             retrigger_characters: Some(vec![",".to_string(), ")".to_string()]),
             work_done_progress_options: Default::default(),
         }),
-        // Quick fixes derived from diagnostics (handlers::code_action).
-        // `Simple(true)` — the server does not pre-filter by
-        // `CodeActionKind`; every action it returns is a `QuickFix`.
-        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        // Diagnostic quick fixes plus the `source.organizeImports` source
+        // action (handlers::code_action). Advertising `code_action_kinds` lets
+        // VS Code surface the "Organize Imports" command and run it on save.
+        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+            code_action_kinds: Some(vec![
+                CodeActionKind::QUICKFIX,
+                CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+            ]),
+            work_done_progress_options: Default::default(),
+            resolve_provider: None,
+        })),
         // "▶ Run" / "▶ Run Test" runnables (handlers::code_lens). The command
         // is fully specified by the server, so no lazy `resolve` is needed.
         code_lens_provider: Some(CodeLensOptions {
@@ -219,6 +226,16 @@ mod tests {
         let provider = &value["documentOnTypeFormattingProvider"];
         assert_eq!(provider["firstTriggerCharacter"], serde_json::json!("\n"));
         assert_eq!(provider["moreTriggerCharacter"], serde_json::json!(["}"]));
+    }
+
+    #[test]
+    fn capabilities_advertise_organize_imports() {
+        let value = server_capabilities_json(PositionEncoding::Utf16);
+        let kinds = &value["codeActionProvider"]["codeActionKinds"];
+        assert_eq!(
+            kinds,
+            &serde_json::json!(["quickfix", "source.organizeImports"])
+        );
     }
 
     #[test]

@@ -359,42 +359,37 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
                     parameter_types,
                     ..
                 } = stmt
+                    && *span == *function_span
                 {
-                    if *span == *function_span {
-                        if let Some(idx) = parameters.iter().position(|p| *p == *name) {
-                            // Prefer the written type annotation.
-                            if let Some(Some(ty)) = parameter_types.get(idx) {
-                                return Some(format!(
-                                    "{resolved}: {}",
-                                    ty.display_with(&snapshot.interner)
-                                ));
-                            }
-                            // Fall back to the inferred parameter type from the
-                            // function's scheme (Fun(param_types, _, _)).
-                            let key = (
-                                span.start.line,
-                                span.start.column,
-                                span.end.line,
-                                span.end.column,
-                            );
-                            if let Some(infer) = snapshot.infer.as_ref()
-                                && let Some(scheme) =
-                                    infer.resolved_binding_schemes_by_span.get(&key)
-                                && let flux::types::infer_type::InferType::Fun(
-                                    param_infer_types,
-                                    _,
-                                    _,
-                                ) = &scheme.infer_type
-                                && let Some(param_ty) = param_infer_types.get(idx)
-                            {
-                                return Some(format!(
-                                    "{resolved}: {}",
-                                    display_infer_type(param_ty, &snapshot.interner)
-                                ));
-                            }
+                    if let Some(idx) = parameters.iter().position(|p| *p == *name) {
+                        // Prefer the written type annotation.
+                        if let Some(Some(ty)) = parameter_types.get(idx) {
+                            return Some(format!(
+                                "{resolved}: {}",
+                                ty.display_with(&snapshot.interner)
+                            ));
                         }
-                        break;
+                        // Fall back to the inferred parameter type from the
+                        // function's scheme (Fun(param_types, _, _)).
+                        let key = (
+                            span.start.line,
+                            span.start.column,
+                            span.end.line,
+                            span.end.column,
+                        );
+                        if let Some(infer) = snapshot.infer.as_ref()
+                            && let Some(scheme) = infer.resolved_binding_schemes_by_span.get(&key)
+                            && let flux::types::infer_type::InferType::Fun(param_infer_types, _, _) =
+                                &scheme.infer_type
+                            && let Some(param_ty) = param_infer_types.get(idx)
+                        {
+                            return Some(format!(
+                                "{resolved}: {}",
+                                display_infer_type(param_ty, &snapshot.interner)
+                            ));
+                        }
                     }
+                    break;
                 }
             }
 

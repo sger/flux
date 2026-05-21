@@ -292,10 +292,10 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             if *name == target {
                 out.push(*span);
             }
-            if let Some(a) = alias {
-                if *a == target {
-                    out.push(*span);
-                }
+            if let Some(a) = alias
+                && *a == target
+            {
+                out.push(*span);
             }
         }
         _ => {}
@@ -317,10 +317,8 @@ fn collect_in_variant(variant: &DataVariant, target: Identifier, out: &mut Vec<F
 
 fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan>) {
     match expr {
-        Expression::Identifier { name, span, .. } => {
-            if *name == target {
-                out.push(*span);
-            }
+        Expression::Identifier { name, span, .. } if *name == target => {
+            out.push(*span);
         }
         Expression::Call {
             function,
@@ -459,10 +457,8 @@ fn collect_in_block(block: &Block, target: Identifier, out: &mut Vec<FluxSpan>) 
 
 fn collect_in_pattern(pat: &Pattern, target: Identifier, out: &mut Vec<FluxSpan>) {
     match pat {
-        Pattern::Identifier { name, span } => {
-            if *name == target {
-                out.push(*span);
-            }
+        Pattern::Identifier { name, span } if *name == target => {
+            out.push(*span);
         }
         Pattern::Tuple { elements, .. } => {
             for e in elements {

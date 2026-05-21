@@ -227,10 +227,10 @@ fn expr_items(
 ) -> CompletionResponse {
     let mut items = top_level_items(snapshot);
 
-    if let Some(fn_span) = enclosing_fn {
-        if let Some(offset) = snapshot.position_map.lsp_to_offset(position) {
-            collect_locals(snapshot, fn_span, usize::from(offset), &mut items);
-        }
+    if let Some(fn_span) = enclosing_fn
+        && let Some(offset) = snapshot.position_map.lsp_to_offset(position)
+    {
+        collect_locals(snapshot, fn_span, usize::from(offset), &mut items);
     }
 
     items.extend(KEYWORDS.iter().map(|kw| CompletionItem {
@@ -972,21 +972,20 @@ fn collect_pattern_bindings(
 
 fn enclosing_function_span(snapshot: &Snapshot, offset: usize) -> Option<FluxSpan> {
     for stmt in &snapshot.program.statements {
-        if let Statement::Function { span, body, .. } = stmt {
-            if span_contains_offset(*span, &snapshot.position_map, offset) {
-                // Check one level of nested functions
-                for inner in &body.statements {
-                    if let Statement::Function {
-                        span: inner_span, ..
-                    } = inner
-                    {
-                        if span_contains_offset(*inner_span, &snapshot.position_map, offset) {
-                            return Some(*inner_span);
-                        }
-                    }
+        if let Statement::Function { span, body, .. } = stmt
+            && span_contains_offset(*span, &snapshot.position_map, offset)
+        {
+            // Check one level of nested functions
+            for inner in &body.statements {
+                if let Statement::Function {
+                    span: inner_span, ..
+                } = inner
+                    && span_contains_offset(*inner_span, &snapshot.position_map, offset)
+                {
+                    return Some(*inner_span);
                 }
-                return Some(*span);
             }
+            return Some(*span);
         }
     }
     None
