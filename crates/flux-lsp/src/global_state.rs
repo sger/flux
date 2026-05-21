@@ -10,13 +10,15 @@ use lsp_types::{
     CodeActionParams, CodeActionResponse, CodeLens, CodeLensParams, CompletionItem,
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentFormattingParams, DocumentHighlight, DocumentHighlightParams, DocumentSymbolParams,
-    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams, Location,
-    PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameParams, SelectionRange,
-    SelectionRangeParams, SemanticTokens, SemanticTokensParams, SignatureHelp, SignatureHelpParams,
-    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
-    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, WorkspaceEdit,
+    DocumentDiagnosticParams, DocumentDiagnosticReportResult, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, DocumentLink, DocumentLinkParams,
+    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InlayHint, InlayHintParams,
+    Location, PrepareRenameResponse, PublishDiagnosticsParams, ReferenceParams, RenameFilesParams,
+    RenameParams, SelectionRange, SelectionRangeParams, SemanticTokens, SemanticTokensParams,
+    SignatureHelp, SignatureHelpParams, TextDocumentPositionParams, TextEdit, TypeHierarchyItem,
+    TypeHierarchyPrepareParams, TypeHierarchySubtypesParams, TypeHierarchySupertypesParams,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceEdit,
     WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
@@ -29,6 +31,10 @@ use crate::workspace::Workspace;
 pub struct GlobalState {
     pub workspace: Workspace,
     pub encoding: PositionEncoding,
+    /// `flux.workspaceDiagnostics.scanAllFiles` — when set, `workspace/diagnostic`
+    /// force-analyzes every discovered `.flx` instead of just the analyzed
+    /// working set. Off by default (see `handlers::diagnostics::workspace_gather`).
+    workspace_diagnostics_scan_all: bool,
 }
 
 impl Default for GlobalState {
@@ -42,7 +48,14 @@ impl GlobalState {
         Self {
             workspace: Workspace::new(encoding),
             encoding,
+            workspace_diagnostics_scan_all: false,
         }
+    }
+
+    /// Set the `flux.workspaceDiagnostics.scanAllFiles` flag (from the client's
+    /// `initializationOptions`). Called once after `initialize`.
+    pub fn set_workspace_diagnostics_scan_all(&mut self, scan_all: bool) {
+        self.workspace_diagnostics_scan_all = scan_all;
     }
 
     /// Adopt the client's workspace folders (called once from `main` after
@@ -328,6 +341,16 @@ impl GlobalState {
         Some(handlers::code_lens::code_lenses(snapshot, &uri))
     }
 
+    pub fn handle_document_link(
+        &mut self,
+        params: DocumentLinkParams,
+    ) -> Option<Vec<DocumentLink>> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        Some(handlers::document_link::document_links(snapshot))
+    }
+
     pub fn handle_formatting(&mut self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
         let snapshot = self
             .workspace
@@ -424,6 +447,46 @@ impl GlobalState {
             };
         };
         handlers::semantic_tokens::semantic_tokens(snapshot)
+    }
+
+    /// `textDocument/diagnostic` (pull model). Always answers with a concrete
+    /// report — an unknown document yields an empty `Full` report rather than
+    /// `null` (a pull result can't be null).
+    pub fn handle_document_diagnostic(
+        &mut self,
+        params: DocumentDiagnosticParams,
+    ) -> DocumentDiagnosticReportResult {
+        match self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+        {
+            Some(snapshot) => {
+                handlers::diagnostics::report(snapshot, params.previous_result_id.as_deref())
+            }
+            None => handlers::diagnostics::empty_report(),
+        }
+    }
+
+    /// `workspace/diagnostic` (project-wide pull). Reports problems for every
+    /// file the workspace knows, short-circuiting unchanged ones via the result
+    /// ids the client round-trips back.
+    pub fn handle_workspace_diagnostic(
+        &mut self,
+        params: WorkspaceDiagnosticParams,
+    ) -> WorkspaceDiagnosticReportResult {
+        let scan_all = self.workspace_diagnostics_scan_all;
+        let files = handlers::diagnostics::workspace_gather(
+            &mut self.workspace,
+            &params.previous_result_ids,
+            scan_all,
+        );
+        handlers::diagnostics::workspace_report(&files)
+    }
+
+    /// `workspace/willRenameFiles` — rewrite `import`s so a renamed/moved module
+    /// file keeps resolving. `None` when the rename touches no module reference.
+    pub fn handle_will_rename_files(&mut self, params: RenameFilesParams) -> Option<WorkspaceEdit> {
+        handlers::rename_files::will_rename_files(&mut self.workspace, &params.files)
     }
 
     // ── request dispatch (worker thread) ───────────────────────────────────
@@ -638,6 +701,16 @@ impl GlobalState {
         }))
     }
 
+    pub fn dispatch_document_link(&mut self, params: DocumentLinkParams) -> Option<Job> {
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned()?;
+        Some(Box::new(move || {
+            to_value(handlers::document_link::document_links(&snapshot))
+        }))
+    }
+
     pub fn dispatch_formatting(&mut self, params: DocumentFormattingParams) -> Option<Job> {
         let snapshot = self
             .workspace
@@ -714,6 +787,54 @@ impl GlobalState {
         Some(Box::new(move || {
             to_value(handlers::semantic_tokens::semantic_tokens(&snapshot))
         }))
+    }
+
+    /// Worker-thread `textDocument/diagnostic`. Always returns a job (never
+    /// `None`) so the dispatcher never falls back to a `null` response — a pull
+    /// result must be a report.
+    pub fn dispatch_document_diagnostic(
+        &mut self,
+        params: DocumentDiagnosticParams,
+    ) -> Option<Job> {
+        let previous = params.previous_result_id;
+        let snapshot = self
+            .workspace
+            .ensure_snapshot_for_uri(&params.text_document.uri)
+            .cloned();
+        Some(Box::new(move || match snapshot {
+            Some(snapshot) => to_value(handlers::diagnostics::report(
+                &snapshot,
+                previous.as_deref(),
+            )),
+            None => to_value(handlers::diagnostics::empty_report()),
+        }))
+    }
+
+    /// Worker-thread `workspace/diagnostic`. Snapshots are built/collected on
+    /// the main thread (the gather needs `&mut Workspace`); the per-file report
+    /// rendering runs off-thread. Always returns a job — a pull result can't be
+    /// null.
+    pub fn dispatch_workspace_diagnostic(
+        &mut self,
+        params: WorkspaceDiagnosticParams,
+    ) -> Option<Job> {
+        let scan_all = self.workspace_diagnostics_scan_all;
+        let files = handlers::diagnostics::workspace_gather(
+            &mut self.workspace,
+            &params.previous_result_ids,
+            scan_all,
+        );
+        Some(Box::new(move || {
+            to_value(handlers::diagnostics::workspace_report(&files))
+        }))
+    }
+
+    /// Worker-thread `workspace/willRenameFiles`. The edit needs `&mut Workspace`
+    /// (it ensures dependents' snapshots), so it's computed on the main thread;
+    /// `None` (no edit) lets the dispatcher reply `null`, which is valid here.
+    pub fn dispatch_will_rename_files(&mut self, params: RenameFilesParams) -> Option<Job> {
+        let edit = handlers::rename_files::will_rename_files(&mut self.workspace, &params.files)?;
+        Some(Box::new(move || to_value(edit)))
     }
 
     pub fn dispatch_references(&mut self, params: ReferenceParams) -> Option<Job> {

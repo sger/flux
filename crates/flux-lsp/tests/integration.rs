@@ -17,14 +17,17 @@ use lsp_types::{
     CallHierarchyPrepareParams, ClientCapabilities, CodeActionContext, CodeActionOrCommand,
     CodeActionParams, CodeLensParams, CompletionItem, CompletionParams, CompletionResponse,
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentChanges, DocumentFormattingParams, DocumentHighlightParams,
-    DocumentSymbolParams, Documentation, FileChangeType, FileEvent, FoldingRangeParams,
-    FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams,
-    NumberOrString, OneOf, PartialResultParams, Position, Range, ReferenceContext, ReferenceParams,
-    RenameParams, SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, TypeHierarchyItem, TypeHierarchyPrepareParams,
+    DidOpenTextDocumentParams, DocumentChanges, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentDiagnosticReportResult, DocumentFormattingParams, DocumentHighlightParams,
+    DocumentLinkParams, DocumentSymbolParams, Documentation, FileChangeType, FileEvent, FileRename,
+    FoldingRangeParams, FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams,
+    InitializedParams, NumberOrString, OneOf, PartialResultParams, Position, PreviousResultId,
+    Range, ReferenceContext, ReferenceParams, RenameFilesParams, RenameParams,
+    SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
     TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, Uri, WorkDoneProgressParams,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceDocumentDiagnosticReport,
+    WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -610,6 +613,41 @@ fn goto_definition_resolves_local_let() {
     let loc = expect_location(resp);
     assert_eq!(loc.uri, u);
     assert_eq!(loc.range.start.line, 0, "definition should land on line 0");
+}
+
+#[test]
+fn goto_definition_on_constrained_instance_head_jumps_to_class() {
+    // The head class name of a constrained instance sits after `=>`. F12 on it
+    // should resolve (to the `class` declaration), not mis-target the context
+    // constraint right after `instance `.
+    let mut state = GlobalState::default();
+    let u = uri("file:///constrained-instance.flx");
+    open(
+        &mut state,
+        &u,
+        "class Eq<a> { fn eq(x: a, y: a) -> Bool }\n\
+         instance Eq<a> => Eq<List<a>> { fn eq(x, y) { true } }\n",
+    );
+
+    // `Eq` after `=>` is at line 1, char 18.
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 1,
+                    character: 18,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("definition result for the instance head");
+    let loc = expect_location(resp);
+    assert_eq!(
+        loc.range.start.line, 0,
+        "the instance head `Eq` should resolve to the class on line 0"
+    );
 }
 
 #[test]
@@ -1315,6 +1353,71 @@ fn hover_on_module_member_use_shows_doc_comment() {
     assert!(
         md.contains("Case analysis for Either"),
         "expected the Flow.Either member doc, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_class_method_shows_doc_and_signature() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///class-method.flx");
+    open(
+        &mut state,
+        &u,
+        "class LocalEq<a> {\n    /// Structural equality.\n    fn eq(x: a, y: a) -> Bool\n}\n",
+    );
+
+    // Hover on `eq` (line 2, char 7 — after "    fn ").
+    let md = hover_markup(&mut state, &u, 2, 7).expect("hover on class method `eq`");
+    assert!(
+        md.contains("Structural equality."),
+        "expected the method doc comment, got: {md}"
+    );
+    assert!(
+        md.contains("fn eq(x: a, y: a) -> Bool"),
+        "expected the declared signature, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_instance_method_shows_doc_and_class_signature() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///instance-method.flx");
+    open(
+        &mut state,
+        &u,
+        "class LocalEq<a> {\n    fn eq(x: a, y: a) -> Bool\n}\n\
+         instance LocalEq<Int> {\n    /// Int equality.\n    fn eq(x, y) { x == y }\n}\n",
+    );
+
+    // Hover on `eq` in the instance method (line 5, char 7).
+    let md = hover_markup(&mut state, &u, 5, 7).expect("hover on instance method `eq`");
+    assert!(
+        md.contains("Int equality."),
+        "expected the instance method doc comment, got: {md}"
+    );
+    // An instance method has no annotations of its own — hover renders the
+    // class's declared signature.
+    assert!(
+        md.contains("fn eq(x: a, y: a) -> Bool"),
+        "expected the class's declared signature, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_type_use_shows_declaration_doc() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///type-use.flx");
+    open(
+        &mut state,
+        &u,
+        "/// A 2D point.\ndata Point { Point { x: Int } }\nlet p: Point = Point { x: 0 }\n",
+    );
+
+    // Hover on `Point` in the annotation `let p: Point` (line 2, char 8).
+    let md = hover_markup(&mut state, &u, 2, 8).expect("hover on type use `Point`");
+    assert!(
+        md.contains("A 2D point."),
+        "expected the type declaration's doc comment at the use site, got: {md}"
     );
 }
 
@@ -2370,6 +2473,15 @@ fn code_lens_offers_run_above_main() {
     assert!(cmd.title.contains("Run"), "title was {:?}", cmd.title);
 }
 
+/// All commands of `name` carried by `lenses`.
+fn lens_cmds<'a>(lenses: &'a [lsp_types::CodeLens], name: &str) -> Vec<&'a lsp_types::Command> {
+    lenses
+        .iter()
+        .filter_map(|l| l.command.as_ref())
+        .filter(|c| c.command == name)
+        .collect()
+}
+
 #[test]
 fn code_lens_offers_run_test_per_test_function() {
     let mut state = GlobalState::default();
@@ -2383,15 +2495,76 @@ fn code_lens_offers_run_test_per_test_function() {
     let lenses = state
         .handle_code_lens(code_lens_params(&u))
         .expect("code lenses");
-    assert_eq!(lenses.len(), 2, "a lens per test fn, none for `helper`");
-    let cmd = lenses[0].command.as_ref().expect("lens command");
-    assert_eq!(cmd.command, "flux.runTest");
-    let args = cmd.arguments.as_ref().expect("lens arguments");
+    let per_test = lens_cmds(&lenses, "flux.runTest");
+    assert_eq!(per_test.len(), 2, "a lens per test fn, none for `helper`");
+    let args = per_test[0].arguments.as_ref().expect("lens arguments");
     assert_eq!(
         args[1],
         serde_json::json!("test_a"),
         "the test name should travel as the second command argument"
     );
+}
+
+#[test]
+fn code_lens_offers_run_all_tests_for_multiple_tests() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///run-all.flx");
+    open(
+        &mut state,
+        &u,
+        "fn test_a() { assert_true(true) }\nfn test_b() { assert_true(true) }\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    let run_all = lens_cmds(&lenses, "flux.runTests");
+    assert_eq!(
+        run_all.len(),
+        1,
+        "exactly one file-level run-all-tests lens, got {lenses:?}"
+    );
+    assert!(
+        run_all[0].title.contains("all"),
+        "title was {:?}",
+        run_all[0].title
+    );
+    // It carries only the file URI — no per-test filter.
+    assert_eq!(
+        run_all[0].arguments.as_ref().map(Vec::len),
+        Some(1),
+        "run-all should carry just the file uri"
+    );
+    // It sits on the first test's line (above `test_a`).
+    let run_all_range = lenses
+        .iter()
+        .find(|l| {
+            l.command
+                .as_ref()
+                .is_some_and(|c| c.command == "flux.runTests")
+        })
+        .map(|l| l.range)
+        .unwrap();
+    assert_eq!(
+        run_all_range.start.line, 0,
+        "run-all should be above test_a"
+    );
+}
+
+#[test]
+fn code_lens_no_run_all_for_single_test() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///single-test.flx");
+    open(&mut state, &u, "fn test_only() { assert_true(true) }\n");
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    assert!(
+        lens_cmds(&lenses, "flux.runTests").is_empty(),
+        "a lone test needs no run-all lens, got {lenses:?}"
+    );
+    assert_eq!(lens_cmds(&lenses, "flux.runTest").len(), 1);
 }
 
 #[test]
@@ -4195,5 +4368,465 @@ fn type_hierarchy_supertypes_lists_superclass() {
     assert!(
         supers.iter().any(|i| i.name == "Eq"),
         "expected `Eq` among Ord's supertypes, got {supers:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pull-model diagnostics (textDocument/diagnostic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn diagnostic_report(
+    state: &mut GlobalState,
+    u: &Uri,
+    previous_result_id: Option<String>,
+) -> DocumentDiagnosticReportResult {
+    state.handle_document_diagnostic(DocumentDiagnosticParams {
+        text_document: ident(u),
+        identifier: None,
+        previous_result_id,
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    })
+}
+
+/// Unwrap a `Full` pull report into its `(result_id, diagnostics)`.
+fn expect_full(
+    result: DocumentDiagnosticReportResult,
+) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
+    match result {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(r)) => {
+            let r = r.full_document_diagnostic_report;
+            (r.result_id, r.items)
+        }
+        other => panic!("expected a Full report, got {other:?}"),
+    }
+}
+
+#[test]
+fn document_diagnostic_full_report_carries_diagnostics() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///pull-diag.flx");
+    open(&mut state, &u, "fn main() {\n    let y = mystery + 1\n}\n");
+
+    let (result_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
+    assert!(
+        result_id.is_some(),
+        "a Full report should carry a result id"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        "expected the E004 squiggle in the pull report, got {items:?}"
+    );
+}
+
+#[test]
+fn document_diagnostic_unchanged_when_result_id_matches() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///pull-unchanged.flx");
+    open(&mut state, &u, "fn main() {\n    let y = mystery + 1\n}\n");
+
+    // First pull yields a Full report tagged with a result id.
+    let (result_id, _) = expect_full(diagnostic_report(&mut state, &u, None));
+    let result_id = result_id.expect("a result id");
+
+    // Re-pulling with that id — the document is untouched — short-circuits to
+    // an Unchanged report echoing the same id (no diagnostics on the wire).
+    match diagnostic_report(&mut state, &u, Some(result_id.clone())) {
+        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Unchanged(r)) => {
+            assert_eq!(r.unchanged_document_diagnostic_report.result_id, result_id);
+        }
+        other => panic!("expected an Unchanged report, got {other:?}"),
+    }
+}
+
+#[test]
+fn document_diagnostic_full_when_result_id_is_stale() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///pull-stale.flx");
+    open(&mut state, &u, "fn main() {\n    let y = mystery + 1\n}\n");
+
+    // A non-matching previous id forces a fresh Full report.
+    let (result_id, items) =
+        expect_full(diagnostic_report(&mut state, &u, Some("stale".to_string())));
+    assert!(result_id.is_some());
+    assert!(
+        items
+            .iter()
+            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        "a stale id should still return the diagnostics, got {items:?}"
+    );
+}
+
+#[test]
+fn document_diagnostic_unknown_document_is_empty_full() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///never-opened.flx");
+
+    // No snapshot for the document — a pull result can't be null, so the server
+    // answers with an empty Full report.
+    let (_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
+    assert!(
+        items.is_empty(),
+        "an unknown document should report no diagnostics, got {items:?}"
+    );
+}
+
+#[test]
+fn document_diagnostic_clean_file_has_no_items() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("pull-clean.flx");
+    open(&mut state, &u, "fn add(a, b) { a + b }\n");
+
+    let (result_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
+    assert!(result_id.is_some());
+    assert!(
+        items.is_empty(),
+        "a well-formed file should pull no diagnostics, got {items:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspace-wide pull diagnostics (workspace/diagnostic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn workspace_diagnostic(
+    state: &mut GlobalState,
+    previous_result_ids: Vec<PreviousResultId>,
+) -> Vec<WorkspaceDocumentDiagnosticReport> {
+    let result = state.handle_workspace_diagnostic(WorkspaceDiagnosticParams {
+        identifier: None,
+        previous_result_ids,
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    match result {
+        WorkspaceDiagnosticReportResult::Report(r) => r.items,
+        other => panic!("expected a workspace Report, got {other:?}"),
+    }
+}
+
+fn report_uri(report: &WorkspaceDocumentDiagnosticReport) -> &Uri {
+    match report {
+        WorkspaceDocumentDiagnosticReport::Full(f) => &f.uri,
+        WorkspaceDocumentDiagnosticReport::Unchanged(u) => &u.uri,
+    }
+}
+
+#[test]
+fn workspace_diagnostic_reports_analyzed_files_only() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    // `mystery` is undefined → an E004 the workspace sweep should surface.
+    let main = "import Math as M\n\nfn run() { M.twice(mystery) }\n";
+    // A module nobody opens or imports — must stay out of the sweep so the
+    // project's long tail of files doesn't flood the report.
+    let unrelated = "module Unrelated {\n    public fn noop() { 0 }\n}\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[
+        ("Math.flx", math),
+        ("main.flx", main),
+        ("Unrelated.flx", unrelated),
+    ]);
+
+    // Opening main pulls Math into its component — both get analyzed, even
+    // though only main was opened. `Unrelated` is never analyzed.
+    open(&mut state, &uris[1], main);
+
+    let items = workspace_diagnostic(&mut state, vec![]);
+    assert_eq!(
+        items.len(),
+        2,
+        "only the analyzed working set (main + imported Math), got {items:?}"
+    );
+    assert!(
+        items.iter().all(|it| report_uri(it) != &uris[2]),
+        "the never-opened Unrelated module must not be reported"
+    );
+
+    // main.flx: a Full report carrying the E004.
+    let main_full = items
+        .iter()
+        .find_map(|it| match it {
+            WorkspaceDocumentDiagnosticReport::Full(f) if f.uri == uris[1] => Some(f),
+            _ => None,
+        })
+        .expect("a Full report for main.flx");
+    assert!(
+        main_full
+            .full_document_diagnostic_report
+            .items
+            .iter()
+            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        "expected E004 in main.flx's workspace report, got {:?}",
+        main_full.full_document_diagnostic_report.items
+    );
+
+    // Math.flx: analyzed as main's import, reported clean.
+    let math_full = items
+        .iter()
+        .find_map(|it| match it {
+            WorkspaceDocumentDiagnosticReport::Full(f) if f.uri == uris[0] => Some(f),
+            _ => None,
+        })
+        .expect("a Full report for Math.flx");
+    assert!(
+        math_full.full_document_diagnostic_report.items.is_empty(),
+        "Math.flx should be clean, got {:?}",
+        math_full.full_document_diagnostic_report.items
+    );
+}
+
+#[test]
+fn workspace_diagnostic_scan_all_reports_unopened_files() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    // An unopened file with an undefined name — exactly the "red folder" case.
+    let broken = "fn lonely() { mystery + 1 }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math), ("Broken.flx", broken)]);
+
+    // The opt-in flag force-analyzes every discovered file, so both are reported
+    // even though neither was opened.
+    state.set_workspace_diagnostics_scan_all(true);
+    let items = workspace_diagnostic(&mut state, vec![]);
+    assert!(
+        items.iter().any(|it| report_uri(it) == &uris[0]),
+        "scan-all should report the never-opened Math.flx"
+    );
+    // And the unopened file's error is surfaced — this is what reddens folders.
+    let broken_full = items
+        .iter()
+        .find_map(|it| match it {
+            WorkspaceDocumentDiagnosticReport::Full(f) if f.uri == uris[1] => Some(f),
+            _ => None,
+        })
+        .expect("a report for the never-opened Broken.flx");
+    assert!(
+        broken_full
+            .full_document_diagnostic_report
+            .items
+            .iter()
+            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        "scan-all should surface E004 in the unopened Broken.flx, got {:?}",
+        broken_full.full_document_diagnostic_report.items
+    );
+}
+
+#[test]
+fn workspace_diagnostic_unchanged_on_second_pull() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+
+    // Analyze the working set (opening main pulls in Math).
+    open(&mut state, &uris[1], main);
+
+    // First sweep: every analyzed file comes back Full with a result id.
+    let first = workspace_diagnostic(&mut state, vec![]);
+    let previous: Vec<PreviousResultId> = first
+        .iter()
+        .filter_map(|it| match it {
+            WorkspaceDocumentDiagnosticReport::Full(f) => f
+                .full_document_diagnostic_report
+                .result_id
+                .clone()
+                .map(|value| PreviousResultId {
+                    uri: f.uri.clone(),
+                    value,
+                }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(previous.len(), 2, "both files should carry a result id");
+
+    // Nothing changed, so re-pulling with those ids yields all Unchanged.
+    let second = workspace_diagnostic(&mut state, previous);
+    assert!(
+        second
+            .iter()
+            .all(|it| matches!(it, WorkspaceDocumentDiagnosticReport::Unchanged(_))),
+        "expected every report Unchanged on the second pull, got {second:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rename-file import fixes (workspace/willRenameFiles)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Every `TextEdit` the workspace edit targets at `uri`.
+fn edits_for(edit: &WorkspaceEdit, uri: &Uri) -> Vec<TextEdit> {
+    match &edit.document_changes {
+        Some(DocumentChanges::Edits(changes)) => changes
+            .iter()
+            .filter(|c| &c.text_document.uri == uri)
+            .flat_map(|c| {
+                c.edits.iter().filter_map(|e| match e {
+                    OneOf::Left(te) => Some(te.clone()),
+                    OneOf::Right(_) => None,
+                })
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Apply non-overlapping LSP `TextEdit`s to an ASCII source (line/char == byte).
+fn apply_edits(src: &str, edits: &[TextEdit]) -> String {
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(src.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let off = |p: Position| line_starts[p.line as usize] + p.character as usize;
+    let mut spans: Vec<(usize, usize, &str)> = edits
+        .iter()
+        .map(|e| (off(e.range.start), off(e.range.end), e.new_text.as_str()))
+        .collect();
+    spans.sort_by_key(|(s, _, _)| *s);
+    let mut out = String::new();
+    let mut cursor = 0;
+    for (s, e, new) in spans {
+        out.push_str(&src[cursor..s]);
+        out.push_str(new);
+        cursor = e;
+    }
+    out.push_str(&src[cursor..]);
+    out
+}
+
+fn rename_to(dir: &std::path::Path, old: &Uri, new_name: &str) -> RenameFilesParams {
+    let new_uri = flux_lsp::vfs::path_to_uri(&dir.join(new_name)).unwrap();
+    RenameFilesParams {
+        files: vec![FileRename {
+            old_uri: old.as_str().to_string(),
+            new_uri: new_uri.as_str().to_string(),
+        }],
+    }
+}
+
+#[test]
+fn will_rename_rewrites_module_decl_and_unaliased_uses() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main = "import Math\n\nfn run() { Math.twice(21) }\n";
+    let (dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+
+    let edit = state
+        .handle_will_rename_files(rename_to(dir.path(), &uris[0], "Calc.flx"))
+        .expect("a workspace edit for the rename");
+
+    // The renamed file's own declaration moves to the new name.
+    assert_eq!(
+        apply_edits(math, &edits_for(&edit, &uris[0])),
+        "module Calc {\n    public fn twice(x) { x * 2 }\n}\n"
+    );
+    // The dependent's import path AND its unaliased `Math.` use are rewritten.
+    assert_eq!(
+        apply_edits(main, &edits_for(&edit, &uris[1])),
+        "import Calc\n\nfn run() { Calc.twice(21) }\n"
+    );
+}
+
+#[test]
+fn will_rename_leaves_aliased_uses_alone() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main = "import Math as M\n\nfn run() { M.twice(21) }\n";
+    let (dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+
+    let edit = state
+        .handle_will_rename_files(rename_to(dir.path(), &uris[0], "Calc.flx"))
+        .expect("a workspace edit for the rename");
+
+    // Only the import path changes; the alias `M` (and `M.twice`) stay put.
+    let main_edits = edits_for(&edit, &uris[1]);
+    assert_eq!(
+        main_edits.len(),
+        1,
+        "only the import path, got {main_edits:?}"
+    );
+    assert_eq!(
+        apply_edits(main, &main_edits),
+        "import Calc as M\n\nfn run() { M.twice(21) }\n"
+    );
+}
+
+#[test]
+fn will_rename_entry_script_makes_no_edits() {
+    // main.flx declares no module, so nothing imports it — a rename needs no
+    // import fixes.
+    let main = "fn main() with IO {\n    print(\"hi\")\n}\n";
+    let (dir, mut state, uris) = workspace_fixture(&[("main.flx", main)]);
+
+    assert!(
+        state
+            .handle_will_rename_files(rename_to(dir.path(), &uris[0], "app.flx"))
+            .is_none(),
+        "renaming an entry script should produce no edit"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Document links (textDocument/documentLink)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn document_links(state: &mut GlobalState, u: &Uri) -> Vec<lsp_types::DocumentLink> {
+    state
+        .handle_document_link(DocumentLinkParams {
+            text_document: ident(u),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn document_link_points_import_to_sibling_module() {
+    let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main = "import Math\n\nfn run() { Math.twice(21) }\n";
+    let (_dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("main.flx", main)]);
+    open(&mut state, &uris[1], main);
+
+    let links = document_links(&mut state, &uris[1]);
+    let link = links
+        .iter()
+        .find(|l| l.target.as_ref() == Some(&uris[0]))
+        .expect("a document link targeting Math.flx");
+    // The clickable range is the `Math` path, right after `import `.
+    assert_eq!(link.range.start.line, 0);
+    assert_eq!(link.range.start.character, 7);
+    assert_eq!(link.range.end.character, 7 + "Math".len() as u32);
+}
+
+#[test]
+fn document_link_points_import_to_flow_stdlib() {
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("doclink-flow.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.List as L\n\nfn main() with IO {\n    print(1)\n}\n",
+    );
+
+    let links = document_links(&mut state, &u);
+    let link = links
+        .iter()
+        .find(|l| l.tooltip.as_deref() == Some("Open module `Flow.List`"))
+        .expect("a document link for Flow.List");
+    let target = link.target.as_ref().expect("link target uri");
+    assert!(
+        target.as_str().replace('\\', "/").ends_with("/List.flx"),
+        "expected the link to point at Flow/List.flx, got {}",
+        target.as_str()
+    );
+    // The path spans `Flow.List` after `import ` (the `as L` is not part of it).
+    assert_eq!(link.range.start.character, 7);
+    assert_eq!(link.range.end.character, 7 + "Flow.List".len() as u32);
+}
+
+#[test]
+fn document_link_none_without_imports() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///no-imports.flx");
+    open(&mut state, &u, "fn main() with IO {\n    print(1)\n}\n");
+
+    assert!(
+        document_links(&mut state, &u).is_empty(),
+        "a file with no imports should expose no links"
     );
 }

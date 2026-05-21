@@ -183,6 +183,11 @@ pub enum Statement {
         context: Vec<ClassConstraint>,
         methods: Vec<InstanceMethod>,
         span: Span,
+        /// Span of the head class name identifier alone. Distinct from the part
+        /// of `span` after the keyword because a context constraint pushes the
+        /// name past `=>` (`instance Eq<a> => Eq<List<a>>` — the head is the
+        /// second `Eq`, after `=>`).
+        name_span: Span,
     },
 }
 

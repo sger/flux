@@ -1,6 +1,9 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
+use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
 use flux::syntax::expression::{Expression, Pattern};
+use flux::syntax::interner::Interner;
+use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
 use flux::types::{infer_type::InferType, type_constructor::TypeConstructor};
@@ -92,8 +95,20 @@ fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
         }
         | NodeRef::DataName { span, .. }
         | NodeRef::DataVariantName { span, .. }
-        | NodeRef::EffectDeclName { span, .. } => {
+        | NodeRef::EffectDeclName { span, .. }
+        // A `class`/`instance` method declaration: scan the `///` run above the
+        // method's `fn` line in this buffer's own source.
+        | NodeRef::ClassMethodName { span, .. }
+        | NodeRef::InstanceMethodName { span, .. } => {
             crate::doc_comments::doc_comment_above(snapshot.text.as_ref(), *span, encoding)
+        }
+        // A type used in an annotation (`let x: MyType`): resolve it to its
+        // declaration in this buffer (`data` / `alias` / `class`) and show that
+        // declaration's doc comment. Built-in types have no buffer decl → None.
+        NodeRef::TypeExprNamed { name, .. } => {
+            let type_name = snapshot.interner.try_resolve(*name)?;
+            let span = type_decl_span(&snapshot.program, &snapshot.interner, type_name)?;
+            crate::doc_comments::doc_comment_above(snapshot.text.as_ref(), span, encoding)
         }
         NodeRef::MemberAccessMember { object, member, .. } => {
             let key = module_key_for(snapshot, object)?;
@@ -134,6 +149,25 @@ fn module_key_for(snapshot: &Snapshot, object: &Expression) -> Option<String> {
             if snapshot.module_programs.contains_key(short) {
                 return Some(short.to_string());
             }
+        }
+    }
+    None
+}
+
+/// The declaration span of the type named `type_name` in `program` — a `data`,
+/// `alias`, or `class`. Its start sits on the keyword line, so a `///` run above
+/// the declaration is found by [`doc_comment_above`](crate::doc_comments::doc_comment_above).
+/// `None` for a built-in type, which has no buffer declaration.
+fn type_decl_span(program: &Program, interner: &Interner, type_name: &str) -> Option<FluxSpan> {
+    for stmt in &program.statements {
+        let (name, span) = match stmt {
+            Statement::Data { name, span, .. } => (*name, *span),
+            Statement::Class { name, span, .. } => (*name, *span),
+            Statement::TypeAlias(alias) => (alias.name, alias.span),
+            _ => continue,
+        };
+        if interner.try_resolve(name) == Some(type_name) {
+            return Some(span);
         }
     }
     None
@@ -366,7 +400,49 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
 
             Some(format!("parameter: {resolved}"))
         }
+        NodeRef::ClassMethodName {
+            name, parent_class, ..
+        }
+        | NodeRef::InstanceMethodName {
+            name, parent_class, ..
+        } => {
+            // Both render the class's declared signature for the method (an
+            // instance method has no annotations of its own); fall back to a
+            // bare label when the class isn't in this buffer.
+            let method_name = snapshot.interner.try_resolve(*name)?;
+            class_method_signature(snapshot, *parent_class, *name)
+                .or_else(|| Some(format!("method: {method_name}")))
+        }
     }
+}
+
+/// The declared signature of `method` in the `class` named `class`, found in
+/// this buffer's own statements — `fn name(p: T, …) -> Ret`.
+fn class_method_signature(
+    snapshot: &Snapshot,
+    class: Identifier,
+    method: Identifier,
+) -> Option<String> {
+    for stmt in &snapshot.program.statements {
+        if let Statement::Class { name, methods, .. } = stmt
+            && *name == class
+        {
+            let m = methods.iter().find(|m| m.name == method)?;
+            let method_name = snapshot.interner.try_resolve(m.name)?;
+            let params: Vec<String> = m
+                .params
+                .iter()
+                .zip(m.param_types.iter())
+                .map(|(p, t)| {
+                    let pn = snapshot.interner.try_resolve(*p).unwrap_or("_");
+                    format!("{pn}: {}", render_type_expr(t, &snapshot.interner))
+                })
+                .collect();
+            let ret = render_type_expr(&m.return_type, &snapshot.interner);
+            return Some(format!("fn {method_name}({}) -> {ret}", params.join(", ")));
+        }
+    }
+    None
 }
 
 /// Extract the ADT symbol from `expr`'s inferred type, if it has one. Used

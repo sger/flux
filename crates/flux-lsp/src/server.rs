@@ -12,11 +12,13 @@ use lsp_types::notification::{
 use lsp_types::request::WorkDoneProgressCreate;
 use lsp_types::request::{
     CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
-    CodeActionRequest, CodeLensRequest, Completion, DocumentHighlightRequest,
-    DocumentSymbolRequest, FoldingRangeRequest, Formatting, GotoDefinition, GotoImplementation,
-    HoverRequest, InlayHintRequest, PrepareRenameRequest, References, Rename, Request as _,
-    ResolveCompletionItem, SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
-    TypeHierarchyPrepare, TypeHierarchySubtypes, TypeHierarchySupertypes, WorkspaceSymbolRequest,
+    CodeActionRequest, CodeLensRequest, Completion, DocumentDiagnosticRequest,
+    DocumentHighlightRequest, DocumentLinkRequest, DocumentSymbolRequest, FoldingRangeRequest,
+    Formatting, GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest,
+    PrepareRenameRequest, References, Rename, Request as _, ResolveCompletionItem,
+    SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest, TypeHierarchyPrepare,
+    TypeHierarchySubtypes, TypeHierarchySupertypes, WillRenameFiles, WorkspaceDiagnosticRefresh,
+    WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
 };
 use lsp_types::{
     CancelParams, NumberOrString, ProgressParams, ProgressParamsValue, ProgressToken,
@@ -40,6 +42,16 @@ pub struct Server {
     /// Whether the client advertised `window.workDoneProgress` — gates the
     /// `$/progress` notifications around prelude warm-up.
     client_supports_progress: bool,
+    /// Whether the client pulls diagnostics (`textDocument/diagnostic`). When
+    /// it does, push (`publishDiagnostics`) is suppressed so the two diagnostic
+    /// sources don't double up in the editor — see [`Server::report_diagnostics`].
+    client_supports_pull_diagnostics: bool,
+    /// Whether the client honours `workspace/diagnostic/refresh`. Lets the
+    /// server nudge a pulling client to re-pull dependents after a cross-file
+    /// edit (a plain pull only re-fetches the focused document).
+    client_supports_diagnostic_refresh: bool,
+    /// Monotonic id suffix for the fire-and-forget refresh requests.
+    refresh_seq: u64,
     /// File-change detection backend (client registration or `notify`).
     loader: Box<dyn loader::Handle>,
     /// On-disk `.flx` change batches from the `notify` backend. The
@@ -85,6 +97,9 @@ impl Server {
             cancel,
             worker: Some(worker),
             client_supports_progress: false,
+            client_supports_pull_diagnostics: false,
+            client_supports_diagnostic_refresh: false,
+            refresh_seq: 0,
             loader,
             loader_rx,
         }
@@ -94,6 +109,14 @@ impl Server {
     /// progress (`window.workDoneProgress`). Called once after `initialize`.
     pub fn set_progress_support(&mut self, supported: bool) {
         self.client_supports_progress = supported;
+    }
+
+    /// Record the client's pull-diagnostic support, from `initialize`:
+    /// `pull` = the client issues `textDocument/diagnostic`; `refresh` = it
+    /// honours `workspace/diagnostic/refresh`. Called once after `initialize`.
+    pub fn set_diagnostic_support(&mut self, pull: bool, refresh: bool) {
+        self.client_supports_pull_diagnostics = pull;
+        self.client_supports_diagnostic_refresh = refresh;
     }
 
     pub fn run(mut self) -> Result<()> {
@@ -152,9 +175,7 @@ impl Server {
         let diagnostics = self.state.handle_disk_changes(&files);
         // Re-analysis changes content — bump so stale worker jobs are dropped.
         self.cancel.bump_generation();
-        for params in diagnostics {
-            self.publish_diagnostics(params)?;
-        }
+        self.report_diagnostics(diagnostics)?;
         Ok(())
     }
 
@@ -206,6 +227,9 @@ impl Server {
             m if m == CodeLensRequest::METHOD => self
                 .state
                 .dispatch_code_lens(serde_json::from_value(req.params)?),
+            m if m == DocumentLinkRequest::METHOD => self
+                .state
+                .dispatch_document_link(serde_json::from_value(req.params)?),
             m if m == Formatting::METHOD => self
                 .state
                 .dispatch_formatting(serde_json::from_value(req.params)?),
@@ -239,6 +263,15 @@ impl Server {
             m if m == WorkspaceSymbolRequest::METHOD => self
                 .state
                 .dispatch_workspace_symbol(serde_json::from_value(req.params)?),
+            m if m == DocumentDiagnosticRequest::METHOD => self
+                .state
+                .dispatch_document_diagnostic(serde_json::from_value(req.params)?),
+            m if m == WorkspaceDiagnosticRequest::METHOD => self
+                .state
+                .dispatch_workspace_diagnostic(serde_json::from_value(req.params)?),
+            m if m == WillRenameFiles::METHOD => self
+                .state
+                .dispatch_will_rename_files(serde_json::from_value(req.params)?),
             other => {
                 tracing::debug!(method = %other, "unhandled request");
                 let resp = Response::new_err(
@@ -328,9 +361,7 @@ impl Server {
         }
         // A single edit can refresh diagnostics for several files — when a
         // buffer pulls in user modules, every reachable module is republished.
-        for params in diagnostics {
-            self.publish_diagnostics(params)?;
-        }
+        self.report_diagnostics(diagnostics)?;
         Ok(())
     }
 
@@ -391,6 +422,40 @@ impl Server {
                     value: ProgressParamsValue::WorkDone(value),
                 })?,
             }))?;
+        Ok(())
+    }
+
+    /// Deliver freshly computed diagnostics. A pull-capable client owns its
+    /// diagnostics through `textDocument/diagnostic`, so pushing them too would
+    /// paint every squiggle twice — instead we stay quiet and, when the client
+    /// honours it, fire one `workspace/diagnostic/refresh` so it re-pulls the
+    /// dependents a cross-file edit touched (a plain pull only re-fetches the
+    /// focused document). Clients that don't pull get the push, unchanged.
+    fn report_diagnostics(
+        &mut self,
+        diagnostics: Vec<lsp_types::PublishDiagnosticsParams>,
+    ) -> Result<()> {
+        if self.client_supports_pull_diagnostics {
+            if !diagnostics.is_empty() && self.client_supports_diagnostic_refresh {
+                self.request_diagnostic_refresh()?;
+            }
+            return Ok(());
+        }
+        for params in diagnostics {
+            self.publish_diagnostics(params)?;
+        }
+        Ok(())
+    }
+
+    /// Ask a pulling client to re-pull all diagnostics. Fire-and-forget: the
+    /// response is ignored by the main loop, so each carries a unique id.
+    fn request_diagnostic_refresh(&mut self) -> Result<()> {
+        self.refresh_seq += 1;
+        self.connection.sender.send(Message::Request(Request {
+            id: RequestId::from(format!("flux-diagnostic-refresh/{}", self.refresh_seq)),
+            method: WorkspaceDiagnosticRefresh::METHOD.to_string(),
+            params: serde_json::Value::Null,
+        }))?;
         Ok(())
     }
 
