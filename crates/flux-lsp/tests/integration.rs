@@ -19,15 +19,16 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentChanges, DocumentDiagnosticParams, DocumentDiagnosticReport,
     DocumentDiagnosticReportResult, DocumentFormattingParams, DocumentHighlightParams,
-    DocumentLinkParams, DocumentSymbolParams, Documentation, FileChangeType, FileEvent, FileRename,
-    FoldingRangeParams, FormattingOptions, GotoDefinitionParams, HoverParams, InitializeParams,
-    InitializedParams, NumberOrString, OneOf, PartialResultParams, Position, PreviousResultId,
-    Range, ReferenceContext, ReferenceParams, RenameFilesParams, RenameParams,
-    SelectionRangeParams, SemanticTokensParams, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, TextEdit, TypeHierarchyItem, TypeHierarchyPrepareParams,
-    TypeHierarchySubtypesParams, TypeHierarchySupertypesParams, Uri, WorkDoneProgressParams,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult, WorkspaceDocumentDiagnosticReport,
-    WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    DocumentLinkParams, DocumentOnTypeFormattingParams, DocumentSymbolParams, Documentation,
+    FileChangeType, FileEvent, FileRename, FoldingRangeParams, FormattingOptions,
+    GotoDefinitionParams, HoverParams, InitializeParams, InitializedParams, NumberOrString, OneOf,
+    PartialResultParams, Position, PreviousResultId, Range, ReferenceContext, ReferenceParams,
+    RenameFilesParams, RenameParams, SelectionRangeParams, SemanticTokensParams,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit,
+    TypeHierarchyItem, TypeHierarchyPrepareParams, TypeHierarchySubtypesParams,
+    TypeHierarchySupertypesParams, Uri, WorkDoneProgressParams, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReportResult, WorkspaceDocumentDiagnosticReport, WorkspaceEdit,
+    WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 use serde_json::Value;
 
@@ -1290,6 +1291,162 @@ fn formatting_request_returns_text_edits_for_messy_source() {
     assert_ne!(
         edits[0].new_text, original,
         "formatter should produce different text"
+    );
+}
+
+fn format_range(state: &mut GlobalState, u: &Uri, range: Range) -> Vec<TextEdit> {
+    state
+        .handle_formatting_range(lsp_types::DocumentRangeFormattingParams {
+            text_document: ident(u),
+            range,
+            options: FormattingOptions {
+                tab_size: 4,
+                insert_spaces: true,
+                ..Default::default()
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .unwrap_or_default()
+}
+
+// Two functions whose bodies are under-indented; the `fn`/`}` lines are already
+// correct, so each body forms its own diff hunk separated by unchanged anchors.
+const RANGE_FMT_SRC: &str = "fn f() {\nlet a = 1\n}\nfn g() {\nlet b = 2\n}\n";
+
+#[test]
+fn range_formatting_touches_only_selected_hunk() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///fmt-range.flx");
+    open(&mut state, &u, RANGE_FMT_SRC);
+
+    // Select the first function's body (line 1).
+    let edits = format_range(
+        &mut state,
+        &u,
+        Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 1,
+                character: 9,
+            },
+        },
+    );
+    assert_eq!(edits.len(), 1, "only the selected hunk, got {edits:?}");
+    assert_eq!(edits[0].range.start.line, 1);
+    assert_eq!(edits[0].new_text, "    let a = 1\n");
+    // The other function's under-indented body (line 4) is left untouched.
+    assert!(edits.iter().all(|e| e.range.start.line != 4));
+}
+
+#[test]
+fn range_formatting_leaves_unselected_changes_alone() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///fmt-range-skip.flx");
+    open(&mut state, &u, RANGE_FMT_SRC);
+
+    // Selecting the already-correct `fn f() {` line (0) changes nothing, even
+    // though the file has indentation problems elsewhere.
+    let edits = format_range(
+        &mut state,
+        &u,
+        Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 8,
+            },
+        },
+    );
+    assert!(
+        edits.is_empty(),
+        "formatting a clean selection should change nothing, got {edits:?}"
+    );
+}
+
+fn on_type_format(
+    state: &mut GlobalState,
+    u: &Uri,
+    line: u32,
+    character: u32,
+    ch: &str,
+) -> Vec<TextEdit> {
+    state
+        .handle_on_type_formatting(DocumentOnTypeFormattingParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: ident(u),
+                position: Position { line, character },
+            },
+            ch: ch.to_string(),
+            options: FormattingOptions {
+                tab_size: 4,
+                insert_spaces: true,
+                ..Default::default()
+            },
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn on_type_formatting_indents_new_line_after_open_brace() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///otf-indent.flx");
+    // After typing `{` then Enter: a fresh empty line inside the block.
+    open(&mut state, &u, "fn f() {\n\n");
+
+    // Enter fired at the start of the new line (line 1).
+    let edits = on_type_format(&mut state, &u, 1, 0, "\n");
+    assert_eq!(edits.len(), 1, "expected one indent edit, got {edits:?}");
+    assert_eq!(edits[0].new_text, "    ", "should indent one level");
+    assert_eq!(edits[0].range.start.line, 1);
+}
+
+#[test]
+fn on_type_formatting_dedents_close_brace() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///otf-dedent.flx");
+    // The `}` is over-indented (4 spaces) and should drop to column 0.
+    open(&mut state, &u, "fn f() {\n    let a = 1\n    }\n");
+
+    // `}` typed at line 2; cursor sits just after it (column 5).
+    let edits = on_type_format(&mut state, &u, 2, 5, "}");
+    assert_eq!(edits.len(), 1, "expected one dedent edit, got {edits:?}");
+    assert_eq!(
+        edits[0].new_text, "",
+        "the `}}` should align with the opener"
+    );
+    assert_eq!(
+        edits[0].range.start,
+        Position {
+            line: 2,
+            character: 0
+        }
+    );
+    assert_eq!(
+        edits[0].range.end,
+        Position {
+            line: 2,
+            character: 4
+        }
+    );
+}
+
+#[test]
+fn on_type_formatting_leaves_correct_line_alone() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///otf-noop.flx");
+    // The `}` is already at the right column.
+    open(&mut state, &u, "fn f() {\n    let a = 1\n}\n");
+
+    let edits = on_type_format(&mut state, &u, 2, 1, "}");
+    assert!(
+        edits.is_empty(),
+        "an already-correct `}}` needs no edit, got {edits:?}"
     );
 }
 
@@ -4581,8 +4738,7 @@ fn workspace_diagnostic_scan_all_reports_unopened_files() {
     let math = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
     // An unopened file with an undefined name — exactly the "red folder" case.
     let broken = "fn lonely() { mystery + 1 }\n";
-    let (_dir, mut state, uris) =
-        workspace_fixture(&[("Math.flx", math), ("Broken.flx", broken)]);
+    let (_dir, mut state, uris) = workspace_fixture(&[("Math.flx", math), ("Broken.flx", broken)]);
 
     // The opt-in flag force-analyzes every discovered file, so both are reported
     // even though neither was opened.
@@ -4829,4 +4985,384 @@ fn document_link_none_without_imports() {
         document_links(&mut state, &u).is_empty(),
         "a file with no imports should expose no links"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// inlayHint/resolve
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn inlay_hints(state: &mut GlobalState, u: &Uri) -> Vec<lsp_types::InlayHint> {
+    state.handle_inlay_hints(lsp_types::InlayHintParams {
+        text_document: ident(u),
+        // The handler collects every hint in the file; the range is ignored.
+        range: Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 10_000,
+                character: 0,
+            },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    })
+}
+
+#[test]
+fn inlay_hint_resolve_adds_tooltip_and_annotation_edit() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///inlay.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    let x = 41 + 1\n    print(x)\n}\n",
+    );
+
+    let hints = inlay_hints(&mut state, &u);
+    let hint = hints.first().cloned().expect("a type hint for `let x`");
+    // The initial response is lightweight: the tooltip and edit are deferred to
+    // resolve, with just the reconstruction payload stashed in `data`.
+    assert!(hint.data.is_some(), "hint carries resolve data");
+    assert!(
+        hint.tooltip.is_none() && hint.text_edits.is_none(),
+        "initial hint omits tooltip and text edit"
+    );
+
+    let resolved = state.handle_inlay_hint_resolve(hint.clone());
+    assert!(resolved.tooltip.is_some(), "resolve fills in the tooltip");
+    let edits = resolved
+        .text_edits
+        .expect("a `let` hint resolves to an insert-annotation edit");
+    assert_eq!(edits.len(), 1);
+    assert!(
+        edits[0].new_text.starts_with(": "),
+        "the edit inserts a `: T` annotation, got {:?}",
+        edits[0].new_text
+    );
+    // The annotation is inserted at the hint's own position (zero-width range).
+    assert_eq!(edits[0].range.start, hint.position);
+    assert_eq!(edits[0].range.end, hint.position);
+}
+
+#[test]
+fn inlay_hint_resolve_ignores_hint_without_data() {
+    let mut state = GlobalState::default();
+    // A hint with no `data` (e.g. one this server didn't produce) round-trips
+    // through resolve unchanged rather than fabricating a tooltip/edit.
+    let hint = lsp_types::InlayHint {
+        position: Position {
+            line: 0,
+            character: 0,
+        },
+        label: lsp_types::InlayHintLabel::String(": Int".into()),
+        kind: Some(lsp_types::InlayHintKind::TYPE),
+        text_edits: None,
+        tooltip: None,
+        padding_left: None,
+        padding_right: None,
+        data: None,
+    };
+
+    let resolved = state.handle_inlay_hint_resolve(hint);
+    assert!(resolved.tooltip.is_none());
+    assert!(resolved.text_edits.is_none());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// semanticTokens range + full/delta
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn semantic_tokens_full_raw(state: &mut GlobalState, u: &Uri) -> lsp_types::SemanticTokens {
+    state.handle_semantic_tokens_full(SemanticTokensParams {
+        text_document: ident(u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    })
+}
+
+fn replace_buffer(state: &mut GlobalState, u: &Uri, version: i32, text: &str) {
+    state.handle_did_change(DidChangeTextDocumentParams {
+        text_document: lsp_types::VersionedTextDocumentIdentifier {
+            uri: u.clone(),
+            version,
+        },
+        content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: text.to_string(),
+        }],
+    });
+}
+
+/// Apply a semantic-tokens delta edit list to the previous token stream,
+/// reproducing what an LSP client does. `start`/`delete_count` are in the
+/// protocol's integer units (5 per token).
+fn apply_token_edits(
+    mut tokens: Vec<lsp_types::SemanticToken>,
+    edits: &[lsp_types::SemanticTokensEdit],
+) -> Vec<lsp_types::SemanticToken> {
+    let mut ordered: Vec<&lsp_types::SemanticTokensEdit> = edits.iter().collect();
+    ordered.sort_by_key(|e| std::cmp::Reverse(e.start));
+    for e in ordered {
+        let start = (e.start / 5) as usize;
+        let delete = (e.delete_count / 5) as usize;
+        let data = e.data.clone().unwrap_or_default();
+        tokens.splice(start..start + delete, data);
+    }
+    tokens
+}
+
+#[test]
+fn semantic_tokens_full_carries_result_id() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-id.flx");
+    open(&mut state, &u, "fn main() {\n    1\n}\n");
+
+    let result = semantic_tokens_full_raw(&mut state, &u);
+    assert!(
+        result.result_id.is_some(),
+        "a full response must be tagged so the client can request a delta against it"
+    );
+    assert!(!result.data.is_empty());
+}
+
+#[test]
+fn semantic_tokens_delta_splices_after_edit() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-delta.flx");
+    open(
+        &mut state,
+        &u,
+        "fn alpha(x) {\n    x\n}\n\nfn main() {\n    alpha(1)\n}\n",
+    );
+
+    let before = semantic_tokens_full_raw(&mut state, &u);
+    let prev_id = before.result_id.clone().expect("result id");
+
+    // Rename the parameter `x` → `value`: same token roles, but the length
+    // change (and the columns it shifts) makes the stream genuinely differ, so
+    // the delta is a real splice rather than a no-op.
+    replace_buffer(
+        &mut state,
+        &u,
+        2,
+        "fn alpha(value) {\n    value\n}\n\nfn main() {\n    alpha(1)\n}\n",
+    );
+
+    let delta = state.handle_semantic_tokens_full_delta(lsp_types::SemanticTokensDeltaParams {
+        text_document: ident(&u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        previous_result_id: prev_id.clone(),
+    });
+
+    let edits = match delta {
+        lsp_types::SemanticTokensFullDeltaResult::TokensDelta(d) => {
+            assert!(d.result_id.is_some());
+            assert_ne!(
+                d.result_id.as_deref(),
+                Some(prev_id.as_str()),
+                "the delta carries a fresh id"
+            );
+            assert!(!d.edits.is_empty(), "a rename changes some tokens");
+            d.edits
+        }
+        other => panic!("expected a token delta, got {other:?}"),
+    };
+
+    // Replaying the splice on the old stream must reproduce a fresh full set.
+    let reconstructed = apply_token_edits(before.data.clone(), &edits);
+    let expected = semantic_tokens_full_raw(&mut state, &u).data;
+    assert_eq!(reconstructed, expected);
+}
+
+#[test]
+fn semantic_tokens_delta_unknown_previous_id_returns_full() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-stale.flx");
+    open(&mut state, &u, "fn main() {\n    1\n}\n");
+    let _ = semantic_tokens_full_raw(&mut state, &u);
+
+    let delta = state.handle_semantic_tokens_full_delta(lsp_types::SemanticTokensDeltaParams {
+        text_document: ident(&u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        previous_result_id: "does-not-exist".to_string(),
+    });
+
+    match delta {
+        lsp_types::SemanticTokensFullDeltaResult::Tokens(t) => {
+            assert!(t.result_id.is_some());
+            assert!(
+                !t.data.is_empty(),
+                "a stale baseline falls back to a full set"
+            );
+        }
+        other => panic!("expected a full token set, got {other:?}"),
+    }
+}
+
+#[test]
+fn semantic_tokens_range_limits_to_requested_lines() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sem-range.flx");
+    // Three separate declarations on distinct lines.
+    open(
+        &mut state,
+        &u,
+        "fn one() { 1 }\nfn two() { 2 }\nfn three() { 3 }\n",
+    );
+
+    let full = semantic_tokens_full_raw(&mut state, &u);
+
+    // Ask for just the middle line (line 1).
+    let ranged = state.handle_semantic_tokens_range(lsp_types::SemanticTokensRangeParams {
+        text_document: ident(&u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 2,
+                character: 0,
+            },
+        },
+    });
+
+    assert!(
+        ranged.data.len() < full.data.len(),
+        "a single-line range returns fewer tokens than the whole file"
+    );
+    assert!(!ranged.data.is_empty(), "line 1 has tokens");
+    // The first token's absolute line is the delta_line (baseline 0); every
+    // token in a single-line range sits on that one line.
+    assert_eq!(
+        ranged.data[0].delta_line, 1,
+        "the only line touched is line 1"
+    );
+    assert!(
+        ranged.data[1..].iter().all(|t| t.delta_line == 0),
+        "all range tokens are on the same line"
+    );
+    // Range results aren't cached for deltas.
+    assert!(ranged.result_id.is_none());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// signatureHelp
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn signature_help(
+    state: &mut GlobalState,
+    u: &Uri,
+    line: u32,
+    character: u32,
+) -> Option<lsp_types::SignatureHelp> {
+    state.handle_signature_help(lsp_types::SignatureHelpParams {
+        context: None,
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(u),
+            position: Position { line, character },
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    })
+}
+
+/// The substring of the signature label spanned by parameter `idx`'s offsets.
+/// Test labels are ASCII, so UTF-16 offsets coincide with byte offsets.
+fn param_label_text(sig: &lsp_types::SignatureInformation, idx: usize) -> String {
+    let p = &sig.parameters.as_ref().expect("parameters")[idx];
+    match &p.label {
+        lsp_types::ParameterLabel::LabelOffsets([s, e]) => {
+            sig.label[*s as usize..*e as usize].to_string()
+        }
+        other => panic!("expected label offsets, got {other:?}"),
+    }
+}
+
+const SIG_SRC: &str = "fn add(x, y) { x + y }\n\nfn main() {\n    add(1, 2)\n}\n";
+
+#[test]
+fn signature_help_shows_param_names_with_offsets() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sig-names.flx");
+    open(&mut state, &u, SIG_SRC);
+
+    // Cursor on the first argument `1` (line 3, char 8).
+    let help = signature_help(&mut state, &u, 3, 8).expect("signature help in the first arg");
+    assert_eq!(help.active_parameter, Some(0));
+    let sig = &help.signatures[0];
+    assert!(
+        sig.label.starts_with("add(x: "),
+        "label carries the callee name and parameter names, got {:?}",
+        sig.label
+    );
+    assert!(sig.label.contains(", y: "));
+    assert!(sig.label.contains(") -> "));
+    // The reported offsets carve out the right parameter substrings.
+    assert!(param_label_text(sig, 0).starts_with("x:"));
+    assert!(param_label_text(sig, 1).starts_with("y:"));
+}
+
+#[test]
+fn signature_help_tracks_active_parameter() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sig-active.flx");
+    open(&mut state, &u, SIG_SRC);
+
+    // Cursor on the second argument `2` (line 3, char 11).
+    let help = signature_help(&mut state, &u, 3, 11).expect("signature help in the second arg");
+    assert_eq!(help.active_parameter, Some(1));
+    assert_eq!(help.signatures[0].active_parameter, Some(1));
+}
+
+#[test]
+fn signature_help_no_arg_function_has_no_active_parameter() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sig-noarg.flx");
+    open(
+        &mut state,
+        &u,
+        "fn ping() { 1 }\n\nfn main() {\n    ping()\n}\n",
+    );
+
+    // Cursor between the empty parens (line 3, char 9).
+    let help = signature_help(&mut state, &u, 3, 9).expect("signature help in empty parens");
+    assert_eq!(help.active_parameter, None);
+    let sig = &help.signatures[0];
+    assert!(sig.label.starts_with("ping()"));
+    assert!(sig.parameters.as_ref().is_none_or(|p| p.is_empty()));
+}
+
+#[test]
+fn signature_help_clamps_active_parameter_past_last() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sig-clamp.flx");
+    open(&mut state, &u, SIG_SRC);
+
+    // Cursor just before the closing paren, past the last argument (char 12):
+    // the slot index (2) is clamped to the last real parameter (1).
+    let help = signature_help(&mut state, &u, 3, 12).expect("signature help past the last arg");
+    assert_eq!(help.active_parameter, Some(1));
+}
+
+#[test]
+fn signature_help_includes_doc_comment() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///sig-doc.flx");
+    open(
+        &mut state,
+        &u,
+        "/// Adds two numbers.\nfn add(x, y) { x + y }\n\nfn main() {\n    add(1, 2)\n}\n",
+    );
+
+    let help = signature_help(&mut state, &u, 4, 8).expect("signature help with a doc comment");
+    match &help.signatures[0].documentation {
+        Some(Documentation::MarkupContent(m)) => assert!(m.value.contains("Adds two numbers")),
+        other => panic!("expected the callee's doc comment, got {other:?}"),
+    }
 }
