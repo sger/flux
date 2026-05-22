@@ -266,6 +266,70 @@ fn did_open_clean_source_publishes_no_diagnostics() {
     );
 }
 
+#[test]
+fn staged_change_defers_analysis_until_flush() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///defer.flx");
+
+    // Opening a clean buffer analyzes immediately.
+    let opened = diags_for(&mut state, &u, "fn main() -> Int { 1 }\n");
+    assert!(opened.is_empty(), "clean file should open clean: {opened:?}");
+
+    // Stage an edit that introduces an undefined name. `stage_did_change`
+    // publishes nothing — the (potentially expensive) re-analysis is deferred —
+    // but it marks the file pending.
+    state.stage_did_change(DidChangeTextDocumentParams {
+        text_document: lsp_types::VersionedTextDocumentIdentifier {
+            uri: u.clone(),
+            version: 2,
+        },
+        content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "fn main() -> Int { mystery }\n".to_string(),
+        }],
+    });
+    assert!(
+        state.has_pending_analysis(),
+        "a staged edit should leave analysis pending"
+    );
+
+    // A read request arriving before the flush still sees the new text: the
+    // stale snapshot was invalidated, so `ensure_snapshot` rebuilds lazily from
+    // the staged buffer rather than serving the pre-edit snapshot.
+    let symbols = state.handle_document_symbol(DocumentSymbolParams {
+        text_document: ident(&u),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert!(
+        symbols.is_some(),
+        "document symbols should still resolve mid-debounce"
+    );
+
+    // Flushing runs the deferred analysis and surfaces the error once.
+    let published = state.flush_analysis();
+    assert!(
+        !state.has_pending_analysis(),
+        "flush should clear the pending set"
+    );
+    let diags = published
+        .into_iter()
+        .find(|d| d.uri == u)
+        .map(|d| d.diagnostics)
+        .unwrap_or_default();
+    assert!(
+        diags.iter().any(|d| d.message.contains("mystery")),
+        "the deferred edit's undefined-name error should appear on flush: {diags:?}"
+    );
+
+    // Nothing pending now — a spurious flush (e.g. a late timer tick) is a no-op.
+    assert!(
+        state.flush_analysis().is_empty(),
+        "flush with nothing pending should publish nothing"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hover
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1547,6 +1611,26 @@ fn hover_on_module_member_use_shows_doc_comment() {
     assert!(
         md.contains("Case analysis for Either"),
         "expected the Flow.Either member doc, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_array_member_shows_stdlib_doc_comment() {
+    // The core Flow modules (Array/List/String/Map/Math) carry `///` docs, so
+    // hovering a member shows its summary alongside the signature.
+    let mut state = GlobalState::default();
+    let u = repo_root_uri("hover-array-doc-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\n\nfn main() with IO {\n    let r = Array.map\n}\n",
+    );
+
+    // Hover on `map` in `Array.map` (line 3, char 18).
+    let md = hover_markup(&mut state, &u, 3, 18).expect("hover on `map`");
+    assert!(
+        md.contains("Apply `f` to every element"),
+        "expected the Flow.Array.map doc, got: {md}"
     );
 }
 
@@ -3262,6 +3346,37 @@ fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState,
     let mut state = GlobalState::default();
     state.set_workspace_folders(vec![dir.path().to_path_buf()]);
     (dir, state, uris)
+}
+
+#[test]
+fn workspace_module_names_cache_refreshes_after_an_edit() {
+    let (_dir, mut state, uris) = workspace_fixture(&[
+        ("Math.flx", "module Math {\n    public fn twice(x) { x * 2 }\n}\n"),
+        ("main.flx", "fn main() -> Int { 1 }\n"),
+    ]);
+
+    // Discovery indexed Math as a workspace module (and memoizes on first read).
+    let names = state.workspace.workspace_module_full_names();
+    assert!(
+        names.contains(&"Math".to_string()),
+        "Math should be a known workspace module: {names:?}"
+    );
+
+    // Renaming the module via an edit must invalidate the memoized list.
+    open(
+        &mut state,
+        &uris[0],
+        "module Geometry {\n    public fn twice(x) { x * 2 }\n}\n",
+    );
+    let names = state.workspace.workspace_module_full_names();
+    assert!(
+        names.contains(&"Geometry".to_string()),
+        "the renamed module should appear after the edit: {names:?}"
+    );
+    assert!(
+        !names.contains(&"Math".to_string()),
+        "the stale module name must be gone after the edit: {names:?}"
+    );
 }
 
 #[test]

@@ -23,6 +23,7 @@ mod tests {
                 span: Span::default(),
             }],
             span: Span::default(),
+            ..Default::default()
         };
 
         assert_eq!(program.display_with(&interner), "let x = 5;");

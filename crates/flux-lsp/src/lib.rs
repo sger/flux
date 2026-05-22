@@ -15,6 +15,7 @@ pub mod server;
 pub mod snapshot;
 pub mod symbol_index;
 pub mod task;
+mod util;
 pub mod vfs;
 pub mod workspace;
 

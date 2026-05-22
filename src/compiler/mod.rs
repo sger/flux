@@ -1211,6 +1211,7 @@ impl Compiler {
             Program {
                 statements,
                 span: program.span,
+                doc_comments: program.doc_comments.clone(),
             }
         } else {
             let first_non_import = program
@@ -1231,6 +1232,7 @@ impl Compiler {
             Program {
                 statements,
                 span: program.span,
+                doc_comments: program.doc_comments.clone(),
             }
         }
     }

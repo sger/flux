@@ -219,6 +219,7 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
     let augmented = Program {
         statements,
         span: program.span,
+        ..Default::default()
     };
 
     let result = infer_program(

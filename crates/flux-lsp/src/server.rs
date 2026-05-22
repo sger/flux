@@ -30,7 +30,13 @@ use lsp_types::{
 use crate::global_state::GlobalState;
 use crate::line_index::PositionEncoding;
 use crate::loader;
-use crate::task::{Cancellation, Job, WorkItem, worker_loop};
+use crate::task::{Cancellation, Job, WorkItem, spawn_worker_pool};
+
+/// How long the event loop waits for typing to settle before re-analyzing an
+/// edited file's module component. A burst of `didChange` notifications keeps
+/// pushing the deadline out, so the (potentially expensive) cross-file
+/// inference runs once per pause instead of once per keystroke.
+const ANALYSIS_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 
 pub struct Server {
     pub connection: Connection,
@@ -39,8 +45,9 @@ pub struct Server {
     work_tx: Option<Sender<WorkItem>>,
     /// Shared generation counter + `$/cancelRequest` set.
     cancel: Cancellation,
-    /// Worker thread handle, joined on shutdown.
-    worker: Option<JoinHandle<()>>,
+    /// Worker-thread pool handles, joined on shutdown. The pool shares one work
+    /// queue so a slow request occupies a single worker, not the whole server.
+    workers: Vec<JoinHandle<()>>,
     /// Whether the client advertised `window.workDoneProgress` — gates the
     /// `$/progress` notifications around prelude warm-up.
     client_supports_progress: bool,
@@ -64,10 +71,13 @@ pub struct Server {
 }
 
 /// One unit of work pulled from the main-loop `select!`: an LSP message from
-/// the client, a file-change batch from the loader, or a closed channel.
+/// the client, a file-change batch from the loader, the debounce timer firing,
+/// or a closed channel.
 enum Incoming {
     Lsp(Message),
     Loader(loader::Message),
+    /// The analysis debounce deadline elapsed — flush pending re-analysis.
+    Tick,
     Disconnected,
 }
 
@@ -79,11 +89,12 @@ impl Server {
     ) -> Self {
         let (work_tx, work_rx) = crossbeam_channel::unbounded::<WorkItem>();
         let cancel = Cancellation::new();
-        let worker = {
-            let sender = connection.sender.clone();
-            let cancel = cancel.clone();
-            std::thread::spawn(move || worker_loop(work_rx, sender, cancel))
-        };
+        let workers = spawn_worker_pool(
+            work_rx,
+            connection.sender.clone(),
+            cancel.clone(),
+            worker_pool_size(),
+        );
         let (loader_tx, loader_rx) = crossbeam_channel::unbounded::<loader::Message>();
         let loader: Box<dyn loader::Handle> = match watcher {
             loader::WatcherKind::Client => Box::new(loader::ClientHandle::new(
@@ -97,7 +108,7 @@ impl Server {
             state: GlobalState::new(encoding),
             work_tx: Some(work_tx),
             cancel,
-            worker: Some(worker),
+            workers,
             client_supports_progress: false,
             client_supports_pull_diagnostics: false,
             client_supports_diagnostic_refresh: false,
@@ -122,8 +133,18 @@ impl Server {
     }
 
     pub fn run(mut self) -> Result<()> {
+        // When set, the instant at which staged edits should be re-analyzed.
+        // Each `didChange` pushes it out by `ANALYSIS_DEBOUNCE`; the timer arm
+        // of `next_incoming` fires once it elapses.
+        let mut analysis_deadline: Option<std::time::Instant> = None;
         loop {
-            match self.next_incoming() {
+            let timer = match analysis_deadline {
+                Some(deadline) => crossbeam_channel::after(
+                    deadline.saturating_duration_since(std::time::Instant::now()),
+                ),
+                None => crossbeam_channel::never(),
+            };
+            match self.next_incoming(&timer) {
                 Incoming::Lsp(Message::Request(req)) => {
                     if self.connection.handle_shutdown(&req)? {
                         break;
@@ -131,27 +152,48 @@ impl Server {
                     self.on_request(req)?;
                 }
                 Incoming::Lsp(Message::Notification(note)) => {
-                    self.on_notification(note)?;
+                    let staged = self.on_notification(note)?;
+                    analysis_deadline = if staged {
+                        // Reset the debounce window on each keystroke.
+                        Some(std::time::Instant::now() + ANALYSIS_DEBOUNCE)
+                    } else if self.state.has_pending_analysis() {
+                        // A non-edit notification — leave any running window be.
+                        analysis_deadline
+                    } else {
+                        None
+                    };
                 }
                 Incoming::Lsp(Message::Response(_)) => {}
                 Incoming::Loader(loader::Message::Changed { files }) => {
                     self.on_loader_changed(files)?;
+                    if !self.state.has_pending_analysis() {
+                        analysis_deadline = None;
+                    }
+                }
+                Incoming::Tick => {
+                    let diagnostics = self.state.flush_analysis();
+                    self.report_diagnostics(diagnostics)?;
+                    analysis_deadline = None;
                 }
                 Incoming::Disconnected => break,
             }
         }
-        // Dropping the sender ends the worker's `recv` loop; then join it.
+        // Any still-pending re-analysis is dropped: the session is ending, so
+        // stale squiggles no longer matter (mid-session closes already flush via
+        // `flush_pending_analysis`). Drop the sender to disconnect the queue so
+        // every pool worker ends its `recv` loop, then join them.
         self.work_tx = None;
-        if let Some(worker) = self.worker.take() {
+        for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
         Ok(())
     }
 
-    /// Block until the LSP client or the file-watch loader has a message.
-    /// Borrows `&self` only for the duration of the `select!`, so the
-    /// `&mut self` message handlers run without a borrow conflict.
-    fn next_incoming(&self) -> Incoming {
+    /// Block until the LSP client, the file-watch loader, or the analysis
+    /// debounce timer has something. Borrows `&self` only for the duration of
+    /// the `select!`, so the `&mut self` message handlers run without a borrow
+    /// conflict. `analysis_timer` is `never()` when nothing is pending.
+    fn next_incoming(&self, analysis_timer: &Receiver<std::time::Instant>) -> Incoming {
         crossbeam_channel::select! {
             recv(self.connection.receiver) -> msg => match msg {
                 Ok(msg) => Incoming::Lsp(msg),
@@ -161,6 +203,7 @@ impl Server {
                 Ok(msg) => Incoming::Loader(msg),
                 Err(_) => Incoming::Disconnected,
             },
+            recv(analysis_timer) -> _ => Incoming::Tick,
         }
     }
 
@@ -168,6 +211,9 @@ impl Server {
     /// backend, coalescing any further batches already queued, then re-analyze
     /// and republish diagnostics for the affected files.
     fn on_loader_changed(&mut self, mut files: Vec<PathBuf>) -> Result<()> {
+        // Settle any debounced buffer edit before this immediate disk-driven
+        // re-analysis, so the two passes don't interleave over the same files.
+        self.flush_pending_analysis()?;
         // Drain a burst of filesystem events into one re-analysis pass.
         while let Ok(loader::Message::Changed { files: more }) = self.loader_rx.try_recv() {
             files.extend(more);
@@ -323,9 +369,20 @@ impl Server {
         Ok(())
     }
 
-    fn on_notification(&mut self, note: Notification) -> Result<()> {
+    /// Handle one notification. Returns `true` when it staged a debounced edit
+    /// (a `didChange`), so the caller can (re)arm the analysis timer.
+    fn on_notification(&mut self, note: Notification) -> Result<bool> {
+        let method = note.method.clone();
+        // Every content event except `didChange` analyzes immediately. Settle
+        // any debounced edit first so an open/close/save/watched-files change
+        // can't interleave with a buffer edit that hasn't been re-analyzed yet.
+        if is_content_notification(&method) && method != DidChangeTextDocument::METHOD {
+            self.flush_pending_analysis()?;
+        }
+
         let mut content_changed = false;
-        let diagnostics = match note.method.as_str() {
+        let mut staged = false;
+        let diagnostics = match method.as_str() {
             m if m == DidOpenTextDocument::METHOD => {
                 content_changed = true;
                 self.state
@@ -333,8 +390,14 @@ impl Server {
             }
             m if m == DidChangeTextDocument::METHOD => {
                 content_changed = true;
+                staged = true;
+                // Stage the edit cheaply (buffer + symbol index updated,
+                // snapshots invalidated); the heavy component re-analysis is
+                // deferred to the debounce timer so a keystroke burst collapses
+                // into a single inference pass.
                 self.state
-                    .handle_did_change(serde_json::from_value(note.params)?)
+                    .stage_did_change(serde_json::from_value(note.params)?);
+                Vec::new()
             }
             m if m == DidSaveTextDocument::METHOD => self
                 .state
@@ -375,13 +438,25 @@ impl Server {
             }
         };
         if content_changed {
-            // Bump *after* handling so a read request already queued with the
-            // previous generation is detected as stale by the worker.
+            // Bump *after* handling (a `didChange` has staged the new content by
+            // now) so a read request already queued with the previous
+            // generation is detected as stale by the worker.
             self.cancel.bump_generation();
         }
         // A single edit can refresh diagnostics for several files — when a
         // buffer pulls in user modules, every reachable module is republished.
+        // (For `didChange` this is empty; its diagnostics arrive on flush.)
         self.report_diagnostics(diagnostics)?;
+        Ok(staged)
+    }
+
+    /// Drain and publish any debounced re-analysis. A no-op when nothing is
+    /// pending; called before an immediate content event and at shutdown.
+    fn flush_pending_analysis(&mut self) -> Result<()> {
+        if self.state.has_pending_analysis() {
+            let diagnostics = self.state.flush_analysis();
+            self.report_diagnostics(diagnostics)?;
+        }
         Ok(())
     }
 
@@ -488,6 +563,27 @@ impl Server {
             }))?;
         Ok(())
     }
+}
+
+/// Number of worker threads to serve read requests with. Scales with the
+/// machine but stays small — an editor rarely has many requests in flight, and
+/// the goal is just to keep one slow request from blocking the interactive
+/// ones, not to saturate every core. Falls back to 4 if the count is unknown.
+fn worker_pool_size() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get().clamp(2, 8))
+        .unwrap_or(4)
+}
+
+/// Whether `method` is a document-content notification — the events that
+/// (re)build snapshots and publish diagnostics. Used to decide when to settle
+/// pending debounced analysis before handling an immediate one.
+fn is_content_notification(method: &str) -> bool {
+    method == DidOpenTextDocument::METHOD
+        || method == DidChangeTextDocument::METHOD
+        || method == DidSaveTextDocument::METHOD
+        || method == DidCloseTextDocument::METHOD
+        || method == DidChangeWatchedFiles::METHOD
 }
 
 /// Convert an LSP `$/cancelRequest` id into an `lsp_server::RequestId`.

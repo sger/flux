@@ -10,6 +10,7 @@
 
 module Flow.Array {
 
+    /// Apply `f` to every element, returning a new array of the results.
     public fn map<a, b>(arr: Array<a>, f: (a) -> b) -> Array<b> {
         fn map_go(idx, acc) {
             if idx >= len(arr) { acc }
@@ -23,6 +24,7 @@ module Flow.Array {
         map_go(0, [||])
     }
 
+    /// Keep only the elements for which `pred` returns `true`.
     public fn filter<a>(arr: Array<a>, pred: (a) -> Bool) -> Array<a> {
         fn filter_go(idx, acc) {
             if idx >= len(arr) { acc }
@@ -36,6 +38,7 @@ module Flow.Array {
         filter_go(0, [||])
     }
 
+    /// Reduce the array to a single value, threading `acc` left-to-right through `f`.
     public fn fold<a, b>(arr: Array<a>, acc: b, f: (b, a) -> b) -> b {
         fn fold_go(idx, a) {
             if idx >= len(arr) { a }
@@ -49,6 +52,7 @@ module Flow.Array {
         fold_go(0, acc)
     }
 
+    /// Run `f` on each element in order, for its `IO` effect.
     public fn each<a>(arr: Array<a>, f: (a) -> Unit) with IO {
         fn each_go(idx) {
             if idx >= len(arr) { () }
@@ -65,6 +69,7 @@ module Flow.Array {
         each_go(0)
     }
 
+    /// `true` if `pred` holds for at least one element.
     public fn any<a>(arr: Array<a>, pred: (a) -> Bool) -> Bool {
         fn any_go(idx) {
             if idx >= len(arr) { false }
@@ -78,6 +83,7 @@ module Flow.Array {
         any_go(0)
     }
 
+    /// `true` if `pred` holds for every element (vacuously `true` when empty).
     public fn all<a>(arr: Array<a>, pred: (a) -> Bool) -> Bool {
         fn all_go(idx) {
             if idx >= len(arr) { true }
@@ -91,6 +97,7 @@ module Flow.Array {
         all_go(0)
     }
 
+    /// The first element satisfying `pred`, or `None` if there is none.
     public fn find<a>(arr: Array<a>, pred: (a) -> Bool) -> Option<a> {
         fn find_go(idx) {
             if idx >= len(arr) { None }
@@ -104,6 +111,7 @@ module Flow.Array {
         find_go(0)
     }
 
+    /// How many elements satisfy `pred`.
     public fn count<a>(arr: Array<a>, pred: (a) -> Bool) -> Int {
         fn count_go(idx, n) {
             if idx >= len(arr) { n }
@@ -117,6 +125,7 @@ module Flow.Array {
         count_go(0, 0)
     }
 
+    /// Map each element to an array and concatenate all the results.
     public fn flat_map<a, b>(arr: Array<a>, f: (a) -> Array<b>) -> Array<b> {
         fn flat_map_go(idx, acc) {
             if idx >= len(arr) { acc }
@@ -130,6 +139,7 @@ module Flow.Array {
         flat_map_go(0, [||])
     }
 
+    /// Concatenate an array of arrays into a single flat array.
     public fn flatten<a>(arr: Array<Array<a>>) -> Array<a> {
         fn flatten_go(idx, acc) {
             if idx >= len(arr) { acc }
@@ -143,6 +153,7 @@ module Flow.Array {
         flatten_go(0, [||])
     }
 
+    /// Pair up elements of two arrays positionally, truncating to the shorter length.
     public fn zip<a, b>(a_arr: Array<a>, b_arr: Array<b>) -> Array<(a, b)> {
         let min_len = if len(a_arr) < len(b_arr) { len(a_arr) } else { len(b_arr) }
         fn zip_go(idx, acc) {
@@ -160,18 +171,24 @@ module Flow.Array {
         zip_go(0, [||])
     }
 
+    /// `true` if some element equals `x` (by `Eq`).
     public fn contains<a: Eq>(arr: Array<a>, x: a) -> Bool {
         any(arr, \v -> v == x)
     }
 
+    /// Append `right` to `left`, returning a new array.
     public intrinsic fn concat<a>(left: Array<a>, right: Array<a>) -> Array<a> = primop ArrayConcat
 
+    /// The element at index `i`, or `None` if `i` is out of bounds.
     public intrinsic fn get<a>(arr: Array<a>, i: Int) -> Option<a> = primop ArrayGet
 
+    /// The number of elements in the array (the `len` builtin works too).
     public intrinsic fn length<a>(arr: Array<a>) -> Int = primop ArrayLen
 
+    /// Append `value` to the end, returning a new array.
     public intrinsic fn push<a>(arr: Array<a>, value: a) -> Array<a> = primop ArrayPush
 
+    /// The elements in reverse order.
     public fn reverse<a>(arr: Array<a>) -> Array<a> {
         if len(arr) == 0 {
             [||]
@@ -183,18 +200,23 @@ module Flow.Array {
         }
     }
 
+    /// The sub-array from `start` (inclusive) to `end` (exclusive).
     public intrinsic fn slice<a>(arr: Array<a>, start: Int, end: Int) -> Array<a> = primop ArraySlice
 
+    /// A copy of `arr` with the element at `index` replaced by `value`.
     public intrinsic fn update<a>(arr: Array<a>, index: Int, value: a) -> Array<a> = primop ArraySet
 
+    /// The sum of all elements (`0` for an empty array).
     public fn sum(arr: Array<Int>) -> Int {
         fold(arr, 0, \(a, x) -> a + x)
     }
 
+    /// The product of all elements (`1` for an empty array).
     public fn product(arr: Array<Int>) -> Int {
         fold(arr, 1, \(a, x) -> a * x)
     }
 
+    /// The largest element, or `0` if the array is empty.
     public fn maximum(arr: Array<Int>) -> Int {
         fn maximum_go(i, best) {
             if i >= len(arr) { best }
@@ -214,6 +236,7 @@ module Flow.Array {
         }
     }
 
+    /// The smallest element, or `0` if the array is empty.
     public fn minimum(arr: Array<Int>) -> Int {
         fn minimum_go(i, best) {
             if i >= len(arr) { best }
@@ -233,15 +256,18 @@ module Flow.Array {
         }
     }
 
+    /// The first element, or `None` if the array is empty.
     public fn first<a>(arr: Array<a>) -> Option<a> {
         arr[0]
     }
 
+    /// The last element, or `None` if the array is empty.
     public fn last<a>(arr: Array<a>) -> Option<a> {
         let n = len(arr)
         if n == 0 { None } else { arr[n - 1] }
     }
 
+    /// The integers from `start` (inclusive) to `stop` (exclusive).
     public fn range(start: Int, stop: Int) -> Array<Int> {
         fn range_go(i, acc) {
             if i >= stop { acc }
@@ -250,10 +276,12 @@ module Flow.Array {
         range_go(start, [||])
     }
 
+    /// The elements sorted in ascending order (`Ord`).
     public fn sort<a: Ord>(arr: Array<a>) -> Array<a> {
         sort_by(arr, \v -> v)
     }
 
+    /// Sort ascending by the key `f` returns for each element (stable insertion sort).
     public fn sort_by<a, b: Ord>(arr: Array<a>, f: (a) -> b) -> Array<a> {
         fn insert_tagged(sorted, pair, idx) {
             if idx >= len(sorted) {
@@ -284,14 +312,17 @@ module Flow.Array {
         map(sort_by_go(0, [||]), \p -> p.1)
     }
 
+    /// The first `n` elements (or the whole array if `n` exceeds its length).
     public fn take<a>(arr: Array<a>, n: Int) -> Array<a> {
         slice(arr, 0, if n > len(arr) { len(arr) } else { n })
     }
 
+    /// All but the first `n` elements (empty if `n` exceeds the length).
     public fn drop<a>(arr: Array<a>, n: Int) -> Array<a> {
         slice(arr, if n > len(arr) { len(arr) } else { n }, len(arr))
     }
 
+    /// A copy of `arr` with the elements at indices `i` and `j` exchanged.
     public fn swap<a>(arr: Array<a>, i: Int, j: Int) -> Array<a> {
         match arr[i] {
             Some(vi) -> match arr[j] {
@@ -302,6 +333,7 @@ module Flow.Array {
         }
     }
 
+    /// Pair each element with its index, as `(index, element)`.
     public fn enumerate<a>(arr: Array<a>) -> Array<(Int, a)> {
         fn enumerate_go(idx, acc) {
             if idx >= len(arr) { acc }
@@ -315,6 +347,7 @@ module Flow.Array {
         enumerate_go(0, [||])
     }
 
+    /// Build an array of length `n` whose element at index `i` is `f(i)`.
     public fn tabulate<a>(n: Int, f: (Int) -> a) -> Array<a> {
         fn tabulate_go(i, acc) {
             if i >= n { acc }
@@ -323,6 +356,7 @@ module Flow.Array {
         tabulate_go(0, [||])
     }
 
+    /// Convert a cons `List` into an array.
     public fn from_list<a>(xs: List<a>) -> Array<a> {
         fn from_list_go(ys, acc) {
             match ys {
@@ -333,6 +367,7 @@ module Flow.Array {
         from_list_go(xs, [||])
     }
 
+    /// The index of the first element satisfying `pred`, or `None`.
     public fn find_index<a>(arr: Array<a>, pred: (a) -> Bool) -> Option<Int> {
         fn find_index_go(idx) {
             if idx >= len(arr) { None }
@@ -346,6 +381,7 @@ module Flow.Array {
         find_index_go(0)
     }
 
+    /// Like `each`, but `f` also receives each element's index.
     public fn each_indexed<a>(arr: Array<a>, f: (Int, a) -> Unit) with IO {
         fn each_indexed_go(idx) {
             if idx >= len(arr) { () }
@@ -362,6 +398,7 @@ module Flow.Array {
         each_indexed_go(0)
     }
 
+    /// Apply a list of `(index, value)` updates in order, returning a new array.
     public fn update_many<a>(arr: Array<a>, pairs: List<(Int, a)>) -> Array<a> {
         fn update_many_go(a, ps) {
             match ps {
@@ -372,6 +409,8 @@ module Flow.Array {
         update_many_go(arr, pairs)
     }
 
+    /// An array of `size` cells starting at `init`, folding each `(index, value)`
+    /// in `pairs` into the cell at that index with `f`.
     public fn accum<a, b>(size: Int, init: a, pairs: List<(Int, b)>, f: (a, b) -> a) -> Array<a> {
         let base = tabulate(size, \_ -> init)
         fn accum_go(a, ps) {
@@ -386,6 +425,7 @@ module Flow.Array {
         accum_go(base, pairs)
     }
 
+    /// Convert an array into a cons `List`.
     public fn to_list<a>(arr: Array<a>) -> List<a> {
         fn to_list_go(idx) {
             if idx >= len(arr) { [] }
