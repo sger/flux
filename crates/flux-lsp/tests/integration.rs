@@ -1595,6 +1595,126 @@ fn hover_on_function_decl_shows_doc_comment() {
 }
 
 #[test]
+fn hover_on_function_use_shows_doc_comment() {
+    // A documented function's `///` shows on every reference, not only at its
+    // declaration — the name is resolved back to the declaration the way
+    // rust-analyzer surfaces docs at use sites.
+    let mut state = GlobalState::default();
+    let u = uri("file:///doc-use.flx");
+    open(
+        &mut state,
+        &u,
+        "/// Doubles its argument.\n\
+         fn twice(x: Int) -> Int { x * 2 }\n\
+         fn main() with IO { let r = twice(21) }\n",
+    );
+
+    // Hover on the `twice` *use* in `twice(21)` (line 2, char 30).
+    let md = hover_markup(&mut state, &u, 2, 30).expect("hover on `twice` use");
+    assert!(
+        md.contains("Doubles its argument."),
+        "expected the declaration doc at the use site, got: {md}"
+    );
+    assert!(
+        md.contains("```flux"),
+        "expected the inferred signature block alongside the doc, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_perform_op_shows_signature_and_doc() {
+    // Hovering the operation in `perform Effect.op(...)` shows the op's declared
+    // signature and its doc — previously a bare `operation: log` label.
+    let mut state = GlobalState::default();
+    let u = uri("file:///perform-op.flx");
+    open(
+        &mut state,
+        &u,
+        "effect Audit {\n\
+         \x20   /// Records a message; returns its length.\n\
+         \x20   log: String -> Int\n\
+         }\n\
+         fn audited() -> Int with Audit {\n\
+         \x20   perform Audit.log(\"x\")\n\
+         }\n",
+    );
+
+    // Hover on `log` in `perform Audit.log` (line 5, char 19).
+    let md = hover_markup(&mut state, &u, 5, 19).expect("hover on `log` perform op");
+    assert!(
+        md.contains("String -> Int") || md.contains("(String) -> Int"),
+        "expected the op's declared signature, got: {md}"
+    );
+    assert!(
+        md.contains("Records a message"),
+        "expected the op's doc comment, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_handle_arm_op_shows_signature() {
+    // Hovering the op name in a `handle` arm shows the op's declared signature,
+    // resolved from the handled effect.
+    let mut state = GlobalState::default();
+    let u = uri("file:///handle-op.flx");
+    open(
+        &mut state,
+        &u,
+        "effect Audit {\n\
+         \x20   log: String -> Int\n\
+         }\n\
+         fn audited() -> Int with Audit {\n\
+         \x20   perform Audit.log(\"x\")\n\
+         }\n\
+         fn main() with IO {\n\
+         \x20   let v = audited() handle Audit {\n\
+         \x20       log(resume, m) -> resume(2)\n\
+         \x20   }\n\
+         \x20   print(to_string(v))\n\
+         }\n",
+    );
+
+    // Hover on `log` in the handle arm (line 8, char 8).
+    let md = hover_markup(&mut state, &u, 8, 8).expect("hover on `log` handle arm");
+    assert!(
+        md.contains("String -> Int") || md.contains("(String) -> Int"),
+        "expected the op's declared signature in the handle arm, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_constructor_pattern_shows_variant_and_doc() {
+    // Hovering an ADT constructor in a `match` pattern shows the variant's
+    // declared shape and the data declaration's doc — previously this returned
+    // nothing (only `Pattern::Identifier` was handled).
+    let mut state = GlobalState::default();
+    let u = uri("file:///ctor-pattern.flx");
+    open(
+        &mut state,
+        &u,
+        "/// A 2D shape.\n\
+         type Shape = Circle(Float) | Rect(Float, Float)\n\
+         fn describe(s: Shape) -> Float {\n\
+         \x20   match s {\n\
+         \x20       Circle(r) -> r,\n\
+         \x20       Rect(w, h) -> w,\n\
+         \x20   }\n\
+         }\n",
+    );
+
+    // Hover on `Circle` in the pattern `Circle(r)` (line 4, char 10).
+    let md = hover_markup(&mut state, &u, 4, 10).expect("hover on `Circle` pattern");
+    assert!(
+        md.contains("Circle(Float)"),
+        "expected the variant's declared shape, got: {md}"
+    );
+    assert!(
+        md.contains("A 2D shape."),
+        "expected the data declaration's doc, got: {md}"
+    );
+}
+
+#[test]
 fn hover_on_module_member_use_shows_doc_comment() {
     // Hovering a `Module.member` use site shows the member's doc comment,
     // scanned from the (Flow) module's cached source.
@@ -1718,7 +1838,7 @@ fn hover_on_member_access_member_returns_field_label() {
 }
 
 #[test]
-fn hover_on_data_declaration_name_returns_data_label() {
+fn hover_on_data_declaration_shows_definition() {
     let mut state = GlobalState::default();
     let u = uri("file:///data.flx");
     open(
@@ -1729,8 +1849,45 @@ fn hover_on_data_declaration_name_returns_data_label() {
     // `Person` (data name) starts at column 6 (character 5 zero-indexed).
     let value = hover_markup(&mut state, &u, 0, 6).expect("hover on data name");
     assert!(
-        value.contains("data") && value.contains("Person"),
-        "expected data label, got: {value}"
+        value.contains("data Person")
+            && value.contains("name: String")
+            && value.contains("age: Int"),
+        "expected the data definition with field types, not a bare label, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_adt_use_shows_variant_list() {
+    // Hovering a user ADT in an annotation shows its variant list, not just a
+    // `type: Shape` label.
+    let mut state = GlobalState::default();
+    let u = uri("file:///adt-use.flx");
+    open(
+        &mut state,
+        &u,
+        "type Shape = Circle(Float) | Rect(Float, Float)\n\
+         fn area(s: Shape) -> Float { 0.0 }\n",
+    );
+
+    // Hover on `Shape` in the annotation `s: Shape` (line 1, char 12).
+    let value = hover_markup(&mut state, &u, 1, 12).expect("hover on ADT use `Shape`");
+    assert!(
+        value.contains("Circle(Float)") && value.contains("Rect(Float, Float)"),
+        "expected the variant list at the type-use site, got: {value}"
+    );
+}
+
+#[test]
+fn hover_on_type_alias_shows_body() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///alias.flx");
+    open(&mut state, &u, "alias Name = String\nlet n: Name = \"a\"\n");
+
+    // Hover on `Name` at its declaration (line 0). `alias ` is 6 chars.
+    let value = hover_markup(&mut state, &u, 0, 7).expect("hover on alias name");
+    assert!(
+        value.contains("alias Name = String"),
+        "expected the alias body, got: {value}"
     );
 }
 
