@@ -278,6 +278,23 @@ impl GlobalState {
         handlers::implementation::goto_implementation(&bundle)
     }
 
+    pub fn handle_type_definition(
+        &mut self,
+        params: GotoDefinitionParams,
+    ) -> Option<GotoDefinitionResponse> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
+        let nav =
+            handlers::definition::goto_type_definition(snapshot, &text_document.uri, position)?;
+        let origin = cursor_word_range(snapshot, position);
+        Some(GotoDefinitionResponse::Link(vec![
+            nav.into_location_link(origin),
+        ]))
+    }
+
     pub fn handle_prepare_call_hierarchy(
         &mut self,
         params: CallHierarchyPrepareParams,
@@ -702,6 +719,41 @@ impl GlobalState {
                 None => serde_json::Value::Null,
             },
         ))
+    }
+
+    pub fn dispatch_type_definition(&mut self, params: GotoDefinitionParams) -> Option<Job> {
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = params.text_document_position_params;
+        let uri = text_document.uri;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
+        Some(Box::new(
+            move || match handlers::definition::goto_type_definition(&snapshot, &uri, position) {
+                Some(nav) => {
+                    let origin = cursor_word_range(&snapshot, position);
+                    to_value(GotoDefinitionResponse::Link(vec![
+                        nav.into_location_link(origin),
+                    ]))
+                }
+                None => serde_json::Value::Null,
+            },
+        ))
+    }
+
+    /// Custom `flux/view*` request: render a compiler-stage dump (tokens / Core
+    /// IR / bytecode) for the document, off-thread, and return it as a string.
+    pub fn dispatch_view(
+        &mut self,
+        params: lsp_types::TextDocumentIdentifier,
+        kind: handlers::view::ViewKind,
+    ) -> Option<Job> {
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.uri)?;
+        let source = snapshot.text.as_ref().to_string();
+        let path = params.uri.as_str().to_string();
+        Some(Box::new(move || {
+            serde_json::Value::String(handlers::view::render(kind, &source, &path))
+        }))
     }
 
     pub fn dispatch_prepare_call_hierarchy(

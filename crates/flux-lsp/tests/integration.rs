@@ -273,7 +273,10 @@ fn staged_change_defers_analysis_until_flush() {
 
     // Opening a clean buffer analyzes immediately.
     let opened = diags_for(&mut state, &u, "fn main() -> Int { 1 }\n");
-    assert!(opened.is_empty(), "clean file should open clean: {opened:?}");
+    assert!(
+        opened.is_empty(),
+        "clean file should open clean: {opened:?}"
+    );
 
     // Stage an edit that introduces an undefined name. `stage_did_change`
     // publishes nothing — the (potentially expensive) re-analysis is deferred —
@@ -654,6 +657,44 @@ fn goto_definition_returns_link_with_distinct_focus_and_full_range_for_let() {
             && link.target_selection_range.end.character <= link.target_range.end.character,
         "focus_range must lie within full_range"
     );
+}
+
+#[test]
+fn goto_type_definition_jumps_to_adt_declaration() {
+    // "Go to Type Definition" on an expression jumps to the declaration of its
+    // inferred type's ADT — here the body use of `s` (type `Shape`) lands on the
+    // `Shape` declaration.
+    let mut state = GlobalState::default();
+    let u = uri("file:///typedef.flx");
+    open(
+        &mut state,
+        &u,
+        "type Shape = Circle(Float) | Rect(Float, Float)\n\
+         fn describe(s: Shape) -> Shape { s }\n",
+    );
+
+    // Type-definition on the body use of `s` (line 1, char 33).
+    let resp = state
+        .handle_type_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&u),
+                position: Position {
+                    line: 1,
+                    character: 33,
+                },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("type definition result");
+    let link = expect_single_link(resp);
+    assert_eq!(link.target_uri, u);
+    assert_eq!(
+        link.target_range.start.line, 0,
+        "should point at the `Shape` declaration line"
+    );
+    // Focus covers the `Shape` name (`type ` is 5 chars).
+    assert_eq!(link.target_selection_range.start.character, 5);
 }
 
 #[test]
@@ -2485,6 +2526,96 @@ fn document_highlight_marks_all_occurrences() {
     );
 }
 
+#[test]
+fn document_highlight_tags_read_and_write() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///hl-rw.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() {\n    let total = 1\n    let next = total + total\n}\n",
+    );
+
+    let highlights = state.handle_document_highlight(DocumentHighlightParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(1, 9), // the `total` binding
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    let writes = highlights
+        .iter()
+        .filter(|h| h.kind == Some(lsp_types::DocumentHighlightKind::WRITE))
+        .count();
+    let reads = highlights
+        .iter()
+        .filter(|h| h.kind == Some(lsp_types::DocumentHighlightKind::READ))
+        .count();
+    assert_eq!(writes, 1, "the `let total` binding is a write");
+    assert_eq!(reads, 2, "the two uses in `total + total` are reads");
+}
+
+#[test]
+fn document_highlight_marks_function_exit_points() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///hl-exits.flx");
+    open(
+        &mut state,
+        &u,
+        "fn pick(n: Int) -> Int {\n    if n > 0 {\n        return 1\n    }\n    return 0\n}\n",
+    );
+
+    // Cursor on the first `return` (line 2).
+    let highlights = state.handle_document_highlight(DocumentHighlightParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(2, 10),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert_eq!(
+        highlights.len(),
+        2,
+        "both `return`s should be highlighted, got {highlights:?}"
+    );
+}
+
+#[test]
+fn document_highlight_links_perform_and_handle() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///hl-effect.flx");
+    open(
+        &mut state,
+        &u,
+        "effect Audit { log: String -> Int }\n\
+         fn run() -> Int {\n\
+         \x20   perform Audit.log(\"x\") handle Audit {\n\
+         \x20       log(resume, m) -> resume(1)\n\
+         \x20   }\n\
+         }\n",
+    );
+
+    // Cursor on `log` in `perform Audit.log` (line 2, char 19).
+    let highlights = state.handle_document_highlight(DocumentHighlightParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: ident(&u),
+            position: Position::new(2, 19),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    assert_eq!(
+        highlights.len(),
+        2,
+        "the perform site and its handle arm should both highlight, got {highlights:?}"
+    );
+    // One on the perform line (2), one on the handle-arm line (3).
+    assert!(highlights.iter().any(|h| h.range.start.line == 2));
+    assert!(highlights.iter().any(|h| h.range.start.line == 3));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Workspace symbol search
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2839,6 +2970,40 @@ fn action_edit_text(action: &CodeActionOrCommand) -> Option<String> {
     }
 }
 
+/// Range of the first `TextEdit` in a code action's `WorkspaceEdit`.
+fn action_edit_range(action: &CodeActionOrCommand) -> Option<Range> {
+    let CodeActionOrCommand::CodeAction(ca) = action else {
+        return None;
+    };
+    let DocumentChanges::Edits(edits) = ca.edit.as_ref()?.document_changes.as_ref()? else {
+        return None;
+    };
+    match edits.first()?.edits.first()? {
+        OneOf::Left(te) => Some(te.range),
+        OneOf::Right(ate) => Some(ate.text_edit.range),
+    }
+}
+
+/// All `(range, new_text)` edits in a code action's `WorkspaceEdit`.
+fn action_edits(action: &CodeActionOrCommand) -> Vec<(Range, String)> {
+    let CodeActionOrCommand::CodeAction(ca) = action else {
+        return vec![];
+    };
+    let Some(DocumentChanges::Edits(edits)) =
+        ca.edit.as_ref().and_then(|e| e.document_changes.as_ref())
+    else {
+        return vec![];
+    };
+    edits
+        .iter()
+        .flat_map(|tde| &tde.edits)
+        .map(|e| match e {
+            OneOf::Left(te) => (te.range, te.new_text.clone()),
+            OneOf::Right(ate) => (ate.text_edit.range, ate.text_edit.new_text.clone()),
+        })
+        .collect()
+}
+
 fn code_action_params(u: &Uri, range: Range) -> CodeActionParams {
     CodeActionParams {
         text_document: ident(u),
@@ -3029,6 +3194,82 @@ fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
 }
 
 #[test]
+fn code_action_fills_missing_match_arms_for_adt() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///fill.flx");
+    // `match s` covers only `Circle` — `Rect` and `Unit` are missing.
+    open(
+        &mut state,
+        &u,
+        "type Shape = Circle(Float) | Rect(Float, Float) | Unit\n\
+         fn describe(s: Shape) -> Int {\n\
+         \x20   match s {\n\
+         \x20       Circle(r) -> 1\n\
+         \x20   }\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(2, 4), Position::new(2, 11)),
+        ))
+        .expect("code action response");
+
+    let fill = actions
+        .iter()
+        .find(|a| action_title(a).contains("Fill"))
+        .expect("expected a fill-missing-arms quick fix");
+    let edit = action_edit_text(fill).expect("fill edit text");
+    assert!(
+        edit.contains("Rect(_, _) -> panic(\"todo\")") && edit.contains("Unit -> panic(\"todo\")"),
+        "fill should generate real per-variant arms, got {edit:?}"
+    );
+    // The plain catch-all is still offered alongside.
+    assert!(
+        actions
+            .iter()
+            .any(|a| action_title(a).contains("catch-all")),
+        "the bare catch-all should also be available"
+    );
+}
+
+#[test]
+fn code_action_fills_named_variant_arm_with_rest_pattern() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///fill-named.flx");
+    // `Active` is a named-field variant; its filled arm uses a `{ .. }` rest.
+    open(
+        &mut state,
+        &u,
+        "data Status { Active { since: Int }, Closed }\n\
+         fn label(s: Status) -> Int {\n\
+         \x20   match s {\n\
+         \x20       Closed -> 0\n\
+         \x20   }\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(2, 4), Position::new(2, 11)),
+        ))
+        .expect("code action response");
+
+    let fill = actions
+        .iter()
+        .find(|a| action_title(a).contains("Fill"))
+        .expect("expected a fill-missing-arms quick fix");
+    assert!(
+        action_edit_text(fill)
+            .expect("fill edit text")
+            .contains("Active { .. } -> panic(\"todo\")"),
+        "named variant should fill with a `{{ .. }}` rest pattern"
+    );
+}
+
+#[test]
 fn code_action_offers_did_you_mean_keyword_fix() {
     let mut state = GlobalState::default();
     let u = uri("file:///typo.flx");
@@ -3051,6 +3292,202 @@ fn code_action_offers_did_you_mean_keyword_fix() {
         action_edit_text(fix).as_deref(),
         Some("fn"),
         "did-you-mean fix should replace the bad keyword with `fn`"
+    );
+}
+
+#[test]
+fn code_action_adds_with_effect_for_e400() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///e400.flx");
+    // `f` declares `with FileSystem` but calls `print` (needs `Console`) → E400.
+    // The quick fix appends `Console` to the existing effect row.
+    open(
+        &mut state,
+        &u,
+        "fn f() -> Int with FileSystem {\n    print(\"x\")\n    1\n}\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 4), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Add effect `Console`"))
+        .expect("expected an add-effect quick fix");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some(", Console"),
+        "should append `Console` to the existing `with FileSystem` row"
+    );
+    // Inserted on the signature line (line 0), after `FileSystem`.
+    assert_eq!(action_edit_range(fix).expect("edit range").start.line, 0);
+}
+
+#[test]
+fn code_action_removes_unused_import() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///unused-import.flx");
+    // `Array` is imported but never used → the linter's W003; the quick fix
+    // deletes the whole import line.
+    open(
+        &mut state,
+        &u,
+        "import Flow.Array as Array\nfn main() with IO {\n    print(\"hi\")\n}\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 10)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Remove unused import"))
+        .expect("expected a remove-unused-import quick fix");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some(""),
+        "removal edit should delete (empty replacement)"
+    );
+    let range = action_edit_range(fix).expect("edit range");
+    assert_eq!(range.start.line, 0);
+    assert_eq!(
+        range.end.line, 1,
+        "should delete through the start of the next line"
+    );
+}
+
+#[test]
+fn code_action_adds_type_annotation_to_let() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///annotate.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    let n = 41 + 1\n    print(to_string(n))\n}\n",
+    );
+
+    // Cursor on `n` in `let n = …` (line 1, char 8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 8), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+
+    let assist = actions
+        .iter()
+        .find(|a| action_title(a).contains("Add type annotation"))
+        .expect("expected an add-type-annotation assist");
+    assert_eq!(
+        action_edit_text(assist).as_deref(),
+        Some(": Int"),
+        "should insert the inferred type"
+    );
+    // Inserted right after the name `n` (line 1, char 9).
+    let r = action_edit_range(assist).expect("edit range");
+    assert_eq!((r.start.line, r.start.character), (1, 9));
+}
+
+#[test]
+fn code_action_introduces_variable_for_selection() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///introduce.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    print(to_string(1 + 2))\n}\n",
+    );
+
+    // Select `1 + 2` (line 1, chars 20..25).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 20), Position::new(1, 25)),
+        ))
+        .expect("code action response");
+
+    let assist = actions
+        .iter()
+        .find(|a| action_title(a).contains("Introduce variable"))
+        .expect("expected an introduce-variable assist");
+    let edits = action_edits(assist);
+    assert_eq!(edits.len(), 2, "a `let` insert plus the selection rewrite");
+    assert!(
+        edits
+            .iter()
+            .any(|(_, t)| t.contains("let extracted = 1 + 2")),
+        "should hoist the selection into a `let`, got {edits:?}"
+    );
+    assert!(
+        edits.iter().any(|(_, t)| t == "extracted"),
+        "should replace the selection with the new name, got {edits:?}"
+    );
+}
+
+#[test]
+fn code_action_inlines_single_use_let() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///inline.flx");
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    let greeting = \"hi\"\n    print(greeting)\n}\n",
+    );
+
+    // Cursor on `greeting` in the `let` (line 1, char 8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 8), Position::new(1, 12)),
+        ))
+        .expect("code action response");
+
+    let assist = actions
+        .iter()
+        .find(|a| action_title(a).contains("Inline"))
+        .expect("expected an inline assist");
+    let edits = action_edits(assist);
+    // One edit deletes the `let` line; one replaces the use with the value.
+    assert!(
+        edits
+            .iter()
+            .any(|(r, t)| t.is_empty() && r.start.line == 1 && r.end.line == 2),
+        "should delete the `let` line, got {edits:?}"
+    );
+    assert!(
+        edits.iter().any(|(_, t)| t == "\"hi\""),
+        "should inline the (atomic) value without parens, got {edits:?}"
+    );
+}
+
+#[test]
+fn code_action_does_not_inline_multi_use_let() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///inline-multi.flx");
+    // `g` is used twice — inlining is not offered (avoids re-evaluation /
+    // shadowing ambiguity).
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n    let g = \"hi\"\n    print(g)\n    print(g)\n}\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 8), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions.iter().any(|a| action_title(a).contains("Inline")),
+        "inline should not be offered for a multi-use binding"
     );
 }
 
@@ -3508,7 +3945,10 @@ fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState,
 #[test]
 fn workspace_module_names_cache_refreshes_after_an_edit() {
     let (_dir, mut state, uris) = workspace_fixture(&[
-        ("Math.flx", "module Math {\n    public fn twice(x) { x * 2 }\n}\n"),
+        (
+            "Math.flx",
+            "module Math {\n    public fn twice(x) { x * 2 }\n}\n",
+        ),
         ("main.flx", "fn main() -> Int { 1 }\n"),
     ]);
 

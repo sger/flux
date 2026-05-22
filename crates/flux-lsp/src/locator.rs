@@ -801,7 +801,11 @@ impl<'ast> Finder<'ast, '_> {
                 // `perform `, the effect name, and the `.`. Best-effort for the
                 // canonical single-line form (consistent with the other
                 // synthesized name spans here).
-                let effect_len = self.interner.try_resolve(*effect).map(str::len).unwrap_or(0);
+                let effect_len = self
+                    .interner
+                    .try_resolve(*effect)
+                    .map(str::len)
+                    .unwrap_or(0);
                 let op_start = FluxPosition {
                     line: span.start.line,
                     column: span.start.column + "perform ".len() + effect_len + 1,
