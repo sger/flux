@@ -2664,6 +2664,24 @@ impl Compiler {
     }
 
     pub(in crate::compiler) fn collect_class_declarations(&mut self, program: &Program) {
+        let diagnostics = self.collect_class_declarations_diagnostics(program);
+        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
+            .into_iter()
+            .partition(|diag| diag.code() == Some("E453"));
+        self.errors.extend(errors);
+        self.warnings.extend(warnings);
+    }
+
+    /// Build `class_env` from the program and return the class/instance
+    /// validation diagnostics, *without* routing them into `self.errors` /
+    /// `self.warnings`. The pipeline path ([`collect_class_declarations`])
+    /// wraps this and does the routing; the LSP path
+    /// ([`collect_classes_for_lsp`](Self::collect_classes_for_lsp)) wants the
+    /// diagnostics back so it can publish a chosen subset as squiggles.
+    pub(in crate::compiler) fn collect_class_declarations_diagnostics(
+        &mut self,
+        program: &Program,
+    ) -> Vec<Diagnostic> {
         // Register built-in classes first so that `deriving` clauses in the
         // program can reference them (Eq, Ord, Num, Show, Semigroup).
         let mut env = crate::types::class_env::ClassEnv::new();
@@ -2677,11 +2695,7 @@ impl Compiler {
             &self.interner,
         );
         self.class_env = env;
-        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
-            .into_iter()
-            .partition(|diag| diag.code() == Some("E453"));
-        self.errors.extend(errors);
-        self.warnings.extend(warnings);
+        diagnostics
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {

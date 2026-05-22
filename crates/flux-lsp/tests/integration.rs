@@ -3492,6 +3492,118 @@ fn code_action_does_not_inline_multi_use_let() {
 }
 
 #[test]
+fn code_action_adds_missing_methods_to_empty_instance() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///instance-empty.flx");
+    // `Show2` has a required `show` and a defaulted `pretty`; the empty
+    // instance is missing only `show` (defaults aren't stubbed).
+    open(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class Show2<a> {\n\
+         \x20   fn show(x: a) -> String\n\
+         \x20   fn pretty(x: a) -> String { show(x) }\n\
+         }\n\
+         instance Show2<Color> {\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(5, 0), Position::new(5, 8)),
+        ))
+        .expect("code action response");
+
+    let add = actions
+        .iter()
+        .find(|a| action_title(a).contains("Add missing method"))
+        .expect("expected an add-missing-methods quick fix");
+    assert_eq!(action_title(add), "Add missing method for `Show2`");
+    let edit = action_edit_text(add).expect("add edit text");
+    assert!(
+        edit.contains("fn show(x) { panic(\"todo\") }"),
+        "required method should be stubbed with a panic body, got {edit:?}"
+    );
+    assert!(
+        !edit.contains("pretty"),
+        "a method with a default body should not be stubbed, got {edit:?}"
+    );
+}
+
+#[test]
+fn code_action_adds_only_unimplemented_instance_methods() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///instance-partial.flx");
+    // `Eq2` requires `eq` and `ne`; the instance already provides `eq`, so only
+    // `ne` is stubbed — and it splices in after the existing method.
+    open(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class Eq2<a> {\n\
+         \x20   fn eq(x: a, y: a) -> Bool\n\
+         \x20   fn ne(x: a, y: a) -> Bool\n\
+         }\n\
+         instance Eq2<Color> {\n\
+         \x20   fn eq(x, y) { panic(\"p\") }\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(5, 0), Position::new(5, 8)),
+        ))
+        .expect("code action response");
+
+    let add = actions
+        .iter()
+        .find(|a| action_title(a).contains("Add missing method"))
+        .expect("expected an add-missing-methods quick fix");
+    let edit = action_edit_text(add).expect("add edit text");
+    assert!(
+        edit.contains("fn ne(x, y) { panic(\"todo\") }"),
+        "the unimplemented method should be stubbed, got {edit:?}"
+    );
+    assert!(
+        !edit.contains("fn eq"),
+        "an already-implemented method must not be re-stubbed, got {edit:?}"
+    );
+}
+
+#[test]
+fn code_action_no_add_methods_for_complete_instance() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///instance-complete.flx");
+    open(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class Eq3<a> {\n\
+         \x20   fn eq(x: a, y: a) -> Bool\n\
+         }\n\
+         instance Eq3<Color> {\n\
+         \x20   fn eq(x, y) { panic(\"p\") }\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(4, 0), Position::new(4, 8)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("Add missing method")),
+        "a complete instance should offer no add-missing-methods fix"
+    );
+}
+
+#[test]
 fn code_action_returns_nothing_for_a_clean_range() {
     let mut state = GlobalState::default();
     let u = uri("file:///clean.flx");
@@ -4093,6 +4205,36 @@ fn cross_file_goto_definition_resolves_deeply_qualified_member() {
     assert_eq!(
         location.uri, uris[0],
         "expected deeply-qualified goto-definition to land in Lib/App/Main.flx"
+    );
+}
+
+#[test]
+fn cross_file_goto_definition_resolves_aliased_subdir_module() {
+    // `import Lib.App.Util as U` — an alias to a *subdirectory* module. The
+    // alias resolves to the module's short segment, but the sibling cache keys
+    // user modules by their full declared name; goto-def must still land in the
+    // module file.
+    let util = "module Lib.App.Util {\n    public fn helper(x) { x + 1 }\n}\n";
+    let entry = "import Lib.App.Util as U\n\nfn main() with IO {\n    let _ = U.helper(1)\n}\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Lib/App/Util.flx", util), ("main.flx", entry)]);
+    open(&mut state, &uris[1], entry);
+
+    // Cursor on `helper` in `U.helper(1)` (line 3, char 16).
+    let resp = state
+        .handle_definition(GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: ident(&uris[1]),
+                position: Position::new(3, 16),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        })
+        .expect("goto-definition response");
+    let location = expect_location(resp);
+    assert_eq!(
+        location.uri, uris[0],
+        "aliased subdir-module goto-definition should land in Lib/App/Util.flx"
     );
 }
 
@@ -6386,5 +6528,139 @@ fn organize_imports_not_offered_without_source_request() {
                 if ca.kind == Some(lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS)
         )),
         "organize-imports should not appear without an explicit source request"
+    );
+}
+
+/// Collected error codes from a freshly opened buffer.
+fn published_codes(state: &mut GlobalState, u: &Uri, src: &str) -> Vec<String> {
+    state
+        .handle_did_open(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: u.clone(),
+                language_id: "flux".into(),
+                version: 1,
+                text: src.into(),
+            },
+        })
+        .into_iter()
+        .flat_map(|p| p.diagnostics)
+        .filter_map(|d| match d.code {
+            Some(NumberOrString::String(c)) => Some(c),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn incomplete_instance_publishes_e442() {
+    // `Show9` requires `show`; the empty instance omits it — the compiler's
+    // class-collection check (E442) is now surfaced as an editor squiggle.
+    let mut state = GlobalState::default();
+    let u = uri("file:///e442.flx");
+    let codes = published_codes(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class Show9<a> {\n\
+         \x20   fn show(x: a) -> String\n\
+         }\n\
+         instance Show9<Color> {\n\
+         }\n",
+    );
+    assert!(
+        codes.iter().any(|c| c == "E442"),
+        "an incomplete instance should publish E442, got {codes:?}"
+    );
+}
+
+#[test]
+fn instance_with_unknown_method_publishes_e446() {
+    // `extra` is not a method of `One` — E446 (method not in class).
+    let mut state = GlobalState::default();
+    let u = uri("file:///e446.flx");
+    let codes = published_codes(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class One<a> {\n\
+         \x20   fn show(x: a) -> String\n\
+         }\n\
+         instance One<Color> {\n\
+         \x20   fn show(x) { panic(\"p\") }\n\
+         \x20   fn extra(x) { panic(\"p\") }\n\
+         }\n",
+    );
+    assert!(
+        codes.iter().any(|c| c == "E446"),
+        "an instance with a non-class method should publish E446, got {codes:?}"
+    );
+}
+
+#[test]
+fn complete_builtin_instance_publishes_no_class_errors() {
+    // The shipped `type_class_basic.flx` pattern: explicit, complete instances
+    // of the *built-in* `Eq` class. None of the surfaced class checks
+    // (E440–E448) — and crucially not a phantom duplicate (E443) against the
+    // built-in instance — may fire here.
+    let mut state = GlobalState::default();
+    let u = uri("file:///builtin-eq.flx");
+    let codes = published_codes(
+        &mut state,
+        &u,
+        "instance Eq<Int> {\n\
+         \x20   fn eq(x, y) { x == y }\n\
+         \x20   fn neq(x, y) { x != y }\n\
+         }\n\
+         instance Eq<String> {\n\
+         \x20   fn eq(x, y) { x == y }\n\
+         \x20   fn neq(x, y) { x != y }\n\
+         }\n\
+         fn main() with IO {\n\
+         \x20   print(42)\n\
+         }\n",
+    );
+    assert!(
+        !codes.iter().any(|c| c.starts_with("E44")),
+        "complete built-in-class instances must not produce class errors, got {codes:?}"
+    );
+}
+
+#[test]
+fn add_missing_methods_quick_fix_resolves_e442() {
+    // The quick fix attaches the E442 it clears, so the client can associate it
+    // with the squiggle.
+    let mut state = GlobalState::default();
+    let u = uri("file:///e442-fix.flx");
+    open(
+        &mut state,
+        &u,
+        "data Color { Red, Green }\n\
+         class Show8<a> {\n\
+         \x20   fn show(x: a) -> String\n\
+         }\n\
+         instance Show8<Color> {\n\
+         }\n",
+    );
+    // Cursor inside the instance body — the whole-instance trigger still fires.
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(5, 0), Position::new(5, 0)),
+        ))
+        .expect("code action response");
+    let add = actions
+        .iter()
+        .find(|a| action_title(a).contains("Add missing method"))
+        .expect("expected the add-missing-methods quick fix");
+    let CodeActionOrCommand::CodeAction(ca) = add else {
+        panic!("expected a CodeAction");
+    };
+    let attached = ca.diagnostics.as_ref().expect("attached diagnostics");
+    assert!(
+        attached
+            .iter()
+            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E442")),
+        "the fix should carry the E442 it resolves, got {:?}",
+        attached.iter().map(|d| &d.code).collect::<Vec<_>>()
     );
 }

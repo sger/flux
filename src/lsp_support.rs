@@ -293,8 +293,14 @@ pub fn build_infer_config_for_program(
 /// `src/ast/type_infer/mod.rs`) which the LSP consumes via
 /// `InferProgramResult::class_method_dispatch` for goto-definition on
 /// class-method calls.
-pub fn collect_classes_for_program(compiler: &mut Compiler, program: &Program) {
-    compiler.collect_classes_for_lsp(program);
+///
+/// Returns the class/instance validation diagnostics so the caller can publish
+/// the single-buffer-sound subset as squiggles.
+pub fn collect_classes_for_program(
+    compiler: &mut Compiler,
+    program: &Program,
+) -> Vec<crate::diagnostics::Diagnostic> {
+    compiler.collect_classes_for_lsp(program)
 }
 
 /// Wrapper around `Compiler::phase_reset_for_lsp` so the LSP can clear

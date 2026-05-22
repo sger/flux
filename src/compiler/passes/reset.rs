@@ -21,12 +21,16 @@ impl Compiler {
     /// `build_infer_config_for_program` so buffer-declared classes are
     /// visible to inference.
     ///
-    /// Diagnostics produced by collection are folded into the compiler's
-    /// `errors` / `warnings` — they surface through the next `take` on
-    /// those lists. The LSP currently doesn't display class-collection
-    /// diagnostics separately from inference diagnostics.
-    pub fn collect_classes_for_lsp(&mut self, program: &Program) {
-        self.collect_class_declarations(program);
+    /// Returns the class/instance validation diagnostics rather than folding
+    /// them into the compiler's `errors` / `warnings` (the pipeline path does
+    /// that). The caller decides which to publish as editor squiggles — only
+    /// the checks that are sound from a single-buffer view are safe (see
+    /// `Snapshot::build`).
+    pub fn collect_classes_for_lsp(
+        &mut self,
+        program: &Program,
+    ) -> Vec<crate::diagnostics::Diagnostic> {
+        self.collect_class_declarations_diagnostics(program)
     }
 
     /// Phase 0: Clear per-file tracking state for each compile pass.
