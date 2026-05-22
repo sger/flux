@@ -271,6 +271,56 @@ pub fn goto_definition(
     module_member_target(snapshot, def_name)
 }
 
+/// Resolve `textDocument/typeDefinition`: from an expression (or a `let`/
+/// pattern binding) jump to the declaration of its inferred type's ADT or
+/// alias. rust-analyzer's "Go to Type Definition" — the Flux analogue resolves
+/// the cursor's inferred type to its `data`/`type` declaration, same-file first
+/// then any cached module (a Flow-prelude or sibling-module type).
+pub fn goto_type_definition(
+    snapshot: &Snapshot,
+    uri: &Uri,
+    position: Position,
+) -> Option<NavigationTarget> {
+    let target = snapshot.position_map.lsp_to_flux(position)?;
+    let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+    let adt_sym = node_type_adt_symbol(snapshot, &node)?;
+
+    let extended_index = SymbolIndex::build_extended(&snapshot.program, &snapshot.interner);
+    if let Some(entry) = extended_index.lookup_id(adt_sym) {
+        return Some(target_from_entry(
+            uri.clone(),
+            &snapshot.position_map,
+            entry,
+        ));
+    }
+    module_member_target(snapshot, adt_sym)
+}
+
+/// The ADT/alias symbol of the type a node carries: an expression's inferred
+/// type, or a `let`/pattern binding's scheme. `None` when the node has no
+/// resolvable type or its type isn't a user ADT (a function, a built-in like
+/// `Int`, or a bare type variable).
+fn node_type_adt_symbol(snapshot: &Snapshot, node: &NodeRef) -> Option<Identifier> {
+    let infer = snapshot.infer.as_ref()?;
+    let ty = match node {
+        NodeRef::Expr(expr) => infer.expr_types.get(&expr.expr_id())?,
+        NodeRef::Pattern(Pattern::Identifier { name, .. }) => {
+            &infer.resolved_binding_schemes.get(name)?.infer_type
+        }
+        NodeRef::DeclName { binding_span, .. } => {
+            let key = (
+                binding_span.start.line,
+                binding_span.start.column,
+                binding_span.end.line,
+                binding_span.end.column,
+            );
+            &infer.resolved_binding_schemes_by_span.get(&key)?.infer_type
+        }
+        _ => return None,
+    };
+    adt_symbol_of_infer_type(ty)
+}
+
 /// Search every cached module program (`module_programs` carries the Flow
 /// prelude modules plus, in a cross-file component, the sibling user modules)
 /// for a top-level — or `module`-block-nested — definition of `def_name`,
@@ -484,7 +534,12 @@ fn enclosing_handle_in_expr(expr: &Expression, target: FluxPosition) -> Option<F
 /// _)` carry the data-type symbol.
 fn inferred_adt_symbol(snapshot: &Snapshot, expr: &Expression) -> Option<Identifier> {
     let infer = snapshot.infer.as_ref()?;
-    let ty = infer.expr_types.get(&expr.expr_id())?;
+    adt_symbol_of_infer_type(infer.expr_types.get(&expr.expr_id())?)
+}
+
+/// The ADT symbol carried by an inferred type, if it is one. Handles both the
+/// nullary `Con(Adt(s))` and applied `App(Adt(s), _)` forms.
+pub(crate) fn adt_symbol_of_infer_type(ty: &InferType) -> Option<Identifier> {
     match ty {
         InferType::Con(TypeConstructor::Adt(s)) | InferType::App(TypeConstructor::Adt(s), _) => {
             Some(*s)

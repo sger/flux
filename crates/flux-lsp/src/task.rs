@@ -189,7 +189,9 @@ mod tests {
 
         let first = expect_response(resp_rx.recv().unwrap());
         assert_eq!(first.id, RequestId::from(1));
-        let err = first.error.expect("panicking job should answer with an error");
+        let err = first
+            .error
+            .expect("panicking job should answer with an error");
         assert_eq!(err.code, INTERNAL_ERROR);
         assert!(err.message.contains("boom"));
 

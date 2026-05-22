@@ -153,7 +153,7 @@ fn leading_import_block(snapshot: &Snapshot) -> Vec<ImportEntry> {
 }
 
 /// `(line, column)` of every import the linter reports as unused (W003).
-fn unused_import_starts(snapshot: &Snapshot) -> HashSet<(usize, usize)> {
+pub(crate) fn unused_import_starts(snapshot: &Snapshot) -> HashSet<(usize, usize)> {
     Linter::new(None, &snapshot.interner)
         .lint(&snapshot.program)
         .into_iter()

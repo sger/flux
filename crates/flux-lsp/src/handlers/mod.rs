@@ -23,4 +23,5 @@ pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
 pub mod type_hierarchy;
+pub mod view;
 pub mod workspace_symbol;

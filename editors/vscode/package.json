@@ -33,6 +33,39 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "commands": [
+      {
+        "command": "flux.viewTokens",
+        "title": "Flux: View Tokens",
+        "category": "Flux"
+      },
+      {
+        "command": "flux.viewCoreIr",
+        "title": "Flux: View Core IR",
+        "category": "Flux"
+      },
+      {
+        "command": "flux.viewBytecode",
+        "title": "Flux: View Bytecode",
+        "category": "Flux"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "flux.viewTokens",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.viewCoreIr",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.viewBytecode",
+          "when": "editorLangId == flux"
+        }
+      ]
+    },
     "grammars": [
       {
         "language": "flux",
