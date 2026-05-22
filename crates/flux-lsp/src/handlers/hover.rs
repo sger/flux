@@ -1,6 +1,7 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
 use flux::diagnostics::position::Span as FluxSpan;
 use flux::syntax::Identifier;
+use flux::syntax::data_variant::DataVariant;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::interner::Interner;
 use flux::syntax::program::Program;
@@ -86,7 +87,10 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 /// scanned from the current buffer's own source above the decl span — so it
 /// works for any open file, user modules included. At a module-member *use*
 /// site (`Module.member`) the comment is scanned from that module's cached
-/// source, the same way `completionItem/resolve` does.
+/// source, the same way `completionItem/resolve` does. At a bare-identifier
+/// *use* site (`foo(x)`) the name is resolved to its declaration — same-file
+/// first, then any cached module — so a documented function's doc shows on
+/// every reference, not only where it is defined.
 fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
     match node {
         NodeRef::DeclName {
@@ -115,8 +119,88 @@ fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let member_name = snapshot.interner.try_resolve(*member)?;
             crate::doc_comments::member_doc(program, &snapshot.interner, member_name)
         }
+        // A bare identifier *use* (`foo(x)`, or a value reference) or an
+        // identifier pattern. Resolve the name to its declaration and show
+        // that declaration's doc — the way rust-analyzer surfaces docs on
+        // every reference, not only at the definition site. Mirrors
+        // goto-definition's resolution order: a same-file top-level (or
+        // `module`-nested) declaration first, then a cross-module fallback
+        // for a bare use of a Flow-prelude function or sibling-module export.
+        //
+        // `member_doc` only matches top-level/`module`-nested declarations, so
+        // a local binding never picks up a doc here unless it shares a name
+        // with a top-level declaration — the same name-based resolution
+        // goto-definition already uses (top-level wins over a local).
+        NodeRef::Expr(Expression::Identifier { name, .. })
+        | NodeRef::Pattern(Pattern::Identifier { name, .. }) => {
+            let ident = snapshot.interner.try_resolve(*name)?;
+            crate::doc_comments::member_doc(&snapshot.program, &snapshot.interner, ident).or_else(
+                || {
+                    snapshot
+                        .module_programs
+                        .values()
+                        .find_map(|(program, _, _)| {
+                            crate::doc_comments::member_doc(program, &snapshot.interner, ident)
+                        })
+                },
+            )
+        }
+        // A constructor *pattern* (`Circle(r)` / `Point { x }` in a `match`
+        // arm). Show the doc on its variant declaration, falling back to the
+        // enclosing `data`/`type` declaration's doc — same-file first, then any
+        // cached module — so it works for ADTs declared elsewhere too.
+        NodeRef::Pattern(Pattern::Constructor { name, .. })
+        | NodeRef::Pattern(Pattern::NamedConstructor { name, .. }) => {
+            let cons = snapshot.interner.try_resolve(*name)?;
+            variant_doc(&snapshot.program, &snapshot.interner, cons).or_else(|| {
+                snapshot
+                    .module_programs
+                    .values()
+                    .find_map(|(program, _, _)| variant_doc(program, &snapshot.interner, cons))
+            })
+        }
+        // An effect operation — at its declaration inside an `effect` block, or
+        // at a `perform`/`handle` use site. Show the `///` above the operation's
+        // declaration line. All three carry the parent effect, so the op's
+        // declaration is found the same way for each.
+        NodeRef::EffectOpName {
+            name,
+            parent_effect,
+            ..
+        }
+        | NodeRef::PerformOpName {
+            name,
+            parent_effect,
+            ..
+        }
+        | NodeRef::HandleArmOpName {
+            name,
+            parent_effect,
+            ..
+        } => {
+            let span = find_effect_op_span(snapshot, *parent_effect, *name)?;
+            crate::doc_comments::doc_for(&snapshot.program, span)
+        }
         _ => None,
     }
+}
+
+/// The doc comment for an ADT constructor `cons` in `program`: the `///` run
+/// above its variant declaration inside a `data`/`type` block, or — when the
+/// variant carries none — the doc above the enclosing declaration. Mirrors how
+/// the `DataVariantName` declaration-site hover resolves a variant's doc.
+fn variant_doc(program: &Program, interner: &Interner, cons: &str) -> Option<String> {
+    for stmt in &program.statements {
+        if let Statement::Data { variants, span, .. } = stmt {
+            for variant in variants {
+                if interner.try_resolve(variant.name) == Some(cons) {
+                    return crate::doc_comments::doc_for(program, variant.span)
+                        .or_else(|| crate::doc_comments::doc_for(program, *span));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// The `module_programs` key for the module referenced by `object` (the left
@@ -206,8 +290,14 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
         NodeRef::Pattern(pattern) => render_pattern(snapshot, pattern),
         NodeRef::Statement(_) => None,
         NodeRef::TypeExprNamed { name, .. } => {
-            let resolved = snapshot.interner.try_resolve(*name)?;
-            Some(format!("type: {resolved}"))
+            // A type *use* in an annotation. Show the type's definition (variant
+            // list / alias body) when it's declared in this buffer; fall back to
+            // a bare `type: T` label for a built-in (`Int`, `String`) or a type
+            // declared elsewhere.
+            render_type_decl(snapshot, *name).or_else(|| {
+                let resolved = snapshot.interner.try_resolve(*name)?;
+                Some(format!("type: {resolved}"))
+            })
         }
         NodeRef::EffectName { name, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
@@ -269,9 +359,28 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("constructor: {resolved}"))
         }
-        NodeRef::PerformOpName { name, .. } | NodeRef::HandleArmOpName { name, .. } => {
-            let resolved = snapshot.interner.try_resolve(*name)?;
-            Some(format!("operation: {resolved}"))
+        NodeRef::PerformOpName {
+            name,
+            parent_effect,
+            ..
+        }
+        | NodeRef::HandleArmOpName {
+            name,
+            parent_effect,
+            ..
+        } => {
+            // Render the operation's declared signature, the same way the
+            // `EffectOpName` declaration site does. Falls back to a bare label
+            // when the effect isn't declared in this buffer (a built-in effect,
+            // or one defined in a module we don't walk for op types).
+            let op_name = snapshot.interner.try_resolve(*name)?;
+            if let Some(op_ty) = find_effect_op_type(snapshot, *parent_effect, *name) {
+                return Some(format!(
+                    "{op_name}: {}",
+                    render_type_expr(&op_ty, &snapshot.interner)
+                ));
+            }
+            Some(format!("operation: {op_name}"))
         }
         NodeRef::ImportName { qualified, .. } => {
             let resolved = snapshot.interner.try_resolve(*qualified)?;
@@ -285,8 +394,13 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             Some(format!("alias {a} = {q}"))
         }
         NodeRef::DataName { name, .. } => {
-            let resolved = snapshot.interner.try_resolve(*name)?;
-            Some(format!("data: {resolved}"))
+            // A `data`/`type`/`class` declaration name. Show its definition
+            // rather than echoing the name; fall back to a label if the lookup
+            // fails (it shouldn't for a name the locator emitted as `DataName`).
+            render_type_decl(snapshot, *name).or_else(|| {
+                let resolved = snapshot.interner.try_resolve(*name)?;
+                Some(format!("data: {resolved}"))
+            })
         }
         NodeRef::DataVariantName { name, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
@@ -473,6 +587,123 @@ fn find_effect_op_type(
     None
 }
 
+/// The declaration span of operation `op_name` in effect `parent_effect`
+/// within this buffer — companion to [`find_effect_op_type`] for resolving the
+/// operation's doc comment via [`doc_for`](crate::doc_comments::doc_for).
+fn find_effect_op_span(
+    snapshot: &Snapshot,
+    parent_effect: Identifier,
+    op_name: Identifier,
+) -> Option<FluxSpan> {
+    for stmt in &snapshot.program.statements {
+        if let Statement::EffectDecl { name, ops, .. } = stmt
+            && *name == parent_effect
+        {
+            for op in ops {
+                if op.name == op_name {
+                    return Some(op.span);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// A definition card for a named type/class declared in this buffer: the
+/// variant list of a `data`/`type` ADT, a type alias's body, or a `class`
+/// header. Returns `None` when `name` isn't declared here — a built-in or a
+/// type from another module — so the caller falls back to a bare label.
+fn render_type_decl(snapshot: &Snapshot, name: Identifier) -> Option<String> {
+    let interner = &snapshot.interner;
+    for stmt in &snapshot.program.statements {
+        match stmt {
+            Statement::Data {
+                name: n,
+                type_params,
+                variants,
+                ..
+            } if *n == name => {
+                let head = format!(
+                    "data {}{}",
+                    interner.try_resolve(*n)?,
+                    render_type_params(type_params, interner),
+                );
+                if variants.is_empty() {
+                    return Some(head);
+                }
+                let body: Vec<String> = variants
+                    .iter()
+                    .map(|v| format!("    {}", render_variant(v, interner)))
+                    .collect();
+                return Some(format!("{head} {{\n{}\n}}", body.join(",\n")));
+            }
+            Statement::TypeAlias(a) if a.name == name => {
+                return Some(format!(
+                    "alias {}{} = {}",
+                    interner.try_resolve(a.name)?,
+                    render_type_params(&a.params, interner),
+                    render_type_expr(&a.body, interner),
+                ));
+            }
+            Statement::Class {
+                name: n,
+                type_params,
+                ..
+            } if *n == name => {
+                return Some(format!(
+                    "class {}{}",
+                    interner.try_resolve(*n)?,
+                    render_type_params(type_params, interner),
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Render one ADT variant for a definition card: named fields as
+/// `Name { f: T, … }`, positional as `Name(T, …)`, nullary as just `Name`.
+fn render_variant(variant: &DataVariant, interner: &Interner) -> String {
+    let name = interner.try_resolve(variant.name).unwrap_or("?");
+    if let Some(field_names) = &variant.field_names {
+        let parts: Vec<String> = field_names
+            .iter()
+            .zip(variant.fields.iter())
+            .map(|(fname, ty)| {
+                format!(
+                    "{}: {}",
+                    interner.try_resolve(*fname).unwrap_or("_"),
+                    render_type_expr(ty, interner)
+                )
+            })
+            .collect();
+        format!("{name} {{ {} }}", parts.join(", "))
+    } else if !variant.fields.is_empty() {
+        let parts: Vec<String> = variant
+            .fields
+            .iter()
+            .map(|ty| render_type_expr(ty, interner))
+            .collect();
+        format!("{name}({})", parts.join(", "))
+    } else {
+        name.to_string()
+    }
+}
+
+/// Render a declaration's generic parameters as `<a, b>`, or `""` when there
+/// are none.
+fn render_type_params(params: &[Identifier], interner: &Interner) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = params
+        .iter()
+        .map(|p| interner.try_resolve(*p).unwrap_or("_"))
+        .collect();
+    format!("<{}>", names.join(", "))
+}
+
 /// Surface-syntax rendering of a `TypeExpr`. We have no compiler-side
 /// pretty-printer that takes an interner, so produce one ourselves for the
 /// small subset we encounter in field/op type rendering.
@@ -528,8 +759,47 @@ fn render_pattern(snapshot: &Snapshot, pat: &Pattern) -> Option<String> {
             }
             Some(format!("binding: {resolved}"))
         }
+        // An ADT constructor used as a pattern (`Circle(r)` / `Point { x }` in a
+        // `match` arm). Render its declared shape so hover is as informative as
+        // it is at a constructor *expression* — `node_doc_comment` adds the
+        // variant's doc above it. Built-in patterns (`Some`, `Left`, `Cons`,
+        // tuples) have their own AST variants and are not handled here; their
+        // bound sub-patterns still hover individually as `Pattern::Identifier`.
+        Pattern::Constructor { name, .. } | Pattern::NamedConstructor { name, .. } => {
+            constructor_signature(snapshot, *name)
+        }
         _ => None,
     }
+}
+
+/// Render an ADT constructor's declared shape for hover on a constructor
+/// *pattern*, from the snapshot's variant-field indexes: named fields as
+/// `Name { f: T, … }`, positional as `Name(T, …)`, nullary as just `Name`.
+fn constructor_signature(snapshot: &Snapshot, name: Identifier) -> Option<String> {
+    let cons = snapshot.interner.try_resolve(name)?;
+    if let Some(fields) = snapshot.variant_fields.get(&name)
+        && !fields.is_empty()
+    {
+        let rendered: Vec<String> = fields
+            .iter()
+            .map(|(fname, ty)| {
+                let fname = snapshot.interner.try_resolve(*fname).unwrap_or("_");
+                format!("{fname}: {}", render_type_expr(ty, &snapshot.interner))
+            })
+            .collect();
+        return Some(format!("{cons} {{ {} }}", rendered.join(", ")));
+    }
+    if let Some(types) = snapshot.variant_positional_fields.get(&name)
+        && !types.is_empty()
+    {
+        let rendered: Vec<String> = types
+            .iter()
+            .map(|ty| render_type_expr(ty, &snapshot.interner))
+            .collect();
+        return Some(format!("{cons}({})", rendered.join(", ")));
+    }
+    // Nullary constructor (`Red`), or one whose variant info isn't indexed.
+    Some(cons.to_string())
 }
 
 fn render_expr(snapshot: &Snapshot, expr: &Expression) -> Option<String> {

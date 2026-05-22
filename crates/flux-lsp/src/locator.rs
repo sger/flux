@@ -75,10 +75,20 @@ pub enum NodeRef<'a> {
         expr_id: ExprId,
         span: FluxSpan,
     },
-    /// Operation name in `perform op(x)`.
-    PerformOpName { name: Identifier, span: FluxSpan },
-    /// Operation name in a `handle ... with { op(...) -> ... }` arm.
-    HandleArmOpName { name: Identifier, span: FluxSpan },
+    /// Operation name in `perform Effect.op(x)`. `parent_effect` is the effect
+    /// the operation belongs to, used to render its declared signature.
+    PerformOpName {
+        name: Identifier,
+        parent_effect: Identifier,
+        span: FluxSpan,
+    },
+    /// Operation name in a `handle Effect { op(...) -> ... }` arm.
+    /// `parent_effect` is the handled effect, used to render the op's signature.
+    HandleArmOpName {
+        name: Identifier,
+        parent_effect: Identifier,
+        span: FluxSpan,
+    },
     /// Imported module name (`Flow.Array` in `import Flow.Array as A`).
     ImportName {
         qualified: Identifier,
@@ -780,13 +790,25 @@ impl<'ast> Finder<'ast, '_> {
                 self.visit_expr(tail);
             }
             Expression::Perform {
+                effect,
                 operation,
                 args,
                 span,
                 ..
             } => {
-                self.record_name_at(span.start, *operation, |s| NodeRef::PerformOpName {
+                // The parser doesn't record the op name's own span, so
+                // synthesize it: in `perform Effect.op(...)` the op sits after
+                // `perform `, the effect name, and the `.`. Best-effort for the
+                // canonical single-line form (consistent with the other
+                // synthesized name spans here).
+                let effect_len = self.interner.try_resolve(*effect).map(str::len).unwrap_or(0);
+                let op_start = FluxPosition {
+                    line: span.start.line,
+                    column: span.start.column + "perform ".len() + effect_len + 1,
+                };
+                self.record_name_at(op_start, *operation, |s| NodeRef::PerformOpName {
                     name: *operation,
+                    parent_effect: *effect,
                     span: s,
                 });
                 for a in args {
@@ -795,6 +817,7 @@ impl<'ast> Finder<'ast, '_> {
             }
             Expression::Handle {
                 expr,
+                effect,
                 parameter,
                 arms,
                 ..
@@ -804,7 +827,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_expr(p);
                 }
                 for arm in arms {
-                    self.visit_handle_arm(arm);
+                    self.visit_handle_arm(arm, *effect);
                 }
             }
             Expression::Sealing { expr, allowed, .. } => {
@@ -864,12 +887,13 @@ impl<'ast> Finder<'ast, '_> {
         self.visit_expr(&arm.body);
     }
 
-    fn visit_handle_arm(&mut self, arm: &'ast HandleArm) {
-        // `operation_name` on HandleArm has no separate span; emit a
-        // best-effort entry covering the arm body's start.
-        self.record_name_at(arm.body.span().start, arm.operation_name, |s| {
+    fn visit_handle_arm(&mut self, arm: &'ast HandleArm, parent_effect: Identifier) {
+        // `arm.span` starts at the operation name (`op` in `op(resume, …) ->
+        // body`), so the synthesized name span lands on the op itself.
+        self.record_name_at(arm.span.start, arm.operation_name, |s| {
             NodeRef::HandleArmOpName {
                 name: arm.operation_name,
+                parent_effect,
                 span: s,
             }
         });
