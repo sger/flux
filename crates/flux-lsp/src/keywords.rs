@@ -56,7 +56,7 @@ import Flow.Array as Array
     ),
     (
         "class",
-        "**`class`** — Declare a type class (Rust trait / Haskell class).
+        "**`class`** — Declare a type class.
 
 A class names a set of operations indexed by one or more type parameters. \
 Implementations are provided by `instance` declarations.

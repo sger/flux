@@ -12,12 +12,16 @@
 //!   real `Variant(_) -> panic("todo")` arms for every uncovered variant of a
 //!   known ADT, and always a bare `_ -> ()` catch-all;
 //! - **add effect** — a missing ambient effect (`E400`): append the effect to
-//!   the enclosing function's `with` row.
+//!   the enclosing function's `with` row;
+//! - **add missing methods** — an incomplete `instance` (`E442`): stub every
+//!   required class method it omits as `fn name(params) { panic("todo") }`
+//!   inside the block (the HLS "Add placeholders for <class>" analogue).
 //!
-//! Two more are diagnostic-independent: an `import` suggestion for an
-//! unimported module path, and removing an `import` the linter flags as unused
-//! (W003). Every edit is computed on the worker thread from the snapshot, so
-//! the handler stays a pure function.
+//! The rest are diagnostic-independent, driven by the cursor / selection: an
+//! `import` suggestion for an unimported module path; removing an `import` the
+//! linter flags as unused (W003); and the refactor assists (add type
+//! annotation, introduce / inline variable). Every edit is computed on the
+//! worker thread from the snapshot, so the handler stays a pure function.
 
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionResponse,
@@ -32,6 +36,7 @@ use flux::syntax::Identifier;
 use flux::syntax::effect_expr::EffectExpr;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::statement::Statement;
+use flux::syntax::type_class::ClassMethod;
 
 use crate::convert::diagnostic_to_lsp;
 use crate::locator::{NodeRef, find_at};
@@ -91,6 +96,10 @@ pub fn code_actions(
         actions.push(action);
     }
     if let Some(action) = inline_let_action(snapshot, uri, range) {
+        actions.push(action);
+    }
+    // Cursor-on-instance assist: stub the class methods an `instance` is missing.
+    if let Some(action) = add_missing_methods_action(snapshot, uri, range) {
         actions.push(action);
     }
     // Source action: only when the client asks for `source.organizeImports`.
@@ -289,6 +298,48 @@ fn adt_variant_patterns(snapshot: &Snapshot, adt: Identifier) -> Option<Vec<(Ide
     None
 }
 
+/// The byte offsets of a brace-delimited block's own `{` and matching `}`,
+/// scanning from `span.start` (which sits before the block). Brace-depth
+/// counting keeps nested braces — record literals, instance/method bodies —
+/// balanced, so the close found is the block's own. `None` when the span is
+/// past EOF or no balanced pair follows.
+fn block_braces(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, usize)> {
+    let bytes = snapshot.text.as_bytes();
+    let start: usize = snapshot.position_map.flux_to_offset(span.start)?.into();
+    if start >= bytes.len() {
+        return None;
+    }
+    let open = start + bytes[start..].iter().position(|&b| b == b'{')?;
+    let mut depth = 0i32;
+    for (offset, &byte) in bytes.iter().enumerate().skip(open) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((open, offset));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Leading whitespace of the line the byte at `offset` sits on — the indent to
+/// align a closing brace (or to derive a one-level-deeper member indent from).
+fn line_indent(bytes: &[u8], offset: usize) -> String {
+    let line_start = bytes[..offset]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |p| p + 1);
+    bytes[line_start..offset]
+        .iter()
+        .take_while(|&&b| b == b' ' || b == b'\t')
+        .map(|&b| b as char)
+        .collect()
+}
+
 /// Locate where new arm(s) go in a `match` block: the byte offset just after
 /// the last arm, the indentation for a new arm, and whether the last arm is
 /// already comma-terminated. The diagnostic `span` covers the whole
@@ -297,26 +348,7 @@ fn adt_variant_patterns(snapshot: &Snapshot, adt: Identifier) -> Option<Vec<(Ide
 fn match_arm_insertion(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, String, bool)> {
     let bytes = snapshot.text.as_bytes();
     let start: usize = snapshot.position_map.flux_to_offset(span.start)?.into();
-    if start >= bytes.len() {
-        return None;
-    }
-    let open = start + bytes[start..].iter().position(|&b| b == b'{')?;
-    let mut depth = 0i32;
-    let mut brace = None;
-    for (offset, &byte) in bytes.iter().enumerate().skip(open) {
-        match byte {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    brace = Some(offset);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let brace = brace?;
+    let (_open, brace) = block_braces(snapshot, span)?;
     // Last non-whitespace byte before the brace — the end of the final arm.
     let mut insert = brace;
     while insert > start && bytes[insert - 1].is_ascii_whitespace() {
@@ -328,17 +360,11 @@ fn match_arm_insertion(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, St
     let prev = bytes[insert - 1];
     // `,` → already terminated; `{` → empty arm list. Either way no comma.
     let terminated = prev == b',' || prev == b'{';
-    // Indentation: leading whitespace of the line the brace sits on.
-    let line_start = bytes[..brace]
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map_or(0, |p| p + 1);
-    let brace_indent: String = bytes[line_start..brace]
-        .iter()
-        .take_while(|&&b| b == b' ' || b == b'\t')
-        .map(|&b| b as char)
-        .collect();
-    Some((insert, format!("{brace_indent}    "), terminated))
+    Some((
+        insert,
+        format!("{}    ", line_indent(bytes, brace)),
+        terminated,
+    ))
 }
 
 /// Render one or more arm bodies as the text to splice in after the last arm:
@@ -828,6 +854,210 @@ fn refactor_action(
                     version: None,
                 },
                 edits: edits.into_iter().map(OneOf::Left).collect(),
+            }])),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add missing instance methods
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// "Add missing methods": with the cursor anywhere on an incomplete
+/// `instance C<T> { … }`, stub every *required* method of class `C` (one with
+/// no default body) the instance does not implement, as
+/// `fn name(params) { panic("todo") }` inside the instance block. The class
+/// must be declared in this buffer.
+///
+/// This is the HLS class-plugin's "Add placeholders for <class>" analogue, and
+/// the instance-side counterpart to fill-match-arms: the missing set is exactly
+/// what the compiler's `E442` (MISSING INSTANCE METHOD) flags — now surfaced as
+/// a squiggle on the instance — and the `panic("todo")` body is polymorphic and
+/// `Panic`-exempt, so each stub type-checks whatever the method returns. The
+/// overlapping `E442` diagnostics are attached so the fix associates with that
+/// squiggle. The whole-instance trigger is noise-free: a complete instance has
+/// nothing to stub and yields no action.
+fn add_missing_methods_action(
+    snapshot: &Snapshot,
+    uri: &Uri,
+    range: Range,
+) -> Option<CodeActionOrCommand> {
+    for stmt in &snapshot.program.statements {
+        let Statement::Instance {
+            class_name,
+            methods,
+            span,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        if !ranges_overlap(snapshot.position_map.flux_span_to_range(*span), range) {
+            continue;
+        }
+        let Some((open, close)) = block_braces(snapshot, *span) else {
+            continue;
+        };
+
+        // The class must be declared in this buffer; otherwise skip — a wide
+        // selection could still overlap a later, resolvable instance.
+        let Some(class_methods) = find_class_methods(snapshot, *class_name) else {
+            continue;
+        };
+        let implemented: std::collections::HashSet<Identifier> =
+            methods.iter().map(|m| m.name).collect();
+        let stubs: Vec<String> = class_methods
+            .iter()
+            .filter(|m| m.default_body.is_none() && !implemented.contains(&m.name))
+            .filter_map(|m| method_stub(snapshot, m))
+            .collect();
+        if stubs.is_empty() {
+            continue;
+        }
+
+        let (Some(edit), Some(class_text)) = (
+            instance_methods_edit(snapshot, open, close, &stubs),
+            snapshot.interner.try_resolve(*class_name),
+        ) else {
+            continue;
+        };
+        let title = if stubs.len() == 1 {
+            format!("Add missing method for `{class_text}`")
+        } else {
+            format!("Add {} missing methods for `{class_text}`", stubs.len())
+        };
+        let diags = overlapping_diags(snapshot, *span, "E442");
+        return Some(missing_methods_action(title, uri, edit, diags));
+    }
+    None
+}
+
+/// The `class` declaration's methods, found in this buffer's own statements.
+/// `None` when no `class` named `class` is declared here (e.g. it lives in an
+/// imported module — out of scope for this assist).
+fn find_class_methods(snapshot: &Snapshot, class: Identifier) -> Option<&[ClassMethod]> {
+    snapshot
+        .program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Class { name, methods, .. } if *name == class => Some(methods.as_slice()),
+            _ => None,
+        })
+}
+
+/// One `fn name(p, …) { panic("todo") }` line for a class method. Instance
+/// methods carry no type annotations, so the stub mirrors that: bare parameter
+/// names (a parameter whose name won't resolve falls back to `arg{i}`).
+fn method_stub(snapshot: &Snapshot, m: &ClassMethod) -> Option<String> {
+    let name = snapshot.interner.try_resolve(m.name)?;
+    let params: Vec<String> = m
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            snapshot
+                .interner
+                .try_resolve(*p)
+                .map_or_else(|| format!("arg{i}"), str::to_string)
+        })
+        .collect();
+    Some(format!(
+        "fn {name}({}) {{ panic(\"todo\") }}",
+        params.join(", ")
+    ))
+}
+
+/// The `TextEdit` that splices `stubs` into an instance body whose braces are at
+/// `open`/`close`. An empty body has its inter-brace whitespace replaced with a
+/// clean multi-line block (so the close brace lands on its own line); a
+/// non-empty body gets the stubs inserted after its last existing method.
+fn instance_methods_edit(
+    snapshot: &Snapshot,
+    open: usize,
+    close: usize,
+    stubs: &[String],
+) -> Option<TextEdit> {
+    let bytes = snapshot.text.as_bytes();
+    let brace_indent = line_indent(bytes, close);
+    let member_indent = format!("{brace_indent}    ");
+    let body: String = stubs
+        .iter()
+        .map(|s| format!("\n{member_indent}{s}"))
+        .collect();
+
+    // Walk back over trailing whitespace before the close brace.
+    let mut insert = close;
+    while insert > open + 1 && bytes[insert - 1].is_ascii_whitespace() {
+        insert -= 1;
+    }
+    if insert == open + 1 {
+        // Empty body: replace `{ … }`'s inter-brace whitespace with a clean block.
+        let start = snapshot
+            .position_map
+            .offset_to_lsp(u32::try_from(open + 1).ok()?.into());
+        let end = snapshot
+            .position_map
+            .offset_to_lsp(u32::try_from(close).ok()?.into());
+        Some(TextEdit {
+            range: Range { start, end },
+            new_text: format!("{body}\n{brace_indent}"),
+        })
+    } else {
+        // Non-empty: append after the last existing method; the body's own
+        // trailing `\n<indent>}` already puts the close brace on its own line.
+        let pos = snapshot
+            .position_map
+            .offset_to_lsp(u32::try_from(insert).ok()?.into());
+        Some(TextEdit {
+            range: Range {
+                start: pos,
+                end: pos,
+            },
+            new_text: body,
+        })
+    }
+}
+
+/// Every snapshot diagnostic with error `code` whose span overlaps `span`,
+/// converted to LSP form — attached to a code action so the client associates
+/// it with the underlying squiggle.
+fn overlapping_diags(snapshot: &Snapshot, span: FluxSpan, code: &str) -> Vec<LspDiagnostic> {
+    let want = snapshot.position_map.flux_span_to_range(span);
+    snapshot
+        .diagnostics
+        .iter()
+        .filter(|d| d.code() == Some(code))
+        .filter(|d| {
+            d.span()
+                .is_some_and(|s| ranges_overlap(snapshot.position_map.flux_span_to_range(s), want))
+        })
+        .map(|d| diagnostic_to_lsp(d, &snapshot.position_map))
+        .collect()
+}
+
+/// Build the add-missing-methods quick fix carrying a single edit and the
+/// `E442` diagnostics it resolves. Kept as a `QUICKFIX` for `Ctrl+.`
+/// discoverability — it clears an incomplete-instance error.
+fn missing_methods_action(
+    title: String,
+    uri: &Uri,
+    edit: TextEdit,
+    diags: Vec<LspDiagnostic>,
+) -> CodeActionOrCommand {
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::QUICKFIX),
+        diagnostics: (!diags.is_empty()).then_some(diags),
+        edit: Some(WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: None,
+                },
+                edits: vec![OneOf::Left(edit)],
             }])),
             ..Default::default()
         }),

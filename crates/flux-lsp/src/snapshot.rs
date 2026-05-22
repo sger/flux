@@ -99,10 +99,13 @@ impl Snapshot {
         // to free type variables during inference.
         load_buffer_imports(&program, prelude);
 
-        let (infer, base_names) = run_inference(&program, &mut prelude.compiler);
+        let (infer, base_names, class_diags) = run_inference(&program, &mut prelude.compiler);
         if let Some(result) = &infer {
             diagnostics.extend(result.diagnostics.iter().cloned());
         }
+        // Single-buffer-sound class/instance validation (E442/E446/E448) — these
+        // never come back through `infer_program`, so add them explicitly.
+        diagnostics.extend(class_diags);
 
         // The snapshot keeps a clone of the (now enriched) interner so it can
         // resolve symbols independently of subsequent buffer edits.
@@ -198,10 +201,26 @@ fn build_variant_indexes(program: &Program) -> (NamedFieldsIndex, PositionalFiel
     (named, positional)
 }
 
+/// Class/instance validation diagnostics that are sound to publish from a
+/// single buffer: each compares an `instance` against its (resolvable) class
+/// declaration, so it can't be a false positive from the LSP lacking
+/// cross-module instance/visibility context. Codes that *do* depend on that
+/// context — `E441` (unknown class), the orphan rule, superclass-instance,
+/// and the visibility checks — are deliberately excluded.
+const SINGLE_BUFFER_CLASS_CODES: &[&str] = &[
+    "E442", // missing instance method
+    "E446", // method not declared by the class
+    "E448", // instance method arity mismatch
+];
+
 fn run_inference(
     program: &Program,
     compiler: &mut flux::compiler::Compiler,
-) -> (Option<InferProgramResult>, HashSet<Identifier>) {
+) -> (
+    Option<InferProgramResult>,
+    HashSet<Identifier>,
+    Vec<FluxDiagnostic>,
+) {
     // Clear per-file scratch from the previous buffer (errors, scope state,
     // function effects) without dropping the prelude's `cached_member_schemes`.
     lsp_support::reset_per_file_state(compiler);
@@ -212,8 +231,16 @@ fn run_inference(
         // class-method dispatch resolves during inference. Without this,
         // `lookup_class_method` would return None for buffer-declared
         // classes and the LSP's class-method goto-definition would not
-        // fire.
-        lsp_support::collect_classes_for_program(compiler, program);
+        // fire. The returned diagnostics also drive the instance squiggles
+        // below — inference itself never re-reports them.
+        let class_diags = lsp_support::collect_classes_for_program(compiler, program);
+        let class_diags: Vec<FluxDiagnostic> = class_diags
+            .into_iter()
+            .filter(|d| {
+                d.code()
+                    .is_some_and(|c| SINGLE_BUFFER_CLASS_CODES.contains(&c))
+            })
+            .collect();
         let config = lsp_support::build_infer_config_for_program(compiler, program);
         // Capture the unqualified names the buffer inherits (prelude/builtin
         // schemes + recognized Flow names) before `config` is consumed; the
@@ -222,10 +249,10 @@ fn run_inference(
             config.preloaded_base_schemes.keys().copied().collect();
         base_names.extend(config.known_flow_names.iter().copied());
         let result = infer_program(program, &compiler.interner, config);
-        (result, base_names)
+        (result, base_names, class_diags)
     }));
     match outcome {
-        Ok((result, base_names)) => (Some(result), base_names),
+        Ok((result, base_names, class_diags)) => (Some(result), base_names, class_diags),
         Err(payload) => {
             // A compiler-frontend panic must not crash the server, but it must
             // not vanish either: log it so a real bug is diagnosable instead of
@@ -241,7 +268,7 @@ fn run_inference(
             // too, but doing it eagerly here keeps the invariant local to the
             // failure.
             lsp_support::reset_per_file_state(compiler);
-            (None, HashSet::new())
+            (None, HashSet::new(), Vec::new())
         }
     }
 }

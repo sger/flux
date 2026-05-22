@@ -653,13 +653,16 @@ fn type_expr_span(ty: &TypeExpr) -> FluxSpan {
 }
 
 /// Translate the identifier on the left of a member access into the
-/// `module_programs` lookup key. Two cases produce a hit:
+/// `module_programs` lookup key. Three cases produce a hit:
 ///
-/// 1. `object_id` directly resolves to a loaded module's short name
-///    (e.g. user wrote `Math.sqrt` and `Math` is loaded).
-/// 2. `object_id` is the alias of an `import X.Y as A` statement — return
-///    the qualified module's short final segment (e.g. alias `A` →
-///    `"Array"` for `import Flow.Array as A`).
+/// 1. `object_id` directly resolves to a loaded module key (e.g. `Math.sqrt`
+///    where `Math` is loaded).
+/// 2. `object_id` is the alias of an `import X.Y as A` whose full name is a key
+///    — sibling user modules are cached under their full declared name
+///    (e.g. alias `U` → `"Lib.App.Util"`).
+/// 3. Otherwise the qualified module's short final segment — Flow modules are
+///    cached under their short name (e.g. alias `A` → `"Array"` for
+///    `import Flow.Array as A`).
 fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Option<String> {
     let direct = snapshot.interner.try_resolve(object_id)?;
     if snapshot.module_programs.contains_key(direct) {
@@ -674,6 +677,11 @@ fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Opti
             && *a == object_id
         {
             let qualified = snapshot.interner.try_resolve(*name)?;
+            // User modules key on the full name, Flow modules on the short
+            // segment — prefer whichever is actually cached.
+            if snapshot.module_programs.contains_key(qualified) {
+                return Some(qualified.to_string());
+            }
             let short = qualified.rsplit('.').next().unwrap_or(qualified);
             return Some(short.to_string());
         }
