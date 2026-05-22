@@ -14,9 +14,9 @@ use lsp_types::request::{
     CallHierarchyIncomingCalls, CallHierarchyOutgoingCalls, CallHierarchyPrepare,
     CodeActionRequest, CodeLensRequest, Completion, DocumentDiagnosticRequest,
     DocumentHighlightRequest, DocumentLinkRequest, DocumentSymbolRequest, FoldingRangeRequest,
-    Formatting, GotoDefinition, GotoImplementation, HoverRequest, InlayHintRequest,
-    InlayHintResolveRequest, LinkedEditingRange, OnTypeFormatting, PrepareRenameRequest,
-    RangeFormatting, References, Rename, Request as _, ResolveCompletionItem,
+    Formatting, GotoDefinition, GotoImplementation, GotoTypeDefinition, HoverRequest,
+    InlayHintRequest, InlayHintResolveRequest, LinkedEditingRange, OnTypeFormatting,
+    PrepareRenameRequest, RangeFormatting, References, Rename, Request as _, ResolveCompletionItem,
     SelectionRangeRequest, SemanticTokensFullDeltaRequest, SemanticTokensFullRequest,
     SemanticTokensRangeRequest, SignatureHelpRequest, TypeHierarchyPrepare, TypeHierarchySubtypes,
     TypeHierarchySupertypes, WillRenameFiles, WorkspaceDiagnosticRefresh,
@@ -245,6 +245,9 @@ impl Server {
             m if m == GotoImplementation::METHOD => self
                 .state
                 .dispatch_implementation(serde_json::from_value(req.params)?),
+            m if m == GotoTypeDefinition::METHOD => self
+                .state
+                .dispatch_type_definition(serde_json::from_value(req.params)?),
             m if m == CallHierarchyPrepare::METHOD => self
                 .state
                 .dispatch_prepare_call_hierarchy(serde_json::from_value(req.params)?),
@@ -338,6 +341,19 @@ impl Server {
             m if m == WillRenameFiles::METHOD => self
                 .state
                 .dispatch_will_rename_files(serde_json::from_value(req.params)?),
+            // Custom requests: render a compiler-stage dump for a document.
+            "flux/viewTokens" => self.state.dispatch_view(
+                serde_json::from_value(req.params)?,
+                crate::handlers::view::ViewKind::Tokens,
+            ),
+            "flux/viewCoreIr" => self.state.dispatch_view(
+                serde_json::from_value(req.params)?,
+                crate::handlers::view::ViewKind::CoreIr,
+            ),
+            "flux/viewBytecode" => self.state.dispatch_view(
+                serde_json::from_value(req.params)?,
+                crate::handlers::view::ViewKind::Bytecode,
+            ),
             other => {
                 tracing::debug!(method = %other, "unhandled request");
                 let resp = Response::new_err(

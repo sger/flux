@@ -513,11 +513,13 @@ impl Workspace {
     /// live). Returns `None` for an unknown module or an undocumented member.
     pub fn member_doc(&self, module_key: &str, member: &str) -> Option<String> {
         if let Some(prelude) = self.prelude.as_ref()
-            && let Some(doc) = prelude.module_programs.get(module_key).and_then(
-                |(program, _, _)| {
-                    crate::doc_comments::member_doc(program, &prelude.compiler.interner, member)
-                },
-            )
+            && let Some(doc) =
+                prelude
+                    .module_programs
+                    .get(module_key)
+                    .and_then(|(program, _, _)| {
+                        crate::doc_comments::member_doc(program, &prelude.compiler.interner, member)
+                    })
         {
             return Some(doc);
         }

@@ -8,8 +8,8 @@ use lsp_types::{
     LinkedEditingRangeServerCapabilities, OneOf, RenameOptions, SelectionRangeProviderCapability,
     SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensServerCapabilities,
     ServerCapabilities, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
-    WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
-    WorkspaceServerCapabilities,
+    TypeDefinitionProviderCapability, WorkspaceFileOperationsServerCapabilities,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 
 use crate::handlers::semantic_tokens::semantic_tokens_legend;
@@ -88,6 +88,9 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         // Jump from a `class` to its `instance` blocks
         // (handlers::implementation).
         implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+        // Jump from an expression to the declaration of its inferred type's
+        // ADT/alias (handlers::definition::goto_type_definition).
+        type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
         // "Who calls this / what does this call" navigation
         // (handlers::call_hierarchy): prepare + incoming/outgoing calls.
         call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),

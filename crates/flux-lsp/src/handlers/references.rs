@@ -204,20 +204,40 @@ pub(crate) fn node_identifier(node: &NodeRef) -> Option<Identifier> {
     }
 }
 
+/// Whether an occurrence *binds* the name (a declaration, parameter, pattern,
+/// or assignment target) or merely *reads* it. Drives read/write document
+/// highlighting; find-references ignores it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UseKind {
+    Read,
+    Write,
+}
+
 /// Walk the entire program and collect every span where `target` appears.
 pub fn collect_all_uses(program: &Program, target: Identifier, out: &mut Vec<FluxSpan>) {
+    let mut kinded = Vec::new();
+    collect_kinded_uses(program, target, &mut kinded);
+    out.extend(kinded.into_iter().map(|(span, _)| span));
+}
+
+/// Like [`collect_all_uses`], but tags each occurrence read vs. write.
+pub fn collect_kinded_uses(
+    program: &Program,
+    target: Identifier,
+    out: &mut Vec<(FluxSpan, UseKind)>,
+) {
     for stmt in &program.statements {
         collect_in_stmt(stmt, target, out);
     }
 }
 
-fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>) {
+fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
     match stmt {
         Statement::Let {
             name, value, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             collect_in_expr(value, target, out);
         }
@@ -233,11 +253,11 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             for param in parameters {
                 if *param == target {
-                    out.push(*span);
+                    out.push((*span, UseKind::Write));
                 }
             }
             collect_in_block(body, target, out);
@@ -249,7 +269,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             name, value, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             collect_in_expr(value, target, out);
         }
@@ -257,7 +277,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             name, body, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             collect_in_block(body, target, out);
         }
@@ -268,7 +288,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             for variant in variants {
                 collect_in_variant(variant, target, out);
@@ -278,11 +298,11 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             name, ops, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             for op in ops {
                 if op.name == target {
-                    out.push(op.span);
+                    out.push((op.span, UseKind::Write));
                 }
             }
         }
@@ -290,35 +310,39 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<FluxSpan>
             name, alias, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
             if let Some(a) = alias
                 && *a == target
             {
-                out.push(*span);
+                out.push((*span, UseKind::Write));
             }
         }
         _ => {}
     }
 }
 
-fn collect_in_variant(variant: &DataVariant, target: Identifier, out: &mut Vec<FluxSpan>) {
+fn collect_in_variant(
+    variant: &DataVariant,
+    target: Identifier,
+    out: &mut Vec<(FluxSpan, UseKind)>,
+) {
     if variant.name == target {
-        out.push(variant.span);
+        out.push((variant.span, UseKind::Write));
     }
     if let Some(field_names) = &variant.field_names {
         for field_name in field_names {
             if *field_name == target {
-                out.push(variant.span);
+                out.push((variant.span, UseKind::Write));
             }
         }
     }
 }
 
-fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan>) {
+fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
     match expr {
         Expression::Identifier { name, span, .. } if *name == target => {
-            out.push(*span);
+            out.push((*span, UseKind::Read));
         }
         Expression::Call {
             function,
@@ -366,18 +390,18 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
         } => {
             collect_in_expr(object, target, out);
             if *member == target {
-                out.push(*span);
+                out.push((*span, UseKind::Read));
             }
         }
         Expression::NamedConstructor {
             name, fields, span, ..
         } => {
             if *name == target {
-                out.push(*span);
+                out.push((*span, UseKind::Read));
             }
             for f in fields {
                 if f.name == target {
-                    out.push(f.span);
+                    out.push((f.span, UseKind::Read));
                 }
                 if let Some(v) = &f.value {
                     collect_in_expr(v, target, out);
@@ -413,7 +437,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
             ..
         } => {
             if *operation == target {
-                out.push(*span);
+                out.push((*span, UseKind::Read));
             }
             for a in args {
                 collect_in_expr(a, target, out);
@@ -425,7 +449,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
             collect_in_expr(base, target, out);
             for f in overrides {
                 if f.name == target {
-                    out.push(f.span);
+                    out.push((f.span, UseKind::Read));
                 }
                 if let Some(v) = &f.value {
                     collect_in_expr(v, target, out);
@@ -449,16 +473,16 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<FluxSpan
     }
 }
 
-fn collect_in_block(block: &Block, target: Identifier, out: &mut Vec<FluxSpan>) {
+fn collect_in_block(block: &Block, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
     for s in &block.statements {
         collect_in_stmt(s, target, out);
     }
 }
 
-fn collect_in_pattern(pat: &Pattern, target: Identifier, out: &mut Vec<FluxSpan>) {
+fn collect_in_pattern(pat: &Pattern, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
     match pat {
         Pattern::Identifier { name, span } if *name == target => {
-            out.push(*span);
+            out.push((*span, UseKind::Write));
         }
         Pattern::Tuple { elements, .. } => {
             for e in elements {

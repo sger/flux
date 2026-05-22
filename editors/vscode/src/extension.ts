@@ -68,6 +68,21 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  // Compiler-stage inspection: ask the server to render the token stream / Core
+  // IR / bytecode of the active `.flx` file, and open the result beside it (the
+  // Flux analogue of rust-analyzer's "View HIR/MIR").
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flux.viewTokens", () =>
+      viewStage("flux/viewTokens", "View Tokens"),
+    ),
+    vscode.commands.registerCommand("flux.viewCoreIr", () =>
+      viewStage("flux/viewCoreIr", "View Core IR"),
+    ),
+    vscode.commands.registerCommand("flux.viewBytecode", () =>
+      viewStage("flux/viewBytecode", "View Bytecode"),
+    ),
+  );
+
   // `initializationOptions` is only read at startup, so restart the server when
   // a setting that feeds it changes (the flag controls the diagnostic scope).
   context.subscriptions.push(
@@ -85,6 +100,38 @@ export function activate(context: vscode.ExtensionContext) {
       client?.stop();
     },
   });
+}
+
+/**
+ * Send a custom `flux/view*` request for the active `.flx` document and open the
+ * returned dump in a scratch editor beside the source.
+ */
+async function viewStage(method: string, title: string) {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "flux") {
+    vscode.window.showInformationMessage(`Flux: ${title} needs an open .flx file.`);
+    return;
+  }
+  if (!client) {
+    vscode.window.showErrorMessage("Flux: language server is not running.");
+    return;
+  }
+  try {
+    const content = await client.sendRequest<string>(method, {
+      uri: editor.document.uri.toString(),
+    });
+    const doc = await vscode.workspace.openTextDocument({
+      content,
+      language: "plaintext",
+    });
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Beside,
+      preview: true,
+      preserveFocus: true,
+    });
+  } catch (err) {
+    vscode.window.showErrorMessage(`Flux: ${title} failed: ${err}`);
+  }
 }
 
 /** Shared terminal so repeated runs reuse one panel instead of stacking up. */
