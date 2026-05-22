@@ -51,13 +51,18 @@ pub trait Folder {
 // ---------------------------------------------------------------------------
 
 pub fn fold_program<F: Folder + ?Sized>(folder: &mut F, program: Program) -> Program {
-    let Program { statements, span } = program;
+    let Program {
+        statements,
+        span,
+        doc_comments,
+    } = program;
     Program {
         statements: statements
             .into_iter()
             .map(|s| folder.fold_stmt(s))
             .collect(),
         span,
+        doc_comments,
     }
 }
 

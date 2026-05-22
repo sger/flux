@@ -24,6 +24,7 @@ use lsp_types::{
     WorkspaceDiagnosticReportResult, WorkspaceEdit, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use crate::handlers;
@@ -44,6 +45,11 @@ pub struct GlobalState {
     /// with a splice. Shared (`Arc<Mutex<…>>`) because the worker-thread
     /// dispatch jobs update it off the main thread.
     semantic_token_cache: Arc<Mutex<SemanticTokenCache>>,
+    /// Files whose edits have been staged ([`Workspace::stage_change`]) but not
+    /// yet re-analyzed. Drained by [`flush_analysis`](Self::flush_analysis) when
+    /// the server's debounce timer fires, coalescing a keystroke burst into a
+    /// single component re-analysis.
+    dirty: HashSet<FileId>,
 }
 
 impl Default for GlobalState {
@@ -59,6 +65,7 @@ impl GlobalState {
             encoding,
             workspace_diagnostics_scan_all: false,
             semantic_token_cache: Arc::new(Mutex::new(SemanticTokenCache::default())),
+            dirty: HashSet::new(),
         }
     }
 
@@ -89,18 +96,57 @@ impl GlobalState {
         self.diagnostics_for_files(&rebuilt)
     }
 
+    /// Handle `textDocument/didChange` synchronously — stage the edit and
+    /// immediately flush its analysis. The server's event loop drives editor
+    /// typing through [`stage_did_change`](Self::stage_did_change) +
+    /// [`flush_analysis`](Self::flush_analysis) instead, so the expensive
+    /// re-analysis is debounced; this method keeps the one-shot, return-the-
+    /// diagnostics contract that the tests (and any non-debouncing caller) rely
+    /// on.
     pub fn handle_did_change(
         &mut self,
         params: DidChangeTextDocumentParams,
     ) -> Vec<PublishDiagnosticsParams> {
+        self.stage_did_change(params);
+        self.flush_analysis()
+    }
+
+    /// Apply the *cheap* half of a `textDocument/didChange`: update the buffer
+    /// content and symbol index and invalidate stale snapshots, then mark the
+    /// file dirty so the next [`flush_analysis`](Self::flush_analysis) re-runs
+    /// inference for its component. Publishes nothing — diagnostics follow on
+    /// flush. textDocumentSync = Full, so each change carries the whole document.
+    pub fn stage_did_change(&mut self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        // textDocumentSync = Full means we get one change with the entire
-        // document text.
         let Some(change) = params.content_changes.into_iter().next() else {
-            return vec![];
+            return;
         };
-        let rebuilt = self.workspace.change(&uri, version, change.text);
+        if let Some(id) = self.workspace.stage_change(&uri, version, change.text) {
+            self.dirty.insert(id);
+        }
+    }
+
+    /// Whether any staged edit is awaiting re-analysis.
+    pub fn has_pending_analysis(&self) -> bool {
+        !self.dirty.is_empty()
+    }
+
+    /// Re-analyze every staged (dirty) file and its dependents, then return the
+    /// freshly computed diagnostics to publish. A no-op (`vec![]`) when nothing
+    /// is pending, so it is safe to call on a spurious timer wake-up.
+    pub fn flush_analysis(&mut self) -> Vec<PublishDiagnosticsParams> {
+        if self.dirty.is_empty() {
+            return vec![];
+        }
+        let mut rebuilt: Vec<FileId> = Vec::new();
+        for id in self.dirty.drain().collect::<Vec<_>>() {
+            for fid in self.workspace.reanalyze(id) {
+                if !rebuilt.contains(&fid) {
+                    rebuilt.push(fid);
+                }
+            }
+        }
         self.diagnostics_for_files(&rebuilt)
     }
 

@@ -66,6 +66,14 @@ pub struct Workspace {
     /// this index is what surfaces it. `Arc` so handing the set to a worker is
     /// a ref-count bump, not a deep copy.
     symbols: HashMap<FileId, Arc<FileSymbols>>,
+    /// Memoized [`workspace_module_full_names`](Self::workspace_module_full_names)
+    /// — the sorted set of every workspace-wide `module` declaration. Derived
+    /// from [`symbols`](Self::symbols), so it is invalidated (`None`) whenever
+    /// `index_symbols` runs and rebuilt lazily on next use. Without it, the
+    /// O(total symbols) scan reran for *every* member of a component on each
+    /// keystroke (`build_snapshot` calls it once per member); now that scan
+    /// happens at most once per edit.
+    module_names_cache: Option<Vec<String>>,
     /// Original client `Uri` for each interned file, so responses echo back
     /// exactly the spelling the editor sent rather than a re-derived one.
     uris: HashMap<FileId, Uri>,
@@ -97,6 +105,7 @@ impl Workspace {
             snapshots: HashMap::new(),
             components: HashMap::new(),
             symbols: HashMap::new(),
+            module_names_cache: None,
             uris: HashMap::new(),
         }
     }
@@ -204,12 +213,9 @@ impl Workspace {
 
     /// Handle `textDocument/didOpen`. Returns every file whose snapshot was
     /// (re)built — more than one when the buffer pulls in user modules.
+    /// `didChange` instead goes through [`stage_change`](Self::stage_change) +
+    /// [`reanalyze`](Self::reanalyze) so the heavy pass can be debounced.
     pub fn open(&mut self, uri: &Uri, version: i32, text: String) -> Vec<FileId> {
-        self.upsert(uri, version, text)
-    }
-
-    /// Handle `textDocument/didChange` (full-text sync).
-    pub fn change(&mut self, uri: &Uri, version: i32, text: String) -> Vec<FileId> {
         self.upsert(uri, version, text)
     }
 
@@ -272,17 +278,57 @@ impl Workspace {
     }
 
     fn upsert(&mut self, uri: &Uri, version: i32, text: String) -> Vec<FileId> {
-        let Some(path) = uri_to_path(uri) else {
-            return vec![];
-        };
+        match self.stage_change(uri, version, text) {
+            Some(id) => self.rebuild(id),
+            None => vec![],
+        }
+    }
+
+    /// Apply an edit's *cheap* effects without the expensive re-analysis:
+    /// update the VFS content + version, refresh the per-file symbol index, and
+    /// drop the now-stale cached snapshots for this file and its module-graph
+    /// component. The component is rebuilt later by [`reanalyze`](Self::reanalyze)
+    /// (the debounced flush) — or sooner, on demand, by the next request that
+    /// calls [`ensure_snapshot`](Self::ensure_snapshot). Returns the interned
+    /// file id, or `None` for a non-file URI.
+    ///
+    /// Refreshing the symbol index here (rather than deferring it) keeps it
+    /// cheap — one standalone parse, not full inference — while making a module
+    /// just declared or renamed in this edit show up in sibling squiggles and
+    /// `workspace/symbol` immediately, before the re-analysis runs.
+    pub fn stage_change(&mut self, uri: &Uri, version: i32, text: String) -> Option<FileId> {
+        let path = uri_to_path(uri)?;
         let id = self.vfs.intern(&path);
         self.uris.entry(id).or_insert_with(|| uri.clone());
         self.vfs.set_open(id, Arc::from(text), version);
-        // Keep the module-name index fresh before the rebuild reads it, so a
-        // module just declared/renamed in this edit is reflected in sibling
-        // squiggles immediately.
         self.index_symbols(id);
+        self.invalidate(id);
+        Some(id)
+    }
+
+    /// Re-analyze `id` and its dependents, repopulating the snapshots
+    /// [`stage_change`](Self::stage_change) dropped. This is the expensive half
+    /// of an edit; the debounced flush calls it once per coalesced keystroke
+    /// burst instead of on every character.
+    pub fn reanalyze(&mut self, id: FileId) -> Vec<FileId> {
         self.rebuild(id)
+    }
+
+    /// Drop the cached snapshot for `id` and for every member of a module-graph
+    /// component it belongs to, so a stale snapshot is never served while a
+    /// re-analysis is pending. A request arriving first rebuilds them lazily
+    /// from the staged VFS text via [`ensure_snapshot`](Self::ensure_snapshot).
+    fn invalidate(&mut self, id: FileId) {
+        let stale: Vec<FileId> = self
+            .components
+            .values()
+            .filter(|comp| comp.members.contains(&id))
+            .flat_map(|comp| comp.members.iter().copied())
+            .collect();
+        self.snapshots.remove(&id);
+        for member in stale {
+            self.snapshots.remove(&member);
+        }
     }
 
     /// Re-analyze `id` as a graph entry, plus every component that lists `id`
@@ -467,27 +513,19 @@ impl Workspace {
     /// live). Returns `None` for an unknown module or an undocumented member.
     pub fn member_doc(&self, module_key: &str, member: &str) -> Option<String> {
         if let Some(prelude) = self.prelude.as_ref()
-            && let Some(doc) =
-                prelude
-                    .module_programs
-                    .get(module_key)
-                    .and_then(|(program, source, _)| {
-                        let span = crate::doc_comments::member_decl_span(
-                            program,
-                            &prelude.compiler.interner,
-                            member,
-                        )?;
-                        crate::doc_comments::doc_comment_above(source, span, self.encoding)
-                    })
+            && let Some(doc) = prelude.module_programs.get(module_key).and_then(
+                |(program, _, _)| {
+                    crate::doc_comments::member_doc(program, &prelude.compiler.interner, member)
+                },
+            )
         {
             return Some(doc);
         }
         // User/sibling modules: any snapshot in the module's component holds
-        // the same parsed source, so the first hit wins.
+        // the same parsed program, so the first hit wins.
         self.snapshots.values().find_map(|snap| {
-            let (program, source, _) = snap.module_programs.get(module_key)?;
-            let span = crate::doc_comments::member_decl_span(program, &snap.interner, member)?;
-            crate::doc_comments::doc_comment_above(source, span, self.encoding)
+            let (program, _, _) = snap.module_programs.get(module_key)?;
+            crate::doc_comments::member_doc(program, &snap.interner, member)
         })
     }
 
@@ -580,6 +618,9 @@ impl Workspace {
     /// Removes the entry when the file has no content (or no resolvable URI), so
     /// the index never reports stale symbols.
     fn index_symbols(&mut self, id: FileId) {
+        // Every path below mutates `symbols`, so the derived module-name cache
+        // is now stale — drop it; it rebuilds lazily on next use.
+        self.module_names_cache = None;
         let Some(text) = self.vfs.text(id) else {
             self.symbols.remove(&id);
             return;
@@ -595,8 +636,20 @@ impl Workspace {
     /// Every `module` full-name declared anywhere in the workspace, deduped —
     /// the import candidates the unimported-module squiggle and the auto-import
     /// quick fix scan, including siblings the edited buffer has not imported.
-    /// Read from the cached symbol index (top-level `module` entries).
-    pub fn workspace_module_full_names(&self) -> Vec<String> {
+    /// Memoized: the underlying scan over every file's symbols runs only when
+    /// the cache was invalidated by a symbol-index change (see `index_symbols`),
+    /// so re-analyzing a multi-file component on one keystroke pays it once.
+    pub fn workspace_module_full_names(&mut self) -> Vec<String> {
+        if self.module_names_cache.is_none() {
+            self.module_names_cache = Some(self.compute_module_full_names());
+        }
+        self.module_names_cache.clone().unwrap_or_default()
+    }
+
+    /// The actual scan behind [`workspace_module_full_names`](Self::workspace_module_full_names)
+    /// — top-level `module` entries across every file's symbol index, sorted and
+    /// deduped. O(total symbols); call through the memoized getter, not directly.
+    fn compute_module_full_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self
             .symbols
             .values()

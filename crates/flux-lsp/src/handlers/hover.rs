@@ -88,7 +88,6 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 /// site (`Module.member`) the comment is scanned from that module's cached
 /// source, the same way `completionItem/resolve` does.
 fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
-    let encoding = snapshot.position_map.encoding();
     match node {
         NodeRef::DeclName {
             binding_span: span, ..
@@ -96,11 +95,11 @@ fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
         | NodeRef::DataName { span, .. }
         | NodeRef::DataVariantName { span, .. }
         | NodeRef::EffectDeclName { span, .. }
-        // A `class`/`instance` method declaration: scan the `///` run above the
-        // method's `fn` line in this buffer's own source.
+        // A `class`/`instance` method declaration: its doc run sits above the
+        // method's `fn` line in this buffer.
         | NodeRef::ClassMethodName { span, .. }
         | NodeRef::InstanceMethodName { span, .. } => {
-            crate::doc_comments::doc_comment_above(snapshot.text.as_ref(), *span, encoding)
+            crate::doc_comments::doc_for(&snapshot.program, *span)
         }
         // A type used in an annotation (`let x: MyType`): resolve it to its
         // declaration in this buffer (`data` / `alias` / `class`) and show that
@@ -108,15 +107,13 @@ fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
         NodeRef::TypeExprNamed { name, .. } => {
             let type_name = snapshot.interner.try_resolve(*name)?;
             let span = type_decl_span(&snapshot.program, &snapshot.interner, type_name)?;
-            crate::doc_comments::doc_comment_above(snapshot.text.as_ref(), span, encoding)
+            crate::doc_comments::doc_for(&snapshot.program, span)
         }
         NodeRef::MemberAccessMember { object, member, .. } => {
             let key = module_key_for(snapshot, object)?;
-            let (program, source, _) = snapshot.module_programs.get(&key)?;
+            let (program, _, _) = snapshot.module_programs.get(&key)?;
             let member_name = snapshot.interner.try_resolve(*member)?;
-            let span =
-                crate::doc_comments::member_decl_span(program, &snapshot.interner, member_name)?;
-            crate::doc_comments::doc_comment_above(source, span, encoding)
+            crate::doc_comments::member_doc(program, &snapshot.interner, member_name)
         }
         _ => None,
     }

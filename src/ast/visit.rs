@@ -53,6 +53,7 @@ pub fn walk_program<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, program: &
     let Program {
         statements,
         span: _,
+        doc_comments: _,
     } = program;
     for stmt in statements {
         visitor.visit_stmt(stmt);

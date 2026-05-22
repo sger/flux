@@ -207,7 +207,7 @@ fn run_inference(
     lsp_support::reset_per_file_state(compiler);
     compiler.set_file_path("<buffer>".to_string());
 
-    let captured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Populate `class_env` from the buffer's class declarations so
         // class-method dispatch resolves during inference. Without this,
         // `lookup_class_method` would return None for buffer-declared
@@ -223,11 +223,26 @@ fn run_inference(
         base_names.extend(config.known_flow_names.iter().copied());
         let result = infer_program(program, &compiler.interner, config);
         (result, base_names)
-    }))
-    .ok();
-    match captured {
-        Some((result, base_names)) => (Some(result), base_names),
-        None => (None, HashSet::new()),
+    }));
+    match outcome {
+        Ok((result, base_names)) => (Some(result), base_names),
+        Err(payload) => {
+            // A compiler-frontend panic must not crash the server, but it must
+            // not vanish either: log it so a real bug is diagnosable instead of
+            // silently presenting as missing hover/diagnostics for this buffer.
+            tracing::error!(
+                "inference panicked: {}",
+                crate::util::panic_message(payload.as_ref())
+            );
+            // The panic may have fired partway through mutating the shared
+            // compiler (`class_env`, infer config). Reset its per-file state now
+            // so the next buffer starts clean rather than inheriting half-built
+            // scratch — `reset_per_file_state` runs at the top of every build
+            // too, but doing it eagerly here keeps the invariant local to the
+            // failure.
+            lsp_support::reset_per_file_state(compiler);
+            (None, HashSet::new())
+        }
     }
 }
 

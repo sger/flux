@@ -1,17 +1,24 @@
 module Flow.Map {
 
+    /// The value mapped to `key`, or `None` if it is not present.
     public intrinsic fn get<k, v>(m: Map<k, v>, key: k) -> Option<v> = primop HamtGet
 
+    /// A copy of `m` with `key` mapped to `value`, replacing any existing entry.
     public intrinsic fn set<k, v>(m: Map<k, v>, key: k, value: v) -> Map<k, v> = primop HamtSet
 
+    /// A copy of `m` with `key` removed (unchanged if `key` is absent).
     public intrinsic fn delete<k, v>(m: Map<k, v>, key: k) -> Map<k, v> = primop HamtDelete
 
+    /// Combine two maps. On a key present in both, `right`'s value wins.
     public intrinsic fn merge<k, v>(left: Map<k, v>, right: Map<k, v>) -> Map<k, v> = primop HamtMerge
 
+    /// An array of all keys in the map.
     public intrinsic fn keys<k, v>(m: Map<k, v>) -> Array<k> = primop HamtKeys
 
+    /// An array of all values in the map.
     public intrinsic fn values<k, v>(m: Map<k, v>) -> Array<v> = primop HamtValues
 
+    /// `true` if `key` is present in the map.
     public fn has<k, v>(m: Map<k, v>, key: k) -> Bool {
         match get(m, key) {
             Some(_) -> true,
@@ -19,5 +26,6 @@ module Flow.Map {
         }
     }
 
+    /// The number of entries in the map.
     public intrinsic fn size<k, v>(m: Map<k, v>) -> Int = primop HamtSize
 }

@@ -25,7 +25,7 @@ use lsp_types::{
     SignatureHelp, SignatureInformation,
 };
 
-use crate::doc_comments::doc_comment_above;
+use crate::doc_comments::doc_for;
 use crate::handlers::hover::module_key_for;
 use crate::locator::find_enclosing_call;
 use crate::snapshot::Snapshot;
@@ -131,15 +131,14 @@ fn resolve_callee_decl(
     name: &str,
     arity: usize,
 ) -> Option<CalleeDecl> {
-    let encoding = snapshot.position_map.encoding();
     if let Expression::MemberAccess { object, .. } = function {
         // Qualified `M.foo` — search the imported module's cached program.
         let key = module_key_for(snapshot, object)?;
-        let (program, source, _) = snapshot.module_programs.get(&key)?;
+        let (program, _, _) = snapshot.module_programs.get(&key)?;
         let (param_names, span) = function_decl(program, &snapshot.interner, name, arity)?;
         return Some(CalleeDecl {
             param_names,
-            doc: doc_comment_above(source, span, encoding),
+            doc: doc_for(program, span),
         });
     }
     // Direct `foo` — search this buffer first.
@@ -148,21 +147,16 @@ fn resolve_callee_decl(
     {
         return Some(CalleeDecl {
             param_names,
-            doc: doc_comment_above(snapshot.text.as_ref(), span, encoding),
+            doc: doc_for(&snapshot.program, span),
         });
     }
     // Then any module that exposes `foo` unqualified.
-    resolve_exposed_decl(snapshot, name, arity, encoding)
+    resolve_exposed_decl(snapshot, name, arity)
 }
 
 /// Find `name`'s declaration in a module that exposes it unqualified via an
 /// `import M exposing (name)` or `import M exposing (..)` in this buffer.
-fn resolve_exposed_decl(
-    snapshot: &Snapshot,
-    name: &str,
-    arity: usize,
-    encoding: crate::line_index::PositionEncoding,
-) -> Option<CalleeDecl> {
+fn resolve_exposed_decl(snapshot: &Snapshot, name: &str, arity: usize) -> Option<CalleeDecl> {
     for stmt in &snapshot.program.statements {
         let Statement::Import {
             name: module_name,
@@ -188,13 +182,13 @@ fn resolve_exposed_decl(
         let Some(key) = module_program_key(snapshot, *module_name) else {
             continue;
         };
-        let Some((program, source, _)) = snapshot.module_programs.get(&key) else {
+        let Some((program, _, _)) = snapshot.module_programs.get(&key) else {
             continue;
         };
         if let Some((param_names, span)) = function_decl(program, &snapshot.interner, name, arity) {
             return Some(CalleeDecl {
                 param_names,
-                doc: doc_comment_above(source, span, encoding),
+                doc: doc_for(program, span),
             });
         }
     }

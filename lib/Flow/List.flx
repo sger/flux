@@ -9,6 +9,7 @@ import Flow.Array as Array
 
 module Flow.List {
 
+    /// Apply `f` to every element, returning a new list of the results.
     public fn map<a, b>(xs: List<a>, f: (a) -> b) -> List<b> {
         fn map_acc(ys, acc) {
             match ys {
@@ -19,6 +20,7 @@ module Flow.List {
         map_acc(xs, [])
     }
 
+    /// Keep only the elements for which `pred` returns `true`.
     public fn filter<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
         fn filter_acc(ys, acc) {
             match ys {
@@ -29,6 +31,7 @@ module Flow.List {
         filter_acc(xs, [])
     }
 
+    /// Reduce left-to-right, threading `acc` through `f`.
     public fn fold<a, b>(xs: List<a>, acc: b, f: (b, a) -> b) -> b {
         fn fold_list(ys, a) {
             match ys {
@@ -39,6 +42,7 @@ module Flow.List {
         fold_list(xs, acc)
     }
 
+    /// Reduce right-to-left: `f(x0, f(x1, ... f(xn, acc)))`.
     public fn foldr<a, b>(xs: List<a>, acc: b, f: (a, b) -> b) -> b {
         match xs {
             [h | t] -> f(h, foldr(t, acc, f)),
@@ -46,6 +50,7 @@ module Flow.List {
         }
     }
 
+    /// Reduce a non-empty list using its first element as the seed. Panics if empty.
     public fn fold1<a>(xs: List<a>, f: (a, a) -> a) -> a {
         match xs {
             [h | t] -> fold(t, h, f),
@@ -53,6 +58,7 @@ module Flow.List {
         }
     }
 
+    /// Map each element to a list and concatenate all the results.
     public fn flat_map<a, b>(xs: List<a>, f: (a) -> List<b>) -> List<b> {
         fn flat_map_acc(ys, acc) {
             match ys {
@@ -63,6 +69,7 @@ module Flow.List {
         flat_map_acc(xs, [])
     }
 
+    /// Concatenate a list of lists into a single flat list.
     public fn flatten<a>(xs: List<List<a>>) -> List<a> {
         fn flatten_acc(ys, acc) {
             match ys {
@@ -73,10 +80,12 @@ module Flow.List {
         flatten_acc(xs, [])
     }
 
+    /// Concatenate a list of lists into one (alias of `flatten`).
     public fn concat<a>(xss: List<List<a>>) -> List<a> {
         flatten(xss)
     }
 
+    /// `true` if `pred` holds for at least one element.
     public fn any<a>(xs: List<a>, pred: (a) -> Bool) -> Bool {
         match xs {
             [h | t] -> if pred(h) { true } else { any(t, pred) },
@@ -84,6 +93,7 @@ module Flow.List {
         }
     }
 
+    /// `true` if `pred` holds for every element (vacuously `true` when empty).
     public fn all<a>(xs: List<a>, pred: (a) -> Bool) -> Bool {
         match xs {
             [h | t] -> if pred(h) { all(t, pred) } else { false },
@@ -91,6 +101,7 @@ module Flow.List {
         }
     }
 
+    /// The first element satisfying `pred`, or `None` if there is none.
     public fn find<a>(xs: List<a>, pred: (a) -> Bool) -> Option<a> {
         match xs {
             [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
@@ -98,6 +109,7 @@ module Flow.List {
         }
     }
 
+    /// How many elements satisfy `pred`.
     public fn count<a>(xs: List<a>, pred: (a) -> Bool) -> Int {
         fn count_go(ys, n) {
             match ys {
@@ -108,6 +120,7 @@ module Flow.List {
         count_go(xs, 0)
     }
 
+    /// Run `f` on each element in order, for its `IO` effect.
     public fn each<a>(xs: List<a>, f: (a) -> Unit) with IO {
         match xs {
             [h | t] -> do {
@@ -118,6 +131,7 @@ module Flow.List {
         }
     }
 
+    /// The first `n` elements (or the whole list if shorter).
     public fn take<a>(xs: List<a>, n: Int) -> List<a> {
         fn take_acc(ys, remaining, acc) {
             if remaining <= 0 { reverse(acc) }
@@ -131,6 +145,7 @@ module Flow.List {
         take_acc(xs, n, [])
     }
 
+    /// All but the first `n` elements.
     public fn drop<a>(xs: List<a>, n: Int) -> List<a> {
         if n <= 0 { xs }
         else {
@@ -141,6 +156,7 @@ module Flow.List {
         }
     }
 
+    /// The longest leading run of elements satisfying `pred`.
     public fn take_while<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
         fn take_while_acc(ys, acc) {
             match ys {
@@ -151,6 +167,7 @@ module Flow.List {
         take_while_acc(xs, [])
     }
 
+    /// Drop the longest leading run satisfying `pred`, returning the rest.
     public fn drop_while<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
         match xs {
             [h | t] -> if pred(h) { drop_while(t, pred) } else { xs },
@@ -158,6 +175,7 @@ module Flow.List {
         }
     }
 
+    /// Split into the first `n` elements and the remaining elements.
     public fn split_at<a>(xs: List<a>, n: Int) -> (List<a>, List<a>) {
         if n <= 0 { ([], xs) }
         else {
@@ -170,6 +188,7 @@ module Flow.List {
         }
     }
 
+    /// Split into the longest leading run satisfying `pred` and the rest.
     public fn span<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         match xs {
             [h | t] -> if pred(h) {
@@ -181,26 +200,32 @@ module Flow.List {
         }
     }
 
+    /// Like `fold`, but returns every intermediate accumulator left-to-right,
+    /// beginning with `acc`.
     public fn scanl<a, b>(xs: List<a>, acc: b, f: (b, a) -> b) -> List<b> {
         [acc | scanl_rest(xs, acc, f)]
     }
 
+    /// Like `foldr`, but returns every intermediate accumulator right-to-left.
     public fn scanr<a, b>(xs: List<a>, acc: b, f: (a, b) -> b) -> List<b> {
         match scanr_go(xs, acc, f) {
             (result, last_acc) -> result
         }
     }
 
+    /// The elements sorted in ascending order (`Ord`), via a stable merge sort.
     public fn sort<a: Ord>(xs: List<a>) -> List<a> {
         merge_sort_by(xs, fn(x) { x })
     }
 
+    /// Sort ascending by the key `f` returns for each element (stable merge sort).
     public fn sort_by<a, b: Ord>(xs: List<a>, f: (a) -> b) -> List<a> {
         merge_sort_by(xs, f)
     }
 
     // first/last return the value directly or None — mixed return type
     // prevents full typing. Leave untyped for backward compatibility.
+    /// The first element, or `None` if the list is empty.
     public fn first(xs) {
         match xs {
             [h | t] -> h,
@@ -208,6 +233,7 @@ module Flow.List {
         }
     }
 
+    /// The last element, or `None` if the list is empty.
     public fn last(xs) {
         match xs {
             [h | t] -> match t {
@@ -218,6 +244,7 @@ module Flow.List {
         }
     }
 
+    /// All but the first element (an empty list if already empty).
     public fn rest<a>(xs: List<a>) -> List<a> {
         match xs {
             [h | t] -> t,
@@ -225,6 +252,7 @@ module Flow.List {
         }
     }
 
+    /// The number of elements in the list.
     public fn length<a>(xs: List<a>) -> Int {
         fn length_go(ys, acc) {
             match ys {
@@ -235,6 +263,7 @@ module Flow.List {
         length_go(xs, 0)
     }
 
+    /// All but the last element. Panics if the list is empty.
     public fn init<a>(xs: List<a>) -> List<a> {
         match xs {
             [h | t] -> match t {
@@ -245,6 +274,7 @@ module Flow.List {
         }
     }
 
+    /// `true` if the list is empty.
     public fn null<a>(xs: List<a>) -> Bool {
         match xs {
             [h | t] -> false,
@@ -254,6 +284,7 @@ module Flow.List {
 
     // range: return type annotation conflicts with cons literal inference —
     // the [start | range(...)] cons is inferred as Array. Leave untyped.
+    /// The integers from `start` (inclusive) to `stop` (exclusive).
     public fn range(start, stop) {
         fn range_go(current, acc) {
             if current >= stop { reverse(acc) }
@@ -262,6 +293,7 @@ module Flow.List {
         range_go(start, [])
     }
 
+    /// The elements in reverse order.
     public fn reverse<a>(xs: List<a>) -> List<a> {
         fn rev_acc(ys, acc) {
             match ys {
@@ -272,14 +304,17 @@ module Flow.List {
         rev_acc(xs, [])
     }
 
+    /// Pair up elements of two lists positionally, truncating to the shorter.
     public fn zip<a, b>(xs: List<a>, ys: List<b>) -> List<(a, b)> {
         reverse(zip_go(xs, ys, []))
     }
 
+    /// Combine two lists element-wise with `f`, truncating to the shorter.
     public fn zip_with<a, b, c>(xs: List<a>, ys: List<b>, f: (a, b) -> c) -> List<c> {
         reverse(zip_with_go(xs, ys, f, []))
     }
 
+    /// Split a list of pairs into a pair of lists.
     public fn unzip<a, b>(xs: List<(a, b)>) -> (List<a>, List<b>) {
         match xs {
             [(a, b) | t] -> match unzip(t) {
@@ -289,10 +324,12 @@ module Flow.List {
         }
     }
 
+    /// Pair each element with its index, as `(index, element)`.
     public fn enumerate<a>(xs: List<a>) -> List<(Int, a)> {
         enumerate_go(xs, 0)
     }
 
+    /// `true` if some element equals `x` (by `Eq`).
     public fn contains<a: Eq>(xs: List<a>, x: a) -> Bool {
         match xs {
             [h | t] -> if h == x { true } else { contains(t, x) },
@@ -300,10 +337,12 @@ module Flow.List {
         }
     }
 
+    /// Remove duplicate elements, keeping the first occurrence of each (by `Eq`).
     public fn nub<a: Eq>(xs: List<a>) -> List<a> {
         unique_by(xs, fn(x) { x })
     }
 
+    /// Split into the elements satisfying `pred` and those that do not.
     public fn partition<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         match xs {
             [h | t] -> match partition(t, pred) {
@@ -313,6 +352,7 @@ module Flow.List {
         }
     }
 
+    /// Remove the first element equal to `x` (by `Eq`), leaving the rest.
     public fn delete<a: Eq>(xs: List<a>, x: a) -> List<a> {
         delete_go(xs, x)
     }
@@ -339,6 +379,7 @@ module Flow.List {
         }
     }
 
+    /// Insert `sep` between adjacent elements.
     public fn intersperse<a>(xs: List<a>, sep: a) -> List<a> {
         match xs {
             [h | t] -> [h | intersperse_rest(t, sep)],
@@ -346,10 +387,12 @@ module Flow.List {
         }
     }
 
+    /// Concatenate the lists in `xss`, inserting `sep` between adjacent ones.
     public fn intercalate<a>(xss: List<List<a>>, sep: List<a>) -> List<a> {
         concat(intersperse(xss, sep))
     }
 
+    /// `true` if `prefix` is a leading sublist of `xs`.
     public fn is_prefix<a: Eq>(prefix: List<a>, xs: List<a>) -> Bool {
         match prefix {
             [p | pt] -> match xs {
@@ -360,10 +403,12 @@ module Flow.List {
         }
     }
 
+    /// `true` if `suffix` is a trailing sublist of `xs`.
     public fn is_suffix<a: Eq>(suffix: List<a>, xs: List<a>) -> Bool {
         is_prefix(reverse(suffix), reverse(xs))
     }
 
+    /// The element at index `n` (0-based), or `None` if out of range.
     public fn nth<a>(xs: List<a>, n: Int) -> Option<a> {
         if n < 0 { None }
         else {
@@ -374,16 +419,20 @@ module Flow.List {
         }
     }
 
+    /// A list of `n` copies of `x`.
     public fn replicate<a>(n: Int, x: a) -> List<a> {
         if n <= 0 { [] }
         else { [x | replicate(n - 1, x)] }
     }
 
+    /// `[x, f(x), f(f(x)), ...]` with `n` elements.
     public fn iterate<a>(x: a, f: (a) -> a, n: Int) -> List<a> {
         if n <= 0 { [] }
         else { [x | iterate(f(x), f, n - 1)] }
     }
 
+    /// Build a list by repeatedly applying `f` to a seed, stopping at `None`.
+    /// Each `Some((value, next_seed))` emits `value` and continues from `next_seed`.
     public fn unfold<a, b>(seed: b, f: (b) -> Option<(a, b)>) -> List<a> {
         match f(seed) {
             Some(step) -> [step.0 | unfold(step.1, f)],
@@ -391,6 +440,7 @@ module Flow.List {
         }
     }
 
+    /// Group runs of adjacent elements that `eq` deems equal into sublists.
     public fn group_by<a>(xs: List<a>, eq: (a, a) -> Bool) -> List<List<a>> {
         match xs {
             [h | t] -> group_by_head(h, t, eq),
@@ -398,10 +448,12 @@ module Flow.List {
         }
     }
 
+    /// Remove duplicates by the key `f` returns, keeping first occurrences (by `Eq`).
     public fn unique_by<a, b: Eq>(xs: List<a>, f: (a) -> b) -> List<a> {
         reverse(unique_by_go(xs, f, [], []))
     }
 
+    /// The largest element, or `None` if the list is empty.
     public fn maximum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(maximum_go(t, h)),
@@ -409,6 +461,7 @@ module Flow.List {
         }
     }
 
+    /// The smallest element, or `None` if the list is empty.
     public fn minimum<a: Ord>(xs: List<a>) -> Option<a> {
         match xs {
             [h | t] -> Some(minimum_go(t, h)),
@@ -416,6 +469,7 @@ module Flow.List {
         }
     }
 
+    /// The sum of all elements (`0` for an empty list).
     public fn sum(xs: List<Int>) -> Int {
         fn sum_go(ys, acc) {
             match ys {
@@ -426,6 +480,7 @@ module Flow.List {
         sum_go(xs, 0)
     }
 
+    /// The product of all elements (`1` for an empty list).
     public fn product(xs: List<Int>) -> Int {
         fn product_go(ys, acc) {
             match ys {
@@ -446,10 +501,12 @@ module Flow.List {
         }
     }
 
+    /// Split into the longest leading run *not* satisfying `pred` and the rest.
     public fn break_at<a>(xs: List<a>, pred: (a) -> Bool) -> (List<a>, List<a>) {
         span(xs, fn(x) { !pred(x) })
     }
 
+    /// The value paired with the first key equal to `key` in an association list.
     public fn lookup<k: Eq, v>(xs: List<(k, v)>, key: k) -> Option<v> {
         match xs {
             [(k, v) | t] -> if k == key { Some(v) } else { lookup(t, key) },
@@ -457,6 +514,7 @@ module Flow.List {
         }
     }
 
+    /// `true` if no element equals `x` — the negation of `contains` (by `Eq`).
     public fn not_elem<a: Eq>(xs: List<a>, x: a) -> Bool {
         !contains(xs, x)
     }
@@ -597,6 +655,7 @@ module Flow.List {
         }
     }
 
+    /// Convert a cons list into an `Array`.
     public fn to_array<a>(xs: List<a>) -> Array<a> {
         fn to_array_go(ys, acc) {
             match ys {
