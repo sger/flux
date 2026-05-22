@@ -87,6 +87,7 @@ fn validate_file_kind_multiple_modules() {
             },
         ],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots: Vec<PathBuf> = Vec::new();
@@ -133,6 +134,7 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots = vec![
@@ -173,6 +175,7 @@ fn resolve_imports_invalid_name() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots: Vec<PathBuf> = Vec::new();
@@ -197,6 +200,7 @@ fn resolve_imports_invalid_alias() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots: Vec<PathBuf> = Vec::new();
@@ -220,6 +224,7 @@ fn resolve_imports_missing_module() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let root = temp_dir("missing_module");
@@ -399,6 +404,7 @@ fn build_graph_marks_flow_modules_as_stdlib() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let result =
@@ -429,6 +435,7 @@ fn build_graph_marks_non_flow_modules_as_user() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let result =
@@ -452,6 +459,7 @@ fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let cwd = std::env::current_dir()
@@ -493,6 +501,7 @@ fn resolve_imports_no_imports_returns_empty() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots: Vec<PathBuf> = Vec::new();
@@ -517,6 +526,7 @@ fn resolve_imports_ignores_synthetic_flow_import() {
             span: span(1, 0),
         }],
         span: Span::default(),
+        ..Default::default()
     };
 
     let roots: Vec<PathBuf> = Vec::new();

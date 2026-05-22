@@ -4,38 +4,55 @@
 
 module Flow.Math {
 
+    /// The ratio of a circle's circumference to its diameter, π.
     public let pi: Float = 3.141592653589793
 
+    /// The square root of `x`.
     public intrinsic fn sqrt(x: Float) -> Float = primop FSqrt
 
+    /// `e` raised to the power `x`.
     public intrinsic fn exp(x: Float) -> Float = primop FExp
 
+    /// The natural logarithm (base `e`) of `x`.
     public intrinsic fn log(x: Float) -> Float = primop FLog
 
+    /// The sine of `x`, where `x` is in radians.
     public intrinsic fn sin(x: Float) -> Float = primop FSin
 
+    /// The cosine of `x`, where `x` is in radians.
     public intrinsic fn cos(x: Float) -> Float = primop FCos
 
+    /// The tangent of `x`, where `x` is in radians.
     public intrinsic fn tan(x: Float) -> Float = primop FTan
 
+    /// The arcsine of `x`, in radians.
     public intrinsic fn asin(x: Float) -> Float = primop FAsin
 
+    /// The arccosine of `x`, in radians.
     public intrinsic fn acos(x: Float) -> Float = primop FAcos
 
+    /// The arctangent of `x`, in radians.
     public intrinsic fn atan(x: Float) -> Float = primop FAtan
 
+    /// The hyperbolic sine of `x`.
     public intrinsic fn sinh(x: Float) -> Float = primop FSinh
 
+    /// The hyperbolic cosine of `x`.
     public intrinsic fn cosh(x: Float) -> Float = primop FCosh
 
+    /// The hyperbolic tangent of `x`.
     public intrinsic fn tanh(x: Float) -> Float = primop FTanh
 
+    /// The largest integer value not greater than `x`, as a `Float`.
     public intrinsic fn floor(x: Float) -> Float = primop FFloor
 
+    /// The smallest integer value not less than `x`, as a `Float`.
     public intrinsic fn ceil(x: Float) -> Float = primop FCeil
 
+    /// `x` rounded to the nearest integer, as a `Float`.
     public intrinsic fn round(x: Float) -> Float = primop FRound
 
+    /// `x` with its fractional part removed (rounded toward zero), as a `Float`.
     public intrinsic fn truncate(x: Float) -> Float = primop FTruncate
 
 }

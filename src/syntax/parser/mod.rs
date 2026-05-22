@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     diagnostics::{
         Diagnostic, DiagnosticCategory,
@@ -14,6 +16,15 @@ use crate::{
         token_type::TokenType,
     },
 };
+
+/// A `///`/`/** */` doc comment captured during tokenization (before it is
+/// skipped). [`Parser::build_doc_comment_index`] groups these into contiguous
+/// runs and attaches each to the declaration on the line below it.
+struct RawDocComment {
+    start_line: usize,
+    end_line: usize,
+    text: String,
+}
 
 mod expression;
 mod helpers;
@@ -156,6 +167,10 @@ pub struct Parser {
     /// expressions, where `{` opens the body block.
     pub(super) allow_struct_literal: bool,
     expr_id_gen: ExprIdGen,
+    /// Doc comments captured as they are skipped, in source order. Folded into
+    /// the parsed [`Program`]'s line-keyed `doc_comments` index at the end of
+    /// [`parse_program`](Self::parse_program).
+    doc_comments: Vec<RawDocComment>,
 }
 
 impl Parser {
@@ -174,6 +189,7 @@ impl Parser {
             parser_contexts: Vec::new(),
             allow_struct_literal: true,
             expr_id_gen: ExprIdGen::new(),
+            doc_comments: Vec::new(),
         };
         parser.prime();
         parser
@@ -190,6 +206,14 @@ impl Parser {
         let mut token = self.lexer.next_token();
         self.absorb_lexer_diagnostics();
         while token.token_type == TokenType::DocComment {
+            // Keep the comment (the lexer has already stripped its markers) so
+            // `parse_program` can attach it to the declaration below it; the
+            // token stream itself stays doc-free.
+            self.doc_comments.push(RawDocComment {
+                start_line: token.position.line,
+                end_line: token.end_position.line,
+                text: token.literal.as_str().to_string(),
+            });
             token = self.lexer.next_token();
             self.absorb_lexer_diagnostics();
         }
@@ -268,7 +292,36 @@ impl Parser {
         }
 
         program.span = Span::new(start, self.current_token.end_position);
+        program.doc_comments = self.build_doc_comment_index();
         program
+    }
+
+    /// Fold the captured doc comments into a line-keyed index: contiguous runs
+    /// of comments (consecutive source lines) are joined, and each run is keyed
+    /// by the line immediately below it — where the documented declaration
+    /// starts. A blank line between comments (a gap in line numbers) ends a run,
+    /// so only the run directly above a declaration attaches to it. Comments are
+    /// collected in source order, so a single forward pass groups them.
+    fn build_doc_comment_index(&self) -> HashMap<usize, String> {
+        let docs = &self.doc_comments;
+        let mut index = HashMap::new();
+        let mut i = 0;
+        while i < docs.len() {
+            let run_start = i;
+            let mut end_line = docs[i].end_line;
+            while i + 1 < docs.len() && docs[i + 1].start_line == end_line + 1 {
+                i += 1;
+                end_line = docs[i].end_line;
+            }
+            let text = docs[run_start..=i]
+                .iter()
+                .map(|d| d.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            index.insert(end_line + 1, text);
+            i += 1;
+        }
+        index
     }
 
     pub(super) fn start_construct_diagnostics_checkpoint(&self) -> usize {

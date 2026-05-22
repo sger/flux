@@ -496,10 +496,12 @@ mod tests {
         let first = Program {
             statements: vec![import_statement(Symbol::SENTINEL)],
             span: Span::default(),
+            ..Default::default()
         };
         let second = Program {
             statements: vec![import_statement(Symbol::new(7))],
             span: Span::default(),
+            ..Default::default()
         };
 
         let merged = merge_programs([&first, &second]);

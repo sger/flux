@@ -30,6 +30,35 @@ fn parse_with_errors(input: &str) -> (Program, Parser) {
 }
 
 #[test]
+fn doc_comments_index_keys_the_declaration_below_each_run() {
+    // 1: `/// First line.`
+    // 2: `/// Second line.`
+    // 3: `fn a() { 0 }`
+    // 4: (blank)
+    // 5: `/// Detached.`
+    // 6: (blank)
+    // 7: `fn b() { 0 }`
+    let src = "/// First line.\n/// Second line.\nfn a() { 0 }\n\n/// Detached.\n\nfn b() { 0 }\n";
+    let (program, _interner) = parse_ok(src);
+
+    // A contiguous run is joined and keyed by the line just below it.
+    assert_eq!(program.doc_for_line(3), Some("First line.\nSecond line."));
+    // A blank line ends the run: the comment on line 5 keys line 6, not the
+    // `fn b` declaration on line 7 — which therefore has no doc.
+    assert_eq!(program.doc_for_line(6), Some("Detached."));
+    assert_eq!(program.doc_for_line(7), None);
+}
+
+#[test]
+fn doc_comments_index_attaches_to_module_nested_methods() {
+    // A `///` inside a `class` body attaches to the method below it; the index
+    // is line-based, so nested declarations work with no special handling.
+    let src = "class Eq<a> {\n    /// Structural equality.\n    fn eq(x: a, y: a) -> Bool\n}\n";
+    let (program, _interner) = parse_ok(src);
+    assert_eq!(program.doc_for_line(3), Some("Structural equality."));
+}
+
+#[test]
 fn requested_recovery_boundary_is_consumed_once() {
     let lexer = Lexer::new("let x = 1");
     let mut parser = Parser::new(lexer);
