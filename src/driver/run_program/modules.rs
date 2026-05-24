@@ -286,10 +286,12 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 .map(|i| i.module_name.clone())
                 .unwrap_or_else(|| module_display_name(&node.path));
             seq_completed += 1;
-            eprintln!(
-                "{}",
-                progress_line(seq_completed, seq_total, "Cached", &display_name,)
-            );
+            if !request.runtime.quiet {
+                eprintln!(
+                    "{}",
+                    progress_line(seq_completed, seq_total, "Cached", &display_name,)
+                );
+            }
             module_states.insert(
                 node.path.clone(),
                 ModuleBuildState {
@@ -361,11 +363,13 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
 
         {
             seq_completed += 1;
-            let name = module_display_name(&node.path);
-            eprintln!(
-                "{}",
-                progress_line(seq_completed, seq_total, "Compiling", &name)
-            );
+            if !request.runtime.quiet {
+                let name = module_display_name(&node.path);
+                eprintln!(
+                    "{}",
+                    progress_line(seq_completed, seq_total, "Compiling", &name)
+                );
+            }
         }
 
         let module_deps: Vec<(String, String)> = node
