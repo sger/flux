@@ -34,6 +34,9 @@ pub enum CliCommand {
         expr: String,
         flags: DriverFlags,
     },
+    Repl {
+        flags: DriverFlags,
+    },
     CacheInfo {
         flags: DriverFlags,
     },
@@ -179,6 +182,9 @@ fn parse_subcommand(
         }),
         "fmt" => parse_fmt_subcommand(args),
         "eval" => parse_eval_subcommand(args, flags),
+        "repl" => Ok(CliCommand::Repl {
+            flags: flags.clone(),
+        }),
         "cache-info" => parse_flx_subcommand(
             args,
             flags,
@@ -721,6 +727,12 @@ mod tests {
     fn eval_without_expression_is_usage_error() {
         let err = parse_args(cli(&["flux", "eval"])).unwrap_err();
         assert!(err.contains("Usage: flux eval"));
+    }
+
+    #[test]
+    fn parses_repl_subcommand() {
+        let command = parse_args(cli(&["flux", "repl"])).unwrap();
+        assert!(matches!(command, CliCommand::Repl { .. }));
     }
 
     #[test]

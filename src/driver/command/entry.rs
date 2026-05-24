@@ -10,6 +10,10 @@ pub fn eval(expr: &str, flags: DriverFlags) {
     pipeline::eval::run_eval(expr, flags);
 }
 
+pub fn repl(flags: DriverFlags) {
+    pipeline::repl::run_repl(flags);
+}
+
 pub fn init() {
     #[cfg(feature = "llvm")]
     if std::env::var_os("FLUX_PREWARM_TOOLCHAIN").is_some() {

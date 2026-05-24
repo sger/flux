@@ -1784,3 +1784,101 @@ fn eval_parse_error_exits_nonzero() {
         combined_output(&output)
     );
 }
+
+// ── `flux repl` — interactive session (proposal 0175, Phase 1) ───────────────
+//
+// The REPL prints evaluation results to stdout and prompts/errors to stderr, so
+// stdout carries only the values an expression line produced.
+
+/// Drive a scripted `flux repl` session: feed `script` on stdin and capture the
+/// process output. `script` should end each line with `\n` and finish with
+/// `:quit` (or rely on EOF).
+fn run_flux_repl(script: &str) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .arg("repl")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn `flux repl`");
+    child
+        .stdin
+        .take()
+        .expect("repl stdin")
+        .write_all(script.as_bytes())
+        .expect("write repl script");
+    child.wait_with_output().expect("wait for `flux repl`")
+}
+
+/// The non-empty stdout lines of a REPL session (the printed results).
+fn repl_results(output: &Output) -> Vec<String> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn repl_evaluates_and_remembers_bindings() {
+    // A later line sees an earlier `let`; declarations themselves print nothing.
+    let output = run_flux_repl("1 + 2\nlet x = 10\nx + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["3", "11"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_binds_it_to_the_last_result() {
+    let output = run_flux_repl("21 * 2\nit + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["42", "43"],
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_rolls_back_a_failed_line() {
+    // `nope` is undefined: that line errors and is discarded, so the session
+    // stays intact and `x` is still usable on the next line.
+    let output = run_flux_repl("let x = 5\nnope + 1\nx + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["6"],
+        "stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        !combined_output(&output).contains("panicked"),
+        "a bad line must report a diagnostic, not panic, output:\n{}",
+        combined_output(&output),
+    );
+}
+
+#[test]
+fn repl_reset_clears_the_session() {
+    // After `:reset`, the earlier `x` is gone, so `x + 1` errors and prints
+    // nothing to stdout.
+    let output = run_flux_repl("let x = 5\n:reset\nx + 1\n:quit\n");
+    assert!(
+        repl_results(&output).is_empty(),
+        "stdout should be empty after reset, got:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        combined_output(&output).contains('x'),
+        "expected an undefined-name error mentioning `x`, output:\n{}",
+        combined_output(&output),
+    );
+}
