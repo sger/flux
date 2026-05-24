@@ -7,6 +7,7 @@ pub mod definition;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_link;
+pub mod explicit_imports;
 pub mod folding;
 pub mod formatting;
 pub mod hover;
