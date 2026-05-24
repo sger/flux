@@ -143,6 +143,34 @@ impl VM {
         }
     }
 
+    /// Execute an additional top-level bytecode chunk on this live VM, **keeping
+    /// `globals` across chunks** (the persistent-REPL primitive, proposal 0176).
+    ///
+    /// The chunk's instructions reference constants by absolute index over the
+    /// cumulative pool, so the chunk's `constants` are *appended* to the existing
+    /// pool (they are the new constants emitted since the previous chunk). The
+    /// stack, frames, instruction pointer, and handler stack are reset to a clean
+    /// single top-level frame, but `globals` (and thus every earlier session
+    /// binding written via `OpSetGlobal`) survive untouched, so a later chunk's
+    /// `OpGetGlobal` at an earlier slot reads the value an earlier chunk stored.
+    pub fn run_chunk(&mut self, chunk: Bytecode) -> Result<(), String> {
+        self.constants
+            .extend(chunk.constants.into_iter().map(slot::to_slot));
+
+        let main_fn = CompiledFunction::new(chunk.instructions, 0, 0, chunk.debug_info);
+        let main_closure = Closure::new(Arc::new(main_fn), vec![]);
+        let main_frame = Frame::new(Rc::new(main_closure), 0);
+
+        // Reset transient execution state to a clean start; KEEP globals.
+        self.sp = 0;
+        self.frames.clear();
+        self.frames.push(main_frame);
+        self.frame_index = 0;
+        self.handler_stack.clear();
+
+        self.run()
+    }
+
     /// Create a worker VM backed by Arc-shared read-only constants/globals.
     ///
     /// Used by Phase 4 OS-worker threads to get an execution context without
@@ -646,6 +674,13 @@ impl VM {
         slot::from_slot_ref(&self.constants[idx])
     }
 
+    /// Read the `Value` currently stored at globals slot `idx` (the persistent
+    /// session state, for a live REPL or tests). Returns `Value::None` for a slot
+    /// that has never been written.
+    pub fn read_global(&self, idx: usize) -> Value {
+        self.global_get(idx)
+    }
+
     /// Clone the Value at globals index `idx`.
     #[inline(always)]
     fn global_get(&self, idx: usize) -> Value {
@@ -729,5 +764,7 @@ mod dispatch_test;
 mod function_call_test;
 #[cfg(test)]
 mod index_ops_test;
+#[cfg(test)]
+mod repl_chunk_test;
 #[cfg(test)]
 mod trace_test;

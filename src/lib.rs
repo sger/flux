@@ -12,6 +12,7 @@ pub mod lir;
 pub mod llvm;
 pub mod lsp_support;
 pub mod parity;
+pub mod repl;
 pub mod runtime;
 pub mod shared;
 pub mod shared_ir;

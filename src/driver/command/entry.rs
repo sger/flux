@@ -11,7 +11,7 @@ pub fn eval(expr: &str, flags: DriverFlags) {
 }
 
 pub fn repl(flags: DriverFlags) {
-    pipeline::repl::run_repl(flags);
+    crate::repl::run_repl(flags);
 }
 
 pub fn init() {
