@@ -1,16 +1,18 @@
-//! `textDocument/codeLens` — runnable "▶ Run" / "▶ Run Test" lenses.
+//! `textDocument/codeLens` — runnable "▶ Run" / "▶ Run Test" / "▶ Eval" lenses.
 //!
 //! A "▶ Run" lens sits above a top-level `fn main` (the program entry point);
 //! a "▶ Run Test" lens sits above each top-level `fn test_*`; and a file-level
 //! "▶ Run all tests" lens sits above the first test when a file has more than
-//! one. The lens command is interpreted by the VS Code extension (`flux.run` /
-//! `flux.runTest` / `flux.runTests`), which launches the Flux CLI — `cargo run
-//! -- <file>` for a run, `… <file> --test --test-filter <name>` for a single
-//! test, and `… <file> --test` for the whole file. The server only locates the
-//! runnables and names the command; it never spawns a process.
+//! one. A "▶ Eval" lens sits on every `/// >>> <expr>` doc-comment line (the
+//! Flux analogue of the Haskell LSP eval plugin). The lens command is interpreted
+//! by the VS Code extension (`flux.run` / `flux.runTest` / `flux.runTests` /
+//! `flux.evalComment`), which launches the Flux CLI — `cargo run -- <file>` for a
+//! run, `… <file> --test --test-filter <name>` for a single test, `… <file>
+//! --test` for the whole file, and `… eval "<expr>"` for an eval. The server only
+//! locates the runnables and names the command; it never spawns a process.
 
 use flux::syntax::statement::Statement;
-use lsp_types::{CodeLens, Command, Range, Uri};
+use lsp_types::{CodeLens, Command, Position, Range, Uri};
 use serde_json::{Value, json};
 
 use crate::snapshot::Snapshot;
@@ -56,7 +58,43 @@ pub fn code_lenses(snapshot: &Snapshot, uri: &Uri) -> Vec<CodeLens> {
             vec![uri_arg.clone(), json!(fn_name)],
         ));
     }
+    eval_lenses(snapshot, &uri_arg, &mut lenses);
     lenses
+}
+
+/// Append an "▶ Eval" lens for every `/// >>> <expr>` doc-comment line. We scan
+/// the raw buffer text rather than the parsed `Program.doc_comments` (which joins
+/// comment runs by the *declaration* line below them and so loses per-line
+/// positions); a line whose first non-whitespace is `///` is unambiguously a doc
+/// comment, so no comment/string state machine is needed. The command travels to
+/// the VS Code extension as `flux.evalComment` with arguments
+/// `[uri, expr, line, indent]`: the extension runs `flux eval "<expr>"` and writes
+/// the result back as a `<indent>/// => <result>` line just below `line`.
+fn eval_lenses(snapshot: &Snapshot, uri_arg: &Value, lenses: &mut Vec<CodeLens>) {
+    for (idx, line) in snapshot.text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(after_slashes) = trimmed.strip_prefix("///") else {
+            continue;
+        };
+        let Some(expr) = after_slashes.trim_start().strip_prefix(">>>") else {
+            continue;
+        };
+        let expr = expr.trim();
+        if expr.is_empty() {
+            continue;
+        }
+        let indent = &line[..line.len() - trimmed.len()];
+        let Ok(line_no) = u32::try_from(idx) else {
+            continue;
+        };
+        let range = Range::new(Position::new(line_no, 0), Position::new(line_no, 0));
+        lenses.push(runnable(
+            range,
+            "▶ Eval",
+            "flux.evalComment",
+            vec![uri_arg.clone(), json!(expr), json!(line_no), json!(indent)],
+        ));
+    }
 }
 
 /// Flux test functions are the top-level `test_*` functions the CLI's `--test`

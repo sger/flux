@@ -22,7 +22,7 @@ use crate::driver::{
     run_program::{
         backend::vm::{ParallelVmRunRequest, VmRunRequest, run_vm, try_run_parallel_vm},
         dumps::{DumpRequest, handle_dumps},
-        frontend::{ProgramContext, build_program_context},
+        frontend::{ProgramContext, build_program_context, build_program_context_from_source},
         modules::{CompileModulesRequest, compile_modules},
     },
     session::DriverSession,
@@ -114,6 +114,38 @@ fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
 
 /// Builds the initial run context after frontend parsing and compiler setup.
 fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, String> {
+    let context = build_program_context(
+        request.path,
+        &request.session.roots,
+        request.session.roots_only,
+        request.session.cache_dir_path(),
+        request.flags.runtime.trace_aether,
+        request.flags.is_native_backend(),
+    )?;
+    Ok(finish_run_context(request, context))
+}
+
+/// Like [`prepare_run_context`] but builds from in-memory `source` rather than
+/// reading `request.path` from disk. Powers [`run_from_source`] (`flux eval`).
+fn prepare_run_context_from_source(
+    request: RunProgramRequest<'_>,
+    source: String,
+) -> Result<RunContext, String> {
+    let context = build_program_context_from_source(
+        request.path,
+        source,
+        &request.session.roots,
+        request.session.roots_only,
+        request.session.cache_dir_path(),
+        request.flags.runtime.trace_aether,
+        request.flags.is_native_backend(),
+    )?;
+    Ok(finish_run_context(request, context))
+}
+
+/// Shared tail of context preparation: turn a parsed [`ProgramContext`] into the
+/// pipeline's [`RunContext`] (compiler setup, module counts, strict hash).
+fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -> RunContext {
     let ProgramContext {
         source,
         program,
@@ -123,14 +155,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         all_diagnostics,
         entry_path,
         cache_layout,
-    } = build_program_context(
-        request.path,
-        &request.session.roots,
-        request.session.roots_only,
-        request.session.cache_dir_path(),
-        request.flags.runtime.trace_aether,
-        request.flags.is_native_backend(),
-    )?;
+    } = context;
 
     let strict_hash =
         hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
@@ -149,7 +174,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         compiler.set_profiling(true);
     }
 
-    Ok(RunContext {
+    RunContext {
         source,
         program,
         graph: graph_result.graph,
@@ -164,7 +189,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         is_multimodule,
         entry_has_errors,
         strict_hash,
-    })
+    }
 }
 
 /// Attempts the cached parallel VM execution path for eligible multimodule runs.
@@ -346,6 +371,26 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 return;
             }
 
+            dispatch_backend(&mut ctx, request);
+        }
+        Err(e) => eprintln!("{e}"),
+    }
+}
+
+/// Runs an end-to-end program built from in-memory `source` instead of a file on
+/// disk. This is the slim path behind `flux eval`: a single synthetic module, VM
+/// backend only — no parallel fast-path, dump surfaces, or native dispatch. Parse
+/// and type diagnostics still render and exit non-zero through the shared
+/// `emit_compile_diagnostics_or_exit`, so a bad expression reports a diagnostic
+/// rather than a Rust panic.
+pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
+    match prepare_run_context_from_source(request, source) {
+        Ok(mut ctx) => {
+            if has_error_diagnostics(&ctx.all_diagnostics) {
+                emit_compile_diagnostics_or_exit(&ctx, request);
+            }
+            compile_modules_for_run(&mut ctx, request);
+            emit_compile_diagnostics_or_exit(&ctx, request);
             dispatch_backend(&mut ctx, request);
         }
         Err(e) => eprintln!("{e}"),
