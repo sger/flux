@@ -102,6 +102,9 @@ pub fn code_actions(
     if let Some(action) = add_missing_methods_action(snapshot, uri, range) {
         actions.push(action);
     }
+    // Cursor-on-import assist: rewrite `exposing (..)` to the used members, or
+    // trim an explicit `exposing (...)` list to its used subset.
+    super::explicit_imports::actions(snapshot, uri, range, &mut actions);
     // Source action: only when the client asks for `source.organizeImports`.
     if super::organize_imports::organize_imports_requested(only)
         && let Some(action) = super::organize_imports::organize_imports_action(snapshot, uri)
@@ -1084,7 +1087,7 @@ fn parse_did_you_mean(hint: &str) -> Option<String> {
 /// Two LSP ranges overlap when neither ends strictly before the other
 /// starts. A zero-width request range (a bare cursor) still matches a
 /// diagnostic it sits inside.
-fn ranges_overlap(a: Range, b: Range) -> bool {
+pub(crate) fn ranges_overlap(a: Range, b: Range) -> bool {
     !(position_lt(a.end, b.start) || position_lt(b.end, a.start))
 }
 
