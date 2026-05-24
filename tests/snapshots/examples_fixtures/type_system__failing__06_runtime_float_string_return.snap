@@ -16,6 +16,11 @@ The body of `compute_rate` does not match its declared return type.
 28 |     "slow"
    |     ^^^^^^
    |     ------ this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+27 | fn compute_rate() -> String {
+   |                      ~~~~~~
 
 Note:
   declared return type: Float

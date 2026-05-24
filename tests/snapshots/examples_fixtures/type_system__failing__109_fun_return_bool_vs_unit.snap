@@ -16,6 +16,11 @@ The body of `bad_bool` does not match its declared return type.
 51 |     0
    |     ^
    |     - this expression has type `Int`
+   |
+help: Change return type to `Int`
+   |
+50 | fn bad_bool() -> Int {
+   |                  ~~~
 
 Note:
   declared return type: Bool
@@ -36,6 +41,11 @@ The body of `main` does not match its declared return type.
 55 |     bad_bool()
    |     ^^^^^^^^^^
    |     ---------- this expression has type `Bool`
+   |
+help: Change return type to `Bool`
+   |
+54 | fn main() -> Bool {
+   |              ~~~~
 
 Note:
   declared return type: Unit

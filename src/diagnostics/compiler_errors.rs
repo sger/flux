@@ -1727,6 +1727,16 @@ pub fn fun_return_annotation_mismatch(
         ret_ann_span,
         format!("`{fn_name}` was declared to return `{declared_ty}`"),
     )
+    // Offer the inferred type as a structured fix: rewrite the return annotation
+    // to what the body actually produces. `actual_ty` is only ever concrete here
+    // (the caller guards on `is_concrete`), so it is valid Flux source. The LSP's
+    // `suggestion_actions` turns this into a "Change return type to `T`" quick
+    // fix; it also renders in the CLI/JSON diagnostics.
+    .with_suggestion_message(
+        ret_ann_span,
+        actual_ty,
+        format!("Change return type to `{actual_ty}`"),
+    )
 }
 
 /// Create an if-branch mismatch diagnostic (E300).
