@@ -71,6 +71,7 @@ pub(crate) struct DriverRuntimeConfig {
     pub(crate) trace_aether: bool,
     pub(crate) profiling: bool,
     pub(crate) leak_detector: bool,
+    pub(crate) quiet: bool,
 }
 
 impl From<&DriverFlags> for DriverRuntimeConfig {
@@ -82,6 +83,7 @@ impl From<&DriverFlags> for DriverRuntimeConfig {
             trace_aether: value.runtime.trace_aether,
             profiling: value.runtime.profiling,
             leak_detector: value.runtime.leak_detector,
+            quiet: value.runtime.quiet,
         }
     }
 }

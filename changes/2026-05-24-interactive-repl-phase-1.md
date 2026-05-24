@@ -8,4 +8,5 @@
   prompt until balanced, and a line that fails to compile or run is reported and
   rolled back without disturbing the session. This first phase re-runs the
   accumulated session source each line (the engine is replaced incrementally in
-  proposal 0176), so side-effecting top-level declarations re-execute.
+  proposal 0176), so side-effecting top-level declarations re-execute; the
+  per-line recompile is silent (no module compile-progress lines at the prompt).

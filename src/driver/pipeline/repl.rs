@@ -63,6 +63,9 @@ pub fn run_repl(mut flags: DriverFlags) {
     // `flux eval`, caching against a phantom entry path is pointless and mixing a
     // cached prelude with the fresh entry mis-resolves global slots, so disable it.
     flags.cache.no_cache = true;
+    // That recompile re-walks the whole prelude every line; its per-module
+    // `[n of m] Compiling …` progress chatter is noise at an interactive prompt.
+    flags.runtime.quiet = true;
     let path = synthetic_repl_path().to_string_lossy().into_owned();
     let session_cfg = DriverSession::from(&flags);
 
