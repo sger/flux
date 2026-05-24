@@ -1719,3 +1719,68 @@ fn example_real_program_base_interop() {
         &["lib", "examples/type_system"],
     );
 }
+
+// ── `flux eval "<expr>"` — evaluate an expression and print its value ─────────
+// The result lands on stdout; the VM banner and any diagnostics go to stderr, so
+// value assertions read stdout alone. These run with cwd = the crate root, which
+// has `lib/Flow`, so the prelude (`map`, …) resolves the same way the editor's
+// subprocess sees it.
+
+fn eval_stdout(expr: &str) -> String {
+    let output = run_flux(&["eval", expr]);
+    assert!(
+        output.status.success(),
+        "expected `flux eval {expr:?}` to succeed, output:\n{}",
+        combined_output(&output)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn eval_arithmetic_prints_value() {
+    assert_eq!(eval_stdout("2 + 2"), "4");
+}
+
+#[test]
+fn eval_builtin_call_prints_value() {
+    assert_eq!(eval_stdout("len([1, 2, 3])"), "3");
+}
+
+#[test]
+fn eval_list_literal_prints_value() {
+    assert_eq!(eval_stdout("[1, 2, 3]"), "[1, 2, 3]");
+}
+
+#[test]
+fn eval_prelude_call_prints_value() {
+    // `map` comes from the Flow prelude, exercising cwd-based prelude resolution.
+    assert_eq!(eval_stdout("map([1, 2, 3], \\x -> x * 2)"), "[2, 4, 6]");
+}
+
+#[test]
+fn eval_type_error_reports_diagnostic_without_panicking() {
+    let output = run_flux(&["eval", "1 + \"x\""]);
+    let text = combined_output(&output);
+    assert!(
+        !output.status.success(),
+        "expected a type error to fail, output:\n{text}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        "a failed eval must not print a value to stdout, output:\n{text}"
+    );
+    assert!(
+        !text.contains("panicked"),
+        "eval must report a diagnostic, not a Rust panic, output:\n{text}"
+    );
+}
+
+#[test]
+fn eval_parse_error_exits_nonzero() {
+    let output = run_flux(&["eval", "2 +"]);
+    assert!(
+        !output.status.success(),
+        "expected a parse error to fail, output:\n{}",
+        combined_output(&output)
+    );
+}

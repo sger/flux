@@ -3168,6 +3168,60 @@ fn code_lens_no_run_all_for_single_test() {
 }
 
 #[test]
+fn code_lens_offers_eval_on_doc_comment_snippet() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///eval-lens.flx");
+    open(
+        &mut state,
+        &u,
+        "/// >>> 2 + 2\nfn main() with IO {\n    print(\"hi\")\n}\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    let evals = lens_cmds(&lenses, "flux.evalComment");
+    assert_eq!(
+        evals.len(),
+        1,
+        "one eval lens on the >>> line, got {lenses:?}"
+    );
+    // Arguments are [uri, expr, line, indent].
+    let args = evals[0].arguments.as_ref().expect("eval lens arguments");
+    assert_eq!(
+        args[1],
+        serde_json::json!("2 + 2"),
+        "the expression travels as the second argument"
+    );
+    assert_eq!(
+        args[2],
+        serde_json::json!(0),
+        "the >>> line number travels as the third argument"
+    );
+}
+
+#[test]
+fn code_lens_no_eval_for_plain_doc_or_non_doc_comment() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///no-eval.flx");
+    // A `///` line without `>>>`, a `///` result line, and a `// >>>` line that
+    // is only a plain (non-doc) comment must none of them get an eval lens.
+    open(
+        &mut state,
+        &u,
+        "/// just docs\n/// => stale\n// >>> 1 + 1\nfn main() with IO {\n    print(\"hi\")\n}\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    assert!(
+        lens_cmds(&lenses, "flux.evalComment").is_empty(),
+        "no eval lens for plain docs, `=>` result lines, or `//` comments, got {lenses:?}"
+    );
+}
+
+#[test]
 fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
     let mut state = GlobalState::default();
     let u = uri("file:///match.flx");
