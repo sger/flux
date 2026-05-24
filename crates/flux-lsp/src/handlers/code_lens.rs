@@ -59,6 +59,7 @@ pub fn code_lenses(snapshot: &Snapshot, uri: &Uri) -> Vec<CodeLens> {
         ));
     }
     eval_lenses(snapshot, &uri_arg, &mut lenses);
+    super::explicit_imports::lenses(snapshot, &uri_arg, &mut lenses);
     lenses
 }
 

@@ -85,6 +85,18 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
 
+  // The "▶ Make explicit" / "▶ Refine imports" lens (handlers::explicit_imports):
+  // the server precomputes the rewritten `exposing (...)` clause and its range;
+  // this just applies it as a workspace edit.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "flux.makeImportsExplicit",
+      (uriArg: string, range: LspRange, newText: string) => {
+        void applyImportRewrite(uriArg, range, newText);
+      },
+    ),
+  );
+
   // Compiler-stage inspection: ask the server to render the token stream / Core
   // IR / bytecode of the active `.flx` file, and open the result beside it (the
   // Flux analogue of rust-analyzer's "View HIR/MIR").
@@ -230,6 +242,37 @@ async function evalComment(
         "error";
   }
   await applyEvalResult(uri, line, indent, result);
+}
+
+/** An LSP range as serialized by the server (0-based line/character). */
+interface LspRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+
+/**
+ * Apply the "make imports explicit" / "refine imports" lens edit: the server
+ * already computed the replacement clause text and the range of the `(...)` to
+ * replace, so this just builds and applies the workspace edit.
+ */
+async function applyImportRewrite(
+  uriArg: string,
+  range: LspRange,
+  newText: string,
+) {
+  const uri = vscode.Uri.parse(uriArg);
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(
+    uri,
+    new vscode.Range(
+      range.start.line,
+      range.start.character,
+      range.end.line,
+      range.end.character,
+    ),
+    newText,
+  );
+  await vscode.workspace.applyEdit(edit);
 }
 
 /** Quote a single argument for the host shell (cmd.exe on Windows, sh elsewhere). */

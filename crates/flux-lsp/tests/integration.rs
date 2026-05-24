@@ -43,6 +43,19 @@ fn uri(s: &str) -> Uri {
     Uri::from_str(s).unwrap()
 }
 
+/// A file URI under the flux repo root, so opening the buffer makes the workspace
+/// discover `lib/Flow/` and load the prelude (needed for any test that relies on
+/// `module_members`, e.g. expanding `exposing (..)`). `CARGO_MANIFEST_DIR` is
+/// `.../flux/crates/flux-lsp`; the repo root is two levels up.
+fn repo_uri(name: &str) -> Uri {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let root = manifest.parent().and_then(|p| p.parent()).unwrap();
+    let path = root.join(name).display().to_string().replace('\\', "/");
+    uri(&format!("file:///{path}"))
+}
+
 fn open(state: &mut GlobalState, uri: &Uri, text: &str) {
     state.handle_did_open(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -3272,6 +3285,161 @@ fn code_action_no_change_return_type_when_signature_matches() {
             .iter()
             .any(|a| action_title(a).contains("Change return type")),
         "a correctly-typed function offers no change-return-type fix, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_makes_wildcard_import_explicit() {
+    let mut state = GlobalState::default();
+    // Repo-root URI so the prelude (and Flow.List's member list) loads.
+    let u = repo_uri("explicit-import-fixture.flx");
+    // `exposing (..)` brings all of Flow.List in; the buffer uses `map` and
+    // `length` unqualified, and `reverse` only via `List.reverse` (qualified).
+    open(
+        &mut state,
+        &u,
+        "import Flow.List exposing (..)\n\
+         fn main() with IO {\n\
+         \x20   let r = List.reverse([1, 2, 3])\n\
+         \x20   print(length(map(r, \\x -> x + 1)))\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 30)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Make `List` import explicit"))
+        .expect("expected a make-import-explicit refactor");
+    // Only the unqualified uses are listed (sorted); the qualified `reverse` is
+    // excluded.
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some("(length, map)"),
+        "explicit list should be the used unqualified members, sorted"
+    );
+    let range = action_edit_range(fix).expect("edit range");
+    assert_eq!(range.start.line, 0, "the edit rewrites the import's clause");
+}
+
+#[test]
+fn code_action_refines_explicit_import_list() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///refine-import.flx");
+    // `fold` and `filter` are exposed but unused → trimmed; `map` stays.
+    open(
+        &mut state,
+        &u,
+        "import Flow.List exposing (map, filter, fold)\n\
+         fn main() with IO {\n\
+         \x20   print(map([1, 2, 3], \\x -> x + 1))\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 40)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Refine `List` exposing list"))
+        .expect("expected a refine-import refactor");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some("(map)"),
+        "refine should drop the unused exposed names"
+    );
+}
+
+#[test]
+fn code_action_no_explicit_import_when_already_minimal() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///minimal-import.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.List exposing (map)\n\
+         fn main() with IO {\n\
+         \x20   print(map([1, 2, 3], \\x -> x + 1))\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 30)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions.iter().any(|a| {
+            let t = action_title(a);
+            t.contains("import explicit") || t.contains("exposing list")
+        }),
+        "an already-minimal explicit import offers no refactor, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_no_explicit_import_for_qualified_only_import() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///qualified-import.flx");
+    // No `exposing` clause → nothing to make explicit.
+    open(
+        &mut state,
+        &u,
+        "import Flow.List\n\
+         fn main() with IO {\n\
+         \x20   print(List.map([1, 2, 3], \\x -> x + 1))\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 0), Position::new(0, 16)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions.iter().any(|a| {
+            let t = action_title(a);
+            t.contains("import explicit") || t.contains("exposing list")
+        }),
+        "a qualified-only import offers no make-explicit refactor, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_lens_offers_make_imports_explicit() {
+    let mut state = GlobalState::default();
+    let u = repo_uri("explicit-lens-fixture.flx");
+    open(
+        &mut state,
+        &u,
+        "import Flow.List exposing (..)\n\
+         fn main() with IO {\n\
+         \x20   print(map([1, 2, 3], \\x -> x + 1))\n\
+         }\n",
+    );
+
+    let lenses = state
+        .handle_code_lens(code_lens_params(&u))
+        .expect("code lenses");
+    let cmds = lens_cmds(&lenses, "flux.makeImportsExplicit");
+    assert_eq!(cmds.len(), 1, "one make-explicit lens, got {lenses:?}");
+    // Arguments are [uri, clauseRange, newText].
+    let args = cmds[0].arguments.as_ref().expect("lens arguments");
+    assert_eq!(
+        args[2],
+        serde_json::json!("(map)"),
+        "the lens carries the rewritten clause text"
     );
 }
 
