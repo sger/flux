@@ -19,7 +19,9 @@ use std::path::PathBuf;
 
 use crate::driver::{
     flags::DriverFlags,
-    pipeline::program::{RunProgramRequest, eval_source_for_repl},
+    pipeline::program::{
+        REPL_TYPE_BINDING, RunProgramRequest, eval_source_for_repl, infer_repl_expr_type,
+    },
     session::DriverSession,
 };
 use crate::syntax::{
@@ -75,7 +77,7 @@ pub fn run_repl(mut flags: DriverFlags) {
             continue;
         }
         if let Some(command) = trimmed.strip_prefix(':') {
-            if handle_command(command, &mut repl) {
+            if repl.handle_command(command, &path, &flags, &session_cfg) {
                 break;
             }
             continue;
@@ -266,30 +268,64 @@ fn needs_more_input(src: &str) -> bool {
     depth > 0
 }
 
-/// Handle a `:`-prefixed meta command. Returns `true` when the REPL should quit.
-fn handle_command(command: &str, session: &mut ReplSession) -> bool {
-    let name = command
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_end_matches(|c: char| !c.is_alphanumeric());
-    match name {
-        "q" | "quit" => return true,
-        "help" | "?" => print_help(),
-        "reset" => {
-            session.top_decls.clear();
-            session.body.clear();
-            session.last_result = None;
-            session.result_counter = 0;
-            eprintln!("Session reset.");
+impl ReplSession {
+    /// Handle a `:`-prefixed meta command (the text after the `:`). Returns `true`
+    /// when the REPL should quit. Commands that inspect the session take the eval
+    /// context so they can compile against it (`:type`).
+    fn handle_command(
+        &mut self,
+        command: &str,
+        path: &str,
+        flags: &DriverFlags,
+        cfg: &DriverSession,
+    ) -> bool {
+        let mut parts = command.trim().splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("");
+        let rest = parts.next().unwrap_or("").trim();
+        match name {
+            "q" | "quit" => return true,
+            "help" | "?" => print_help(),
+            "reset" => {
+                self.top_decls.clear();
+                self.body.clear();
+                self.last_result = None;
+                self.result_counter = 0;
+                eprintln!("Session reset.");
+            }
+            "list" | "l" => print_listing(self),
+            "type" | "t" => self.show_type(rest, path, flags, cfg),
+            other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
         }
-        "list" | "l" => print_listing(session),
-        "type" | "t" => {
-            eprintln!(":type is not yet implemented (coming in a follow-up).");
-        }
-        other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
+        false
     }
-    false
+
+    /// Infer and print the type of `expr` in the current session context, without
+    /// evaluating it. `it` resolves to the most recent result, exactly as for a
+    /// bare expression. The query is wrapped as `let __repl_type = <expr>` over the
+    /// session buffer and its inferred type is read back (see
+    /// [`infer_repl_expr_type`]).
+    fn show_type(&self, expr: &str, path: &str, flags: &DriverFlags, cfg: &DriverSession) {
+        if expr.is_empty() {
+            eprintln!("usage: :type <expr>");
+            return;
+        }
+        let resolved = match &self.last_result {
+            Some(prev) => rewrite_it(expr, prev),
+            None => expr.to_string(),
+        };
+        let binding = format!("let {REPL_TYPE_BINDING} = {resolved}");
+        let candidate = assemble(&self.top_decls, &self.body, std::slice::from_ref(&binding));
+        if let Some(ty) = infer_repl_expr_type(
+            RunProgramRequest {
+                path,
+                flags,
+                session: cfg,
+            },
+            candidate,
+        ) {
+            println!("{expr} : {ty}");
+        }
+    }
 }
 
 fn print_banner() {
@@ -298,7 +334,7 @@ fn print_banner() {
 
 fn print_help() {
     eprintln!("Commands:");
-    eprintln!("  :type <expr>  Show the inferred type of <expr> (not yet implemented)");
+    eprintln!("  :type <expr>  Show the inferred type of <expr> (does not evaluate)");
     eprintln!("  :reset        Forget all session bindings");
     eprintln!("  :list         Show the accumulated session source");
     eprintln!("  :help, :?     Show this help");

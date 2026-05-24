@@ -1882,3 +1882,55 @@ fn repl_reset_clears_the_session() {
         combined_output(&output),
     );
 }
+
+#[test]
+fn repl_type_reports_inferred_types() {
+    // `:type` prints `<expr> : <type>`, sees session bindings, and resolves `it`
+    // to the last result — interleaved with ordinary evaluation.
+    let output = run_flux_repl("let xs = [1, 2, 3]\n:type xs\n21 * 2\n:type it\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["xs : List<Int>", "42", "it : Int"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_type_does_not_evaluate_the_expression() {
+    // `:type` of a printing expression reports its type without running it: the
+    // type line appears, but the side effect never does.
+    let output = run_flux_repl(":type println(\"side effect\")\n:quit\n");
+    let results = repl_results(&output);
+    assert_eq!(
+        results,
+        ["println(\"side effect\") : Unit"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        !results.iter().any(|line| line == "side effect"),
+        ":type must not execute the expression, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_type_reports_errors_without_evaluating() {
+    // A `:type` on an undefined name prints no type line and is reported (not a
+    // panic); the session stays intact so a later expression still evaluates.
+    let output = run_flux_repl(":type nope\n1 + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["2"],
+        "stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        !combined_output(&output).contains("panicked"),
+        "a bad `:type` must report a diagnostic, not panic, output:\n{}",
+        combined_output(&output),
+    );
+}

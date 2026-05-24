@@ -35,11 +35,15 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
+    ast::type_infer::{display_infer_type, infer_program},
     bytecode::bytecode_cache::hash_bytes,
     compiler::Compiler,
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
-    syntax::{module_graph::ModuleGraph, program::Program},
+    syntax::{
+        expression::ExprId, interner::Interner, module_graph::ModuleGraph, program::Program,
+        statement::Statement,
+    },
     vm::VM,
 };
 
@@ -438,6 +442,68 @@ pub(crate) fn eval_source_for_repl(
             false
         }
     }
+}
+
+/// The synthetic binding name the REPL wraps a `:type` query in. Shared with the
+/// REPL loop, which assembles `let <REPL_TYPE_BINDING> = <expr>` so this side can
+/// recover the queried expression's `ExprId` after inference.
+pub(crate) const REPL_TYPE_BINDING: &str = "__repl_type";
+
+/// Infer and render the type of a REPL `:type` query **without** running it. The
+/// `source` must bind the queried expression to [`REPL_TYPE_BINDING`] inside
+/// `main` (the REPL's `assemble` does this). Returns the rendered type on success;
+/// on a parse/type error it renders the errors to stderr (like the eval path) and
+/// returns `None`.
+pub(crate) fn infer_repl_expr_type(
+    request: RunProgramRequest<'_>,
+    source: String,
+) -> Option<String> {
+    let mut ctx = match prepare_run_context_from_source(request, source) {
+        Ok(ctx) => ctx,
+        Err(message) => {
+            eprintln!("{message}");
+            return None;
+        }
+    };
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return None;
+    }
+    // Compile the session (the entry module is compiled last) so the prelude and
+    // any session imports are preloaded into the compiler. That preloaded state is
+    // what makes the re-inference below prelude-aware — the same arrangement the
+    // LSP's hover path relies on.
+    compile_modules_for_run(&mut ctx, request);
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return None;
+    }
+    // Re-run HM inference directly on the entry program rather than reading the
+    // compile pass's residual types: `infer_program` keys `expr_types` by the
+    // `ExprId`s in `ctx.program` (the compile pass may infer over a desugared
+    // clone), so the queried binding's value can be looked back up.
+    let config = ctx.compiler.build_infer_config(&ctx.program);
+    let inferred = infer_program(&ctx.program, &ctx.compiler.interner, config);
+    let expr_id = repl_type_query_expr_id(&ctx.program, &ctx.compiler.interner)?;
+    let ty = inferred.expr_types.get(&expr_id)?;
+    Some(display_infer_type(ty, &ctx.compiler.interner))
+}
+
+/// Find the `ExprId` of the value bound to [`REPL_TYPE_BINDING`] inside `main`.
+fn repl_type_query_expr_id(program: &Program, interner: &Interner) -> Option<ExprId> {
+    for stmt in &program.statements {
+        let Statement::Function { body, .. } = stmt else {
+            continue;
+        };
+        for inner in &body.statements {
+            if let Statement::Let { name, value, .. } = inner
+                && interner.try_resolve(*name) == Some(REPL_TYPE_BINDING)
+            {
+                return Some(value.expr_id());
+            }
+        }
+    }
+    None
 }
 
 /// Render only the error diagnostics from a failed REPL candidate to stderr.
