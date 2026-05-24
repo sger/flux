@@ -70,6 +70,11 @@ The body of `main` does not match its declared return type.
 90 |     x
    |     ^
    |     - this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+85 | fn main() -> String {
+   |              ~~~~~~
 
 Note:
   declared return type: Unit

@@ -3222,6 +3222,60 @@ fn code_lens_no_eval_for_plain_doc_or_non_doc_comment() {
 }
 
 #[test]
+fn code_action_changes_return_type_to_inferred() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///return-mismatch.flx");
+    // `area` is declared `-> Bool` but its body is `Int` — an E300 return
+    // mismatch. The compiler attaches an inline suggestion (the inferred type);
+    // the LSP surfaces it as a quick fix via `suggestion_actions`.
+    open(&mut state, &u, "fn area() -> Bool {\n    3 + 4\n}\n");
+
+    // The squiggle (E300 primary span) is the body's value expression on line 1.
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 4), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Change return type to `Int`"))
+        .expect("expected a change-return-type quick fix");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some("Int"),
+        "the fix replaces the annotation with the inferred type"
+    );
+    // The edit rewrites the `Bool` annotation on line 0, not the body on line 1.
+    let range = action_edit_range(fix).expect("edit range");
+    assert_eq!(
+        range.start.line, 0,
+        "the edit targets the return annotation, got {range:?}"
+    );
+}
+
+#[test]
+fn code_action_no_change_return_type_when_signature_matches() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///return-ok.flx");
+    open(&mut state, &u, "fn area() -> Int {\n    3 + 4\n}\n");
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 4), Position::new(1, 9)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("Change return type")),
+        "a correctly-typed function offers no change-return-type fix, got {actions:?}"
+    );
+}
+
+#[test]
 fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
     let mut state = GlobalState::default();
     let u = uri("file:///match.flx");
