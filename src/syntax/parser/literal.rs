@@ -102,13 +102,13 @@ impl Parser {
 
     pub(super) fn parse_integer(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        match self.current_token.literal.parse::<i64>() {
-            Ok(value) => Some(Expression::Integer {
+        match parse_int_literal(self.current_token.literal.as_str()) {
+            Some(value) => Some(Expression::Integer {
                 value,
                 span: Span::new(start, self.current_token.end_position),
                 id: self.next_expr_id(),
             }),
-            Err(_) => {
+            None => {
                 self.emit_parser_diagnostic(invalid_integer(
                     self.current_token.span(),
                     &self.current_token.literal,
@@ -120,7 +120,8 @@ impl Parser {
 
     pub(super) fn parse_float(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        match self.current_token.literal.parse::<f64>() {
+        // Floats are decimal-only but may carry `_` digit separators.
+        match self.current_token.literal.replace('_', "").parse::<f64>() {
             Ok(value) => Some(Expression::Float {
                 value,
                 span: Span::new(start, self.current_token.end_position),
@@ -289,5 +290,26 @@ impl Parser {
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
         })
+    }
+}
+
+/// Parse an integer literal lexeme in any form the lexer accepts: decimal,
+/// hexadecimal (`0x`/`0X`) or binary (`0b`/`0B`), each allowing `_` digit
+/// separators. Returns `None` on an out-of-range or otherwise malformed value,
+/// so the caller can emit the `invalid_integer` diagnostic.
+fn parse_int_literal(literal: &str) -> Option<i64> {
+    let cleaned = literal.replace('_', "");
+    if let Some(hex) = cleaned
+        .strip_prefix("0x")
+        .or_else(|| cleaned.strip_prefix("0X"))
+    {
+        i64::from_str_radix(hex, 16).ok()
+    } else if let Some(bin) = cleaned
+        .strip_prefix("0b")
+        .or_else(|| cleaned.strip_prefix("0B"))
+    {
+        i64::from_str_radix(bin, 2).ok()
+    } else {
+        cleaned.parse::<i64>().ok()
     }
 }
