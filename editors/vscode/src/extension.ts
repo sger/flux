@@ -112,6 +112,27 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   );
 
+  // Manual server restart — `client.restart()` tears down and respawns the
+  // server process, so a freshly rebuilt bundled `flux-lsp` binary takes effect
+  // without reloading the whole window (the rust-analyzer / vscode-haskell
+  // "Restart Language Server" analogue).
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flux.restartServer", async () => {
+      if (!client) {
+        vscode.window.showErrorMessage("Flux: language server is not running.");
+        return;
+      }
+      try {
+        await client.restart();
+        vscode.window.showInformationMessage("Flux: language server restarted.");
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Flux: failed to restart language server: ${err}`,
+        );
+      }
+    }),
+  );
+
   // `initializationOptions` is only read at startup, so restart the server when
   // a setting that feeds it changes (the flag controls the diagnostic scope).
   context.subscriptions.push(
