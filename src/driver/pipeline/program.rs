@@ -15,6 +15,7 @@ use crate::driver::run_program::backend::native::{
     NativeOutputConfig, NativeProgramInput, NativeReportConfig, NativeRunRequest,
     run_native_backend,
 };
+use crate::driver::support::shared::{DiagnosticRenderRequest, emit_diagnostics};
 use crate::driver::{
     flags::DriverFlags,
     mode::{AetherDumpMode, CoreDumpMode},
@@ -39,6 +40,7 @@ use flux::{
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},
+    vm::VM,
 };
 
 #[derive(Clone, Copy)]
@@ -395,6 +397,73 @@ pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
         }
         Err(e) => eprintln!("{e}"),
     }
+}
+
+/// Compile — and optionally run — a candidate program assembled by the REPL,
+/// **without** ever calling `process::exit`. Unlike [`run_from_source`], compile
+/// and runtime errors are rendered to stderr and reported through the return
+/// value so the REPL can roll the line back and keep going. VM backend only;
+/// when `run` is false it stops after a clean compile (used to validate a
+/// declaration without executing the accumulated session body). Returns `true`
+/// when the candidate compiled — and ran, if requested — without errors.
+pub(crate) fn eval_source_for_repl(
+    request: RunProgramRequest<'_>,
+    source: String,
+    run: bool,
+) -> bool {
+    match prepare_run_context_from_source(request, source) {
+        Ok(mut ctx) => {
+            if has_error_diagnostics(&ctx.all_diagnostics) {
+                render_repl_errors(&ctx, request);
+                return false;
+            }
+            compile_modules_for_run(&mut ctx, request);
+            if has_error_diagnostics(&ctx.all_diagnostics) {
+                render_repl_errors(&ctx, request);
+                return false;
+            }
+            if !run {
+                return true;
+            }
+            let bytecode = ctx.compiler.bytecode();
+            let mut vm = VM::new(bytecode);
+            if let Err(err) = vm.run() {
+                eprintln!("{err}");
+                return false;
+            }
+            true
+        }
+        Err(message) => {
+            eprintln!("{message}");
+            false
+        }
+    }
+}
+
+/// Render only the error diagnostics from a failed REPL candidate to stderr.
+/// Warnings are intentionally dropped — a REPL session accumulates "unused
+/// binding" noise on every line that would otherwise drown the prompt.
+fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
+    let errors: Vec<Diagnostic> = ctx
+        .all_diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .cloned()
+        .collect();
+    if errors.is_empty() {
+        return;
+    }
+    let config = DriverDiagnosticConfig::from(request.session);
+    emit_diagnostics(DiagnosticRenderRequest {
+        diagnostics: &errors,
+        default_file: Some(request.path),
+        default_source: Some(ctx.source.as_str()),
+        show_file_headers: false,
+        max_errors: config.max_errors,
+        format: config.diagnostics_format,
+        all_errors: config.all_errors,
+        text_to_stderr: true,
+    });
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ pub(crate) mod eval;
 pub(crate) mod native;
 pub(crate) mod parallel_shared;
 pub mod program;
+pub(crate) mod repl;
 pub(crate) mod vm;
 
 use crate::driver::{
