@@ -300,6 +300,32 @@ pub fn associativity_of(token_type: &TokenType) -> Option<Assoc> {
         .or_else(|| postfix_op(token_type).map(|op| op.associativity))
 }
 
+/// Look up an infix operator by its source symbol (`"+"`, `"|>"`, …) rather than
+/// its `TokenType`. For editor tooling (operator-fixity hover) that only has the
+/// operator string from the AST. `Minus` has both an infix and a prefix entry,
+/// so the fixity filter disambiguates.
+pub fn infix_op_by_symbol(symbol: &str) -> Option<InfixInfo> {
+    OPERATOR_TABLE
+        .iter()
+        .find(|op| op.fixity == Fixity::Infix && op.token.to_string() == symbol)
+        .map(|op| InfixInfo {
+            precedence: op.precedence,
+            associativity: op.associativity,
+            fixity: op.fixity,
+        })
+}
+
+/// Look up a prefix operator by its source symbol (`"!"`, `"-"`).
+pub fn prefix_op_by_symbol(symbol: &str) -> Option<PrefixInfo> {
+    OPERATOR_TABLE
+        .iter()
+        .find(|op| op.fixity == Fixity::Prefix && op.token.to_string() == symbol)
+        .map(|op| PrefixInfo {
+            precedence: op.precedence,
+            associativity: op.associativity,
+        })
+}
+
 fn precedence_below(precedence: &Precedence) -> Precedence {
     match precedence {
         Precedence::Lowest => Precedence::Lowest,

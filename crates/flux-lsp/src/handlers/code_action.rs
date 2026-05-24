@@ -88,6 +88,9 @@ pub fn code_actions(
     // on. The linter (not inference) reports W003, so this isn't anchored on a
     // `snapshot.diagnostics` entry like the fixes above.
     remove_unused_import_actions(snapshot, uri, range, &mut actions);
+    // Diagnostic-independent: offer prefixing an unused `let` binding (W001,
+    // from the linter) with `_`.
+    prefix_unused_let_actions(snapshot, uri, range, &mut actions);
     // Refactor assists — driven by the cursor / selection, not a diagnostic.
     if let Some(action) = add_type_annotation_action(snapshot, uri, range) {
         actions.push(action);
@@ -105,6 +108,9 @@ pub fn code_actions(
     // Cursor-on-import assist: rewrite `exposing (..)` to the used members, or
     // trim an explicit `exposing (...)` list to its used subset.
     super::explicit_imports::actions(snapshot, uri, range, &mut actions);
+    // Cursor-on-number assist: convert an integer literal between decimal / hex
+    // / binary / underscore-grouped forms.
+    super::number_format::actions(snapshot, uri, range, &mut actions);
     // Source action: only when the client asks for `source.organizeImports`.
     if super::organize_imports::organize_imports_requested(only)
         && let Some(action) = super::organize_imports::organize_imports_action(snapshot, uri)
@@ -494,6 +500,109 @@ fn remove_unused_import_actions(
             }),
             ..Default::default()
         }));
+    }
+}
+
+/// Offer "Prefix `x` with `_`" for any `let` binding the cursor's range
+/// overlaps that the linter flags as unused (W001) — the local-binding
+/// analogue of the remove-unused-import fix. Inserting `_` silences the
+/// warning (the linter skips `_`-prefixed names) without deleting the
+/// binding. Gated on the range first overlapping a `let`'s name, so a
+/// code-action request elsewhere never runs the linter.
+fn prefix_unused_let_actions(
+    snapshot: &Snapshot,
+    uri: &Uri,
+    range: Range,
+    out: &mut Vec<CodeActionOrCommand>,
+) {
+    let mut candidates: Vec<(Identifier, FluxSpan)> = Vec::new();
+    collect_lets_in_range(
+        &snapshot.program.statements,
+        snapshot,
+        range,
+        &mut candidates,
+    );
+    if candidates.is_empty() {
+        return;
+    }
+    let unused = super::organize_imports::unused_let_starts(snapshot);
+    for (name, span) in candidates {
+        if !unused.contains(&(span.start.line, span.start.column)) {
+            continue;
+        }
+        let Some(name_text) = snapshot.interner.try_resolve(name) else {
+            continue;
+        };
+        // A zero-width insert of `_` right before the binding name. The `let`
+        // statement's span starts at `let` (a `public` modifier is consumed
+        // before it), so the name always begins `"let ".len()` past the start.
+        let insert_at = FluxPosition {
+            line: span.start.line,
+            column: span.start.column + LET_KEYWORD_LEN,
+        };
+        let insert_range = snapshot.position_map.flux_span_to_range(FluxSpan {
+            start: insert_at,
+            end: insert_at,
+        });
+        out.push(CodeActionOrCommand::CodeAction(CodeAction {
+            title: format!("Prefix `{name_text}` with `_`"),
+            kind: Some(CodeActionKind::QUICKFIX),
+            edit: Some(WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        uri: uri.clone(),
+                        version: None,
+                    },
+                    edits: vec![OneOf::Left(TextEdit {
+                        range: insert_range,
+                        new_text: "_".to_string(),
+                    })],
+                }])),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+    }
+}
+
+/// Length of the `let ` keyword prefix; the binding name starts this far past a
+/// `let` statement's span start (the `public` modifier, when present, is consumed
+/// before the statement span begins).
+const LET_KEYWORD_LEN: usize = "let ".len();
+
+/// Collect every `let` binding (top-level or nested in a `fn`/`module` body)
+/// whose name range overlaps `range`, as `(name, let_span)`. Skips
+/// `LetDestructure` — the linter reports those at `Position::default()`, so they
+/// can never match an `unused_let_starts` entry anyway.
+fn collect_lets_in_range(
+    stmts: &[Statement],
+    snapshot: &Snapshot,
+    range: Range,
+    out: &mut Vec<(Identifier, FluxSpan)>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Statement::Let { name, span, .. } => {
+                let Some(name_text) = snapshot.interner.try_resolve(*name) else {
+                    continue;
+                };
+                let name_end = FluxPosition {
+                    line: span.start.line,
+                    column: span.start.column + LET_KEYWORD_LEN + name_text.chars().count(),
+                };
+                let name_range = snapshot.position_map.flux_span_to_range(FluxSpan {
+                    start: span.start,
+                    end: name_end,
+                });
+                if ranges_overlap(name_range, range) {
+                    out.push((*name, *span));
+                }
+            }
+            Statement::Function { body, .. } | Statement::Module { body, .. } => {
+                collect_lets_in_range(&body.statements, snapshot, range, out);
+            }
+            _ => {}
+        }
     }
 }
 
