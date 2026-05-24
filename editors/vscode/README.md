@@ -494,6 +494,8 @@ code --extensionDevelopmentPath="$PWD" ../..
 
 The second VS Code window runs the in-tree extension without touching your installed one. Run `npm run watch` in another terminal for auto-recompile on save.
 
+> **Picking up a rebuilt server without relaunching.** After re-running `cargo build` and re-copying `flux-lsp` into `server/`, run **`Ctrl+Shift+P` → "Flux: Restart Language Server"** to respawn just the server process with the new binary — no window reload needed. (A TypeScript *client* change still needs `npm run compile` plus a window reload.)
+
 **Workflow B — Repackage and reinstall (verifies the shipped artifact).** Follow the next section.
 
 ### Build a new `.vsix`

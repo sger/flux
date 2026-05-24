@@ -48,6 +48,11 @@
         "command": "flux.viewBytecode",
         "title": "Flux: View Bytecode",
         "category": "Flux"
+      },
+      {
+        "command": "flux.restartServer",
+        "title": "Flux: Restart Language Server",
+        "category": "Flux"
       }
     ],
     "menus": {
@@ -62,6 +67,10 @@
         },
         {
           "command": "flux.viewBytecode",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.restartServer",
           "when": "editorLangId == flux"
         }
       ]
