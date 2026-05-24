@@ -85,7 +85,7 @@
         "flux.runCommand": {
           "type": "string",
           "default": "cargo run --",
-          "description": "Base command the ▶ Run / ▶ Run Test code lenses launch in a terminal. The file path (and, for tests, --test --test-filter <name>) is appended."
+          "description": "Base command the ▶ Run / ▶ Run Test code lenses launch in a terminal (with the file path, plus --test --test-filter <name> for tests). The ▶ Eval lens reuses it as a captured subprocess: `<runCommand> eval \"<expr>\"`."
         },
         "flux.workspaceDiagnostics.scanAllFiles": {
           "type": "boolean",

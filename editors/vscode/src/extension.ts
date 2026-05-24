@@ -1,5 +1,7 @@
+import { exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { promisify } from "util";
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -7,6 +9,8 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
+
+const execAsync = promisify(exec);
 
 let client: LanguageClient | undefined;
 
@@ -66,6 +70,19 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flux.runTests", (uriArg: string) => {
       runFlux(uriArg, ["--test"]);
     }),
+  );
+
+  // The "▶ Eval" lens (handlers::code_lens) on a `/// >>> <expr>` line. Unlike
+  // the run/test lenses (which fire into a terminal), eval needs the *captured*
+  // result, so it spawns `flux eval "<expr>"` as a child process and splices the
+  // output back into the buffer as a `/// => <result>` line.
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "flux.evalComment",
+      (uriArg: string, expr: string, line: number, indent: string) => {
+        void evalComment(uriArg, expr, line, indent);
+      },
+    ),
   );
 
   // Compiler-stage inspection: ask the server to render the token stream / Core
@@ -168,6 +185,90 @@ function runFlux(uriArg: string, extraArgs: string[]) {
 /** Quote an argument for the shell only when it contains whitespace. */
 function quoteArg(arg: string): string {
   return /\s/.test(arg) ? `"${arg}"` : arg;
+}
+
+/** How long an `flux eval` subprocess may run before it's killed (ms). */
+const EVAL_TIMEOUT_MS = 10000;
+
+/**
+ * Run `<runCommand> eval "<expr>"` for the `▶ Eval` lens and write the result
+ * back as a `<indent>/// => <result>` comment line just below `line`. Evaluation
+ * runs in a subprocess (through the shell, so a bare `cargo`/`flux` resolves on
+ * PATH) so user code is isolated from the editor and a runaway expression is
+ * bounded by the timeout. Only the expression is interpolated, and it is quoted
+ * for the host shell, so embedded quotes in `>>> print("hi")` are safe.
+ */
+async function evalComment(
+  uriArg: string,
+  expr: string,
+  line: number,
+  indent: string,
+) {
+  const uri = vscode.Uri.parse(uriArg);
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  const cwd = folder?.uri.fsPath ?? path.dirname(uri.fsPath);
+  const runner = vscode.workspace
+    .getConfiguration("flux")
+    .get<string>("runCommand", "cargo run --")
+    .trim();
+  const command = `${runner} eval ${shellQuote(expr)}`;
+
+  let result: string;
+  try {
+    const { stdout } = await execAsync(command, {
+      cwd,
+      timeout: EVAL_TIMEOUT_MS,
+      windowsHide: true,
+    });
+    result = formatEvalResult(stdout) || "()";
+  } catch (err) {
+    const e = err as { killed?: boolean; stderr?: string; message?: string };
+    result = e.killed
+      ? "timed out"
+      : formatEvalResult(e.stderr ?? "") ||
+        formatEvalResult(e.message ?? "") ||
+        "error";
+  }
+  await applyEvalResult(uri, line, indent, result);
+}
+
+/** Quote a single argument for the host shell (cmd.exe on Windows, sh elsewhere). */
+function shellQuote(arg: string): string {
+  if (process.platform === "win32") {
+    return `"${arg.replace(/"/g, '\\"')}"`;
+  }
+  return `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/** Trim captured output and collapse it to a single comment-safe line. */
+function formatEvalResult(text: string): string {
+  return text.trim().replace(/\s*\r?\n\s*/g, " ");
+}
+
+/**
+ * Insert or refresh the `<indent>/// => <result>` line directly below the `>>>`
+ * line. If the next line is already an `=>` result line we replace it (so
+ * re-running is idempotent); otherwise we insert a fresh one.
+ */
+async function applyEvalResult(
+  uri: vscode.Uri,
+  line: number,
+  indent: string,
+  result: string,
+) {
+  const doc = await vscode.workspace.openTextDocument(uri);
+  const newText = `${indent}/// => ${result}`;
+  const edit = new vscode.WorkspaceEdit();
+  const resultLineNo = line + 1;
+  const hasResultLine =
+    resultLineNo < doc.lineCount &&
+    /^\s*\/\/\/ =>/.test(doc.lineAt(resultLineNo).text);
+  if (hasResultLine) {
+    edit.replace(uri, doc.lineAt(resultLineNo).range, newText);
+  } else {
+    edit.insert(uri, doc.lineAt(line).range.end, `\n${newText}`);
+  }
+  await vscode.workspace.applyEdit(edit);
 }
 
 export function deactivate(): Thenable<void> | undefined {

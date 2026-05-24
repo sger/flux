@@ -32,6 +32,7 @@ fn run_command(command: CliCommand) -> ExitCode {
         CliCommand::Bytecode { flags } => inspect::show_bytecode(&flags),
         CliCommand::Lint { flags } => inspect::lint(&flags),
         CliCommand::Fmt { path, check } => inspect::fmt(&path, check),
+        CliCommand::Eval { expr, flags } => entry::eval(&expr, flags),
         CliCommand::CacheInfo { flags } => cache::show_cache_info(&flags),
         CliCommand::ModuleCacheInfo { flags } => cache::show_module_cache_info(&flags),
         CliCommand::NativeCacheInfo { flags } => cache::show_native_cache_info(&flags),
