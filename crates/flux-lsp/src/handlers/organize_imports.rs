@@ -152,12 +152,24 @@ fn leading_import_block(snapshot: &Snapshot) -> Vec<ImportEntry> {
     out
 }
 
-/// `(line, column)` of every import the linter reports as unused (W003).
-pub(crate) fn unused_import_starts(snapshot: &Snapshot) -> HashSet<(usize, usize)> {
+/// `(line, column)` of every binding the linter flags with warning `code`.
+/// The linter isn't part of the snapshot build, so each caller runs it on
+/// demand; both unused-import (W003) and unused-`let` (W001) fixes share this.
+pub(crate) fn warning_starts(snapshot: &Snapshot, code: &str) -> HashSet<(usize, usize)> {
     Linter::new(None, &snapshot.interner)
         .lint(&snapshot.program)
         .into_iter()
-        .filter(|diag| diag.code() == Some("W003"))
+        .filter(|diag| diag.code() == Some(code))
         .filter_map(|diag| diag.span().map(|s| (s.start.line, s.start.column)))
         .collect()
+}
+
+/// `(line, column)` of every import the linter reports as unused (W003).
+pub(crate) fn unused_import_starts(snapshot: &Snapshot) -> HashSet<(usize, usize)> {
+    warning_starts(snapshot, "W003")
+}
+
+/// `(line, column)` of every `let` binding the linter reports as unused (W001).
+pub(crate) fn unused_let_starts(snapshot: &Snapshot) -> HashSet<(usize, usize)> {
+    warning_starts(snapshot, "W001")
 }

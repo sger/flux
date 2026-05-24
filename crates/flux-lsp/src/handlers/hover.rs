@@ -1,9 +1,10 @@
 use flux::ast::type_infer::{display_infer_type, render_scheme_canonical};
-use flux::diagnostics::position::Span as FluxSpan;
+use flux::diagnostics::position::{Position as FluxPosition, Span as FluxSpan};
 use flux::syntax::Identifier;
 use flux::syntax::data_variant::DataVariant;
 use flux::syntax::expression::{Expression, Pattern};
 use flux::syntax::interner::Interner;
+use flux::syntax::precedence::{Assoc, infix_op_by_symbol, prefix_op_by_symbol};
 use flux::syntax::program::Program;
 use flux::syntax::statement::Statement;
 use flux::syntax::type_expr::TypeExpr;
@@ -11,7 +12,7 @@ use flux::types::{infer_type::InferType, type_constructor::TypeConstructor};
 use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
 use crate::keywords::{effect_doc, is_offset_in_comment_or_string, keyword_doc, word_at_offset};
-use crate::locator::{NodeRef, find_at};
+use crate::locator::{NodeRef, find_at, position_in_span};
 use crate::snapshot::Snapshot;
 
 pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
@@ -38,6 +39,13 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 
     let target = snapshot.position_map.lsp_to_flux(position)?;
     let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+
+    // Operator hover: when the cursor is on an operator symbol (not an operand),
+    // show its fixity (associativity + precedence) and the inferred type. Runs
+    // before the generic render so on-operator hover differs from on-operand.
+    if let Some(hover) = operator_fixity_hover(snapshot, &node, target) {
+        return Some(hover);
+    }
 
     // Built-in effect hover: a structured doc card for `IO`, `Console`,
     // `FileSystem`, etc. Keyed off the AST effect-name node, so it fires
@@ -76,6 +84,79 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: markdown,
+        }),
+        range: None,
+    })
+}
+
+/// When the cursor sits on an operator symbol (not an operand), render its
+/// fixity — associativity + precedence — plus the inferred type of the operator
+/// expression. The locator records the whole `Infix`/`Prefix` expression, and
+/// the operator occupies the gap between its operands (or before the operand,
+/// for a prefix op); a cursor there resolves to the expression itself, since the
+/// operands are deeper, narrower matches. Fixity comes from the parser's
+/// `OPERATOR_TABLE` (the single source of truth), looked up by the operator's
+/// source symbol.
+fn operator_fixity_hover(
+    snapshot: &Snapshot,
+    node: &NodeRef,
+    target: FluxPosition,
+) -> Option<Hover> {
+    let body = match node {
+        NodeRef::Expr(Expression::Infix {
+            operator,
+            left,
+            right,
+            ..
+        }) => {
+            let gap = FluxSpan {
+                start: left.span().end,
+                end: right.span().start,
+            };
+            if !position_in_span(target, gap) {
+                return None;
+            }
+            let info = infix_op_by_symbol(operator)?;
+            let keyword = match info.associativity {
+                Assoc::Left => "infixl",
+                Assoc::Right => "infixr",
+                Assoc::Nonassoc => "infix",
+            };
+            format!(
+                "**`{operator}`** — infix operator\n\n`{keyword}`, precedence {} ({:?})",
+                info.precedence as u8, info.precedence,
+            )
+        }
+        NodeRef::Expr(Expression::Prefix {
+            operator,
+            right,
+            span,
+            ..
+        }) => {
+            let gap = FluxSpan {
+                start: span.start,
+                end: right.span().start,
+            };
+            if !position_in_span(target, gap) {
+                return None;
+            }
+            let info = prefix_op_by_symbol(operator)?;
+            format!(
+                "**`{operator}`** — prefix operator\n\nprecedence {} ({:?})",
+                info.precedence as u8, info.precedence,
+            )
+        }
+        _ => return None,
+    };
+    // Append the inferred type of the operator expression, when available.
+    let mut value = body;
+    if let Some(ty) = render(snapshot, node) {
+        value.push_str(&format!("\n\n```flux\n{ty}\n```"));
+    }
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
         }),
         range: None,
     })

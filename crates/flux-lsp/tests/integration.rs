@@ -3443,6 +3443,268 @@ fn code_lens_offers_make_imports_explicit() {
     );
 }
 
+// ── Item 5: prefix unused `let` with `_` (linter W001 quick-fix) ─────────────
+
+#[test]
+fn code_action_prefixes_unused_let_with_underscore() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///unused-let.flx");
+    // `x` is bound but never used — the linter reports W001.
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n\
+         \x20   let x = 1\n\
+         \x20   print(2)\n\
+         }\n",
+    );
+
+    // Cursor on the binding name `x` (line 1, col 8 — after `    let `).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 8), Position::new(1, 8)),
+        ))
+        .expect("code action response");
+
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Prefix `x` with `_`"))
+        .expect("expected a prefix-with-underscore quick fix");
+    assert_eq!(
+        action_edit_text(fix).as_deref(),
+        Some("_"),
+        "the fix inserts a single `_`"
+    );
+    // A zero-width insert right before the name.
+    let range = action_edit_range(fix).expect("edit range");
+    assert_eq!((range.start.line, range.start.character), (1, 8));
+    assert_eq!((range.end.line, range.end.character), (1, 8));
+}
+
+#[test]
+fn code_action_no_prefix_for_used_let() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///used-let.flx");
+    // `x` is used by `print(x)`, so there's no W001 and nothing to prefix.
+    open(
+        &mut state,
+        &u,
+        "fn main() with IO {\n\
+         \x20   let x = 1\n\
+         \x20   print(x)\n\
+         }\n",
+    );
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(1, 8), Position::new(1, 8)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("Prefix `x`")),
+        "a used binding offers no prefix-with-underscore fix, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_prefixes_public_let_after_keyword() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///unused-public-let.flx");
+    // A top-level `public let` — the insert lands after `public let `, not `let `.
+    open(&mut state, &u, "public let y = 1\n");
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 11), Position::new(0, 11)),
+        ))
+        .expect("code action response");
+    let fix = actions
+        .iter()
+        .find(|a| action_title(a).contains("Prefix `y` with `_`"))
+        .expect("expected a prefix-with-underscore quick fix");
+    let range = action_edit_range(fix).expect("edit range");
+    assert_eq!(
+        (range.start.line, range.start.character),
+        (0, 11),
+        "insert sits before `y`, i.e. after `public let `"
+    );
+}
+
+// ── Item 6: convert number format (integer literal toggle) ───────────────────
+
+#[test]
+fn code_action_converts_decimal_to_hex_and_binary() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///num-dec.flx");
+    open(&mut state, &u, "let x = 255\n");
+
+    // Cursor on the `255` literal (col 8).
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 8), Position::new(0, 8)),
+        ))
+        .expect("code action response");
+
+    let hex = actions
+        .iter()
+        .find(|a| action_title(a).contains("hexadecimal"))
+        .expect("expected a hex conversion");
+    assert_eq!(action_edit_text(hex).as_deref(), Some("0xFF"));
+    let bin = actions
+        .iter()
+        .find(|a| action_title(a).contains("binary"))
+        .expect("expected a binary conversion");
+    assert_eq!(action_edit_text(bin).as_deref(), Some("0b11111111"));
+    // The form already in use (decimal) is not offered.
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("Convert to decimal (")),
+        "the current decimal form should not be offered, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_converts_hex_to_decimal() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///num-hex.flx");
+    open(&mut state, &u, "let x = 0xFF\n");
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 8), Position::new(0, 8)),
+        ))
+        .expect("code action response");
+
+    let dec = actions
+        .iter()
+        .find(|a| action_title(a).contains("Convert to decimal ("))
+        .expect("expected a decimal conversion");
+    assert_eq!(action_edit_text(dec).as_deref(), Some("255"));
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("hexadecimal")),
+        "the current hex form should not be offered, got {actions:?}"
+    );
+}
+
+#[test]
+fn code_action_groups_large_decimal_with_separators() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///num-grouped.flx");
+    open(&mut state, &u, "let x = 1000\n");
+
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 8), Position::new(0, 8)),
+        ))
+        .expect("code action response");
+    let grouped = actions
+        .iter()
+        .find(|a| action_title(a).contains("separators"))
+        .expect("expected a digit-grouping conversion");
+    assert_eq!(action_edit_text(grouped).as_deref(), Some("1_000"));
+}
+
+#[test]
+fn code_action_no_number_format_off_literal() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///num-off.flx");
+    open(&mut state, &u, "let x = 42\n");
+
+    // Cursor on the binding name `x` (col 4), not the literal.
+    let actions = state
+        .handle_code_action(code_action_params(
+            &u,
+            Range::new(Position::new(0, 4), Position::new(0, 4)),
+        ))
+        .expect("code action response");
+    assert!(
+        !actions
+            .iter()
+            .any(|a| action_title(a).contains("Convert to")),
+        "no number-format action when the cursor isn't on a literal, got {actions:?}"
+    );
+}
+
+// ── Item 7: operator fixity (+ inferred type) in hover ───────────────────────
+
+#[test]
+fn hover_on_infix_operator_shows_fixity_and_type() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///op-infix.flx");
+    open(&mut state, &u, "let x = 1 + 2\n");
+
+    // Hover on the `+` (col 10).
+    let md = hover_markup(&mut state, &u, 0, 10).expect("hover on `+`");
+    assert!(md.contains("infixl"), "expected fixity keyword, got: {md}");
+    assert!(
+        md.contains("Sum"),
+        "expected the precedence level name, got: {md}"
+    );
+    assert!(
+        md.to_lowercase().contains("int"),
+        "expected the inferred type alongside fixity, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_comparison_operator_shows_equals_precedence() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///op-eq.flx");
+    open(&mut state, &u, "let b = 1 == 2\n");
+
+    // Hover on the `==` (col 10) — a different precedence level than `+`. (Pipe
+    // `|>` is desugared to a call at parse time, so it has no operator node.)
+    let md = hover_markup(&mut state, &u, 0, 10).expect("hover on `==`");
+    assert!(md.contains("infixl"), "expected fixity keyword, got: {md}");
+    assert!(
+        md.contains("Equals"),
+        "expected the Equals precedence level, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_prefix_operator_shows_prefix_fixity() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///op-prefix.flx");
+    open(&mut state, &u, "let b = !true\n");
+
+    // Hover on the `!` (col 8).
+    let md = hover_markup(&mut state, &u, 0, 8).expect("hover on `!`");
+    assert!(
+        md.contains("prefix operator"),
+        "expected prefix-operator hover, got: {md}"
+    );
+}
+
+#[test]
+fn hover_on_operand_shows_type_not_fixity() {
+    let mut state = GlobalState::default();
+    let u = uri("file:///op-operand.flx");
+    open(&mut state, &u, "let x = 1 + 2\n");
+
+    // Hover on the `1` operand (col 8), not the operator.
+    let md = hover_markup(&mut state, &u, 0, 8).expect("hover on `1`");
+    assert!(
+        md.to_lowercase().contains("int"),
+        "an operand still shows its type, got: {md}"
+    );
+    assert!(
+        !md.contains("infixl"),
+        "an operand should not show operator fixity, got: {md}"
+    );
+}
+
 #[test]
 fn code_action_adds_catchall_arm_for_non_exhaustive_match() {
     let mut state = GlobalState::default();
