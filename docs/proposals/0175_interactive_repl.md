@@ -167,11 +167,13 @@ the new line. On any diagnostic or runtime error, print it and discard the line;
 the committed buffer is unchanged, so the session never enters a broken state. This
 is why declarations are compiled too, GHCi-style.
 
-**`:type`** reuses the inference the LSP hover uses
-(`infer_expr_types_for_program` on the compiler —
-[../../src/compiler/mod.rs](../../src/compiler/mod.rs)) by wrapping `<expr>` as
-`let __t = <expr>` over the buffer and reading back its inferred scheme, rather than
-running it.
+**`:type`** reuses the exact inference the LSP hover uses: it wraps `<expr>` as
+`let __repl_type = <expr>` over the buffer, compiles the session so the prelude is
+preloaded, then runs `infer_program` with `Compiler::build_infer_config`
+([../../src/compiler/mod.rs](../../src/compiler/mod.rs)) on the entry program and
+reads back the binding value's inferred type by its `ExprId` (rendered with
+`display_infer_type`). The expression is type-checked, never run. The reported type
+is the instantiated `InferType` (hover-style), not a generalized scheme.
 
 **Result rendering** reuses `println` on the value (the same REPL-correct rendering
 `eval` relies on). ADTs without a displayable form surface as the runtime default;
