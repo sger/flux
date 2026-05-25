@@ -16,7 +16,7 @@
 
 mod engine;
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 
 use crate::driver::{
@@ -63,7 +63,7 @@ pub fn run_repl(mut flags: DriverFlags) {
         session: &session,
     };
 
-    let mut engine = match ReplEngine::bootstrap(request) {
+    let engine = match ReplEngine::bootstrap(request) {
         Ok(engine) => engine,
         Err(err) => {
             eprintln!("{err}");
@@ -72,38 +72,139 @@ pub fn run_repl(mut flags: DriverFlags) {
     };
 
     print_banner();
+    // An interactive terminal gets the full rustyline editor (history, in-line
+    // editing, Ctrl-R search); piped/redirected input (scripts, the integration
+    // tests) takes the plain line-reader path, which keeps stdout clean and the
+    // session deterministic.
+    if io::stdin().is_terminal() {
+        run_interactive(engine, request);
+    } else {
+        run_piped(engine, request);
+    }
+}
+
+/// The piped / non-interactive loop: read complete logical inputs from stdin
+/// (prompts go to stderr) until EOF or `:quit`.
+fn run_piped(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     while let Some(input) = read_input(&mut reader) {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Some(command) = trimmed.strip_prefix(':') {
-            match handle_command(command, &mut engine, request) {
-                Command::Quit => break,
-                Command::Reset => match ReplEngine::bootstrap(request) {
-                    Ok(fresh) => {
-                        engine = fresh;
-                        eprintln!("Session reset.");
-                    }
-                    Err(err) => eprintln!("reset failed: {err}"),
-                },
-                Command::Handled => {}
-            }
-            continue;
-        }
-        match classify(trimmed) {
-            LineKind::Skip => {}
-            LineKind::Expr => {
-                engine.eval_expr(trimmed);
-            }
-            LineKind::Decl => {
-                engine.eval_decl(trimmed);
-            }
+        if !dispatch(&input, &mut engine, request) {
+            break;
         }
     }
     eprintln!("Goodbye.");
+}
+
+/// The interactive loop, backed by `rustyline`: arrow-key history, in-line
+/// editing, and Ctrl-R reverse search, with history persisted across sessions.
+/// Falls back to the piped loop if the editor can't be initialised.
+fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
+    let mut editor = match rustyline::DefaultEditor::new() {
+        Ok(editor) => editor,
+        Err(err) => {
+            eprintln!("line editor unavailable ({err}); using basic input.");
+            return run_piped(engine, request);
+        }
+    };
+    let history = history_path();
+    if let Some(path) = &history {
+        // A missing history file on first run is not an error.
+        let _ = editor.load_history(path);
+    }
+
+    loop {
+        match read_interactive_input(&mut editor) {
+            // A completed input: record it in history (one entry even when it
+            // spanned several physical lines), then dispatch it.
+            Ok(Some(input)) => {
+                let entry = input.trim_end();
+                if !entry.is_empty() {
+                    let _ = editor.add_history_entry(entry);
+                }
+                if !dispatch(&input, &mut engine, request) {
+                    break;
+                }
+            }
+            // Ctrl-C: abandon the current (possibly multi-line) input, keep going.
+            Ok(None) => continue,
+            // Ctrl-D / EOF / read error: leave the session.
+            Err(_) => break,
+        }
+    }
+
+    if let Some(path) = &history {
+        let _ = editor.save_history(path);
+    }
+    eprintln!("Goodbye.");
+}
+
+/// Read one complete logical input through the editor, continuing onto `....>`
+/// while the form is open (same delimiter/string balance as the piped path).
+/// `Ok(None)` means Ctrl-C (abandon this input); `Err` means Ctrl-D/EOF.
+fn read_interactive_input(
+    editor: &mut rustyline::DefaultEditor,
+) -> Result<Option<String>, rustyline::error::ReadlineError> {
+    use rustyline::error::ReadlineError;
+
+    let mut buffer = match editor.readline("flux> ") {
+        Ok(line) => line,
+        Err(ReadlineError::Interrupted) => return Ok(None),
+        Err(err) => return Err(err),
+    };
+    while needs_more_input(&buffer) {
+        match editor.readline("....> ") {
+            Ok(line) => {
+                buffer.push('\n');
+                buffer.push_str(&line);
+            }
+            Err(ReadlineError::Interrupted) => return Ok(None),
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(Some(buffer))
+}
+
+/// Process one complete logical input. Returns `false` when the loop should stop
+/// (`:quit`). Shared by the interactive and piped paths.
+fn dispatch(input: &str, engine: &mut ReplEngine, request: RunProgramRequest<'_>) -> bool {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    if let Some(command) = trimmed.strip_prefix(':') {
+        match handle_command(command, engine, request) {
+            Command::Quit => return false,
+            Command::Reset => match ReplEngine::bootstrap(request) {
+                Ok(fresh) => {
+                    *engine = fresh;
+                    eprintln!("Session reset.");
+                }
+                Err(err) => eprintln!("reset failed: {err}"),
+            },
+            Command::Handled => {}
+        }
+        return true;
+    }
+    match classify(trimmed) {
+        LineKind::Skip => {}
+        LineKind::Expr => {
+            engine.eval_expr(trimmed);
+        }
+        LineKind::Decl => {
+            engine.eval_decl(trimmed);
+        }
+    }
+    true
+}
+
+/// Best-effort path for the persisted REPL history file (`~/.flux_repl_history`).
+/// `None` when no home directory is discoverable — history then stays in-memory.
+fn history_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let mut path = PathBuf::from(home);
+    path.push(".flux_repl_history");
+    Some(path)
 }
 
 /// Handle a `:`-prefixed meta command (the text after the `:`).

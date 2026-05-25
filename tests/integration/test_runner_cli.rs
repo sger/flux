@@ -2004,3 +2004,18 @@ fn repl_type_works_after_rebinding() {
         String::from_utf8_lossy(&output.stderr),
     );
 }
+
+#[test]
+fn repl_continues_multiline_forms() {
+    // A form left open by a `{` continues onto further physical lines until the
+    // delimiters balance, then compiles as one declaration. This exercises the
+    // multi-line continuation shared by the interactive and piped input paths.
+    let output = run_flux_repl("fn double(n: Int) -> Int {\n  n * 2\n}\ndouble(21)\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["42"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}

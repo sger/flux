@@ -259,9 +259,12 @@ which compiles each line incrementally against a persistent `Compiler` and a liv
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- **Line editing dependency.** Adopt `rustyline` (history, editing, completion
-  hooks) for v1, or ship raw `stdin` first? Affects dependencies and Windows
-  behavior.
+- **Line editing dependency.** ~~Adopt `rustyline` (history, editing, completion
+  hooks) for v1, or ship raw `stdin` first?~~ *Resolved (2026-05-25): shipped raw
+  `stdin` first, then adopted `rustyline` for the interactive path — history,
+  in-line editing, Ctrl-R search, and a persisted `~/.flux_repl_history`.
+  Non-interactive input (`is_terminal()` is false) keeps the raw reader. The
+  completion hooks remain available for the future "tab completion + `:doc`" item.*
 - **Multi-line continuation heuristic.** Brace/paren balance is simple; do we also
   continue on trailing operators / `->`? Where does the parser distinguish
   "incomplete" from "error"?
