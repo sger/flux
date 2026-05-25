@@ -51,7 +51,7 @@ pub struct FieldConflict {
     pub span2: Span,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FieldRegistry {
     /// ADT name -> variant name -> ordered fields in declaration order.
     pub per_variant: HashMap<Symbol, HashMap<Symbol, Vec<FieldInfo>>>,

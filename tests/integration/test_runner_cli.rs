@@ -1934,3 +1934,73 @@ fn repl_type_reports_errors_without_evaluating() {
         combined_output(&output),
     );
 }
+
+#[test]
+fn repl_runs_effects_once_without_replaying() {
+    // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
+    // so an effectful expression's output appears exactly once. The Phase 1
+    // engine re-ran the whole session every line and would have replayed it.
+    let output = run_flux_repl("println(\"effect\")\n1 + 1\n:quit\n");
+    let effect_lines = repl_results(&output)
+        .into_iter()
+        .filter(|line| line.contains("effect"))
+        .count();
+    assert_eq!(
+        effect_lines,
+        1,
+        "the effect must run exactly once, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        repl_results(&output).iter().any(|line| line == "2"),
+        "the later pure line still evaluates, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_rebinds_an_existing_name() {
+    // Phase 2 keeps one persistent compiler for the session, so redefining a
+    // name shadows the old binding (on a fresh global slot) instead of erroring
+    // as a duplicate — `x` reads `1`, then `99` after the rebind.
+    let output = run_flux_repl("let x = 1\nx\nlet x = 99\nx\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["1", "99"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_evaluates_top_level_control_flow() {
+    // Top-level `if` / `match` emit jumps with absolute targets into the session
+    // buffer; the engine runs the full buffer from the line's offset so those
+    // targets resolve (a delta run at offset 0 would mis-jump). A non-constant
+    // condition keeps the optimizer from folding the branch away.
+    let output = run_flux_repl(
+        "let c = 1\nif c > 0 { 111 } else { 222 }\nmatch c { 1 -> \"one\", _ -> \"other\" }\n:quit\n",
+    );
+    assert_eq!(
+        repl_results(&output),
+        ["111", "\"one\""],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_type_works_after_rebinding() {
+    // Rebinding must not leave a duplicate definition in the `:type` record:
+    // its fresh re-inference compile would otherwise reject the second `let x`.
+    let output = run_flux_repl("let x = 5\nlet x = 99\n:type x + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["x + 1 : Int"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}

@@ -403,47 +403,6 @@ pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
     }
 }
 
-/// Compile — and optionally run — a candidate program assembled by the REPL,
-/// **without** ever calling `process::exit`. Unlike [`run_from_source`], compile
-/// and runtime errors are rendered to stderr and reported through the return
-/// value so the REPL can roll the line back and keep going. VM backend only;
-/// when `run` is false it stops after a clean compile (used to validate a
-/// declaration without executing the accumulated session body). Returns `true`
-/// when the candidate compiled — and ran, if requested — without errors.
-pub(crate) fn eval_source_for_repl(
-    request: RunProgramRequest<'_>,
-    source: String,
-    run: bool,
-) -> bool {
-    match prepare_run_context_from_source(request, source) {
-        Ok(mut ctx) => {
-            if has_error_diagnostics(&ctx.all_diagnostics) {
-                render_repl_errors(&ctx, request);
-                return false;
-            }
-            compile_modules_for_run(&mut ctx, request);
-            if has_error_diagnostics(&ctx.all_diagnostics) {
-                render_repl_errors(&ctx, request);
-                return false;
-            }
-            if !run {
-                return true;
-            }
-            let bytecode = ctx.compiler.bytecode();
-            let mut vm = VM::new(bytecode);
-            if let Err(err) = vm.run() {
-                eprintln!("{err}");
-                return false;
-            }
-            true
-        }
-        Err(message) => {
-            eprintln!("{message}");
-            false
-        }
-    }
-}
-
 /// The synthetic binding name the REPL wraps a `:type` query in. Shared with the
 /// REPL loop, which assembles `let <REPL_TYPE_BINDING> = <expr>` so this side can
 /// recover the queried expression's `ExprId` after inference.
@@ -510,8 +469,25 @@ fn repl_type_query_expr_id(program: &Program, interner: &Interner) -> Option<Exp
 /// Warnings are intentionally dropped — a REPL session accumulates "unused
 /// binding" noise on every line that would otherwise drown the prompt.
 fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
-    let errors: Vec<Diagnostic> = ctx
-        .all_diagnostics
+    render_repl_diagnostics(
+        &ctx.all_diagnostics,
+        request.path,
+        ctx.source.as_str(),
+        &DriverDiagnosticConfig::from(request.session),
+    );
+}
+
+/// Render the error diagnostics from a REPL line to stderr (carets included),
+/// dropping warnings. Shared by the Phase 1 source path and the Phase 2 engine,
+/// which renders the `Err` of an incremental [`Compiler::compile_with_opts`]
+/// against the line's wrapped source.
+pub(crate) fn render_repl_diagnostics(
+    diagnostics: &[Diagnostic],
+    path: &str,
+    source: &str,
+    config: &DriverDiagnosticConfig,
+) {
+    let errors: Vec<Diagnostic> = diagnostics
         .iter()
         .filter(|diag| diag.severity == Severity::Error)
         .cloned()
@@ -519,17 +495,77 @@ fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
     if errors.is_empty() {
         return;
     }
-    let config = DriverDiagnosticConfig::from(request.session);
     emit_diagnostics(DiagnosticRenderRequest {
         diagnostics: &errors,
-        default_file: Some(request.path),
-        default_source: Some(ctx.source.as_str()),
+        default_file: Some(path),
+        default_source: Some(source),
         show_file_headers: false,
         max_errors: config.max_errors,
         format: config.diagnostics_format,
         all_errors: config.all_errors,
         text_to_stderr: true,
     });
+}
+
+/// A prelude-loaded compiler paired with a live VM whose `globals` already hold
+/// the prelude's values — the persistent state the Phase 2 REPL engine
+/// (proposal 0176) mutates incrementally, one line at a time.
+pub(crate) struct ReplBootstrap {
+    pub(crate) compiler: Compiler,
+    pub(crate) vm: VM,
+    /// Optimization flags carried over from the session so per-line compiles
+    /// match the level the prelude was compiled at.
+    pub(crate) optimize: bool,
+    pub(crate) analyze: bool,
+    /// Diagnostic-rendering config + synthetic entry path for surfacing per-line
+    /// compile errors.
+    pub(crate) diagnostics: DriverDiagnosticConfig,
+    pub(crate) path: String,
+}
+
+/// Build the persistent REPL session: compile a trivial entry through the normal
+/// module pipeline (which loads + compiles the Flow prelude into one `Compiler`),
+/// then run the resulting bytecode once on a fresh `VM` so the prelude's globals
+/// are live. The returned compiler and VM are handed to the engine, which from
+/// here compiles each entered line as a delta and runs it via [`VM::run_chunk`]
+/// without ever recompiling the prelude or earlier lines.
+pub(crate) fn bootstrap_repl_session(
+    request: RunProgramRequest<'_>,
+) -> Result<ReplBootstrap, String> {
+    // A minimal valid entry. Its `main` runs once during bootstrap (a no-op);
+    // later expression lines define their own `main`, shadowing this one.
+    let mut ctx = prepare_run_context_from_source(request, "fn main() {}\n".to_string())?;
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return Err("could not initialize the REPL (prelude failed to parse)".to_string());
+    }
+    compile_modules_for_run(&mut ctx, request);
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return Err("could not initialize the REPL (prelude failed to compile)".to_string());
+    }
+
+    let bytecode = ctx.compiler.bytecode();
+    let mut vm = VM::new(bytecode);
+    if let Err(err) = vm.run() {
+        return Err(format!("could not initialize the REPL session: {err}"));
+    }
+
+    // Per-line programs are not whole modules and need no `main`.
+    ctx.compiler.set_strict_require_main(false);
+    // Accumulate each line's binding schemes so later lines can resolve the
+    // types of earlier session globals.
+    ctx.compiler.set_repl_mode(true);
+
+    let compile = DriverCompileConfig::from(request.session);
+    Ok(ReplBootstrap {
+        optimize: compile.enable_optimize,
+        analyze: compile.enable_analyze,
+        diagnostics: DriverDiagnosticConfig::from(request.session),
+        path: request.path.to_string(),
+        compiler: ctx.compiler,
+        vm,
+    })
 }
 
 #[cfg(test)]

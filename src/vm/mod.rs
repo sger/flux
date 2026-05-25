@@ -143,23 +143,33 @@ impl VM {
         }
     }
 
-    /// Execute an additional top-level bytecode chunk on this live VM, **keeping
-    /// `globals` across chunks** (the persistent-REPL primitive, proposal 0176).
+    /// Run the **full** top-level instruction buffer on this live VM, but start
+    /// execution at `start_ip` so only the newly-appended tail (the latest REPL
+    /// line's delta) executes — the persistent-REPL primitive (proposal 0176).
     ///
-    /// The chunk's instructions reference constants by absolute index over the
-    /// cumulative pool, so the chunk's `constants` are *appended* to the existing
-    /// pool (they are the new constants emitted since the previous chunk). The
-    /// stack, frames, instruction pointer, and handler stack are reset to a clean
-    /// single top-level frame, but `globals` (and thus every earlier session
-    /// binding written via `OpSetGlobal`) survive untouched, so a later chunk's
-    /// `OpGetGlobal` at an earlier slot reads the value an earlier chunk stored.
-    pub fn run_chunk(&mut self, chunk: Bytecode) -> Result<(), String> {
-        self.constants
-            .extend(chunk.constants.into_iter().map(slot::to_slot));
+    /// `bytecode` is the compiler's *complete* current bytecode (all constants +
+    /// the whole top-level instruction stream). Passing the whole stream — rather
+    /// than just the delta — is what makes top-level control flow correct: the
+    /// compiler emits jump operands as **absolute** offsets into this stream, so a
+    /// top-level `if` / `match` entered at the prompt only resolves its jumps when
+    /// the full stream is present. Starting at `start_ip` (the buffer length
+    /// captured before the line compiled) means earlier instructions — the prelude
+    /// and prior lines — are *not* re-executed, so their side effects never
+    /// re-fire. `globals` persist across calls, so a later line's `OpGetGlobal`
+    /// reads what an earlier line stored.
+    ///
+    /// The stack, frames, and handler stack are reset to a clean single top-level
+    /// frame each call; `globals` are kept. On a runtime error the caller is
+    /// expected to roll its compiler back and re-issue the next line's full
+    /// bytecode, which restores the constants pool and makes any half-written
+    /// global slots unreachable.
+    pub fn run_top_level(&mut self, bytecode: Bytecode, start_ip: usize) -> Result<(), String> {
+        self.constants = bytecode.constants.into_iter().map(slot::to_slot).collect();
 
-        let main_fn = CompiledFunction::new(chunk.instructions, 0, 0, chunk.debug_info);
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
         let main_closure = Closure::new(Arc::new(main_fn), vec![]);
-        let main_frame = Frame::new(Rc::new(main_closure), 0);
+        let mut main_frame = Frame::new(Rc::new(main_closure), 0);
+        main_frame.ip = start_ip;
 
         // Reset transient execution state to a clean start; KEEP globals.
         self.sp = 0;
