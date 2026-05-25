@@ -970,6 +970,7 @@ pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
 ///
 /// Tracks an active `handle` block's effect, operations, and whether it's
 /// tail-resumptive, enabling `OpPerformDirectIndexed` emission.
+#[derive(Clone)]
 pub(super) struct HandlerScope {
     pub effect: Symbol,
     pub is_direct: bool,
@@ -984,6 +985,7 @@ pub(super) struct HandlerScope {
     pub evidence_symbols: Option<Vec<Symbol>>,
 }
 
+#[derive(Clone)]
 pub struct Compiler {
     constants: Vec<Value>,
     pub symbol_table: SymbolTable,
@@ -1111,6 +1113,17 @@ pub struct Compiler {
     /// diagnostics to render the user's call shape instead of the lowered
     /// `perform` shape.
     pub(super) routed_call_perform_ids: HashSet<ExprId>,
+    /// REPL-only (proposal 0176). When set, each compiled line's top-level
+    /// binding schemes are accumulated into `repl_session_schemes` so a later
+    /// line's HM inference can resolve the *types* of earlier session globals.
+    /// Name resolution already works through the persistent symbol table; this
+    /// closes the gap for inference, which otherwise sees a bare reference to a
+    /// session global (not present in the line's own source) as an unbound `_`.
+    repl_mode: bool,
+    /// Accumulated top-level binding schemes from previously-compiled REPL
+    /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
+    /// outside the REPL.
+    repl_session_schemes: HashMap<Symbol, Scheme>,
     #[cfg(test)]
     pub(super) hm_infer_runs: usize,
 }
@@ -1324,6 +1337,8 @@ impl Compiler {
             imported_instance_method_schemes: HashMap::new(),
             imported_instance_method_native_symbols: HashMap::new(),
             routed_call_perform_ids: HashSet::new(),
+            repl_mode: false,
+            repl_session_schemes: HashMap::new(),
             #[cfg(test)]
             hm_infer_runs: 0,
         }
@@ -3092,6 +3107,23 @@ impl Compiler {
     ///
     /// Collects module member schemes and effect signatures.
     /// Can be called multiple times (e.g. for two-phase inference).
+    /// Enable REPL mode (proposal 0176): accumulate each compiled line's
+    /// top-level binding schemes so subsequent lines' inference can resolve the
+    /// types of earlier session globals. Inert outside the persistent REPL.
+    pub fn set_repl_mode(&mut self, on: bool) {
+        self.repl_mode = on;
+    }
+
+    /// REPL redefinition (proposal 0176): forget a session binding so a new
+    /// definition of `name` starts fresh — it gets a new global slot (the old
+    /// value lingers, unreachable, in the VM) and its stale inference scheme is
+    /// dropped. Returns whether a symbol-table binding was present. Used by the
+    /// engine before compiling a line that rebinds an existing name.
+    pub fn forget_session_binding(&mut self, name: Symbol) -> bool {
+        self.repl_session_schemes.remove(&name);
+        self.symbol_table.forget(name)
+    }
+
     pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
@@ -3131,6 +3163,14 @@ impl Compiler {
             exposed_schemes
                 .entry(name)
                 .or_insert_with(|| scheme.clone());
+        }
+
+        // REPL session globals (proposal 0176): inject the inferred schemes of
+        // bindings from earlier lines so a reference to one resolves to its real
+        // type. These override prelude/import schemes of the same name so a user
+        // who shadows a prelude name in the session sees their own binding.
+        for (name, scheme) in &self.repl_session_schemes {
+            exposed_schemes.insert(*name, scheme.clone());
         }
 
         let class_env = if self.class_env.classes.is_empty() {
@@ -5789,6 +5829,15 @@ impl Compiler {
                 .with_effect_summary(self.scopes[self.scope_index].effect_summary),
             ),
         }
+    }
+
+    /// The current length of the top-level instruction stream — the offset at
+    /// which the next compiled line's code will begin. The REPL captures this
+    /// before compiling a line, then runs the full buffer from this offset so the
+    /// new tail executes with correct (absolute) jump targets while earlier code
+    /// is skipped (proposal 0176).
+    pub fn top_level_instruction_len(&self) -> usize {
+        self.scopes[self.scope_index].instructions.len()
     }
 
     pub fn module_cache_snapshot(&self) -> ModuleCacheSnapshot {

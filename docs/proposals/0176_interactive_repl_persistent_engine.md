@@ -1,6 +1,6 @@
 - Feature Name: Interactive REPL — Phase 2 (persistent-compiler / live-VM engine)
 - Start Date: 2026-05-24
-- Status: Draft
+- Status: Implemented (2026-05-24)
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0175_interactive_repl.md](0175_interactive_repl.md) (Phase 1 — defines the user-facing REPL contract and ships the accumulate-source MVP)
@@ -264,3 +264,68 @@ interpreter; `it` is identical.
 - **Debugger at the prompt** — breakpoints and value inspection on the live VM,
   connecting to [0076_debug_toolkit.md](0076_debug_toolkit.md).
 - **Native-backend (JIT) REPL** — a much larger, separate effort beyond the VM.
+
+## Implementation notes (2026-05-24)
+[implementation-notes]: #implementation-notes
+
+The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
+`ReplEngine`). Resolved the unresolved questions above as follows:
+
+- **Per-line compile on a persistent `Compiler`, run the buffer's tail.** Each
+  line is parsed against the compiler's interner (the `parse_module_for_goto_def`
+  idiom) and compiled alone via `compile_with_opts`, appending to the one
+  persistent top-level instruction stream. The engine captures
+  `top_level_instruction_len()` *before* compiling, then runs the compiler's
+  **full** `bytecode()` from that offset with `VM::run_top_level`. Running the
+  whole stream (not an isolated delta) is required because the compiler emits jump
+  operands as **absolute** offsets into the stream — a top-level `if` / `match`
+  entered at the prompt only resolves its jumps when the full stream is present —
+  while starting at the offset skips the prelude and earlier lines so their side
+  effects never re-fire. (An earlier delta-only `run_chunk` design mis-jumped on
+  top-level control flow precisely because the delta's absolute jump targets
+  pointed outside it.)
+- **Slot allocation / shadowing.** The symbol table's `num_definitions` is the
+  monotonic slot counter; it survives `phase_reset`, so each line's new globals
+  get fresh slots and earlier slots stay resolvable. Redefinition is handled by
+  `forget_session_binding` (drops the old symbol-table entry + cached scheme), so
+  the rebind lands on a new slot — the old value lingers, unreachable, in the VM.
+- **Type resolution across lines.** Name resolution works through the persistent
+  symbol table, but HM inference needed help: a bare reference to an earlier
+  session global isn't in the current line's source, so it inferred as `_`. The
+  compiler's REPL mode accumulates each line's `resolved_binding_schemes` into
+  `repl_session_schemes`, merged into `build_infer_config`'s base schemes.
+- **Rollback.** `Compiler` derives `Clone`; the engine clones it before each line
+  and restores the clone on any parse/compile/runtime failure, so a bad line
+  never corrupts the session. On a runtime error, partially-written globals become
+  unreachable after the compiler rollback (the slot is reused), and the next line
+  re-issues the rolled-back compiler's full bytecode, which restores the VM's
+  constants pool.
+- **Expressions.** A bare expression is first tried as a top-level
+  `let __repl_N = <expr>` (so it persists and `it` can reference it) plus a fresh
+  `fn main` that prints it. If that fails with E413 (top-level effect), it falls
+  back to running inside `main` — the effect happens but the result is not bound
+  to `it`.
+
+### Known v1 limitations
+- **Cross-line use of `data`-with-named-fields, `effect`, and `class` / `instance`.**
+  A declaration of these kinds works within a single line and in a whole file, but
+  using it on a *later* line fails: the named-field desugar metadata is collected
+  per-program (so the later line doesn't see the earlier `data`'s fields, E430/E082),
+  user effect registries are reset by `phase_reset` to the preloaded set each
+  compile (so a later `with`/`handle` reports E407 "Unknown Effect"), and class
+  methods don't resolve across lines (E004). Enum and **positional** ADTs, `let` /
+  `fn`, recursion, `if` / `match`, imports, and `it` all work across lines. Closing
+  these needs the same kind of cross-line threading used for binding schemes
+  (`repl_session_schemes`), extended to ADT/effect/class collection state — a
+  follow-up.
+- **Self-referential rebind.** `let x = x + 1` reports `x` as undefined rather
+  than reading the previous value, because the old binding is forgotten before
+  the line compiles (the alternative — keeping it — silently reads the new,
+  uninitialized slot, since the compiler defines the binding before its
+  initializer).
+- **Effectful-result `it`.** An effectful expression's value isn't captured by
+  `it` (it can't be a top-level binding).
+- **`:type` / `:list`** use a lightweight parallel record of committed
+  declaration sources, re-inferred over a fresh compile, rather than reading
+  types back from the persistent compiler (whose post-compile expression IDs are
+  keyed to a routed/desugared program clone).
