@@ -2019,3 +2019,79 @@ fn repl_continues_multiline_forms() {
         String::from_utf8_lossy(&output.stderr),
     );
 }
+
+/// Write `source` to a uniquely named temp `.flx` file and return its path.
+fn repl_temp_flx(tag: &str, source: &str) -> std::path::PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("flux_repl_{tag}_{nanos}.flx"));
+    std::fs::write(&path, source).expect("write temp flx");
+    path
+}
+
+#[test]
+fn repl_load_brings_file_definitions_into_scope() {
+    // `:load` compiles the whole file in one delta, so its definitions are usable
+    // on later lines (here `triple` applied to the loaded `base`).
+    let file = repl_temp_flx("load", "fn triple(n: Int) -> Int { n * 3 }\nlet base = 7\n");
+    let output = run_flux_repl(&format!(
+        ":load \"{}\"\ntriple(base)\n:quit\n",
+        file.display()
+    ));
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(
+        repl_results(&output),
+        ["21"],
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_reload_reapplies_the_loaded_file() {
+    // After `:load`, `:reload` re-bootstraps and re-applies the same file, so its
+    // definitions remain callable.
+    let file = repl_temp_flx("reload", "fn answer() -> Int { 42 }\n");
+    let output = run_flux_repl(&format!(
+        ":load \"{}\"\n:reload\nanswer()\n:quit\n",
+        file.display()
+    ));
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(
+        repl_results(&output),
+        ["42"],
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_reload_without_load_reports_nothing() {
+    let output = run_flux_repl(":reload\n:quit\n");
+    assert!(
+        combined_output(&output).contains("Nothing to reload"),
+        "expected a 'nothing to reload' message, output:\n{}",
+        combined_output(&output),
+    );
+}
+
+#[test]
+fn repl_load_missing_file_keeps_session() {
+    // A failed `:load` reports the error and leaves the session usable: the
+    // following `1 + 1` still evaluates.
+    let output = run_flux_repl(":load definitely_missing_repl_file.flx\n1 + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["2"],
+        "stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        combined_output(&output).contains("cannot read"),
+        "expected a 'cannot read' error, output:\n{}",
+        combined_output(&output),
+    );
+}

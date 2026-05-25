@@ -22,6 +22,9 @@
 //! broken state. (Globals the failed chunk partially wrote are left in the VM
 //! but become unreachable once the compiler rolls back, and the slot is reused.)
 
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use crate::compiler::Compiler;
 use crate::diagnostics::Diagnostic;
 use crate::driver::pipeline::program::{
@@ -55,6 +58,8 @@ pub(super) struct ReplEngine {
     /// rebind replaces the earlier entry in place rather than appending, so this
     /// record stays a duplicate-free, compilable snapshot of the session.
     committed: Vec<SessionDecl>,
+    /// The file most recently brought in with `:load`, replayed by `:reload`.
+    loaded: Option<PathBuf>,
 }
 
 /// One committed declaration in the parallel `:type` / `:list` record.
@@ -102,7 +107,53 @@ impl ReplEngine {
             result_counter: 0,
             last_result: None,
             committed: Vec::new(),
+            loaded: None,
         })
+    }
+
+    /// Load a `.flx` file into the session: compile its whole source as one delta
+    /// (so intra-file references all resolve in a single compile, unlike feeding
+    /// it line by line) and run it, keeping its top-level definitions in scope.
+    /// The path is recorded for `:reload`. Returns the number of top-level
+    /// declarations on success; `None` after printing the failure — an I/O error,
+    /// or a compile / runtime error rendered against the file.
+    pub(super) fn load_file(&mut self, path: &Path) -> Option<usize> {
+        let source = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("cannot read {}: {err}", path.display());
+                return None;
+            }
+        };
+        let count = {
+            let mut parser = Parser::new(Lexer::new(&source));
+            parser.parse_program().statements.len()
+        };
+        match self.run_line(source.clone()) {
+            LineOutcome::Committed => {
+                // Keep the loaded source in the `:type` / `:list` record as one
+                // block so `:type` over a loaded name re-infers against it.
+                self.commit(None, source);
+                self.loaded = Some(path.to_path_buf());
+                Some(count)
+            }
+            LineOutcome::CompileFailed {
+                source,
+                diagnostics,
+            } => {
+                self.render(&diagnostics, &source);
+                None
+            }
+            LineOutcome::RuntimeFailed(err) => {
+                eprintln!("{err}");
+                None
+            }
+        }
+    }
+
+    /// The file recorded by the last successful `:load`, replayed by `:reload`.
+    pub(super) fn loaded_path(&self) -> Option<&PathBuf> {
+        self.loaded.as_ref()
     }
 
     /// Evaluate a top-level declaration line (`let` / `fn` / `data` / `import` /
