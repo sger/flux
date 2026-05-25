@@ -282,7 +282,9 @@ which compiles each line incrementally against a persistent `Compiler` and a liv
 - **Editor-integrated REPL** — a VS Code "Flux: Start REPL" terminal command and a
   "send selection to REPL" action, reusing the extension's command plumbing
   ([../../editors/vscode/src/extension.ts](../../editors/vscode/src/extension.ts)).
-- **`:load <file>` / `:reload`** — bring a module's definitions into the session.
+- ~~**`:load <file>` / `:reload`** — bring a module's definitions into the
+  session.~~ *Shipped (2026-05-25): `:load` resets then compiles the file as one
+  delta into the session; `:reload` re-applies the last loaded file from disk.*
 - **Tab completion and `:doc`** powered by the LSP's completion/hover engines
   ([0163_flux_language_server.md](0163_flux_language_server.md)).
 - **Notebook / transcript mode** sharing one evaluator with the `/// >>>`
