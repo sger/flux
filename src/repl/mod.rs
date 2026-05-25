@@ -17,7 +17,7 @@
 mod engine;
 
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::driver::{
     flags::DriverFlags, pipeline::program::RunProgramRequest, session::DriverSession,
@@ -222,9 +222,63 @@ fn handle_command(
         "help" | "?" => print_help(),
         "list" | "l" => print_listing(engine),
         "type" | "t" => show_type(engine, rest, request),
+        "load" => load_command(engine, rest, request),
+        "reload" => reload_command(engine, request),
         other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
     }
     Command::Handled
+}
+
+/// `:load <file>` — reset to a fresh prelude-loaded session, then load and run a
+/// `.flx` file, keeping its top-level definitions in scope. The live session is
+/// replaced only on success, so a failed load leaves the current session intact.
+fn load_command(engine: &mut ReplEngine, arg: &str, request: RunProgramRequest<'_>) {
+    let path = arg.trim().trim_matches(|c| c == '"' || c == '\'');
+    if path.is_empty() {
+        eprintln!("usage: :load <file>");
+        return;
+    }
+    let mut fresh = match ReplEngine::bootstrap(request) {
+        Ok(engine) => engine,
+        Err(err) => {
+            eprintln!("load failed: {err}");
+            return;
+        }
+    };
+    if let Some(count) = fresh.load_file(Path::new(path)) {
+        *engine = fresh;
+        eprintln!("Loaded {path} ({count} definition{}).", plural(count));
+    }
+    // On failure the diagnostics were printed by `load_file`; keep the old session.
+}
+
+/// `:reload` — re-bootstrap a fresh session and re-load the file from the last
+/// `:load`, picking up edits on disk. Keeps the previous session if reload fails.
+fn reload_command(engine: &mut ReplEngine, request: RunProgramRequest<'_>) {
+    let Some(path) = engine.loaded_path().cloned() else {
+        eprintln!("Nothing to reload. Use :load <file> first.");
+        return;
+    };
+    let mut fresh = match ReplEngine::bootstrap(request) {
+        Ok(engine) => engine,
+        Err(err) => {
+            eprintln!("reload failed: {err}");
+            return;
+        }
+    };
+    if let Some(count) = fresh.load_file(&path) {
+        *engine = fresh;
+        eprintln!(
+            "Reloaded {} ({count} definition{}).",
+            path.display(),
+            plural(count)
+        );
+    }
+}
+
+/// Plural suffix for human-friendly counts: `""` for one, `"s"` otherwise.
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }
 
 /// Infer and print the type of `expr` in the current session, without evaluating
@@ -335,6 +389,8 @@ fn print_banner() {
 fn print_help() {
     eprintln!("Commands:");
     eprintln!("  :type <expr>  Show the inferred type of <expr> (does not evaluate)");
+    eprintln!("  :load <file>  Reset the session and load a .flx file's definitions");
+    eprintln!("  :reload       Reload the last :load'd file from disk");
     eprintln!("  :reset        Forget all session bindings");
     eprintln!("  :list         Show the accumulated session declarations");
     eprintln!("  :help, :?     Show this help");
