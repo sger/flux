@@ -40,6 +40,18 @@ impl Compiler {
         let instantiated_expr_vars = hm_final.instantiated_expr_vars;
         let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
+        // REPL mode (proposal 0176): remember this line's top-level binding
+        // schemes so a later line's inference can resolve the types of earlier
+        // session globals. A failed line is rolled back wholesale by the engine
+        // (a pre-line clone of the compiler), which discards these too.
+        if self.repl_mode {
+            self.repl_session_schemes.extend(
+                resolved_binding_schemes
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone())),
+            );
+        }
+
         let mut hm_diagnostics = hm_final.diagnostics;
         tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
 

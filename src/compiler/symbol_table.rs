@@ -66,6 +66,15 @@ impl SymbolTable {
         self.store.contains_key(&name)
     }
 
+    /// Remove a binding from this scope's store (REPL redefinition, proposal
+    /// 0176). `num_definitions` is deliberately left untouched so the next
+    /// `define` of this name lands on a *fresh* global slot rather than colliding
+    /// with the old one — whose value lingers, now unreachable, in the VM's
+    /// globals. Returns whether a binding was present.
+    pub fn forget(&mut self, name: Symbol) -> bool {
+        self.store.remove(&name).is_some()
+    }
+
     pub fn mark_assigned(&mut self, name: Symbol) -> Result<(), String> {
         if let Some(symbol) = self.store.get_mut(&name) {
             symbol.mark_assigned();

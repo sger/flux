@@ -1,6 +1,6 @@
-//! Tests for `VM::run_chunk` — the persistent-REPL primitive (proposal 0176):
-//! one live VM executes a sequence of independently-compiled top-level chunks
-//! while preserving `globals` across them.
+//! Tests for `VM::run_top_level` — the persistent-REPL primitive (proposal
+//! 0176): one live VM runs the full top-level buffer from a given offset so each
+//! REPL line executes only its freshly-appended tail while `globals` persist.
 
 use crate::{
     bytecode::{
@@ -35,27 +35,30 @@ fn global_int(vm: &VM, idx: usize) -> i64 {
 }
 
 #[test]
-fn run_chunk_preserves_globals_across_chunks() {
+fn run_top_level_preserves_globals_and_skips_earlier_code() {
     let mut vm = empty_vm();
 
-    // Chunk 1: globals[0] = 5
-    let mut c1 = make(OpCode::OpConstant, &[0]);
-    c1.extend(make(OpCode::OpSetGlobal, &[0]));
-    vm.run_chunk(chunk(c1, vec![Value::Integer(5)]))
-        .expect("chunk 1 runs");
+    // Line 1: globals[0] = 5.
+    let mut buffer = make(OpCode::OpConstant, &[0]);
+    buffer.extend(make(OpCode::OpSetGlobal, &[0]));
+    vm.run_top_level(chunk(buffer.clone(), vec![Value::Integer(5)]), 0)
+        .expect("line 1 runs");
     assert_eq!(global_int(&vm, 0), 5);
 
-    // Chunk 2: globals[1] = globals[0] + 1 — reads the earlier global WITHOUT
-    // re-running chunk 1. Chunk 2's constant `1` is appended after chunk 1's
-    // constant `5`, so it lands at absolute constant index 1.
-    let mut c2 = make(OpCode::OpGetGlobal, &[0]);
-    c2.extend(make(OpCode::OpConstant, &[1]));
-    c2.extend(make(OpCode::OpAdd, &[]));
-    c2.extend(make(OpCode::OpSetGlobal, &[1]));
-    vm.run_chunk(chunk(c2, vec![Value::Integer(1)]))
-        .expect("chunk 2 runs");
+    // Line 2 is appended to the same buffer: globals[1] = globals[0] + 1. Running
+    // from `start` (the length before line 2) executes only line 2 — line 1 is
+    // not re-run — yet it reads the global line 1 stored.
+    let start = buffer.len();
+    buffer.extend(make(OpCode::OpGetGlobal, &[0]));
+    buffer.extend(make(OpCode::OpConstant, &[1]));
+    buffer.extend(make(OpCode::OpAdd, &[]));
+    buffer.extend(make(OpCode::OpSetGlobal, &[1]));
+    vm.run_top_level(
+        chunk(buffer, vec![Value::Integer(5), Value::Integer(1)]),
+        start,
+    )
+    .expect("line 2 runs");
 
-    // The earlier global survived; the new chunk read it and wrote a fresh slot.
     assert_eq!(global_int(&vm, 0), 5);
     assert_eq!(global_int(&vm, 1), 6);
 }

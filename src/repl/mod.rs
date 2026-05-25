@@ -1,77 +1,77 @@
-//! `flux repl` — an interactive read-eval-print loop (proposal 0175, Phase 1).
+//! `flux repl` — an interactive read-eval-print loop (proposals 0175 / 0176).
 //!
-//! This is the **accumulate-source** engine: the session keeps a growing buffer
-//! of the declarations entered so far, and each expression line re-runs the whole
-//! buffer wrapped in a synthetic `fn main` through the normal VM pipeline. Earlier
-//! definitions therefore stay in scope for later lines. The known costs —
-//! re-executing side-effecting declarations and O(n^2) recompilation — are
-//! documented in the proposal and removed by Phase 2 (proposal 0176).
+//! This is the **persistent** engine (Phase 2): the session keeps one
+//! prelude-loaded compiler and one live VM for its whole lifetime, and each
+//! entered line compiles to a *delta* that runs on the live VM via
+//! [`VM::run_chunk`](crate::vm::VM::run_chunk). Earlier declarations therefore
+//! never recompile and their side effects never re-fire — the O(n²) recompile
+//! and re-execution costs of Phase 1 are gone. See [`engine`] for the mechanism.
 //!
-//! Everything that can be a local binding (`let` / `fn`, plus the `it` result)
-//! lives inside `main`'s body, so an expression that performs `IO` can be bound
-//! to `it`; only the top-level-only forms (`import` / `data` / `effect` / `class`
-//! / `instance` / `module`) stay at file scope. A bad line is rolled back (its
-//! buffer entry is only committed after a clean compile/run), so the session never
-//! enters a broken state.
+//! Everything the user enters that is a declaration (`let` / `fn` / `data` /
+//! `import` / `effect` / `class` / `instance` / `module` / `alias`) compiles at
+//! file scope so it persists as a session global. A bare expression is bound to
+//! a fresh `__repl_N` global and printed (so `it` references the value); an
+//! effectful expression runs inside `main` without capturing `it`. A line that
+//! fails to compile or run is rolled back, so the session never breaks.
+
+mod engine;
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use crate::driver::{
-    flags::DriverFlags,
-    pipeline::program::{
-        REPL_TYPE_BINDING, RunProgramRequest, eval_source_for_repl, infer_repl_expr_type,
-    },
-    session::DriverSession,
+    flags::DriverFlags, pipeline::program::RunProgramRequest, session::DriverSession,
 };
 use crate::syntax::{
     lexeme::Lexeme, lexer::Lexer, parser::Parser, statement::Statement, token_type::TokenType,
 };
 
-/// The accumulated session: declarations remembered across lines.
-#[derive(Default)]
-struct ReplSession {
-    /// Top-level-only declarations (`import` / `data` / `effect` / `class` /
-    /// `instance` / `module`), emitted at file scope.
-    top_decls: Vec<String>,
-    /// `let` / `fn` declarations and `let __repl_N = <expr>` result bindings,
-    /// emitted inside `main`'s body in entry order.
-    body: Vec<String>,
-    /// Name of the most recent expression's result binding, which `it` resolves
-    /// to. `None` until the first expression is evaluated.
-    last_result: Option<String>,
-    /// Monotonic counter for unique result names (`it` can't be re-`let`, so each
-    /// result gets a fresh `__repl_N`).
-    result_counter: usize,
-}
+use engine::ReplEngine;
 
-/// How a single entered line should be handled.
-enum Line {
+/// How a single entered line should be routed.
+enum LineKind {
     /// Blank or comment-only — ignore.
     Skip,
     /// A bare expression to evaluate, bind to `it`, and print.
-    Expr(String),
-    /// A top-level-only declaration.
-    TopDecl(String),
-    /// A `let`/`fn` (or other in-`main`) declaration.
-    BodyDecl(String),
+    Expr,
+    /// A top-level declaration (everything that isn't a bare expression).
+    Decl,
+}
+
+/// What the dispatch loop should do after a `:`-command.
+enum Command {
+    /// Keep going.
+    Handled,
+    /// Re-bootstrap a fresh session.
+    Reset,
+    /// Exit the REPL.
+    Quit,
 }
 
 /// Entry point for `flux repl`. Reads lines from stdin until EOF (or `:quit`).
 pub fn run_repl(mut flags: DriverFlags) {
-    // Each line recompiles the synthetic entry against the session buffer; like
-    // `flux eval`, caching against a phantom entry path is pointless and mixing a
-    // cached prelude with the fresh entry mis-resolves global slots, so disable it.
+    // The prelude is compiled once at bootstrap and never recompiled, so module
+    // caching against a phantom entry path buys nothing; disable it. The per-
+    // module `[n of m] Compiling …` progress chatter is also noise here.
     flags.cache.no_cache = true;
-    // That recompile re-walks the whole prelude every line; its per-module
-    // `[n of m] Compiling …` progress chatter is noise at an interactive prompt.
     flags.runtime.quiet = true;
     let path = synthetic_repl_path().to_string_lossy().into_owned();
-    let session_cfg = DriverSession::from(&flags);
+    let session = DriverSession::from(&flags);
+    let request = RunProgramRequest {
+        path: &path,
+        flags: &flags,
+        session: &session,
+    };
+
+    let mut engine = match ReplEngine::bootstrap(request) {
+        Ok(engine) => engine,
+        Err(err) => {
+            eprintln!("{err}");
+            return;
+        }
+    };
 
     print_banner();
-
-    let mut repl = ReplSession::default();
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     while let Some(input) = read_input(&mut reader) {
@@ -80,103 +80,90 @@ pub fn run_repl(mut flags: DriverFlags) {
             continue;
         }
         if let Some(command) = trimmed.strip_prefix(':') {
-            if repl.handle_command(command, &path, &flags, &session_cfg) {
-                break;
+            match handle_command(command, &mut engine, request) {
+                Command::Quit => break,
+                Command::Reset => match ReplEngine::bootstrap(request) {
+                    Ok(fresh) => {
+                        engine = fresh;
+                        eprintln!("Session reset.");
+                    }
+                    Err(err) => eprintln!("reset failed: {err}"),
+                },
+                Command::Handled => {}
             }
             continue;
         }
-        repl.eval_line(&input, &path, &flags, &session_cfg);
+        match classify(trimmed) {
+            LineKind::Skip => {}
+            LineKind::Expr => {
+                engine.eval_expr(trimmed);
+            }
+            LineKind::Decl => {
+                engine.eval_decl(trimmed);
+            }
+        }
     }
     eprintln!("Goodbye.");
 }
 
-impl ReplSession {
-    /// Classify, evaluate, and (on success) commit one non-command line.
-    fn eval_line(&mut self, line: &str, path: &str, flags: &DriverFlags, cfg: &DriverSession) {
-        match classify(line) {
-            Line::Skip => {}
-            Line::Expr(src) => {
-                // Resolve `it` to the previous result's binding, then bind this
-                // result under a fresh unique name (Flux forbids re-`let it`).
-                let resolved = match &self.last_result {
-                    Some(prev) => rewrite_it(&src, prev),
-                    None => src,
-                };
-                let name = format!("__repl_{}", self.result_counter);
-                let binding = format!("let {name} = {resolved}");
-                let candidate = assemble(
-                    &self.top_decls,
-                    &self.body,
-                    &[binding.clone(), format!("println({name})")],
-                );
-                if eval(path, flags, cfg, candidate, true) {
-                    self.body.push(binding);
-                    self.last_result = Some(name);
-                    self.result_counter += 1;
-                }
-            }
-            Line::BodyDecl(src) => {
-                let candidate = assemble(&self.top_decls, &self.body, std::slice::from_ref(&src));
-                if eval(path, flags, cfg, candidate, false) {
-                    self.body.push(src);
-                }
-            }
-            Line::TopDecl(src) => {
-                let mut top = self.top_decls.clone();
-                top.push(src.clone());
-                let candidate = assemble(&top, &self.body, &[]);
-                if eval(path, flags, cfg, candidate, false) {
-                    self.top_decls.push(src);
-                }
-            }
-        }
+/// Handle a `:`-prefixed meta command (the text after the `:`).
+fn handle_command(
+    command: &str,
+    engine: &mut ReplEngine,
+    request: RunProgramRequest<'_>,
+) -> Command {
+    let mut parts = command.trim().splitn(2, char::is_whitespace);
+    let name = parts.next().unwrap_or("");
+    let rest = parts.next().unwrap_or("").trim();
+    match name {
+        "q" | "quit" => return Command::Quit,
+        "reset" => return Command::Reset,
+        "help" | "?" => print_help(),
+        "list" | "l" => print_listing(engine),
+        "type" | "t" => show_type(engine, rest, request),
+        other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
+    }
+    Command::Handled
+}
+
+/// Infer and print the type of `expr` in the current session, without evaluating
+/// it. `it` resolves to the most recent result.
+fn show_type(engine: &ReplEngine, expr: &str, request: RunProgramRequest<'_>) {
+    if expr.is_empty() {
+        eprintln!("usage: :type <expr>");
+        return;
+    }
+    if let Some(ty) = engine.infer_type(request, expr) {
+        println!("{expr} : {ty}");
     }
 }
 
-/// Run one assembled candidate through the non-exiting REPL evaluator.
-fn eval(path: &str, flags: &DriverFlags, cfg: &DriverSession, source: String, run: bool) -> bool {
-    eval_source_for_repl(
-        RunProgramRequest {
-            path,
-            flags,
-            session: cfg,
-        },
-        source,
-        run,
-    )
-}
-
-/// Assemble a runnable program from the session buffers plus `trailing`
-/// statements (the `let it = …` / `println(it)` for an expression, or the
-/// candidate declaration being validated). In-`main` statements are indented one
-/// level; multi-line statements keep their internal structure.
-fn assemble(top: &[String], body: &[String], trailing: &[String]) -> String {
-    let mut out = String::new();
-    for decl in top {
-        out.push_str(decl);
-        out.push('\n');
+/// Classify a (complete) input line by parsing it. Routing only — compile/type
+/// errors are surfaced later by the engine, so a parse error here falls back to
+/// "treat as an expression" so the real diagnostic is shown in context.
+fn classify(line: &str) -> LineKind {
+    let trimmed = line.trim();
+    let mut parser = Parser::new(Lexer::new(trimmed));
+    let program = parser.parse_program();
+    if program.statements.is_empty() {
+        // No statements + no errors ⇒ blank or comment-only; otherwise a parse
+        // error we let the engine report.
+        return if parser.errors.is_empty() {
+            LineKind::Skip
+        } else {
+            LineKind::Expr
+        };
     }
-    if !top.is_empty() {
-        out.push('\n');
+    match &program.statements[0] {
+        Statement::Expression { .. } if program.statements.len() == 1 => LineKind::Expr,
+        _ => LineKind::Decl,
     }
-    out.push_str("fn main() with IO {\n");
-    for stmt in body.iter().chain(trailing) {
-        for line in stmt.lines() {
-            out.push_str("    ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out.push_str("}\n");
-    out
 }
 
 /// Replace standalone `it` identifier tokens in `expr` with `replacement` (the
-/// latest result binding's name). The committed form therefore never contains
-/// `it`, which both resolves `it` to the previous result and avoids re-binding
-/// the `it` name (Flux forbids two `let it` in one scope). Token-aware via the
-/// lexer, so `it` inside strings/comments or within a longer identifier (`item`)
-/// is left untouched.
+/// latest result binding's name). Token-aware via the lexer, so `it` inside
+/// strings/comments or within a longer identifier (`item`) is left untouched.
+/// Shared with [`engine`], which resolves `it` before compiling a line.
 fn rewrite_it(expr: &str, replacement: &str) -> String {
     let mut spans: Vec<(usize, usize)> = Vec::new();
     for token in Lexer::new(expr).tokenize() {
@@ -196,37 +183,6 @@ fn rewrite_it(expr: &str, replacement: &str) -> String {
         out.replace_range(start..end, replacement);
     }
     out
-}
-
-/// Classify a (complete) input line by parsing it. Routing only — compile/type
-/// errors are surfaced later by the evaluator, so a parse error here falls back
-/// to "treat as an expression" so the real diagnostic is shown in context.
-fn classify(line: &str) -> Line {
-    let trimmed = line.trim();
-    let mut parser = Parser::new(Lexer::new(trimmed));
-    let program = parser.parse_program();
-    if program.statements.is_empty() {
-        // No statements + no errors ⇒ blank or comment-only; otherwise a parse
-        // error we let the evaluator report.
-        return if parser.errors.is_empty() {
-            Line::Skip
-        } else {
-            Line::Expr(trimmed.to_string())
-        };
-    }
-    match &program.statements[0] {
-        Statement::Expression { .. } if program.statements.len() == 1 => {
-            Line::Expr(trimmed.to_string())
-        }
-        Statement::Import { .. }
-        | Statement::Data { .. }
-        | Statement::EffectDecl { .. }
-        | Statement::EffectAlias { .. }
-        | Statement::Class { .. }
-        | Statement::Instance { .. }
-        | Statement::Module { .. } => Line::TopDecl(trimmed.to_string()),
-        _ => Line::BodyDecl(trimmed.to_string()),
-    }
 }
 
 /// Read one logical input (possibly spanning several physical lines when a form
@@ -271,66 +227,6 @@ fn needs_more_input(src: &str) -> bool {
     depth > 0
 }
 
-impl ReplSession {
-    /// Handle a `:`-prefixed meta command (the text after the `:`). Returns `true`
-    /// when the REPL should quit. Commands that inspect the session take the eval
-    /// context so they can compile against it (`:type`).
-    fn handle_command(
-        &mut self,
-        command: &str,
-        path: &str,
-        flags: &DriverFlags,
-        cfg: &DriverSession,
-    ) -> bool {
-        let mut parts = command.trim().splitn(2, char::is_whitespace);
-        let name = parts.next().unwrap_or("");
-        let rest = parts.next().unwrap_or("").trim();
-        match name {
-            "q" | "quit" => return true,
-            "help" | "?" => print_help(),
-            "reset" => {
-                self.top_decls.clear();
-                self.body.clear();
-                self.last_result = None;
-                self.result_counter = 0;
-                eprintln!("Session reset.");
-            }
-            "list" | "l" => print_listing(self),
-            "type" | "t" => self.show_type(rest, path, flags, cfg),
-            other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
-        }
-        false
-    }
-
-    /// Infer and print the type of `expr` in the current session context, without
-    /// evaluating it. `it` resolves to the most recent result, exactly as for a
-    /// bare expression. The query is wrapped as `let __repl_type = <expr>` over the
-    /// session buffer and its inferred type is read back (see
-    /// [`infer_repl_expr_type`]).
-    fn show_type(&self, expr: &str, path: &str, flags: &DriverFlags, cfg: &DriverSession) {
-        if expr.is_empty() {
-            eprintln!("usage: :type <expr>");
-            return;
-        }
-        let resolved = match &self.last_result {
-            Some(prev) => rewrite_it(expr, prev),
-            None => expr.to_string(),
-        };
-        let binding = format!("let {REPL_TYPE_BINDING} = {resolved}");
-        let candidate = assemble(&self.top_decls, &self.body, std::slice::from_ref(&binding));
-        if let Some(ty) = infer_repl_expr_type(
-            RunProgramRequest {
-                path,
-                flags,
-                session: cfg,
-            },
-            candidate,
-        ) {
-            println!("{expr} : {ty}");
-        }
-    }
-}
-
 fn print_banner() {
     eprintln!("Flux REPL — type :help for commands, :quit to exit.");
 }
@@ -339,21 +235,19 @@ fn print_help() {
     eprintln!("Commands:");
     eprintln!("  :type <expr>  Show the inferred type of <expr> (does not evaluate)");
     eprintln!("  :reset        Forget all session bindings");
-    eprintln!("  :list         Show the accumulated session source");
+    eprintln!("  :list         Show the accumulated session declarations");
     eprintln!("  :help, :?     Show this help");
     eprintln!("  :quit, :q     Exit");
 }
 
-fn print_listing(session: &ReplSession) {
-    if session.top_decls.is_empty() && session.body.is_empty() {
+fn print_listing(engine: &ReplEngine) {
+    let decls = engine.listing();
+    if decls.is_empty() {
         eprintln!("(session is empty)");
         return;
     }
-    for decl in &session.top_decls {
+    for decl in decls {
         eprintln!("{decl}");
-    }
-    for stmt in &session.body {
-        eprintln!("{stmt}");
     }
 }
 
@@ -375,7 +269,7 @@ fn synthetic_repl_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{Line, assemble, classify, needs_more_input, rewrite_it};
+    use super::{LineKind, classify, needs_more_input, rewrite_it};
 
     #[test]
     fn rewrite_it_replaces_only_standalone_it_identifiers() {
@@ -388,17 +282,17 @@ mod tests {
     }
 
     #[test]
-    fn classifies_expression_top_decl_and_body_decl() {
-        assert!(matches!(classify("1 + 2"), Line::Expr(_)));
-        assert!(matches!(classify("let xs = [1, 2, 3]"), Line::BodyDecl(_)));
-        assert!(matches!(classify("fn f() -> Int { 1 }"), Line::BodyDecl(_)));
-        assert!(matches!(classify("import Flow.List"), Line::TopDecl(_)));
+    fn classifies_expression_and_declarations() {
+        assert!(matches!(classify("1 + 2"), LineKind::Expr));
+        assert!(matches!(classify("let xs = [1, 2, 3]"), LineKind::Decl));
+        assert!(matches!(classify("fn f() -> Int { 1 }"), LineKind::Decl));
+        assert!(matches!(classify("import Flow.List"), LineKind::Decl));
         assert!(matches!(
             classify("data Color { Red, Green }"),
-            Line::TopDecl(_)
+            LineKind::Decl
         ));
-        assert!(matches!(classify(""), Line::Skip));
-        assert!(matches!(classify("// a comment"), Line::Skip));
+        assert!(matches!(classify(""), LineKind::Skip));
+        assert!(matches!(classify("// a comment"), LineKind::Skip));
     }
 
     #[test]
@@ -408,19 +302,5 @@ mod tests {
         assert!(!needs_more_input("fn f() { 1 }"));
         assert!(needs_more_input("[1, 2,"));
         assert!(needs_more_input("\"unterminated"));
-    }
-
-    #[test]
-    fn assemble_wraps_body_in_main_and_keeps_top_decls_at_file_scope() {
-        let program = assemble(
-            &["import Flow.List".to_string()],
-            &["let x = 1".to_string()],
-            &["let it = x + 1".to_string(), "println(it)".to_string()],
-        );
-        assert!(program.starts_with("import Flow.List\n\nfn main() with IO {\n"));
-        assert!(program.contains("    let x = 1\n"));
-        assert!(program.contains("    let it = x + 1\n"));
-        assert!(program.contains("    println(it)\n"));
-        assert!(program.trim_end().ends_with('}'));
     }
 }
