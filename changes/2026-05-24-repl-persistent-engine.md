@@ -3,7 +3,7 @@
   engine (proposal 0176, Phase 2). Instead of re-running the whole session on
   every line (Phase 1), it keeps one prelude-loaded compiler and one VM for the
   session and compiles each entered line as a *delta* that executes on the live
-  VM via the new `VM::run_chunk`. Earlier declarations no longer recompile and
+  VM via the new `VM::run_top_level`. Earlier declarations no longer recompile and
   their side effects no longer re-fire — an effectful line's output appears
   exactly once, and the per-line cost no longer grows with session length.
 

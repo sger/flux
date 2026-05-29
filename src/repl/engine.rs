@@ -5,9 +5,9 @@
 //! [`VM`] for the session's lifetime. Each entered line is compiled as a *delta*
 //! on the persistent compiler — earlier session globals stay resolvable through
 //! the compiler's symbol table, so a line like `let y = x + 1` resolves `x` to
-//! its existing slot — and the delta bytecode is run on the live VM via
-//! [`VM::run_chunk`], which keeps `globals` across chunks. Earlier declarations
-//! therefore never recompile and their side effects never re-fire.
+//! its existing slot — and the freshly-compiled tail is run on the live VM via
+//! [`VM::run_top_level`], which keeps `globals` across lines. Earlier
+//! declarations therefore never recompile and their side effects never re-fire.
 //!
 //! Pure bindings/declarations compile straight to session globals (they persist
 //! and run exactly once). A bare expression is wrapped as a top-level
@@ -171,8 +171,27 @@ impl ReplEngine {
                 source,
                 diagnostics,
             } => {
-                self.render(&diagnostics, &source);
-                false
+                // A declaration whose initializer is effectful (e.g.
+                // `let _ = print("hi")`) is rejected at top level (E413). Re-run
+                // it inside `main` so the effect fires once. The binding cannot
+                // persist (effectful results aren't captured — a documented v1
+                // limitation), so warn when a *named* binding is lost.
+                if has_top_level_effect_error(&diagnostics) {
+                    let ran = self.eval_effectful_expr(&resolved);
+                    if ran
+                        && let Some(name) = top_level_binding_name(&resolved)
+                        && name != "_"
+                    {
+                        eprintln!(
+                            "note: `{name}` was not added to the session — \
+                             effectful results can't persist yet."
+                        );
+                    }
+                    ran
+                } else {
+                    self.render(&diagnostics, &source);
+                    false
+                }
             }
             LineOutcome::RuntimeFailed(err) => {
                 eprintln!("{err}");
@@ -407,4 +426,71 @@ fn top_level_binding_name(source: &str) -> Option<String> {
             }
             _ => None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReplEngine;
+    use crate::driver::pipeline::program::RunProgramRequest;
+    use crate::driver::{session::DriverSession, test_support::base_flags};
+
+    /// Build a real prelude-loaded `ReplEngine` in-process, mirroring how
+    /// `run_repl` wires up the session (cache off, quiet on, synthetic entry
+    /// path so the cwd-relative `lib/Flow` prelude resolves).
+    fn bootstrap_test_engine() -> ReplEngine {
+        let mut flags = base_flags();
+        flags.cache.no_cache = true;
+        flags.runtime.quiet = true;
+        let session = DriverSession::from(&flags);
+        let mut path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        path.push("__flux_repl__.flx");
+        let path = path.to_string_lossy().into_owned();
+        let request = RunProgramRequest {
+            path: &path,
+            flags: &flags,
+            session: &session,
+        };
+        ReplEngine::bootstrap(request).expect("bootstrap REPL session")
+    }
+
+    /// Proposal 0176 acceptance criterion: per-line work does not grow with
+    /// session length — a function defined on line 1 and called on every later
+    /// line must not be recompiled. The persistent compiler appends each line to
+    /// one top-level instruction buffer and runs only the new tail, so the proof
+    /// is structural: compiling a later line never mutates the bytes emitted for
+    /// earlier lines (append-only ⇒ no recompilation).
+    #[test]
+    fn repl_does_not_recompile_earlier_lines() {
+        let mut engine = bootstrap_test_engine();
+
+        // Line 1: define a function the later lines all call.
+        assert!(
+            engine.eval_decl("fn double(n: Int) -> Int { n * 2 }"),
+            "function definition should compile"
+        );
+
+        // Snapshot the instruction buffer after line 1.
+        let baseline = engine.compiler.bytecode().instructions;
+        let prefix = baseline.len();
+        assert!(prefix > 0, "line 1 must emit some top-level instructions");
+
+        // Each later line calls `double`. The line-1 prefix must stay
+        // byte-identical (not recompiled) and the buffer must only grow.
+        let mut prev_len = prefix;
+        for i in 0..5 {
+            assert!(engine.eval_expr("double(21)"), "call line {i} should run");
+            let after = engine.compiler.bytecode().instructions;
+            assert_eq!(
+                &after[..prefix],
+                &baseline[..],
+                "line 1's instructions must be untouched on call line {i} \
+                 (earlier lines are never recompiled)"
+            );
+            assert!(
+                after.len() > prev_len,
+                "the buffer must grow by appending line {i}, never shrink/rewrite"
+            );
+            prev_len = after.len();
+        }
+    }
 }
