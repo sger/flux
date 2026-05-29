@@ -324,7 +324,10 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   uninitialized slot, since the compiler defines the binding before its
   initializer).
 - **Effectful-result `it`.** An effectful expression's value isn't captured by
-  `it` (it can't be a top-level binding).
+  `it` (it can't be a top-level binding). An effectful *declaration* (e.g.
+  `let _ = print("hi")`) does now run its effect once — it is re-run inside a
+  synthesized `main` — but a *named* effectful binding still can't persist into
+  the session (the REPL prints a note saying so).
 - **`:type` / `:list`** use a lightweight parallel record of committed
   declaration sources, re-inferred over a fresh compile, rather than reading
   types back from the persistent compiler (whose post-compile expression IDs are

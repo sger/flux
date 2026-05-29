@@ -527,7 +527,7 @@ pub(crate) struct ReplBootstrap {
 /// module pipeline (which loads + compiles the Flow prelude into one `Compiler`),
 /// then run the resulting bytecode once on a fresh `VM` so the prelude's globals
 /// are live. The returned compiler and VM are handed to the engine, which from
-/// here compiles each entered line as a delta and runs it via [`VM::run_chunk`]
+/// here compiles each entered line as a delta and runs it via [`VM::run_top_level`]
 /// without ever recompiling the prelude or earlier lines.
 pub(crate) fn bootstrap_repl_session(
     request: RunProgramRequest<'_>,
