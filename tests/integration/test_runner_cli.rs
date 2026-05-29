@@ -1959,6 +1959,30 @@ fn repl_runs_effects_once_without_replaying() {
 }
 
 #[test]
+fn repl_runs_effectful_declaration_once() {
+    // A top-level declaration whose initializer is effectful (e.g.
+    // `let _ = println("effect")`) used to fail with E413 / E414. The REPL now
+    // re-runs it inside a synthesized `main`, so the effect fires exactly once
+    // and a later pure line still evaluates (proposal 0176).
+    let output = run_flux_repl("let _ = println(\"effect\")\n1 + 1\n:quit\n");
+    let effect_lines = repl_results(&output)
+        .into_iter()
+        .filter(|line| line.contains("effect"))
+        .count();
+    assert_eq!(
+        effect_lines,
+        1,
+        "the declaration's effect must run exactly once, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        repl_results(&output).iter().any(|line| line == "2"),
+        "the later pure line still evaluates, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
 fn repl_rebinds_an_existing_name() {
     // Phase 2 keeps one persistent compiler for the session, so redefining a
     // name shadows the old binding (on a fresh global slot) instead of erroring
@@ -2093,5 +2117,78 @@ fn repl_load_missing_file_keeps_session() {
         combined_output(&output).contains("cannot read"),
         "expected a 'cannot read' error, output:\n{}",
         combined_output(&output),
+    );
+}
+
+#[test]
+fn repl_list_shows_session_declarations() {
+    // `:list` echoes the committed session declarations (to stderr). A pure
+    // `let` and a `fn` should both appear verbatim.
+    let output = run_flux_repl("let a = 1\nfn f(n) { n + 1 }\n:list\n:quit\n");
+    let combined = combined_output(&output);
+    assert!(
+        combined.contains("let a = 1"),
+        "`:list` should show the `let`, output:\n{combined}",
+    );
+    assert!(
+        combined.contains("fn f(n) { n + 1 }"),
+        "`:list` should show the `fn`, output:\n{combined}",
+    );
+}
+
+#[test]
+fn repl_help_lists_commands() {
+    // `:help` and its `:?` alias both print the command list (to stderr).
+    for command in [":help", ":?"] {
+        let output = run_flux_repl(&format!("{command}\n:quit\n"));
+        let combined = combined_output(&output);
+        for expected in [":type", ":load", ":reset", ":list", ":quit"] {
+            assert!(
+                combined.contains(expected),
+                "`{command}` should mention `{expected}`, output:\n{combined}",
+            );
+        }
+    }
+}
+
+#[test]
+fn repl_reset_after_load_clears_loaded_definitions() {
+    // `:reset` forgets everything brought in by `:load`: `triple` resolves before
+    // the reset (one `21`) and is gone after it (the second call errors, so no
+    // second `21`).
+    let file = repl_temp_flx("reset_after_load", "fn triple(n: Int) -> Int { n * 3 }\n");
+    let output = run_flux_repl(&format!(
+        ":load \"{}\"\ntriple(7)\n:reset\ntriple(7)\n:quit\n",
+        file.display()
+    ));
+    let _ = std::fs::remove_file(&file);
+    let twenty_ones = repl_results(&output)
+        .into_iter()
+        .filter(|line| line == "21")
+        .count();
+    assert_eq!(
+        twenty_ones,
+        1,
+        "`triple` should resolve before `:reset` and be gone after, output:\n{}",
+        combined_output(&output),
+    );
+    assert!(
+        combined_output(&output).contains("Session reset."),
+        "`:reset` should confirm, output:\n{}",
+        combined_output(&output),
+    );
+}
+
+#[test]
+fn repl_effectful_expression_does_not_update_it() {
+    // A documented v1 limitation: an effectful expression runs but its result is
+    // not captured by `it`. So after `21 * 2` (it = 42), running `println("hi")`
+    // leaves `it` at 42, which the final line prints.
+    let output = run_flux_repl("21 * 2\nprintln(\"hi\")\nit\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["42", "\"hi\"", "42"],
+        "effectful expression must not rebind `it`, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
     );
 }

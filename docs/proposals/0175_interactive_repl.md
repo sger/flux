@@ -1,6 +1,6 @@
 - Feature Name: Interactive REPL — Phase 1 (accumulate-source MVP)
 - Start Date: 2026-05-24
-- Status: Draft
+- Status: Implemented (2026-05-24)
 - Proposal PR:
 - Flux Issue:
 - Builds on: the `flux eval "<expr>"` subcommand ([../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs)) and the staged VM compiler pipeline ([../../src/driver/pipeline/program.rs](../../src/driver/pipeline/program.rs))
@@ -198,11 +198,14 @@ which compiles each line incrementally against a persistent `Compiler` and a liv
 - `CliCommand::Repl { flags }` in
   [../../src/cli/cmdline.rs](../../src/cli/cmdline.rs), dispatched in
   [../../src/cli/mod.rs](../../src/cli/mod.rs).
-- A new `src/driver/pipeline/repl.rs` holding the loop: read line (raw `stdin` for
-  v0, or a small line-editor dependency such as `rustyline`), classify, build
-  candidate source, call `run_from_source`, print, commit/roll back. Reuses the
+- A new module holding the loop: read line (raw `stdin` for v0, or a small
+  line-editor dependency such as `rustyline`), classify, build candidate source,
+  call `run_from_source`, print, commit/roll back. Reuses the
   `wrap_expression`-style assembly from
   [../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs).
+  (Shipped initially as `src/driver/pipeline/repl.rs`; the Phase 2 engine
+  ([0176](0176_interactive_repl_persistent_engine.md)) moved it to a dedicated
+  top-level [`src/repl/`](../../src/repl/) module.)
 - Multi-line continuation via brace/paren balance reported by the parser.
 
 ### Acceptance criteria (Phase 1)

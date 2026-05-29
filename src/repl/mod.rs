@@ -2,8 +2,9 @@
 //!
 //! This is the **persistent** engine (Phase 2): the session keeps one
 //! prelude-loaded compiler and one live VM for its whole lifetime, and each
-//! entered line compiles to a *delta* that runs on the live VM via
-//! [`VM::run_chunk`](crate::vm::VM::run_chunk). Earlier declarations therefore
+//! entered line compiles to a *delta* whose freshly-appended tail runs on the
+//! live VM via [`VM::run_top_level`](crate::vm::VM::run_top_level). Earlier
+//! declarations therefore
 //! never recompile and their side effects never re-fire — the O(n²) recompile
 //! and re-execution costs of Phase 1 are gone. See [`engine`] for the mechanism.
 //!
