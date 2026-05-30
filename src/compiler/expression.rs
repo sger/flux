@@ -2435,6 +2435,97 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compile `expr` inside a synthesized zero-argument closure that is invoked
+    /// immediately (an IIFE: `OpClosure idx 0` then `OpCall 0`), leaving the
+    /// expression's value on the stack just like [`compile_expression`].
+    ///
+    /// At file/top-level scope there is no enclosing function, so any transient
+    /// binding an expression introduces (a `match` scrutinee temp, its arm
+    /// pattern bindings) would otherwise be allocated in the *global* namespace —
+    /// the scrutinee temp as an unmappable anonymous global, and arm bindings as
+    /// `Local`s indexed off the main frame's `base_pointer == 0`, aliasing the
+    /// operand stack. Running the expression inside this synthetic frame makes
+    /// those transients proper locals of the closure's own frame, fixing both the
+    /// "missing global mapping" link error and the silent base-0 miscompile.
+    ///
+    /// The wrapped node is compiled as-is (same `ExprId`s), so `hm_expr_types`
+    /// lookups during codegen still resolve. At true top level the body resolves
+    /// outer names as globals (`OpGetGlobal`, frame-independent), so the closure
+    /// captures no free variables.
+    pub(super) fn compile_expression_in_synthetic_frame(
+        &mut self,
+        expr: &Expression,
+    ) -> CompileResult<()> {
+        self.enter_scope();
+
+        self.with_function_context_with_param_effect_rows(
+            0,
+            &[],
+            std::collections::HashMap::new(),
+            |compiler| compiler.compile_non_tail_expression(expr),
+        )?;
+
+        if !self.is_last_instruction(OpCode::OpReturnValue)
+            && !self.is_last_instruction(OpCode::OpReturnLocal)
+        {
+            self.emit(OpCode::OpReturnCheck, &[]);
+            self.emit(OpCode::OpReturnValue, &[]);
+        }
+
+        let free_symbols = self.symbol_table.free_symbols.clone();
+        for free in &free_symbols {
+            if free.symbol_scope == SymbolScope::Local {
+                self.mark_captured_in_current_function(free.index);
+            }
+        }
+        debug_assert!(
+            free_symbols.is_empty(),
+            "a top-level synthetic frame should capture no free variables"
+        );
+
+        let num_locals = self.symbol_table.num_definitions;
+        let (instructions, locations, files, effect_summary) = self.leave_scope();
+
+        let (files, boundary_location) = {
+            let mut files = files;
+            let file_id = files
+                .iter()
+                .position(|file| file == &self.file_path)
+                .map(|index| index as u32)
+                .unwrap_or_else(|| {
+                    files.push(self.file_path.clone());
+                    (files.len() - 1) as u32
+                });
+            (
+                files,
+                crate::bytecode::debug_info::Location {
+                    file_id,
+                    span: expr.span(),
+                },
+            )
+        };
+
+        for free in &free_symbols {
+            self.load_symbol(free);
+        }
+
+        let fn_idx = self.add_constant(Value::Function(Arc::new(CompiledFunction::new(
+            instructions,
+            num_locals,
+            0,
+            Some(
+                FunctionDebugInfo::new(None, files, locations)
+                    .with_boundary_location(Some(boundary_location))
+                    .with_effect_summary(effect_summary),
+            ),
+        ))));
+
+        self.emit_closure_index(fn_idx, free_symbols.len());
+        self.emit(OpCode::OpCall, &[0]);
+
+        Ok(())
+    }
+
     pub(super) fn compile_interpolated_string(
         &mut self,
         parts: &[StringPart],
