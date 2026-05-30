@@ -329,11 +329,18 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   earlier-line record still errors (E463) — the accumulated metadata is scoped, not
   a blanket pass. Enum and **positional** ADTs, `let` / `fn`, recursion, `if` /
   `match`, imports, and `it` also work across lines.
-- **Self-referential rebind.** `let x = x + 1` reports `x` as undefined rather
-  than reading the previous value, because the old binding is forgotten before
-  the line compiles (the alternative — keeping it — silently reads the new,
-  uninitialized slot, since the compiler defines the binding before its
-  initializer).
+- **Self-referential rebind — resolved.** `let x = x + 1` now reads the previous
+  value (`x` becomes 11 when it was 10). The compiler defines a `let` binding
+  before its initializer (so recursion works), which meant a naive rebind read the
+  new, still-uninitialized slot; the REPL now detects a self-referential rebind —
+  a single top-level `let name = init` where `init` makes a free use of `name` that
+  is already a session binding — and evaluates it as capture-then-rebind: it binds
+  `init` to a fresh hidden global while the previous `name` is still in scope, then
+  rebinds `name` to that capture. The two steps are atomic (a failure in either
+  restores the pre-attempt compiler). Because the path is value-based, a rebind may
+  also change the binding's type (`xs: [Int]` → `xs: Int` via `len(xs)`). A *fresh*
+  `let y = y + 1` (no prior `y`) is left to the normal path, where the self-use is a
+  genuine unbound reference.
 - **Effectful-result `it`.** An effectful expression's value isn't captured by
   `it` (it can't be a top-level binding). An effectful *declaration* (e.g.
   `let _ = print("hi")`) does now run its effect once — it is re-run inside a

@@ -2234,6 +2234,35 @@ fn repl_uses_class_and_instance_declared_on_earlier_lines() {
 }
 
 #[test]
+fn repl_self_referential_rebind_reads_previous_value() {
+    // Proposal 0176: `let x = x + 1` rebinding an existing session binding reads
+    // the *previous* value (11), then `let x = x * 2` reads that (22). Previously
+    // the initializer saw a freshly-defined, uninitialized slot and the line
+    // failed with a None-arithmetic runtime error. `let` declarations print
+    // nothing, so only the bare `x` lines produce output.
+    let output = run_flux_repl("let x = 10\nlet x = x + 1\nx\nlet x = x * 2\nx\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["11", "22"],
+        "self-referential rebind should read the previous value, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_self_referential_rebind_allows_type_change() {
+    // The capture-then-rebind path is value-based, so a rebind may change the
+    // binding's type: `xs : [Int]` becomes `xs : Int` via `len(xs)`.
+    let output = run_flux_repl("let xs = [1, 2, 3]\nlet xs = len(xs)\nxs + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["4"],
+        "self-referential rebind should allow a type change, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn repl_uses_named_field_data_declared_on_an_earlier_line() {
     // Proposal 0176: a `data` type with named fields declared on one line is
     // fully usable on later lines — construction, dot access, and functional

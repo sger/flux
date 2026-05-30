@@ -25,6 +25,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::ast::free_vars::collect_free_vars;
 use crate::compiler::Compiler;
 use crate::diagnostics::Diagnostic;
 use crate::driver::pipeline::program::{
@@ -161,6 +162,13 @@ impl ReplEngine {
     /// file scope so it persists as a session global; its initializer runs once.
     pub(super) fn eval_decl(&mut self, line: &str) -> bool {
         let resolved = self.resolve_it(line);
+        // A self-referential rebind (`let x = x + 1`, where `x` is already a
+        // session binding) needs the initializer to read the *previous* value.
+        // Compiling it directly would define a fresh `x` slot before the
+        // initializer and read it back uninitialized; handle it specially.
+        if let Some((name, init)) = self.self_referential_rebind(&resolved) {
+            return self.eval_self_rebind(&resolved, &name, &init);
+        }
         match self.run_line(resolved.clone()) {
             LineOutcome::Committed => {
                 let name = top_level_binding_name(&resolved);
@@ -194,6 +202,88 @@ impl ReplEngine {
                 }
             }
             LineOutcome::RuntimeFailed(err) => {
+                eprintln!("{err}");
+                false
+            }
+        }
+    }
+
+    /// Detect a *self-referential rebind*: a single top-level `let name = init`
+    /// where `init` reads `name` (a free use, scope-aware) and `name` already
+    /// names a session binding. Returns `(name, init_source)` so the caller can
+    /// evaluate `init` against the previous value. `None` for anything else —
+    /// a fresh `let x = x` is a genuine unbound reference and is left to the
+    /// normal path to report.
+    fn self_referential_rebind(&self, line: &str) -> Option<(String, String)> {
+        let mut parser = Parser::new(Lexer::new(line));
+        let program = parser.parse_program();
+        if !parser.errors.is_empty() || program.statements.len() != 1 {
+            return None;
+        }
+        let Statement::Let { name, value, .. } = &program.statements[0] else {
+            return None;
+        };
+        if !collect_free_vars(value).contains(name) {
+            return None;
+        }
+        let name_str = parser.interner().resolve(*name).to_string();
+        // Only an existing session binding qualifies: otherwise the reference is
+        // genuinely unbound and should surface as such.
+        let is_rebind = self
+            .compiler
+            .interner
+            .lookup(&name_str)
+            .is_some_and(|sym| self.compiler.symbol_table.exists_in_current_scope(sym));
+        if !is_rebind {
+            return None;
+        }
+        let span = value.span();
+        let start = byte_offset(line, span.start)?;
+        let end = byte_offset(line, span.end)?;
+        let init = line.get(start..end)?.to_string();
+        Some((name_str, init))
+    }
+
+    /// Evaluate a self-referential rebind by capturing the initializer's value
+    /// while the previous `name` is still in scope, then rebinding `name` to that
+    /// capture (proposal 0176). Two committed steps run in sequence: first
+    /// `let __repl_prev_N = <init>`, whose `<init>` reads the old `name`; then
+    /// `let name = __repl_prev_N`, which forgets the old `name` and rebinds it.
+    /// The pair is atomic — a failure in either step restores the pre-attempt
+    /// compiler so the session never half-applies the rebind — and the original
+    /// line is what gets recorded for `:list`.
+    fn eval_self_rebind(&mut self, original: &str, name: &str, init: &str) -> bool {
+        let checkpoint = self.compiler.clone();
+        let prev = format!("__repl_prev_{}", self.result_counter);
+        self.result_counter += 1;
+
+        let capture = format!("let {prev} = {init}");
+        if !self.run_rebind_step(capture, &checkpoint) {
+            return false;
+        }
+        let rebind = format!("let {name} = {prev}");
+        if !self.run_rebind_step(rebind, &checkpoint) {
+            return false;
+        }
+        self.commit(Some(name.to_string()), original.to_string());
+        true
+    }
+
+    /// Run one synthetic step of a self-rebind, rolling the compiler all the way
+    /// back to `checkpoint` (before step 1) on any failure so the pair is atomic.
+    fn run_rebind_step(&mut self, source: String, checkpoint: &Compiler) -> bool {
+        match self.run_line(source) {
+            LineOutcome::Committed => true,
+            LineOutcome::CompileFailed {
+                source,
+                diagnostics,
+            } => {
+                self.compiler = checkpoint.clone();
+                self.render(&diagnostics, &source);
+                false
+            }
+            LineOutcome::RuntimeFailed(err) => {
+                self.compiler = checkpoint.clone();
                 eprintln!("{err}");
                 false
             }
@@ -410,6 +500,28 @@ impl ReplEngine {
     fn render(&self, diagnostics: &[Diagnostic], source: &str) {
         render_repl_diagnostics(diagnostics, &self.path, source, &self.diagnostics);
     }
+}
+
+/// Byte offset of a 1-based-line / 0-based-column [`Position`] within `source`,
+/// for slicing an AST node's source text back out (parser spans are line/column,
+/// not byte offsets). Columns are counted per `char`, matching the lexer, and the
+/// returned index always falls on a UTF-8 boundary. `None` if the position is
+/// past the end of `source`.
+fn byte_offset(source: &str, pos: crate::diagnostics::position::Position) -> Option<usize> {
+    let mut line = 1usize;
+    let mut col = 0usize;
+    for (i, ch) in source.char_indices() {
+        if line == pos.line && col == pos.column {
+            return Some(i);
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line == pos.line && col == pos.column).then_some(source.len())
 }
 
 /// The top-level `data` declarations in a just-compiled line, cloned for the
