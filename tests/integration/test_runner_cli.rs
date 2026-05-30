@@ -2234,6 +2234,55 @@ fn repl_uses_class_and_instance_declared_on_earlier_lines() {
 }
 
 #[test]
+fn repl_uses_named_field_data_declared_on_an_earlier_line() {
+    // Proposal 0176: a `data` type with named fields declared on one line is
+    // fully usable on later lines — construction, dot access, and functional
+    // spread-update. The session accumulates the `data` declaration so later
+    // lines' inference + named-field desugar see its field metadata; without
+    // it, construction reported E082/E430 and spread reported E464. (Unblocked
+    // by the top-level-frame codegen fix, which makes the spread's desugared
+    // `match` compile correctly at REPL top level.)
+    let output = run_flux_repl(concat!(
+        "data Person { Person { name: String, age: Int } }\n",
+        "let alice = Person { name: \"Alice\", age: 30 }\n",
+        "alice.age\n",
+        "let bob = { ...alice, name: \"Bob\", age: alice.age + 1 }\n",
+        "bob.name\n",
+        "bob.age\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        ["30", "\"Bob\"", "31"],
+        "cross-line named-field construct / access / spread should work, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_rejects_unknown_field_on_cross_line_named_data() {
+    // The accumulated `data` metadata is scoped, not a blanket pass: an unknown
+    // field on an earlier-line record still errors (E463) rather than silently
+    // resolving — the line is rolled back and produces no value.
+    let output = run_flux_repl(concat!(
+        "data Point { Point { x: Int, y: Int } }\n",
+        "let p = Point { x: 1, y: 2 }\n",
+        "p.z\n",
+        ":quit\n",
+    ));
+    assert!(
+        repl_results(&output).is_empty(),
+        "unknown field must not yield a value, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("E463"),
+        "expected E463 for unknown field, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn run_compiles_top_level_match_and_destructure() {
     // The cached/parallel compile path (module linker) used to fail with
     // "missing global mapping" when a top-level `match` or tuple `let (a, b)`
