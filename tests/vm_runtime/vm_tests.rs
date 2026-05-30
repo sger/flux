@@ -1867,3 +1867,39 @@ fn test_flat_map_base() {
         Value::Integer(66)
     );
 }
+
+// ── Top-level transient-binding codegen (synthetic-frame fix) ────────────────
+// A `match` (or a value containing one) in top-level position used to allocate
+// its scrutinee temp / arm bindings in the global namespace, off the main
+// frame's base_pointer 0 — aliasing the operand stack and silently miscompiling.
+// They now run inside a synthesized frame.
+
+#[test]
+fn test_top_level_match_binding() {
+    assert_eq!(
+        run("let x = match Some(7) { Some(n) -> n, _ -> 0 }\nx"),
+        Value::Integer(7)
+    );
+}
+
+#[test]
+fn test_top_level_match_in_tuple_keeps_siblings() {
+    // Previously yielded ("X" -> 7, 7): the arm binding clobbered the first
+    // tuple element on the stack. The first element must stay "X".
+    assert_eq!(
+        run("let t = (\"X\", match Some(7) { Some(n) -> n, _ -> 0 })\nt.0"),
+        Value::String(std::rc::Rc::new("X".to_string()))
+    );
+    assert_eq!(
+        run("let t = (\"X\", match Some(7) { Some(n) -> n, _ -> 0 })\nt.1"),
+        Value::Integer(7)
+    );
+}
+
+#[test]
+fn test_top_level_destructure_of_match() {
+    assert_eq!(
+        run("let (p, q) = match Some(4) { Some(n) -> (n, n + 1), _ -> (0, 0) }\np + q"),
+        Value::Integer(9)
+    );
+}

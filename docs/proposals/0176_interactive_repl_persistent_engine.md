@@ -307,17 +307,24 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   to `it`.
 
 ### Known v1 limitations
-- **Cross-line use of `data`-with-named-fields, `effect`, and `class` / `instance`.**
-  A declaration of these kinds works within a single line and in a whole file, but
-  using it on a *later* line fails: the named-field desugar metadata is collected
-  per-program (so the later line doesn't see the earlier `data`'s fields, E430/E082),
-  user effect registries are reset by `phase_reset` to the preloaded set each
-  compile (so a later `with`/`handle` reports E407 "Unknown Effect"), and class
-  methods don't resolve across lines (E004). Enum and **positional** ADTs, `let` /
-  `fn`, recursion, `if` / `match`, imports, and `it` all work across lines. Closing
-  these needs the same kind of cross-line threading used for binding schemes
-  (`repl_session_schemes`), extended to ADT/effect/class collection state — a
-  follow-up.
+- **Cross-line use of `effect` and `class` / `instance` — resolved.** A user
+  `effect` and a user `class` plus its `instance`s declared on an earlier line are
+  now usable on later lines: the REPL accumulates a successful line's effect ops /
+  effect-op signatures and classes / instances into the preloaded sets that each
+  compile rebuilds from, instead of resetting to prelude-only (previously E407 for
+  effects, E004 for class methods).
+- **Cross-line use of `data`-with-named-fields — still open.** The metadata side is
+  solved (the named-field desugar can be fed earlier lines' `data` declarations, and
+  it produces the correct positional AST), but a deeper blocker remains: a named-field
+  constructor or spread whose field *value* desugars to a `match` — e.g. the common
+  functional update `{ ...rec, n: rec.n + 1 }`, where `rec.n` lowers to a `match` —
+  **miscompiles when emitted at the REPL's top level** (the match's pattern-binding
+  slots collide with the operand stack holding the other constructor arguments).
+  The same code is correct inside a function body and in a whole file. Until that
+  top-level codegen issue is fixed, cross-line named-field `data` stays disabled so
+  it errors (E430/E082) rather than silently producing a wrong value. Enum and
+  **positional** ADTs, `let` / `fn`, recursion, `if` / `match`, imports, and `it`
+  all work across lines.
 - **Self-referential rebind.** `let x = x + 1` reports `x` as undefined rather
   than reading the previous value, because the old binding is forgotten before
   the line compiles (the alternative — keeping it — silently reads the new,
