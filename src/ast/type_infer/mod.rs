@@ -515,6 +515,13 @@ pub struct InferProgramConfig {
     pub effect_row_aliases: HashMap<Identifier, EffectExpr>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
+    /// `Statement::Data` declarations from earlier compilation units whose
+    /// constructors must be in scope for this program (proposal 0176 REPL:
+    /// `data` declared on an earlier line; the constructors carry their
+    /// named-field metadata so a later line's `Point { x: .. }` / `{ ...p, .. }`
+    /// resolves). Predeclared before the program's own constructors so a same-
+    /// line rebind overrides. Empty for ordinary single-unit compiles.
+    pub preloaded_adt_data: Vec<Statement>,
 }
 
 /// Run Algorithm W (Hindley-Milner) over the entire program.
@@ -563,6 +570,10 @@ pub fn infer_program(
         },
     );
     init_class_env(&mut ctx, config.class_env, interner);
+    // Predeclare preloaded constructors (e.g. earlier REPL lines' `data`) before
+    // the program's own, so their named-field metadata is in scope and a same-
+    // line rebind of an ADT still wins.
+    ctx.predeclare_data_constructors_in_statements(&config.preloaded_adt_data);
     ctx.infer_program(program);
     ctx.solve_deferred_constraints();
     build_infer_result(ctx)

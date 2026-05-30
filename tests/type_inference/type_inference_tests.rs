@@ -201,6 +201,7 @@ fn infer_program_from_source(
             preloaded_effect_op_signatures: effect_op_sigs,
             effect_row_aliases: HashMap::new(),
             class_env: None,
+            preloaded_adt_data: Vec::new(),
         },
     );
     (result, program)
@@ -2140,6 +2141,7 @@ fn main() -> Unit {
             preloaded_effect_op_signatures: HashMap::new(),
             effect_row_aliases: HashMap::new(),
             class_env: None,
+            preloaded_adt_data: Vec::new(),
         },
     );
     assert!(

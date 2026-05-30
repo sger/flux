@@ -1124,6 +1124,14 @@ pub struct Compiler {
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
     /// outside the REPL.
     repl_session_schemes: HashMap<Symbol, Scheme>,
+    /// `data` declarations committed by earlier REPL lines, replayed into HM
+    /// inference and the named-field desugar so a later line can construct,
+    /// access, or spread a record type declared earlier (proposal 0176). A
+    /// passive store: the REPL engine appends to it after each successful line
+    /// via [`Compiler::accumulate_repl_session_data`]; it rides the engine's
+    /// per-line compiler clone, so a failed line rolls it back. Empty (and
+    /// inert) outside the REPL.
+    repl_session_adt_data: Vec<Statement>,
     #[cfg(test)]
     pub(super) hm_infer_runs: usize,
 }
@@ -1339,6 +1347,7 @@ impl Compiler {
             routed_call_perform_ids: HashSet::new(),
             repl_mode: false,
             repl_session_schemes: HashMap::new(),
+            repl_session_adt_data: Vec::new(),
             #[cfg(test)]
             hm_infer_runs: 0,
         }
@@ -3155,6 +3164,26 @@ impl Compiler {
         self.symbol_table.forget(name)
     }
 
+    /// REPL session `data` accumulation (proposal 0176): record the top-level
+    /// `data` declarations from a just-committed line so later lines can use
+    /// their constructors — including named-field construction / spread / field
+    /// access, whose metadata only a real `Statement::Data` carries. A line that
+    /// redefines an existing ADT replaces the earlier entry (matching the engine's
+    /// `forget_redefined` rebind model). The REPL engine extracts the statements
+    /// and calls this after a successful line; inert otherwise.
+    pub fn accumulate_repl_session_data(&mut self, data_decls: Vec<Statement>) {
+        for decl in data_decls {
+            let Statement::Data { name, .. } = &decl else {
+                continue;
+            };
+            let name = *name;
+            self.repl_session_adt_data.retain(
+                |existing| !matches!(existing, Statement::Data { name: n, .. } if *n == name),
+            );
+            self.repl_session_adt_data.push(decl);
+        }
+    }
+
     pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
@@ -3221,6 +3250,7 @@ impl Compiler {
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
+            preloaded_adt_data: self.repl_session_adt_data.clone(),
         }
     }
 
