@@ -2192,3 +2192,66 @@ fn repl_effectful_expression_does_not_update_it() {
         String::from_utf8_lossy(&output.stdout),
     );
 }
+
+#[test]
+fn repl_uses_effect_declared_on_an_earlier_line() {
+    // Proposal 0176: a user `effect` declared on one line is usable on later
+    // lines (it persists in the session's effect registry instead of resetting
+    // to the prelude-only set each compile, which used to report E407).
+    let output = run_flux_repl(concat!(
+        "effect Audit { log: String -> Int }\n",
+        "fn audited() -> Int with Audit { perform Audit.log(\"started\") + 1 }\n",
+        "audited() handle Audit { log(resume, message) -> resume(len(message)) }\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        ["8"],
+        "cross-line effect should resolve and run, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_uses_class_and_instance_declared_on_earlier_lines() {
+    // Proposal 0176: a user `class` and its `instance`s declared on earlier
+    // lines stay in scope, so a later line can dispatch the method across them
+    // (previously the class env was rebuilt per compile and the method was
+    // reported undefined, E004).
+    let output = run_flux_repl(concat!(
+        "class Sizeable<a> { fn size(x: a) -> Int }\n",
+        "instance Sizeable<Int> { fn size(x) { 1 } }\n",
+        "instance Sizeable<String> { fn size(x) { len(x) } }\n",
+        "size(42) + size(\"hello\")\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        ["6"],
+        "cross-line class method should dispatch, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn run_compiles_top_level_match_and_destructure() {
+    // The cached/parallel compile path (module linker) used to fail with
+    // "missing global mapping" when a top-level `match` or tuple `let (a, b)`
+    // allocated a transient slot in the global namespace. Run a file end to end
+    // through `flux <file>` (which exercises that path) and check it executes.
+    let file = repl_temp_flx(
+        "toplevel_frame",
+        "let x = match Some(7) { Some(n) -> n, _ -> 0 }\n\
+         let (a, b) = (10, 20)\n\
+         fn main() with IO { println(x + a + b) }\n",
+    );
+    let path = file.to_string_lossy().into_owned();
+    let output = run_flux(&[path.as_str()]);
+    let _ = std::fs::remove_file(&file);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.trim() == "37"),
+        "expected 37 from top-level match + destructure, stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}

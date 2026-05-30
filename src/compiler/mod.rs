@@ -2407,6 +2407,15 @@ impl Compiler {
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
         }
+        // REPL (0176): promote this line's user effects into the preloaded set so
+        // a later line's `with` / `perform` / `handle` resolves them, instead of
+        // resetting back to the prelude-only set each compile (E407 across lines).
+        // A failed line is rolled back wholesale by the engine (a pre-line clone
+        // of the compiler), which discards these promotions too.
+        if self.repl_mode {
+            self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
+            self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+        }
     }
 
     /// Proposal 0161 B1: scan only for `Statement::EffectAlias` and populate
@@ -2702,7 +2711,29 @@ impl Compiler {
         let mut env = crate::types::class_env::ClassEnv::new();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
+        // REPL (0176): snapshot what's already in scope (builtins + earlier
+        // session/imported classes, and the imported instances about to be
+        // merged) so we can capture *only* this line's new declarations below.
+        let classes_before: Option<HashSet<crate::types::class_id::ClassId>> = self
+            .repl_mode
+            .then(|| env.classes.keys().copied().collect());
+        let instances_before = env.instances.len();
         let diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        // REPL: promote this line's own `class` / `instance` declarations into the
+        // imported set so a later line resolves them, instead of rebuilding from
+        // the prelude/import set each compile (E004 across lines). Captured before
+        // the imported-instance merge so earlier lines' state isn't re-captured;
+        // a failed line is rolled back wholesale by the engine.
+        if let Some(classes_before) = classes_before {
+            for (id, def) in &env.classes {
+                if !classes_before.contains(id) {
+                    self.imported_public_classes.insert(*id, def.clone());
+                }
+            }
+            for instance in &env.instances[instances_before..] {
+                self.imported_public_instances.push(instance.clone());
+            }
+        }
         merge_imported_public_instances(
             &mut env,
             &self.imported_public_instances,
@@ -5857,7 +5888,7 @@ impl Compiler {
         let instructions = scope.instructions[snapshot.instructions_len..].to_vec();
         let referenced_globals =
             self.referenced_global_indices_in_artifact(&instructions, &constants);
-        let globals = self
+        let mut globals: Vec<CachedModuleBinding> = self
             .symbol_table
             .global_bindings()
             .into_iter()
@@ -5880,6 +5911,12 @@ impl Compiler {
                 ) || referenced_globals.contains(&binding.index)
             })
             .collect();
+        let named_indices: HashSet<usize> = globals.iter().map(|binding| binding.index).collect();
+        globals.extend(self.synthetic_top_level_temp_bindings(
+            &referenced_globals,
+            &named_indices,
+            snapshot.global_definitions_len,
+        ));
 
         let relative_locations = scope
             .locations
@@ -5906,7 +5943,7 @@ impl Compiler {
         let instructions = scope.instructions.clone();
         let referenced_globals =
             self.referenced_global_indices_in_artifact(&instructions, &constants);
-        let globals = self
+        let mut globals: Vec<CachedModuleBinding> = self
             .symbol_table
             .global_bindings()
             .into_iter()
@@ -5928,6 +5965,12 @@ impl Compiler {
                 ) || referenced_globals.contains(&binding.index)
             })
             .collect();
+        let named_indices: HashSet<usize> = globals.iter().map(|binding| binding.index).collect();
+        globals.extend(self.synthetic_top_level_temp_bindings(
+            &referenced_globals,
+            &named_indices,
+            0,
+        ));
 
         CachedModuleBytecode {
             globals,
@@ -5936,6 +5979,37 @@ impl Compiler {
             debug_info: FunctionDebugInfo::new(None, scope.files.clone(), scope.locations.clone())
                 .with_effect_summary(scope.effect_summary),
         }
+    }
+
+    /// Synthetic cache bindings for top-level transient global slots — anonymous
+    /// `define_temp` results (e.g. a tuple-destructure scrutinee at file scope) —
+    /// that this module's instructions reference but no named binding covers.
+    /// The module linker remaps globals by name; without an entry it fails with
+    /// "missing global mapping for local index N". The synthetic name embeds the
+    /// module path so it stays unique across modules (each gets a distinct slot).
+    fn synthetic_top_level_temp_bindings(
+        &self,
+        referenced_globals: &HashSet<usize>,
+        named_indices: &HashSet<usize>,
+        min_index: usize,
+    ) -> Vec<CachedModuleBinding> {
+        let mut indices: Vec<usize> = referenced_globals
+            .iter()
+            .copied()
+            .filter(|index| *index >= min_index && !named_indices.contains(index))
+            .collect();
+        indices.sort_unstable();
+        indices
+            .into_iter()
+            .map(|index| CachedModuleBinding {
+                name: format!("__flux_top_temp_{}_{index}", self.file_path),
+                index,
+                span: crate::diagnostics::position::Span::default(),
+                is_assigned: true,
+                kind:
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined,
+            })
+            .collect()
     }
 
     fn referenced_global_indices_in_artifact(
