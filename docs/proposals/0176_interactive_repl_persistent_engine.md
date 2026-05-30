@@ -313,18 +313,22 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   effect-op signatures and classes / instances into the preloaded sets that each
   compile rebuilds from, instead of resetting to prelude-only (previously E407 for
   effects, E004 for class methods).
-- **Cross-line use of `data`-with-named-fields — still open.** The metadata side is
-  solved (the named-field desugar can be fed earlier lines' `data` declarations, and
-  it produces the correct positional AST), but a deeper blocker remains: a named-field
-  constructor or spread whose field *value* desugars to a `match` — e.g. the common
-  functional update `{ ...rec, n: rec.n + 1 }`, where `rec.n` lowers to a `match` —
-  **miscompiles when emitted at the REPL's top level** (the match's pattern-binding
-  slots collide with the operand stack holding the other constructor arguments).
-  The same code is correct inside a function body and in a whole file. Until that
-  top-level codegen issue is fixed, cross-line named-field `data` stays disabled so
-  it errors (E430/E082) rather than silently producing a wrong value. Enum and
-  **positional** ADTs, `let` / `fn`, recursion, `if` / `match`, imports, and `it`
-  all work across lines.
+- **Cross-line use of `data`-with-named-fields — resolved.** A `data` type with
+  named fields declared on one line is now fully usable on later lines:
+  construction (`Person { name: .., age: .. }`), dot access (`alice.age`), and the
+  functional spread-update (`{ ...alice, age: alice.age + 1 }`). The session
+  accumulates each committed line's top-level `data` declarations and replays them
+  into HM inference (so the constructor's named-field metadata is in scope —
+  previously E082/E430) and into the named-field desugar (so the construction /
+  spread / access lower to their positional forms — previously E464). This depended
+  on the top-level-frame codegen fix: the spread's field value (`alice.age`)
+  desugars to a `match`, which used to miscompile at REPL top level (the match's
+  pattern-binding slots collided with the operand stack holding the other
+  constructor arguments); top-level `match`/destructure now compile inside a
+  synthesized frame, so the transients are proper locals. An unknown field on an
+  earlier-line record still errors (E463) — the accumulated metadata is scoped, not
+  a blanket pass. Enum and **positional** ADTs, `let` / `fn`, recursion, `if` /
+  `match`, imports, and `it` also work across lines.
 - **Self-referential rebind.** `let x = x + 1` reports `x` as undefined rather
   than reading the previous value, because the old binding is forgotten before
   the line compiles (the alternative — keeping it — silently reads the new,

@@ -345,6 +345,15 @@ impl ReplEngine {
             return LineOutcome::RuntimeFailed(err);
         }
 
+        // The line is committed: record any top-level `data` declarations so a
+        // later line can construct / spread / access their record types
+        // (proposal 0176). Only reached on success, so a failed line — already
+        // rolled back above — never pollutes the session's ADT set.
+        let data_decls = top_level_data_decls(&program);
+        if !data_decls.is_empty() {
+            self.compiler.accumulate_repl_session_data(data_decls);
+        }
+
         LineOutcome::Committed
     }
 
@@ -401,6 +410,19 @@ impl ReplEngine {
     fn render(&self, diagnostics: &[Diagnostic], source: &str) {
         render_repl_diagnostics(diagnostics, &self.path, source, &self.diagnostics);
     }
+}
+
+/// The top-level `data` declarations in a just-compiled line, cloned for the
+/// session's accumulated ADT set (proposal 0176). Only top-level declarations
+/// are taken — a `data` nested in a `module` keeps its module-qualified scope
+/// and is resolved through the persistent compiler's normal module handling.
+fn top_level_data_decls(program: &Program) -> Vec<Statement> {
+    program
+        .statements
+        .iter()
+        .filter(|stmt| matches!(stmt, Statement::Data { .. }))
+        .cloned()
+        .collect()
 }
 
 /// Whether the diagnostics include the "top-level effectful expression" error

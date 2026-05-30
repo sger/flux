@@ -503,6 +503,17 @@ pub fn collect_named_field_metadata(
     HashMap<Identifier, Vec<Identifier>>,
     HashMap<Identifier, Vec<Identifier>>,
 ) {
+    collect_named_field_metadata_in_statements(&program.statements)
+}
+
+/// As [`collect_named_field_metadata`], but over a bare statement slice (e.g.
+/// earlier REPL lines' accumulated `data` declarations, proposal 0176).
+pub fn collect_named_field_metadata_in_statements(
+    statements: &[Statement],
+) -> (
+    HashMap<Identifier, Vec<Identifier>>,
+    HashMap<Identifier, Vec<Identifier>>,
+) {
     fn walk(
         stmts: &[Statement],
         field_names: &mut HashMap<Identifier, Vec<Identifier>>,
@@ -525,6 +536,6 @@ pub fn collect_named_field_metadata(
     }
     let mut field_names = HashMap::new();
     let mut adt_variants = HashMap::new();
-    walk(&program.statements, &mut field_names, &mut adt_variants);
+    walk(statements, &mut field_names, &mut adt_variants);
     (field_names, adt_variants)
 }
