@@ -42,11 +42,14 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
 }
 
 fn run_flux_source(source: &str) -> (String, String, bool) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-flow-task-d1-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-flow-task-d1-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir for Flow.Task D1 fixture");
     let path = dir.join("flow_task_d1.flx");
     std::fs::write(&path, source).expect("write Flow.Task D1 fixture");
@@ -66,12 +69,15 @@ fn run_flux_source(source: &str) -> (String, String, bool) {
 
 #[cfg(feature = "llvm")]
 fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-flow-task-native-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-flow-task-native-{}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test"),
+            tag
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
     let path = dir.join("flow_task_native_source.flx");
     std::fs::write(&path, source).expect("write native Flow.Task fixture");
@@ -99,12 +105,15 @@ fn run_flux_source_native_with_timeout(
 ) -> (String, String, bool) {
     use std::sync::{Arc, Mutex};
 
-    let dir = std::env::temp_dir().join(format!(
-        "flux-flow-task-native-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-flow-task-native-{}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test"),
+            tag
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
     let path = dir.join("flow_task_native_source.flx");
     std::fs::write(&path, source).expect("write native Flow.Task fixture");
@@ -611,11 +620,14 @@ fn main() {
 
 #[test]
 fn non_task_spawn_member_does_not_get_task_capture_constraints() {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-flow-task-non-task-spawn-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test")
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-flow-task-non-task-spawn-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir for non-task spawn fixture");
     let other_path = dir.join("Other.flx");
     let main_path = dir.join("main.flx");

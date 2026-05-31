@@ -192,7 +192,11 @@ fn factorial(n, acc) {
 }
 "#,
     );
-    let path = std::env::temp_dir().join(format!(
+    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-scratch");
+    fs::create_dir_all(&scratch).ok();
+    let path = scratch.join(format!(
         "llvm_codegen_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -324,7 +328,11 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
     let mut module = LlvmModule::new();
     emit_prelude_and_arith(&mut module);
     let ll = render_module(&module);
-    let temp = std::env::temp_dir().join(format!(
+    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-scratch");
+    fs::create_dir_all(&scratch).ok();
+    let temp = scratch.join(format!(
         "llvm_phase2_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

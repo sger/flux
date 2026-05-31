@@ -60,13 +60,23 @@ pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(feature = "llvm")]
-/// Creates a unique temporary directory path for uncached native artifacts.
-fn native_temp_dir() -> PathBuf {
+/// A unique scratch directory for uncached native artifacts, **inside the project
+/// build tree** (`<cache_root>/native/scratch/…`) rather than the system temp dir.
+/// A freshly-built, unsigned executable launched from `%TEMP%` is a heavily-weighted
+/// malware-dropper heuristic that makes Windows Defender flag every native build
+/// (`Trojan:Win32/Wacatac.B!ml`); keeping artifacts under the project's build dir
+/// avoids that signal. Still unique per compile (pid + timestamp) to stay
+/// collision-safe across parallel/concurrent builds.
+fn native_temp_dir(cache_layout: &CacheLayout) -> PathBuf {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("flux_native_{}_{}", std::process::id(), stamp))
+    cache_layout.native_dir().join("scratch").join(format!(
+        "flux_native_{}_{}",
+        std::process::id(),
+        stamp
+    ))
 }
 
 #[cfg(feature = "llvm")]
@@ -77,7 +87,7 @@ pub(crate) fn compile_native_support_object(
     enable_optimize: bool,
 ) -> Result<PathBuf, String> {
     let object_path = if no_cache {
-        let dir = native_temp_dir();
+        let dir = native_temp_dir(cache_layout);
         let _ = std::fs::create_dir_all(&dir);
         dir.join(if cfg!(windows) {
             "flux_support.obj"
@@ -153,10 +163,22 @@ mod tests {
 
     #[cfg(feature = "llvm")]
     #[test]
-    fn native_temp_dir_uses_flux_native_prefix() {
-        let dir = super::native_temp_dir();
+    fn native_temp_dir_is_project_relative_with_flux_native_prefix() {
+        use crate::shared::cache_paths::resolve_cache_layout;
+        let layout = resolve_cache_layout(
+            std::path::Path::new("prog.flx"),
+            Some(std::path::Path::new("build-cache")),
+        );
+        let dir = super::native_temp_dir(&layout);
         let name = dir.file_name().and_then(|name| name.to_str()).unwrap_or("");
 
         assert!(name.starts_with("flux_native_"));
+        // Must live under the project build tree, never the system temp dir — a
+        // fresh unsigned exe under %TEMP% trips Windows Defender's dropper heuristic.
+        assert!(
+            !dir.starts_with(std::env::temp_dir()),
+            "native scratch must not be under %TEMP%: {dir:?}"
+        );
+        assert!(dir.to_string_lossy().contains("native"));
     }
 }

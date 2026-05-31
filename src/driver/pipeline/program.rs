@@ -15,6 +15,7 @@ use crate::driver::run_program::backend::native::{
     NativeOutputConfig, NativeProgramInput, NativeReportConfig, NativeRunRequest,
     run_native_backend,
 };
+#[cfg(feature = "repl")]
 use crate::driver::support::shared::{DiagnosticRenderRequest, emit_diagnostics};
 use crate::driver::{
     flags::DriverFlags,
@@ -35,15 +36,18 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
-    ast::type_infer::{display_infer_type, infer_program},
     bytecode::bytecode_cache::hash_bytes,
     compiler::Compiler,
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
-    syntax::{
-        expression::ExprId, interner::Interner, module_graph::ModuleGraph, program::Program,
-        statement::Statement,
-    },
+    syntax::{module_graph::ModuleGraph, program::Program},
+};
+// REPL-only imports (the `:type` query + session bootstrap); excluded from native
+// builds so the `repl` feature can stay off there.
+#[cfg(feature = "repl")]
+use flux::{
+    ast::type_infer::{display_infer_type, infer_program},
+    syntax::{expression::ExprId, interner::Interner, statement::Statement},
     vm::VM,
 };
 
@@ -406,6 +410,7 @@ pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
 /// The synthetic binding name the REPL wraps a `:type` query in. Shared with the
 /// REPL loop, which assembles `let <REPL_TYPE_BINDING> = <expr>` so this side can
 /// recover the queried expression's `ExprId` after inference.
+#[cfg(feature = "repl")]
 pub(crate) const REPL_TYPE_BINDING: &str = "__repl_type";
 
 /// Infer and render the type of a REPL `:type` query **without** running it. The
@@ -413,6 +418,7 @@ pub(crate) const REPL_TYPE_BINDING: &str = "__repl_type";
 /// `main` (the REPL's `assemble` does this). Returns the rendered type on success;
 /// on a parse/type error it renders the errors to stderr (like the eval path) and
 /// returns `None`.
+#[cfg(feature = "repl")]
 pub(crate) fn infer_repl_expr_type(
     request: RunProgramRequest<'_>,
     source: String,
@@ -449,6 +455,7 @@ pub(crate) fn infer_repl_expr_type(
 }
 
 /// Find the `ExprId` of the value bound to [`REPL_TYPE_BINDING`] inside `main`.
+#[cfg(feature = "repl")]
 fn repl_type_query_expr_id(program: &Program, interner: &Interner) -> Option<ExprId> {
     for stmt in &program.statements {
         let Statement::Function { body, .. } = stmt else {
@@ -468,6 +475,7 @@ fn repl_type_query_expr_id(program: &Program, interner: &Interner) -> Option<Exp
 /// Render only the error diagnostics from a failed REPL candidate to stderr.
 /// Warnings are intentionally dropped — a REPL session accumulates "unused
 /// binding" noise on every line that would otherwise drown the prompt.
+#[cfg(feature = "repl")]
 fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
     render_repl_diagnostics(
         &ctx.all_diagnostics,
@@ -481,6 +489,7 @@ fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
 /// dropping warnings. Shared by the Phase 1 source path and the Phase 2 engine,
 /// which renders the `Err` of an incremental [`Compiler::compile_with_opts`]
 /// against the line's wrapped source.
+#[cfg(feature = "repl")]
 pub(crate) fn render_repl_diagnostics(
     diagnostics: &[Diagnostic],
     path: &str,
@@ -510,6 +519,7 @@ pub(crate) fn render_repl_diagnostics(
 /// A prelude-loaded compiler paired with a live VM whose `globals` already hold
 /// the prelude's values — the persistent state the Phase 2 REPL engine
 /// (proposal 0176) mutates incrementally, one line at a time.
+#[cfg(feature = "repl")]
 pub(crate) struct ReplBootstrap {
     pub(crate) compiler: Compiler,
     pub(crate) vm: VM,
@@ -529,6 +539,7 @@ pub(crate) struct ReplBootstrap {
 /// are live. The returned compiler and VM are handed to the engine, which from
 /// here compiles each entered line as a delta and runs it via [`VM::run_top_level`]
 /// without ever recompiling the prelude or earlier lines.
+#[cfg(feature = "repl")]
 pub(crate) fn bootstrap_repl_session(
     request: RunProgramRequest<'_>,
 ) -> Result<ReplBootstrap, String> {

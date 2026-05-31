@@ -54,7 +54,9 @@ fn write_temp_flux_file(prefix: &str, source: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!(
+    let dir = workspace_root().join("target").join("test-scratch");
+    std::fs::create_dir_all(&dir).ok();
+    let path = dir.join(format!(
         "flux_{prefix}_{}_{}.flx",
         std::process::id(),
         unique
@@ -2051,7 +2053,9 @@ fn repl_temp_flx(tag: &str, source: &str) -> std::path::PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let path = std::env::temp_dir().join(format!("flux_repl_{tag}_{nanos}.flx"));
+    let dir = workspace_root().join("target").join("test-scratch");
+    std::fs::create_dir_all(&dir).ok();
+    let path = dir.join(format!("flux_repl_{tag}_{nanos}.flx"));
     std::fs::write(&path, source).expect("write temp flx");
     path
 }
