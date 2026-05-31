@@ -583,11 +583,14 @@ mod tests {
             .name()
             .unwrap_or("test")
             .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let temp = std::env::temp_dir().join(format!(
-            "flux_native_line_count_{}_{}",
-            std::process::id(),
-            safe_name
-        ));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!(
+                "flux_native_line_count_{}_{}",
+                std::process::id(),
+                safe_name
+            ));
         std::fs::create_dir_all(&temp).expect("create temp dir");
         let first = temp.join("Main.flx");
         std::fs::write(&first, "fn main = 1\nfn next = 2\n").expect("write first");
