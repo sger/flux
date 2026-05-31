@@ -2234,6 +2234,35 @@ fn repl_uses_class_and_instance_declared_on_earlier_lines() {
 }
 
 #[test]
+fn repl_captures_effectful_expression_result_into_it() {
+    // Proposal 0176: an effectful expression runs inside `main` (the only context
+    // with the root IO handler), and its primitive result is still captured into
+    // `it`. The `do` block prints once and returns 99; the effect must run exactly
+    // once (one "side" line), 99 is echoed as the captured result, and `it` then
+    // resolves to 99 so `it + 1` is 100.
+    let output = run_flux_repl("do {\n  print(\"side\")\n  99\n}\nit + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["\"side\"", "99", "100"],
+        "effectful result should run once and be captured into `it`, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_effectful_statement_result_is_not_captured() {
+    // A statement-effect that returns nothing (`print`) keeps its output but is
+    // not echoed or captured: `it` still refers to the earlier `7`.
+    let output = run_flux_repl("let x = 7\nx\nprint(\"hi\")\nit\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["7", "\"hi\"", "7"],
+        "print should not overwrite `it`, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn repl_self_referential_rebind_reads_previous_value() {
     // Proposal 0176: `let x = x + 1` rebinding an existing session binding reads
     // the *previous* value (11), then `let x = x * 2` reads that (22). Previously

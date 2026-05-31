@@ -341,11 +341,18 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   also change the binding's type (`xs: [Int]` → `xs: Int` via `len(xs)`). A *fresh*
   `let y = y + 1` (no prior `y`) is left to the normal path, where the self-use is a
   genuine unbound reference.
-- **Effectful-result `it`.** An effectful expression's value isn't captured by
-  `it` (it can't be a top-level binding). An effectful *declaration* (e.g.
-  `let _ = print("hi")`) does now run its effect once — it is re-run inside a
-  synthesized `main` — but a *named* effectful binding still can't persist into
-  the session (the REPL prints a note saying so).
+- **Effectful-result `it` — partly resolved.** An effectful expression can't be a
+  top-level binding (top-level effects are rejected, E413), so it runs inside a
+  synthesized `fn main() with IO` — the only context carrying the root IO handler.
+  `main` returns the expression's value, and when that value is a **primitive**
+  (a `read_line()` / `read_file(..)` String, a `now()`-style Int, a Float or
+  Bool) the REPL re-binds it as a literal so `it` captures it — the literal
+  re-bind is pure, so the original effect runs exactly once. A result with no
+  faithful literal form (a compound list / record / ADT, or the `None` returned by
+  a statement-effect such as `print(..)`) still runs its effect but is not
+  captured — `it` is left unchanged. A *named* effectful binding (`let x =
+  read_line()`) still can't persist (the REPL prints a note); only the bare-
+  expression `it` channel captures effectful results so far.
 - **`:type` / `:list`** use a lightweight parallel record of committed
   declaration sources, re-inferred over a fresh compile, rather than reading
   types back from the persistent compiler (whose post-compile expression IDs are
