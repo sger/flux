@@ -1126,14 +1126,17 @@ mod tests {
 
     #[test]
     fn dependency_fingerprint_mismatch_invalidates_interface() {
-        let temp = std::env::temp_dir().join(format!(
-            "flux_interface_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!(
+                "flux_interface_test_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
         std::fs::create_dir_all(temp.join("interfaces")).unwrap();
 
         let dep_source = temp.join("Dep.flx");
@@ -1181,14 +1184,17 @@ mod tests {
 
     #[test]
     fn semantic_config_mismatch_invalidates_interface() {
-        let temp = std::env::temp_dir().join(format!(
-            "flux_interface_cfg_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!(
+                "flux_interface_cfg_test_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
         std::fs::create_dir_all(temp.join("interfaces")).unwrap();
 
         let source_path = temp.join("Main.flx");
@@ -1216,14 +1222,17 @@ mod tests {
 
     #[test]
     fn format_version_mismatch_invalidates_interface() {
-        let temp = std::env::temp_dir().join(format!(
-            "flux_interface_fmt_test_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!(
+                "flux_interface_fmt_test_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
         std::fs::create_dir_all(temp.join("interfaces")).unwrap();
 
         let source_path = temp.join("Main.flx");

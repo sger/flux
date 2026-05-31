@@ -423,7 +423,9 @@ mod tests {
     };
 
     fn temp_dir(name: &str) -> PathBuf {
-        let mut path = std::env::temp_dir();
+        let mut path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch");
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -487,8 +489,10 @@ mod tests {
 
     #[test]
     fn inspect_reports_stale_dependency_interface() {
-        let cache_root =
-            std::env::temp_dir().join(format!("flux_module_cache_inspect_{}", std::process::id()));
+        let cache_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux_module_cache_inspect_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&cache_root);
         std::fs::create_dir_all(&cache_root).expect("cache root");
         let cache_dir = cache_root.join("vm");

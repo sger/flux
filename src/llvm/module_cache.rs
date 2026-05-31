@@ -291,7 +291,10 @@ mod tests {
 
     #[test]
     fn native_module_cache_roundtrips_metadata_validation() {
-        let temp = std::env::temp_dir().join(format!("flux-native-cache-{}", std::process::id()));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux-native-cache-{}", std::process::id()));
         let cache = NativeModuleCache::new(temp.join("native"));
         let cache_root = temp.join("root");
         fs::create_dir_all(cache_root.join("interfaces")).expect("cache root");
@@ -327,8 +330,10 @@ mod tests {
 
     #[test]
     fn native_module_cache_inspect_reports_stale_dependency() {
-        let temp =
-            std::env::temp_dir().join(format!("flux-native-cache-stale-{}", std::process::id()));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux-native-cache-stale-{}", std::process::id()));
         let cache = NativeModuleCache::new(temp.join("native"));
         let cache_root = temp.join("root");
         fs::create_dir_all(cache_root.join("interfaces")).expect("cache root");
