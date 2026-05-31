@@ -28,7 +28,9 @@ fn span(line: usize, column: usize) -> Span {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
+    let mut path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-scratch");
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
