@@ -33,6 +33,7 @@ use crate::driver::pipeline::program::{
     render_repl_diagnostics,
 };
 use crate::driver::shared::DriverDiagnosticConfig;
+use crate::runtime::value::Value;
 use crate::syntax::{lexer::Lexer, parser::Parser, program::Program, statement::Statement};
 use crate::vm::VM;
 
@@ -292,8 +293,9 @@ impl ReplEngine {
 
     /// Evaluate a bare expression: bind it to a fresh `__repl_N` session global
     /// and print it (so `it` resolves to the value next line). If the expression
-    /// is effectful — and so can't be a top-level binding — fall back to running
-    /// it inside `main` without capturing `it`.
+    /// is effectful — and so can't be a top-level binding (E413) — fall back to
+    /// running it inside `main`, where its result is still captured into `it`
+    /// when it is a primitive value.
     pub(super) fn eval_expr(&mut self, line: &str) -> bool {
         let resolved = self.resolve_it(line);
         let name = format!("__repl_{}", self.result_counter);
@@ -316,8 +318,7 @@ impl ReplEngine {
                 diagnostics,
             } => {
                 // A pure top-level binding is rejected for an effectful
-                // expression (E413). Re-run it inside `main` instead — the effect
-                // happens, but the result isn't captured by `it`.
+                // expression (E413). Re-run it inside `main` instead.
                 if has_top_level_effect_error(&diagnostics) {
                     self.eval_effectful_expr(&resolved)
                 } else {
@@ -328,12 +329,22 @@ impl ReplEngine {
         }
     }
 
-    /// Run an effectful expression inside `main` (the only sanctioned effect
-    /// entry). Nothing persists and `it` is left unchanged.
+    /// Run an effectful expression inside `main` — the only context that carries
+    /// the root IO handler — so its effect happens. `main` returns the
+    /// expression's value; when that value round-trips as a literal (a
+    /// `read_line()` String, a `now()` Int, …), re-bind it so `it` captures it
+    /// (proposal 0176). A result that has no faithful literal form (`None` from
+    /// `print(..)`, or a compound value) runs its effect but is not captured —
+    /// `it` is left unchanged, a documented v1 gap.
     fn eval_effectful_expr(&mut self, resolved: &str) -> bool {
         let source = format!("fn main() with IO {{\n    {resolved}\n}}\n");
         match self.run_line(source) {
-            LineOutcome::Committed => true,
+            LineOutcome::Committed => {
+                if let Some(literal) = value_as_literal(&self.vm.last_popped_stack_elem()) {
+                    self.capture_effectful_result(&literal);
+                }
+                true
+            }
             LineOutcome::CompileFailed {
                 source,
                 diagnostics,
@@ -345,6 +356,22 @@ impl ReplEngine {
                 eprintln!("{err}");
                 false
             }
+        }
+    }
+
+    /// Persist an effectful expression's already-computed result (rendered as a
+    /// literal) into a fresh `__repl_N` session global and echo it, so `it`
+    /// resolves to it next line. The literal re-bind is pure — it does not re-run
+    /// the original effect. A failure here is non-fatal: the effect already ran,
+    /// so we simply skip the capture.
+    fn capture_effectful_result(&mut self, literal: &str) {
+        let name = format!("__repl_{}", self.result_counter);
+        let binding = format!("let {name} = {literal}");
+        let pure = format!("{binding}\nfn main() with IO {{\n    println({name})\n}}\n");
+        if let LineOutcome::Committed = self.run_line(pure) {
+            self.commit(Some(name.clone()), binding);
+            self.last_result = Some(name);
+            self.result_counter += 1;
         }
     }
 
@@ -500,6 +527,49 @@ impl ReplEngine {
     fn render(&self, diagnostics: &[Diagnostic], source: &str) {
         render_repl_diagnostics(diagnostics, &self.path, source, &self.diagnostics);
     }
+}
+
+/// Render a primitive [`Value`] as a Flux source literal that re-parses to the
+/// same value, for persisting an effectful expression's result into the session
+/// without re-running its effect. `None` for values with no faithful literal
+/// form: compound values, `None`, non-finite floats, and strings containing a
+/// control character Flux cannot escape.
+fn value_as_literal(value: &Value) -> Option<String> {
+    match value {
+        Value::Integer(n) => Some(n.to_string()),
+        Value::Boolean(b) => Some(b.to_string()),
+        // Render with a decimal point and no exponent so it re-infers as `Float`
+        // (not `Int`) and parses; skip forms Flux's lexer wouldn't accept.
+        Value::Float(f) if f.is_finite() => {
+            let rendered = format!("{f:?}");
+            (rendered.contains('.') && !rendered.contains(['e', 'E'])).then_some(rendered)
+        }
+        Value::String(s) => string_literal(s),
+        _ => None,
+    }
+}
+
+/// A Flux double-quoted string literal for `s`, escaping the sequences Flux
+/// recognises (`\ " newline tab CR #`). `None` if `s` holds a control character
+/// with no Flux escape, so the caller skips the capture rather than emit a
+/// literal that would fail to lex.
+fn string_literal(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            '#' => out.push_str("\\#"),
+            c if c.is_control() => return None,
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    Some(out)
 }
 
 /// Byte offset of a 1-based-line / 0-based-column [`Position`] within `source`,
