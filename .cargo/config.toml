@@ -1,2 +1,6 @@
 [alias]
-native = ["run", "--features", "llvm", "--", "--native"]
+# `--no-default-features` keeps the `repl` feature (and its `rustyline` →
+# `clipboard-win` dependency) out of the flux staticlib that native binaries link,
+# so generated executables carry no Win32 clipboard imports for Windows Defender to
+# flag. `llvm` re-enables the native backend (`llvm = ["native"]`).
+native = ["run", "--no-default-features", "--features", "llvm", "--", "--native"]

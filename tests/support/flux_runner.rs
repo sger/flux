@@ -43,12 +43,15 @@ pub fn run_flux_with_env(
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-runner-{}-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("test"),
-        tag,
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-runner-{}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test"),
+            tag,
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir for flux fixture");
     let path = dir.join("fixture.flx");
     std::fs::write(&path, source).expect("write flux fixture");

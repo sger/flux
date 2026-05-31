@@ -22,7 +22,9 @@ fn temp_root(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let mut root = std::env::temp_dir();
+    let mut root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-scratch");
     root.push(format!("flux_unified_diag_tests_{}_{}", label, nanos));
     fs::create_dir_all(&root).expect("create temp root");
     root

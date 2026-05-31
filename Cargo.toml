@@ -1,6 +1,15 @@
 [workspace]
 members = [".", "crates/flux-lsp"]
+exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
+
+# Replace `rustyline`'s transitive `clipboard-win` dependency (Windows-only) with a
+# local no-op stub. clipboard-win's Win32 clipboard/bitmap imports made small
+# unsigned flux binaries trip Windows Defender's ML heuristic
+# (`Trojan:Win32/Wacatac.B!ml`); the stub keeps rustyline's editing + internal
+# kill-ring but links no clipboard APIs. See vendor/clipboard-win-stub/src/lib.rs.
+[patch.crates-io]
+clipboard-win = { path = "vendor/clipboard-win-stub" }
 
 [package]
 name = "flux"
@@ -11,8 +20,15 @@ license = "MIT"
 default-run = "flux"
 
 [features]
+default = ["repl"]
 native = []
 llvm = ["native"]
+# Interactive `flux repl` (proposals 0175 / 0176). Pulls in `rustyline`, which on
+# Windows transitively depends on `clipboard-win` — its Win32 clipboard/bitmap
+# imports make the small native binaries that link the flux staticlib look like
+# clipboard-hijacking malware to Windows Defender. Native builds therefore use
+# `--no-default-features` so the REPL (and clipboard-win) stay out of the staticlib.
+repl = ["dep:rustyline"]
 
 [lib]
 crate-type = ["rlib", "staticlib"]
@@ -24,8 +40,9 @@ serde_json = "1.0"
 rayon = "1.11"
 # Async I/O reactor (proposal 0174 Phase 1a).
 mio = { version = "1.0", features = ["os-poll", "net"] }
-# Interactive `flux repl` line editing + history (proposal 0175).
-rustyline = "14.0"
+# Interactive `flux repl` line editing + history (proposal 0175). Optional and
+# behind the default `repl` feature so native builds can exclude it (see above).
+rustyline = { version = "14.0", optional = true }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
