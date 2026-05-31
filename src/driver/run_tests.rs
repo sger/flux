@@ -513,7 +513,18 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
                     continue;
                 }
             };
-        let harness_path = std::env::temp_dir().join(format!(
+        // Write the synthesized harness inside the project build tree (derived from
+        // the real test file's location), NOT the system temp dir. If it lived in
+        // %TEMP%, the child compile couldn't find a project root and its whole
+        // cache + native-scratch chain — including `program.exe` — would fall back
+        // into %TEMP%, where a fresh unsigned exe trips Windows Defender's
+        // malware-dropper heuristic (`Trojan:Win32/Wacatac.B!ml`).
+        let harness_dir =
+            flux::shared::cache_paths::resolve_cache_layout(Path::new(config.source_path), None)
+                .native_dir()
+                .join("test-harness");
+        let _ = std::fs::create_dir_all(&harness_dir);
+        let harness_path = harness_dir.join(format!(
             "flux_native_test_{}_{}_{}.flx",
             std::process::id(),
             unique,

@@ -204,7 +204,7 @@ fn compile_parallel_native_module(
 
     let native_cache = NativeModuleCache::new(request.cache_layout.native_dir());
     let object_path = if request.no_cache {
-        let dir = native_temp_dir();
+        let dir = native_temp_dir(request.cache_layout);
         let _ = std::fs::create_dir_all(&dir);
         dir.join(cache_paths::cache_key_filename(
             &node.path,

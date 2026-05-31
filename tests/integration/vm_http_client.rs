@@ -22,7 +22,10 @@ fn next_port() -> u16 {
 
 fn write_fixture(source: String) -> PathBuf {
     let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("flux-vm-http-client-{}-{id}", std::process::id()));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!("flux-vm-http-client-{}-{id}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("fixture.flx");
     std::fs::write(&path, source).expect("write fixture");
