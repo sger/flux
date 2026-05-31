@@ -2350,15 +2350,30 @@ fn run_compiles_top_level_match_and_destructure() {
     // "missing global mapping" when a top-level `match` or tuple `let (a, b)`
     // allocated a transient slot in the global namespace. Run a file end to end
     // through `flux <file>` (which exercises that path) and check it executes.
-    let file = repl_temp_flx(
-        "toplevel_frame",
+    // Run with an isolated per-fixture cache dir (`--cache-dir`) so this test
+    // exercises the cached/relocatable module-linker path WITHOUT sharing the
+    // project's `target/flux` cache with concurrent test threads (which would
+    // race the prelude artifacts: "interface fingerprint changed").
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!("toplevel_frame_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let file = dir.join("toplevel_frame.flx");
+    std::fs::write(
+        &file,
         "let x = match Some(7) { Some(n) -> n, _ -> 0 }\n\
          let (a, b) = (10, 20)\n\
          fn main() with IO { println(x + a + b) }\n",
-    );
-    let path = file.to_string_lossy().into_owned();
-    let output = run_flux(&[path.as_str()]);
-    let _ = std::fs::remove_file(&file);
+    )
+    .expect("write fixture");
+    let cache = dir.join(".flux");
+    let output = run_flux(&[
+        file.to_str().unwrap(),
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    let _ = std::fs::remove_dir_all(&dir);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.lines().any(|line| line.trim() == "37"),
