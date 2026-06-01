@@ -1851,6 +1851,94 @@ fn repl_binds_it_to_the_last_result() {
 }
 
 #[test]
+fn repl_supports_core_language_surface() {
+    // Coverage guard: the persistent REPL must accept the full Flux syntax surface,
+    // including cross-line use of declarations. Each entry below is one REPL line;
+    // declarations (`let` / `fn` / `type` / `data` / `effect`) echo nothing, every
+    // other line echoes its result. If a construct ever stops parsing/compiling in
+    // the REPL, the corresponding result line drops out and this fails. (Exercised
+    // here: arithmetic, float, string concat + interpolation, booleans, lambdas and
+    // immediate application, lists / arrays / maps, list comprehensions with
+    // filters, `if` / `match` with Option / cons-pattern / guard, tuples, functions
+    // with recursion and generics, positional ADTs, named-field `data` with
+    // construction / field access / spread-update, the pipe operator, and a user
+    // `effect` with `perform` / `handle`.)
+    let output = run_flux_repl(concat!(
+        "1 + 2 * 3\n",
+        "3.0 * 2.0\n",
+        "\"a\" + \"b\"\n",
+        "3 > 2 && 1 < 2\n",
+        "(\\x -> x * 2)(5)\n",
+        "[1, 2, 3]\n",
+        "len([1, 2, 3])\n",
+        "map([1, 2, 3], \\x -> x * 2)\n",
+        "[|10, 20, 30|]\n",
+        "{\"a\": 1}\n",
+        "if 3 > 2 { \"yes\" } else { \"no\" }\n",
+        "match Some(5) { Some(n) -> n, None -> 0 }\n",
+        "(1, \"a\", true)\n",
+        "[x * 2 | x <- [1, 2, 3]]\n",
+        "[x | x <- [1, 2, 3, 4], x % 2 == 0]\n",
+        "let name = \"world\"\n",
+        "\"hi #{name}\"\n",
+        "fn sq(n: Int) -> Int { n * n }\n",
+        "sq(4)\n",
+        "fn fac(n: Int) -> Int { if n <= 1 { 1 } else { n * fac(n - 1) } }\n",
+        "fac(5)\n",
+        "fn id<a>(x: a) -> a { x }\n",
+        "id(7)\n",
+        "type Color = Red | Green\n",
+        "Red\n",
+        "data Point { Point { x: Int, y: Int } }\n",
+        "let p = Point { x: 3, y: 4 }\n",
+        "p.x + p.y\n",
+        "{ ...p, y: 100 }\n",
+        "fn dbl(x) { x * 2 }\n",
+        "5 |> dbl\n",
+        "match [1, 2, 3] { [h | t] -> h, [] -> 0 }\n",
+        "match 5 { n if n > 3 -> \"big\", _ -> \"small\" }\n",
+        "effect Log { emit: String -> Int }\n",
+        "fn go() -> Int with Log { perform Log.emit(\"hi\") + 1 }\n",
+        "go() handle Log { emit(resume, msg) -> resume(len(msg)) }\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        [
+            "7",
+            "6",
+            "\"ab\"",
+            "true",
+            "10",
+            "[1, 2, 3]",
+            "3",
+            "[2, 4, 6]",
+            "[|10, 20, 30|]",
+            "{\"a\": 1}",
+            "\"yes\"",
+            "5",
+            "(1, \"a\", true)",
+            "[2, 4, 6]",
+            "[2, 4]",
+            "\"hi world\"",
+            "16",
+            "120",
+            "7",
+            "Red",
+            "7",
+            "Point(3, 100)",
+            "10",
+            "1",
+            "\"big\"",
+            "3",
+        ],
+        "REPL must accept the full language surface, stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn repl_rolls_back_a_failed_line() {
     // `nope` is undefined: that line errors and is discarded, so the session
     // stays intact and `x` is still usable on the next line.
