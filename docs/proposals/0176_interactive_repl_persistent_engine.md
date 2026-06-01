@@ -341,18 +341,24 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   also change the binding's type (`xs: [Int]` → `xs: Int` via `len(xs)`). A *fresh*
   `let y = y + 1` (no prior `y`) is left to the normal path, where the self-use is a
   genuine unbound reference.
-- **Effectful-result `it` — partly resolved.** An effectful expression can't be a
-  top-level binding (top-level effects are rejected, E413), so it runs inside a
-  synthesized `fn main() with IO` — the only context carrying the root IO handler.
-  `main` returns the expression's value, and when that value is a **primitive**
-  (a `read_line()` / `read_file(..)` String, a `now()`-style Int, a Float or
-  Bool) the REPL re-binds it as a literal so `it` captures it — the literal
-  re-bind is pure, so the original effect runs exactly once. A result with no
-  faithful literal form (a compound list / record / ADT, or the `None` returned by
-  a statement-effect such as `print(..)`) still runs its effect but is not
-  captured — `it` is left unchanged. A *named* effectful binding (`let x =
-  read_line()`) still can't persist (the REPL prints a note); only the bare-
-  expression `it` channel captures effectful results so far.
+- **Effectful-result `it` — resolved for bare expressions.** An effectful
+  expression can't be a top-level binding (top-level effects are rejected, E413),
+  so it runs inside a synthesized `fn main() with IO` — the only context carrying
+  the root IO handler. `main` returns the expression's value, and when that value
+  has a faithful Flux **literal form** the REPL re-binds it as that literal so `it`
+  captures it — the literal re-bind is pure, so the original effect runs exactly
+  once. This now covers **compound** values as well as primitives: a `read_line()`
+  / `read_file(..)` String, a `now()`-style Int, a Float or Bool, and recursively
+  any list / tuple / array / `Some`/`Left`/`Right` / user-ADT (`Ctor(..)` /
+  nullary `Ctor`, whose name the accumulated `data` decls keep in session scope) of
+  such. The rendered literal is capped at a node budget, so a pathologically large
+  result falls back to "not captured" rather than re-binding a multi-megabyte
+  literal. Values with no faithful literal form still run their effect but are not
+  captured — `Unit` / `None` (so a statement-effect such as `print(..)` doesn't
+  pollute `it`), maps, closures/continuations, improper lists, and non-finite
+  floats. A *named* effectful binding (`let x = read_line()`) still can't persist
+  (the REPL prints a note); only the bare-expression `it` channel captures
+  effectful results so far.
 - **`:type` / `:list`** use a lightweight parallel record of committed
   declaration sources, re-inferred over a fresh compile, rather than reading
   types back from the persistent compiler (whose post-compile expression IDs are
