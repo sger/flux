@@ -2301,6 +2301,30 @@ fn repl_captures_compound_effectful_result_into_it() {
 }
 
 #[test]
+fn repl_persists_named_effectful_binding() {
+    // Proposal 0176: `let x = <effectful>` now persists. The initializer is
+    // rejected at top level (E413), so just the initializer runs inside `main`
+    // (effect fires once), its value is captured, and `x` is re-bound to that value
+    // purely — so a later line sees `x`. The `do` block prints once ("e"); `let`
+    // itself echoes nothing; then `x + 1` is 43. A compound captured value persists
+    // too: `ys` is `[1, 2, 3]`, so `len(ys)` is 3.
+    let output = run_flux_repl(concat!(
+        "let x = do {\n  print(\"e\")\n  42\n}\n",
+        "x + 1\n",
+        "let ys = do {\n  print(\"f\")\n  let zs = [1, 2, 3]\n  zs\n}\n",
+        "len(ys)\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        ["\"e\"", "43", "\"f\"", "3"],
+        "named effectful binding should persist its captured value, stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn repl_self_referential_rebind_reads_previous_value() {
     // Proposal 0176: `let x = x + 1` rebinding an existing session binding reads
     // the *previous* value (11), then `let x = x * 2` reads that (22). Previously

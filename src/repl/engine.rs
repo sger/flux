@@ -183,22 +183,18 @@ impl ReplEngine {
                 diagnostics,
             } => {
                 // A declaration whose initializer is effectful (e.g.
-                // `let _ = print("hi")`) is rejected at top level (E413). Re-run
-                // it inside `main` so the effect fires once. The binding cannot
-                // persist (effectful results aren't captured — a documented v1
-                // limitation), so warn when a *named* binding is lost.
+                // `let x = read_line()`) is rejected at top level (E413). A *named*
+                // `let name = init` persists by capturing its initializer's value
+                // (the effect fires once inside `main`, then `name` is re-bound to
+                // the captured literal); a bare effectful expression — or
+                // `let _ = print(..)` — just runs for effect, with its result
+                // captured into `it` when it has a literal form.
                 if has_top_level_effect_error(&diagnostics) {
-                    let ran = self.eval_effectful_expr(&resolved);
-                    if ran
-                        && let Some(name) = top_level_binding_name(&resolved)
-                        && name != "_"
-                    {
-                        eprintln!(
-                            "note: `{name}` was not added to the session — \
-                             effectful results can't persist yet."
-                        );
+                    if let Some((name, init)) = self.named_let_binding(&resolved) {
+                        self.eval_effectful_named_binding(&name, &init)
+                    } else {
+                        self.eval_effectful_expr(&resolved)
                     }
-                    ran
                 } else {
                     self.render(&diagnostics, &source);
                     false
@@ -287,6 +283,70 @@ impl ReplEngine {
             }
             LineOutcome::RuntimeFailed(err) => {
                 self.compiler = checkpoint.clone();
+                eprintln!("{err}");
+                false
+            }
+        }
+    }
+
+    /// Detect a *named* top-level binding: a single `let name = init` whose `name`
+    /// is a real binding (not the `_` wildcard). Returns `(name, init_source)` —
+    /// the initializer sliced back out by span. Used only after the direct compile
+    /// fails with E413, to persist the binding by capturing its effectful
+    /// initializer's value. `None` for a destructure, an `fn`/other declaration, a
+    /// `let _ = ...`, or anything that doesn't parse as exactly one `let`.
+    fn named_let_binding(&self, line: &str) -> Option<(String, String)> {
+        let mut parser = Parser::new(Lexer::new(line));
+        let program = parser.parse_program();
+        if !parser.errors.is_empty() || program.statements.len() != 1 {
+            return None;
+        }
+        let Statement::Let { name, value, .. } = &program.statements[0] else {
+            return None;
+        };
+        let name_str = parser.interner().resolve(*name).to_string();
+        if name_str == "_" {
+            return None;
+        }
+        let span = value.span();
+        let start = byte_offset(line, span.start)?;
+        let end = byte_offset(line, span.end)?;
+        let init = line.get(start..end)?.to_string();
+        Some((name_str, init))
+    }
+
+    /// Persist a *named* effectful binding (`let x = read_line()`). The direct
+    /// compile failed with E413 (top-level effect), so run just the initializer
+    /// inside `fn main() with IO` — the only context with the root IO handler — so
+    /// the effect fires once and yields the value, then re-bind `let name =
+    /// <literal>` purely so it persists without re-running the effect. A result
+    /// with no faithful literal form (`Unit`/`None`, a map, a closure) can't
+    /// persist: the effect still ran, so warn and move on.
+    fn eval_effectful_named_binding(&mut self, name: &str, init: &str) -> bool {
+        let main = format!("fn main() with IO {{\n    {init}\n}}\n");
+        match self.run_line(main) {
+            LineOutcome::Committed => {
+                if let Some(literal) = value_as_literal(&self.vm.last_popped_stack_elem()) {
+                    let binding = format!("let {name} = {literal}");
+                    if let LineOutcome::Committed = self.run_line(binding.clone()) {
+                        self.commit(Some(name.to_string()), binding);
+                        return true;
+                    }
+                }
+                eprintln!(
+                    "note: `{name}` was not added to the session — its effectful \
+                     result has no literal form to persist."
+                );
+                true
+            }
+            LineOutcome::CompileFailed {
+                source,
+                diagnostics,
+            } => {
+                self.render(&diagnostics, &source);
+                false
+            }
+            LineOutcome::RuntimeFailed(err) => {
                 eprintln!("{err}");
                 false
             }
