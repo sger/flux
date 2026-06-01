@@ -2267,6 +2267,40 @@ fn repl_effectful_statement_result_is_not_captured() {
 }
 
 #[test]
+fn repl_captures_compound_effectful_result_into_it() {
+    // Proposal 0176: an effectful expression returning a *compound* value (a list,
+    // tuple, or user ADT) is now captured into `it`, not just a primitive — the
+    // result is re-bound as a Flux literal (`[10, 20]`, `(1, 2)`, `Box(7)`) that
+    // re-parses to the same value without re-running the effect. Each `do` block
+    // prints once; the captured value is echoed; then `it` is used as a real value
+    // (`len`, tuple access, `match`) on the next line. The ADT's constructor name
+    // stays in scope via the accumulated `data` decl.
+    // The list/tuple are `let`-bound inside the `do` block so the literal doesn't
+    // sit at the start of a line after another expression — a leading `[`/`(` there
+    // is parsed as an index/call on the previous expression (an unrelated parser
+    // quirk). The ADT tail starts with an identifier, so it needs no such dance.
+    let output = run_flux_repl(concat!(
+        "do {\n  print(\"a\")\n  let xs = [10, 20]\n  xs\n}\n",
+        "len(it)\n",
+        "do {\n  print(\"b\")\n  let t = (1, 2)\n  t\n}\n",
+        "match it {\n  (a, b) -> a + b\n}\n",
+        "type Box = Box(Int)\n",
+        "do {\n  print(\"c\")\n  Box(7)\n}\n",
+        "match it {\n  Box(n) -> n\n}\n",
+        ":quit\n",
+    ));
+    assert_eq!(
+        repl_results(&output),
+        [
+            "\"a\"", "[10, 20]", "2", "\"b\"", "(1, 2)", "3", "\"c\"", "Box(7)", "7"
+        ],
+        "compound effectful results should be captured into `it`, stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
 fn repl_self_referential_rebind_reads_previous_value() {
     // Proposal 0176: `let x = x + 1` rebinding an existing session binding reads
     // the *previous* value (11), then `let x = x * 2` reads that (22). Previously
