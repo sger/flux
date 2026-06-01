@@ -14,8 +14,10 @@
 //! `let __repl_N = <expr>` (so its value persists and `it` can reference it)
 //! plus a fresh `fn main` that prints it; an *effectful* expression can't be a
 //! top-level binding (Flux rejects top-level effects, E413), so it falls back to
-//! running inside `main` — its result is not captured by `it` (a documented v1
-//! gap).
+//! running inside `main` — and when its result has a faithful literal form
+//! (a primitive, or a list / tuple / ADT of such) it is re-bound so `it` captures
+//! it without re-running the effect. Only resultless effects (`Unit`/`None` from
+//! `print(..)`) and unrenderable values (maps, closures) leave `it` unchanged.
 //!
 //! A line that fails to compile or run is rolled back by restoring a cheap clone
 //! of the compiler taken before the attempt, so the session never enters a
@@ -332,10 +334,10 @@ impl ReplEngine {
     /// Run an effectful expression inside `main` — the only context that carries
     /// the root IO handler — so its effect happens. `main` returns the
     /// expression's value; when that value round-trips as a literal (a
-    /// `read_line()` String, a `now()` Int, …), re-bind it so `it` captures it
-    /// (proposal 0176). A result that has no faithful literal form (`None` from
-    /// `print(..)`, or a compound value) runs its effect but is not captured —
-    /// `it` is left unchanged, a documented v1 gap.
+    /// `read_line()` String, a `now()` Int, a list / tuple / ADT of such, …),
+    /// re-bind it so `it` captures it (proposal 0176). A result with no faithful
+    /// literal form (`None`/Unit from `print(..)`, a map, a closure, …) runs its
+    /// effect but is not captured — `it` is left unchanged.
     fn eval_effectful_expr(&mut self, resolved: &str) -> bool {
         let source = format!("fn main() with IO {{\n    {resolved}\n}}\n");
         match self.run_line(source) {
@@ -529,12 +531,33 @@ impl ReplEngine {
     }
 }
 
-/// Render a primitive [`Value`] as a Flux source literal that re-parses to the
-/// same value, for persisting an effectful expression's result into the session
-/// without re-running its effect. `None` for values with no faithful literal
-/// form: compound values, `None`, non-finite floats, and strings containing a
-/// control character Flux cannot escape.
+/// Upper bound on the number of [`Value`] nodes rendered into one capture
+/// literal. A bare effectful expression can evaluate to an arbitrarily large
+/// structure (a long list, a deep tree); re-binding it as source means
+/// re-parsing that source every subsequent line, so cap the rendered size and
+/// fall back to "not captured" past the limit rather than emit a multi-megabyte
+/// literal.
+const MAX_CAPTURE_LITERAL_NODES: usize = 1024;
+
+/// Render a [`Value`] as a Flux source literal that re-parses to the same value,
+/// for persisting an effectful expression's result into the session without
+/// re-running its effect. Handles primitives plus the compound shapes with a
+/// faithful literal form — `Some`/`Left`/`Right`, tuples, arrays, proper lists,
+/// and user ADT constructors (`Ctor(..)` / nullary `Ctor`, whose name the
+/// accumulated `data` decls keep in session scope). `None` for values with no
+/// faithful literal form: `None`/Unit (so a `print(..)` result doesn't pollute
+/// `it`), maps, closures/continuations, non-finite floats, improper lists,
+/// strings with an unescapable control char, or any structure exceeding
+/// [`MAX_CAPTURE_LITERAL_NODES`].
 fn value_as_literal(value: &Value) -> Option<String> {
+    let mut budget = MAX_CAPTURE_LITERAL_NODES;
+    value_as_literal_within(value, &mut budget)
+}
+
+/// Recursive worker for [`value_as_literal`], decrementing `budget` per node so
+/// a pathologically large result bails to `None` instead of a huge literal.
+fn value_as_literal_within(value: &Value, budget: &mut usize) -> Option<String> {
+    *budget = budget.checked_sub(1)?;
     match value {
         Value::Integer(n) => Some(n.to_string()),
         Value::Boolean(b) => Some(b.to_string()),
@@ -545,8 +568,70 @@ fn value_as_literal(value: &Value) -> Option<String> {
             (rendered.contains('.') && !rendered.contains(['e', 'E'])).then_some(rendered)
         }
         Value::String(s) => string_literal(s),
+        Value::EmptyList => Some("[]".to_string()),
+        Value::Some(v) => Some(format!("Some({})", value_as_literal_within(v, budget)?)),
+        Value::Left(v) => Some(format!("Left({})", value_as_literal_within(v, budget)?)),
+        Value::Right(v) => Some(format!("Right({})", value_as_literal_within(v, budget)?)),
+        // The empty tuple is Flux's `Unit` — the result of a statement-effect like
+        // `print(..)`. Leave it uncaptured (like `None`) so those don't pollute `it`.
+        Value::Tuple(elements) if elements.is_empty() => None,
+        Value::Tuple(elements) => {
+            let items = render_elements(elements, budget)?;
+            match items.len() {
+                // A 1-tuple needs the trailing comma to stay a tuple, not a group.
+                1 => Some(format!("({},)", items[0])),
+                _ => Some(format!("({})", items.join(", "))),
+            }
+        }
+        Value::Array(elements) => {
+            let items = render_elements(elements, budget)?;
+            if items.is_empty() {
+                Some("[||]".to_string())
+            } else {
+                Some(format!("[|{}|]", items.join(", ")))
+            }
+        }
+        // Only a *proper* list (cons spine ending in `[]`) has a `[..]` literal;
+        // an improper / `None`-terminated spine has none.
+        Value::Cons(_) => {
+            let mut items = Vec::new();
+            let mut cursor = value;
+            loop {
+                match cursor {
+                    Value::Cons(cell) => {
+                        items.push(value_as_literal_within(&cell.head, budget)?);
+                        cursor = &cell.tail;
+                    }
+                    Value::EmptyList => break,
+                    _ => return None,
+                }
+            }
+            Some(format!("[{}]", items.join(", ")))
+        }
+        Value::Adt(adt) => {
+            if adt.fields.is_empty() {
+                Some(adt.constructor.to_string())
+            } else {
+                let items: Option<Vec<String>> = adt
+                    .fields
+                    .iter()
+                    .map(|field| value_as_literal_within(field, budget))
+                    .collect();
+                Some(format!("{}({})", adt.constructor, items?.join(", ")))
+            }
+        }
+        Value::AdtUnit(name) => Some(name.to_string()),
         _ => None,
     }
+}
+
+/// Render every element of a tuple/array, threading the node `budget`. `None` if
+/// any element has no literal form or the budget runs out.
+fn render_elements(elements: &[Value], budget: &mut usize) -> Option<Vec<String>> {
+    elements
+        .iter()
+        .map(|element| value_as_literal_within(element, budget))
+        .collect()
 }
 
 /// A Flux double-quoted string literal for `s`, escaping the sequences Flux
