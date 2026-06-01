@@ -356,9 +356,12 @@ The engine landed as `src/repl/` (`mod.rs` dispatch loop + `engine.rs`
   literal. Values with no faithful literal form still run their effect but are not
   captured — `Unit` / `None` (so a statement-effect such as `print(..)` doesn't
   pollute `it`), maps, closures/continuations, improper lists, and non-finite
-  floats. A *named* effectful binding (`let x = read_line()`) still can't persist
-  (the REPL prints a note); only the bare-expression `it` channel captures
-  effectful results so far.
+  floats. A *named* effectful binding (`let x = read_line()`) persists the same
+  way: its initializer (not the whole `let`) runs inside `main` so the effect fires
+  once and yields the value, which is captured and re-bound as `let x = <literal>`
+  so `x` is usable on later lines. A named binding whose result has no literal form
+  (`let x = print(..)`, returning `Unit`) still can't persist — the effect runs and
+  the REPL prints a note.
 - **`:type` / `:list`** use a lightweight parallel record of committed
   declaration sources, re-inferred over a fresh compile, rather than reading
   types back from the persistent compiler (whose post-compile expression IDs are
