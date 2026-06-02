@@ -3354,6 +3354,145 @@ impl Compiler {
         }
     }
 
+    /// Bare names of the built-in primop functions (`len`, `abs`, `map_get`, …)
+    /// available to every program. They resolve by name+arity via
+    /// [`resolve_library_primop`](Self::resolve_library_primop), NOT through the
+    /// symbol table, so name-enumerating callers (REPL tab completion) need this
+    /// list. KEEP IN SYNC with the `primop_sigs` table in
+    /// [`inject_primop_hm_schemes`](Self::inject_primop_hm_schemes); the internal
+    /// `__primop_*` aliases are intentionally excluded.
+    pub(crate) const BUILTIN_PRIMOP_NAMES: &[&str] = &[
+        "print",
+        "println",
+        "read_file",
+        "read_stdin",
+        "read_lines",
+        "write_file",
+        "clock_now",
+        "now_ms",
+        "panic",
+        "split",
+        "trim",
+        "upper",
+        "lower",
+        "replace",
+        "substring",
+        "to_string",
+        "abs",
+        "sqrt",
+        "sin",
+        "cos",
+        "exp",
+        "log",
+        "floor",
+        "ceil",
+        "round",
+        "fsqrt",
+        "fsin",
+        "fcos",
+        "fexp",
+        "flog",
+        "ffloor",
+        "fceil",
+        "fround",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "sinh",
+        "cosh",
+        "tanh",
+        "truncate",
+        "ftan",
+        "fasin",
+        "facos",
+        "fatan",
+        "fsinh",
+        "fcosh",
+        "ftanh",
+        "ftruncate",
+        "bit_and",
+        "bit_or",
+        "bit_xor",
+        "bit_shl",
+        "bit_shr",
+        "min",
+        "max",
+        "parse_int",
+        "len",
+        "array_push",
+        "array_concat",
+        "array_slice",
+        "type_of",
+        "is_int",
+        "is_float",
+        "is_string",
+        "is_bool",
+        "is_array",
+        "is_none",
+        "is_some",
+        "is_list",
+        "is_hash",
+        "is_map",
+        "map_keys",
+        "map_values",
+        "map_has",
+        "map_merge",
+        "map_delete",
+        "map_set",
+        "map_get",
+        "map_size",
+        "time",
+        "sum",
+        "product",
+        "safe_div",
+        "safe_mod",
+    ];
+
+    /// Bare value-level names a REPL user can type unqualified, for tab completion:
+    /// auto-exposed / imported library members (`map`, `length`, …), the builtin
+    /// primops, and ADT constructors (`Some`, `Red`, …). `__`-prefixed internals
+    /// are excluded. The library members come from `exposed_bindings` (bare →
+    /// qualified) — the names that actually resolve unqualified — NOT the
+    /// module-qualified symbol table.
+    pub(crate) fn repl_bare_names(&self) -> Vec<String> {
+        let keep = |name: &str| !name.starts_with("__");
+        let mut names: Vec<String> = self
+            .exposed_bindings
+            .keys()
+            .map(|member| self.interner.resolve(*member))
+            .filter(|name| keep(name))
+            .map(str::to_string)
+            .collect();
+        names.extend(
+            Self::BUILTIN_PRIMOP_NAMES
+                .iter()
+                .map(|name| name.to_string()),
+        );
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            names.extend(
+                registry
+                    .constructors
+                    .keys()
+                    .map(|ctor| self.interner.resolve(*ctor))
+                    .filter(|name| keep(name))
+                    .map(str::to_string),
+            );
+        }
+        names
+    }
+
+    /// Fully-qualified names (`Flow.Array.map`) for `.`-prefixed REPL completion —
+    /// the only way to reach modules that aren't auto-exposed (Flow.Array, Flow.Map).
+    pub(crate) fn repl_qualified_names(&self) -> Vec<String> {
+        self.symbol_table
+            .all_symbol_names()
+            .into_iter()
+            .map(|sym| self.interner.resolve(sym).to_string())
+            .filter(|name| name.contains('.') && !name.contains("__"))
+            .collect()
+    }
+
     fn inject_primop_hm_schemes(
         &mut self,
         schemes: &mut HashMap<Symbol, Scheme>,
