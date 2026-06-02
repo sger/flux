@@ -17,6 +17,7 @@
 
 mod completion;
 mod engine;
+mod info;
 
 use std::cell::RefCell;
 use std::io::{self, BufRead, IsTerminal, Write};
@@ -244,6 +245,7 @@ fn handle_command(
         "help" | "?" => print_help(),
         "list" | "l" => print_listing(engine),
         "type" | "t" => show_type(engine, rest, request),
+        "info" | "i" => show_info(engine, rest, request),
         "load" => load_command(engine, rest, request),
         "reload" => reload_command(engine, request),
         other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
@@ -312,6 +314,20 @@ fn show_type(engine: &ReplEngine, expr: &str, request: RunProgramRequest<'_>) {
     }
     if let Some(ty) = engine.infer_type(request, expr) {
         println!("{expr} : {ty}");
+    }
+}
+
+/// Show richer information about a single `name` than `:type`: its kind plus, as
+/// applicable, constructors (types), operations (effects), the owning ADT
+/// (constructors), or the defining origin (values). Unlike `:type`, this is keyed
+/// on a name, not an arbitrary expression.
+fn show_info(engine: &ReplEngine, name: &str, request: RunProgramRequest<'_>) {
+    if name.is_empty() {
+        eprintln!("usage: :info <name>");
+        return;
+    }
+    if let Some(text) = engine.info(request, name) {
+        println!("{text}");
     }
 }
 
@@ -411,6 +427,8 @@ fn print_banner() {
 fn print_help() {
     eprintln!("Commands:");
     eprintln!("  :type <expr>  Show the inferred type of <expr> (does not evaluate)");
+    eprintln!("  :info <name>  Show a name's kind: type constructors, effect operations,");
+    eprintln!("  :i <name>       a constructor's ADT, or a value's type and origin");
     eprintln!("  :load <file>  Reset the session and load a .flx file's definitions");
     eprintln!("  :reload       Reload the last :load'd file from disk");
     eprintln!("  :reset        Forget all session bindings");

@@ -2025,6 +2025,117 @@ fn repl_type_reports_errors_without_evaluating() {
     );
 }
 
+/// Assert that some printed (trimmed) stdout line of a REPL session equals
+/// `expected`, with the full output in the failure message.
+fn assert_repl_line(output: &Output, expected: &str) {
+    let results = repl_results(output);
+    assert!(
+        results.iter().any(|line| line == expected),
+        "expected a line `{expected}` in REPL stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_info_describes_a_builtin_type() {
+    // `:info` on a built-in type (a `TypeConstructor`, not a registry ADT) lists
+    // its constructors, each with the signature inferred via eta-expansion.
+    let output = run_flux_repl(":info Option\n:quit\n");
+    assert_repl_line(&output, "type Option");
+    assert_repl_line(&output, "None : Option<_>");
+    assert_repl_line(&output, "Some : (_) -> Option<_>");
+}
+
+#[test]
+fn repl_info_describes_a_user_adt_with_field_types() {
+    // A user `type` is found in the ADT registry; each constructor's signature
+    // (including positional field types) comes from saturated inference.
+    let output = run_flux_repl("type Color = Red | Green(Int)\n:info Color\n:quit\n");
+    assert_repl_line(&output, "type Color");
+    assert_repl_line(&output, "Red   : Color");
+    assert_repl_line(&output, "Green : (Int) -> Color");
+}
+
+#[test]
+fn repl_info_describes_a_constructor_and_its_adt() {
+    // `:info` on a constructor shows its own signature, the owning ADT, then the
+    // ADT's full block (GHCi shows the defining type for a constructor).
+    let output = run_flux_repl("type Color = Red | Green(Int)\n:info Green\n:quit\n");
+    assert_repl_line(&output, "Green : (Int) -> Color");
+    assert_repl_line(&output, "-- constructor of Color");
+    assert_repl_line(&output, "type Color");
+}
+
+#[test]
+fn repl_info_describes_a_seeded_effect() {
+    // A built-in effect lives in the effect-op registry after bootstrap, so
+    // `:info` lists its operations.
+    let output = run_flux_repl(":info Console\n:quit\n");
+    let results = repl_results(&output);
+    assert_repl_line(&output, "effect Console");
+    assert!(
+        results.iter().any(|line| line.starts_with("print")),
+        "expected a `print*` operation line, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_info_describes_a_user_effect() {
+    // A user `effect` declared earlier persists in the session registry, so
+    // `:info` reports its operation and signature.
+    let output = run_flux_repl("effect Log { emit: String -> Int }\n:info Log\n:quit\n");
+    assert_repl_line(&output, "effect Log");
+    assert_repl_line(&output, "emit : (String) -> Int");
+}
+
+#[test]
+fn repl_info_reports_a_session_value_and_origin() {
+    // For a value, `:info` shows its type and where it's defined.
+    let output = run_flux_repl("let x = 5\n:info x\n:quit\n");
+    assert_repl_line(&output, "x : Int");
+    assert_repl_line(&output, "-- Defined in the current session");
+}
+
+#[test]
+fn repl_info_reports_a_library_member_origin() {
+    // An auto-exposed library member resolves to its defining module.
+    let output = run_flux_repl(":info map\n:quit\n");
+    let results = repl_results(&output);
+    assert!(
+        results.iter().any(|line| line.starts_with("map :")),
+        "expected a `map : ...` type line, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert_repl_line(&output, "-- Defined in module Flow.List");
+}
+
+#[test]
+fn repl_info_alias_i_works() {
+    // `:i` is the short alias for `:info`.
+    let output = run_flux_repl(":i Option\n:quit\n");
+    assert_repl_line(&output, "type Option");
+}
+
+#[test]
+fn repl_info_unknown_name_reports_without_panicking() {
+    // An unknown name prints no info block (the inference diagnostic goes to
+    // stderr) and the session keeps going — like `:type` on an unknown name.
+    let output = run_flux_repl(":info totallyunknownname\n1 + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["2"],
+        "stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        !combined_output(&output).contains("panicked"),
+        "a bad `:info` must report a diagnostic, not panic, output:\n{}",
+        combined_output(&output),
+    );
+}
+
 #[test]
 fn repl_runs_effects_once_without_replaying() {
     // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
@@ -2234,7 +2345,7 @@ fn repl_help_lists_commands() {
     for command in [":help", ":?"] {
         let output = run_flux_repl(&format!("{command}\n:quit\n"));
         let combined = combined_output(&output);
-        for expected in [":type", ":load", ":reset", ":list", ":quit"] {
+        for expected in [":type", ":info", ":load", ":reset", ":list", ":quit"] {
             assert!(
                 combined.contains(expected),
                 "`{command}` should mention `{expected}`, output:\n{combined}",
