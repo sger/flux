@@ -111,8 +111,13 @@ fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
     // Shared, loop-updated in-scope name set for tab completion. The helper reads
     // it; the loop refreshes it after each entered line (below).
     let names = Rc::new(RefCell::new(engine.completion_names()));
+    // `Circular` (menu-complete): the first Tab inserts a match inline and each
+    // further Tab cycles to the next (Shift-Tab backward). Chosen over `List`
+    // because List requires a *second* Tab to draw the candidate list whenever the
+    // typed word is already the longest common prefix (e.g. `ma` for map/match/max),
+    // which feels unresponsive.
     let config = rustyline::Config::builder()
-        .completion_type(rustyline::CompletionType::List)
+        .completion_type(rustyline::CompletionType::Circular)
         .build();
     let mut editor: ReplEditor = match rustyline::Editor::with_config(config) {
         Ok(editor) => editor,

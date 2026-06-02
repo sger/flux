@@ -11,5 +11,6 @@
   (Flow.Array, Flow.Map) are reachable — `.` is treated as a non-break char, so
   `Flow.Array.ma<Tab>` completes while a bare `ma<Tab>` completes unqualified names.
   The in-scope set refreshes after each entered line, so a just-defined binding
-  completes on the next line. Multiple candidates are listed
-  (`CompletionType::List`). The non-interactive (piped) path is unchanged.
+  completes on the next line. Completion is menu-style (`CompletionType::Circular`):
+  the first Tab inserts a match and each further Tab cycles to the next (Shift-Tab
+  cycles backward). The non-interactive (piped) path is unchanged.
