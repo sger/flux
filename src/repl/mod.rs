@@ -15,10 +15,13 @@
 //! effectful expression runs inside `main` without capturing `it`. A line that
 //! fails to compile or run is rolled back, so the session never breaks.
 
+mod completion;
 mod engine;
 
+use std::cell::RefCell;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::driver::{
     flags::DriverFlags, pipeline::program::RunProgramRequest, session::DriverSession,
@@ -27,7 +30,11 @@ use crate::syntax::{
     lexeme::Lexeme, lexer::Lexer, parser::Parser, statement::Statement, token_type::TokenType,
 };
 
+use completion::ReplHelper;
 use engine::ReplEngine;
+
+/// The interactive editor, parameterised by the REPL's completion helper.
+type ReplEditor = rustyline::Editor<ReplHelper, rustyline::history::FileHistory>;
 
 /// How a single entered line should be routed.
 enum LineKind {
@@ -101,13 +108,20 @@ fn run_piped(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
 /// editing, and Ctrl-R reverse search, with history persisted across sessions.
 /// Falls back to the piped loop if the editor can't be initialised.
 fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
-    let mut editor = match rustyline::DefaultEditor::new() {
+    // Shared, loop-updated in-scope name set for tab completion. The helper reads
+    // it; the loop refreshes it after each entered line (below).
+    let names = Rc::new(RefCell::new(engine.completion_names()));
+    let config = rustyline::Config::builder()
+        .completion_type(rustyline::CompletionType::List)
+        .build();
+    let mut editor: ReplEditor = match rustyline::Editor::with_config(config) {
         Ok(editor) => editor,
         Err(err) => {
             eprintln!("line editor unavailable ({err}); using basic input.");
             return run_piped(engine, request);
         }
     };
+    editor.set_helper(Some(ReplHelper::new(Rc::clone(&names))));
     let history = history_path();
     if let Some(path) = &history {
         // A missing history file on first run is not an error.
@@ -126,6 +140,8 @@ fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
                 if !dispatch(&input, &mut engine, request) {
                     break;
                 }
+                // Newly-defined (or :load/:reset-replaced) bindings complete next.
+                *names.borrow_mut() = engine.completion_names();
             }
             // Ctrl-C: abandon the current (possibly multi-line) input, keep going.
             Ok(None) => continue,
@@ -144,7 +160,7 @@ fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
 /// while the form is open (same delimiter/string balance as the piped path).
 /// `Ok(None)` means Ctrl-C (abandon this input); `Err` means Ctrl-D/EOF.
 fn read_interactive_input(
-    editor: &mut rustyline::DefaultEditor,
+    editor: &mut ReplEditor,
 ) -> Result<Option<String>, rustyline::error::ReadlineError> {
     use rustyline::error::ReadlineError;
 

@@ -1830,3 +1830,42 @@ mod unqualified_runtime_contract_resolution {
         );
     }
 }
+
+/// Guards the REPL-completion primop list against accidental corruption or
+/// truncation. It mirrors the `primop_sigs` table in `inject_primop_hm_schemes`;
+/// this checks it stays clean (no `__primop_*` aliases, no duplicates) and still
+/// covers a representative name from each primop family.
+#[test]
+fn builtin_primop_names_are_clean_and_cover_each_family() {
+    let names = Compiler::BUILTIN_PRIMOP_NAMES;
+    assert!(
+        names.iter().all(|name| !name.starts_with("__")),
+        "BUILTIN_PRIMOP_NAMES must exclude the internal __primop_* aliases"
+    );
+    let mut deduped: Vec<&&str> = names.iter().collect();
+    deduped.sort_unstable();
+    let len_before = deduped.len();
+    deduped.dedup();
+    assert_eq!(
+        len_before,
+        deduped.len(),
+        "BUILTIN_PRIMOP_NAMES contains duplicates"
+    );
+    for sentinel in [
+        "print",
+        "to_string",
+        "abs",
+        "bit_and",
+        "len",
+        "is_int",
+        "map_get",
+        "sum",
+        "safe_div",
+        "time",
+    ] {
+        assert!(
+            names.contains(&sentinel),
+            "BUILTIN_PRIMOP_NAMES missing `{sentinel}` — out of sync with primop_sigs?"
+        );
+    }
+}

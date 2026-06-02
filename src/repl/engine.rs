@@ -452,6 +452,35 @@ impl ReplEngine {
         self.committed.iter().map(|d| d.source.as_str()).collect()
     }
 
+    /// In-scope identifier names for REPL tab completion, as the user actually
+    /// types them. Unions the compiler's bare names (exposed library members,
+    /// builtin primops, ADT constructors — see [`Compiler::repl_bare_names`]) with
+    /// the session's own `let` / `fn` bindings, `it` (when a result exists), the
+    /// language keywords, and the fully-qualified names (for `.`-prefix
+    /// completion). The synthetic `__repl_*` result bindings are hidden — `it` is
+    /// the handle for those. Sorted and de-duplicated.
+    pub(super) fn completion_names(&self) -> Vec<String> {
+        let mut names = self.compiler.repl_bare_names();
+        names.extend(
+            self.committed
+                .iter()
+                .filter_map(|decl| decl.name.clone())
+                .filter(|name| !name.starts_with("__")),
+        );
+        if self.last_result.is_some() {
+            names.push("it".to_string());
+        }
+        names.extend(
+            crate::syntax::token_type::KEYWORDS
+                .iter()
+                .map(|kw| kw.to_string()),
+        );
+        names.extend(self.compiler.repl_qualified_names());
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
     /// Record a committed declaration, replacing an earlier one that bound the
     /// same name (rebinding) in place so the `:type` / `:list` record stays a
     /// duplicate-free snapshot. Entries with no dedup name (or a unique
