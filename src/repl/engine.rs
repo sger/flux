@@ -447,6 +447,146 @@ impl ReplEngine {
         infer_repl_expr_type(request, source)
     }
 
+    /// REPL `:info`: a richer, name-keyed report than `:type`. Resolves `name` to
+    /// the first matching kind and renders a block:
+    /// 1. a registered ADT (user `data`/`type`, or a prelude ADT like `Result`) →
+    ///    its constructors, each with its signature;
+    /// 2. a built-in type (`Option`/`Either` carry constructors; `List`/`Int`/… are
+    ///    abstract) → the same block or a `built-in type` note;
+    /// 3. a declared effect (user `effect`, or a seeded built-in like `Console`) →
+    ///    its operations, each with its signature;
+    /// 4. a data constructor → its own signature plus the owning ADT's block;
+    /// 5. otherwise a value/function → its type plus where it's defined.
+    ///
+    /// Returns `None` only when `name` resolves to nothing — in which case the
+    /// underlying [`Self::infer_type`] has already printed the diagnostic, exactly
+    /// as `:type` does for an unknown name.
+    pub(super) fn info(&self, request: RunProgramRequest<'_>, name: &str) -> Option<String> {
+        // 1. A registered ADT.
+        if let Some(ctors) = self.compiler.repl_adt_constructors(name) {
+            return Some(self.type_info(request, name, &ctors));
+        }
+        // 2. A built-in type (curated — these are `TypeConstructor`s, not registry ADTs).
+        if let Some(ctors) = super::info::builtin_type_constructors(name) {
+            let owned: Vec<(String, usize)> = ctors
+                .iter()
+                .map(|(c, arity)| (c.to_string(), *arity))
+                .collect();
+            return Some(self.type_info(request, name, &owned));
+        }
+        // 3. A declared effect.
+        if let Some(ops) = self.compiler.repl_effect_op_signatures(name) {
+            return Some(super::info::format_effect_block(name, &ops));
+        }
+        // 4a. A registered data constructor: its signature, then its ADT's block.
+        if let Some(adt) = self.compiler.repl_constructor_parent(name) {
+            let ctors = self
+                .compiler
+                .repl_adt_constructors(&adt)
+                .unwrap_or_default();
+            let arity = ctors
+                .iter()
+                .find(|(ctor, _)| ctor == name)
+                .map_or(0, |(_, arity)| *arity);
+            return self.constructor_block(request, name, arity, &adt, &ctors);
+        }
+        // 4b. A built-in constructor (`Some`/`None`/`Left`/`Right` — not in the registry).
+        if let Some((adt, arity)) = super::info::builtin_constructor_parent(name) {
+            let ctors: Vec<(String, usize)> = super::info::builtin_type_constructors(adt)
+                .unwrap_or(&[])
+                .iter()
+                .map(|(ctor, arity)| (ctor.to_string(), *arity))
+                .collect();
+            return self.constructor_block(request, name, arity, adt, &ctors);
+        }
+        // 5. A value / function.
+        let ty = self.infer_type(request, name)?;
+        let mut out = format!("{name} : {ty}");
+        if let Some(origin) = self.value_origin(name) {
+            out.push_str(&format!("\n-- {origin}"));
+        }
+        Some(out)
+    }
+
+    /// Render a `type <name>` block, inferring each constructor's signature.
+    fn type_info(
+        &self,
+        request: RunProgramRequest<'_>,
+        name: &str,
+        ctors: &[(String, usize)],
+    ) -> String {
+        let sigs: Vec<(String, String)> = ctors
+            .iter()
+            .map(|(ctor, arity)| {
+                let sig = self
+                    .constructor_signature(request, ctor, *arity)
+                    .unwrap_or_else(|| "?".to_string());
+                (ctor.clone(), sig)
+            })
+            .collect();
+        super::info::format_type_block(name, &sigs)
+    }
+
+    /// Render a constructor's `:info` block: its own signature, the `-- constructor
+    /// of <ADT>` note, then the owning ADT's full `type` block. `None` if the
+    /// constructor's signature can't be inferred.
+    fn constructor_block(
+        &self,
+        request: RunProgramRequest<'_>,
+        ctor: &str,
+        arity: usize,
+        adt: &str,
+        ctors: &[(String, usize)],
+    ) -> Option<String> {
+        let sig = self.constructor_signature(request, ctor, arity)?;
+        let mut out = format!("{ctor} : {sig}\n-- constructor of {adt}\n");
+        out.push_str(&self.type_info(request, adt, ctors));
+        Some(out)
+    }
+
+    /// Infer a constructor's signature. Flux constructors aren't first-class when
+    /// unapplied, so a non-nullary constructor is eta-expanded to a saturated
+    /// closure — `Some` (arity 1) is inferred as `fn(__p0) { Some(__p0) }`, yielding
+    /// `(a) -> Option<a>`. A nullary constructor is inferred bare.
+    fn constructor_signature(
+        &self,
+        request: RunProgramRequest<'_>,
+        ctor: &str,
+        arity: usize,
+    ) -> Option<String> {
+        if arity == 0 {
+            return self.infer_type(request, ctor);
+        }
+        let params: Vec<String> = (0..arity).map(|i| format!("__p{i}")).collect();
+        let joined = params.join(", ");
+        let expr = format!("fn({joined}) {{ {ctor}({joined}) }}");
+        // The synthetic closure carries an open, label-free effect row (` with |_`);
+        // constructors are pure, so drop that artifact for a clean signature.
+        self.infer_type(request, &expr).map(|sig| {
+            sig.strip_suffix(" with |_")
+                .map_or(sig.clone(), str::to_string)
+        })
+    }
+
+    /// A human-readable provenance note for a value-level `name`, used by `:info`:
+    /// `it`, a session binding, an exposed library module, or the builtins. `None`
+    /// when none apply (the line is then shown without a provenance comment).
+    fn value_origin(&self, name: &str) -> Option<String> {
+        if name == "it" && self.last_result.is_some() {
+            return Some("the most recent result".to_string());
+        }
+        if self
+            .committed
+            .iter()
+            .any(|decl| decl.name.as_deref() == Some(name))
+        {
+            return Some("Defined in the current session".to_string());
+        }
+        self.compiler
+            .repl_value_origin(name)
+            .map(|origin| format!("Defined in {origin}"))
+    }
+
     /// The committed top-level declaration sources, for `:list`.
     pub(super) fn listing(&self) -> Vec<&str> {
         self.committed.iter().map(|d| d.source.as_str()).collect()

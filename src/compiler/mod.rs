@@ -3493,6 +3493,85 @@ impl Compiler {
             .collect()
     }
 
+    /// REPL `:info`: if `name` is a registered ADT (a user `data`/`type` or a
+    /// prelude ADT like `Result`), its constructors as `(name, arity)` pairs in
+    /// declaration order; `None` otherwise. The arity lets the REPL eta-expand each
+    /// constructor to a saturated form for signature inference (Flux constructors
+    /// aren't first-class unapplied). Built-in `TypeConstructor`s (`Option`,
+    /// `List`, …) are not in the registry — the REPL handles those from a table.
+    pub(crate) fn repl_adt_constructors(&self, name: &str) -> Option<Vec<(String, usize)>> {
+        let sym = self.interner.lookup(name)?;
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            if let Some(def) = registry.lookup_adt(sym) {
+                return Some(
+                    def.constructors
+                        .iter()
+                        .map(|(ctor, arity, _)| (self.interner.resolve(*ctor).to_string(), *arity))
+                        .collect(),
+                );
+            }
+        }
+        None
+    }
+
+    /// REPL `:info`: if `name` is a declared effect (user `effect` or a seeded
+    /// built-in like `Console`), its operations as `(op_name, rendered_signature)`
+    /// pairs sorted by op name; `None` if the name is not a known effect. Empty
+    /// `Vec` means a known effect with no recorded operations.
+    pub(crate) fn repl_effect_op_signatures(&self, name: &str) -> Option<Vec<(String, String)>> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let sym = self.interner.lookup(name)?;
+        let ops = self
+            .effect_ops_registry
+            .get(&sym)
+            .or_else(|| self.preloaded_effect_ops_registry.get(&sym))?;
+        let mut out: Vec<(String, String)> = ops
+            .iter()
+            .map(|op| {
+                let sig = self
+                    .effect_op_signatures
+                    .get(&(sym, *op))
+                    .or_else(|| self.preloaded_effect_op_signatures.get(&(sym, *op)))
+                    .map(|scheme| render_scheme_canonical(&self.interner, scheme))
+                    .unwrap_or_else(|| "?".to_string());
+                (self.interner.resolve(*op).to_string(), sig)
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Some(out)
+    }
+
+    /// REPL `:info`: if `name` is a data constructor, the name of the ADT it
+    /// belongs to; `None` otherwise.
+    pub(crate) fn repl_constructor_parent(&self, name: &str) -> Option<String> {
+        let sym = self.interner.lookup(name)?;
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            if let Some(info) = registry.lookup_constructor(sym) {
+                return Some(self.interner.resolve(info.adt_name).to_string());
+            }
+        }
+        None
+    }
+
+    /// REPL `:info`: a human-readable origin for a value-level `name` — the
+    /// defining module for an exposed/imported library member (`map` →
+    /// `"module Flow.List"`), or `"a builtin primitive"` for a primop. `None` when
+    /// the origin isn't one of these (e.g. a session binding, handled by the REPL).
+    pub(crate) fn repl_value_origin(&self, name: &str) -> Option<String> {
+        if let Some(sym) = self.interner.lookup(name)
+            && let Some(qualified) = self.exposed_bindings.get(&sym)
+        {
+            let qualified = self.interner.resolve(*qualified);
+            if let Some((module, _)) = qualified.rsplit_once('.') {
+                return Some(format!("module {module}"));
+            }
+        }
+        if Self::BUILTIN_PRIMOP_NAMES.contains(&name) {
+            return Some("the builtin primitives".to_string());
+        }
+        None
+    }
+
     fn inject_primop_hm_schemes(
         &mut self,
         schemes: &mut HashMap<Symbol, Scheme>,
