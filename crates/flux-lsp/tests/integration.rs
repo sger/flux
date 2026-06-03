@@ -257,6 +257,20 @@ fn did_open_publishes_parse_diagnostics_for_broken_source() {
 }
 
 #[test]
+fn typed_hole_publishes_a_diagnostic() {
+    // A `_` in expression position is a typed hole; inference emits an E469
+    // diagnostic, which the LSP publishes like any other — powering in-editor
+    // "what goes here?" feedback.
+    let mut state = GlobalState::default();
+    let u = uri("file:///hole.flx");
+    let diags = diags_for(&mut state, &u, "fn f() -> Int { _ }\n");
+    assert!(
+        diags.iter().any(|diag| diag.message.contains("found hole")),
+        "expected a typed-hole diagnostic published, got: {diags:?}"
+    );
+}
+
+#[test]
 fn did_open_clean_source_publishes_no_diagnostics() {
     let mut state = GlobalState::default();
     let u = uri("file:///clean.flx");

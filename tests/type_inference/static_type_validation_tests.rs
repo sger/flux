@@ -556,6 +556,70 @@ fn fallback_vars_empty_for_valid_program() {
 }
 
 #[test]
+fn typed_hole_reports_e469_with_the_inferred_type() {
+    // A `_` in expression position is a typed hole: inference reports its expected
+    // type (here `Int`, fixed by the declared return type) as E469.
+    let (result, _program, _interner) = infer(
+        r#"
+fn f() -> Int { _ }
+"#,
+    );
+    let hole = result
+        .diagnostics
+        .iter()
+        .find(|diag| diag.code() == Some("E469"))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected an E469 typed-hole diagnostic, got: {:#?}",
+                result.diagnostics
+            )
+        });
+    let message = hole.message().unwrap_or("");
+    assert!(
+        message.contains("found hole") && message.contains("Int"),
+        "unexpected hole message: {message:?}"
+    );
+}
+
+#[test]
+fn named_hole_reports_e469() {
+    // `_name` with no binding in scope is a named typed hole.
+    let (result, _program, _interner) = infer(
+        r#"
+fn f() -> Int { _missing + 1 }
+"#,
+    );
+    assert!(
+        result.diagnostics.iter().any(|diag| {
+            diag.code() == Some("E469") && diag.message().is_some_and(|m| m.contains("_missing"))
+        }),
+        "expected a named typed-hole diagnostic for `_missing`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn bound_underscore_name_is_not_a_hole() {
+    // A `_`-prefixed name that *is* in scope resolves normally — no typed hole.
+    let (result, _program, _interner) = infer(
+        r#"
+fn f() -> Int {
+    let _x = 5
+    _x
+}
+"#,
+    );
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code() == Some("E469")),
+        "a bound `_x` must not be a hole, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
 fn hm_inference_does_not_eagerly_emit_member_access_residue_diagnostic() {
     let (result, _program, _interner) = infer(
         r#"
