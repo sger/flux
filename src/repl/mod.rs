@@ -258,6 +258,12 @@ fn handle_command(
     engine: &mut ReplEngine,
     request: RunProgramRequest<'_>,
 ) -> Command {
+    // `:!<command>` runs a shell command — handled before the word split so the
+    // whole tail (including its own flags) reaches the shell verbatim.
+    if let Some(shell) = command.trim_start().strip_prefix('!') {
+        shell_command(shell);
+        return Command::Handled;
+    }
     let mut parts = command.trim().splitn(2, char::is_whitespace);
     let name = parts.next().unwrap_or("");
     let rest = parts.next().unwrap_or("").trim();
@@ -271,11 +277,189 @@ fn handle_command(
         "browse" | "b" => show_browse(engine, rest),
         "set" => set_command(engine, rest),
         "unset" => unset_command(engine, rest),
+        "shell" => shell_command(rest),
+        "cd" => cd_command(rest),
+        "edit" | "e" => edit_command(engine, rest, request),
+        "script" => return script_command(engine, rest, request),
         "load" => load_command(engine, rest, request),
         "reload" => reload_command(engine, request),
         other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
     }
     Command::Handled
+}
+
+/// `:!<command>` / `:shell <command>` — run a command in the system shell with the
+/// REPL's stdio inherited (so its output appears inline). Reports a non-zero exit.
+fn shell_command(command: &str) {
+    let command = command.trim();
+    if command.is_empty() {
+        eprintln!("usage: :!<command>   (or :shell <command>)");
+        return;
+    }
+    match shell_invocation(command).status() {
+        Ok(status) if !status.success() => {
+            if let Some(code) = status.code() {
+                eprintln!("[command exited with status {code}]");
+            }
+        }
+        Ok(_) => {}
+        Err(err) => eprintln!("failed to run shell command: {err}"),
+    }
+}
+
+/// Build the platform shell invocation for `command` (`cmd /C` on Windows, `$SHELL
+/// -c` — defaulting to `sh` — elsewhere).
+#[cfg(windows)]
+fn shell_invocation(command: &str) -> std::process::Command {
+    let mut shell = std::process::Command::new("cmd");
+    shell.arg("/C").arg(command);
+    shell
+}
+#[cfg(not(windows))]
+fn shell_invocation(command: &str) -> std::process::Command {
+    let program = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+    let mut shell = std::process::Command::new(program);
+    shell.arg("-c").arg(command);
+    shell
+}
+
+/// `:cd [dir]` — change the process working directory (so relative `:load` paths
+/// and file effects resolve there). With no argument, change to the home
+/// directory. A leading `~` is expanded.
+fn cd_command(arg: &str) {
+    let target = arg.trim().trim_matches(|c| c == '"' || c == '\'');
+    let path = if target.is_empty() {
+        match home_dir() {
+            Some(home) => home,
+            None => {
+                eprintln!("usage: :cd <dir>");
+                return;
+            }
+        }
+    } else {
+        expand_tilde(target)
+    };
+    match std::env::set_current_dir(&path) {
+        Ok(()) => eprintln!("{}", path.display()),
+        Err(err) => eprintln!("cd: {}: {err}", path.display()),
+    }
+}
+
+/// `:edit [file]` — open a file in `$EDITOR` (`$VISUAL`, else a platform default),
+/// then, if it's the currently `:load`'d file, reload it. With no argument, edit
+/// the last `:load`'d file.
+fn edit_command(engine: &mut ReplEngine, arg: &str, request: RunProgramRequest<'_>) {
+    let arg = arg.trim().trim_matches(|c| c == '"' || c == '\'');
+    let target = if !arg.is_empty() {
+        expand_tilde(arg)
+    } else if let Some(loaded) = engine.loaded_path() {
+        loaded.clone()
+    } else {
+        eprintln!("usage: :edit <file>   (or :load a file first)");
+        return;
+    };
+    let editor = editor_command();
+    // `$EDITOR` may carry flags (e.g. `code --wait`); split program from arguments.
+    let mut words = editor.split_whitespace();
+    let Some(program) = words.next() else {
+        eprintln!("no editor configured (set $EDITOR)");
+        return;
+    };
+    match std::process::Command::new(program)
+        .args(words)
+        .arg(&target)
+        .status()
+    {
+        Ok(_) => {
+            if engine.loaded_path() == Some(&target) {
+                reload_command(engine, request);
+            }
+        }
+        Err(err) => eprintln!("failed to launch editor `{program}`: {err}"),
+    }
+}
+
+/// `:script <file>` — run each line of `file` as REPL input (declarations,
+/// expressions, and `:`-commands alike), reusing the same multi-line accumulation
+/// as the piped loop. A `:quit` inside the script exits the REPL.
+fn script_command(engine: &mut ReplEngine, arg: &str, request: RunProgramRequest<'_>) -> Command {
+    let path = arg.trim().trim_matches(|c| c == '"' || c == '\'');
+    if path.is_empty() {
+        eprintln!("usage: :script <file>");
+        return Command::Handled;
+    }
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("cannot open {path}: {err}");
+            return Command::Handled;
+        }
+    };
+    let mut reader = io::BufReader::new(file);
+    while let Some(input) = read_script_input(&mut reader) {
+        if !dispatch(&input, engine, request) {
+            return Command::Quit;
+        }
+    }
+    Command::Handled
+}
+
+/// Read one logical input (a complete form, accounting for multi-line balance)
+/// from a `:script` file. Like [`read_input`] but without printing prompts.
+fn read_script_input(reader: &mut impl BufRead) -> Option<String> {
+    let mut buffer = String::new();
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => {
+                return (!buffer.trim().is_empty()).then_some(buffer);
+            }
+            Ok(_) => buffer.push_str(&line),
+            Err(_) => return None,
+        }
+        if !needs_more_input(&buffer) {
+            return Some(buffer);
+        }
+    }
+}
+
+/// The user's home directory from `HOME` (Unix) or `USERPROFILE` (Windows).
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// Expand a leading `~` (or `~/…`) to the home directory; otherwise the path
+/// unchanged.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix('~')
+        && let Some(home) = home_dir()
+    {
+        let rest = rest.strip_prefix(['/', '\\']).unwrap_or(rest);
+        return if rest.is_empty() {
+            home
+        } else {
+            home.join(rest)
+        };
+    }
+    PathBuf::from(path)
+}
+
+/// The configured editor command: `$EDITOR`, then `$VISUAL`, then a platform
+/// default (`notepad` on Windows, `vi` elsewhere).
+fn editor_command() -> String {
+    std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| default_editor().to_string())
+}
+#[cfg(windows)]
+fn default_editor() -> &'static str {
+    "notepad"
+}
+#[cfg(not(windows))]
+fn default_editor() -> &'static str {
+    "vi"
 }
 
 /// `:load <file>` — reset to a fresh prelude-loaded session, then load and run a
@@ -507,6 +691,10 @@ fn print_help() {
     eprintln!("  :unset <opt>    optimize, analyze; :unset to disable");
     eprintln!("  :load <file>  Reset the session and load a .flx file's definitions");
     eprintln!("  :reload       Reload the last :load'd file from disk");
+    eprintln!("  :script <f>   Run a file of REPL inputs line by line");
+    eprintln!("  :edit [file]  Open a file in $EDITOR (the loaded one by default)");
+    eprintln!("  :!<cmd>       Run a shell command (alias :shell <cmd>)");
+    eprintln!("  :cd [dir]     Change the working directory");
     eprintln!("  :reset        Forget all session bindings");
     eprintln!("  :list         Show the accumulated session declarations");
     eprintln!("  :help, :?     Show this help");

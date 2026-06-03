@@ -2267,6 +2267,60 @@ fn repl_set_unknown_option_reports_without_panicking() {
 }
 
 #[test]
+fn repl_script_runs_a_file_of_repl_inputs() {
+    // `:script <file>` feeds each line of the file through the same dispatch as
+    // typed input — declarations and expressions alike.
+    let script = repl_temp_flx("script", "let s = 3\ns * s\n1 + 1\n");
+    let output = run_flux_repl(&format!(":script \"{}\"\n:quit\n", script.display()));
+    assert_eq!(
+        repl_results(&output),
+        ["9", "2"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_shell_command_runs_and_inherits_stdout() {
+    // `:!<cmd>` runs in the system shell with the REPL's stdout inherited, so the
+    // command's output shows up in the value stream. `echo` works on cmd and sh.
+    let output = run_flux_repl(":!echo flux_shell_marker_321\n:quit\n");
+    assert!(
+        repl_results(&output)
+            .iter()
+            .any(|line| line.contains("flux_shell_marker_321")),
+        "shell output should appear on stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_cd_reports_error_for_a_missing_directory() {
+    // A bad `:cd` is reported (not a panic) and the session keeps going.
+    let output = run_flux_repl(":cd /no/such/dir/xyz123\n1 + 1\n:quit\n");
+    assert_eq!(repl_results(&output), ["2"]);
+    let combined = combined_output(&output);
+    assert!(
+        combined.contains("cd:") && !combined.contains("panicked"),
+        "a bad `:cd` must report, not panic, output:\n{combined}",
+    );
+}
+
+#[test]
+fn repl_edit_without_a_target_reports_usage() {
+    // `:edit` with no argument and nothing loaded prints usage and launches no
+    // editor (so the test never blocks), and the session continues.
+    let output = run_flux_repl(":edit\n1 + 1\n:quit\n");
+    assert_eq!(repl_results(&output), ["2"]);
+    assert!(
+        combined_output(&output).contains("usage: :edit"),
+        "expected a `:edit` usage hint, output:\n{}",
+        combined_output(&output),
+    );
+}
+
+#[test]
 fn repl_runs_effects_once_without_replaying() {
     // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
     // so an effectful expression's output appears exactly once. The Phase 1
