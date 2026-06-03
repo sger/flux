@@ -48,6 +48,7 @@ mod display;
 mod effects;
 mod expression;
 mod function;
+mod holes;
 mod pattern_coverage;
 mod pattern_coverage_adapter;
 mod solver;
@@ -57,6 +58,9 @@ mod unification;
 
 pub(crate) type BindingSpanKey = (usize, usize, usize, usize);
 pub use display::{display_infer_type, render_scheme_canonical};
+/// Shared with the VM codegen so it can recognise typed holes (`_` / `_name`) and
+/// defer to HM inference's `E469` instead of also reporting `E004`.
+pub(crate) use holes::is_hole_name;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared type definitions
@@ -212,6 +216,10 @@ struct InferCtx<'a> {
     class_sym_ord: Option<Identifier>,
     class_sym_num: Option<Identifier>,
     class_sym_semigroup: Option<Identifier>,
+    /// Typed holes (`_` / `_name`) recorded during inference. Finalized in
+    /// [`build_infer_result`] into `TYPED HOLE` diagnostics once the substitution
+    /// is complete.
+    holes: Vec<holes::HoleInfo>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -301,7 +309,19 @@ impl<'a> InferCtx<'a> {
             class_sym_ord: None,
             class_sym_num: None,
             class_sym_semigroup: None,
+            holes: Vec::new(),
         }
+    }
+
+    /// Record a typed hole (an unbound `_` / `_name`): allocate a fresh ordinary
+    /// inference variable (so surrounding unification fixes its type) and remember
+    /// it for finalization. Returns the variable's type.
+    fn record_hole(&mut self, name: Identifier, span: Span) -> InferType {
+        let ty = self.env.alloc_infer_type_var();
+        if let InferType::Var(var) = ty {
+            self.holes.push(holes::HoleInfo { name, span, var });
+        }
+        ty
     }
 
     /// Return whether a type is fully concrete (no unresolved type variables).
@@ -648,7 +668,8 @@ fn resolve_binding_schemes(
 }
 
 /// Apply final substitution to all inferred types and build the result.
-fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
+fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
+    finalize_holes(&mut ctx);
     let constraint_count = ctx.contraint_log.len();
     let (expanded_fallback, resolved_binding_schemes) =
         resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
@@ -675,6 +696,32 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         resolved_binding_schemes,
         resolved_binding_schemes_by_span,
         class_method_dispatch: ctx.class_method_dispatch,
+    }
+}
+
+/// Resolve each recorded typed hole through the final substitution and emit a
+/// `TYPED HOLE` diagnostic (`found hole _ : T` plus the in-scope bindings that
+/// fit). Runs once the substitution is complete so the hole's type reflects its
+/// surrounding context.
+fn finalize_holes(ctx: &mut InferCtx<'_>) {
+    if ctx.holes.is_empty() {
+        return;
+    }
+    let pending = std::mem::take(&mut ctx.holes);
+    for hole in pending {
+        let hole_ty = InferType::Var(hole.var).apply_type_subst(&ctx.subst);
+        // `&mut ctx.env` and `&ctx.subst` are disjoint fields — the trial
+        // unifications never touch `subst`.
+        let fits = holes::hole_fits(&mut ctx.env, &ctx.subst, &hole_ty, ctx.interner);
+        let name = ctx.interner.resolve(hole.name).to_string();
+        ctx.errors.push(holes::hole_diagnostic(
+            &name,
+            &hole_ty,
+            &fits,
+            ctx.file_path.clone(),
+            hole.span,
+            ctx.interner,
+        ));
     }
 }
 

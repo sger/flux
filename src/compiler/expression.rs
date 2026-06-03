@@ -559,10 +559,18 @@ impl Compiler {
                             ));
                         }
                     } else {
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_undefined_variable_error(name_str, *span),
-                        ));
+                        let name_str = self.sym(name).to_string();
+                        if crate::ast::type_infer::is_hole_name(&name_str) {
+                            // A typed hole (`_` / `_name`) is already reported by HM
+                            // inference as E469; emit a placeholder so codegen does
+                            // not *also* report E004. The compile still fails on the
+                            // E469 error, so this value is never executed.
+                            self.emit_constant_value(Value::Integer(0));
+                        } else {
+                            return Err(Self::boxed(
+                                self.make_undefined_variable_error(&name_str, *span),
+                            ));
+                        }
                     }
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
@@ -614,10 +622,18 @@ impl Compiler {
                                 .with_file(self.file_path.clone()),
                             );
                         }
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_undefined_variable_error(name_str, *span),
-                        ));
+                        let name_str = self.sym(name).to_string();
+                        if crate::ast::type_infer::is_hole_name(&name_str) {
+                            // A typed hole (`_` / `_name`) is already reported by HM
+                            // inference as E469; emit a placeholder so codegen does
+                            // not *also* report E004. The compile still fails on the
+                            // E469 error, so this value is never executed.
+                            self.emit_constant_value(Value::Integer(0));
+                        } else {
+                            return Err(Self::boxed(
+                                self.make_undefined_variable_error(&name_str, *span),
+                            ));
+                        }
                     }
                 } else if let Some(info) = self.lookup_constructor_resolved(name) {
                     // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
@@ -659,10 +675,18 @@ impl Compiler {
                             .with_file(self.file_path.clone()),
                         );
                     }
-                    let name_str = self.sym(name);
-                    return Err(Self::boxed(
-                        self.make_undefined_variable_error(name_str, *span),
-                    ));
+                    let name_str = self.sym(name).to_string();
+                    if crate::ast::type_infer::is_hole_name(&name_str) {
+                        // A typed hole (`_` / `_name`) is already reported by HM
+                        // inference as E469; emit a placeholder so codegen does not
+                        // *also* report E004. The compile still fails on the E469
+                        // error, so this value is never executed.
+                        self.emit_constant_value(Value::Integer(0));
+                    } else {
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(&name_str, *span),
+                        ));
+                    }
                 }
             }
             Expression::Prefix {
