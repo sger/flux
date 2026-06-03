@@ -24,6 +24,7 @@ use std::cell::RefCell;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Instant;
 
 use crate::driver::{
     flags::DriverFlags, pipeline::program::RunProgramRequest, session::DriverSession,
@@ -213,13 +214,33 @@ fn dispatch(input: &str, engine: &mut ReplEngine, request: RunProgramRequest<'_>
     match classify(trimmed) {
         LineKind::Skip => {}
         LineKind::Expr => {
-            engine.eval_expr(trimmed);
+            let start = Instant::now();
+            let ok = engine.eval_expr(trimmed);
+            let elapsed = start.elapsed();
+            // `:set +t` — print the expression's type after its value (GHCi).
+            if ok
+                && engine.show_type()
+                && let Some(ty) = engine.infer_type(request, trimmed)
+            {
+                println!("it : {ty}");
+            }
+            report_timing(engine, elapsed);
         }
         LineKind::Decl => {
+            let start = Instant::now();
             engine.eval_decl(trimmed);
+            report_timing(engine, start.elapsed());
         }
     }
     true
+}
+
+/// `:set +s` — print the elapsed wall-clock time of an evaluation to stderr (a
+/// stat, kept off the stdout value stream). No-op unless `+s` is enabled.
+fn report_timing(engine: &ReplEngine, elapsed: std::time::Duration) {
+    if engine.show_timing() {
+        eprintln!("({:.3} secs)", elapsed.as_secs_f64());
+    }
 }
 
 /// Best-effort path for the persisted REPL history file (`~/.flux_repl_history`).
@@ -248,6 +269,8 @@ fn handle_command(
         "type" | "t" => show_type(engine, rest, request),
         "info" | "i" => show_info(engine, rest, request),
         "browse" | "b" => show_browse(engine, rest),
+        "set" => set_command(engine, rest),
+        "unset" => unset_command(engine, rest),
         "load" => load_command(engine, rest, request),
         "reload" => reload_command(engine, request),
         other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
@@ -339,6 +362,45 @@ fn show_info(engine: &ReplEngine, name: &str, request: RunProgramRequest<'_>) {
 /// names with their inferred types.
 fn show_browse(engine: &ReplEngine, filter: &str) {
     println!("{}", engine.browse(filter));
+}
+
+/// `:set [option...]` — with no argument, print the current options; otherwise
+/// enable each named option (`+t`, `+s`, `optimize`, `analyze`). GHCi-style.
+fn set_command(engine: &mut ReplEngine, rest: &str) {
+    if rest.is_empty() {
+        print_settings(engine);
+        return;
+    }
+    apply_options(engine, rest, true);
+}
+
+/// `:unset <option...>` — disable each named option (the inverse of `:set`).
+fn unset_command(engine: &mut ReplEngine, rest: &str) {
+    if rest.is_empty() {
+        eprintln!("usage: :unset <option> (e.g. :unset +t)");
+        return;
+    }
+    apply_options(engine, rest, false);
+}
+
+/// Apply each whitespace-separated option, reporting the result (or an unknown
+/// option) to stderr.
+fn apply_options(engine: &mut ReplEngine, options: &str, enabled: bool) {
+    let verb = if enabled { "enabled" } else { "disabled" };
+    for option in options.split_whitespace() {
+        match engine.set_option(option, enabled) {
+            Ok(()) => eprintln!("{option} {verb}."),
+            Err(message) => eprintln!("{message}"),
+        }
+    }
+}
+
+/// Print the current `:set` options and their state to stdout.
+fn print_settings(engine: &ReplEngine) {
+    for (name, on, description) in engine.settings() {
+        let state = if on { "on" } else { "off" };
+        println!("  {name:<9} {state:<3}  ({description})");
+    }
 }
 
 /// Classify a (complete) input line by parsing it. Routing only — compile/type
@@ -441,6 +503,8 @@ fn print_help() {
     eprintln!("  :i <name>       a constructor's ADT, or a value's type and origin");
     eprintln!("  :browse [pfx]  List in-scope names with their types (session + prelude)");
     eprintln!("  :b [pfx]        optionally filtered to a name prefix");
+    eprintln!("  :set [opt]    Show options, or enable +t (type), +s (timing),");
+    eprintln!("  :unset <opt>    optimize, analyze; :unset to disable");
     eprintln!("  :load <file>  Reset the session and load a .flx file's definitions");
     eprintln!("  :reload       Reload the last :load'd file from disk");
     eprintln!("  :reset        Forget all session bindings");
