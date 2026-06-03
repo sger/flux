@@ -2191,6 +2191,82 @@ fn repl_browse_empty_session_shows_a_hint() {
 }
 
 #[test]
+fn repl_set_plus_t_prints_type_after_evaluation() {
+    // `:set +t` echoes the expression's type (as `it : <type>`) after its value.
+    let output = run_flux_repl(":set +t\n21 * 2\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["42", "it : Int"],
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[test]
+fn repl_set_plus_t_does_not_type_declarations() {
+    // `+t` applies only to expression results — a declaration prints no type.
+    let output = run_flux_repl(":set +t\nlet a = 1\na + 1\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["2", "it : Int"],
+        "only the expression should be typed, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_set_plus_s_reports_timing() {
+    // `:set +s` prints an elapsed-time line (to stderr, off the value stream).
+    let output = run_flux_repl(":set +s\n1 + 1\n:quit\n");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("secs"),
+        "expected a timing line on stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    // The value stream stays clean — just the result.
+    assert_eq!(repl_results(&output), ["2"]);
+}
+
+#[test]
+fn repl_unset_disables_an_option() {
+    // `:unset +t` turns the type echo back off.
+    let output = run_flux_repl(":set +t\n:unset +t\n5 + 5\n:quit\n");
+    assert_eq!(
+        repl_results(&output),
+        ["10"],
+        "no type line after :unset, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_set_with_no_args_shows_options() {
+    // Bare `:set` lists the options and their state.
+    let output = run_flux_repl(":set\n:quit\n");
+    let results = repl_results(&output);
+    for expected in ["+t", "+s", "optimize", "analyze"] {
+        assert!(
+            results.iter().any(|line| line.starts_with(expected)),
+            "`:set` should list `{expected}`, stdout:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+        );
+    }
+}
+
+#[test]
+fn repl_set_unknown_option_reports_without_panicking() {
+    // An unknown option is reported (not a panic) and the session continues.
+    let output = run_flux_repl(":set +z\n1 + 1\n:quit\n");
+    assert_eq!(repl_results(&output), ["2"]);
+    let combined = combined_output(&output);
+    assert!(
+        combined.contains("unknown option") && !combined.contains("panicked"),
+        "bad `:set` must report, not panic, output:\n{combined}",
+    );
+}
+
+#[test]
 fn repl_runs_effects_once_without_replaying() {
     // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
     // so an effectful expression's output appears exactly once. The Phase 1
@@ -2400,7 +2476,7 @@ fn repl_help_lists_commands() {
         let output = run_flux_repl(&format!("{command}\n:quit\n"));
         let combined = combined_output(&output);
         for expected in [
-            ":type", ":info", ":browse", ":load", ":reset", ":list", ":quit",
+            ":type", ":info", ":browse", ":set", ":load", ":reset", ":list", ":quit",
         ] {
             assert!(
                 combined.contains(expected),
