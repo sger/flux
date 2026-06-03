@@ -25,6 +25,13 @@ impl<'a> InferCtx<'a> {
             return ty;
         }
 
+        // A `_` / `_name` with no binding in scope is a typed hole: record it (it
+        // gets a fresh ordinary var so context fixes its type) and report it at
+        // finalization, rather than treating it as a failed lookup.
+        if super::holes::is_hole_name(self.interner.resolve(name)) {
+            return self.record_hole(name, expr.span());
+        }
+
         if self.known_flow_names.contains(&name) {
             self.emit_missing_flow_hm_signature(name, expr.span());
         }

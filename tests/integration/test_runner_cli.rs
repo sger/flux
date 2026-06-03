@@ -2321,6 +2321,38 @@ fn repl_edit_without_a_target_reports_usage() {
 }
 
 #[test]
+fn repl_reports_a_typed_hole_with_type_and_fits() {
+    // Typing `_` reports a typed hole (GHC-style): its expected type plus the
+    // in-scope bindings that fit — instead of evaluating.
+    let output = run_flux_repl("map([1, 2, 3], _)\n:quit\n");
+    let combined = combined_output(&output);
+    assert!(
+        combined.contains("E469") && combined.contains("found hole"),
+        "expected a typed-hole diagnostic, output:\n{combined}",
+    );
+    assert!(
+        combined.contains("(Int) ->") && combined.contains("relevant bindings"),
+        "expected the hole's function type and fitting bindings, output:\n{combined}",
+    );
+}
+
+#[test]
+fn repl_continues_after_a_typed_hole() {
+    // A hole is reported (not a crash) and the session keeps going.
+    let output = run_flux_repl("1 + _\n2 + 2\n:quit\n");
+    assert!(
+        combined_output(&output).contains("found hole"),
+        "expected a hole report, stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert!(
+        repl_results(&output).iter().any(|line| line == "4"),
+        "the session must keep evaluating after a hole, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
 fn repl_runs_effects_once_without_replaying() {
     // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
     // so an effectful expression's output appears exactly once. The Phase 1
