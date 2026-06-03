@@ -45,9 +45,14 @@ pub(super) struct ReplEngine {
     compiler: Compiler,
     vm: VM,
     /// Optimization level carried from the session so per-line compiles match
-    /// the prelude's.
+    /// the prelude's. Toggleable at runtime via `:set optimize` / `:unset optimize`
+    /// (affects subsequent lines only).
     optimize: bool,
     analyze: bool,
+    /// `:set +t` — after each expression evaluation, also print its inferred type.
+    show_type: bool,
+    /// `:set +s` — after each evaluation, print the elapsed wall-clock time.
+    show_timing: bool,
     diagnostics: DriverDiagnosticConfig,
     /// Synthetic entry path used for diagnostic file tagging.
     path: String,
@@ -106,6 +111,8 @@ impl ReplEngine {
             vm,
             optimize,
             analyze,
+            show_type: false,
+            show_timing: false,
             diagnostics,
             path,
             result_counter: 0,
@@ -590,6 +597,48 @@ impl ReplEngine {
     /// The committed top-level declaration sources, for `:list`.
     pub(super) fn listing(&self) -> Vec<&str> {
         self.committed.iter().map(|d| d.source.as_str()).collect()
+    }
+
+    /// `:set +t` is on — print each expression's type after evaluating it.
+    pub(super) fn show_type(&self) -> bool {
+        self.show_type
+    }
+
+    /// `:set +s` is on — print elapsed time after each evaluation.
+    pub(super) fn show_timing(&self) -> bool {
+        self.show_timing
+    }
+
+    /// Enable or disable a `:set` / `:unset` option. `Err` names an unknown option.
+    /// `optimize` / `analyze` affect subsequently-compiled lines only.
+    pub(super) fn set_option(&mut self, option: &str, enabled: bool) -> Result<(), String> {
+        match option {
+            "+t" => self.show_type = enabled,
+            "+s" => self.show_timing = enabled,
+            "optimize" => self.optimize = enabled,
+            "analyze" => self.analyze = enabled,
+            other => {
+                return Err(format!(
+                    "unknown option `{other}` (known: +t, +s, optimize, analyze)"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Current `:set` options as `(name, enabled, description)`, for the bare
+    /// `:set` status display.
+    pub(super) fn settings(&self) -> [(&'static str, bool, &'static str); 4] {
+        [
+            ("+t", self.show_type, "print the type after each evaluation"),
+            (
+                "+s",
+                self.show_timing,
+                "print elapsed time after each evaluation",
+            ),
+            ("optimize", self.optimize, "optimize each compiled line"),
+            ("analyze", self.analyze, "run analysis passes on each line"),
+        ]
     }
 
     /// REPL `:browse`: the in-scope value bindings paired with their types, grouped
