@@ -3572,6 +3572,54 @@ impl Compiler {
         None
     }
 
+    /// REPL `:browse`: the accumulated top-level binding schemes as
+    /// `(name, rendered_type)` pairs sorted by name. This is `repl_session_schemes`,
+    /// which (because the prelude is compiled in REPL mode) also carries prelude
+    /// bindings — the engine narrows it to the user's own `committed` names for the
+    /// session group. `__`-prefixed internals excluded.
+    pub(crate) fn repl_inferred_binding_types(&self) -> Vec<(String, String)> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let mut out: Vec<(String, String)> = self
+            .repl_session_schemes
+            .iter()
+            .map(|(sym, scheme)| (self.interner.resolve(*sym), scheme))
+            .filter(|(name, _)| !name.starts_with("__"))
+            .map(|(name, scheme)| {
+                (
+                    name.to_string(),
+                    render_scheme_canonical(&self.interner, scheme),
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// REPL `:browse`: the auto-exposed prelude library members (the names that
+    /// resolve unqualified) as `(name, rendered_type)` pairs sorted by name.
+    /// Sourced from `cached_member_schemes`, restricted to the auto-exposed Flow
+    /// prelude modules; `__`-prefixed internals excluded. A member defined in more
+    /// than one prelude module is listed once (first scheme by name order wins).
+    pub(crate) fn repl_prelude_value_types(&self) -> Vec<(String, String)> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let mut by_name: HashMap<String, String> = HashMap::new();
+        for ((module, member), scheme) in &self.cached_member_schemes {
+            if !FLOW_PRELUDE_MODULE_NAMES.contains(&self.interner.resolve(*module)) {
+                continue;
+            }
+            let name = self.interner.resolve(*member);
+            if name.starts_with("__") {
+                continue;
+            }
+            by_name
+                .entry(name.to_string())
+                .or_insert_with(|| render_scheme_canonical(&self.interner, scheme));
+        }
+        let mut out: Vec<(String, String)> = by_name.into_iter().collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
     fn inject_primop_hm_schemes(
         &mut self,
         schemes: &mut HashMap<Symbol, Scheme>,
