@@ -592,6 +592,40 @@ impl ReplEngine {
         self.committed.iter().map(|d| d.source.as_str()).collect()
     }
 
+    /// REPL `:browse`: the in-scope value bindings paired with their types, grouped
+    /// into the session's own definitions and the auto-exposed prelude. Unlike
+    /// `:list` (which echoes session declaration *sources*), this shows every name a
+    /// user can call together with its inferred type, sourced in bulk from the
+    /// persistent compiler — no per-name re-inference. `filter`, when non-empty,
+    /// keeps only names with that prefix. A session binding that shadows a prelude
+    /// name appears only under `Session`.
+    pub(super) fn browse(&self, filter: &str) -> String {
+        let keep = |name: &str| filter.is_empty() || name.starts_with(filter);
+        // The session group is exactly the user's own `let` / `fn` bindings — the
+        // names recorded in `committed` — looked up in the accumulated binding
+        // schemes (which also hold prelude bindings, hence the narrowing).
+        let session_names: std::collections::HashSet<&str> = self
+            .committed
+            .iter()
+            .filter_map(|decl| decl.name.as_deref())
+            .collect();
+        let session: Vec<(String, String)> = self
+            .compiler
+            .repl_inferred_binding_types()
+            .into_iter()
+            .filter(|(name, _)| keep(name) && session_names.contains(name.as_str()))
+            .collect();
+        let shadowed: std::collections::HashSet<&str> =
+            session.iter().map(|(name, _)| name.as_str()).collect();
+        let prelude: Vec<(String, String)> = self
+            .compiler
+            .repl_prelude_value_types()
+            .into_iter()
+            .filter(|(name, _)| keep(name) && !shadowed.contains(name.as_str()))
+            .collect();
+        super::browse::format_browse(&session, &prelude)
+    }
+
     /// In-scope identifier names for REPL tab completion, as the user actually
     /// types them. Unions the compiler's bare names (exposed library members,
     /// builtin primops, ADT constructors — see [`Compiler::repl_bare_names`]) with

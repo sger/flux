@@ -2137,6 +2137,60 @@ fn repl_info_unknown_name_reports_without_panicking() {
 }
 
 #[test]
+fn repl_browse_lists_session_bindings_with_types() {
+    // `:browse` pairs the user's own bindings with their inferred types under a
+    // `Session` group — unlike `:list`, which only echoes declaration sources.
+    let output = run_flux_repl(concat!(
+        "let x = 5\n",
+        "fn greet(name: String) -> String { name }\n",
+        ":browse\n",
+        ":quit\n",
+    ));
+    assert_repl_line(&output, "Session:");
+    assert_repl_line(&output, "x     : Int");
+    assert_repl_line(&output, "greet : (String) -> String");
+}
+
+#[test]
+fn repl_browse_lists_prelude_names_with_types() {
+    // The prelude group lists auto-exposed library members with their schemes,
+    // sourced in bulk from the persistent compiler (no per-name re-inference).
+    let output = run_flux_repl(":browse\n:quit\n");
+    let results = repl_results(&output);
+    assert_repl_line(&output, "Prelude:");
+    assert!(
+        results.iter().any(|line| line.starts_with("map ")),
+        "expected a `map` prelude entry, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_browse_filters_by_name_prefix() {
+    // `:browse <prefix>` keeps only matching names, across both groups.
+    let output = run_flux_repl("let xray = 1\n:browse x\n:quit\n");
+    let results = repl_results(&output);
+    assert_repl_line(&output, "xray : Int");
+    assert!(
+        !results.iter().any(|line| line.starts_with("map ")),
+        "prefix `x` must exclude `map`, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
+fn repl_browse_empty_session_shows_a_hint() {
+    // With no user bindings yet, the Session group shows a hint rather than names.
+    let output = run_flux_repl(":browse\n:quit\n");
+    let results = repl_results(&output);
+    assert!(
+        results.iter().any(|line| line.contains("no bindings yet")),
+        "empty session should show a hint, stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+}
+
+#[test]
 fn repl_runs_effects_once_without_replaying() {
     // Phase 2 (proposal 0176): each line runs only its own delta on the live VM,
     // so an effectful expression's output appears exactly once. The Phase 1
@@ -2345,7 +2399,9 @@ fn repl_help_lists_commands() {
     for command in [":help", ":?"] {
         let output = run_flux_repl(&format!("{command}\n:quit\n"));
         let combined = combined_output(&output);
-        for expected in [":type", ":info", ":load", ":reset", ":list", ":quit"] {
+        for expected in [
+            ":type", ":info", ":browse", ":load", ":reset", ":list", ":quit",
+        ] {
             assert!(
                 combined.contains(expected),
                 "`{command}` should mention `{expected}`, output:\n{combined}",

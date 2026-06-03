@@ -15,6 +15,7 @@
 //! effectful expression runs inside `main` without capturing `it`. A line that
 //! fails to compile or run is rolled back, so the session never breaks.
 
+mod browse;
 mod completion;
 mod engine;
 mod info;
@@ -246,6 +247,7 @@ fn handle_command(
         "list" | "l" => print_listing(engine),
         "type" | "t" => show_type(engine, rest, request),
         "info" | "i" => show_info(engine, rest, request),
+        "browse" | "b" => show_browse(engine, rest),
         "load" => load_command(engine, rest, request),
         "reload" => reload_command(engine, request),
         other => eprintln!("Unknown command `:{other}`. Type :help for the list."),
@@ -329,6 +331,14 @@ fn show_info(engine: &ReplEngine, name: &str, request: RunProgramRequest<'_>) {
     if let Some(text) = engine.info(request, name) {
         println!("{text}");
     }
+}
+
+/// List every in-scope value binding with its type — the session's own
+/// definitions and the auto-exposed prelude — optionally filtered to a name
+/// prefix. Unlike `:list`, which echoes session declaration sources, this pairs
+/// names with their inferred types.
+fn show_browse(engine: &ReplEngine, filter: &str) {
+    println!("{}", engine.browse(filter));
 }
 
 /// Classify a (complete) input line by parsing it. Routing only — compile/type
@@ -429,6 +439,8 @@ fn print_help() {
     eprintln!("  :type <expr>  Show the inferred type of <expr> (does not evaluate)");
     eprintln!("  :info <name>  Show a name's kind: type constructors, effect operations,");
     eprintln!("  :i <name>       a constructor's ADT, or a value's type and origin");
+    eprintln!("  :browse [pfx]  List in-scope names with their types (session + prelude)");
+    eprintln!("  :b [pfx]        optionally filtered to a name prefix");
     eprintln!("  :load <file>  Reset the session and load a .flx file's definitions");
     eprintln!("  :reload       Reload the last :load'd file from disk");
     eprintln!("  :reset        Forget all session bindings");
