@@ -13,6 +13,237 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.0.6] - 2026-06-04
+
+
+### Added
+- `Async.check_cancelled() -> Bool with Async` and `Async.bail_if_cancelled() -> Unit with Async` (proposal 0174 Phase 2 slice 2-iv) — fibers in long pure compute loops between `await` points can poll the cancel flag instead of running to completion under a cancelled scope.
+- New `CorePrimOp::FiberCheckCancelled = 178` with VM dispatch in `src/vm/core_dispatch.rs`, `flux_fiber_check_cancelled` C shim in `runtime/c/tasks.c` over `flux_async_check_cancelled` extern in `src/runtime/async/native_abi.rs`, LLVM emit-name in `src/lir/emit_llvm.rs`.
+- Per-thread `vm_fibers::CANCELLED_IDS` set tracking fibers whose enclosing scope was cancelled, queryable from a currently-executing fiber (the scheduler's `suspended` map only covers suspended ones).
+- `tests/integration/vm_fiber_check_cancelled.rs` — `check_cancelled` returns false for a non-cancelled fiber; `check_cancelled` returns true in a `timeout(20, body)`-cancelled body's post-sleep run-through.
+- `tests/parity/async_check_cancelled_false_when_not_cancelled.flx` — vm/llvm parity fixture for the no-cancel case.
+- Recursive-ADT regression test added to `tests/type_inference/sendable_tests.rs` (proposal 0174 Phase 2 slice 2-x — confirms `synthesize_sendable_instances` already handles recursive user ADTs).
+- `Async.RuntimeConfig`, `Async.default_runtime_config()`, `Async.with_worker_count(n)`, and `Async.run_async_with(cfg, action)` (proposal 0174 Phase 2 slice 2-vii) — explicit per-`run_async` knobs for `worker_count`, `fs_pool_size`, `dns_pool_size`.
+- New `CorePrimOp::FiberRunAsyncWith = 179` (arity 4) wired through VM dispatch in `src/vm/core_dispatch.rs` (with thread-local `PendingRunConfig` consulted by `enter_run_async`), `flux_fiber_run_async_with` C shim in `runtime/c/tasks.c` over `flux_async_run_root_with` extern in `src/runtime/async/native_abi.rs`, LLVM emit-name and 4-arg signature in `src/lir/emit_llvm.rs`.
+- `FLUX_WORKERS` env-var fallback for the VM scheduler, parsed once via `OnceLock` and overridden by explicit `RuntimeConfig`.
+- Introspection helper `vm_fibers::current_num_workers()` for in-process tests.
+- `tests/integration/vm_runtime_config.rs` — three tests covering the explicit-config path, the default-config path, and the env-var path.
+- `Async.current_worker_count() -> Int with Async` (proposal 0174 slice 2-vii follow-up) — reports the worker count of the active `run_async` scheduler, returning 0 outside any active boundary. Backs the new self-asserting native tests and gives users a way to verify the runtime is honouring their `RuntimeConfig`.
+- New `CorePrimOp::FiberCurrentWorkerCount = 201` with VM dispatch in `src/vm/core_dispatch.rs` (over the existing `vm_fibers::current_num_workers`), `flux_fiber_current_worker_count` C shim in `runtime/c/tasks.c`, `flux_async_current_worker_count` extern in `src/runtime/async/native_abi.rs`, and LLVM emit-name in `src/lir/emit_llvm.rs`.
+- `tests/native_llvm/native_runtime_config_tests.rs` — native equivalent of `tests/integration/vm_runtime_config.rs`, covering explicit `worker_count`, default-config, plain `run_async`, the `FLUX_WORKERS` env-var fallback, and exact-count assertions via the new primop.
+- `tests/parity/async_run_async_with_workers.flx` — vm/llvm parity fixture exercising `run_async_with_workers`, `with_worker_count`, `default_runtime_config`, and plain `run_async` in one program.
+- `tests/parity/async_current_worker_count.flx` — vm/llvm parity fixture asserting `Async.current_worker_count` reports the configured count on both backends.
+- `examples/async/16_current_worker_count.flx` — runnable demonstration of the new introspection primop.
+- `import M exposing (..)` now brings public ADT type names and their constructors into scope alongside functions/let-bindings. Writing `import Flow.Async exposing (..)` exposes `Result` / `AsyncError` / `Scope` as type names usable in annotations (e.g. `fn helper(s: Scope) -> ...`) and `Ok` / `Err` / `Canceled` / `TimedOut` etc. as unqualified constructor names. Previously only function-visibility entries were exposed; ADT types and constructors required explicit listing or qualification.
+- Added `Flow.Event` first-class events and `select { recv/send/after -> ... }` syntax for channel and timer selection on VM and native backends.
+- Groundwork for cross-OS-worker VM fiber migration (proposal 0174 §"VM
+- LSP: hover on `EffectExpr::Named` (e.g. `IO`, `Time`) now returns an `effect: <name>` label.
+- LSP: hover on `EffectExpr::RowVar` returns a `row var: |<name>` label.
+- LSP: hover on `TypeExpr::Named` (e.g. `Int` in `let x: Int = 1`) returns a `type: <name>` label.
+- LSP: hover on a `let`/`fn` declaration returns the resolved scheme from `resolved_binding_schemes_by_span` when inference produced one, falling back to a `decl: <name>` label.
+- LSP: `Flow.Primops` user-facing schemes (`print`, `println`, `read_file`, `write_file`, ...) are lazily preloaded on first `didOpen` by walking up from the buffer's parent directory for a `lib/Flow/Primops.flx`. Hover on these names now returns their inferred function type. Falls back gracefully (empty prelude + warning log) when no prelude is reachable.
+- Cargo workspace at the repo root; the root `flux` crate is now `members = ["."]`.
+- New `flux-lsp` crate at `crates/flux-lsp` implementing a minimal Language Server Protocol server on `lsp-server` + `lsp-types`.
+- Minimal VS Code extension at `editors/vscode/` (TypeScript client, TextMate grammar, language configuration). Installed via `cargo install --path crates/flux-lsp` for the server and `npm run compile` for the client.
+- Integration tests for the LSP using `lsp_server::Connection::memory()` covering each request type.
+- LSP goto-definition now resolves class-method calls (e.g. `show(42)`) to the matching `instance Show<Int> { fn show(...) { ... } }` arm rather than the `class Show { ... }` declaration. F12 lands on the precise instance method implementation, mirroring rust-analyzer's trait-method navigation.
+- New `class_method_dispatch: HashMap<ExprId, ClassDispatch>` field on [`InferProgramResult`](src/ast/type_infer/mod.rs) keyed by the function-position `ExprId`. Populated inside `propagate_resolved_class_call_effects` ([src/ast/type_infer/expression/calls.rs](src/ast/type_infer/expression/calls.rs)) after the type checker resolves the instance — the same resolution step that emits class constraints and mangles `__tc_*` scheme names, just persisted instead of consumed in-place. `ClassDispatch` carries `(class_name, head_type_ctor, method_name)`.
+- New LSP module [`crates/flux-lsp/src/instance_index.rs`](crates/flux-lsp/src/instance_index.rs) — `InstanceIndex` built per snapshot from `Statement::Instance` blocks, keyed by `(class_name, head_type_ctor, method_name)` for O(1) lookup of `(full_span, focus_span)`. Stored on `Snapshot.instance_index`.
+- New `pub fn collect_classes_for_lsp(&mut self, program: &Program)` on `Compiler` ([src/compiler/passes/reset.rs](src/compiler/passes/reset.rs)) and its `lsp_support` wrapper, so the LSP can populate `class_env` from a buffer's class declarations without invoking the full `phase_collection`. The snapshot calls it in `run_inference` ([crates/flux-lsp/src/snapshot.rs](crates/flux-lsp/src/snapshot.rs)) before `build_infer_config_for_program`.
+- Three integration tests asserting end-to-end class-method goto-def: `goto_definition_resolves_class_method_to_instance` (single instance lands on instance arm, not class decl), `goto_definition_class_method_dispatch_picks_correct_instance` (two instances on different head types each route to the right arm), `goto_definition_class_method_falls_through_when_dispatch_unavailable` (polymorphic receiver — no panic, graceful fallthrough).
+- LSP keyword-hover drift gate: [`flux::syntax::token_type::KEYWORDS`](src/syntax/token_type.rs) now exposes a `&[&str]` slice of every lexer-reserved word. Three tests in [`crates/flux-lsp/src/keywords.rs`](crates/flux-lsp/src/keywords.rs) enforce that every lexer keyword has hover documentation (with a small allowlist for the built-in ADT constructors `Some`/`None`/`Left`/`Right` whose hover comes from the AST path), every contextual keyword (`ambient`, `end`, `except`, `exposing`, `resume`) has a doc, and no `KEYWORD_DOCS` entry is orphaned.
+- LSP hover content for `ambient`, `end`, `except`, `resume` — the four contextual keywords previously lacked entries.
+- LSP goto-definition for import aliases ([`crates/flux-lsp/src/handlers/definition.rs`](crates/flux-lsp/src/handlers/definition.rs)): F12 on the bare alias `A` in `A.map(...)` jumps to its `import` statement; F12 on `A.member` resolves through the alias to the qualified module's source.
+- LSP goto-definition for record fields: F12 on `.name` in `alice.name` jumps to the field's declaration in the `data` decl, using the same span synthesis the locator applies to `DataFieldName`.
+- LSP goto-definition for effect row variables: F12 on `|e` jumps to its binding occurrence in the enclosing function signature.
+- LSP control-flow keyword nav (rust-analyzer-style): F12 on `return` jumps to the enclosing `fn` signature; on `else` to its matching `if`; on `resume` to the enclosing `handle` expression.
+- [`crates/flux-lsp/src/navigation_target.rs`](crates/flux-lsp/src/navigation_target.rs): internal `NavigationTarget` abstraction with `full_range` + `focus_range` + `name`, mirroring rust-analyzer's. Used in-process today; the boundary is still `GotoDefinitionResponse::Scalar(Location)` to keep client behavior unchanged. Promoting to `LocationLink` is a single-edit follow-up when the peek-range polish is wanted.
+- LSP goto-definition now returns `GotoDefinitionResponse::Link(Vec<LocationLink>)` instead of `Scalar(Location)`, carrying both `target_range` (the whole declaration) and `target_selection_range` (the identifier only). VS Code's peek-definition view highlights just the name in the destination, matching the rust-analyzer / haskell-language-server UX.
+- [`crates/flux-lsp/src/symbol_index.rs`](crates/flux-lsp/src/symbol_index.rs) `Entry` now carries `full_span` (whole declaration) and `focus_span` (identifier only) as separate fields. Models GHC's `NameAnn` / `EpAnn` split where the outer anchor and the inner identifier sub-span are first-class and distinct (`compiler/GHC/Parser/Annotation.hs:581-635`). The `focus_span` is synthesized via the locator's existing `decl_name_start` helper, now `pub(crate)`.
+- [`origin_selection_range`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#locationLink) is populated with the source-side cursor word so VS Code underlines just the identifier the user clicked on (not the whole line) in the peek view.
+- Two integration tests assert the focus/full split is preserved end-to-end: `goto_definition_returns_link_with_distinct_focus_and_full_range_for_let` checks `target_range` covers `let answer = 42` (cols 0..15) while `target_selection_range` covers only `answer` (cols 4..10); `goto_definition_origin_selection_covers_cursor_word` checks the source-side `origin_selection_range` width matches the cursor word's length.
+- `flux-lsp`: a workspace/VFS layer that interns every project `.flx` file to a stable `FileId` and tracks open buffers separately from on-disk content.
+- `flux-lsp`: cross-file analysis — opening a buffer that imports user modules builds the module graph, infers each module in topological order, and threads schemes through, so diagnostics, hover, and goto-definition work across files.
+- `flux-lsp`: cross-file find-references and rename — a top-level symbol is searched/renamed across its whole module-graph component, producing a multi-file `WorkspaceEdit`.
+- `flux-lsp`: `workspace/didChangeWatchedFiles` support with dynamic `**/*.flx` watcher registration, so on-disk edits to unopened modules refresh dependents.
+- `flux-lsp`: closed and never-opened project files stay queryable — request handlers build a file's `Snapshot` lazily from on-disk content, so references and goto-definition still resolve into a file after its editor tab is closed.
+- `lsp_support::stash_module_schemes` to publish an already-inferred user module's schemes into a shared compiler.
+- `flux-lsp`: `textDocument/codeAction` support — the server advertises a
+- `flux-lsp`: `textDocument/documentHighlight` support — placing the cursor
+- `flux-lsp`: hovering a built-in effect label now shows a structured doc
+- `flux-lsp`: server-side filesystem watching via the `notify` crate, used as a
+- `flux-lsp`: `textDocument/implementation` support — invoking "Go to
+- `flux-lsp`: hovering the top-level `fn main` now shows an entry-point card —
+- `flux-lsp`: `Module.` completion now works for user modules, not just the
+- `flux-lsp`: goto-definition now resolves an unqualified reference to an
+- `flux-lsp`: completion and goto-definition now handle deeply-qualified
+- `flux-lsp`: `textDocument/prepareRename` support — the rename provider now
+- `flux-lsp`: `textDocument/foldingRange` support — declaration-aware code
+- `flux-lsp`: `textDocument/selectionRange` support — smart "expand
+- `flux-lsp`: goto-definition on an `import` statement now jumps into the
+- `flux-lsp`: read requests (hover, completion, goto-definition, references, rename, signature help, inlay hints, document symbols, semantic tokens) now run on a worker thread, so a slow query no longer blocks the edit → diagnostics pipeline on the main loop.
+- `flux-lsp`: a workspace generation counter — a queued read whose document changed before the worker reached it is answered with `ContentModified` instead of being computed against stale state — and `$/cancelRequest` is now honored.
+- `flux-lsp`: `workspace/symbol` support — project-wide symbol search ("Go to
+- `flux-lsp`: accepting a module-name completion for a not-yet-imported module
+- `flux-lsp`: auto-import quick fix (`textDocument/codeAction`). When the
+- `flux-lsp` + VS Code extension: CodeLens runnables. A "▶ Run" lens sits above
+- `flux-lsp`: module-member completion items now resolve their `///` doc
+- `flux-lsp`: `completionItem/resolve`. Completion items for keywords,
+- `flux-lsp`: diagnostics now carry a `codeDescription` link. A diagnostic with
+- `flux-lsp`: hover now shows a declaration's `///` doc comment above its
+- `flux-lsp`: `$/progress` reporting around startup. When the client supports
+- `flux-lsp`: a module-qualified path into a **not-yet-imported sibling**
+- `flux-lsp`: undefined names are now reported in the editor. HM inference
+- `flux-lsp`: a module-qualified path whose module isn't imported is now flagged
+- `flux-lsp`: call hierarchy — `textDocument/prepareCallHierarchy`,
+- `flux-lsp`: `textDocument/documentLink` — `import` module paths are now
+- `flux-lsp`: hover now covers `class`/`instance` method declarations and type
+- `flux-lsp`: `inlayHint/resolve` — inferred-type inlay hints now resolve lazily.
+- `flux-lsp`: `textDocument/linkedEditingRange` — put the cursor on an
+- `flux-lsp`: `textDocument/onTypeFormatting` — auto-indent as you type. Pressing
+- `flux-lsp`: `source.organizeImports` code action. The leading block of
+- `flux-lsp`: pull-model diagnostics — `textDocument/diagnostic` (LSP 3.17).
+- `flux-lsp`: `textDocument/rangeFormatting` — "Format Selection" now formats
+- `flux-lsp`: a file-level "▶ Run all tests" CodeLens. When a file has more than
+- `flux-lsp`: incremental semantic highlighting — `textDocument/semanticTokens/range`
+- `flux-lsp`: type hierarchy — `textDocument/prepareTypeHierarchy`,
+- `flux-lsp`: `workspace/willRenameFiles` — renaming or moving a `.flx` module
+- `flux-lsp`: project-wide pull diagnostics — `workspace/diagnostic` (LSP 3.17).
+- Documented the core Flow standard-library modules with `///` doc comments:
+- LSP "Add missing methods" quick fix on an `instance` declaration. With the
+- LSP quick fixes for two more situations:
+- LSP "Go to Type Definition" (`textDocument/typeDefinition`): from an
+- LSP refactor assists (cursor/selection-driven code actions):
+- LSP "View compiler stage" commands, the Flux analogue of rust-analyzer's
+- `flux repl` — an interactive read-eval-print loop (proposal 0175, Phase 1).
+- "Change return type to `<inferred>`" fix for return-type mismatches. When a
+- LSP "Convert number format" — the Flux analogue of the Haskell LSP's
+- Evaluate `>>>` snippets in doc comments. Writing `/// >>> 2 + 2` in a doc
+- LSP "Make imports explicit" / "Refine import" — the Flux analogue of the Haskell
+- LSP operator-fixity hover — the Flux analogue of the Haskell LSP's
+- LSP "Prefix unused binding with `_`" quick-fix — the Flux analogue of HLS
+- The REPL now supports **rebinding** a name: entering `let x = 99` after
+- VS Code: a **"Flux: Restart Language Server"** command. It restarts the
+- The interactive `flux repl` now has **line editing and command history**
+- The interactive `flux repl` gained **`:load <file>`** and **`:reload`**
+- `flux repl` (proposal 0176): a user **`effect`** declared on one line can now be
+- `flux repl` (proposal 0176): a `data` type with **named fields** declared on one
+- `flux repl` (proposal 0176): a self-referential rebind such as `let x = x + 1`
+- `flux repl` (proposal 0176): a bare **effectful** expression now captures its
+- The REPL now captures **compound** effectful-expression results into `it`, not
+- The REPL now persists a **named** effectful binding (`let x = read_line()`,
+- The interactive REPL has a new **`:browse [prefix]`** command (`:b` for short)
+- The interactive REPL has a new **`:info <name>`** command (`:i` for short), a
+- The interactive REPL now has **`:set` / `:unset`** options (GHCi-style). `:set +t`
+- The interactive REPL gained a handful of shell conveniences:
+- The interactive REPL now has **tab completion** (GHCi-inspired). Pressing Tab
+- **Typed holes** (GHC-style). Writing `_` — or a named `_foo` — anywhere an
+
+### Changed
+- Restructured proposal 0174 (revision 9) — inserted Phase 2 (concurrency closeout + runtime gaps) between Phase 1b and Phase 3 (HTTP/JSON/Streams); renumbered TLS+DB to Phase 4 and io_uring to Phase 5. The HTTP parser is no longer vendored — it is scratch-built in Rust under `src/runtime/http/` over the existing `mio` TCP substrate. JSON design split into manual-instances-first / synthesised-deriving-second sub-slices.
+- Pinned `Http.serve` production knobs in proposal 0174 (Phase 2 slice 2-v): `ServerConfig`, `ServerHandle`, `serve_config`, `shutdown` (graceful drain), `shutdown_now` (cancel in-flight). API spec only; Phase 3 implements against this signature.
+- Documented `Flow.Channel` deferral (Phase 2 slice 2-iii) — cross-worker communication for Phases 2-4 uses `Task.spawn` / `Task.await` only; the `module Flow.Channel { ... }` block in the Sendable example is flagged as illustrative only.
+- `enter_run_async` in `src/vm/core_dispatch.rs` no longer hardcodes 2 logical workers; it resolves the worker count from (in order) the pending `RuntimeConfig`, `FLUX_WORKERS`, then the default of 2.
+- Updated proposal 0174 slice 2-vii body to reflect the actual landed surface (with `with_worker_count` builder) and document the current native-side limitation (worker_count ignored on native pending a runtime-config refactor).
+- Proposal 0174 slice 2-vii cleanup: native default-fallback for `RuntimeConfig.worker_count` now mirrors the documented `core/mod.rs::FiberRunAsyncWith` contract instead of returning the hardcoded `2`. New `native_abi::resolve_default_worker_count` resolves `FLUX_WORKERS` env → `std::thread::available_parallelism()` → `2` and is used by both `flux_async_run_root` and `flux_async_run_root_with`. Worker count was already honoured per call (sized ready queues + spawned threads); only the sentinel-replacement default was wrong.
+- VM `core_dispatch::resolved_worker_count` gains the same `available_parallelism()` rung between the `FLUX_WORKERS` env var and the hardcoded `2`, bringing VM and native to identical default sizing on multi-core machines.
+- `Flow.Async` parser-limitation comments removed: multi-callback combinators (`both`, `race`, `bracket`, `finally`) document that callback parameters carrying `with <effect>` use parenthesized function types (e.g. `f: (() -> a with Async | e1)`). The parens scope the row so the comma between parameters is unambiguous; the bare form remains available on the final parameter where the trailing `with` is unambiguously the enclosing function's effect clause.
+- Constructor lookup at pattern-compile and ADT-arm sites now consults the preloaded dependency ADT registry and `exposed_bindings` qualified-name fallback, so unqualified short names brought in via `exposing` resolve correctly.
+- `Flow.Async.try_` renamed to `try`: the LLVM backend now emits the underlying C symbol as `flux_try` instead of the bare keyword `try`, eliminating the C/C++ keyword collision that forced the underscore workaround. All call sites updated.
+- Cross-worker work-stealing remains deferred: an attempted implementation surfaced that the C effects context (`flux_thread_ctx` in `runtime/c/effects.c`) is per-OS-thread and not migration-safe — `flux_async_clear_suspend` does not reset `current_evv`, so a stolen fiber would inherit a stale handler stack pointer from the stealer's previous fiber chain. Safe migration requires capturing `current_evv` (and any other relevant per-thread state) into the `Fiber` struct on suspend and restoring on resume; that's scheduled as its own change. Updated proposal 0174 to document the architectural blocker.
+- `Task.spawn` invoked inside `run_async` is now bound to the run's lifetime: any task whose handle is never `await`ed, `blocking_join`ed, or `cancel`ed is automatically cancelled when `run_async` exits, on both VM and native. Closes the OS-thread leak that previously persisted detached tasks until process exit. Public API is unchanged; `Task.spawn_scoped` continues to provide explicit child-of-this-scope ownership. Tasks spawned from purely synchronous code (no `run_async` on the stack) keep today's detached behavior. Added `examples/async/20_task_spawn_root_reaper.flx` demonstrating the guarantee on both backends.
+- `select` is now a reserved keyword.
+- `Flow.Async.yield_now()` now performs a real cooperative reschedule on both the bytecode VM and the LLVM native backend (proposal 0174 slice 2-vi): the calling fiber is moved to the tail of its run-queue so other ready fibers make progress before it resumes. It remains a no-op only when called outside an active `run_async` scheduler (e.g. the `main() with Async` host handler). The cancellation-checkpoint behavior of `yield_now()` is unchanged.
+- The `unsafe impl Send for Fiber` safety comment now states the real, narrow
+- VM child-fiber spawn placement now matches the native backend: fresh fibers land on the
+- `flux::lsp_support::preload_one` is now `pub` (renamed `preload_module_into_compiler`) and a new `pub fn flow_module_file_for(flow_dir, module_name) -> Option<PathBuf>` helper resolves dotted module names like `Flow.Async` to `lib/Flow/Async.flx`. The LSP uses both to load buffer-driven imports on demand.
+- `flux::lsp_support::PreludeCompiler` gains `flow_dir: Option<PathBuf>` and `loaded_module_names: Vec<String>` so consumers can resume the prelude search and dedupe re-loads of modules already in the auto-prelude.
+- `flux::compiler::Compiler::build_infer_config` is now `pub` so external tooling (the LSP) can build an `InferProgramConfig` without duplicating the prelude-loading logic. No behavior change for existing callers.
+- LSP `SpanIndex` replaced with `HoverIndex` that walks `Statement`, `Expression`, `TypeExpr`, and `EffectExpr` and reports the innermost containing target across all four AST kinds.
+- `ResolvedClassMethodCall` ([src/ast/type_infer/expression/calls.rs](src/ast/type_infer/expression/calls.rs)) now carries `function_expr_id: ExprId` in addition to `first_arg_id`. The LSP keys `class_method_dispatch` by the function-position id because that's the `ExprId` the locator's `NodeRef::Expr(Expression::Identifier { ... })` carries when the cursor is on the method name.
+- Dispatch recording now also fires in the unresolved-callee path of `infer_function_call`, not just the typed-callee path. Buffer-declared class methods aren't pre-bound in HM env (their short name `same` isn't in `preloaded_base_schemes`), so their calls take the unresolved-callee path; without this change, the dispatch resolution would be discarded for in-buffer class methods.
+- `Compiler::collect_class_declarations` is now `pub(in crate::compiler)` so submodules under `compiler/passes/` can call it.
+- LSP keyword table ([`crates/flux-lsp/src/keywords.rs`](crates/flux-lsp/src/keywords.rs)) no longer carries entries for `Some`/`None`/`Left`/`Right`. Hover on those constructors now surfaces the inferred type (`Option<Int>`, `Either<Error, Value>`) via the AST path, which is strictly more useful than the previous static prose.
+- LSP `MemberAccessMember` resolution in goto-def is now alias-aware: the object identifier may be either a loaded module's short name or an `import X.Y as A` alias.
+- [`crates/flux-lsp/src/capabilities.rs`](crates/flux-lsp/src/capabilities.rs) advertises `definitionProvider` as `DefinitionOptions { .. }` (the "with options" shape) instead of the bare boolean, opting into the modern definition-with-LocationLink contract. Clients negotiate `LocationLink` support via the `textDocument.definition.linkSupport` client capability; VS Code advertises it.
+- [`crates/flux-lsp/src/handlers/definition.rs`](crates/flux-lsp/src/handlers/definition.rs) `goto_definition` returns `Option<NavigationTarget>` instead of `Option<Location>`. Every branch now produces both ranges where the AST supports it (record fields, top-level decls, local lets); branches collapsed `focus = full` where the underlying parser data exposes only one span (effect ops, data variants, control-flow keywords).
+- [`crates/flux-lsp/src/navigation_target.rs`](crates/flux-lsp/src/navigation_target.rs) now stores LSP-coordinate `Range` values (pre-converted using the destination file's `PositionMap`) instead of Flux-coordinate `FluxSpan`. Lets cross-module goto-def use the correct map at the point of conversion. New `into_location_link(origin)` helper for the LSP boundary.
+- `flux-lsp`: documents are keyed by interned `FileId` rather than `Uri`; the server advertises multi-root `workspaceFolders` support and discovers project `.flx` files on initialize.
+- `flux-lsp`: on-disk change detection now sits behind a `loader::Handle` trait
+- `flux-lsp`: keyword hover docs now share one uniform shape — a bold
+- `flux-lsp`: `Module.` completion items are now built by walking the target
+- `flux-lsp`: the prelude now eagerly parse-indexes *every* `lib/Flow/*.flx`
+- `flux::diagnostics::Diagnostic` stores its source file path as `Arc<str>` instead of `Rc<str>` (the `with_file`/`set_file`/`make_*` builders now take `impl Into<Arc<str>>`), and the type-inference `file_path` plumbing follows suit. This makes `Diagnostic` — and the LSP `Snapshot` — `Send + Sync` so analysis results can cross to the worker thread.
+- `flux-lsp`: rebuilt semantic highlighting (`textDocument/semanticTokens/full`)
+- `editors/vscode`: force-enable semantic highlighting for `.flx` files and add
+- `core`: exposed `CorePrimOp::is_builtin_helper_name`, and `compiler`: made the
+- `flux-lsp`: the unknown-module-member diagnostic now uses `E012`
+- `flux-lsp`: cleared the clippy lints that failed the workspace
+- `flux-lsp`: `textDocument/implementation` (go-to-implementation on a `class`)
+- `flux-lsp`: push diagnostics (`textDocument/publishDiagnostics`) are now
+- `flux-lsp`: `textDocument/signatureHelp` now shows real parameter names and
+- `flux-lsp`: richer `textDocument/signatureHelp`. The parameter hint now shows
+- `flux-lsp`: `workspace/symbol` and the auto-import quick fix now read a cached
+- `type_infer`: split two over-budget functions in
+- The parser now records `///` / `/** */` doc comments on the `Program` it
+- `flux-lsp`: hover, `completionItem/resolve`, and signature help now read a
+- `flux-lsp`: `textDocument/didChange` analysis is now debounced. Previously
+- The non-exhaustive-match (`E015`) quick fix now offers "Fill missing match
+- LSP document highlight is now relation-aware instead of plain same-name:
+- LSP hover now works on ADT constructor *patterns* in `match` arms
+- LSP hover now shows a function's `///` doc comment at every reference, not
+- LSP hover on an effect operation now shows its declared signature and doc at
+- Fixed the synthesized op-name span for `perform`/`handle` op references in the
+- LSP hover on a `data`/`type`/`class` declaration name, and on a user type used
+- `flux-lsp`: the workspace-wide module-name list is now memoized instead of
+- `flux-lsp`: read requests are now served by a small pool of worker threads
+- The interactive `flux repl` now runs on a **persistent compiler + live VM**
+- Native (LLVM) build intermediates (`.ll` / `.bc` / `.o`) are now written under the
+- The interactive REPL is now behind a `repl` Cargo feature, enabled by default.
+- Relocated the remaining `#[cfg(test)]` unit-test scratch out of the system temp dir
+- Test fixtures and scratch directories are now written under `target/test-scratch/`
+- The one CLI test that exercises the cached/relocatable module-linker path
+
+### Fixed
+- Windows: `link.exe` no longer fails with unresolved `flux_task_spawn` / `flux_task_cancel` externals when building `flux.exe` with the `llvm` feature. Native scheduler now reaches `tasks.c` through the existing `FluxAsyncCallbacks` registration table instead of direct `extern "C"` imports, matching the existing pattern for the rest of the runtime bridge.
+- Windows: `Flow.Channel` runtime is now implemented natively (CRITICAL_SECTION / CONDITION_VARIABLE / Interlocked\*), replacing the `not implemented on this platform` abort. `channel.c` is now a single body with thin platform-abstraction macros so POSIX and Win32 stay in lockstep.
+- `Flow.Event.sync` now suspends on readiness notifications instead of blocking the scheduler thread or waking every millisecond.
+- Native event slots are reused after a committed event tree is freed, so long-running select loops no longer grow the event table monotonically.
+- Module-graph integration tests (`flow_prelude_module_tests`, `cross_module_function_tests`,
+- close TOCTOU race in cancel_fibers that caused spurious fiber resume panics
+- LSP: hover on names imported from non-prelude `Flow.*` modules (e.g. `Flow.Async.sleep`, `Flow.Tcp.*`) now resolves to the correct type instead of returning a free type variable rendered as `_`. The LSP walks buffer-level `import Flow.X` statements after parse and lazily preloads each module's schemes into the shared compiler, caching by module name so repeated imports across keystrokes are free.
+- LSP: prelude member schemes (functions declared inside `module Flow.X { ... }` blocks) are now read from `InferProgramResult::module_member_schemes` rather than the top-level-only `resolved_binding_schemes`, so non-intrinsic prelude functions land in `cached_member_schemes` and are visible to buffer inference.
+- `flux-lsp`: cross-file analysis now resolves modules in a project that
+- `flux-lsp`: expression-position completion now offers known module names
+- `flux-lsp`: putting the cursor on a class declared with a superclass
+- `flux-lsp`: the name position of a `public` declaration was computed 7 columns
+- `flux-lsp`: putting the cursor on the head class name of a constrained
+- `flux-lsp`: renaming a declaration no longer corrupts the source. The
+- `flux-lsp`: audit of span→range conversions for declaration imprecision (a
+- LSP goto-definition on a member accessed through an `import … as` alias of a
+- `flux-lsp`: a panic in the compiler frontend during a buffer's type inference
+- `flux-lsp`: a panic in any read-request handler no longer wedges the whole
+- Hex (`0xFF`), binary (`0b1010`) and underscore-separated (`1_000`, `1_000.5`)
+- `flux repl`: a top-level declaration whose initializer is effectful (e.g.
+- A `match` expression (or any value containing one) used at **top level** — e.g.
+- A top-level tuple destructure (`let (a, b) = (10, 20)`) no longer fails the
+- Native (LLVM) builds on Windows no longer fail to link with `undefined symbol`
+- VM fiber migration (`FLUX_FIBER_MIGRATION=1`) no longer intermittently fails
+- LSP integration tests: build temp-workspace URIs through the server's own
+- De-flake `native_work_stealing_tests::stolen_fiber_runs_parameterized_handler`:
+
+### Performance
+- Native fiber scheduler now places fresh spawns on the **least-loaded** ready queue (argmin queue length, tied → lowest worker index) instead of blind round-robin. Eliminates the most common steady-state imbalance class (uneven spawn distribution) without relaxing the no-fiber-migration invariant. `FLUX_WORK_STEALING=0` restores the original round-robin path as a regression escape hatch.
+- Native backend: fiber-worker OS threads are now drawn from a process-global pool instead of being spawned and joined fresh on every `run_async` / `run_async_with_workers` boundary. Sequential and nested async boundaries no longer pay per-boundary thread spawn/join churn; the pool is sized lazily to the largest `worker_count` ever requested and parked between runs. Pooled workers serve the current active `run_async`, matching the existing process-global suspension/completion routing.
+- VM delimited-continuation capture/resume — the path behind effect-handler
+
+### Docs
+- `docs/internals/async_syntax.md` §14.8: the historical LLVM compile hang on ≥9 sequential `run_async_with*` call sites with a suspending body is no longer reproducible on LLVM 22/23 (re-verified with the original reproducer and a 40-site stress version, even with the `run_async_with*` outline workaround disabled). The outline pass is retained as a cheap safety net for older toolchains; the source-level "≤8 sites per function" guidance is obsolete.
+- proposal 0174's "VM cross-worker fiber dispatch" section notes that the
+- Updated the `runtime/async/scheduler.rs` "Backend shape" notes to describe load-aware VM
+
+---
+
 ## [v0.0.5] - 2026-04-26
 
 
@@ -889,9 +1120,10 @@ Initial release.
 - **`--verbose` flag**: show cache hit/miss/store status
 - **Builtins**: `print`, `to_string`, `len`, `push`, `concat`, `reverse`, `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`, `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
 
-[Unreleased]: https://github.com/sger/flux/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/sger/flux/compare/v0.0.6...HEAD
 [v0.0.3]: https://github.com/sger/flux/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/sger/flux/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/sger/flux/releases/tag/v0.0.1
 [v0.0.4]: https://github.com/sger/flux/compare/v0.0.3...v0.0.4
 [v0.0.5]: https://github.com/sger/flux/compare/v0.0.4...v0.0.5
+[v0.0.6]: https://github.com/sger/flux/compare/v0.0.5...v0.0.6

@@ -220,7 +220,7 @@ cargo test --all --all-features
 
 ## Project status
 
-Flux is **experimental** (currently `v0.0.5`). The language and internals move fast and APIs
+Flux is **experimental** (currently `v0.0.6`). The language and internals move fast and APIs
 can change without notice — it's a place to learn and tinker, not yet a production runtime.
 
 ## License
