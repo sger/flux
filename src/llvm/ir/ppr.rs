@@ -898,6 +898,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after unix epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("{prefix}_{nonce}.ll"))
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch");
+        std::fs::create_dir_all(&dir).ok();
+        dir.join(format!("{prefix}_{nonce}.ll"))
     }
 }

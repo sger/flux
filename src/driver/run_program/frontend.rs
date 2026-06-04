@@ -38,6 +38,31 @@ pub(crate) fn build_program_context(
     use_native_backend: bool,
 ) -> Result<ProgramContext, String> {
     let source = fs::read_to_string(path).map_err(|e| format!("Error reading {}: {}", path, e))?;
+    build_program_context_from_source(
+        path,
+        source,
+        extra_roots,
+        roots_only,
+        cache_dir,
+        trace_aether,
+        use_native_backend,
+    )
+}
+
+/// Like [`build_program_context`] but parses already-loaded `source` instead of
+/// reading it from disk. `path` is still used for cache layout, module roots, and
+/// diagnostic file tagging, but it need not exist on disk — this powers
+/// `flux eval`, which compiles a synthetic in-memory program rooted at the
+/// current directory.
+pub(crate) fn build_program_context_from_source(
+    path: &str,
+    source: String,
+    extra_roots: &[PathBuf],
+    roots_only: bool,
+    cache_dir: Option<&Path>,
+    trace_aether: bool,
+    use_native_backend: bool,
+) -> Result<ProgramContext, String> {
     let entry_path = Path::new(path).to_path_buf();
     let cache_layout = resolve_cache_layout(&entry_path, cache_dir);
 

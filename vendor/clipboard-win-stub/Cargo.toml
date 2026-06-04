@@ -1,0 +1,12 @@
+# Local no-op replacement for the `clipboard-win` crate, wired in via
+# `[patch.crates-io]` in the workspace root `Cargo.toml`. See src/lib.rs for why.
+[package]
+name = "clipboard-win"
+version = "5.4.1"
+edition = "2021"
+license = "BSL-1.0"
+description = "No-op stub of clipboard-win that keeps Win32 clipboard imports out of flux binaries (antivirus/ML false-positive avoidance)."
+publish = false
+
+[dependencies]
+error-code = { version = "3", features = ["std"] }

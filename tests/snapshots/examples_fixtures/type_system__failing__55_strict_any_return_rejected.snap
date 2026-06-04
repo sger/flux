@@ -30,6 +30,11 @@ The body of `id` does not match its declared return type.
 45 |     x
    |     ^
    |     - this expression has type `Int`
+   |
+help: Change return type to `Int`
+   |
+44 | public fn id(x: Int) -> Int {
+   |                         ~~~
 
 Note:
   declared return type: Any

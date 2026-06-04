@@ -1,0 +1,503 @@
+use std::sync::Arc;
+
+use flux::diagnostics::position::Span as FluxSpan;
+use flux::syntax::Identifier;
+use flux::syntax::block::Block;
+use flux::syntax::data_variant::DataVariant;
+use flux::syntax::expression::{Expression, Pattern};
+use flux::syntax::program::Program;
+use flux::syntax::statement::Statement;
+use line_index::TextSize;
+use lsp_types::{Location, Position, Range, Uri};
+
+use crate::line_index::PositionMap;
+use crate::locator::{NodeRef, find_at};
+use crate::snapshot::Snapshot;
+use crate::symbol_index::SymbolIndex;
+use crate::vfs::FileId;
+use crate::workspace::Workspace;
+
+/// One file in a reference/rename search, with everything the (off-thread)
+/// compute step needs: no `Workspace` borrow, just owned `Send` data.
+pub struct RefFile {
+    pub uri: Uri,
+    /// Open-buffer version, or `None` for an on-disk-only file.
+    pub version: Option<i32>,
+    pub snapshot: Arc<Snapshot>,
+}
+
+/// The result of the main-thread "gather" pass: the target identifier plus a
+/// self-contained, `Send` set of files to scan. Handed to the worker thread.
+pub struct RefBundle {
+    pub target_id: Identifier,
+    pub files: Vec<RefFile>,
+}
+
+/// Main-thread pass: resolve the identifier under the cursor and collect an
+/// owned snapshot for every file in its reference scope. Needs `&mut
+/// Workspace` to lazily build snapshots of closed / never-opened members.
+pub fn gather(workspace: &mut Workspace, file: FileId, position: Position) -> Option<RefBundle> {
+    // The borrow of `workspace` ends with this block so the scope pass can
+    // take `&mut`.
+    let target_id = {
+        let snapshot = workspace.ensure_snapshot(file)?;
+        let target = snapshot.position_map.lsp_to_flux(position)?;
+        let node = find_at(&snapshot.program, &snapshot.interner, target)?;
+        node_identifier(&node)?
+    };
+
+    let mut files = Vec::new();
+    for fid in reference_scope(workspace, file, target_id) {
+        let Some(snapshot) = workspace.ensure_snapshot(fid).cloned() else {
+            continue;
+        };
+        let Some(uri) = workspace.uri_of(fid) else {
+            continue;
+        };
+        files.push(RefFile {
+            uri,
+            version: workspace.version(fid),
+            snapshot,
+        });
+    }
+    Some(RefBundle { target_id, files })
+}
+
+/// Pure pass: collect every reference location from a gathered bundle. Safe
+/// to run on a worker thread — no `Workspace` access.
+pub fn compute_locations(bundle: &RefBundle) -> Vec<Location> {
+    let mut locations = Vec::new();
+    for f in &bundle.files {
+        let name = f
+            .snapshot
+            .interner
+            .try_resolve(bundle.target_id)
+            .unwrap_or("");
+        let mut spans: Vec<FluxSpan> = Vec::new();
+        collect_all_uses(&f.snapshot.program, bundle.target_id, &mut spans);
+        for span in spans {
+            locations.push(Location {
+                uri: f.uri.clone(),
+                range: occurrence_range(&f.snapshot.position_map, span, name),
+            });
+        }
+    }
+    locations
+}
+
+/// The LSP range an occurrence should point at. `collect_all_uses` records a
+/// *declaration*'s whole-statement span (e.g. `fn twice(n)` or `let x = 1`), so
+/// it is narrowed to the identifier `name` itself; a use span already is the
+/// name and narrows to itself. Falls back to the full span only if the name
+/// can't be located in the source (which shouldn't happen for a real symbol) —
+/// callers that need identical-length ranges should use [`name_range_in_span`]
+/// directly and drop the `None`.
+pub(crate) fn occurrence_range(pm: &PositionMap, span: FluxSpan, name: &str) -> Range {
+    name_range_in_span(pm, span, name).unwrap_or_else(|| pm.flux_span_to_range(span))
+}
+
+/// The range of identifier `name` inside `span` (the first whole-word
+/// occurrence). `None` if the name isn't found in the span's source, or is
+/// empty.
+pub(crate) fn name_range_in_span(pm: &PositionMap, span: FluxSpan, name: &str) -> Option<Range> {
+    if name.is_empty() {
+        return None;
+    }
+    let start_off: usize = pm.flux_to_offset(span.start)?.into();
+    let end_off: usize = pm.flux_to_offset(span.end)?.into();
+    let text = pm.text();
+    let slice = text.get(start_off..end_off.min(text.len()))?;
+    let rel = find_word(slice, name)?;
+    let name_start = (start_off + rel) as u32;
+    let name_end = name_start + name.len() as u32;
+    Some(Range {
+        start: pm.offset_to_lsp(TextSize::from(name_start)),
+        end: pm.offset_to_lsp(TextSize::from(name_end)),
+    })
+}
+
+/// Byte offset of the first occurrence of `word` in `text` that stands alone
+/// (not part of a longer identifier). `None` if absent.
+fn find_word(text: &str, word: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(pos) = text[from..].find(word) {
+        let abs = from + pos;
+        let before_ok =
+            abs == 0 || !text[..abs].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let after = abs + word.len();
+        let after_ok = after >= text.len()
+            || !text[after..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
+        if before_ok && after_ok {
+            return Some(abs);
+        }
+        from = abs + 1;
+    }
+    None
+}
+
+/// Find every reference to the identifier under the cursor.
+///
+/// When the target is a top-level / module-level declaration and `file`
+/// belongs to a module-graph component, the search spans every file in that
+/// component. A purely local binding (a `let`/parameter inside a function)
+/// is searched only within `file` — the component interner is shared, so a
+/// same-named local in a sibling module would otherwise be over-matched.
+pub fn find_references(
+    workspace: &mut Workspace,
+    file: FileId,
+    position: Position,
+) -> Vec<Location> {
+    match gather(workspace, file, position) {
+        Some(bundle) => compute_locations(&bundle),
+        None => vec![],
+    }
+}
+
+/// The set of files a reference/rename search may span. A top-level symbol
+/// scopes to its whole module-graph component; anything else scopes to just
+/// the cursor's file.
+///
+/// Takes `&mut Workspace` because it builds the snapshot of every component
+/// member that has not been analyzed yet — so a closed or never-opened file
+/// is still searched.
+pub(crate) fn reference_scope(
+    workspace: &mut Workspace,
+    file: FileId,
+    target: Identifier,
+) -> Vec<FileId> {
+    let component = workspace.component_scope(file);
+    for &fid in &component {
+        workspace.ensure_snapshot(fid);
+    }
+    let top_level = component.iter().any(|&fid| {
+        workspace.snapshot(fid).is_some_and(|snap| {
+            SymbolIndex::build_for_module_file(&snap.program, &snap.interner)
+                .lookup_id(target)
+                .is_some()
+        })
+    });
+    if component.len() > 1 && top_level {
+        component
+    } else {
+        vec![file]
+    }
+}
+
+/// Extract the canonical `Identifier` from a `NodeRef`. Used by both
+/// find-references and rename to resolve the cursor's target symbol.
+pub(crate) fn node_identifier(node: &NodeRef) -> Option<Identifier> {
+    match node {
+        NodeRef::DeclName { name, .. }
+        | NodeRef::DataName { name, .. }
+        | NodeRef::EffectDeclName { name, .. }
+        | NodeRef::DataVariantName { name, .. }
+        | NodeRef::NamedConstructorName { name, .. }
+        | NodeRef::PerformOpName { name, .. }
+        | NodeRef::HandleArmOpName { name, .. }
+        | NodeRef::FunctionParameter { name, .. } => Some(*name),
+        NodeRef::Expr(Expression::Identifier { name, .. }) => Some(*name),
+        NodeRef::MemberAccessMember { member, .. } => Some(*member),
+        NodeRef::NamedFieldInitName { field_name, .. } => Some(*field_name),
+        NodeRef::DataFieldName { name, .. } => Some(*name),
+        NodeRef::EffectOpName { name, .. } => Some(*name),
+        _ => None,
+    }
+}
+
+/// Whether an occurrence *binds* the name (a declaration, parameter, pattern,
+/// or assignment target) or merely *reads* it. Drives read/write document
+/// highlighting; find-references ignores it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UseKind {
+    Read,
+    Write,
+}
+
+/// Walk the entire program and collect every span where `target` appears.
+pub fn collect_all_uses(program: &Program, target: Identifier, out: &mut Vec<FluxSpan>) {
+    let mut kinded = Vec::new();
+    collect_kinded_uses(program, target, &mut kinded);
+    out.extend(kinded.into_iter().map(|(span, _)| span));
+}
+
+/// Like [`collect_all_uses`], but tags each occurrence read vs. write.
+pub fn collect_kinded_uses(
+    program: &Program,
+    target: Identifier,
+    out: &mut Vec<(FluxSpan, UseKind)>,
+) {
+    for stmt in &program.statements {
+        collect_in_stmt(stmt, target, out);
+    }
+}
+
+fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
+    match stmt {
+        Statement::Let {
+            name, value, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            collect_in_expr(value, target, out);
+        }
+        Statement::LetDestructure { pattern, value, .. } => {
+            collect_in_pattern(pattern, target, out);
+            collect_in_expr(value, target, out);
+        }
+        Statement::Function {
+            name,
+            parameters,
+            body,
+            span,
+            ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            for param in parameters {
+                if *param == target {
+                    out.push((*span, UseKind::Write));
+                }
+            }
+            collect_in_block(body, target, out);
+        }
+        Statement::Return { value: Some(v), .. } => collect_in_expr(v, target, out),
+        Statement::Return { value: None, .. } => {}
+        Statement::Expression { expression, .. } => collect_in_expr(expression, target, out),
+        Statement::Assign {
+            name, value, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            collect_in_expr(value, target, out);
+        }
+        Statement::Module {
+            name, body, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            collect_in_block(body, target, out);
+        }
+        Statement::Data {
+            name,
+            variants,
+            span,
+            ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            for variant in variants {
+                collect_in_variant(variant, target, out);
+            }
+        }
+        Statement::EffectDecl {
+            name, ops, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            for op in ops {
+                if op.name == target {
+                    out.push((op.span, UseKind::Write));
+                }
+            }
+        }
+        Statement::Import {
+            name, alias, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Write));
+            }
+            if let Some(a) = alias
+                && *a == target
+            {
+                out.push((*span, UseKind::Write));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_in_variant(
+    variant: &DataVariant,
+    target: Identifier,
+    out: &mut Vec<(FluxSpan, UseKind)>,
+) {
+    if variant.name == target {
+        out.push((variant.span, UseKind::Write));
+    }
+    if let Some(field_names) = &variant.field_names {
+        for field_name in field_names {
+            if *field_name == target {
+                out.push((variant.span, UseKind::Write));
+            }
+        }
+    }
+}
+
+fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
+    match expr {
+        Expression::Identifier { name, span, .. } if *name == target => {
+            out.push((*span, UseKind::Read));
+        }
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            collect_in_expr(function, target, out);
+            for a in arguments {
+                collect_in_expr(a, target, out);
+            }
+        }
+        Expression::Infix { left, right, .. } => {
+            collect_in_expr(left, target, out);
+            collect_in_expr(right, target, out);
+        }
+        Expression::Prefix { right, .. } => {
+            collect_in_expr(right, target, out);
+        }
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            collect_in_expr(condition, target, out);
+            collect_in_block(consequence, target, out);
+            if let Some(b) = alternative {
+                collect_in_block(b, target, out);
+            }
+        }
+        Expression::Match {
+            scrutinee, arms, ..
+        } => {
+            collect_in_expr(scrutinee, target, out);
+            for arm in arms {
+                collect_in_pattern(&arm.pattern, target, out);
+                collect_in_expr(&arm.body, target, out);
+            }
+        }
+        Expression::MemberAccess {
+            object,
+            member,
+            span,
+            ..
+        } => {
+            collect_in_expr(object, target, out);
+            if *member == target {
+                out.push((*span, UseKind::Read));
+            }
+        }
+        Expression::NamedConstructor {
+            name, fields, span, ..
+        } => {
+            if *name == target {
+                out.push((*span, UseKind::Read));
+            }
+            for f in fields {
+                if f.name == target {
+                    out.push((f.span, UseKind::Read));
+                }
+                if let Some(v) = &f.value {
+                    collect_in_expr(v, target, out);
+                }
+            }
+        }
+        Expression::Function { body, .. } => {
+            collect_in_block(body, target, out);
+        }
+        Expression::DoBlock { block, .. } => {
+            collect_in_block(block, target, out);
+        }
+        Expression::ListLiteral { elements, .. } | Expression::ArrayLiteral { elements, .. } => {
+            for e in elements {
+                collect_in_expr(e, target, out);
+            }
+        }
+        Expression::TupleLiteral { elements, .. } => {
+            for e in elements {
+                collect_in_expr(e, target, out);
+            }
+        }
+        Expression::Handle { expr, arms, .. } => {
+            collect_in_expr(expr, target, out);
+            for arm in arms {
+                collect_in_expr(&arm.body, target, out);
+            }
+        }
+        Expression::Perform {
+            operation,
+            args,
+            span,
+            ..
+        } => {
+            if *operation == target {
+                out.push((*span, UseKind::Read));
+            }
+            for a in args {
+                collect_in_expr(a, target, out);
+            }
+        }
+        Expression::Spread {
+            base, overrides, ..
+        } => {
+            collect_in_expr(base, target, out);
+            for f in overrides {
+                if f.name == target {
+                    out.push((f.span, UseKind::Read));
+                }
+                if let Some(v) = &f.value {
+                    collect_in_expr(v, target, out);
+                }
+            }
+        }
+        Expression::Index { left, index, .. } => {
+            collect_in_expr(left, target, out);
+            collect_in_expr(index, target, out);
+        }
+        Expression::Some { value, .. }
+        | Expression::Left { value, .. }
+        | Expression::Right { value, .. } => {
+            collect_in_expr(value, target, out);
+        }
+        Expression::Cons { head, tail, .. } => {
+            collect_in_expr(head, target, out);
+            collect_in_expr(tail, target, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_in_block(block: &Block, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
+    for s in &block.statements {
+        collect_in_stmt(s, target, out);
+    }
+}
+
+fn collect_in_pattern(pat: &Pattern, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
+    match pat {
+        Pattern::Identifier { name, span } if *name == target => {
+            out.push((*span, UseKind::Write));
+        }
+        Pattern::Tuple { elements, .. } => {
+            for e in elements {
+                collect_in_pattern(e, target, out);
+            }
+        }
+        Pattern::Constructor { fields, .. } => {
+            for f in fields {
+                collect_in_pattern(f, target, out);
+            }
+        }
+        Pattern::Cons { head, tail, .. } => {
+            collect_in_pattern(head, target, out);
+            collect_in_pattern(tail, target, out);
+        }
+        _ => {}
+    }
+}

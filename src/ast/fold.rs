@@ -51,13 +51,18 @@ pub trait Folder {
 // ---------------------------------------------------------------------------
 
 pub fn fold_program<F: Folder + ?Sized>(folder: &mut F, program: Program) -> Program {
-    let Program { statements, span } = program;
+    let Program {
+        statements,
+        span,
+        doc_comments,
+    } = program;
     Program {
         statements: statements
             .into_iter()
             .map(|s| folder.fold_stmt(s))
             .collect(),
         span,
+        doc_comments,
     }
 }
 
@@ -208,6 +213,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             superclasses,
             methods,
             span,
+            name_span,
         } => Statement::Class {
             is_public,
             name,
@@ -215,6 +221,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             superclasses,
             methods,
             span,
+            name_span,
         },
         Statement::Instance {
             is_public,
@@ -223,6 +230,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             context,
             methods,
             span,
+            name_span,
         } => Statement::Instance {
             is_public,
             class_name,
@@ -230,6 +238,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             context,
             methods,
             span,
+            name_span,
         },
     }
 }

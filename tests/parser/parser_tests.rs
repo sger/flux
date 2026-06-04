@@ -3000,4 +3000,38 @@ let result = program() handle State(0) {
             diag.hints()
         );
     }
+
+    #[test]
+    fn parses_radix_and_underscored_number_literals() {
+        // The lexer tokenizes hex/binary/underscored numbers; the parser must
+        // decode them to the right value (not just accept the decimal form).
+        let (program, _) = parse(
+            "let a = 0xFF\n\
+             let b = 0b1010\n\
+             let c = 1_000\n\
+             let d = 0xDEAD_BEEF\n\
+             let e = 1_000.5\n",
+        );
+        let int_value = |i: usize| -> i64 {
+            let Statement::Let { value, .. } = &program.statements[i] else {
+                panic!("expected let statement at {i}");
+            };
+            match value {
+                Expression::Integer { value, .. } => *value,
+                other => panic!("expected integer literal at {i}, got {other:?}"),
+            }
+        };
+        assert_eq!(int_value(0), 255, "0xFF");
+        assert_eq!(int_value(1), 10, "0b1010");
+        assert_eq!(int_value(2), 1000, "1_000");
+        assert_eq!(int_value(3), 0xDEAD_BEEF, "hex with separators");
+
+        let Statement::Let { value, .. } = &program.statements[4] else {
+            panic!("expected let statement at 4");
+        };
+        assert!(
+            matches!(value, Expression::Float { value, .. } if (*value - 1000.5).abs() < f64::EPSILON),
+            "expected float 1000.5, got {value:?}"
+        );
+    }
 }

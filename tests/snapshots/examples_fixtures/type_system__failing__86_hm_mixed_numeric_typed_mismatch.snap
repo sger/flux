@@ -38,6 +38,11 @@ The body of `main` does not match its declared return type.
 54 |     x
    |     ^
    |     - this expression has type `Int`
+   |
+help: Change return type to `Int`
+   |
+52 | fn main() -> Int {
+   |              ~~~
 
 Note:
   declared return type: Unit

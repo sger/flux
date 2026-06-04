@@ -198,7 +198,10 @@ mod tests {
 
     #[test]
     fn parses_full_metadata() {
-        let dir = std::env::temp_dir().join("flux_parity_test");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_fixture.flx");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -238,7 +241,10 @@ mod tests {
 
     #[test]
     fn defaults_without_metadata() {
-        let dir = std::env::temp_dir().join("flux_parity_test");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_no_meta.flx");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -257,7 +263,10 @@ mod tests {
 
     #[test]
     fn parses_expected_stdout_block_outside_header() {
-        let dir = std::env::temp_dir().join("flux_parity_test");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_expected_stdout_after_code.flx");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -279,7 +288,10 @@ mod tests {
 
     #[test]
     fn parses_expected_stderr_block_outside_header() {
-        let dir = std::env::temp_dir().join("flux_parity_test");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_expected_stderr_after_code.flx");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -302,7 +314,10 @@ mod tests {
 
     #[test]
     fn parses_fixture_root_into_extra_args() {
-        let dir = std::env::temp_dir().join("flux_parity_test");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test_root_meta.flx");
         let mut f = std::fs::File::create(&path).unwrap();

@@ -3,7 +3,7 @@
 //! Rewrites `alias Name<a> = TypeExpr` use sites before HM inference so
 //! downstream compiler phases only see the expanded structural type.
 
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     diagnostics::{Diagnostic, position::Span, types::ErrorType},
@@ -449,7 +449,7 @@ fn alias_error(
         ErrorType::Compiler,
         message,
         hint,
-        Rc::<str>::from(file_path),
+        Arc::<str>::from(file_path),
         span,
     )
     .with_phase(crate::diagnostics::DiagnosticPhase::TypeCheck)

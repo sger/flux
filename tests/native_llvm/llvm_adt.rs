@@ -253,7 +253,11 @@ fn main() {
 }
 "#,
     );
-    let path = std::env::temp_dir().join(format!(
+    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-scratch");
+    fs::create_dir_all(&scratch).ok();
+    let path = scratch.join(format!(
         "llvm_phase5_{}.ll",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

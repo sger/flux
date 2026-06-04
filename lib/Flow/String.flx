@@ -4,12 +4,14 @@ import Flow.Array as Array
 
 module Flow.String {
 
+    /// `true` if `s` begins with `prefix`.
     public fn starts_with(s: String, prefix: String) -> Bool {
         let plen = len(prefix)
         if plen > len(s) { false }
         else { substring(s, 0, plen) == prefix }
     }
 
+    /// `true` if `s` ends with `suffix`.
     public fn ends_with(s: String, suffix: String) -> Bool {
         let slen = len(s)
         let plen = len(suffix)
@@ -17,6 +19,7 @@ module Flow.String {
         else { substring(s, slen - plen, slen) == suffix }
     }
 
+    /// Split `s` into an array of its single-character strings.
     public fn chars(s: String) -> Array<String> {
         fn chars_go(i, result) {
             if i >= len(s) { result }
@@ -25,6 +28,7 @@ module Flow.String {
         chars_go(0, [||])
     }
 
+    /// Concatenate the strings in `arr`, inserting `sep` between adjacent ones.
     public fn join(arr: Array<String>, sep: String) -> String {
         if len(arr) == 0 { "" }
         else {
@@ -44,12 +48,16 @@ module Flow.String {
         }
     }
 
+    /// Concatenate two strings (the `+` operator on `String` does the same).
     public intrinsic fn string_concat(left: String, right: String) -> String = primop StringConcat
 
+    /// The number of characters in `s` (the `len` builtin works too).
     public intrinsic fn string_len(s: String) -> Int = primop StringLength
 
+    /// The substring from `start` (inclusive) to `end` (exclusive).
     public intrinsic fn string_slice(s: String, start: Int, end: Int) -> String = primop StringSlice
 
+    /// `true` if `needle` occurs anywhere within `s`.
     public fn str_contains(s: String, needle: String) -> Bool {
         let slen = len(s)
         let nlen = len(needle)

@@ -6,6 +6,7 @@ use crate::{
     syntax::{data_variant::DataVariant, interner::Interner, symbol::Symbol},
 };
 
+#[derive(Clone)]
 pub struct AdtRegistry {
     pub constructors: HashMap<Symbol, ConstructorInfo>,
     pub adts: HashMap<Symbol, AdtDefinition>,

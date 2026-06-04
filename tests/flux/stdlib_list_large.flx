@@ -1,14 +1,22 @@
 // Tests that List stdlib functions handle large lists without stack overflow.
 // These functions must be tail-recursive (accumulator + reverse pattern).
+//
+// The large/medium lists are built once at module load and shared across the
+// tests (building them is the dominant cost), so each stdlib function is still
+// exercised at full length without rebuilding the input four times over.
 
 fn build_list(n, acc) {
     if n <= 0 { acc }
     else { build_list(n - 1, [n | acc]) }
 }
 
+// Built once, reused by every large-list test below. `build_list` produces
+// [1, 2, ..., n].
+let large_list = build_list(100000, [])
+let medium_list = build_list(50000, [])
+
 fn test_map_large_list() {
-    let xs = build_list(100000, [])
-    let ys = map(xs, \x -> x + 1)
+    let ys = map(large_list, \x -> x + 1)
     assert_eq(len(ys), 100000)
     // First element: build_list produces [1, 2, ..., 100000]
     match ys {
@@ -18,8 +26,7 @@ fn test_map_large_list() {
 }
 
 fn test_filter_large_list() {
-    let xs = build_list(100000, [])
-    let evens = filter(xs, \x -> x % 2 == 0)
+    let evens = filter(large_list, \x -> x % 2 == 0)
     assert_eq(len(evens), 50000)
 }
 
@@ -36,8 +43,7 @@ fn test_filter_preserves_order() {
 }
 
 fn test_take_large_list() {
-    let xs = build_list(100000, [])
-    let first_10 = take(xs, 10)
+    let first_10 = take(large_list, 10)
     assert_eq(len(first_10), 10)
     match first_10 {
         [h | _] -> assert_eq(h, 1),
@@ -46,21 +52,18 @@ fn test_take_large_list() {
 }
 
 fn test_take_while_large_list() {
-    let xs = build_list(100000, [])
-    let prefix = take_while(xs, \x -> x <= 50)
+    let prefix = take_while(large_list, \x -> x <= 50)
     assert_eq(len(prefix), 50)
 }
 
 fn test_fold_large_list() {
-    let xs = build_list(50000, [])
-    let total = fold(xs, 0, \(acc, x) -> acc + x)
+    let total = fold(medium_list, 0, \(acc, x) -> acc + x)
     // sum 1..50000 = 50000 * 50001 / 2 = 1250025000
     assert_eq(total, 1250025000)
 }
 
 fn test_map_filter_pipeline() {
-    let xs = build_list(50000, [])
-    let result = xs
+    let result = medium_list
         |> map(\x -> x * 2)
         |> filter(\x -> x % 4 == 0)
         |> fold(0, \(acc, _) -> acc + 1)

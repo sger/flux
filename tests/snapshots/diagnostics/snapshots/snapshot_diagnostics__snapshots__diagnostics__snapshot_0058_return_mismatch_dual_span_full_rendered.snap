@@ -13,6 +13,11 @@ The body of `bad` does not match its declared return type.
 51 |     "oops"
    |     ^^^^^^
    |     ------ this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+50 | fn bad() -> String {
+   |             ~~~~~~
 
 Note:
   declared return type: Int

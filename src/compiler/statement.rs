@@ -33,7 +33,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
-        expression::{Expression, Pattern},
+        expression::{Expression, Pattern, StringPart},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -1430,7 +1430,7 @@ impl Compiler {
                     has_semicolon,
                     ..
                 } => {
-                    self.compile_expression(expression)?;
+                    self.compile_top_level_value(expression)?;
                     if !self.in_tail_position || *has_semicolon {
                         self.emit(OpCode::OpPop, &[]);
                     }
@@ -1497,7 +1497,7 @@ impl Compiler {
                             ));
                         }
                     }
-                    self.compile_expression(value)?;
+                    self.compile_top_level_value(value)?;
                     if let Some(annotation) = type_annotation
                         && let Ok(ty) = convert_type_expr_checked(
                             annotation,
@@ -1547,7 +1547,7 @@ impl Compiler {
                             true,
                         )?;
                     }
-                    self.compile_expression(value)?;
+                    self.compile_top_level_value(value)?;
                     let temp_symbol = self.symbol_table.define_temp();
                     match temp_symbol.symbol_scope {
                         SymbolScope::Global => {
@@ -3021,4 +3021,141 @@ impl Compiler {
             })
         )
     }
+
+    /// Compile a top-level statement's value expression, wrapping it in a
+    /// synthetic frame (an inline zero-arg closure) when — and only when — at
+    /// file scope and the expression would otherwise allocate a transient binding
+    /// in the global namespace (a top-level `match` and the like). Everywhere
+    /// else this is just [`compile_expression`](Self::compile_expression), so
+    /// ordinary top-level code and nested scopes are untouched.
+    pub(super) fn compile_top_level_value(&mut self, value: &Expression) -> CompileResult<()> {
+        if self.scope_index == 0 && expression_needs_top_level_frame(value) {
+            self.compile_expression_in_synthetic_frame(value)
+        } else {
+            self.compile_expression(value)
+        }
+    }
+}
+
+/// Whether compiling `expr` at file/top-level scope (scope_index 0) would
+/// introduce a transient binding — a `match` scrutinee temp + arm bindings, or a
+/// binding-bearing `do` block — that must live in a frame rather than the global
+/// namespace. Used by [`Compiler::compile_top_level_value`] to decide whether to
+/// wrap the value in a synthetic frame (see
+/// [`Compiler::compile_expression_in_synthetic_frame`]).
+///
+/// Recurses through operand-bearing expressions so a nested `match` (e.g.
+/// `("x", match …)`) still triggers, but stops at `Function` literals: a lambda
+/// body already compiles in its own frame, so a `match` inside it is fine.
+pub(super) fn expression_needs_top_level_frame(expr: &Expression) -> bool {
+    match expr {
+        // Binding-introducers.
+        Expression::Match { .. } => true,
+        Expression::DoBlock { block, .. } => block_needs_top_level_frame(block),
+
+        // Operand-bearing: recurse.
+        Expression::Prefix { right, .. } => expression_needs_top_level_frame(right),
+        Expression::Infix { left, right, .. } => {
+            expression_needs_top_level_frame(left) || expression_needs_top_level_frame(right)
+        }
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            expression_needs_top_level_frame(condition)
+                || block_needs_top_level_frame(consequence)
+                || alternative
+                    .as_ref()
+                    .is_some_and(block_needs_top_level_frame)
+        }
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            expression_needs_top_level_frame(function)
+                || arguments.iter().any(expression_needs_top_level_frame)
+        }
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
+            elements.iter().any(expression_needs_top_level_frame)
+        }
+        Expression::Index { left, index, .. } => {
+            expression_needs_top_level_frame(left) || expression_needs_top_level_frame(index)
+        }
+        Expression::Hash { pairs, .. } => pairs.iter().any(|(k, v)| {
+            expression_needs_top_level_frame(k) || expression_needs_top_level_frame(v)
+        }),
+        Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+            expression_needs_top_level_frame(object)
+        }
+        Expression::Some { value, .. }
+        | Expression::Left { value, .. }
+        | Expression::Right { value, .. } => expression_needs_top_level_frame(value),
+        Expression::Cons { head, tail, .. } => {
+            expression_needs_top_level_frame(head) || expression_needs_top_level_frame(tail)
+        }
+        Expression::Perform { args, .. } => args.iter().any(expression_needs_top_level_frame),
+        Expression::Handle {
+            expr,
+            parameter,
+            arms,
+            ..
+        } => {
+            expression_needs_top_level_frame(expr)
+                || parameter
+                    .as_ref()
+                    .is_some_and(|p| expression_needs_top_level_frame(p))
+                || arms
+                    .iter()
+                    .any(|arm| expression_needs_top_level_frame(&arm.body))
+        }
+        Expression::Sealing { expr, .. } => expression_needs_top_level_frame(expr),
+        Expression::InterpolatedString { parts, .. } => parts.iter().any(|part| match part {
+            StringPart::Interpolation(e) => expression_needs_top_level_frame(e),
+            StringPart::Literal(_) => false,
+        }),
+        // Desugared away before codegen (proposal 0152), but handled defensively.
+        Expression::NamedConstructor { fields, .. } => fields
+            .iter()
+            .filter_map(|f| f.value.as_deref())
+            .any(expression_needs_top_level_frame),
+        Expression::Spread {
+            base, overrides, ..
+        } => {
+            expression_needs_top_level_frame(base)
+                || overrides
+                    .iter()
+                    .filter_map(|f| f.value.as_deref())
+                    .any(expression_needs_top_level_frame)
+        }
+
+        // Stop: lambda bodies compile in their own frame; leaves introduce nothing.
+        Expression::Function { .. }
+        | Expression::Identifier { .. }
+        | Expression::Integer { .. }
+        | Expression::Float { .. }
+        | Expression::String { .. }
+        | Expression::Boolean { .. }
+        | Expression::EmptyList { .. }
+        | Expression::None { .. } => false,
+    }
+}
+
+/// Whether a `do`/block needs a top-level frame: it binds a name (a `let` /
+/// destructure that would otherwise leak into the global namespace or allocate a
+/// global temp) or any statement expression itself needs one.
+fn block_needs_top_level_frame(block: &Block) -> bool {
+    block.statements.iter().any(|stmt| match stmt {
+        Statement::Let { .. } | Statement::LetDestructure { .. } => true,
+        Statement::Expression { expression, .. } => expression_needs_top_level_frame(expression),
+        Statement::Return {
+            value: Some(value), ..
+        }
+        | Statement::Assign { value, .. } => expression_needs_top_level_frame(value),
+        _ => false,
+    })
 }

@@ -143,6 +143,44 @@ impl VM {
         }
     }
 
+    /// Run the **full** top-level instruction buffer on this live VM, but start
+    /// execution at `start_ip` so only the newly-appended tail (the latest REPL
+    /// line's delta) executes — the persistent-REPL primitive (proposal 0176).
+    ///
+    /// `bytecode` is the compiler's *complete* current bytecode (all constants +
+    /// the whole top-level instruction stream). Passing the whole stream — rather
+    /// than just the delta — is what makes top-level control flow correct: the
+    /// compiler emits jump operands as **absolute** offsets into this stream, so a
+    /// top-level `if` / `match` entered at the prompt only resolves its jumps when
+    /// the full stream is present. Starting at `start_ip` (the buffer length
+    /// captured before the line compiled) means earlier instructions — the prelude
+    /// and prior lines — are *not* re-executed, so their side effects never
+    /// re-fire. `globals` persist across calls, so a later line's `OpGetGlobal`
+    /// reads what an earlier line stored.
+    ///
+    /// The stack, frames, and handler stack are reset to a clean single top-level
+    /// frame each call; `globals` are kept. On a runtime error the caller is
+    /// expected to roll its compiler back and re-issue the next line's full
+    /// bytecode, which restores the constants pool and makes any half-written
+    /// global slots unreachable.
+    pub fn run_top_level(&mut self, bytecode: Bytecode, start_ip: usize) -> Result<(), String> {
+        self.constants = bytecode.constants.into_iter().map(slot::to_slot).collect();
+
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
+        let main_closure = Closure::new(Arc::new(main_fn), vec![]);
+        let mut main_frame = Frame::new(Rc::new(main_closure), 0);
+        main_frame.ip = start_ip;
+
+        // Reset transient execution state to a clean start; KEEP globals.
+        self.sp = 0;
+        self.frames.clear();
+        self.frames.push(main_frame);
+        self.frame_index = 0;
+        self.handler_stack.clear();
+
+        self.run()
+    }
+
     /// Create a worker VM backed by Arc-shared read-only constants/globals.
     ///
     /// Used by Phase 4 OS-worker threads to get an execution context without
@@ -646,6 +684,13 @@ impl VM {
         slot::from_slot_ref(&self.constants[idx])
     }
 
+    /// Read the `Value` currently stored at globals slot `idx` (the persistent
+    /// session state, for a live REPL or tests). Returns `Value::None` for a slot
+    /// that has never been written.
+    pub fn read_global(&self, idx: usize) -> Value {
+        self.global_get(idx)
+    }
+
     /// Clone the Value at globals index `idx`.
     #[inline(always)]
     fn global_get(&self, idx: usize) -> Value {
@@ -729,5 +774,7 @@ mod dispatch_test;
 mod function_call_test;
 #[cfg(test)]
 mod index_ops_test;
+#[cfg(test)]
+mod repl_chunk_test;
 #[cfg(test)]
 mod trace_test;

@@ -1,5 +1,6 @@
 use crate::ast::desugar_named_fields::{
-    NamedFieldDesugarCtx, collect_named_field_metadata, desugar_named_fields_in_program,
+    NamedFieldDesugarCtx, collect_named_field_metadata, collect_named_field_metadata_in_statements,
+    desugar_named_fields_in_program,
 };
 use crate::ast::type_infer::constraint::WantedClassConstraint;
 use crate::ast::type_infer::static_type_validation::{
@@ -40,6 +41,18 @@ impl Compiler {
         let instantiated_expr_vars = hm_final.instantiated_expr_vars;
         let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
+        // REPL mode (proposal 0176): remember this line's top-level binding
+        // schemes so a later line's inference can resolve the types of earlier
+        // session globals. A failed line is rolled back wholesale by the engine
+        // (a pre-line clone of the compiler), which discards these too.
+        if self.repl_mode {
+            self.repl_session_schemes.extend(
+                resolved_binding_schemes
+                    .iter()
+                    .map(|(k, v)| (*k, v.clone())),
+            );
+        }
+
         let mut hm_diagnostics = hm_final.diagnostics;
         tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
 
@@ -78,8 +91,18 @@ impl Compiler {
         // positional equivalents so every downstream phase (AST-fallback
         // bytecode, Core lowering, LLVM) sees only classic AST forms.
         {
-            let (ctor_field_names, adt_variants) =
+            let (mut ctor_field_names, mut adt_variants) =
                 collect_named_field_metadata(final_program.as_ref());
+            // Proposal 0176: fold in named-field metadata from earlier REPL
+            // lines' `data` declarations so a later line's `Point { x: .. }` /
+            // `{ ...p, .. }` / `p.x` desugars to its positional form. Empty
+            // outside the REPL.
+            if !self.repl_session_adt_data.is_empty() {
+                let (preloaded_field_names, preloaded_variants) =
+                    collect_named_field_metadata_in_statements(&self.repl_session_adt_data);
+                ctor_field_names.extend(preloaded_field_names);
+                adt_variants.extend(preloaded_variants);
+            }
             let mut ctx = NamedFieldDesugarCtx {
                 ctor_field_names: &ctor_field_names,
                 adt_variants: &adt_variants,

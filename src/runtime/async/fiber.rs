@@ -169,6 +169,30 @@ impl Fiber {
         self.stealable = true;
     }
 
+    /// True if this fiber can be safely resumed on a *different* worker's VM.
+    ///
+    /// A parked fiber's continuation stores absolute frame/stack indices
+    /// relative to the VM that captured it. Background worker VMs always capture
+    /// at the baseline `(frame_index 0, sp 0)`, so their continuations splice
+    /// cleanly onto any other background VM. Worker 0 reuses the caller's main
+    /// VM, whose stack is several frames deep; a continuation captured there
+    /// records a non-zero `entry_frame_index`/`entry_sp` and cannot be rebased
+    /// onto a shallow background VM (doing so resumes into padded placeholder
+    /// frames and fails with "resumed continuation exited without return").
+    ///
+    /// A not-yet-started fiber (body only, no parked continuation) is always
+    /// migratable: it runs from scratch via `invoke_value` at the receiver's
+    /// baseline. See proposal 0174 §"VM cross-worker fiber dispatch".
+    pub fn is_migratable(&self) -> bool {
+        match &self.parked {
+            Some(cont) => {
+                let cont = cont.borrow();
+                cont.entry_frame_index == 0 && cont.entry_sp == 0
+            }
+            None => true,
+        }
+    }
+
     /// Promote this fiber into its `Send` [`ArcFiber`] mirror — used the instant
     /// a fiber's ownership crosses to another OS worker (cross-worker steal,
     /// gated by `FLUX_FIBER_MIGRATION`). Deep-copies the body, parked

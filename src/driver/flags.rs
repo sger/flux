@@ -34,6 +34,10 @@ pub struct DriverRuntimeFlags {
     pub trace_aether: bool,
     pub show_stats: bool,
     pub profiling: bool,
+    /// Suppress per-module compile-progress lines (`[n of m] Compiling …`).
+    /// Set by surfaces that recompile on every interaction (the REPL), where the
+    /// progress chatter is noise rather than feedback.
+    pub quiet: bool,
 }
 
 /// Dump and inspection surfaces emitted by the driver.
