@@ -4590,9 +4590,15 @@ fn completion_resolve_passes_through_items_without_data() {
 /// files from disk and canonicalizes paths, so real on-disk files are needed.
 fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState, Vec<Uri>) {
     let dir = tempfile::tempdir().unwrap();
+    // Canonicalize the workspace root the **same way** the server does
+    // (`canonicalize_flux_path`). On macOS the temp dir lives under `/var`, a
+    // symlink to `/private/var`; the server resolves it when building module
+    // URIs, so without matching here every cross-file URI comparison would fail
+    // on the `/var` vs `/private/var` difference. Identity on Linux/Windows.
+    let base = flux_lsp::vfs::canonicalize_flux_path(dir.path());
     let mut uris = Vec::new();
     for (name, content) in files {
-        let path = dir.path().join(name);
+        let path = base.join(name);
         // `name` may carry subdirectories (`Lib/App/Main.flx`) for nested
         // module fixtures — create the parent chain before writing.
         if let Some(parent) = path.parent() {
@@ -4602,7 +4608,7 @@ fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState,
         uris.push(flux_lsp::vfs::path_to_uri(&path).unwrap());
     }
     let mut state = GlobalState::default();
-    state.set_workspace_folders(vec![dir.path().to_path_buf()]);
+    state.set_workspace_folders(vec![base]);
     (dir, state, uris)
 }
 
@@ -6349,7 +6355,11 @@ fn apply_edits(src: &str, edits: &[TextEdit]) -> String {
 }
 
 fn rename_to(dir: &std::path::Path, old: &Uri, new_name: &str) -> RenameFilesParams {
-    let new_uri = flux_lsp::vfs::path_to_uri(&dir.join(new_name)).unwrap();
+    // Match the server's canonical form so the new file's parent dir lines up
+    // with the (canonicalized) `old` URI — see `workspace_fixture`. On macOS the
+    // raw temp `dir` is `/var/...` while `old` resolves to `/private/var/...`.
+    let base = flux_lsp::vfs::canonicalize_flux_path(dir);
+    let new_uri = flux_lsp::vfs::path_to_uri(&base.join(new_name)).unwrap();
     RenameFilesParams {
         files: vec![FileRename {
             old_uri: old.as_str().to_string(),
