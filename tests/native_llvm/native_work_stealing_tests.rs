@@ -175,7 +175,11 @@ fn count_twice() -> Int with Counter {
 }
 
 fn slow() -> Int with Async {
-    sleep(20)
+    // Large margin so `fast` (1ms + steal + handler) reliably wins the race even
+    // under CI load or coarse timer resolution, where a 1ms sleep can round up
+    // toward 10-15ms. `race` returns on the first completion and cancels the
+    // loser, so a longer `slow` sleep adds no test runtime — only headroom.
+    sleep(200)
     99
 }
 
